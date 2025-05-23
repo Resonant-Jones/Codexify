@@ -6,7 +6,7 @@ import traceback
 import asyncio
 import os
 
-genai.configure(api_key=os.getenv("AIzaSyBRyjhJ1XEv-rhA3EQ-gFFBe_aey8IjZLw"))
+genai.configure(api_key=os.getenv("GENAI_API_KEY"))
 
 app = FastAPI()
 
