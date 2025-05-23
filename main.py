@@ -1,15 +1,19 @@
 from fastapi import FastAPI, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import google.generativeai as genai
 import traceback
 import asyncio
-genai.configure(api_key="AIzaSyBRyjhJ1XEv-rhA3EQ-gFFBe_aey8IjZLw")
+import os
+
+genai.configure(api_key=os.getenv("AIzaSyBRyjhJ1XEv-rhA3EQ-gFFBe_aey8IjZLw"))
 
 app = FastAPI()
 
 class ChatRequest(BaseModel):
     message: str
 
+# Model aliases for easier endpoint switching
 MODEL_ALIASES = {
     "pro": "models/gemini-1.5-pro",
     "flash": "models/gemini-1.5-flash",
@@ -18,7 +22,6 @@ MODEL_ALIASES = {
     "lite": "models/gemini-2.0-flash-lite-preview",
     "default": "models/gemini-1.5-pro"
 }
-
 
 @app.post("/chat")
 async def chat(
@@ -36,22 +39,12 @@ async def chat(
         )
 
         full_prompt = persona_prompt + request.message
-        response_stream = gen_model.generate_content_stream(full_prompt)
-
-        async def token_stream():
-            yield '{"model_used": "' + model_name + '", "reply": "'
-            first = True
-            for chunk in response_stream:
-                if not first:
-                    await asyncio.sleep(0)  # yield control
-                text = chunk.text.replace('"', '\\"').replace('\n', '\\n')
-                yield text
-                first = False
-            yield '"}'
-
-        return StreamingResponse(token_stream(), media_type="application/json")
+        response = await gen_model.generate_content_async(full_prompt)
+        reply = response.text
 
     except Exception as e:
         print(f"Model error ({model_name}):", e)
         traceback.print_exc()
-        return {"model_used": model_name, "reply": "Something went wrong while generating a response."}
+        reply = "Something went wrong while generating a response."
+
+    return {"model_used": model_name, "reply": reply}
