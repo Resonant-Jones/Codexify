@@ -48,3 +48,6 @@ async def chat(
         reply = "Something went wrong while generating a response."
 
     return {"model_used": model_name, "reply": reply}
+@app.get("/")
+async def root():
+    return {"status": "Riven is online"}
