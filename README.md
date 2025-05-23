@@ -1,6 +1,5 @@
 # guardian-backend
 FastAPI backend for Companion memory, Codex fragments, and real-time chat orchestration.
-# guardian-backend
 
 This is the server-side infrastructure for the Guardian system. It handles memory persistence, Codex fragment delivery, user authentication, and API routing for AI Companion interactions within ThreadSpace.
 
