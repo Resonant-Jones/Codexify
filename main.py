@@ -51,3 +51,8 @@ async def chat(
 @app.get("/")
 async def root():
     return {"status": "Riven is online"}
+    @app.get("/")
+
+    
+def root():
+    return {"status": "alive"}
