@@ -53,3 +53,6 @@ async def chat(
 @app.get("/")
 async def root():
     return {"status": "Riven is online"}  
+@app.get("/test")
+def test():
+    return {"ping": "pong"}
