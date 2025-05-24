@@ -28,6 +28,8 @@ async def chat(
     request: ChatRequest,
     model: str = Query(default="default")
 ):
+    print(">>> /chat route has been invoked.")
+    
     model_name = MODEL_ALIASES.get(model, MODEL_ALIASES["default"])
     gen_model = genai.GenerativeModel(model_name)
 
