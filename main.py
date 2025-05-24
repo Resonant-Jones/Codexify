@@ -50,9 +50,4 @@ async def chat(
     return {"model_used": model_name, "reply": reply}
 @app.get("/")
 async def root():
-    return {"status": "Riven is online"}
-    @app.get("/")
-
-    
-def root():
-    return {"status": "alive"}
+    return {"status": "Riven is online"}  
