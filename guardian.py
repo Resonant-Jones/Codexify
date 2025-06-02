@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-
 import typer
 from typing import Optional
 from datetime import datetime
 import sqlite3
 from pathlib import Path
 from rich import print
+
+# Schema Version: 1.0
 
 DB_OLD_PATH = Path("guardian_memory.db")
 if DB_OLD_PATH.exists():
@@ -14,44 +15,138 @@ if DB_OLD_PATH.exists():
 app = typer.Typer()
 DB_PATH = Path("guardian.db")
 
-def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        # Both 'memory' and 'memory_fts' tables are always created together
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS memory (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                command TEXT NOT NULL,
-                tag TEXT,
-                type TEXT DEFAULT 'log',
-                parent_id INTEGER,
-                source TEXT,
-                related_to INTEGER,
-                priority INTEGER DEFAULT 1,
-                agent TEXT
+class GuardianDB:
+    @staticmethod
+    def init_db():
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id TEXT PRIMARY KEY,
+                    display_name TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL DEFAULT 'default',
+                    timestamp TEXT NOT NULL,
+                    command TEXT NOT NULL,
+                    tag TEXT,
+                    type TEXT DEFAULT 'log',
+                    parent_id INTEGER,
+                    source TEXT,
+                    related_to INTEGER,
+                    priority INTEGER DEFAULT 1,
+                    agent TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+                    command,
+                    tag,
+                    agent,
+                    content='memory',
+                    content_rowid='id'
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS capsule_links (
+                    user_id TEXT NOT NULL DEFAULT 'default',
+                    capsule_id INTEGER,
+                    child_id INTEGER,
+                    PRIMARY KEY (user_id, capsule_id, child_id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS schema_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
+            cursor.execute("""
+                INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '1.0')
+            """)
+            conn.commit()
+        print("[green]Memory tables have been created or verified.[/green]")
+
+    @staticmethod
+    def insert_memory(command: str, tag: Optional[str], type_: str, source: Optional[str], parent_id: Optional[int], priority: int, agent: str, user_id: str):
+        timestamp = datetime.now().isoformat()
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO memory (user_id, timestamp, command, tag, type, parent_id, source, priority, agent)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, timestamp, command, tag, type_, parent_id, source, priority, agent)
             )
-        """)
-        cursor.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-                command,
-                tag,
-                agent,
-                content='memory',
-                content_rowid='id'
+            cursor.execute(
+                """
+                INSERT INTO memory_fts (rowid, command, tag, agent)
+                VALUES (last_insert_rowid(), ?, ?, ?)
+                """,
+                (command, tag, agent)
             )
-        """)
-        # Create capsule_links table for many-to-many relationships between capsules and memory/logs
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS capsule_links (
-                capsule_id INTEGER,
-                child_id INTEGER,
-                PRIMARY KEY (capsule_id, child_id)
-                -- (Add FOREIGN KEY constraints if you want)
+            conn.commit()
+        return timestamp
+
+    @staticmethod
+    def search_memory(query: str, limit: int, user_id: str):
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT memory.timestamp, memory.command, memory.tag, memory.agent
+                FROM memory_fts
+                JOIN memory ON memory_fts.rowid = memory.id
+                WHERE memory_fts MATCH ? AND memory.user_id = ?
+                ORDER BY memory.id DESC LIMIT ?
+                """,
+                (query, user_id, limit)
             )
-        """)
-        conn.commit()
-    print("[green]Memory tables have been created or verified.[/green]")
+            rows = cursor.fetchall()
+        return rows
+
+    @staticmethod
+    def history_entries(limit: int, tag: Optional[str], user_id: str):
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            if tag:
+                cursor.execute(
+                    "SELECT timestamp, command, tag, agent FROM memory WHERE tag = ? AND user_id = ? ORDER BY id DESC LIMIT ?",
+                    (tag, user_id, limit)
+                )
+            else:
+                cursor.execute(
+                    "SELECT timestamp, command, tag, agent FROM memory WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                    (user_id, limit)
+                )
+            rows = cursor.fetchall()
+        return rows
+
+    @staticmethod
+    def summarize_entry(parent_id: int, summary: str, tag: Optional[str], source: Optional[str], priority: int, agent: str, user_id: str):
+        timestamp = datetime.now().isoformat()
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO memory (user_id, timestamp, command, tag, type, parent_id, source, priority, agent)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, timestamp, summary, tag, "summary", parent_id, source, priority, agent)
+            )
+            cursor.execute(
+                """
+                INSERT INTO memory_fts (rowid, command, tag, agent)
+                VALUES (last_insert_rowid(), ?, ?, ?)
+                """,
+                (summary, tag, agent)
+            )
+            conn.commit()
+        return timestamp
 
 @app.command()
 def log(
@@ -61,53 +156,24 @@ def log(
     source: Optional[str] = typer.Option(None, help="Origin/source of the memory."),
     parent_id: Optional[int] = typer.Option(None, help="If this is a summary or child, set parent_id."),
     priority: int = typer.Option(1, help="Priority (higher means more important)."),
-    agent: str = typer.Option("system", "--agent", help="Which agent/persona is logging this?")
+    agent: str = typer.Option("system", "--agent", help="Which agent/persona is logging this?"),
+    user_id: str = typer.Option("default", "--user-id", help="User ID for multi-user support")
 ):
     """Store a memory entry in Guardian's database."""
-    init_db()
-    timestamp = datetime.now().isoformat()
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO memory (timestamp, command, tag, type, parent_id, source, priority, agent)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (timestamp, command, tag, type_, parent_id, source, priority, agent)
-            )
-
-        cursor.execute(
-            """
-            INSERT INTO memory_fts (rowid, command, tag, agent)
-            VALUES (last_insert_rowid(), ?, ?, ?)
-            """,
-            (command, tag, agent)
-        )
-
-        conn.commit()
+    GuardianDB.init_db()
+    timestamp = GuardianDB.insert_memory(command, tag, type_, source, parent_id, priority, agent, user_id)
     tag_disp = f" [bold cyan]({tag})[/bold cyan]" if tag else ""
-    print(f"[dim]{timestamp}[/dim] :: {command}{tag_disp}")
+    print(f"[dim]{timestamp}[/dim] :: {command}{tag_disp} [green](agent: {agent})[/green]")
 
 @app.command()
 def search(
     query: str = typer.Argument(..., help="Search term in memory entries"),
-    limit: int = typer.Option(10, help="Limit number of results.")
+    limit: int = typer.Option(10, help="Limit number of results."),
+    user_id: str = typer.Option("default", "--user-id", help="User ID for multi-user support")
 ):
     """Search memory for a keyword in command text."""
-    init_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-"""
-            SELECT memory.timestamp, memory.command, memory.tag, memory.agent
-            FROM memory_fts
-            JOIN memory ON memory_fts.rowid = memory.id
-            WHERE memory_fts MATCH ?
-            ORDER BY memory.id DESC LIMIT ?
-            """,
-	    (query, limit)
-        )
-        rows = cursor.fetchall()
+    GuardianDB.init_db()
+    rows = GuardianDB.search_memory(query, limit, user_id)
     if not rows:
         print(f"[red]No results found for: '{query}'[/red]")
     else:
@@ -118,23 +184,12 @@ def search(
 @app.command()
 def history(
     limit: int = typer.Option(10, help="Limit number of entries shown."),
-    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Filter by tag.")
+    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Filter by tag."),
+    user_id: str = typer.Option("default", "--user-id", help="User ID for multi-user support")
 ):
     """Show recent memory entries."""
-    init_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        if tag:
-            cursor.execute(
-                "SELECT timestamp, command, tag, agent FROM memory WHERE tag = ? ORDER BY id DESC LIMIT ?",
-                (tag, limit)
-            )
-        else:
-            cursor.execute(
-                "SELECT timestamp, command, tag, agent FROM memory ORDER BY id DESC LIMIT ?",
-                (limit,)
-            )
-        rows = cursor.fetchall()
+    GuardianDB.init_db()
+    rows = GuardianDB.history_entries(limit, tag, user_id)
     if not rows:
         print("[red]No entries found.[/red]")
     else:
@@ -149,29 +204,12 @@ def summarize(
     tag: Optional[str] = typer.Option(None, help="Optional tag for the summary."),
     source: Optional[str] = typer.Option(None, help="Summary source or method."),
     priority: int = typer.Option(1, help="Priority of the summary."),
-    agent: str = typer.Option("system", "--agent", help="Which agent/persona is logging this?")
+    agent: str = typer.Option("system", "--agent", help="Which agent/persona is logging this?"),
+    user_id: str = typer.Option("default", "--user-id", help="User ID for multi-user support")
 ):
     """Summarize a previous entry (recursive memory!)."""
-    init_db()
-    timestamp = datetime.now().isoformat()
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO memory (timestamp, command, tag, type, parent_id, source, priority, agent)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (timestamp, summary, tag, "summary", parent_id, source, priority, agent)
-        )
-        # Insert into FTS table for full-text search
-        cursor.execute(
-            """
-            INSERT INTO memory_fts (rowid, command, tag, agent)
-            VALUES (last_insert_rowid(), ?, ?, ?)
-            """,
-            (summary, tag, agent)
-        )
-        conn.commit()
+    GuardianDB.init_db()
+    timestamp = GuardianDB.summarize_entry(parent_id, summary, tag, source, priority, agent, user_id)
     print(f"[green]Summary capsule created for parent_id {parent_id} by {agent}![green]")
 
 if __name__ == "__main__":
