@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import typer
+import json
+import sqlite3
 from typing import Optional
 from datetime import datetime
-import sqlite3
 from pathlib import Path
 from rich import print
 
@@ -16,9 +17,11 @@ app = typer.Typer()
 DB_PATH = Path("guardian.db")
 
 class GuardianDB:
-    @staticmethod
-    def init_db():
-        with sqlite3.connect(DB_PATH) as conn:
+    def __init__(self, db_path):
+        self.db_path = db_path
+
+    def init_db(self):
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -70,10 +73,9 @@ class GuardianDB:
             conn.commit()
         print("[green]Memory tables have been created or verified.[/green]")
 
-    @staticmethod
-    def insert_memory(command: str, tag: Optional[str], type_: str, source: Optional[str], parent_id: Optional[int], priority: int, agent: str, user_id: str):
+    def insert_memory(self, command: str, tag: Optional[str], type_: str, source: Optional[str], parent_id: Optional[int], priority: int, agent: str, user_id: str):
         timestamp = datetime.now().isoformat()
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -92,9 +94,8 @@ class GuardianDB:
             conn.commit()
         return timestamp
 
-    @staticmethod
-    def search_memory(query: str, limit: int, user_id: str):
-        with sqlite3.connect(DB_PATH) as conn:
+    def search_memory(self, query: str, limit: int, user_id: str):
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -109,9 +110,8 @@ class GuardianDB:
             rows = cursor.fetchall()
         return rows
 
-    @staticmethod
-    def history_entries(limit: int, tag: Optional[str], user_id: str):
-        with sqlite3.connect(DB_PATH) as conn:
+    def history_entries(self, limit: int, tag: Optional[str], user_id: str):
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             if tag:
                 cursor.execute(
@@ -126,10 +126,9 @@ class GuardianDB:
             rows = cursor.fetchall()
         return rows
 
-    @staticmethod
-    def summarize_entry(parent_id: int, summary: str, tag: Optional[str], source: Optional[str], priority: int, agent: str, user_id: str):
+    def summarize_entry(self, parent_id: int, summary: str, tag: Optional[str], source: Optional[str], priority: int, agent: str, user_id: str):
         timestamp = datetime.now().isoformat()
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -148,6 +147,130 @@ class GuardianDB:
             conn.commit()
         return timestamp
 
+    
+
+    def migrate_agent_profiles(self):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_profiles (
+                agent_id TEXT PRIMARY KEY,
+                user_id TEXT,
+                display_name TEXT,
+                role TEXT,
+                archetype TEXT,
+                profile TEXT,
+                identity_summary TEXT,
+                personality_mode TEXT,
+                requested_by_user INTEGER,
+                evolution_log TEXT,
+                recursion_count INTEGER,
+                last_reflected TEXT,
+                created_at TEXT,
+                last_active TEXT,
+                summarization_frequency TEXT DEFAULT 'daily',
+                last_summarized TEXT,
+                human_summary_count_today INTEGER DEFAULT 0,
+                ai_summary_count_today INTEGER DEFAULT 0
+            )
+            """)
+            conn.commit()
+
+    def upsert_agent_profile(self, agent_id, **fields):
+        # Only update supplied fields
+        cols = []
+        vals = []
+        for k, v in fields.items():
+            cols.append(f"{k} = ?")
+            vals.append(json.dumps(v) if isinstance(v, (dict, list)) else v)
+        sql = f"UPDATE agent_profiles SET {', '.join(cols)} WHERE agent_id = ?"
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            updated = cursor.execute(sql, vals + [agent_id]).rowcount
+            if not updated:
+                all_fields = fields.copy()
+                all_fields['agent_id'] = agent_id
+                col_names = ','.join(all_fields.keys())
+                qmarks = ','.join(['?']*len(all_fields))
+                vals2 = [json.dumps(v) if isinstance(v, (dict, list)) else v for v in all_fields.values()]
+                cursor.execute(f"INSERT INTO agent_profiles ({col_names}) VALUES ({qmarks})", vals2)
+            conn.commit()
+
+    def get_agent_profile(self, agent_id):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM agent_profiles WHERE agent_id = ?", (agent_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            columns = [desc[0] for desc in cursor.description]
+            profile = dict(zip(columns, row))
+            # Decode JSON fields if present
+            for k in ("evolution_log",):
+                if profile.get(k):
+                    try:
+                        profile[k] = json.loads(profile[k])
+                    except Exception:
+                        pass
+            return profile
+
+    def check_summarization_allowed(self, agent_id, requested_by="ai", force=False):
+        profile = self.get_agent_profile(agent_id)
+        if not profile:
+            return False, "Profile not found."
+
+        freq = profile.get('summarization_frequency') or 'daily'
+        now = datetime.utcnow()
+        last = None
+        if profile.get('last_summarized'):
+            try:
+                last = datetime.fromisoformat(profile['last_summarized'])
+            except Exception:
+                last = None
+
+        # Set min_delta (days) based on frequency
+        min_delta = {'daily': 1, 'weekly': 7, 'monthly': 30}.get(freq, 1)
+        limit_map = {'ai': 1, 'human': 1}  # Change quota here if you want more/less per day
+
+        if force:
+            return True, "Force override."
+
+        # Check cooldown period
+        if last:
+            delta_days = (now - last).days
+            if delta_days < min_delta:
+                return False, f"Must wait {min_delta - delta_days} more day(s) for next summary ({freq} mode)."
+
+        if requested_by == "human":
+            count = profile.get('human_summary_count_today') or 0
+            if count >= limit_map['human']:
+                return False, "Human summary quota reached for today."
+        elif requested_by == "ai":
+            count = profile.get('ai_summary_count_today') or 0
+            if count >= limit_map['ai']:
+                return False, "AI summary quota reached for today."
+
+        return True, "Summarization allowed."
+
+    def increment_summarization_count(self, agent_id, requested_by="ai"):
+        profile = self.get_agent_profile(agent_id)
+        if not profile:
+            return
+        field = "ai_summary_count_today" if requested_by == "ai" else "human_summary_count_today"
+        count = (profile.get(field) or 0) + 1
+        now = datetime.utcnow().isoformat()
+        self.upsert_agent_profile(agent_id, **{
+            field: count,
+            "last_summarized": now
+        })
+
+    def reset_summarization_counts(self, agent_id):
+        self.upsert_agent_profile(
+            agent_id,
+            ai_summary_count_today=0,
+            human_summary_count_today=0
+        )
+
 @app.command()
 def log(
     command: str = typer.Argument(..., help="Log message or command to store."),
@@ -160,8 +283,10 @@ def log(
     user_id: str = typer.Option("default", "--user-id", help="User ID for multi-user support")
 ):
     """Store a memory entry in Guardian's database."""
-    GuardianDB.init_db()
-    timestamp = GuardianDB.insert_memory(command, tag, type_, source, parent_id, priority, agent, user_id)
+    db = GuardianDB(DB_PATH)
+    db.init_db()
+    db.migrate_agent_profiles()
+    timestamp = db.insert_memory(command, tag, type_, source, parent_id, priority, agent, user_id)
     tag_disp = f" [bold cyan]({tag})[/bold cyan]" if tag else ""
     print(f"[dim]{timestamp}[/dim] :: {command}{tag_disp} [green](agent: {agent})[/green]")
 
@@ -172,8 +297,10 @@ def search(
     user_id: str = typer.Option("default", "--user-id", help="User ID for multi-user support")
 ):
     """Search memory for a keyword in command text."""
-    GuardianDB.init_db()
-    rows = GuardianDB.search_memory(query, limit, user_id)
+    db = GuardianDB(DB_PATH)
+    db.init_db()
+    db.migrate_agent_profiles()
+    rows = db.search_memory(query, limit, user_id)
     if not rows:
         print(f"[red]No results found for: '{query}'[/red]")
     else:
@@ -188,8 +315,10 @@ def history(
     user_id: str = typer.Option("default", "--user-id", help="User ID for multi-user support")
 ):
     """Show recent memory entries."""
-    GuardianDB.init_db()
-    rows = GuardianDB.history_entries(limit, tag, user_id)
+    db = GuardianDB(DB_PATH)
+    db.init_db()
+    db.migrate_agent_profiles()
+    rows = db.history_entries(limit, tag, user_id)
     if not rows:
         print("[red]No entries found.[/red]")
     else:
@@ -208,9 +337,8 @@ def summarize(
     user_id: str = typer.Option("default", "--user-id", help="User ID for multi-user support")
 ):
     """Summarize a previous entry (recursive memory!)."""
-    GuardianDB.init_db()
-    timestamp = GuardianDB.summarize_entry(parent_id, summary, tag, source, priority, agent, user_id)
+    db = GuardianDB(DB_PATH)
+    db.init_db()
+    db.migrate_agent_profiles()
+    timestamp = db.summarize_entry(parent_id, summary, tag, source, priority, agent, user_id)
     print(f"[green]Summary capsule created for parent_id {parent_id} by {agent}![green]")
-
-if __name__ == "__main__":
-    app()

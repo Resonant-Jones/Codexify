@@ -3,3 +3,8 @@ uvicorn[standard]
 google-generativeai
 pydantic
 python-dotenv
+pyyaml
+jinja2
+notion-client
+requests
+pandas
