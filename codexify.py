@@ -1,3 +1,325 @@
+def prompt_for_sanctum_name():
+    print("\nNo parent page specified for your Codex.")
+    print("Would you like to create a new home base for your Guardian's archives?")
+    name = input("What shall we name your new sanctum? (press Enter for ‘Guardian Root’): ").strip()
+    if not name:
+        name = "Guardian Root"
+    print(f"Sanctum will be named: '{name}'")
+    return name
+
+def prompt_for_db_name(default_title):
+    print("\nTime to name your new database (Codex)!")
+    name = input(f"Enter a name (press Enter for '{default_title}'): ").strip()
+    return name or default_title
+
+def prompt_for_page_id():
+    print("\n⚠️  Notion API requires a parent page for all new pages/databases.")
+    print("Create a 'Guardian Home' page in Notion, share it with your integration, then paste its Page ID below.")
+    page_id = input("Paste the Notion page ID of your Guardian's home base (must be shared), or press Enter to cancel: ").strip()
+    return page_id or None
+from dotenv import load_dotenv
+load_dotenv()
+import copy
+
+def load_field_map(fieldmap_path):
+    if not fieldmap_path or not os.path.exists(fieldmap_path):
+        return None
+    with open(fieldmap_path) as f:
+        fmap = json.load(f)
+        # Normalize minimal ("key": "colname") vs advanced
+        if fmap and isinstance(list(fmap.values())[0], str):
+            return {k: {"column": v, "type": None} for k, v in fmap.items()}
+        return fmap
+
+def save_field_map(fieldmap, path):
+    export_map = {k: v["column"] if not v["type"] else {"column": v["column"], "type": v["type"]}
+                  for k, v in fieldmap.items()}
+    with open(path, "w") as f:
+        json.dump(export_map, f, indent=2)
+
+def prompt_for_fieldmap(record_keys, notion_columns):
+    print("\n🧭 Field Mapping Wizard — Guide your chaos!\n")
+    fieldmap = {}
+    for rk in record_keys:
+        if rk in notion_columns:
+            fieldmap[rk] = {"column": rk, "type": None}
+            continue
+        print(f"\nRecord field: '{rk}' does not match any Notion column.")
+        print(f"Available Notion columns: {list(notion_columns)}")
+        # Offer creative suggestions
+        alt1 = rk.replace("_", " ").title()
+        alt2 = f"{rk}_field"
+        print(f"Suggestions: [{rk}] [{alt1}] [{alt2}]")
+        dest = input(f"Map '{rk}' to which Notion column? (choose or enter your own): ").strip()
+        if not dest:
+            dest = rk
+        col_type = input(f"Type hint for '{dest}'? (press Enter for auto, or specify: text, number, date, select, etc): ").strip() or None
+        fieldmap[rk] = {"column": dest, "type": col_type}
+    print("\nFinal mapping:")
+    for src, v in fieldmap.items():
+        print(f"  {src} -> {v['column']}" + (f" [{v['type']}]" if v["type"] else ""))
+    save = input("\nSave this field mapping for future use? [y/N]: ").strip().lower() == "y"
+    path = None
+    if save:
+        path = input("Enter filename to save field map (e.g., my_fieldmap.json): ").strip()
+        save_field_map(fieldmap, path)
+        print(f"Mapping saved to {path}")
+    return fieldmap
+class CodexifyError(Exception):
+    """Custom error for more readable CLI output."""
+import datetime
+import os
+import argparse
+import json
+import jinja2
+from notion_client import Client
+import argparse
+import os
+def export_notion_database_to_json(db_id, notion_token, out_file):
+    from notion_client import Client
+    import sys
+    client = Client(auth=notion_token)
+    # Get database schema
+    try:
+        db = client.databases.retrieve(db_id)
+    except Exception as e:
+        print(f"❌ Failed to retrieve Notion database {db_id}: {e}")
+        sys.exit(1)
+    # Fetch all rows (pagination)
+    results = []
+    next_cursor = None
+    while True:
+        resp = client.databases.query(db_id, start_cursor=next_cursor)
+        results.extend(resp.get("results", []))
+        next_cursor = resp.get("next_cursor")
+        if not next_cursor:
+            break
+    # Flatten Notion blocks to plain dicts
+    def notion_row_to_dict(row):
+        flat = {}
+        props = row["properties"]
+        for k, v in props.items():
+            if v["type"] == "title":
+                flat[k] = v["title"][0]["plain_text"] if v["title"] else ""
+            elif v["type"] == "rich_text":
+                flat[k] = v["rich_text"][0]["plain_text"] if v["rich_text"] else ""
+            elif v["type"] == "date":
+                flat[k] = v["date"]["start"] if v["date"] else ""
+            elif v["type"] == "number":
+                flat[k] = v["number"]
+            elif v["type"] == "checkbox":
+                flat[k] = v["checkbox"]
+            elif v["type"] == "select":
+                flat[k] = v["select"]["name"] if v["select"] else ""
+            elif v["type"] == "multi_select":
+                flat[k] = [opt["name"] for opt in v["multi_select"]]
+            elif v["type"] == "people":
+                flat[k] = [p.get("name", "") for p in v["people"]]
+            elif v["type"] == "url":
+                flat[k] = v["url"]
+            elif v["type"] == "email":
+                flat[k] = v["email"]
+            elif v["type"] == "phone_number":
+                flat[k] = v["phone_number"]
+            else:
+                flat[k] = str(v.get(v["type"], ""))
+        flat["id"] = row.get("id", "")
+        return flat
+    as_dicts = [notion_row_to_dict(row) for row in results]
+    with open(out_file, "w") as f:
+        json.dump(as_dicts, f, indent=2)
+    print(f"✅ Exported {len(as_dicts)} records from Notion database {db_id} to {out_file}")
+
+def get_or_create_page(client, parent_title, notion_token):
+    # LLM NOTE: Notion API limitation — cannot create pages at the workspace (root) level via API.
+    # All new pages or databases MUST have an existing parent page (page_id) that is shared with the integration.
+    # See https://developers.notion.com/reference/page for details.
+    # Try to find an existing page with the title; if not, create it at workspace root
+    query = client.search(query=parent_title, filter={"property": "object", "value": "page"})
+    for res in query.get("results", []):
+        if (
+            res["object"] == "page"
+            and "properties" in res
+            and "title" in res["properties"]
+            and res["properties"]["title"]["title"][0]["plain_text"] == parent_title
+        ):
+            print(f"Found existing Notion page: {parent_title}")
+            return res["id"]
+    # If not found, create at workspace root
+    page = client.pages.create(
+        parent={"type": "workspace", "workspace": True},
+        properties={"title": [{"type": "text", "text": {"content": parent_title}}]},
+    )
+    print(f"Created new Notion page: {parent_title}")
+    return page["id"]
+
+def add_records_to_notion_database(records, db_id, notion_token, fieldmap=None):
+    client = Client(auth=notion_token)
+    # Fetch columns from Notion DB schema for field matching
+    notion_cols = client.databases.retrieve(db_id)["properties"]
+    for record in records:
+        props = {}
+        rec_map = fieldmap if fieldmap else {k: {"column": k, "type": None} for k in record}
+        for k, v in record.items():
+            mapped = rec_map.get(k, {"column": k, "type": None})
+            col = mapped["column"]
+            col_type = mapped["type"]
+            if col == "Title":
+                props[col] = {"title": [{"type": "text", "text": {"content": str(v)}}]}
+            else:
+                # LLM NOTE: Notion API expects date properties in the form {"date": {"start": ...}} and blank dates must not be included.
+                # Prefer type hint, else guess
+                if col_type:
+                    t = col_type
+                else:
+                    t = guess_notion_type(v)
+                # Map value to Notion property using type
+                if t == "checkbox":
+                    props[col] = {"checkbox": bool(v)}
+                elif t == "number":
+                    props[col] = {"number": float(v)}
+                elif t == "date":
+                    # Fix: Don't create 'date' key if v is blank/None; Notion expects either a valid date or not present at all
+                    if v:
+                        props[col] = {"date": {"start": str(v)}}
+                else:
+                    props[col] = {"rich_text": [{"type": "text", "text": {"content": str(v)}}]}
+        client.pages.create(parent={"database_id": db_id}, properties=props)
+    print(f"Seeded database with {len(records)} records.")
+
+def codexify_database_cli_wrapper():
+    parser = argparse.ArgumentParser(description="Create a Notion database from JSON records with optional page template and seeding.")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Create parser (existing)
+    parser_create = subparsers.add_parser("create", help="Create a Notion database from JSON records with optional template and seeding.")
+    parser_create.add_argument("--records", required=True, help="Path to JSON file containing records (list of dicts).")
+    parser_create.add_argument("--parent-title", default=None, help="Title of parent page (will create if not found).")
+    parser_create.add_argument("--parent-id", default=None, help="Notion parent page ID (ignored if --parent-title is set).")
+    parser_create.add_argument("--token", default=os.environ.get("NOTION_API_KEY"), help="Notion integration token. Reads from NOTION_API_KEY env if not provided.")
+    parser_create.add_argument("--db-title", default=None, help="Title for new database.")
+    parser_create.add_argument("--with-template", action="store_true", help="Include a page template.")
+    parser_create.add_argument("--template", default=None, help="Path to markdown file for custom template.")
+    parser_create.add_argument("--seed", action="store_true", help="Seed the database with your records as entries.")
+    parser_create.add_argument("--verbose", action="store_true", help="Show extra debugging info.")
+    parser_create.add_argument("--fieldmap", default=None, help="Path to a JSON field mapping (record key to Notion column/type).")
+
+    parser_export = subparsers.add_parser("export", help="Export a Notion database to a JSON file.")
+    parser_export.add_argument("--db-id", required=True, help="ID of the Notion database to export.")
+    parser_export.add_argument("--token", default=os.environ.get("NOTION_API_KEY"), help="Notion integration token. Reads from NOTION_API_KEY env if not provided.")
+    parser_export.add_argument("--out", required=True, help="Output JSON file.")
+
+    args = parser.parse_args()
+
+    if hasattr(args, "command") and args.command == "export":
+        if not args.token or not args.token.startswith("ntn_"):
+            print("❌ Notion API key not set or invalid. Set NOTION_API_KEY in your .env or use --token.")
+            import sys; sys.exit(1)
+        export_notion_database_to_json(args.db_id, args.token, args.out)
+        import sys; sys.exit(0)
+
+    if args.command != "create":
+        parser.print_help()
+        print("⚠️  All Notion exports require a valid parent page ID. Create and share a home base page with your integration, then use its ID for all Codex/database operations.")
+        import sys
+        sys.exit(1)
+
+    try:
+        # Check Notion token
+        if not args.token or not args.token.startswith("ntn_"):
+            raise CodexifyError("❌ Notion API key not set or invalid. Set NOTION_API_KEY in your .env or use --token. Find your integration token at https://www.notion.so/my-integrations")
+
+        # Check records file
+        if not os.path.exists(args.records):
+            raise CodexifyError(f"❌ Records file not found: {args.records}")
+
+        with open(args.records) as f:
+            try:
+                records = json.load(f)
+            except Exception as e:
+                raise CodexifyError(f"❌ Could not parse JSON in {args.records}: {e}")
+        if not isinstance(records, list) or not all(isinstance(r, dict) for r in records):
+            raise CodexifyError("❌ Records must be a JSON list of dicts. See the CLI docs for a sample.")
+
+        # Check for field consistency
+        base_keys = set(records[0].keys())
+        for i, rec in enumerate(records):
+            rec_keys = set(rec.keys())
+            if rec_keys != base_keys:
+                raise CodexifyError(f"❌ Inconsistent fields in record {i+1}: Expected {base_keys}, got {rec_keys}")
+
+        template_md = None
+        if args.template:
+            if not os.path.exists(args.template):
+                raise CodexifyError(f"❌ Template file not found: {args.template}")
+            with open(args.template) as f:
+                template_md = f.read()
+
+        client = Client(auth=args.token)
+        if args.parent_title:
+            parent_page_id = get_or_create_page(client, args.parent_title, args.token)
+        elif args.parent_id:
+            parent_page_id = args.parent_id
+        else:
+            # Hybrid: Offer to create or let user paste ID
+            page_id = prompt_for_page_id()
+            if page_id:
+                parent_page_id = page_id
+            else:
+                # Let user name the new page
+                sanctum_name = prompt_for_sanctum_name()
+                parent_page_id = get_or_create_page(client, sanctum_name, args.token)
+
+        # Prompt user for DB name if not provided (always after parent_page_id is set)
+        default_db_title = f"Guardian Codex {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        db_title = args.db_title or prompt_for_db_name(default_db_title)
+
+        try:
+            db_id = create_notion_database_from_records(
+                records,
+                parent_page_id,
+                args.token,
+                db_title=db_title,
+                with_template=args.with_template,
+                template_markdown=template_md
+            )
+        except Exception as e:
+            if "permission" in str(e).lower():
+                raise CodexifyError("❌ Notion permission error. Did you share the parent page with your integration?\nSee: https://www.notion.so/my-integrations")
+            raise CodexifyError(f"❌ Notion API error: {e}")
+        print(f"✅ Database created! ID: {db_id}")
+
+        if args.seed:
+            fieldmap = None
+            if args.fieldmap:
+                fieldmap = load_field_map(args.fieldmap)
+            # If not supplied, prompt if any mismatches:
+            else:
+                # Infer Notion columns from created DB
+                client_for_map = Client(auth=args.token)
+                db_schema = client_for_map.databases.retrieve(db_id)
+                notion_cols = set(db_schema["properties"].keys())
+                rec_keys = set(records[0].keys())
+                if rec_keys - notion_cols or notion_cols - rec_keys:
+                    fieldmap = prompt_for_fieldmap(rec_keys, notion_cols)
+            try:
+                add_records_to_notion_database(records, db_id, args.token, fieldmap=fieldmap)
+                print("✅ Database seeded with all records.")
+            except Exception as e:
+                raise CodexifyError(f"❌ Failed to seed database: {e}")
+
+    except CodexifyError as ce:
+        print(str(ce))
+        if getattr(args, "verbose", False):
+            import traceback
+            traceback.print_exc()
+        exit(1)
+    except Exception as e:
+        print("❌ Unexpected error:", e)
+        if getattr(args, "verbose", False):
+            import traceback
+            traceback.print_exc()
+        exit(2)
 def markdown_to_notion_blocks(md_text):
     """
     Converts markdown to Notion-style block objects (headings, bullets, code, quotes, todos, etc.).
@@ -89,3 +411,137 @@ def flatten_notion_blocks(blocks):
     Returns a list of Notion block dicts (API-ready).
     """
     return [b["block"] for b in blocks if "block" in b]
+import datetime
+import requests
+from notion_client import Client
+import jinja2
+
+def guess_notion_type(value):
+    if isinstance(value, bool):
+        return "checkbox"
+    try:
+        float(value)
+        return "number"
+    except (TypeError, ValueError):
+        pass
+    try:
+        datetime.datetime.fromisoformat(str(value))
+        return "date"
+    except Exception:
+        pass
+    return "rich_text"
+
+def field_to_property(field, value):
+    prop_type = guess_notion_type(value)
+    if prop_type == "checkbox":
+        return {"checkbox": bool(value)}
+    elif prop_type == "number":
+        return {"number": float(value)}
+    elif prop_type == "date":
+        # Notion API expects {"start": ...}
+        return {"date": {"start": str(value)}}
+    else:
+        return {"rich_text": [{"type": "text", "text": {"content": str(value)}}]}
+
+
+def build_notion_db_properties_from_fieldmap(fieldmap, sample_record):
+    """
+    Returns a Notion-ready 'properties' dict using the user's fieldmap or inferring from the sample record.
+    Ensures all columns have proper Notion types and use empty objects (never lists) per Notion API spec.
+    """
+    props = {}
+    if fieldmap:
+        for k, v in fieldmap.items():
+            notion_col = v["column"]
+            t = v["type"]
+            if t == "date":
+                props[notion_col] = {"date": {}}
+            elif t == "checkbox":
+                props[notion_col] = {"checkbox": {}}
+            elif t == "number":
+                props[notion_col] = {"number": {}}
+            elif t == "title":
+                props[notion_col] = {"title": {}}
+            else:  # Default to rich_text as Notion expects {}
+                props[notion_col] = {"rich_text": {}}
+    else:
+        for k, val in sample_record.items():
+            ntype = guess_notion_type(val)
+            if ntype == "date":
+                props[k] = {"date": {}}
+            elif ntype == "checkbox":
+                props[k] = {"checkbox": {}}
+            elif ntype == "number":
+                props[k] = {"number": {}}
+            elif ntype == "title":
+                props[k] = {"title": {}}
+            else:
+                props[k] = {"rich_text": {}}
+    if "Title" not in props:
+        props["Title"] = {"title": {}}
+    return props
+
+def create_notion_database_from_records(
+    records,
+    parent_page_id,
+    notion_token,
+    db_title=None,
+    with_template=True,
+    template_markdown=None
+):
+    # LLM NOTE: Notion API is strict. For "date" columns, always set "type": "date" and "date": {}. No fallback to text. If schema mismatches, Notion will reject data. Recreate DB if needed.
+    """
+    Creates a Notion database under the given parent page, infers columns from records,
+    and attaches a page template (markdown) if desired.
+    Returns the new database ID.
+    """
+    client = Client(auth=notion_token)
+    if not db_title:
+        db_title = f"Guardian Codex {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+    # Use fieldmap (if supplied) to define schema, else infer
+    # LLM NOTE: Notion API is strict. For date columns, property must be type "date". No fallback to text.
+    from pathlib import Path
+    fieldmap = None
+    if Path("my_fieldmap.json").exists():
+        with open("my_fieldmap.json") as f:
+            fieldmap = json.load(f)
+    properties = build_notion_db_properties_from_fieldmap(fieldmap, records[0])
+    print(f"\nDEBUG: Notion DB schema to be created:\n{json.dumps(properties, indent=2)}")
+
+    db_payload = {
+        "parent": {"page_id": parent_page_id},
+        "title": [{"type": "text", "text": {"content": db_title}}],
+        "properties": properties
+    }
+
+    # Optionally add a page template
+    if with_template:
+        if not template_markdown:
+            template_markdown = (
+                "# {{ Title }}\n"
+                "{% for k, v in record.items() if k != 'Title' %}\n"
+                "- **{{ k }}:** {{ v }}\n"
+                "{% endfor %}"
+            )
+        # Render template with Jinja2 for demo
+        # Attach as page content to every new entry
+        # (Notion DB templates only support a fixed template—true per-row customization requires post-processing)
+        blocks = markdown_to_notion_blocks(
+            jinja2.Template(template_markdown).render(record=records[0], Title=records[0].get("Title", "Entry"))
+        )
+        template_block = {
+            "name": [{"type": "text", "text": {"content": "Guardian Template"}}],
+            "is_default": True,
+            "template_id": "guardian-template",
+            "children": flatten_notion_blocks(blocks)
+        }
+        db_payload["template"] = template_block
+
+    db = client.databases.create(**db_payload)
+    db_id = db["id"]
+    print(f"Created Notion database '{db_title}' with ID: {db_id}")
+
+    return db_id
+if __name__ == "__main__":
+    codexify_database_cli_wrapper()
