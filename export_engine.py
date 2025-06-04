@@ -6,6 +6,8 @@ import io
 import yaml
 from jinja2 import Template
 import pandas as pd
+# For Notion export markdown -> blocks
+from codexify import markdown_to_notion_blocks, flatten_notion_blocks
 
 # ========== Export Functions ==========
 
@@ -62,22 +64,23 @@ def export_mermaid(records):
 
 # ========== Export Dispatcher ==========
 
+EXPORTERS = {
+    "json": export_json,
+    "csv": export_csv,
+    "md": export_markdown,
+    "html": export_html,
+    "yaml": export_yaml,
+    "mermaid": export_mermaid,
+}
+
 def export_records(records, format, template=None):
-    """Dispatch export to correct format."""
-    if format == "json":
-        return export_json(records)
-    elif format == "csv":
-        return export_csv(records)
-    elif format == "md":
-        return export_markdown(records, template)
-    elif format == "html":
-        return export_html(records, template)
-    elif format == "yaml":
-        return export_yaml(records)
-    elif format == "mermaid":
-        return export_mermaid(records)
-    else:
+    """Dispatch export to correct format using dict-based dispatch."""
+    fn = EXPORTERS.get(format)
+    if not fn:
         raise ValueError(f"Unsupported export format: {format}")
+    if format in ("md", "html"):
+        return fn(records, template)
+    return fn(records)
 
 
 # ========== iCloud Export Function ==========
@@ -91,10 +94,12 @@ def export_to_icloud(records, format="md", filename=None, template=None, subfold
     - subfolder: Folder inside iCloud Drive (default 'Guardian Exports')
     Returns the path to the exported file.
     """
-    # Resolve iCloud Drive path (Mac/iOS standard)
     icloud_base = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs")
     export_dir = os.path.join(icloud_base, subfolder)
-    os.makedirs(export_dir, exist_ok=True)
+    try:
+        os.makedirs(export_dir, exist_ok=True)
+    except OSError as e:
+        raise RuntimeError(f"Failed to create export directory {export_dir}: {e}")
 
     # Determine filename
     from datetime import datetime
@@ -140,13 +145,16 @@ def export_to_notion(records, parent_id, notion_token, format="md", title=None, 
 
     client = Client(auth=notion_token)
 
-    # Prepare content (markdown to Notion blocks, basic MVP)
+    # Prepare content (markdown to Notion blocks, robust production)
     if format == "md":
         # Use export_markdown (Jinja2) to get markdown string
         md_content = export_markdown(records, template)
-        # MVP: put all markdown into one "text" block (Notion will render it)
-        children = [
-            {
+        # Parse markdown to Notion blocks (robust, production)
+        blocks = markdown_to_notion_blocks(md_content)
+        children = flatten_notion_blocks(blocks)
+        # If empty fallback (shouldn't happen), insert a dummy paragraph
+        if not children:
+            children = [{
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
@@ -155,8 +163,7 @@ def export_to_notion(records, parent_id, notion_token, format="md", title=None, 
                         "text": {"content": md_content}
                     }]
                 }
-            }
-        ]
+            }]
     elif format == "json":
         json_content = export_json(records)
         children = [
