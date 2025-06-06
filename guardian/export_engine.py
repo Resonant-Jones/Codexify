@@ -7,7 +7,7 @@ import yaml
 from jinja2 import Template
 import pandas as pd
 # For Notion export markdown -> blocks
-from codexify import markdown_to_notion_blocks, flatten_notion_blocks
+from .codexify import markdown_to_notion_blocks, flatten_notion_blocks
 
 # ========== Export Functions ==========
 

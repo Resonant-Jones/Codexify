@@ -1,0 +1,95 @@
+# Guardian CLI Command Reference
+
+---
+
+## guardian_cli.py
+
+```bash
+python guardian/guardian_cli.py [COMMAND] [OPTIONS]
+```
+
+| Command       | Description                     |
+|---------------|--------------------------------|
+| export_gdrive | Export records to Google Drive |
+| import_gdrive | Import files from Google Drive |
+| import_icloud | Import files from iCloud Guardian Exports |
+
+---
+
+## codexify.py
+
+```bash
+python guardian/codexify.py [COMMAND] [OPTIONS]
+```
+
+| Command     | Description                             |
+|-------------|---------------------------------------|
+| create      | Create a Notion DB from JSON, map fields, etc. |
+| export      | Export a Notion DB to JSON             |
+| import-notion | Import a Notion DB into Guardian’s SQLite |
+
+**Key options (can be combined):**
+
+- `--records <json>`       : Specify records JSON file  
+- `--fieldmap <json>`      : Field mapping JSON  
+- `--aliasmap <json>`      : Alias mapping JSON  
+- `--parent-id <id>`       : Notion parent page/database ID  
+- `--parent-title <name>`  : Name for new parent page/database  
+- `--seed`                 : Seed new DB with provided records  
+- `--edit-aliases`         : Launch alias mapping wizard  
+
+---
+
+## ritual_cli.py (work in progress)
+
+```bash
+python guardian/ritual_cli.py [COMMAND] [OPTIONS]
+```
+
+| Command      | Description                              |
+|--------------|------------------------------------------|
+| seed-notion  | Seed Notion DB with records and field mapping |
+| …            | … more rituals coming soon               |
+
+---
+
+## Common Test Commands
+
+```bash
+python -m tests.test_export_notion
+```
+
+> Runs the Notion export test. Make sure the related test data (`my_records.json`) is in the right directory or update the import path.
+
+---
+
+## Directory Layout (Recommended)
+
+```
+guardian-backend/
+│
+├── guardian/
+│   ├── __init__.py
+│   ├── guardian_cli.py
+│   ├── codexify.py
+│   ├── export_engine.py
+│   └── ...
+│
+├── data/
+│   ├── my_records.json
+│   └── ...
+│
+├── codex_templates/
+│   ├── standard_alias.json
+│   ├── standard_fieldmap.json
+│   └── ...
+│
+├── tests/
+│   └── test_export_notion.py
+│
+└── .env
+```
+
+---
+
+> This doc will evolve as the CLI and rituals expand.

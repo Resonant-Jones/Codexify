@@ -1,7 +1,7 @@
 import argparse
 import json
 import pickle
-from export_engine import export_to_gdrive, import_from_gdrive, import_from_icloud
+from .export_engine import export_to_gdrive, import_from_gdrive, import_from_icloud
 
 def cli_export_gdrive(args):
     with open(args.file) as f:

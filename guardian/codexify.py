@@ -1,3 +1,47 @@
+def load_alias_map(alias_path):
+    if not alias_path or not os.path.exists(alias_path):
+        return {}
+    with open(alias_path) as f:
+        return json.load(f)
+
+def save_alias_map(alias_map, path):
+    with open(path, "w") as f:
+        json.dump(alias_map, f, indent=2)
+
+def prompt_for_aliases(record_keys, canonical_keys):
+    print("\n🪄 Alias Mapping Wizard — Give your fields magical nicknames!\n")
+    alias_map = {}
+    for k in record_keys:
+        if k in canonical_keys:
+            alias_map[k] = k
+            continue
+        suggestion = k.replace("_", " ").title()
+        print(f"Original field: '{k}' — Suggestion: [{suggestion}]")
+        dest = input(f"What alias should '{k}' map to? (press Enter for '{suggestion}'): ").strip()
+        if not dest:
+            dest = suggestion
+        alias_map[k] = dest
+    print("\nFinal alias map:")
+    for src, dest in alias_map.items():
+        print(f"  {src} → {dest}")
+    save = input("\nSave this alias map for future use? [y/N]: ").strip().lower() == "y"
+    path = None
+    if save:
+        path = input("Enter filename to save alias map (e.g., my_aliases.json): ").strip()
+        save_alias_map(alias_map, path)
+        print(f"Alias map saved to {path}")
+    return alias_map
+
+def apply_alias_map(records, alias_map):
+    """Return a new list of records with user-supplied aliases mapped to canonical field names."""
+    mapped_records = []
+    for rec in records:
+        new_rec = {}
+        for k, v in rec.items():
+            canonical = alias_map.get(k, k)
+            new_rec[canonical] = v
+        mapped_records.append(new_rec)
+    return mapped_records
 def prompt_for_sanctum_name():
     print("\nNo parent page specified for your Codex.")
     print("Would you like to create a new home base for your Guardian's archives?")
@@ -26,8 +70,12 @@ def load_field_map(fieldmap_path):
         return None
     with open(fieldmap_path) as f:
         fmap = json.load(f)
+        # If any value is a string, expand to canonical dict format
+        if fmap and all(isinstance(val, str) for val in fmap.values()):
+            # User supplied e.g. {"foo": "date", "bar": "rich_text"}
+            fmap = {k: {"column": k, "type": v} for k, v in fmap.items()}
         # Normalize minimal ("key": "colname") vs advanced
-        if fmap and isinstance(list(fmap.values())[0], str):
+        elif fmap and isinstance(list(fmap.values())[0], str):
             return {k: {"column": v, "type": None} for k, v in fmap.items()}
         return fmap
 
@@ -188,11 +236,11 @@ def add_records_to_notion_database(records, db_id, notion_token, fieldmap=None):
     print(f"Seeded database with {len(records)} records.")
 
 def codexify_database_cli_wrapper():
-    parser = argparse.ArgumentParser(description="Create a Notion database from JSON records with optional page template and seeding.")
+    parser = argparse.ArgumentParser(description="Create a Notion database from JSON records with optional page template and seeding. Supports field and alias mapping for flexible import.")
     subparsers = parser.add_subparsers(dest="command")
 
     # Create parser (existing)
-    parser_create = subparsers.add_parser("create", help="Create a Notion database from JSON records with optional template and seeding.")
+    parser_create = subparsers.add_parser("create", help="Create a Notion database from JSON records with optional template and seeding. Supports alias and field mapping.")
     parser_create.add_argument("--records", required=True, help="Path to JSON file containing records (list of dicts).")
     parser_create.add_argument("--parent-title", default=None, help="Title of parent page (will create if not found).")
     parser_create.add_argument("--parent-id", default=None, help="Notion parent page ID (ignored if --parent-title is set).")
@@ -203,11 +251,22 @@ def codexify_database_cli_wrapper():
     parser_create.add_argument("--seed", action="store_true", help="Seed the database with your records as entries.")
     parser_create.add_argument("--verbose", action="store_true", help="Show extra debugging info.")
     parser_create.add_argument("--fieldmap", default=None, help="Path to a JSON field mapping (record key to Notion column/type).")
+    parser_create.add_argument("--aliasmap", default=None, help="Path to a JSON alias map (user alias to canonical field).")
+    parser_create.add_argument("--edit-aliases", action="store_true", help="Prompt to edit or preview aliases.")
 
     parser_export = subparsers.add_parser("export", help="Export a Notion database to a JSON file.")
     parser_export.add_argument("--db-id", required=True, help="ID of the Notion database to export.")
     parser_export.add_argument("--token", default=os.environ.get("NOTION_API_KEY"), help="Notion integration token. Reads from NOTION_API_KEY env if not provided.")
     parser_export.add_argument("--out", required=True, help="Output JSON file.")
+
+    # New: import-notion subcommand
+    parser_import_notion = subparsers.add_parser("import-notion", help="Import a Notion database into Guardian's SQLite DB with mapping and preview.")
+    parser_import_notion.add_argument("--token", default=os.environ.get("NOTION_API_KEY"), help="Notion integration token. Reads from NOTION_API_KEY env if not provided.")
+    parser_import_notion.add_argument("--preview", type=int, default=5, help="Number of records to preview before import (default: 5).")
+    parser_import_notion.add_argument("--save-mapping", action="store_true", help="Prompt to save alias/field mapping after mapping wizard.")
+    parser_import_notion.add_argument("--aliasmap", default=None, help="Path to a JSON alias map to use (or create).")
+    parser_import_notion.add_argument("--fieldmap", default=None, help="Path to a JSON field map to use (or create).")
+    parser_import_notion.add_argument("--verbose", action="store_true", help="Show extra debugging info.")
 
     args = parser.parse_args()
 
@@ -217,6 +276,212 @@ def codexify_database_cli_wrapper():
             import sys; sys.exit(1)
         export_notion_database_to_json(args.db_id, args.token, args.out)
         import sys; sys.exit(0)
+
+    if hasattr(args, "command") and args.command == "import-notion":
+        # --- Begin import-notion logic ---
+        import sys
+        import time
+        try:
+            # Notion token
+            notion_token = args.token or os.environ.get("NOTION_API_KEY")
+            if not notion_token or not notion_token.startswith("ntn_"):
+                notion_token = input("Enter your Notion API key (starts with 'ntn_'): ").strip()
+            if not notion_token or not notion_token.startswith("ntn_"):
+                print("❌ Notion API key not set or invalid. Set NOTION_API_KEY in your .env or use --token.")
+                sys.exit(1)
+
+            # Notion client
+            client = Client(auth=notion_token)
+            print("\n🔍 Fetching databases shared with your integration...")
+            dbs = []
+            next_cursor = None
+            while True:
+                resp = client.search(filter={"property": "object", "value": "database"}, start_cursor=next_cursor)
+                dbs.extend(resp.get("results", []))
+                next_cursor = resp.get("next_cursor")
+                if not next_cursor:
+                    break
+            if not dbs:
+                print("❌ No Notion databases found. Make sure you have shared at least one database with your integration.")
+                sys.exit(1)
+            print("\nAvailable Notion databases:")
+            db_choices = []
+            for i, db in enumerate(dbs):
+                title = ""
+                try:
+                    title = db["title"][0]["plain_text"] if db["title"] else "(Untitled)"
+                except Exception:
+                    title = "(Untitled)"
+                db_choices.append((db["id"], title))
+                print(f"  [{i+1}] {title} (ID: {db['id']})")
+            sel = input("\nSelect a database by number, or paste a Notion database ID: ").strip()
+            if sel.isdigit() and 1 <= int(sel) <= len(db_choices):
+                db_id = db_choices[int(sel)-1][0]
+                db_title = db_choices[int(sel)-1][1]
+            else:
+                db_id = sel
+                db_title = "(Custom DB ID)"
+            # Fetch DB schema and rows
+            print("\nFetching database schema and records from Notion...")
+            try:
+                db_schema = client.databases.retrieve(db_id)
+            except Exception as e:
+                print(f"❌ Failed to retrieve database: {e}")
+                sys.exit(1)
+            # Get Notion columns
+            notion_columns = list(db_schema["properties"].keys())
+            # Fetch records (limit for preview, then all for import)
+            def flatten_row(row):
+                props = row["properties"]
+                flat = {}
+                for k, v in props.items():
+                    t = v["type"]
+                    if t == "title":
+                        flat[k] = v["title"][0]["plain_text"] if v["title"] else ""
+                    elif t == "rich_text":
+                        flat[k] = v["rich_text"][0]["plain_text"] if v["rich_text"] else ""
+                    elif t == "date":
+                        flat[k] = v["date"]["start"] if v["date"] else ""
+                    elif t == "number":
+                        flat[k] = v["number"]
+                    elif t == "checkbox":
+                        flat[k] = v["checkbox"]
+                    elif t == "select":
+                        flat[k] = v["select"]["name"] if v["select"] else ""
+                    elif t == "multi_select":
+                        flat[k] = [opt["name"] for opt in v["multi_select"]]
+                    elif t == "people":
+                        flat[k] = [p.get("name", "") for p in v["people"]]
+                    elif t == "url":
+                        flat[k] = v["url"]
+                    elif t == "email":
+                        flat[k] = v["email"]
+                    elif t == "phone_number":
+                        flat[k] = v["phone_number"]
+                    else:
+                        flat[k] = str(v.get(t, ""))
+                flat["id"] = row.get("id", "")
+                return flat
+            # Fetch preview rows
+            preview_rows = []
+            next_cursor = None
+            preview_count = 0
+            print(f"\nPreviewing first {args.preview} records from Notion...")
+            while preview_count < args.preview:
+                resp = client.databases.query(db_id, start_cursor=next_cursor, page_size=min(args.preview-preview_count, 10))
+                batch = resp.get("results", [])
+                preview_rows.extend(batch)
+                preview_count += len(batch)
+                next_cursor = resp.get("next_cursor")
+                if not next_cursor or preview_count >= args.preview:
+                    break
+            flat_preview = [flatten_row(row) for row in preview_rows]
+            if flat_preview:
+                for i, rec in enumerate(flat_preview):
+                    print(f"\n--- Record {i+1} ---")
+                    for k in notion_columns:
+                        print(f"{k}: {rec.get(k, '')}")
+            else:
+                print("No records found in this database.")
+            # Prompt for alias/field mapping
+            # Use first record as sample
+            if not flat_preview:
+                print("Nothing to import (no records).")
+                sys.exit(0)
+            sample_keys = list(flat_preview[0].keys())
+            # Alias mapping
+            alias_map = None
+            if getattr(args, "aliasmap", None):
+                alias_map = load_alias_map(args.aliasmap)
+            else:
+                alias_map = prompt_for_aliases(sample_keys, sample_keys)
+            # Field mapping (Notion columns to Guardian canonical fields)
+            fieldmap = None
+            if getattr(args, "fieldmap", None):
+                fieldmap = load_field_map(args.fieldmap)
+            else:
+                fieldmap = prompt_for_fieldmap(sample_keys, notion_columns)
+            # Optionally save mapping
+            if getattr(args, "save_mapping", False):
+                if alias_map:
+                    path = input("Save alias map as (filename)? (blank to skip): ").strip()
+                    if path:
+                        save_alias_map(alias_map, path)
+                        print(f"Alias map saved to {path}")
+                if fieldmap:
+                    path = input("Save field map as (filename)? (blank to skip): ").strip()
+                    if path:
+                        save_field_map(fieldmap, path)
+                        print(f"Field map saved to {path}")
+            # Confirm import
+            confirm = input("\nReady to import records into Guardian? [y/N]: ").strip().lower()
+            if confirm != "y":
+                print("Aborted.")
+                sys.exit(0)
+            # Fetch ALL records for import
+            print("\nFetching all records from Notion for import...")
+            all_rows = []
+            next_cursor = None
+            while True:
+                resp = client.databases.query(db_id, start_cursor=next_cursor)
+                batch = resp.get("results", [])
+                all_rows.extend(batch)
+                next_cursor = resp.get("next_cursor")
+                if not next_cursor:
+                    break
+            flat_records = [flatten_row(row) for row in all_rows]
+            # Apply alias mapping
+            if alias_map:
+                flat_records = apply_alias_map(flat_records, alias_map)
+            # Map field names using fieldmap to Guardian canonical fields
+            mapped_records = []
+            for rec in flat_records:
+                new_rec = {}
+                for k, v in rec.items():
+                    # Map using fieldmap
+                    if fieldmap and k in fieldmap:
+                        dest = fieldmap[k]["column"]
+                    else:
+                        dest = k
+                    new_rec[dest] = v
+                mapped_records.append(new_rec)
+            # Import to Guardian DB
+            print("\nImporting records into Guardian's SQLite DB...")
+            try:
+                # Defensive: Import GuardianDB here
+                try:
+                    from guardian_db import GuardianDB
+                except ImportError:
+                    try:
+                        from guardian_db import GuardianDB
+                    except Exception:
+                        GuardianDB = None
+                if 'GuardianDB' not in locals() or GuardianDB is None:
+                    print("❌ GuardianDB module/class not found. Please ensure GuardianDB is available in your environment.")
+                    sys.exit(1)
+                db = GuardianDB()
+                imported = 0
+                for idx, rec in enumerate(mapped_records):
+                    db.insert_record(rec)
+                    if (idx+1) % 25 == 0:
+                        print(f"  Imported {idx+1}/{len(mapped_records)} records...")
+                    imported += 1
+                print(f"\n✅ Import complete! {imported} records imported into Guardian DB.")
+            except Exception as e:
+                print(f"❌ Error during import: {e}")
+                if getattr(args, "verbose", False):
+                    import traceback
+                    traceback.print_exc()
+                sys.exit(1)
+            print("🎉 All done! Your Notion database is now in Guardian.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+            if getattr(args, "verbose", False):
+                import traceback
+                traceback.print_exc()
+            sys.exit(2)
+        # --- End import-notion logic ---
 
     if args.command != "create":
         parser.print_help()
@@ -247,6 +512,19 @@ def codexify_database_cli_wrapper():
             rec_keys = set(rec.keys())
             if rec_keys != base_keys:
                 raise CodexifyError(f"❌ Inconsistent fields in record {i+1}: Expected {base_keys}, got {rec_keys}")
+
+        # Alias mapping support
+        alias_map = {}
+        if getattr(args, "aliasmap", None):
+            alias_map = load_alias_map(args.aliasmap)
+        elif getattr(args, "edit_aliases", False):
+            # Prompt for alias mapping if desired, using current record keys and canonical keys (base_keys)
+            alias_map = prompt_for_aliases(list(base_keys), list(base_keys))  # Expand to support more flexible canonical keys if needed
+        else:
+            alias_map = {}  # Identity mapping if not set
+
+        if alias_map:
+            records = apply_alias_map(records, alias_map)
 
         template_md = None
         if args.template:
@@ -449,32 +727,40 @@ def build_notion_db_properties_from_fieldmap(fieldmap, sample_record):
     Returns a Notion-ready 'properties' dict using the user's fieldmap or inferring from the sample record.
     Ensures all columns have proper Notion types and use empty objects (never lists) per Notion API spec.
     """
+    # Normalize fieldmap: if any type is a string (e.g., "date"), convert to Notion object
+    type_map = {
+        "date": {"date": {}},
+        "checkbox": {"checkbox": {}},
+        "number": {"number": {}},
+        "title": {"title": {}},
+        "rich_text": {"rich_text": {}},
+        "select": {"select": {}},
+        "multi_select": {"multi_select": {}},
+        # Add more as needed
+    }
+    # If user provided a fieldmap with simple strings, expand to object
+    if fieldmap:
+        for k, v in fieldmap.items():
+            if isinstance(v, str):
+                # Interpret as property type (use field name as column)
+                fieldmap[k] = {"column": k, "type": v}
+            elif isinstance(v, dict) and isinstance(v.get("type", None), str):
+                # Convert type string to Notion type object if needed later
+                pass  # We'll use .type in schema logic below
     props = {}
     if fieldmap:
         for k, v in fieldmap.items():
             notion_col = v["column"]
             t = v["type"]
-            if t == "date":
-                props[notion_col] = {"date": {}}
-            elif t == "checkbox":
-                props[notion_col] = {"checkbox": {}}
-            elif t == "number":
-                props[notion_col] = {"number": {}}
-            elif t == "title":
-                props[notion_col] = {"title": {}}
+            if t in type_map:
+                props[notion_col] = type_map[t]
             else:  # Default to rich_text as Notion expects {}
                 props[notion_col] = {"rich_text": {}}
     else:
         for k, val in sample_record.items():
             ntype = guess_notion_type(val)
-            if ntype == "date":
-                props[k] = {"date": {}}
-            elif ntype == "checkbox":
-                props[k] = {"checkbox": {}}
-            elif ntype == "number":
-                props[k] = {"number": {}}
-            elif ntype == "title":
-                props[k] = {"title": {}}
+            if ntype in type_map:
+                props[k] = type_map[ntype]
             else:
                 props[k] = {"rich_text": {}}
     if "Title" not in props:
