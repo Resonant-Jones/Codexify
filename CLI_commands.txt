@@ -2,7 +2,8 @@
 
 ---
 
-## guardian_cli.py
+## guardian_cli.py  
+**File:** `guardian/guardian_cli.py`
 
 ```bash
 python guardian/guardian_cli.py [COMMAND] [OPTIONS]
@@ -16,7 +17,8 @@ python guardian/guardian_cli.py [COMMAND] [OPTIONS]
 
 ---
 
-## codexify.py
+## codexify.py  
+**File:** `guardian/codexify.py`
 
 ```bash
 python guardian/codexify.py [COMMAND] [OPTIONS]
@@ -40,7 +42,8 @@ python guardian/codexify.py [COMMAND] [OPTIONS]
 
 ---
 
-## ritual_cli.py (work in progress)
+## ritual_cli.py (work in progress)  
+**File:** `guardian/ritual_cli.py`
 
 ```bash
 python guardian/ritual_cli.py [COMMAND] [OPTIONS]
@@ -53,7 +56,8 @@ python guardian/ritual_cli.py [COMMAND] [OPTIONS]
 
 ---
 
-## Common Test Commands
+## Common Test Commands  
+**File:** `tests/test_export_notion.py`
 
 ```bash
 python -m tests.test_export_notion
@@ -89,6 +93,8 @@ guardian-backend/
 │
 └── .env
 ```
+
+**Note:** After refactoring, scripts should be called via their package/module path (e.g., `python -m guardian.guardian_cli ...`), not as standalone scripts.
 
 ---
 
