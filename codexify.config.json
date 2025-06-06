@@ -1,0 +1,4 @@
+{
+  "default_aliasmap": "codex_templates/standard_alias.json",
+  "default_fieldmap": "codex_templates/standard_fieldmap.json"
+}

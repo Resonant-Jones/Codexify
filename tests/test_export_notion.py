@@ -5,7 +5,7 @@ import os
 print("NOTION_API_KEY is:", os.environ.get("NOTION_API_KEY"))
 
 import json
-from export_engine import export_to_notion
+from guardian.export_engine import export_to_notion
 
 # Load from JSON file
 with open("my_records.json") as f:
