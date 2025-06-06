@@ -8,3 +8,5 @@ jinja2
 notion-client
 requests
 pandas
+typer
+rich

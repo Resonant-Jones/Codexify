@@ -5,9 +5,11 @@ __pycache__/
 *$py.class
 
 # Virtual environment
+# Ignore all env files except .env.example (for secrets safety)
 venv/
 .env
 .env.*
+!.env.example
 
 # Logs
 *.log
