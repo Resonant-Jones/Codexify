@@ -10,3 +10,10 @@ requests
 pandas
 typer
 rich
+crawl4ai
+selenium
+beautifulsoup4
+markitdown
+aiohttp
+chromadb
+litellm

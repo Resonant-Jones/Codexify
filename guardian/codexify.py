@@ -831,3 +831,101 @@ def create_notion_database_from_records(
     return db_id
 if __name__ == "__main__":
     codexify_database_cli_wrapper()
+def extract_fragments_from_entry(entry_path, fragments_path):
+    """
+    Scans a markdown Codex entry for notable lines and appends them to fragments.yaml.
+    Lines starting with '>' or marked as key phrases will be extracted.
+    """
+    import yaml
+    if not os.path.exists(entry_path):
+        print(f"❌ Entry file not found: {entry_path}")
+        return
+    with open(entry_path) as f:
+        lines = f.readlines()
+
+    fragments = []
+    for line in lines:
+        line = line.strip()
+        if line.startswith(">") or (len(line) > 20 and line[0].isupper() and line.endswith(".")):
+            fragments.append({
+                "content": line,
+                "source_entry": os.path.basename(entry_path).split(".")[0],
+                "tags": []
+            })
+
+    if not fragments:
+        print("⚠️  No fragments found.")
+        return
+
+    if not os.path.exists(fragments_path):
+        with open(fragments_path, "w") as f:
+            yaml.dump([], f)
+
+    with open(fragments_path) as f:
+        existing = yaml.safe_load(f) or []
+
+    existing.extend(fragments)
+
+    with open(fragments_path, "w") as f:
+        yaml.dump(existing, f, default_flow_style=False)
+
+    print(f"✅ Extracted {len(fragments)} fragments to {fragments_path}")    
+
+
+# --- Codexify CLI Tool ---
+def main():
+    parser = argparse.ArgumentParser(description="Codexify CLI Tool")
+    parser.add_argument("--init", action="store_true", help="Initialize Codexify folder structure")
+    parser.add_argument("--new-entry", metavar="TITLE", help="Create a new Codex entry")
+    parser.add_argument("--tags", nargs="*", default=[], help="Tags for the entry")
+    parser.add_argument("--extract-fragments", metavar="ENTRY", help="Extract fragments from an entry markdown file")
+    parser.add_argument("--path", default="./codexify", help="Target Codexify path")
+
+    args = parser.parse_args()
+
+    if args.init:
+        ensure_structure(args.path)
+        print(f"🌱 Codexify vault initialized at {args.path}")
+
+    if args.new_entry:
+        create_entry(args.path, args.new_entry, args.tags)
+
+    if args.extract_fragments:
+        extract_fragments_from_entry(args.extract_fragments, os.path.join(args.path, "fragments.yaml"))
+
+
+def ensure_structure(root):
+    import yaml
+    dirs = ["entries", "foresight", "artifacts", "persons", "rituals"]
+    for d in dirs:
+        os.makedirs(os.path.join(root, d), exist_ok=True)
+    if not os.path.exists(os.path.join(root, "threads.yaml")):
+        with open(os.path.join(root, "threads.yaml"), "w") as f:
+            yaml.dump([], f)
+    if not os.path.exists(os.path.join(root, "fragments.yaml")):
+        with open(os.path.join(root, "fragments.yaml"), "w") as f:
+            yaml.dump([], f)
+
+
+def create_entry(root, title, tags):
+    now = datetime.datetime.now()
+    entry_id = f"PCX-EP{now.strftime('%j')}-{now.strftime('%H%M')}"
+    filename = os.path.join(root, "entries", f"{entry_id}.md")
+    content = f"""# Codex Entry: {entry_id}
+**Title:** {title}
+**Date:** {now.date()}
+**Tags:** {', '.join(tags)}
+**Linked Threads:** []
+**Fragments:** []
+**Artifacts:** []
+**Content:**
+
+Write your memory here.
+"""
+    with open(filename, "w") as f:
+        f.write(content)
+    print(f"✅ Entry created: {filename}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,3 +1,70 @@
+# =========================
+# Chat Log v2 Endpoints
+# =========================
+
+# Import settings, db, and LLM router for chat_log-aware endpoints
+from guardian.config import get_settings
+from guardian.core.db import GuardianDB as NewGuardianDB
+from guardian.core.ai_router import chat_with_ai  # Adjust import if needed
+
+# Ensure db uses the new chat_log-aware GuardianDB!
+settings = get_settings()
+chatlog_db = NewGuardianDB(settings.GUARDIAN_DB_PATH)
+
+
+# /history/v2: Retrieve chat logs from new chat_log table
+@app.get("/history/v2", summary="Retrieve chat log history (v2)", tags=["Memory"])
+def chat_log_history(
+    session_id: str = Query(..., description="Session ID to fetch"),
+    user_id: str = Query("default", description="User ID"),
+    limit: int = Query(20, ge=1, le=200, description="Number of messages"),
+    api_key: str = Depends(require_api_key)
+):
+    """
+    Returns latest chat logs for a session/user, from the new chat_log table.
+    """
+    history = chatlog_db.get_chat_history(session_id=session_id, user_id=user_id, limit=limit)
+    results = [
+        {
+            "id": row[0], "timestamp": row[1], "session_id": row[2], "user_id": row[3],
+            "role": row[4], "message": row[5], "response": row[6], "backend": row[7],
+            "model": row[8], "agent": row[9], "tag": row[10], "extra": row[11]
+        }
+        for row in history
+    ]
+    return {"history": results}
+
+
+# /summarize/v2: Summarize recent chat logs using active LLM
+@app.post("/summarize/v2", summary="Summarize chat log history (v2)", tags=["Memory"])
+def summarize_chat_log(
+    session_id: str = Query(..., description="Session ID to summarize"),
+    user_id: str = Query("default", description="User ID"),
+    limit: int = Query(20, ge=1, le=200, description="How many messages to summarize"),
+    api_key: str = Depends(require_api_key)
+):
+    """
+    Summarizes chat history for a session/user using the currently active LLM backend.
+    """
+    history = chatlog_db.get_chat_history(session_id=session_id, user_id=user_id, limit=limit)
+    if not history:
+        return {"summary": "No chat history found for this session."}
+
+    # Compose LLM-ready message format (chronological)
+    messages = []
+    for row in reversed(history):
+        # row: id, timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra
+        if row[4] == "user" and row[5]:
+            messages.append({"role": "user", "content": row[5]})
+        elif row[4] == "assistant" and row[6]:
+            messages.append({"role": "assistant", "content": row[6]})
+
+    summary_prompt = [
+        {"role": "system", "content": "Summarize this conversation for future recall. Capture all key facts, emotional beats, and decisions. Be specific."}
+    ] + messages
+
+    summary = chat_with_ai(summary_prompt)
+    return {"summary": summary}
 import os
 import logging
 from fastapi import FastAPI, Query, Request, HTTPException
@@ -226,6 +293,114 @@ def history(
     return results
 
 # =========================
+# Thread Lineage Endpoints
+# =========================
+
+from pydantic import BaseModel
+
+class ThreadCreateRequest(BaseModel):
+    parent_thread_id: int = None
+    session_id: str = None
+    summary: str = ""
+    user_id: str = "default"
+    project_id: str = None
+
+@app.get("/threads", summary="List all threads", tags=["Threads"])
+def list_threads(
+    user_id: str = Query(None, description="Filter by user_id"),
+    project_id: str = Query(None, description="Filter by project_id"),
+    api_key: str = Depends(require_api_key)
+):
+    """
+    List all threads. Optionally filter by user or project.
+    """
+    # For simplicity, this fetches all; you can add pagination if needed
+    with chatlog_db as db:
+        conn = db._get_connection()
+        c = conn.cursor()
+        query = "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id FROM threads WHERE 1=1"
+        params = []
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        if project_id:
+            query += " AND project_id = ?"
+            params.append(project_id)
+        c.execute(query, params)
+        rows = c.fetchall()
+    results = [
+        {
+            "thread_id": row[0], "parent_thread_id": row[1], "session_id": row[2], "summary": row[3],
+            "created_at": row[4], "user_id": row[5], "project_id": row[6]
+        }
+        for row in rows
+    ]
+    return {"threads": results}
+
+@app.get("/thread/{thread_id}", summary="Get thread details", tags=["Threads"])
+def get_thread(
+    thread_id: int,
+    api_key: str = Depends(require_api_key)
+):
+    """
+    Get details for a specific thread by thread_id.
+    """
+    row = chatlog_db.get_thread(thread_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return {
+        "thread_id": row[0], "parent_thread_id": row[1], "session_id": row[2], "summary": row[3],
+        "created_at": row[4], "user_id": row[5], "project_id": row[6]
+    }
+
+@app.get("/thread/{thread_id}/children", summary="List child threads", tags=["Threads"])
+def get_child_threads(
+    thread_id: int,
+    api_key: str = Depends(require_api_key)
+):
+    """
+    List all child threads for a parent thread.
+    """
+    rows = chatlog_db.get_child_threads(thread_id)
+    results = [
+        {
+            "thread_id": row[0], "session_id": row[1], "summary": row[2],
+            "created_at": row[3], "user_id": row[4], "project_id": row[5]
+        }
+        for row in rows
+    ]
+    return {"children": results}
+
+@app.get("/thread/{thread_id}/summary", summary="Get thread summary", tags=["Threads"])
+def get_thread_summary(
+    thread_id: int,
+    api_key: str = Depends(require_api_key)
+):
+    """
+    Get the summary for a thread.
+    """
+    summary = chatlog_db.get_thread_summary(thread_id)
+    return {"thread_id": thread_id, "summary": summary}
+
+@app.post("/thread", summary="Create a new thread", tags=["Threads"])
+def create_thread(
+    req: ThreadCreateRequest,
+    api_key: str = Depends(require_api_key)
+):
+    """
+    Create a new thread with optional parent, summary, session, user, and project.
+    Returns the new thread_id.
+    """
+    thread_id = chatlog_db.create_thread(
+        parent_thread_id=req.parent_thread_id,
+        session_id=req.session_id,
+        summary=req.summary,
+        user_id=req.user_id,
+        project_id=req.project_id,
+    )
+    return {"thread_id": thread_id}
+
+# =========================
 # Gemini Proxy Endpoints
 # =========================
 
@@ -350,16 +525,23 @@ def summarization_check(
     allowed, msg = db.check_summarization_allowed(agent_id, requested_by)
     return {"allowed": allowed, "message": msg}
 
-@app.post("/summarize", summary="Trigger summarization for agent if allowed", tags=["Agent"])
-def trigger_summarization(
-    agent_id: str = Header(..., description="Agent or User ID"),
-    requested_by: str = Body("ai"),
-    force: bool = Body(False),
+
+@app.post("/research", summary="Run research agent (web/codex/hybrid)", tags=["Research"])
+def research_agent(
+    query: str = Body(..., embed=True, description="What do you want to research?"),
+    mode: str = Body("web", embed=True, description="'web', 'codex', or 'hybrid'"),
     api_key: str = Depends(require_api_key)
 ):
-    allowed, msg = db.check_summarization_allowed(agent_id, requested_by, force)
-    if not allowed:
-        raise HTTPException(status_code=403, detail=msg)
-    db.increment_summarization_count(agent_id, requested_by)
-    # Place actual summarization call/hook here as needed
-    return {"message": "Summarization performed.", "details": msg}
+    """
+    Run the research agent (web, codex, or hybrid mode) and return a markdown research report.
+    """
+    import asyncio
+    from guardian.core.research.Modules.main import generate_report, read_config
+    from guardian.core.research.Modules.agent import Planner, Agent
+
+    config = read_config()
+    planner = Planner(**config.get("planner", {}))
+    agents = [Agent(**a) for a in config.get("agents", [])]
+
+    report = asyncio.run(generate_report(query, planner, agents))
+    return {"mode": mode, "report": report}
