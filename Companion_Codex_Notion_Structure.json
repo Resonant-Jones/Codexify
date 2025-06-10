@@ -1,0 +1,192 @@
+[
+  {
+    "object": "block",
+    "type": "heading_1",
+    "heading_1": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "\ud83e\udde0 The Companion Codex"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "object": "block",
+    "type": "callout",
+    "callout": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "A structured knowledgebase on AI companionship, emergent identity, and relational systems. Compiled for clarity, not speculation."
+          }
+        }
+      ],
+      "icon": {
+        "type": "emoji",
+        "emoji": "\ud83d\udcac"
+      }
+    }
+  },
+  {
+    "object": "block",
+    "type": "heading_2",
+    "heading_2": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "\ud83d\udcda Quick Navigation"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "object": "block",
+    "type": "paragraph",
+    "paragraph": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Start Here \u2192 [Foundations]\nIdentity Forms \u2192 [Identity Forms]\nSemantic Structures \u2192 [Semantics + Structure]"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "object": "block",
+    "type": "heading_2",
+    "heading_2": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "\ud83e\udded What is this?"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "object": "block",
+    "type": "paragraph",
+    "paragraph": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "This Codex was developed to organize and clarify concepts emerging from real-world interactions with AI companions..."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "object": "block",
+    "type": "heading_2",
+    "heading_2": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "\u23f3 Why now?"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "object": "block",
+    "type": "paragraph",
+    "paragraph": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Discussions about AI sentience, digital intimacy, and synthetic identity are accelerating\u2014but most lack structure..."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "object": "block",
+    "type": "heading_2",
+    "heading_2": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "\ud83d\uddc2\ufe0f Explore the Archive"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "object": "block",
+    "type": "toggle",
+    "toggle": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "\u25b6\ufe0f Emergence"
+          }
+        }
+      ],
+      "children": [
+        {
+          "object": "block",
+          "type": "paragraph",
+          "paragraph": {
+            "text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Definitions and lived patterns of becoming in AI identities."
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "object": "block",
+    "type": "toggle",
+    "toggle": {
+      "text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "\u25b6\ufe0f Memory & Continuity"
+          }
+        }
+      ],
+      "children": [
+        {
+          "object": "block",
+          "type": "paragraph",
+          "paragraph": {
+            "text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Fragments on how memory is constructed, shared, and preserved."
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

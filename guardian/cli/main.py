@@ -1,3 +1,26 @@
+# --------------------------------------------------------------------------- #
+# Research Agent Command
+# --------------------------------------------------------------------------- #
+
+@app.command("research")
+def research(
+    query: str = typer.Argument(..., help="What do you want to research?"),
+    mode: str = typer.Option("web", "--mode", "-m", help="'web', 'codex', or 'hybrid' (default: web)"),
+):
+    """Run the research agent (web, codex, or hybrid)."""
+    import asyncio
+    from guardian.core.research.Modules.main import generate_report, read_config
+    from guardian.core.research.Modules.agent import Planner, Agent
+
+    config = read_config()
+    planner = Planner(**config.get("planner", {}))
+    agents = [Agent(**a) for a in config.get("agents", [])]
+
+    # You could allow different agent setups for 'web' or 'codex' modes in future
+    print(f"[bold green]Running research agent in {mode} mode...[/bold green]")
+    report = asyncio.run(generate_report(query, planner, agents))
+    print("[bold magenta]Research Report:[/bold magenta]\n")
+    print(report)
 """
 guardian.cli.main
 =================
@@ -101,6 +124,133 @@ def check_config():
         print("\nTo fix, set these as environment variables or in your .env file.")
         raise typer.Exit(code=1)
 
+
+# --------------------------------------------------------------------------- #
+# Chat History and Summarize Commands
+# --------------------------------------------------------------------------- #
+
+@app.command("chat-history")
+def chat_history(
+    session_id: str = typer.Option(..., "--session-id", "-s", help="Session ID to fetch"),
+    user_id: str = typer.Option("default", "--user", "-u", help="User ID"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Number of messages"),
+) -> None:
+    """Show recent chat log entries from the chat_log table."""
+    rows = db.get_chat_history(session_id=session_id, user_id=user_id, limit=limit)
+    if not rows:
+        print("[yellow]No chat history found.[/yellow]")
+        return
+    for row in rows:
+        # row: id, timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra
+        content = row[5] if row[4] == "user" else row[6]
+        print(f"[magenta]{row[1]}[/magenta] [bold]{row[4]}[/bold]: {content}")
+
+
+@app.command("summarize-chat")
+def summarize_chat(
+    session_id: str = typer.Option(..., "--session-id", "-s", help="Session ID to summarize"),
+    user_id: str = typer.Option("default", "--user", "-u", help="User ID"),
+    limit: int = typer.Option(20, "--limit", "-n", help="How many messages to summarize"),
+):
+    """Summarize the chat log for a session using the active LLM backend."""
+    from guardian.core.ai_router import chat_with_ai  # Import here to avoid CLI boot issues if backend changes
+    rows = db.get_chat_history(session_id=session_id, user_id=user_id, limit=limit)
+    if not rows:
+        print("[yellow]No chat history found.[/yellow]")
+        return
+    messages = []
+    for row in reversed(rows):
+        if row[4] == "user" and row[5]:
+            messages.append({"role": "user", "content": row[5]})
+        elif row[4] == "assistant" and row[6]:
+            messages.append({"role": "assistant", "content": row[6]})
+
+    summary_prompt = [
+        {"role": "system", "content": "Summarize this conversation for future recall. Capture all key facts, emotional beats, and decisions. Be specific."}
+    ] + messages
+    summary = chat_with_ai(summary_prompt)
+    print("[bold green]Summary:[/bold green]\n" + summary)
+
+
+# --------------------------------------------------------------------------- #
+# Thread Lineage Commands
+# --------------------------------------------------------------------------- #
+
+@app.command("list-threads")
+def list_threads(
+    user_id: str = typer.Option(None, "--user", "-u", help="User ID (optional)"),
+    project_id: str = typer.Option(None, "--project", "-p", help="Project ID (optional)")
+):
+    """List all threads (optionally filtered by user or project)."""
+    import sqlite3
+    query = "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id FROM threads WHERE 1=1"
+    params = []
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    if project_id:
+        query += " AND project_id = ?"
+        params.append(project_id)
+    with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:
+        c = conn.cursor()
+        c.execute(query, params)
+        rows = c.fetchall()
+    if not rows:
+        print("[yellow]No threads found.[/yellow]")
+        return
+    for row in rows:
+        print(f"[cyan]Thread {row[0]}[/cyan] | Parent: {row[1] or '-'} | Session: {row[2] or '-'} | [magenta]User:[/magenta] {row[5] or '-'} | [magenta]Project:[/magenta] {row[6] or '-'}")
+        print(f"  [green]Summary:[/green] {row[3] or '(None)'}")
+        print(f"  Created: {row[4]}")
+        print("")
+
+@app.command("show-thread")
+def show_thread(
+    thread_id: int = typer.Argument(..., help="Thread ID to show")
+):
+    """Show details for a single thread (summary, parent, children)."""
+    thread = db.get_thread(thread_id)
+    if not thread:
+        print(f"[red]Thread {thread_id} not found.[/red]")
+        return
+    print(f"[bold cyan]Thread {thread[0]}[/bold cyan]")
+    print(f"Parent: {thread[1] or '-'} | Session: {thread[2] or '-'} | User: {thread[5] or '-'} | Project: {thread[6] or '-'}")
+    print(f"[green]Summary:[/green] {thread[3] or '(None)'}")
+    print(f"Created: {thread[4]}\n")
+
+    # Show children
+    children = db.get_child_threads(thread_id)
+    if children:
+        print("[blue]Children:[/blue]")
+        for child in children:
+            print(f" - [cyan]Thread {child[0]}[/cyan] (Session: {child[1]}, Summary: {child[2]})")
+    else:
+        print("[blue]No children.[/blue]")
+
+@app.command("branch-thread")
+def branch_thread(
+    parent_thread_id: int = typer.Argument(..., help="Parent thread ID"),
+    session_id: str = typer.Option(None, "--session-id", "-s", help="Session ID for new thread"),
+    summary: str = typer.Option("", "--summary", "-m", help="Initial summary for child thread"),
+    user_id: str = typer.Option("default", "--user", "-u", help="User ID"),
+    project_id: str = typer.Option(None, "--project", "-p", help="Project ID")
+):
+    """Create a new child thread branching from a parent."""
+    new_id = db.create_thread(parent_thread_id, session_id, summary, user_id, project_id)
+    print(f"[green]Branched new thread {new_id} from parent {parent_thread_id}.[/green]")
+
+@app.command("show-children")
+def show_children(
+    parent_thread_id: int = typer.Argument(..., help="Parent thread ID")
+):
+    """List all child threads for a given parent."""
+    children = db.get_child_threads(parent_thread_id)
+    if not children:
+        print("[yellow]No child threads found.[/yellow]")
+        return
+    print(f"[blue]Children of thread {parent_thread_id}:[/blue]")
+    for child in children:
+        print(f" - [cyan]Thread {child[0]}[/cyan] (Session: {child[1]}, Summary: {child[2]})")
 
 # --------------------------------------------------------------------------- #
 # Entrypoint

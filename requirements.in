@@ -12,6 +12,12 @@ typer
 rich
 # Optional dependencies
 # Uncomment the following lines if you need these features
-# aiohttp
-# httpx
-# sqlalchemy                
+aiohttp
+httpx
+sqlalchemy
+crawl4ai
+selenium
+beautifulsoup4
+markitdown
+chromadb
+litellm
