@@ -27,7 +27,11 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = Field("llama3-70b-8192", description="Groq Model")
 
     # Backend selector
-    AI_BACKEND: str = Field("gemini", description="Active AI backend (gemini, openai, nebius, groq)")
+    AI_BACKEND: str = Field("ollama", description="Active AI backend (gemini, openai, nebius, groq, ollama)")
+
+    # Ollama (Local LLM)
+    OLLAMA_MODEL: str = Field("gemma3:1b", description="Ollama model tag (e.g. 'gemma3b:4b', 'gemma3:12b')")
+    OLLAMA_HOST: str = Field("http://localhost:11434", description="Ollama server URL")
 
     class Config:
         env_file = ".env"

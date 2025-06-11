@@ -38,9 +38,14 @@ def test_chat_log_persistence(temp_db_path):
     # Retrieve history and assert correct
     history = db.get_chat_history(session_id=session_id, user_id=user_id, limit=10)
     assert len(history) == 4
-    assert history[0]['message'] == "Hello, Axis!"
-    assert history[1]['role'] == "assistant"
-    assert history[-1]['message'] == "Dusty, as usual."
+    assert history[0]['message'] == "Dusty, as usual."
+    assert history[0]['role'] == "assistant"
+    assert history[1]['message'] == "What’s the weather on Mars?"
+    assert history[1]['role'] == "user"
+    assert history[2]['message'] == "Welcome, Resonant. How can I help?"
+    assert history[2]['role'] == "assistant"
+    assert history[3]['message'] == "Hello, Axis!"
+    assert history[3]['role'] == "user"
 
 def test_chat_history_order(temp_db_path):
     db = GuardianDB(db_path=temp_db_path)
@@ -62,7 +67,7 @@ def test_chat_history_order(temp_db_path):
             backend="test-backend"
         )
     history = db.get_chat_history(session_id=session_id, user_id=user_id, limit=10)
-    assert [m['message'] for m in history] == ["One", "Two", "Three", "Four"]
+    assert [m['message'] for m in history] == ["Four", "Three", "Two", "One"]
 
 # Optional: if you have a summary method, test it too!
 # def test_chat_summary(temp_db_path):

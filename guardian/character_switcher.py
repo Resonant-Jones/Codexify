@@ -57,7 +57,7 @@ def create_identity(actor_name: str) -> None:
             "prefer": []
         },
         "user_anchors": [],
-        "last_seen": datetime.utcnow().isoformat() + "Z",
+        "last_seen": datetime.now(datetime.UTC).isoformat() + "Z",
         "affective_trace": {
             "mood": "Neutral",
             "theme": "Unformed"
@@ -118,7 +118,7 @@ def backup_identities(backup_path: str = None) -> str:
     """
     try:
         if backup_path is None:
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
             backup_filename = f"pulseos_actors_backup_{timestamp}"
             backup_dir = Path.home()
             backup_path = str(backup_dir / backup_filename)

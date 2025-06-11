@@ -1,0 +1,23 @@
+
+
+
+[project]
+name = "guardian"
+version = "0.1.0"
+description = "PulseOS Guardian Backend"
+authors = [
+    { name="Catalyst Design Labs", email="dev@catalystlabs.ai" }
+]
+dependencies = [
+    "fastapi",
+    "httpx",
+    "python-dotenv",
+    "uvicorn",
+    "pytest",
+    "black",
+    "flake8"
+]
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["guardian", "guardian_codex"]

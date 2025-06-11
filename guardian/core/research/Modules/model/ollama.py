@@ -21,13 +21,27 @@ class Ollama(Model):
         msg_cache = ""
         if stream == False:
             res = chat(model=self.model, messages=self.messages, stream=False)
-            self._append_message(role="assistant", message=res["message"]["content"])
+            # Handle both string and dict responses for compatibility
+            if isinstance(res, dict):
+                # Most likely new Ollama API returns {"message": {"content": ...}}
+                content = res.get("message", {}).get("content", "")
+            elif isinstance(res, str):
+                # Fallback: just use the string
+                content = res
+            else:
+                # Unknown type: cast to string
+                content = str(res)
+            self._append_message(role="assistant", message=content)
+            # Wrap in OpenAI-style format
+            return {"choices": [{"message": {"content": content}}]}
         else:
             res = chat(model=self.model, messages=self.messages, stream=True)
             for chunk in res:
-                msg_cache += chunk["message"]["content"]
-                print(chunk["message"]["content"], end="", flush=True)
-        return res["message"]["content"] if stream == False else msg_cache
+                part = chunk.get("message", {}).get("content", "") if isinstance(chunk, dict) else str(chunk)
+                msg_cache += part
+                print(part, end="", flush=True)
+            # Wrap stream result in OpenAI-style format
+            return {"choices": [{"message": {"content": msg_cache}}]}
 
     def get_client(self):
         client = OpenAI(

@@ -220,7 +220,7 @@ class GuardianDB:
             return False, "Profile not found."
 
         freq = profile.get('summarization_frequency') or 'daily'
-        now = datetime.utcnow()
+        now = datetime.now(datetime.UTC)
         last = None
         if profile.get('last_summarized'):
             try:
@@ -258,7 +258,7 @@ class GuardianDB:
             return
         field = "ai_summary_count_today" if requested_by == "ai" else "human_summary_count_today"
         count = (profile.get(field) or 0) + 1
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(datetime.UTC).isoformat()
         self.upsert_agent_profile(agent_id, **{
             field: count,
             "last_summarized": now

@@ -13,6 +13,7 @@ Usage:
 
 import sqlite3
 from typing import Optional, List, Tuple, Any
+from datetime import timezone
 
 
 class GuardianDB:
@@ -239,7 +240,7 @@ class GuardianDB:
         Returns the new thread_id.
         """
         from datetime import datetime
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute(
@@ -306,7 +307,7 @@ class GuardianDB:
         """
         from datetime import datetime
         if timestamp is None:
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
         if model is None:
             model = "test-model"
         return self.insert_chat_log(

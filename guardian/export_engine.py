@@ -1,14 +1,22 @@
 import os
+from dotenv import load_dotenv
+
+env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+load_dotenv(dotenv_path=env_path, override=True)
+import os
 from pathlib import Path
 import json
 import csv
 import io
 import yaml
+
 from jinja2 import Template
 import pandas as pd
 # For Notion export markdown -> blocks
 from .codexify import markdown_to_notion_blocks, flatten_notion_blocks
-
+import logging
+logging.basicConfig(level=logging.INFO)
+logging.debug("NOTION_API_KEY loaded")
 # ========== Export Functions ==========
 
 def export_json(records):
@@ -122,7 +130,7 @@ def export_to_icloud(records, format="md", filename=None, template=None, subfold
 
 # ========== Notion Export Function ==========
 
-def export_to_notion(records, parent_id, notion_token, format="md", title=None, template=None):
+def export_to_notion(records, parent_id, notion_token, format="md", title=None, template=None, parent_type="page"):
     """
     Export records to Notion as a new page under the given parent_id (page or database).
     - parent_id: Notion page or database ID
@@ -200,12 +208,9 @@ def export_to_notion(records, parent_id, notion_token, format="md", title=None, 
         from datetime import datetime
         title = f"Guardian Export {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
-    # Build parent param (page or database)
+    # Build parent param (page or database) explicitly from parent_type
     # Notion API: parent must be {"page_id": ...} or {"database_id": ...}
-    if parent_id.replace("-", "").startswith("0"):
-        parent = {"database_id": parent_id}
-    else:
-        parent = {"page_id": parent_id}
+    parent = {f"{parent_type}_id": parent_id}
 
     # Create Notion page
     try:
