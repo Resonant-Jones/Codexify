@@ -74,7 +74,7 @@ def log(
     ),
 ) -> None:
     """Insert a new memory row."""
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(datetime.UTC).isoformat()
     db.insert_log(
         user_id=user_id,
         command=command,

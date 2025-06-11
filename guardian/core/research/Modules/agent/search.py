@@ -10,6 +10,8 @@ import json
 
 import time 
 
+import ast
+
 class Search_agent(Agent):
     def __init__(self, model:Model, k: int = 10):
         """
@@ -35,6 +37,87 @@ class Search_agent(Agent):
     
     def set_name(self , name):
         self.name = name
+
+    def _extract_response(self, res):
+        import re
+        import json
+        import codecs
+        import ast
+
+        print(f"[DEBUG] _extract_response: Raw input:\n{res}\n--- end raw input ---")
+
+        # Unescape string if it's str type, with ast.literal_eval for robust decoding
+        if isinstance(res, str):
+            try:
+                res = ast.literal_eval(f"'{res}'")
+            except Exception:
+                try:
+                    res = codecs.decode(res, 'unicode_escape')
+                except Exception:
+                    pass
+
+        # 1. If it's a dict with 'choices', extract actual string content
+        if isinstance(res, dict) and 'choices' in res:
+            try:
+                res = res['choices'][0]['message']['content']
+            except Exception as e:
+                print(f"[DEBUG] _extract_response: Could not extract content from dict: {e}\nGot: {res}")
+                return None
+
+        # 2. If not string now, bail out with debug
+        if not isinstance(res, str):
+            print(f"[DEBUG] _extract_response: Expected string, got {type(res)}: {res}")
+            return None
+
+        # 3. Try to extract JSON from Markdown code block
+        markdown_pattern = r"```(?:json)?\n([\s\S]+?)\n```"
+        markdown_matches = re.findall(markdown_pattern, res, re.DOTALL)
+        if markdown_matches:
+            extracted = markdown_matches[0].strip()
+            print(f"[DEBUG] _extract_response: Extracted markdown block:\n{extracted}")
+            return extracted
+
+        # 4. Try to parse the raw string as JSON
+        try:
+            json.loads(res.strip())
+            print(f"[DEBUG] _extract_response: Raw content is valid JSON:\n{res.strip()}")
+            return res.strip()
+        except Exception:
+            print(f"[DEBUG] _extract_response: Raw content is not valid JSON. Trying fallback extraction.")
+
+        # 5. Fallback: Try to extract JSON objects or arrays from within the string
+        json_candidates = []
+        for start_char, end_char in [("{", "}"), ("[", "]")]:
+            start_idx = 0
+            while True:
+                start_pos = res.find(start_char, start_idx)
+                if start_pos == -1:
+                    break
+                bracket_count = 0
+                end_pos = start_pos
+                for i in range(start_pos, len(res)):
+                    char = res[i]
+                    if char == start_char:
+                        bracket_count += 1
+                    elif char == end_char:
+                        bracket_count -= 1
+                        if bracket_count == 0:
+                            end_pos = i
+                            break
+                if bracket_count == 0 and end_pos > start_pos:
+                    candidate = res[start_pos : end_pos + 1].strip()
+                    json_candidates.append(candidate)
+                start_idx = start_pos + 1
+        for candidate in reversed(json_candidates):
+            try:
+                json.loads(candidate)
+                print(f"[DEBUG] _extract_response: Extracted valid fallback JSON candidate:\n{candidate}")
+                return candidate
+            except json.JSONDecodeError:
+                continue
+
+        print(f"[DEBUG] _extract_response: No valid JSON found after all attempts.")
+        return None
 
     async def run(self, task, data) -> str:
         """
@@ -104,7 +187,18 @@ class Search_agent(Agent):
         response = self.model.completion(prompt)
         print(f"searcher response: {response}")
         time.sleep(3) ## foo foo solution
-        todo_list = json.loads(self._extract_response(response))
+
+        # Handle both string and dict responses (Ollama's are dicts with 'choices')
+        if isinstance(response, dict) and "choices" in response:
+            # Grab the content string from the response object
+            res_str = response["choices"][0]["message"]["content"]
+        else:
+            res_str = response
+
+        raw = self._extract_response(res_str)
+        if raw is None:
+            raise ValueError("Failed to extract JSON from response")
+        todo_list = json.loads(raw)
         
         print(todo_list)
         k -= len(todo_list)
@@ -132,13 +226,25 @@ class Search_agent(Agent):
     async def _page_content(self, query):
         print("page content handling ... ")
         if not self.url_list:
-            return None # no url
-        urls =[]
+            print("[DEBUG] No URLs in self.url_list.")
+            return None  # no url
+
+        print(f"[DEBUG] url_list: {self.url_list}")
+
+        urls = []
         for element in self.url_list:
-            urls.append(element['url'])
-        summary_list = await self.crawl.get_summary(urls , query)
+            print(f"[DEBUG] Inspecting element: {element}")
+            if isinstance(element, dict) and 'url' in element:
+                urls.append(element['url'])
+            else:
+                print(f"[DEBUG] Skipping element without 'url': {element}")
+        print(f"[DEBUG] Collected URLs: {urls}")
+
+        summary_list = await self.crawl.get_summary(urls, query)
+        print(f"[DEBUG] Summary list: {summary_list}")
 
         for summary in summary_list:
+            print(f"[DEBUG] Individual summary: {summary}")
             summary['url'] = summary.get('url', "")
             summary['title'] = summary.get('title', "")
             summary['summary'] = summary.get('summary', "")
@@ -147,11 +253,43 @@ class Search_agent(Agent):
             self.db.append(
                 {
                     "title": summary['title'],
-                    "brief_summary" : summary['brief_summary'],
-                    "summary":summary['summary'],
-                    "keywords":summary["keywords"],
+                    "brief_summary": summary['brief_summary'],
+                    "summary": summary['summary'],
+                    "keywords": summary["keywords"],
                     "url": summary["url"],
                 }
             )
         return summary_list
         
+        
+
+# --- CLI Entrypoint ---
+if __name__ == "__main__":
+    import argparse
+    from ..model import ollama, gemini, openai  # add imports for your backends as needed
+    import asyncio
+
+    parser = argparse.ArgumentParser(description="Run a search agent with a specific query")
+    parser.add_argument("--query", type=str, required=True, help="Query to search for")
+    parser.add_argument("--backend", type=str, default="ollama", help="Which backend to use: ollama, gemini, openai")
+    parser.add_argument("--model", type=str, default="gemma:4b", help="Model name (e.g., gemma:4b, llama3:8b, etc.)")
+
+    args = parser.parse_args()
+
+    # Dynamically select backend/model class
+    backend_map = {
+        "ollama": ollama.Ollama,
+        "gemini": gemini.Gemini,
+        "openai": openai.OpenAI,
+    }
+    ModelClass = backend_map.get(args.backend, ollama.Ollama)
+    model_instance = ModelClass(args.model)
+
+    agent = Search_agent(model_instance)
+    # The agent's planner and crawl are async, so use asyncio to run them
+    async def run_agent():
+        # agent.run expects (task, data) -> str (see class above). We'll pass the query and an empty list for data.
+        result = await agent.run(args.query, [])
+        print(result)
+
+    asyncio.run(run_agent())

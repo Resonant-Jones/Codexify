@@ -27,7 +27,7 @@ def create_actor(name):
             "prefer": []
         },
         "user_anchors": [],
-        "last_seen": datetime.utcnow().isoformat() + "Z",
+        "last_seen": datetime.now(datetime.UTC).isoformat() + "Z",
         "affective_trace": {
             "mood": "Neutral",
             "theme": "Unformed"

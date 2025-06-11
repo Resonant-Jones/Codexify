@@ -1,53 +1,46 @@
-from google import genai
-from google.genai import types
-from openai import OpenAI
-
-from crawl4ai import LLMConfig
-
+import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+from crawl4ai import LLMConfig
 
 from .model import Model
 
-
-"""
-    refactor to openai versoin
-"""
 class Gemini(Model):
     def __init__(self, model):
         load_dotenv()
         self.api_key = os.getenv("GEMINI_API")
         self.model = model
-        self.client = genai.Client(api_key=self.api_key)
-        self.messages = self.client.chats.create(model=model)
-
+        # Configure Gemini SDK
+        genai.configure(api_key=self.api_key)
+        # Create a chat session (for multi-turn)
+        self.session = genai.ChatSession(model=model)
+    
     def clear_message(self):
-        self.messages = self.client.chats.create(model=self.model)
+        """Clears the chat session."""
+        self.session = genai.ChatSession(model=self.model)
 
     def set_api(self , api):
         self.api = api
         
     def completion(self, query: str):
-        res = self.message.send_message(query)
-        return res.text
+        """Send a message and return the response text."""
+        response = self.session.send_message(query)
+        # If response is a list of candidates, return the first one's text
+        if hasattr(response, "text"):
+            return response.text
+        elif isinstance(response, list) and len(response) > 0 and hasattr(response[0], "text"):
+            return response[0].text
+        else:
+            return str(response)
 
     def reset(self):
-        """
-        Reset chat message
-        """
-        self.message = self.client.chats.create(model=Model)
+        """Reset chat session."""
+        self.session = genai.ChatSession(model=self.model)
 
     def add_system_instruction(self, instruction: str):
-        self.message.send_message(
-            config=types.GenerateContentConfig(system_instruction=instruction)
-        )
-
-    def get_client(self):
-        client = OpenAI(
-            api_key=self.api_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        )
-        return client
+        # System instructions in Gemini SDK may require config object
+        # See https://ai.google.dev/docs/system-instructions for updates
+        pass  # Placeholder (implement as needed)
 
     def get_llm_config(self) -> LLMConfig:
         return LLMConfig(provider="gemini/" + self.model, api_token=self.api_key)
