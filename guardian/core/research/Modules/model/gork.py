@@ -3,7 +3,15 @@ from .model import Model
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from crawl4ai import LLMConfig
+try:
+    from crawl4ai import LLMConfig
+except ImportError:  # pragma: no cover - fallback for older crawl4ai versions
+    from dataclasses import dataclass
+
+    @dataclass
+    class LLMConfig:
+        provider: str
+        api_token: str | None = None
 
 import os 
 

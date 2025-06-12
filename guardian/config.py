@@ -40,8 +40,8 @@ class Settings(BaseSettings):
     HYBRID_ENABLED: bool = Field(True, description="Enable hybrid routing: cloud for research/search, local for chat/general)")
     LOCAL_MODEL_NAME: str = Field("gemma3n", description="Default local model name (e.g., gemma3n for mobile)")
     LOCAL_API_HOST: str = Field("http://localhost:11434", description="Local API host (or mobile endpoint)")
-    CLOUD_MODEL_NAME: str = Field("gpt-4", description="Default cloud model name (e.g., gpt-4, gemini-pro)")
-    CLOUD_API_HOST: str = Field("https://api.openai.com/v1", description="Cloud API endpoint")
+    CLOUD_MODEL_NAME: str = Field("gemini", description="Default cloud model name (e.g., gpt-4, gemini-pro)")
+    CLOUD_API_HOST: str = Field("https://generativelanguage.googleapis.com/v1/models", description="Cloud API endpoint")
 
     class Config:
         env_file = ".env"

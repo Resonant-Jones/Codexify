@@ -1,11 +1,20 @@
 # we may use crew_ai write some api for it
-from crawl4ai import (
-    AsyncWebCrawler,
-    BrowserConfig,
-    CrawlerRunConfig,
-    CacheMode,
-    LLMConfig,
-)
+try:
+    from crawl4ai import (
+        AsyncWebCrawler,
+        BrowserConfig,
+        CrawlerRunConfig,
+        CacheMode,
+        LLMConfig,
+    )
+except ImportError:  # pragma: no cover - older crawl4ai
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+    from dataclasses import dataclass
+
+    @dataclass
+    class LLMConfig:
+        provider: str
+        api_token: str | None = None
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
 from pydantic import BaseModel, Field
 from markitdown import MarkItDown
