@@ -21,3 +21,5 @@ beautifulsoup4
 markitdown
 chromadb
 litellm
+pytest-asyncio
+anyio

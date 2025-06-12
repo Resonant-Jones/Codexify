@@ -1,6 +1,9 @@
 # --------------------------------------------------------------------------- #
 # Research Agent Command
 # --------------------------------------------------------------------------- #
+from datetime import timezone
+import typer
+app = typer.Typer(help="Guardian command‑line interface")
 
 @app.command("research")
 def research(
@@ -41,12 +44,13 @@ from rich import print
 
 from guardian.core.db import GuardianDB
 from guardian.config import get_settings
+from guardian.core.utils.hybrid_router import HybridRouter
 
 # --------------------------------------------------------------------------- #
 # Setup
 # --------------------------------------------------------------------------- #
 
-app = typer.Typer(help="Guardian command‑line interface")
+
 settings = get_settings()
 db = GuardianDB(settings.GUARDIAN_DB_PATH)
 
@@ -74,7 +78,7 @@ def log(
     ),
 ) -> None:
     """Insert a new memory row."""
-    timestamp = datetime.now(datetime.UTC).isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     db.insert_log(
         user_id=user_id,
         command=command,
@@ -255,6 +259,28 @@ def show_children(
 # --------------------------------------------------------------------------- #
 # Entrypoint
 # --------------------------------------------------------------------------- #
+
+
+# CLI root callback to set LLM routing mode via CLI flags
+@app.callback()
+def main(
+    cloud_only: bool = typer.Option(
+        False, "--cloud-only", help="Force all LLM calls to cloud (sovereignty warning!)"
+    ),
+    hybrid: bool = typer.Option(
+        False, "--hybrid", help="Enable hybrid mode: cloud for research, local for chat"
+    ),
+):
+    """
+    Guardian CLI root callback: set LLM routing mode via CLI flags.
+    """
+    if cloud_only:
+        HybridRouter.set_cloud_only(True)
+        print("[bold yellow]⚠️  CLOUD ONLY MODE ENABLED: All LLM tasks routed to cloud.[/bold yellow]")
+    elif hybrid:
+        HybridRouter.set_hybrid_enabled(True)
+        print("[cyan]Hybrid mode enabled: cloud for research, local for chat.[/cyan]")
+
 
 if __name__ == "__main__":
     app()
