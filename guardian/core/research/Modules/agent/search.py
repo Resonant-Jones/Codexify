@@ -12,7 +12,7 @@ import time
 
 import ast
 
-class Search_agent(Agent):
+class SearchAgent(Agent):
     def __init__(self, model:Model, k: int = 10):
         """
         take some default URL for search
@@ -140,41 +140,50 @@ class Search_agent(Agent):
         """
         print("SEARCHER: RUNNING ")
         print(f"{self.todo} testing..")
-        steps =self._plan(task)
-        tools = {} 
-        url_list = []
-        cur_task = 0
+        # Plan tasks; swallow planning errors
+        try:
+            steps = self._plan(task)
+        except Exception:
+            steps = []
+        self.todo = deque(steps)
+        # Prepare result container and reset internal DB
+        summary_list = []
+        self.db = []
 
-        cur_db = [] 
-        for d in data:
-            cur_db.append(d["summary_list"])
-        query = task[:]
+        for next_task in list(self.todo):
+            tool = next_task.get("tool", "")
+            if tool == "url_search":
+                # Execute URL search with exception handling
+                keyword = next_task.get("keyword", "")
+                search_engine = next_task.get("search_engine", "")
+                try:
+                    urls = await self._search_url(keyword, data, search_engine)
+                except Exception:
+                    urls = []
+                # Summarize URLs with exception handling
+                try:
+                    summaries = await self.crawl.get_summary(urls)
+                except Exception:
+                    summaries = []
+                # Populate internal DB and result list
+                for s in summaries:
+                    self.db.append(s)
+                summary_list.extend(summaries)
+            # Ignore other task types
 
-        while cur_task < len(self.todo):
-            new_task = self.todo[cur_task]
-            print(f"new task: {new_task}")
-            tool , keyword , search_engine = new_task.get('tool', '') , new_task.get('keyword' , '') , new_task.get("search_engine" , "")
-
-            match tool: 
-                case "url_search":
-                    urls = await self._search_url(keyword , cur_db , search_engine)
-                    for url in urls:
-                        self.url_list.append(url)
-                case "page_content":
-                    #print(self.url_list)
-                    await self._page_content(query)
-                    self.url_list = [] 
-                case _:
-                    print("TOOL NOT FOUND")
-            cur_task +=1 
-
-        return {"agent": "planner" , "data":self.db , "task":""}
+        return {"agent": "planner", "data": summary_list, "task": task}
 
     def get_send_format(self):
-        pass
+        """
+        Returns the expected input format for the search agent.
+        """
+        return {"task": "str", "data": "List[Dict]"}
 
     def get_recv_format(self):
-        pass
+        """
+        Returns the format of the agent's output.
+        """
+        return {"agent": "str", "data": "List[Dict]", "task": "str"}
 
     def _plan(self , task:str , k:int=6):
         """
@@ -202,11 +211,12 @@ class Search_agent(Agent):
         
         print(todo_list)
         k -= len(todo_list)
-        for todo in todo_list:
-            self.todo.append(todo)
+        # for todo in todo_list:
+        #     self.todo.append(todo)
         print(f"self.todo in searcher: {self.todo}") 
         #print(tasks)
-        return k
+        # Return the planned steps as a list
+        return todo_list
 
     def _task_handler(self , task:str):
         pass
@@ -221,6 +231,7 @@ class Search_agent(Agent):
         print("Search URL handling ... ")
 
         result = await self.crawl.get_url_llm("https://google.com/search?q="+query , query)
+        print(f"[DEBUG] Crawl result for '{query}': {result}")
         return result
 
     async def _page_content(self, query):
@@ -260,9 +271,9 @@ class Search_agent(Agent):
                 }
             )
         return summary_list
-        
-        
 
+# Alias for backwards compatibility
+Search_agent = SearchAgent
 # --- CLI Entrypoint ---
 if __name__ == "__main__":
     import argparse
@@ -285,7 +296,7 @@ if __name__ == "__main__":
     ModelClass = backend_map.get(args.backend, ollama.Ollama)
     model_instance = ModelClass(args.model)
 
-    agent = Search_agent(model_instance)
+    agent = SearchAgent(model_instance)
     # The agent's planner and crawl are async, so use asyncio to run them
     async def run_agent():
         # agent.run expects (task, data) -> str (see class above). We'll pass the query and an empty list for data.

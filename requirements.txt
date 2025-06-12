@@ -17,3 +17,5 @@ markitdown
 aiohttp
 chromadb
 litellm
+pytest-asyncio
+anyio

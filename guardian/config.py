@@ -30,8 +30,18 @@ class Settings(BaseSettings):
     AI_BACKEND: str = Field("ollama", description="Active AI backend (gemini, openai, nebius, groq, ollama)")
 
     # Ollama (Local LLM)
-    OLLAMA_MODEL: str = Field("gemma3:1b", description="Ollama model tag (e.g. 'gemma3b:4b', 'gemma3:12b')")
+    OLLAMA_MODEL: str = Field("gemma3:12b", description="Ollama model tag (e.g. 'gemma3b:4b', 'gemma3:12b')")
     OLLAMA_HOST: str = Field("http://localhost:11434", description="Ollama server URL")
+
+    # ===== PulseOS Routing Layer =====
+    # These settings control AI routing behavior (local/cloud/hybrid)
+    # AI Routing Toggles
+    CLOUD_ONLY: bool = Field(False, description="Force all LLM calls to cloud backend (overrides hybrid/local)")
+    HYBRID_ENABLED: bool = Field(True, description="Enable hybrid routing: cloud for research/search, local for chat/general)")
+    LOCAL_MODEL_NAME: str = Field("gemma3n", description="Default local model name (e.g., gemma3n for mobile)")
+    LOCAL_API_HOST: str = Field("http://localhost:11434", description="Local API host (or mobile endpoint)")
+    CLOUD_MODEL_NAME: str = Field("gpt-4", description="Default cloud model name (e.g., gpt-4, gemini-pro)")
+    CLOUD_API_HOST: str = Field("https://api.openai.com/v1", description="Cloud API endpoint")
 
     class Config:
         env_file = ".env"
