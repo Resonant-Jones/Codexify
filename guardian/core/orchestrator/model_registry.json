@@ -1,0 +1,56 @@
+
+
+{
+  
+  "default": "gemma_local",
+  "gemma_local": {
+    "type": "ollama",
+    "adapter": "GemmaOllamaAdapter",
+    "model": "gemma:4b-it"
+  },
+
+  "phi_local": {
+    "type": "ollama",
+    "adapter": "PhiOllamaAdapter",
+    "model": "phi3:mini"
+  },
+
+  "models": [
+    {
+      "id": "phi3_mini",
+      "label": "Phi-3 Mini",
+      "model": "phi3:mini",
+      "size": "1.8B",
+      "context": "2K",
+      "requires": "iPhone 12 or better",
+      "recommended": true
+    },
+    {
+      "id": "phi4_reasoning",
+      "label": "Phi-4 Mini Reasoning",
+      "model": "phi4-mini-reasoning:latest",
+      "size": "3.8B",
+      "context": "4K",
+      "requires": "iPhone 15 Pro or better",
+      "recommended": true
+    },
+    {
+      "id": "gemma_2b",
+      "label": "Gemma 2B",
+      "model": "gemma:2b",
+      "size": "2B",
+      "context": "4K",
+      "requires": "MacBook M1 or better",
+      "recommended": false
+    },
+    {
+      "id": "dolphin3",
+      "label": "Dolphin 3.0",
+      "model": "dolphin3",
+      "size": "7B",
+      "context": "4K",
+      "requires": "MacBook M2+ or equivalent",
+      "recommended": true
+    }
+  ]
+}

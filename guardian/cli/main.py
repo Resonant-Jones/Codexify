@@ -1,9 +1,30 @@
 # --------------------------------------------------------------------------- #
+# Orchestrate Command
+# --------------------------------------------------------------------------- #
+import typer
+app = typer.Typer()
+import json
+from guardian.core.orchestrator.pulse_orchestrator import orchestrate
+
+
+# Add a new CLI command for orchestrate
+@app.command("orchestrate")
+def orchestrate_command(
+    json_input: str = typer.Argument(..., help="JSON string representing the command for Gemma to orchestrate.")
+):
+    """Send a structured command to Gemma's orchestrator engine."""
+    try:
+        command_dict = json.loads(json_input)
+    except json.JSONDecodeError:
+        print("[red]Invalid JSON input.[/red]")
+        raise typer.Exit(code=1)
+    result = orchestrate(command_dict)
+    print("[bold green]Orchestration Result:[/bold green]")
+    print(json.dumps(result, indent=2))
+# --------------------------------------------------------------------------- #
 # Research Agent Command
 # --------------------------------------------------------------------------- #
 from datetime import timezone
-import typer
-app = typer.Typer(help="Guardian command‑line interface")
 
 @app.command("research")
 def research(
@@ -39,7 +60,6 @@ Run with:
 from datetime import datetime
 from typing import Optional
 
-import typer
 from rich import print
 
 from guardian.core.db import GuardianDB

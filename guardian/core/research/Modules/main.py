@@ -3,8 +3,8 @@
 """
 import json 
 
-from src.agent import Planner, Agent
-from src.router import Server , Router 
+from .agent import Planner, Agent
+from .router import Server, Router
 
 async def generate_report(query , planner:Planner , agents:list[Agent]):
     planner.query = query
