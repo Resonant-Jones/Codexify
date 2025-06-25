@@ -1,17 +1,18 @@
 import json
 from pathlib import Path
 
+
 def assemble_prompt(identity_path, cue_card_path, context_path, current_goal=None):
     # Load identity profile
-    with open(identity_path, 'r') as file:
+    with open(identity_path, "r") as file:
         identity = json.load(file)
 
     # Load cue card
-    with open(cue_card_path, 'r') as file:
+    with open(cue_card_path, "r") as file:
         cue_card = file.read().strip()
 
     # Load last context
-    with open(context_path, 'r') as file:
+    with open(context_path, "r") as file:
         last_context = file.read().strip()
 
     # Format user anchors as inline context
@@ -35,8 +36,9 @@ Theme: {theme}
 
 Current Goal:
 {current_goal if current_goal else "Assist Resonant with ongoing work."}
-"""    
+"""
     return prompt
+
 
 # Example usage (adjust paths as needed)
 if __name__ == "__main__":
@@ -44,6 +46,6 @@ if __name__ == "__main__":
         identity_path="identity.json",
         cue_card_path="gregorios.prompt",
         context_path="last_context.md",
-        current_goal="Assist Resonant in compiling Codexify schema routing for the desktop GUI."
+        current_goal="Assist Resonant in compiling Codexify schema routing for the desktop GUI.",
     )
     print(prompt)

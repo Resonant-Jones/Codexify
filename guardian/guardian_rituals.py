@@ -5,6 +5,7 @@ import uuid
 
 RITUAL_JOBS = {}
 
+
 class RitualJob:
     def __init__(self, target, description, total, **kwargs):
         self.job_id = str(uuid.uuid4())
@@ -31,14 +32,17 @@ class RitualJob:
     def done(self):
         self.state = "done"
 
+
 def start_ritual_job(target, description, total, **kwargs):
     job = RitualJob(target, description, total, **kwargs)
     job.thread.start()
     return job.job_id
 
+
 # Minimal stub for Notion seed function
 def seed_notion_db_with_progress(records, db_id, notion_token, job=None):
     import time
+
     for i, record in enumerate(records):
         # Simulate a time-consuming step
         time.sleep(0.2)

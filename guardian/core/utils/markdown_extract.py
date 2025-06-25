@@ -1,5 +1,6 @@
-import re
 import json
+import re
+
 
 def extract_json_from_markdown(markdown_text: str):
     """

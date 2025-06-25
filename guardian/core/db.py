@@ -12,18 +12,18 @@ Usage:
 """
 
 import sqlite3
-from typing import Optional, List, Tuple, Any
-from datetime import timezone
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class GuardianDB:
     """Handles all low-level memory persistence in SQLite for Guardian."""
 
-    def __init__(self, db_path: str = "guardian.db"):
+    def __init__(self, db_path: str = "guardian.db") -> None:
         self.db_path = db_path
         self.upgrade_db_schema()  # <-- Add this line so table always exists
 
-    def init_db(self):
+    def init_db(self) -> None:
         """Initializes the database schema for memory storage (legacy) and calls upgrade_db_schema for chat_log."""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -42,7 +42,7 @@ class GuardianDB:
             conn.commit()
         self.upgrade_db_schema()
 
-    def upgrade_db_schema(self):
+    def upgrade_db_schema(self) -> None:
         """
         Ensures the chat_log table exists and is up to date.
         Adds missing columns if needed. This is the new canonical chat history table.
@@ -64,12 +64,18 @@ class GuardianDB:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             # Check if table exists
-            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_log'")
+            c.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_log'"
+            )
             exists = c.fetchone()
             if not exists:
                 # Create the full table if missing
-                columns_def = ",\n    ".join([f"{col} {ctype}" for col, ctype in schema_columns])
-                c.execute(f"CREATE TABLE IF NOT EXISTS chat_log (\n    {columns_def}\n)")
+                columns_def = ",\n    ".join(
+                    [f"{col} {ctype}" for col, ctype in schema_columns]
+                )
+                c.execute(
+                    f"CREATE TABLE IF NOT EXISTS chat_log (\n    {columns_def}\n)"
+                )
                 conn.commit()
                 return
             # Table exists, check for missing columns
@@ -105,8 +111,8 @@ class GuardianDB:
         tag: Optional[str] = None,
         agent: Optional[str] = None,
         timestamp: Optional[str] = None,
-        user_id: str = "default"
-    ):
+        user_id: str = "default",
+    ) -> None:
         """
         Insert a log entry into the legacy memory table.
         NOTE: The new canonical table for chat history is 'chat_log'.
@@ -118,14 +124,12 @@ class GuardianDB:
                 INSERT INTO memory (timestamp, command, tag, agent, user_id)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (timestamp, command, tag, agent, user_id)
+                (timestamp, command, tag, agent, user_id),
             )
             conn.commit()
 
     def get_history(
-        self,
-        limit: int = 10,
-        user_id: Optional[str] = None
+        self, limit: int = 10, user_id: Optional[str] = None
     ) -> List[Tuple[Any, ...]]:
         """
         Retrieve memory rows (most recent first) from the legacy memory table.
@@ -143,7 +147,7 @@ class GuardianDB:
                     ORDER BY id DESC
                     LIMIT ?
                     """,
-                    (user_id, limit)
+                    (user_id, limit),
                 )
             else:
                 c.execute(
@@ -153,7 +157,7 @@ class GuardianDB:
                     ORDER BY id DESC
                     LIMIT ?
                     """,
-                    (limit,)
+                    (limit,),
                 )
             return c.fetchall()
 
@@ -167,10 +171,10 @@ class GuardianDB:
         response: str,
         backend: str,
         model: str,
-        agent: str = None,
-        tag: str = None,
-        extra: str = None
-    ):
+        agent: Optional[str] = None,
+        tag: Optional[str] = None,
+        extra: Optional[str] = None,
+    ) -> None:
         """
         Insert a chat log entry into the canonical 'chat_log' table.
         """
@@ -182,7 +186,19 @@ class GuardianDB:
                     timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra)
+                (
+                    timestamp,
+                    session_id,
+                    user_id,
+                    role,
+                    message,
+                    response,
+                    backend,
+                    model,
+                    agent,
+                    tag,
+                    extra,
+                ),
             )
             conn.commit()
 
@@ -193,11 +209,11 @@ class GuardianDB:
         limit: int = 20,
         offset: int = 0,
         order: str = "desc",
-        role: str = None,
-        after: str = None,     # Expects ISO8601 string
-        before: str = None,    # Expects ISO8601 string
-        keyword: str = None
-    ) -> list[dict]:
+        role: Optional[str] = None,
+        after: Optional[str] = None,  # Expects ISO8601 string
+        before: Optional[str] = None,  # Expects ISO8601 string
+        keyword: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Retrieve chat history from the canonical 'chat_log' table, with advanced options.
         - Pagination: limit, offset
@@ -234,12 +250,19 @@ class GuardianDB:
             rows = c.fetchall()
             columns = [desc[0] for desc in c.description]
             return [dict(zip(columns, row)) for row in rows]
-    def create_thread(self, parent_thread_id, session_id, summary, user_id, project_id=None):
+
+    def create_thread(
+        self,
+        parent_thread_id: Optional[int],
+        session_id: str,
+        summary: str,
+        user_id: str,
+        project_id: Optional[str] = None,
+    ) -> int:
         """
         Create a new thread with optional parent and summary.
         Returns the new thread_id.
         """
-        from datetime import datetime
         created_at = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -248,12 +271,19 @@ class GuardianDB:
                 INSERT INTO threads (parent_thread_id, session_id, summary, created_at, user_id, project_id)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (parent_thread_id, session_id, summary, created_at, user_id, project_id)
+                (
+                    parent_thread_id,
+                    session_id,
+                    summary,
+                    created_at,
+                    user_id,
+                    project_id,
+                ),
             )
             conn.commit()
             return c.lastrowid
 
-    def get_thread(self, thread_id):
+    def get_thread(self, thread_id: int) -> Optional[Tuple[Any, ...]]:
         """
         Get a thread by thread_id.
         """
@@ -261,11 +291,11 @@ class GuardianDB:
             c = conn.cursor()
             c.execute(
                 "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id FROM threads WHERE thread_id = ?",
-                (thread_id,)
+                (thread_id,),
             )
             return c.fetchone()
 
-    def get_child_threads(self, parent_thread_id):
+    def get_child_threads(self, parent_thread_id: int) -> List[Tuple[Any, ...]]:
         """
         Get all threads with a given parent_thread_id.
         """
@@ -273,11 +303,11 @@ class GuardianDB:
             c = conn.cursor()
             c.execute(
                 "SELECT thread_id, session_id, summary, created_at, user_id, project_id FROM threads WHERE parent_thread_id = ?",
-                (parent_thread_id,)
+                (parent_thread_id,),
             )
             return c.fetchall()
 
-    def insert_summary(self, thread_id, summary):
+    def insert_summary(self, thread_id: int, summary: str) -> None:
         """
         Update a thread's summary (latest rollup).
         """
@@ -285,27 +315,37 @@ class GuardianDB:
             c = conn.cursor()
             c.execute(
                 "UPDATE threads SET summary = ? WHERE thread_id = ?",
-                (summary, thread_id)
+                (summary, thread_id),
             )
             conn.commit()
 
-    def get_thread_summary(self, thread_id):
+    def get_thread_summary(self, thread_id: int) -> Optional[str]:
         """
         Get the summary for a thread.
         """
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute(
-                "SELECT summary FROM threads WHERE thread_id = ?",
-                (thread_id,)
-            )
+            c.execute("SELECT summary FROM threads WHERE thread_id = ?", (thread_id,))
             row = c.fetchone()
             return row[0] if row else None
-    def add_chat_log(self, session_id, user_id, role, message, response=None, backend=None, model="test-model", timestamp=None, agent=None, tag=None, extra=None):
+
+    def add_chat_log(
+        self,
+        session_id: str,
+        user_id: str,
+        role: str,
+        message: str,
+        response: Optional[str] = None,
+        backend: Optional[str] = None,
+        model: str = "test-model",
+        timestamp: Optional[str] = None,
+        agent: Optional[str] = None,
+        tag: Optional[str] = None,
+        extra: Optional[str] = None,
+    ) -> None:
         """
         Insert a chat log entry into the canonical 'chat_log' table. Fills missing fields with defaults.
         """
-        from datetime import datetime
         if timestamp is None:
             timestamp = datetime.now(timezone.utc).isoformat()
         if model is None:

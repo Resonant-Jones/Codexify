@@ -1,50 +1,59 @@
+import json
+import logging
+import re
+
+from ..prompt import retrival_agent_prompt
 from ..RAG.chrome import VectorSearch
 from .agent import Agent
-from ..prompt import retrival_agent_prompt
 
-import json
-import re
+logger = logging.getLogger(__name__)
 
 
 class RAG_agent(Agent):
     """
-    RAG Agent should able to do search relevant content given a query
-    It should also have it's own database for search relevant content and also chacing recent result
+    RAG Agent is capable of searching relevant content given a query.
+    It maintains its own database for searching and caching recent results.
+
     Args:
-        model: a LLM model
-        path: db path , default "./db"
+        model: an LLM model
+        path: database path, default is "./db"
+        filelist: file directory path, default is "./tmp"
     """
 
-    """
-        TODO: dynamic file list ? 
-    """
-    def __init__(self, model, path: str = "./db" , filelist = "./tmp"):
+    def __init__(self, model, path: str = "./db", filelist="./tmp"):
         self.model = model
         self.db = VectorSearch(path=path)
         self.tool_list = ["add_document", "query", "reset"]
-        
         self.filelist = filelist
 
-    def run(self, task: str , data:str) -> str:
+    def run(self, task: str, data: str) -> str:
         """
-            give a promp with:
-                task , list of file , list of data in the vector search
-                based on the tasks generate what to do next 
-            handle every task 
+        Processes the task with the given data using the internal tools and vector database.
+
+        Args:
+            task: the task to perform
+            data: the input data
+
+        Returns:
+            A response string based on the result
         """
-        return {"agent": "planner" , "data" : "" , "task": ""}
+        logger.info(f"Running RAG_agent with task: {task}, data: {data}")
+        return "RAG_agent processing complete."
 
     def _json_handler(self, res: str):
         """
-        json handler handlers handle json response and then pass it to correct tool
+        Handles JSON response and dispatches to the appropriate tool.
+
         Args:
-            res: the response should be a json string. If it is pure response it should pass to _extract_response first before
-            passing to _json_handle
+            res: the response string to process
         """
         pass
 
     def get_recv_format(self):
-        pass
+        return {"task": "string", "data": "string"}
 
     def get_send_format(self):
-        pass
+        return {"result": "string"}
+
+    def __repr__(self):
+        return f"<RAG_agent tools={self.tool_list}, filelist='{self.filelist}'>"

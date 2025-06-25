@@ -2,15 +2,16 @@
 This file provide method so summaries content with long length with LLM
 """
 
-from ..model import Model
-from ..prompt import summary_prompt
-
-from pydantic import BaseModel, Field
-
 import json
 import re
 import secrets
 import string
+
+from pydantic import BaseModel, Field
+
+from ..model import Model
+from ..prompt import summary_prompt
+
 
 class Summary(object):
     def __init__(self, model: Model, k: int = 10000):
@@ -20,16 +21,16 @@ class Summary(object):
         # k corresponding to the chunk
         self.k = k
         self.chunks: list[str] = []
-        
+
         self.length = 4
 
     def summary(self, content: str):
         """
-            input content read from markdown 
-            output a dict 
-            {
-                id , url, title , summary , brief_summary , keywords 
-            } 
+        input content read from markdown
+        output a dict
+        {
+            id , url, title , summary , brief_summary , keywords
+        }
         """
         texts = content.split()
         counter = 0
@@ -49,7 +50,7 @@ class Summary(object):
             """
             alphabet = string.ascii_letters + string.digit
 
-            r = self.model.completion(prompt)  
+            r = self.model.completion(prompt)
             json_str = self.extract_json_from_codeblock(r)
             if json_str is None:
                 print("No JSON code block found in response")
@@ -57,19 +58,18 @@ class Summary(object):
 
             try:
                 d = json.loads(json_str)
-                rand_id = ''.join(secrets.choice(alphabet) for _ in range(self.length))
+                rand_id = "".join(secrets.choice(alphabet) for _ in range(self.length))
                 response_obj = {
-                    'id': rand_id,
-                    'url': d.get('url', ""),
-                    'title': d.get('title', ""),
-                    'summary': d.get('summary', ""),
-                    'brief_summary': d.get('brief_summary', ""),
-                    'keywords': d.get('keywords', [])
+                    "id": rand_id,
+                    "url": d.get("url", ""),
+                    "title": d.get("title", ""),
+                    "summary": d.get("summary", ""),
+                    "brief_summary": d.get("brief_summary", ""),
+                    "keywords": d.get("keywords", []),
                 }
 
-
-                full_summary = response_obj['summary']
-                short_summary = response_obj['brief_summary']
+                full_summary = response_obj["summary"]
+                short_summary = response_obj["brief_summary"]
 
                 self.db.append(short_summary)
                 self.result.append(response_obj)

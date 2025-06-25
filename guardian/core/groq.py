@@ -1,5 +1,7 @@
 from openai import OpenAI
+
 from guardian.config import get_settings
+
 
 def groq_chat(messages, max_tokens=512, temperature=0.7):
     settings = get_settings()

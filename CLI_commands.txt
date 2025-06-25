@@ -1,12 +1,25 @@
 # Guardian CLI Command Reference
 
+*(For quick access to all commands and CLI structure, this reference is also linked from the [README.md](../README.md))*
+
 ---
 
-## guardian_cli.py  
+## guardian_cli.py
 **File:** `guardian/guardian_cli.py`
 
 ```bash
 python guardian/guardian_cli.py [COMMAND] [OPTIONS]
+```
+
+### **Codemap Commands**
+
+| Command            | Description                                      |
+|--------------------|--------------------------------------------------|
+| codemap:query      | Ask a question about the current codebase        |
+
+**Sample Usage:**
+```bash
+python guardian/guardian-main.py codemap:query "Which file handles thread lineage?"
 ```
 
 | Command       | Description                     |
@@ -17,7 +30,7 @@ python guardian/guardian_cli.py [COMMAND] [OPTIONS]
 
 ---
 
-## codexify.py  
+## codexify.py
 **File:** `guardian/codexify.py`
 
 ```bash
@@ -32,17 +45,17 @@ python guardian/codexify.py [COMMAND] [OPTIONS]
 
 **Key options (can be combined):**
 
-- `--records <json>`       : Specify records JSON file  
-- `--fieldmap <json>`      : Field mapping JSON  
-- `--aliasmap <json>`      : Alias mapping JSON  
-- `--parent-id <id>`       : Notion parent page/database ID  
-- `--parent-title <name>`  : Name for new parent page/database  
-- `--seed`                 : Seed new DB with provided records  
-- `--edit-aliases`         : Launch alias mapping wizard  
+- `--records <json>`       : Specify records JSON file
+- `--fieldmap <json>`      : Field mapping JSON
+- `--aliasmap <json>`      : Alias mapping JSON
+- `--parent-id <id>`       : Notion parent page/database ID
+- `--parent-title <name>`  : Name for new parent page/database
+- `--seed`                 : Seed new DB with provided records
+- `--edit-aliases`         : Launch alias mapping wizard
 
 ---
 
-## ritual_cli.py (work in progress)  
+## ritual_cli.py (work in progress)
 **File:** `guardian/ritual_cli.py`
 
 ```bash
@@ -56,7 +69,7 @@ python guardian/ritual_cli.py [COMMAND] [OPTIONS]
 
 ---
 
-## Common Test Commands  
+## Common Test Commands
 **File:** `tests/test_export_notion.py`
 
 ```bash
@@ -99,3 +112,98 @@ guardian-backend/
 ---
 
 > This doc will evolve as the CLI and rituals expand.
+
+---
+
+## guardian-main.py
+**File:** `guardian/guardian-main.py`
+
+```bash
+python guardian/guardian-main.py [COMMAND] [OPTIONS]
+```
+
+### **Project Management**
+
+| Command                | Description                            |
+|------------------------|----------------------------------------|
+| init-projects          | Initialize the projects table          |
+| create-project-cmd     | Create a new project                   |
+| list-projects-cmd      | List all projects                      |
+
+### **Thread Management**
+
+| Command                    | Description                                                        |
+|----------------------------|--------------------------------------------------------------------|
+| init-threads-table-cmd     | Initialize the threads table                                       |
+| create-thread-cmd          | Create a new thread (for a project, with optional parent thread)   |
+| list-threads-by-project    | List threads for a given project                                   |
+| list-child-threads         | List child threads of a parent thread                              |
+| show-thread-lineage        | Show parent/ancestor lineage of a thread                           |
+
+### **Conversation Management**
+
+| Command                       | Description                                              |
+|-------------------------------|----------------------------------------------------------|
+| create-conversation           | Create a new conversation under a thread                |
+| list-conversations-by-thread | List all conversations associated with a thread         |
+| show-conversation-lineage    | Show parent-child lineage of a conversation             |
+
+### **Web Crawl**
+
+| Command            | Description                                        |
+|--------------------|----------------------------------------------------|
+| crawl-url          | Crawl a webpage for structured text                |
+| crawl-summary      | Crawl and summarize a webpage                      |
+| crawl-table        | Extract tabular data from a webpage                |
+
+**Sample Usage:**
+```bash
+python guardian/guardian-main.py crawl-url 'https://example.com'
+python guardian/guardian-main.py crawl-summary 'https://example.com/article'
+python guardian/guardian-main.py crawl-table 'https://example.com/data-table'
+```
+
+### **Codemap Tools**
+
+| Command            | Description                                                 |
+|--------------------|-------------------------------------------------------------|
+| generate-codemap   | Generate codemap.json from the Guardian source tree         |
+| codemap:summary    | Display a structural summary of the codemap                 |
+| codemap:query      | Ask a question about the codebase using natural language    |
+
+**Sample Usage:**
+```bash
+python guardian/guardian-main.py generate-codemap
+python guardian/guardian-main.py codemap:summary
+python guardian/guardian-main.py codemap:query "Where is the conversation creation function?"
+```
+
+**Sample Usage:**
+```bash
+python guardian/guardian-main.py create-conversation 1 'Reflecting on token limits' --user-id 2 --parent-id 10
+python guardian/guardian-main.py list-conversations-by-thread 1
+python guardian/guardian-main.py show-conversation-lineage 42
+```
+
+**Sample Usage:**
+```bash
+# Initialize
+python guardian/guardian-main.py init-projects
+python guardian/guardian-main.py init-threads-table-cmd
+
+# Create & list projects
+python guardian/guardian-main.py create-project-cmd 'Demo Project' --description 'Test project'
+python guardian/guardian-main.py list-projects-cmd
+
+# Create a thread in a project (optionally with parent thread and user ID)
+python guardian/guardian-main.py create-thread-cmd 'Demo Project' 'Conversation about context windows' --user-id 1 --parent-id 5
+
+# List threads for a project
+python guardian/guardian-main.py list-threads-by-project 'Demo Project'
+
+# List child threads for a parent
+python guardian/guardian-main.py list-child-threads 5
+
+# Show thread lineage
+python guardian/guardian-main.py show-thread-lineage 5
+```

@@ -1,7 +1,7 @@
-from .model import Model 
-
-from openai import OpenAI
 from dotenv import load_dotenv
+from openai import OpenAI
+
+from .model import Model
 
 try:
     from crawl4ai import LLMConfig
@@ -13,21 +13,23 @@ except ImportError:  # pragma: no cover - fallback for older crawl4ai versions
         provider: str
         api_token: str | None = None
 
-import os 
+
+import os
+
 
 class OpenAI(Model):
-    def __init__(self , model:str="" , api_key:str=""):
+    def __init__(self, model: str = "", api_key: str = ""):
         load_dotenv()
         self.api_key = os.getenv("OPENAI_API_KEY")
-        self.model = model 
+        self.model = model
         self.client = OpenAI(
             api_key=self.api_key,
         )
-        self.messages = [] 
-    
-    def set_api(self , api_key:str):
+        self.messages = []
+
+    def set_api(self, api_key: str):
         self.api_key = api_key
-    
+
     def completion(self, query):
         self._add_message(query)
         response = self.client.chat.completions.create(

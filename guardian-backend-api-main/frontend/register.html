@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Guardian AI Companion</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .step {
+            display: none;
+        }
+        .step.active {
+            display: block;
+        }
+    </style>
+</head>
+    <div class="min-h-screen flex flex-col items-center justify-center p-4">
+        <div class="w-full max-w-2xl bg-white rounded-lg shadow-lg p-8">
+            <!-- Progress Bar -->
+            <div class="mb-8">
+                <div class="flex justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-600" id="stepIndicator">Step 1 of 4</span>
+                    <span class="text-sm font-medium text-blue-600" id="progressPercent">25%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" id="progressBar" style="width: 25%"></div>
+                </div>
+            </div>
+
+            <!-- Step 1: Basic Information -->
+            <div class="step active" id="step1">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">Create Your Account</h2>
+                <form id="registrationForm" class="space-y-4">
+                    <div>
+                        <label for="username" class="block text-sm font-medium text-gray-700">Username</label>
+                        <input type="text" id="username" name="username" required autocomplete="username"
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                        <input type="password" id="password" name="password" required autocomplete="new-password"
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label for="confirmPassword" class="block text-sm font-medium text-gray-700">Confirm Password</label>
+                        <input type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password"
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                </form>
+            </div>
+
+            <!-- Step 2: Communication Style -->
+            <div class="step" id="step2">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">Communication Preferences</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Preferred Communication Style</label>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <button type="button" class="style-btn p-4 border rounded-lg text-left hover:bg-gray-50" data-style="friendly">
+                                <h3 class="font-medium text-gray-900">Friendly & Casual</h3>
+                                <p class="text-sm text-gray-500">Warm, approachable conversations with a personal touch</p>
+                            </button>
+                            <button type="button" class="style-btn p-4 border rounded-lg text-left hover:bg-gray-50" data-style="professional">
+                                <h3 class="font-medium text-gray-900">Professional & Focused</h3>
+                                <p class="text-sm text-gray-500">Clear, structured interactions with a formal approach</p>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Response Length Preference</label>
+                        <select id="responseLength" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="concise">Concise & Brief</option>
+                            <option value="medium" selected>Balanced & Moderate</option>
+                            <option value="detailed">Detailed & Thorough</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Accessibility Needs -->
+            <div class="step" id="step3">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">Accessibility Preferences</h2>
+                <div class="space-y-4">
+                    <div class="flex items-center">
+                        <input type="checkbox" id="clearStructure" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                        <label for="clearStructure" class="ml-2 block text-sm text-gray-900">
+                            I prefer clear, structured information
+                        </label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="bulletPoints" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                        <label for="bulletPoints" class="ml-2 block text-sm text-gray-900">
+                            I prefer information in bullet points
+                        </label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="contentWarnings" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                        <label for="contentWarnings" class="ml-2 block text-sm text-gray-900">
+                            I would like content warnings when appropriate
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4: Confirmation -->
+            <div class="step" id="step4">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">Review & Confirm</h2>
+                <div class="space-y-4">
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <h3 class="font-medium text-gray-900 mb-2">Selected Preferences</h3>
+                        <dl class="space-y-2">
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Communication Style</dt>
+                                <dd class="text-sm text-gray-900" id="summaryStyle">Friendly & Casual</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Response Length</dt>
+                                <dd class="text-sm text-gray-900" id="summaryLength">Balanced & Moderate</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Accessibility Preferences</dt>
+                                <dd class="text-sm text-gray-900" id="summaryAccessibility">
+                                    • Clear structure
+                                    • Bullet points
+                                </dd>
+                            </div>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation Buttons -->
+            <div class="mt-8 flex justify-between">
+                <button id="prevBtn" class="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" style="display: none;">
+                    Previous
+                </button>
+                <button id="nextBtn" class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Next
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        const totalSteps = 4;
+
+        function updateProgress() {
+            const progress = (currentStep / totalSteps) * 100;
+            document.getElementById('progressBar').style.width = `${progress}%`;
+            document.getElementById('progressPercent').textContent = `${progress}%`;
+            document.getElementById('stepIndicator').textContent = `Step ${currentStep} of ${totalSteps}`;
+        }
+
+        function showStep(step) {
+            document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+            document.getElementById(`step${step}`).classList.add('active');
+
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+
+            prevBtn.style.display = step === 1 ? 'none' : 'block';
+            nextBtn.textContent = step === totalSteps ? 'Complete Registration' : 'Next';
+
+            updateProgress();
+        }
+
+        document.getElementById('prevBtn').addEventListener('click', () => {
+            if (currentStep > 1) {
+                currentStep--;
+                showStep(currentStep);
+            }
+        });
+
+        document.getElementById('nextBtn').addEventListener('click', async (e) => {
+            e.preventDefault();
+
+            // For step 1 (account creation)
+            if (currentStep === 1) {
+                const form = document.getElementById('registrationForm');
+                if (!form.checkValidity()) {
+                    form.reportValidity();
+                    return;
+                }
+
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                const confirmPassword = document.getElementById('confirmPassword').value;
+
+                console.log('Step 1 validation:', {
+                    username: username,
+                    passwordLength: password.length,
+                    passwordsMatch: password === confirmPassword
+                });
+
+                if (!username) {
+                    alert('Please enter a username');
+                    return;
+                }
+
+                if (password !== confirmPassword) {
+                    alert('Passwords do not match');
+                    return;
+                }
+            }
+
+            // Advance to next step or submit registration
+            if (currentStep < totalSteps) {
+                if (validateStep(currentStep)) {
+                    currentStep++;
+                    showStep(currentStep);
+                    if (currentStep === totalSteps) {
+                        updateSummary();
+                    }
+                }
+            } else {
+                try {
+                    const loadingBtn = document.getElementById('nextBtn');
+                    loadingBtn.textContent = 'Creating Account...';
+                    loadingBtn.disabled = true;
+
+                    await submitRegistration();
+                } catch (error) {
+                    console.error('Registration error:', error);
+                    alert('An error occurred during registration. Please try again.');
+                    loadingBtn.textContent = 'Complete Registration';
+                    loadingBtn.disabled = false;
+                }
+            }
+        });
+
+        function validateStep(step) {
+            if (step === 1) {
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                const confirmPassword = document.getElementById('confirmPassword').value;
+
+                if (!username || !password || !confirmPassword) {
+                    alert('Please fill in all fields');
+                    return false;
+                }
+                if (password !== confirmPassword) {
+                    alert('Passwords do not match');
+                    return false;
+                }
+                return true;
+            }
+            return true;
+        }
+
+        function updateSummary() {
+            document.getElementById('summaryStyle').textContent =
+                document.querySelector('.style-btn.selected')?.querySelector('h3').textContent || 'Not selected';
+
+            document.getElementById('summaryLength').textContent =
+                document.getElementById('responseLength').options[
+                    document.getElementById('responseLength').selectedIndex
+                ].text;
+
+            const accessibility = [];
+            if (document.getElementById('clearStructure').checked)
+                accessibility.push('Clear structure');
+            if (document.getElementById('bulletPoints').checked)
+                accessibility.push('Bullet points');
+            if (document.getElementById('contentWarnings').checked)
+                accessibility.push('Content warnings');
+
+            document.getElementById('summaryAccessibility').textContent =
+                accessibility.length ? accessibility.map(a => `• ${a}`).join('\n') : 'None selected';
+        }
+
+        // Style button selection
+        document.querySelectorAll('.style-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.style-btn').forEach(b => {
+                    b.classList.remove('selected', 'border-blue-500', 'bg-blue-50');
+                });
+                btn.classList.add('selected', 'border-blue-500', 'bg-blue-50');
+            });
+        });
+
+        async function submitRegistration() {
+            const formData = {
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value,
+                narrative_style: document.querySelector('.style-btn.selected')?.dataset.style || 'friendly',
+                communication_preferences: {
+                    response_length: document.getElementById('responseLength').value,
+                    formality_level: document.querySelector('.style-btn.selected')?.dataset.style === 'professional' ? 'formal' : 'casual'
+                },
+                accessibility_needs: {
+                    needs_clear_structure: document.getElementById('clearStructure').checked,
+                    prefers_bullet_points: document.getElementById('bulletPoints').checked,
+                    requires_content_warnings: document.getElementById('contentWarnings').checked
+                }
+            };
+
+            try {
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData),
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    // Store the token/session and onboarding flag
+                    localStorage.setItem('authToken', data.token);
+                    localStorage.setItem('needsOnboarding', 'true');
+                    // Redirect to new dashboard
+                    window.location.href = '/dashboard-new.html';
+                } else {
+                    alert(data.message || 'Registration failed. Please try again.');
+                }
+            } catch (error) {
+                console.error('Registration error:', error);
+                alert('An error occurred during registration. Please try again.');
+            }
+        }
+    </script>
+</body>
+</html>

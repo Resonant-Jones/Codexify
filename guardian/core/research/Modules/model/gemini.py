@@ -1,6 +1,8 @@
-import google.generativeai as genai
 import os
+
+import google.generativeai as genai
 from dotenv import load_dotenv
+
 try:
     from crawl4ai import LLMConfig
 except ImportError:  # pragma: no cover - fallback for older crawl4ai versions
@@ -11,7 +13,9 @@ except ImportError:  # pragma: no cover - fallback for older crawl4ai versions
         provider: str
         api_token: str | None = None
 
+
 from .model import Model
+
 
 class Gemini(Model):
     def __init__(self, model):
@@ -22,21 +26,25 @@ class Gemini(Model):
         genai.configure(api_key=self.api_key)
         # Create a chat session (for multi-turn)
         self.session = genai.ChatSession(model=model)
-    
+
     def clear_message(self):
         """Clears the chat session."""
         self.session = genai.ChatSession(model=self.model)
 
-    def set_api(self , api):
+    def set_api(self, api):
         self.api = api
-        
+
     def completion(self, query: str):
         """Send a message and return the response text."""
         response = self.session.send_message(query)
         # If response is a list of candidates, return the first one's text
         if hasattr(response, "text"):
             return response.text
-        elif isinstance(response, list) and len(response) > 0 and hasattr(response[0], "text"):
+        elif (
+            isinstance(response, list)
+            and len(response) > 0
+            and hasattr(response[0], "text")
+        ):
             return response[0].text
         else:
             return str(response)

@@ -1,5 +1,7 @@
 from typing import Dict
-def report_prompt(query, data)->str:
+
+
+def report_prompt(query, data) -> str:
     return f"""
     You are provided with the following dataset:
 
@@ -17,6 +19,7 @@ def report_prompt(query, data)->str:
 
     Generate the response accordingly.
 """
+
 
 def report_plan(query: str, short_summaries: Dict[str, str]) -> str:
     return f"""
@@ -48,6 +51,8 @@ def report_plan(query: str, short_summaries: Dict[str, str]) -> str:
         ]
         ```
         """
+
+
 def report_task(tasks, task, source):
     return f"""
         You are a report writer. Here is your current list of tasks:

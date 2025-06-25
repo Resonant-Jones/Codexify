@@ -1,24 +1,25 @@
-from .agent import Agent
-from ..prompt import planner_agent_prompt
-from ..model import model
-
 import json
-
 from collections import deque
+
+from guardian.utils.logger import logger
+
+from ..model import model
+from ..prompt import planner_agent_prompt
+from .agent import Agent
 
 
 class Planner(Agent):
-    def __init__(self, model: model, query: str= "", data=None):
+    def __init__(self, model: model, query: str = "", data=None):
         self.query = query
         self._model = model
-        self._output_model = {}
+        self._output_model: dict[str, str] = {}
         self._todo_list = _todo()
 
-        self.message = []
+        self.message: list[str] = []
         self.initialize = False
 
         self.response = ""
-        self.db = []
+        self.db: list[str] = []
         self.name = "planner"
         self.description = "plan the tasks"
 
@@ -28,17 +29,17 @@ class Planner(Agent):
     def get_send_format(self):
         pass
 
-    def set_name(self , name):
+    def set_name(self, name):
         self.name = name
 
-    async def run(self, response, data=None):
+    async def run(self, response: str, data: str | None = None) -> dict[str, str]:
         """
         It should generate a to do list
         and then pass to different agent
         """
         # Initialization
         # only run for oen time
-        print("planner running...")
+        logger.debug("Planner agent running...")
         if not self.initialize:
             prompt = planner_agent_prompt(
                 list(self._output_model.keys()),
@@ -65,7 +66,7 @@ class Planner(Agent):
             return obj
 
     def _response_handler(self, response):
-        pass 
+        pass
 
     def add_model(self, model, description):
         """
@@ -98,8 +99,8 @@ class _todo:
     def __init__(self):
         self.todo_list = deque()
 
-    def add_task(self, task: str, Agent: Agent):
-        self.todo_list.append(_task(task, Agent))
+    def add_task(self, task: str, agent: Agent):
+        self.todo_list.append(_task(task, agent))
 
     def pop_task(self):
         if self.len() == 0:

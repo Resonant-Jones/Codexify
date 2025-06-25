@@ -1,0 +1,14 @@
+# Linting and formatting
+flake8
+black
+
+# Testing
+pytest
+
+# Environment variable loading for tests
+python-dotenv
+
+# Optional: type checking (if you adopt typing in the codebase)
+mypy
+
+pre-commit

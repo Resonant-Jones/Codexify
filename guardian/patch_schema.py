@@ -3,6 +3,7 @@ from pathlib import Path
 
 DB_PATH = Path("guardian.db")
 
+
 def patch_schema():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
@@ -33,6 +34,7 @@ def patch_schema():
             print("Column 'priority' already exists.")
 
         conn.commit()
+
 
 if __name__ == "__main__":
     patch_schema()

@@ -1,6 +1,6 @@
 # Codex_Mirror.ritual.md
-> A ritual for recursive introspection, structural hygiene, and codebase self-awareness  
-> Belongs to: `Guardian / PulseOS`  
+> A ritual for recursive introspection, structural hygiene, and codebase self-awareness
+> Belongs to: `Guardian / PulseOS`
 > Role: Internal Cognitive Maintenance & Autopoietic Engineering
 
 ---

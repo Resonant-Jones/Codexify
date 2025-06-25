@@ -25,16 +25,16 @@ def search_plan(
 
         You have access to the following tools:
 
-        - **url_search**:  
-        Use search engines such as Google, arXiv, Google News, etc., to find relevant URLs for further investigation.  
-        *Note:* You only need to provide the search keyword, not the specific site.  
+        - **url_search**:
+        Use search engines such as Google, arXiv, Google News, etc., to find relevant URLs for further investigation.
+        *Note:* You only need to provide the search keyword, not the specific site.
         This tool returns a list of URLs and page descriptions — it does **not** return page content.
         You are given the following search engine:
             {search_engine}
 
-        - **page_content**:  
-        Given list of URL from previous search. 
-        Summarize the content and key information from the given pages.  
+        - **page_content**:
+        Given list of URL from previous search.
+        Summarize the content and key information from the given pages.
         This tool should be used **only after** performing `url_search` to obtain URLs to summarize.
         You don't need to answer search_engine for this function.
 
@@ -50,8 +50,8 @@ def search_plan(
         - If you have odd number of steps remaining, only use even numbers of steps to maintain pairs.
         - The planning step will be invoked repeatedly as new content is added.
         - Your tasks list will be **APPEND** to the list.
-        - Use better key words. Don't repeat key words. YOU CAN ALWAYS USE LESS THAN K STEPS. 
-        
+        - Use better key words. Don't repeat key words. YOU CAN ALWAYS USE LESS THAN K STEPS.
+
         Example of correct task planning for k=3:
         [
             {{
@@ -69,7 +69,7 @@ def search_plan(
                 "COMPLETE": "not started"
             }}
         ]
-        
+
         Please respond strictly using the following JSON format:
 
         ```json

@@ -1,18 +1,18 @@
 
 # PCX-GUARDIAN-INT-001: Identity Failsafe Contract
 
-**Codex Entry ID**: PCX-GUARDIAN-INT-001  
-**Title**: Identity Failsafe Contract  
-**Date**: 2025-06-10T00:00:52.732297  
-**Author**: PulseOS Architect  
-**Module**: Guardian Interface + Agent Router  
+**Codex Entry ID**: PCX-GUARDIAN-INT-001
+**Title**: Identity Failsafe Contract
+**Date**: 2025-06-10T00:00:52.732297
+**Author**: PulseOS Architect
+**Module**: Guardian Interface + Agent Router
 **Status**: Active
 
 ---
 
 ## ❖ Purpose
 
-To ensure Guardian never presents a disembodied or misaligned identity across dynamic inference model switches.  
+To ensure Guardian never presents a disembodied or misaligned identity across dynamic inference model switches.
 This ritualized contract enforces *semantic continuity* and *presence integrity* regardless of backend model.
 
 ---

@@ -1,5 +1,6 @@
 from guardian.config import get_settings
 
+
 class HybridRouter:
     # Runtime override for toggles (defaults to None; falls back to Settings)
     _cloud_only = None
@@ -20,8 +21,14 @@ class HybridRouter:
         - task_type: "chat" | "research" | etc.
         """
         settings = get_settings()
-        cloud_only = cls._cloud_only if cls._cloud_only is not None else settings.CLOUD_ONLY
-        hybrid_enabled = cls._hybrid_enabled if cls._hybrid_enabled is not None else settings.HYBRID_ENABLED
+        cloud_only = (
+            cls._cloud_only if cls._cloud_only is not None else settings.CLOUD_ONLY
+        )
+        hybrid_enabled = (
+            cls._hybrid_enabled
+            if cls._hybrid_enabled is not None
+            else settings.HYBRID_ENABLED
+        )
 
         if cloud_only:
             return settings.CLOUD_MODEL_NAME, settings.CLOUD_API_HOST

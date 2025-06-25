@@ -1,0 +1,5 @@
+#!/bin/bash
+echo "📜 Sealing the Codex memory..."
+mkdir -p codex-backups
+cp codex.json codex-backups/codex_$(date +%Y%m%d_%H%M%S).json
+echo "🕯️  Memory sealed to codex-backups/"

@@ -1,19 +1,16 @@
-from .agent import Agent
-from ..model import Model
-
-from ..prompt.searcher import search_plan
+import ast
+import json
+import time
+from collections import deque
 
 from ..browser.crawl_ai import Crawl
+from ..model import Model
+from ..prompt.searcher import search_plan
+from .agent import Agent
 
-from collections import deque
-import json
-
-import time 
-
-import ast
 
 class SearchAgent(Agent):
-    def __init__(self, model:Model, k: int = 10):
+    def __init__(self, model: Model, k: int = 10):
         """
         take some default URL for search
         k: number of steps
@@ -32,17 +29,17 @@ class SearchAgent(Agent):
         self.todo = deque()
         self.step = 10
         self.url_list = []
-        self.db = [] 
+        self.db = []
         self.name = "searcher"
-    
-    def set_name(self , name):
+
+    def set_name(self, name):
         self.name = name
 
     def _extract_response(self, res):
-        import re
-        import json
-        import codecs
         import ast
+        import codecs
+        import json
+        import re
 
         print(f"[DEBUG] _extract_response: Raw input:\n{res}\n--- end raw input ---")
 
@@ -52,16 +49,18 @@ class SearchAgent(Agent):
                 res = ast.literal_eval(f"'{res}'")
             except Exception:
                 try:
-                    res = codecs.decode(res, 'unicode_escape')
+                    res = codecs.decode(res, "unicode_escape")
                 except Exception:
                     pass
 
         # 1. If it's a dict with 'choices', extract actual string content
-        if isinstance(res, dict) and 'choices' in res:
+        if isinstance(res, dict) and "choices" in res:
             try:
-                res = res['choices'][0]['message']['content']
+                res = res["choices"][0]["message"]["content"]
             except Exception as e:
-                print(f"[DEBUG] _extract_response: Could not extract content from dict: {e}\nGot: {res}")
+                print(
+                    f"[DEBUG] _extract_response: Could not extract content from dict: {e}\nGot: {res}"
+                )
                 return None
 
         # 2. If not string now, bail out with debug
@@ -80,10 +79,14 @@ class SearchAgent(Agent):
         # 4. Try to parse the raw string as JSON
         try:
             json.loads(res.strip())
-            print(f"[DEBUG] _extract_response: Raw content is valid JSON:\n{res.strip()}")
+            print(
+                f"[DEBUG] _extract_response: Raw content is valid JSON:\n{res.strip()}"
+            )
             return res.strip()
         except Exception:
-            print(f"[DEBUG] _extract_response: Raw content is not valid JSON. Trying fallback extraction.")
+            print(
+                f"[DEBUG] _extract_response: Raw content is not valid JSON. Trying fallback extraction."
+            )
 
         # 5. Fallback: Try to extract JSON objects or arrays from within the string
         json_candidates = []
@@ -111,7 +114,9 @@ class SearchAgent(Agent):
         for candidate in reversed(json_candidates):
             try:
                 json.loads(candidate)
-                print(f"[DEBUG] _extract_response: Extracted valid fallback JSON candidate:\n{candidate}")
+                print(
+                    f"[DEBUG] _extract_response: Extracted valid fallback JSON candidate:\n{candidate}"
+                )
                 return candidate
             except json.JSONDecodeError:
                 continue
@@ -185,17 +190,17 @@ class SearchAgent(Agent):
         """
         return {"agent": "str", "data": "List[Dict]", "task": "str"}
 
-    def _plan(self , task:str , k:int=6):
+    def _plan(self, task: str, k: int = 6):
         """
         Searcher planner
         """
-        prompt = search_plan(task , self.todo , k)
+        prompt = search_plan(task, self.todo, k)
         print(f"task {task}")
         print(prompt)
 
         response = self.model.completion(prompt)
         print(f"searcher response: {response}")
-        time.sleep(3) ## foo foo solution
+        time.sleep(3)  ## foo foo solution
 
         # Handle both string and dict responses (Ollama's are dicts with 'choices')
         if isinstance(response, dict) and "choices" in response:
@@ -208,29 +213,31 @@ class SearchAgent(Agent):
         if raw is None:
             raise ValueError("Failed to extract JSON from response")
         todo_list = json.loads(raw)
-        
+
         print(todo_list)
         k -= len(todo_list)
         # for todo in todo_list:
         #     self.todo.append(todo)
-        print(f"self.todo in searcher: {self.todo}") 
-        #print(tasks)
+        print(f"self.todo in searcher: {self.todo}")
+        # print(tasks)
         # Return the planned steps as a list
         return todo_list
 
-    def _task_handler(self , task:str):
+    def _task_handler(self, task: str):
         pass
 
-    async def _search_url(self , query, db , search_engine):
+    async def _search_url(self, query, db, search_engine):
         """
-            search url with google 
+        search url with google
         """
         # test with google first
-        # result is an array 
+        # result is an array
 
         print("Search URL handling ... ")
 
-        result = await self.crawl.get_url_llm("https://google.com/search?q="+query , query)
+        result = await self.crawl.get_url_llm(
+            "https://google.com/search?q=" + query, query
+        )
         print(f"[DEBUG] Crawl result for '{query}': {result}")
         return result
 
@@ -245,8 +252,8 @@ class SearchAgent(Agent):
         urls = []
         for element in self.url_list:
             print(f"[DEBUG] Inspecting element: {element}")
-            if isinstance(element, dict) and 'url' in element:
-                urls.append(element['url'])
+            if isinstance(element, dict) and "url" in element:
+                urls.append(element["url"])
             else:
                 print(f"[DEBUG] Skipping element without 'url': {element}")
         print(f"[DEBUG] Collected URLs: {urls}")
@@ -256,34 +263,49 @@ class SearchAgent(Agent):
 
         for summary in summary_list:
             print(f"[DEBUG] Individual summary: {summary}")
-            summary['url'] = summary.get('url', "")
-            summary['title'] = summary.get('title', "")
-            summary['summary'] = summary.get('summary', "")
-            summary['brief_summary'] = summary.get('brief_summary', "")
-            summary['keywords'] = summary.get('keywords', [])
+            summary["url"] = summary.get("url", "")
+            summary["title"] = summary.get("title", "")
+            summary["summary"] = summary.get("summary", "")
+            summary["brief_summary"] = summary.get("brief_summary", "")
+            summary["keywords"] = summary.get("keywords", [])
             self.db.append(
                 {
-                    "title": summary['title'],
-                    "brief_summary": summary['brief_summary'],
-                    "summary": summary['summary'],
+                    "title": summary["title"],
+                    "brief_summary": summary["brief_summary"],
+                    "summary": summary["summary"],
                     "keywords": summary["keywords"],
                     "url": summary["url"],
                 }
             )
         return summary_list
 
+
 # Alias for backwards compatibility
 Search_agent = SearchAgent
 # --- CLI Entrypoint ---
 if __name__ == "__main__":
     import argparse
-    from ..model import ollama, gemini, openai  # add imports for your backends as needed
     import asyncio
 
-    parser = argparse.ArgumentParser(description="Run a search agent with a specific query")
+    from ..model import gemini  # add imports for your backends as needed
+    from ..model import ollama, openai
+
+    parser = argparse.ArgumentParser(
+        description="Run a search agent with a specific query"
+    )
     parser.add_argument("--query", type=str, required=True, help="Query to search for")
-    parser.add_argument("--backend", type=str, default="ollama", help="Which backend to use: ollama, gemini, openai")
-    parser.add_argument("--model", type=str, default="gemma:4b", help="Model name (e.g., gemma:4b, llama3:8b, etc.)")
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="ollama",
+        help="Which backend to use: ollama, gemini, openai",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="gemma:4b",
+        help="Model name (e.g., gemma:4b, llama3:8b, etc.)",
+    )
 
     args = parser.parse_args()
 
@@ -297,6 +319,7 @@ if __name__ == "__main__":
     model_instance = ModelClass(args.model)
 
     agent = SearchAgent(model_instance)
+
     # The agent's planner and crawl are async, so use asyncio to run them
     async def run_agent():
         # agent.run expects (task, data) -> str (see class above). We'll pass the query and an empty list for data.

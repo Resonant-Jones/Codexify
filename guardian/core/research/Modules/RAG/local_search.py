@@ -3,13 +3,13 @@ This project uses markitdown to handle local files. The key is to process types 
 to markdown.
 """
 
-from openai import OpenAI
-from markitdown import MarkItDown
-
-from .chrome import VectorSearch
-from ..model import model
-
 import hashlib
+
+from markitdown import MarkItDown
+from openai import OpenAI
+
+from ..model import model
+from .chrome import VectorSearch
 
 
 class LocalRAG:
