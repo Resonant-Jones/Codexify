@@ -1,0 +1,675 @@
+guardian/core/research/Modules/model/model.py:4: error: Skipping analyzing
+"crawl4ai": module is installed, but missing library stubs or py.typed marker
+[import-untyped]
+        from crawl4ai import LLMConfig
+    ^
+guardian/core/research/Modules/model/model.py:9: error: Name "LLMConfig"
+already defined (possibly by an import)  [no-redef]
+        class LLMConfig:
+        ^
+guardian/ritual_cli.py:12: error: Cannot find implementation or library stub
+for module named "guardian_rituals"  [import-not-found]
+    from guardian_rituals import (  # In the future: import_from_drive_wit...
+    ^
+guardian/ritual_cli.py:17: error: Cannot find implementation or library stub
+for module named "export_engine"  [import-not-found]
+        from export_engine import get_notion_token, load_records
+    ^
+guardian/core/research/Modules/router/server.py:26: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+guardian/core/research/Modules/router/server.py:27: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+guardian/core/research/Modules/router/server.py:28: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+guardian/core/research/Modules/router/server.py:43: error: Argument 1 to
+"check_response" of "Server" has incompatible type "str"; expected
+"dict[Any, Any]"  [arg-type]
+                if self.check_response(query):
+                                       ^~~~~
+guardian/core/research/Modules/router/server.py:46: error: Argument 1 to
+"query_handler" of "Server" has incompatible type "str"; expected
+"dict[Any, Any]"  [arg-type]
+    ...        self.next_router, query, self.data = self.query_handler(query)
+                                                                       ^~~~~
+guardian/core/research/Modules/router/server.py:77: error: Name "Router" is not
+defined  [name-defined]
+        def add_router(self, name: str, router: "Router"):
+                                                ^
+guardian/contracts.py:6: error: Need type annotation for "_contract_cache"
+(hint: "_contract_cache: dict[<type>, <type>] = ...")  [var-annotated]
+    _contract_cache = {}
+    ^~~~~~~~~~~~~~~
+guardian/core/research/Modules/agent/agent.py:36: error: Name "BaseModel" is
+not defined  [name-defined]
+        def get_recv_format(self) -> BaseModel:
+                                     ^
+guardian/core/research/Modules/agent/agent.py:40: error: Name "BaseModel" is
+not defined  [name-defined]
+        def get_send_format(self) -> BaseModel:
+                                     ^
+guardian/core/db.py:245: error: List item 0 has incompatible type "int";
+expected "str"  [list-item]
+            params.extend([limit, offset])
+                           ^~~~~
+guardian/core/db.py:245: error: List item 1 has incompatible type "int";
+expected "str"  [list-item]
+            params.extend([limit, offset])
+                                  ^~~~~~
+guardian/core/db.py:284: error: Incompatible return value type (got
+"int | None", expected "int")  [return-value]
+                return c.lastrowid
+                       ^~~~~~~~~~~
+guardian/core/db.py:359: error: Argument "response" to "insert_chat_log" of
+"GuardianDB" has incompatible type "str | None"; expected "str"  [arg-type]
+                response=response,
+                         ^~~~~~~~
+guardian/core/db.py:360: error: Argument "backend" to "insert_chat_log" of
+"GuardianDB" has incompatible type "str | None"; expected "str"  [arg-type]
+                backend=backend,
+                        ^~~~~~~
+guardian/core/orchestrator/model_loader.py:13: error: Cannot find
+implementation or library stub for module named "objc"  [import-not-found]
+                import objc  # crude check for iOS via Pythonista or embed...
+    ^
+guardian/character_switcher.py:69: error: "type[datetime]" has no attribute
+"UTC"  [attr-defined]
+            "last_seen": datetime.now(datetime.UTC).isoformat() + "Z",
+                                      ^~~~~~~~~~~~
+guardian/character_switcher.py:124: error: Incompatible default for argument
+"backup_path" (default has type "None", argument has type "str")  [assignment]
+    def backup_identities(backup_path: str = None) -> str:
+                                             ^~~~
+guardian/character_switcher.py:124: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+guardian/character_switcher.py:124: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+guardian/core/research/Modules/router/router.py:25: error: Incompatible default
+for argument "send_format" (default has type "None", argument has type
+"BaseModel")  [assignment]
+            send_format: BaseModel = None,
+                                     ^~~~
+guardian/core/research/Modules/router/router.py:25: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+guardian/core/research/Modules/router/router.py:25: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+guardian/core/research/Modules/router/router.py:26: error: Incompatible default
+for argument "recv_format" (default has type "None", argument has type
+"BaseModel")  [assignment]
+            recv_format: BaseModel = None,
+                                     ^~~~
+guardian/core/research/Modules/router/router.py:26: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+guardian/core/research/Modules/router/router.py:26: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+guardian/config.py:11: error: Incompatible types in assignment (expression has
+type "None", variable has type "str")  [assignment]
+        GENAI_API_KEY: str = Field(None, description="Google Gemini API Ke...
+                             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/config.py:13: error: Incompatible types in assignment (expression has
+type "None", variable has type "str")  [assignment]
+        NOTION_API_KEY: str = Field(None, description="Notion API Key (opt...
+                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~...
+guardian/config.py:16: error: Incompatible types in assignment (expression has
+type "None", variable has type "str")  [assignment]
+        GOOGLE_API_KEY: str = Field(None, description="Google API Key (Gem...
+                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~...
+guardian/config.py:19: error: Incompatible types in assignment (expression has
+type "None", variable has type "str")  [assignment]
+        OPENAI_API_KEY: str = Field(None, description="OpenAI API Key")
+                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/config.py:22: error: Incompatible types in assignment (expression has
+type "None", variable has type "str")  [assignment]
+        NEBIUS_API_KEY: str = Field(None, description="Nebius API Key")
+                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/config.py:32: error: Incompatible types in assignment (expression has
+type "None", variable has type "str")  [assignment]
+        GROQ_API_KEY: str = Field(None, description="Groq API Key")
+                            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/config.py:89: error: Missing return statement  [return]
+    def get_settings() -> Settings:
+    ^
+guardian/config.py:91: error: Missing named argument "GENAI_API_KEY" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "GUARDIAN_DB_PATH" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "NOTION_API_KEY" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "GOOGLE_API_KEY" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "OPENAI_API_KEY" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "NEBIUS_API_KEY" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "NEBIUS_API_ENDPOINT" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "NEBIUS_MODEL" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "GROQ_API_KEY" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "GROQ_API_ENDPOINT" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "GROQ_MODEL" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "AI_BACKEND" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "OLLAMA_MODEL" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "OLLAMA_HOST" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "CLOUD_ONLY" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "HYBRID_ENABLED" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "LOCAL_MODEL_NAME" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "LOCAL_API_HOST" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "CLOUD_MODEL_NAME" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/config.py:91: error: Missing named argument "CLOUD_API_HOST" for
+"Settings"  [call-arg]
+            return Settings()
+                   ^~~~~~~~~~
+guardian/core/research/Modules/browser/browser.py:54: error: "Browser" has no
+attribute "get_search_content"  [attr-defined]
+            res = self.get_search_content()
+                  ^~~~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/model/openai.py:7: error: Skipping analyzing
+"crawl4ai": module is installed, but missing library stubs or py.typed marker
+[import-untyped]
+        from crawl4ai import LLMConfig
+    ^
+guardian/core/research/Modules/model/openai.py:12: error: Name "LLMConfig"
+already defined (possibly by an import)  [no-redef]
+        class LLMConfig:
+        ^
+guardian/core/research/Modules/model/openai.py:20: error: Name "OpenAI" already
+defined (possibly by an import)  [no-redef]
+    class OpenAI(Model):
+    ^
+guardian/core/research/Modules/model/openai.py:28: error: Need type annotation
+for "messages" (hint: "messages: list[<type>] = ...")  [var-annotated]
+            self.messages = []
+            ^~~~~~~~~~~~~
+guardian/core/research/Modules/model/ollama.py:7: error: Skipping analyzing
+"crawl4ai": module is installed, but missing library stubs or py.typed marker
+[import-untyped]
+        from crawl4ai import LLMConfig
+    ^
+guardian/core/research/Modules/model/ollama.py:12: error: Name "LLMConfig"
+already defined (possibly by an import)  [no-redef]
+        class LLMConfig:
+        ^
+guardian/core/research/Modules/model/ollama.py:20: error: Need type annotation
+for "messages" (hint: "messages: list[<type>] = ...")  [var-annotated]
+            self.messages = []
+            ^~~~~~~~~~~~~
+guardian/core/research/Modules/model/ollama.py:28: error: Incompatible default
+for argument "stream" (default has type "bool", argument has type "str")
+[assignment]
+        def completion(self, message: str, stream: str = False):
+                                                         ^~~~~
+guardian/core/research/Modules/model/ollama.py:47: error: Incompatible types in
+assignment (expression has type "Iterator[ChatResponse]", variable has type
+"ChatResponse")  [assignment]
+                res = chat(model=self.model, messages=self.messages, strea...
+                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~...
+guardian/core/research/Modules/model/gork.py:7: error: Skipping analyzing
+"crawl4ai": module is installed, but missing library stubs or py.typed marker
+[import-untyped]
+        from crawl4ai import LLMConfig
+    ^
+guardian/core/research/Modules/model/gork.py:12: error: Name "LLMConfig"
+already defined (possibly by an import)  [no-redef]
+        class LLMConfig:
+        ^
+guardian/core/research/Modules/model/gork.py:29: error: Need type annotation
+for "messages" (hint: "messages: list[<type>] = ...")  [var-annotated]
+            self.messages = []
+            ^~~~~~~~~~~~~
+guardian/core/research/Modules/model/deepseek.py:7: error: Skipping analyzing
+"crawl4ai": module is installed, but missing library stubs or py.typed marker
+[import-untyped]
+        from crawl4ai import LLMConfig
+    ^
+guardian/core/research/Modules/model/deepseek.py:12: error: Name "LLMConfig"
+already defined (possibly by an import)  [no-redef]
+        class LLMConfig:
+        ^
+guardian/core/research/Modules/model/deepseek.py:26: error: Need type
+annotation for "messages" (hint: "messages: list[<type>] = ...")
+[var-annotated]
+            self.messages = []
+            ^~~~~~~~~~~~~
+guardian/codexify.py:622: error: Cannot find implementation or library stub for
+module named "guardian_db"  [import-not-found]
+                            from guardian_db import GuardianDB
+    ^
+guardian/codexify.py:801: error: Skipping analyzing "mistune": module is
+installed, but missing library stubs or py.typed marker  [import-untyped]
+        import mistune  # You may need: pip install mistune
+    ^
+guardian/export_engine.py:268: error: Skipping analyzing
+"googleapiclient.discovery": module is installed, but missing library stubs or
+py.typed marker  [import-untyped]
+            from googleapiclient.discovery import build
+    ^
+guardian/export_engine.py:269: error: Skipping analyzing
+"googleapiclient.http": module is installed, but missing library stubs or
+py.typed marker  [import-untyped]
+            from googleapiclient.http import MediaFileUpload
+    ^
+guardian/core/research/Modules/model/gemini.py:7: error: Skipping analyzing
+"crawl4ai": module is installed, but missing library stubs or py.typed marker
+[import-untyped]
+        from crawl4ai import LLMConfig
+    ^
+guardian/core/research/Modules/model/gemini.py:12: error: Name "LLMConfig"
+already defined (possibly by an import)  [no-redef]
+        class LLMConfig:
+        ^
+guardian/core/research/Modules/RAG/chrome.py:23: error: Argument
+"embedding_function" to "create_collection" of "ClientAPI" has incompatible type
+"OllamaEmbeddingFunction"; expected
+"EmbeddingFunction[list[str] | list[ndarray[tuple[Any, ...], dtype[unsignedinteger[_32Bit | _64Bit] | signedinteger[_64Bit] | float64]]]] | None"
+ [arg-type]
+                    name=name, embedding_function=self.embedding
+                                                  ^~~~~~~~~~~~~~
+guardian/core/research/Modules/RAG/chrome.py:23: note: Following member(s) of "OllamaEmbeddingFunction" have conflicts:
+guardian/core/research/Modules/RAG/chrome.py:23: note:     Expected:
+guardian/core/research/Modules/RAG/chrome.py:23: note:         def __call__(self, input: list[str] | list[ndarray[tuple[Any, ...], dtype[unsignedinteger[_32Bit | _64Bit] | signedinteger[_64Bit] | float64]]]) -> list[ndarray[tuple[Any, ...], dtype[signedinteger[_32Bit] | floating[_32Bit]]]]
+guardian/core/research/Modules/RAG/chrome.py:23: note:     Got:
+guardian/core/research/Modules/RAG/chrome.py:23: note:         def __call__(self, input: list[str]) -> list[ndarray[tuple[Any, ...], dtype[signedinteger[_32Bit] | floating[_32Bit]]]]
+guardian/core/research/Modules/RAG/chrome.py:23: note:     Expected:
+guardian/core/research/Modules/RAG/chrome.py:23: note:         def build_from_config(config: dict[str, Any]) -> EmbeddingFunction[list[str] | list[ndarray[tuple[Any, ...], dtype[unsignedinteger[_32Bit | _64Bit] | signedinteger[_64Bit] | float64]]]]
+guardian/core/research/Modules/RAG/chrome.py:23: note:     Got:
+guardian/core/research/Modules/RAG/chrome.py:23: note:         def build_from_config(config: dict[str, Any]) -> EmbeddingFunction[list[str]]
+guardian/core/research/Modules/RAG/chrome.py:23: note:     <1 more conflict(s) not shown>
+guardian/core/research/Modules/RAG/chrome.py:23: note:     Expected:
+guardian/core/research/Modules/RAG/chrome.py:23: note:         def __call__(self, input: list[str] | list[ndarray[tuple[Any, ...], dtype[unsignedinteger[_32Bit | _64Bit] | signedinteger[_64Bit] | float64]]]) -> list[ndarray[tuple[Any, ...], dtype[signedinteger[_32Bit] | floating[_32Bit]]]]
+guardian/core/research/Modules/RAG/chrome.py:23: note:     Got:
+guardian/core/research/Modules/RAG/chrome.py:23: note:         def __call__(self, input: list[str]) -> list[ndarray[tuple[Any, ...], dtype[signedinteger[_32Bit] | floating[_32Bit]]]]
+guardian/core/research/Modules/RAG/chrome.py:23: note:     Expected:
+guardian/core/research/Modules/RAG/chrome.py:23: note:         def build_from_config(config: dict[str, Any]) -> EmbeddingFunction[list[str] | list[ndarray[tuple[Any, ...], dtype[unsignedinteger[_32Bit | _64Bit] | signedinteger[_64Bit] | float64]]]]
+guardian/core/research/Modules/RAG/chrome.py:23: note:     Got:
+guardian/core/research/Modules/RAG/chrome.py:23: note:         def build_from_config(config: dict[str, Any]) -> EmbeddingFunction[list[str]]
+guardian/core/research/Modules/agent/retrival.py:29: error: Signature of "run"
+incompatible with supertype "Agent"  [override]
+        def run(self, task: str, data: str) -> str:
+        ^
+guardian/core/research/Modules/agent/retrival.py:29: note:      Superclass:
+guardian/core/research/Modules/agent/retrival.py:29: note:          def run(self, response: Any, data: Any = ...) -> Any
+guardian/core/research/Modules/agent/retrival.py:29: note:      Subclass:
+guardian/core/research/Modules/agent/retrival.py:29: note:          def run(self, task: str, data: str) -> str
+guardian/core/research/Modules/agent/reporter.py:43: error: "Reporter" has no
+attribute "_extract_response"  [attr-defined]
+            tasks = self._extract_response(res)
+                    ^~~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/agent/reporter.py:85: error: Unsupported operand
+types for in ("str" and "list[int]")  [operator]
+                if item["id"] in summary_ids:
+                   ^~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/agent/reporter.py:85: error: Invalid index type
+"str" for "str"; expected type "SupportsIndex | slice[Any, Any, Any]"  [index]
+                if item["id"] in summary_ids:
+                        ^~~~
+guardian/core/research/Modules/agent/reporter.py:87: error: Incompatible return
+value type (got "list[str]", expected "list[object]")  [return-value]
+            return sources
+                   ^~~~~~~
+guardian/core/research/Modules/agent/reporter.py:87: note: "list" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+guardian/core/research/Modules/agent/reporter.py:87: note: Consider using "Sequence" instead, which is covariant
+guardian/core/research/Modules/agent/reporter.py:87: note: Perhaps you need a type annotation for "sources"? Suggestion: "list[object]"
+guardian/core/research/Modules/agent/planner.py:4: error: Cannot find
+implementation or library stub for module named "guardian.core.utils.logger"
+[import-not-found]
+    from guardian.core.utils.logger import logger
+    ^
+guardian/core/research/Modules/agent/planner.py:12: error: Module
+"guardian.core.research.Modules.model.model" is not valid as a type
+[valid-type]
+        def __init__(self, model: model, query: str = "", data=None):
+                                  ^
+guardian/core/research/Modules/agent/planner.py:12: note: Perhaps you meant to use a protocol matching the module structure?
+guardian/core/research/Modules/agent/planner.py:49: error: model? has no
+attribute "completion"  [attr-defined]
+                res = self._model.completion(prompt)
+                      ^~~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/RAG/summary.py:19: error: Need type annotation
+for "db" (hint: "db: list[<type>] = ...")  [var-annotated]
+            self.db = []
+            ^~~~~~~
+guardian/core/research/Modules/RAG/summary.py:20: error: Need type annotation
+for "result" (hint: "result: list[<type>] = ...")  [var-annotated]
+            self.result = []
+            ^~~~~~~~~~~
+guardian/core/research/Modules/RAG/summary.py:51: error: Module has no
+attribute "digit"; maybe "digits"?  [attr-defined]
+                alphabet = string.ascii_letters + string.digit
+                                                  ^~~~~~~~~~~~
+guardian/core/research/Modules/RAG/local_search.py:24: error: Module
+"guardian.core.research.Modules.model.model" is not valid as a type
+[valid-type]
+        def __init__(self, model: model):
+                                  ^
+guardian/core/research/Modules/RAG/local_search.py:24: note: Perhaps you meant to use a protocol matching the module structure?
+guardian/core/research/Modules/RAG/local_search.py:33: error: model? has no
+attribute "get_client"  [attr-defined]
+            client = self.model.get_client()
+                     ^~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/RAG/local_search.py:34: error: model? has no
+attribute "get_model"  [attr-defined]
+    ...    md = MarkItDown(llm_client=client, llm_model=self.model.get_model(...
+                                                        ^~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/RAG/local_search.py:67: error: Argument 3 to
+"add_document" of "VectorSearch" has incompatible type "dict[str, object]";
+expected "None"  [arg-type]
+                    p, sha_id, {"source": path, "patch": patch_counter}
+                               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/browser/crawl_ai.py:8: error: Skipping analyzing
+"crawl4ai": module is installed, but missing library stubs or py.typed marker
+[import-untyped]
+        from crawl4ai import (AsyncWebCrawler, BrowserConfig, CacheMode,
+    ^
+guardian/core/research/Modules/browser/crawl_ai.py:12: error: Name "LLMConfig"
+already defined (possibly by an import)  [no-redef]
+        class LLMConfig:
+        ^
+guardian/core/research/Modules/browser/crawl_ai.py:21: error: Skipping
+analyzing "crawl4ai.extraction_strategy": module is installed, but missing
+library stubs or py.typed marker  [import-untyped]
+    from crawl4ai.extraction_strategy import LLMExtractionStrategy
+    ^
+guardian/core/research/Modules/browser/crawl_ai.py:53: error: Need type
+annotation for "url_list" (hint: "url_list: list[<type>] = ...")
+[var-annotated]
+            self.url_list = []
+            ^~~~~~~~~~~~~
+guardian/core/research/Modules/browser/crawl_ai.py:54: error: Need type
+annotation for "url_search" (hint: "url_search: list[<type>] = ...")
+[var-annotated]
+            self.url_search = []
+            ^~~~~~~~~~~~~~~
+guardian/core/research/Modules/browser/crawl_ai.py:131: error: "append" of
+"list" does not return a value (it only ever returns None)  [func-returns-value]
+                        response = await summary.append(content)
+                                         ^~~~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/agent/search.py:29: error: Need type annotation
+for "todo"  [var-annotated]
+            self.todo = deque()
+                        ^~~~~~~
+guardian/core/research/Modules/agent/search.py:31: error: Need type annotation
+for "url_list" (hint: "url_list: list[<type>] = ...")  [var-annotated]
+            self.url_list = []
+            ^~~~~~~~~~~~~
+guardian/core/research/Modules/agent/search.py:32: error: Need type annotation
+for "db" (hint: "db: list[<type>] = ...")  [var-annotated]
+            self.db = []
+            ^~~~~~~
+guardian/core/research/Modules/agent/search.py:127: error: Signature of "run"
+incompatible with supertype "Agent"  [override]
+        async def run(self, task, data) -> str:
+        ^
+guardian/core/research/Modules/agent/search.py:127: note:      Superclass:
+guardian/core/research/Modules/agent/search.py:127: note:          def run(self, response: Any, data: Any = ...) -> Any
+guardian/core/research/Modules/agent/search.py:127: note:      Subclass:
+guardian/core/research/Modules/agent/search.py:127: note:          def run(self, task: Any, data: Any) -> Coroutine[Any, Any, str]
+guardian/core/research/Modules/agent/search.py:170: error: Missing positional
+argument "query" in call to "get_summary" of "Crawl"  [call-arg]
+                        summaries = await self.crawl.get_summary(urls)
+                                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/agent/search.py:179: error: Incompatible return
+value type (got "dict[str, Any]", expected "str")  [return-value]
+            return {"agent": "planner", "data": summary_list, "task": task...
+                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/agent/search.py:197: error: Argument 2 to
+"search_plan" has incompatible type "deque[Any]"; expected "list[str]"
+[arg-type]
+            prompt = search_plan(task, self.todo, k)
+                                       ^~~~~~~~~
+guardian/core/research/Modules/agent/looking_glass.py:108: error: Cannot assign
+multiple types to name "ModelClass" without an explicit "Type[...]" annotation
+[misc]
+            ModelClass = gemini.Gemini
+            ^~~~~~~~~~
+guardian/core/research/Modules/agent/looking_glass.py:108: error: Incompatible
+types in assignment (expression has type "type[Gemini]", variable has type
+"type[Ollama]")  [assignment]
+            ModelClass = gemini.Gemini
+                         ^~~~~~~~~~~~~
+guardian/core/research/Modules/agent/looking_glass.py:112: error: Cannot assign
+multiple types to name "ModelClass" without an explicit "Type[...]" annotation
+[misc]
+            ModelClass = openai.OpenAI
+            ^~~~~~~~~~
+guardian/core/research/Modules/agent/looking_glass.py:112: error: Incompatible
+types in assignment (expression has type "type[OpenAI]", variable has type
+"type[Ollama]")  [assignment]
+            ModelClass = openai.OpenAI
+                         ^~~~~~~~~~~~~
+guardian/core/research/Modules/agent/looking_glass.py:116: error: Cannot assign
+multiple types to name "ModelClass" without an explicit "Type[...]" annotation
+[misc]
+            ModelClass = ollama.Ollama
+            ^~~~~~~~~~
+guardian/core/research/Modules/agent/looking_glass.py:124: error: Cannot find
+implementation or library stub for module named
+"guardian.core.research.Modules.agent.remote_planner"  [import-not-found]
+            from guardian.core.research.Modules.agent.remote_planner impor...
+    ^
+guardian/core/research/Modules/factory/factory.py:5: error: Module
+"guardian.core.research.Modules.agent" has no attribute "Search_agent"; maybe
+"SearchAgent"?  [attr-defined]
+    from ..agent import Planner, Reporter, Search_agent
+    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/core/research/Modules/factory/factory.py:10: error: Self argument
+missing for a non-static method (or an invalid type for self)  [misc]
+        def get_agent(agent_name: str, model: Model):
+        ^
+guardian/core/research/Modules/factory/factory.py:18: error: Self argument
+missing for a non-static method (or an invalid type for self)  [misc]
+        def get_model(provider: str, model: str) -> Model:
+        ^
+guardian/core/research/Modules/factory/factory.py:22: error: Cannot instantiate
+abstract class "Gemini" with abstract attribute "get_client"  [abstract]
+                return Gemini(model)
+                       ^~~~~~~~~~~~~
+guardian/core/research/Modules/factory/factory.py:28: error: Too many
+positional arguments for "OpenAI"  [misc]
+                return OpenAI(model)
+                       ^~~~~~~~~~~~~
+guardian/core/research/Modules/factory/factory.py:28: error: Incompatible
+return value type (got "OpenAI", expected "Model")  [return-value]
+                return OpenAI(model)
+                       ^~~~~~~~~~~~~
+guardian/core/research/Modules/factory/factory.py:30: error: Incompatible
+return value type (got "None", expected "Model")  [return-value]
+            return None
+                   ^~~~
+guardian/guardian_api.py:7: error: Cannot find implementation or library stub
+for module named "guardian.core.ai_router"  [import-not-found]
+    from guardian.core.ai_router import chat_with_ai  # Adjust import if n...
+    ^
+guardian/guardian_api.py:16: error: Cannot determine type of "app"  [has-type]
+    @app.get("/history/v2", summary="Retrieve chat log history (v2)", tags...
+     ^~~
+guardian/guardian_api.py:16: error: Name "app" is used before definition
+[used-before-def]
+    @app.get("/history/v2", summary="Retrieve chat log history (v2)", tags...
+     ^~~
+guardian/guardian_api.py:21: error: Name "require_api_key" is used before
+definition  [used-before-def]
+        api_key: str = Depends(require_api_key),
+                               ^~~~~~~~~~~~~~~
+guardian/guardian_api.py:31: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "id": row[0],
+                          ^
+guardian/guardian_api.py:32: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "timestamp": row[1],
+                                 ^
+guardian/guardian_api.py:33: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "session_id": row[2],
+                                  ^
+guardian/guardian_api.py:34: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "user_id": row[3],
+                               ^
+guardian/guardian_api.py:35: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "role": row[4],
+                            ^
+guardian/guardian_api.py:36: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "message": row[5],
+                               ^
+guardian/guardian_api.py:37: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "response": row[6],
+                                ^
+guardian/guardian_api.py:38: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "backend": row[7],
+                               ^
+guardian/guardian_api.py:39: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "model": row[8],
+                             ^
+guardian/guardian_api.py:40: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "agent": row[9],
+                             ^
+guardian/guardian_api.py:41: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "tag": row[10],
+                           ^~
+guardian/guardian_api.py:42: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                "extra": row[11],
+                             ^~
+guardian/guardian_api.py:50: error: Cannot determine type of "app"  [has-type]
+    @app.post("/summarize/v2", summary="Summarize chat log history (v2)", ...
+     ^~~
+guardian/guardian_api.py:50: error: Name "app" is used before definition
+[used-before-def]
+    @app.post("/summarize/v2", summary="Summarize chat log history (v2)", ...
+     ^~~
+guardian/guardian_api.py:55: error: Name "require_api_key" is used before
+definition  [used-before-def]
+        api_key: str = Depends(require_api_key),
+                               ^~~~~~~~~~~~~~~
+guardian/guardian_api.py:70: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+            if row[4] == "user" and row[5]:
+                   ^
+guardian/guardian_api.py:71: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                messages.append({"role": "user", "content": row[5]})
+                                                                ^
+guardian/guardian_api.py:72: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+            elif row[4] == "assistant" and row[6]:
+                     ^
+guardian/guardian_api.py:73: error: Invalid index type "int" for
+"dict[str, Any]"; expected type "str"  [index]
+                messages.append({"role": "assistant", "content": row[6]})
+                                                                     ^
+guardian/guardian_api.py:99: error: Module "guardian" has no attribute
+"GuardianDB"  [attr-defined]
+    from guardian import GuardianDB  # If your function is in guardian.py
+    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+guardian/guardian_api.py:365: error: Incompatible types in assignment
+(expression has type "None", variable has type "int")  [assignment]
+        parent_thread_id: int = None
+                                ^~~~
+guardian/guardian_api.py:366: error: Incompatible types in assignment
+(expression has type "None", variable has type "str")  [assignment]
+        session_id: str = None
+                          ^~~~
+guardian/guardian_api.py:369: error: Incompatible types in assignment
+(expression has type "None", variable has type "str")  [assignment]
+        project_id: str = None
+                          ^~~~
+guardian/guardian_api.py:382: error: "GuardianDB" has no attribute "__enter__"
+[attr-defined]
+        with chatlog_db as db:
+             ^~~~~~~~~~
+guardian/guardian_api.py:382: error: "GuardianDB" has no attribute "__exit__"
+[attr-defined]
+        with chatlog_db as db:
+             ^~~~~~~~~~
+guardian/guardian_api.py:560: error: Argument "model_used" to
+"GeminiChatResponse" has incompatible type "str | None"; expected "str"
+[arg-type]
+            return GeminiChatResponse(model_used=req.model, reply=reply_te...
+                                                 ^~~~~~~~~
+guardian/guardian_api.py:645: error: Cannot instantiate abstract class "Agent"
+with abstract attributes "get_recv_format", "get_send_format" and "run"
+[abstract]
+        agents = [Agent(**a) for a in config.get("agents", [])]
+                  ^~~~~~~~~~
+guardian/cli/main.py:50: error: Cannot instantiate abstract class "Agent" with
+abstract attributes "get_recv_format", "get_send_format" and "run"  [abstract]
+        agents = [Agent(**a) for a in config.get("agents", [])]
+                  ^~~~~~~~~~
+guardian/cli/main.py:188: error: Invalid index type "int" for "dict[str, Any]";
+expected type "str"  [index]
+            content = row[5] if row[4] == "user" else row[6]
+                          ^
+guardian/cli/main.py:189: error: Invalid index type "int" for "dict[str, Any]";
+expected type "str"  [index]
+            print(f"[magenta]{row[1]}[/magenta] [bold]{row[4]}[/bold]: {co...
+                                  ^
+guardian/cli/main.py:203: error: Cannot find implementation or library stub for
+module named "guardian.core.ai_router"  [import-not-found]
+        from guardian.core.ai_router import \
+    ^
+guardian/cli/main.py:203: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+guardian/cli/main.py:212: error: Invalid index type "int" for "dict[str, Any]";
+expected type "str"  [index]
+            if row[4] == "user" and row[5]:
+                   ^
+guardian/cli/main.py:213: error: Invalid index type "int" for "dict[str, Any]";
+expected type "str"  [index]
+                messages.append({"role": "user", "content": row[5]})
+                                                                ^
+guardian/cli/main.py:214: error: Invalid index type "int" for "dict[str, Any]";
+expected type "str"  [index]
+            elif row[4] == "assistant" and row[6]:
+                     ^
+guardian/cli/main.py:215: error: Invalid index type "int" for "dict[str, Any]";
+expected type "str"  [index]
+                messages.append({"role": "assistant", "content": row[6]})
+                                                                     ^
+Found 150 errors in 30 files (checked 76 source files)

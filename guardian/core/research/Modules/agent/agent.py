@@ -1,24 +1,32 @@
-from abc import ABC, abstractmethod
-import re
 import json
+import re
+from abc import ABC, abstractmethod
+from typing import Any
 
 from pydantic import BaseModel
 
-"""
-    This is an abstract class for Agent
-    Here we will list out method that an Agent should have 
-"""
+__all__ = ["Agent", "_extract_response"]
+
+"""Abstract base class and utilities for Guardian Agents."""
 
 
 class Agent(ABC):
+    """
+    Abstract base class for Guardian Agents.
 
-    def __init__(self, model):
+    Each agent must implement:
+      - run: Executes the agent’s primary logic.
+      - get_recv_format: Specifies the input schema.
+      - get_send_format: Specifies the output schema.
+    """
+
+    def __init__(self, model: Any):
         self.model = model
-        self.name:str
-        self.description:str
+        self.name: str = ""
+        self.description: str = ""
 
     """
-        An agent should have a run method such that it can run it's workflow 
+        An agent should have a run method such that it can run it's workflow
         NOTE: choosing right tool for the right job should also place in the run method
     """
 
@@ -34,6 +42,7 @@ class Agent(ABC):
     def get_send_format(self) -> BaseModel:
         pass
 
+
 def _extract_response(res):
     """
     Extracts the JSON string from a markdown code block or direct string.
@@ -42,11 +51,13 @@ def _extract_response(res):
     """
 
     # 1. If it's a dict with 'choices', extract actual string content
-    if isinstance(res, dict) and 'choices' in res:
+    if isinstance(res, dict) and "choices" in res:
         try:
-            res = res['choices'][0]['message']['content']
+            res = res["choices"][0]["message"]["content"]
         except Exception as e:
-            print(f"[DEBUG] _extract_response: Could not extract content from dict: {e}\nGot: {res}")
+            print(
+                f"[DEBUG] _extract_response: Could not extract content from dict: {e}\nGot: {res}"
+            )
             return None
 
     # 2. If not string now, bail out with debug
@@ -68,7 +79,9 @@ def _extract_response(res):
         print(f"[DEBUG] _extract_response: Raw content is valid JSON:\n{res.strip()}")
         return res.strip()
     except Exception:
-        print(f"[DEBUG] _extract_response: Raw content is not valid JSON. Trying fallback extraction.")
+        print(
+            f"[DEBUG] _extract_response: Raw content is not valid JSON. Trying fallback extraction."
+        )
 
     # 5. Fallback: Try to extract JSON objects or arrays from within the string
     json_candidates = []
@@ -96,7 +109,9 @@ def _extract_response(res):
     for candidate in reversed(json_candidates):
         try:
             json.loads(candidate)
-            print(f"[DEBUG] _extract_response: Extracted valid fallback JSON candidate:\n{candidate}")
+            print(
+                f"[DEBUG] _extract_response: Extracted valid fallback JSON candidate:\n{candidate}"
+            )
             return candidate
         except json.JSONDecodeError:
             continue

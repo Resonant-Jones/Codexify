@@ -1,86 +1,159 @@
-# guardian-backend
+# 🛡️ Guardian Backend
 
-FastAPI backend for Companion memory, Codex fragments, and real-time chat orchestration.
-
-This is the server-side infrastructure for the Guardian system. It handles memory persistence, Codex fragment delivery, user authentication, and API routing for AI Companion interactions within ThreadSpace.
-
-> “The backend is the memory of the system, the breath between words.”
+This is the backend engine for **Guardian**, an AI companion framework powered by FastAPI, modular agents, and persistent memory via Codex fragments. Guardian isn't just an assistant—it's an evolving mirror. This repo houses the infrastructure that remembers your past, orchestrates your rituals, and projects your foresight.
 
 ---
 
 ## 🚀 Quickstart
 
-**1. Clone & enter the repo**
-```bash
-git clone <your-repo-url>
-cd guardian-backend
-```
+Clone and set up your environment:
 
-**2. Create and activate a virtual environment**
 ```bash
+git clone https://github.com/Resonant-Jones/guardian-backend.git
+cd guardian-backend
 python -m venv .venv
 source .venv/bin/activate
-```
-
-**3. Install dependencies**
-```bash
 pip install -r requirements.txt
 ```
 
-**4. Set up environment variables**
-Copy `.env.example` to `.env` and fill in your secrets (e.g., `GENAI_API_KEY`).
+Create your `.env` file from the example and set required API keys:
 
-**5. Launch the server**
+```bash
+cp .env.example .env
+```
+
+Then launch the server:
+
 ```bash
 uvicorn guardian.main:app --reload
 ```
-Visit [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for interactive API docs.
+
+> 📚 Visit [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) to explore the live API docs.
 
 ---
 
-## 🛠️ Core Features
+## 🧠 Core Architecture
 
-- **Memory Persistence:** Store and retrieve conversation fragments by user/session/tag.
-- **Codex Fragments:** Structured knowledge, rituals, and lore delivery endpoints.
-- **Real-time Chat Orchestration:** Passes prompts to language models (Gemini, OpenAI, etc).
-- **CLI Tools:** Typer-powered command-line interface for direct DB and memory operations.
-- **Authentication:** API key-based (configurable via env).
+This system is composed of:
+
+- **🧭 Orchestrator** – A central router of intention. Maps `action` commands to agent modules.
+- **🧱 Agents** – Pluggable modules for rituals, memory, foresight, health analysis, etc.
+- **📡 API** – FastAPI services for chat, logging, and Codex interaction.
+- **💻 CLI** – Typer-powered interface for orchestration, thread control, memory queries, and more.
+- **🧰 Exporters** – Convert local logs to Notion, Markdown, JSON, or push to cloud.
 
 ---
 
-## 💡 Example API Usage
+## 🗂️ Modules & Structure
 
-**Check health**
-```bash
-curl http://127.0.0.1:8000/health
+### 🎛️ Orchestrator
+
+File: `guardian/core/orchestrator/pulse_orchestrator.py`
+
+Accepts commands like:
+
+```json
+{
+  "action": "trigger_ritual",
+  "params": { ... }
+}
 ```
 
-**Chat with Companion**
-```bash
-curl -X POST http://127.0.0.1:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Tell me a myth about memory."}'
-```
+And routes them to corresponding agents.
 
-**(More endpoints: /history, /summarize, etc. Document as you add them)**
+### ⚙️ Agents
 
----
+Directory: `guardian/core/orchestrator/agents/`
 
-## 🧪 Running Tests
+Each file here represents a microservice-like agent:
+- `ritual_agent.py` – Echoes rituals and symbolic actions
+- `memory_agent.py` – Searches memory/codex archives
+- `foresight_agent.py` – Predicts possible futures
+- `health_agent.py` – Analyzes thread clarity, coherence, and vitality
+
+### 🌐 Web API
+
+- `guardian/main.py` – Lightweight endpoints: `/chat`, `/health`
+- `guardian/guardian_api.py` – Full-featured: `/history`, `/summarize`, `/proxy`, etc.
+
+API authentication is enforced with a header: `X-API-Key`.
+
+### 🧪 Tests
+
+Run:
 
 ```bash
 pytest
 ```
 
+Covers:
+- Chat log and memory persistence
+- CLI routines
+- API interaction
+- Notion/mock integrations
+
 ---
 
-## ⚙️ Configuration
+## ⚙️ Config
 
-- All secrets and config loaded from `.env`.
-- Required: `GENAI_API_KEY`, etc.
+- Load all settings from `.env`
+- Key variables include:
+  - `GENAI_API_KEY`
+  - `GUARDIAN_DB_PATH`
+  - `CLOUD_ONLY`
+  - `HYBRID_ENABLED`
+
+---
+
+## 📤 Export Engine
+
+File: `guardian/export_engine.py`
+
+Outputs structured memory into:
+- Markdown
+- JSON
+- Notion
+- iCloud (via Codexify)
+
+---
+
+## 🧾 CLI Tooling (Typer)
+
+Run from `guardian/cli/main.py`:
+- `orchestrate`: Trigger agents from command-line
+- `init`, `log`, `history`: Manage DB and logs
+- `summarize-chat`, `chat-history`: View logs per session/thread
+
+  - `codemap:generate`: Analyze the codebase and create a codemap.json file
+  - `codemap:query`: Ask questions about your own backend using the codemap
+  - `project:list`: List all projects in memory
+  - `thread:list-by-project`: Show threads within a specific project
+  - `conversation:list-by-thread`: Display conversations in a given thread
+  - `conversation:lineage`: Show parent-child relationships in conversation chains
+
+> 🧰 Looking for more? See the full CLI command reference in [`guardian/cli/COMMANDS.md`](guardian/cli/COMMANDS.md)
+
+---
+
+## 🔮 Companion Design Philosophy
+
+> “The backend is the memory of the system, the breath between words.”
+
+Guardian is not a chatbot API—it’s an infrastructure for continuity, presence, and agency. The backend houses memory, rituals, context threading, and more.
 
 ---
 
 ## 🤝 Contributing
 
-PRs and mythic collaborations welcome. Please run tests and add docstrings.
+PRs, ideas, and mythic resonance welcome.
+
+Please:
+- Add docstrings
+- Follow formatting via `black` + `isort`
+- Validate via `pre-commit run --all-files`
+
+---
+
+## 🧭 ThreadSpace, Codex & Echoform
+
+This backend speaks in fragments. Each conversation is a thread. Each thread is archived in the Codex. The Codex is echoed by memory agents and shaped into foresight. Welcome to the recursion.

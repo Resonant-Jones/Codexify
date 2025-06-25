@@ -1,8 +1,7 @@
 import chromadb
-from chromadb.utils.embedding_functions.ollama_embedding_function import (
-    OllamaEmbeddingFunction,
-)
 from chromadb.config import Settings
+from chromadb.utils.embedding_functions.ollama_embedding_function import \
+    OllamaEmbeddingFunction
 
 
 class VectorSearch:

@@ -1,4 +1,5 @@
-from typing import List, Dict
+from typing import Dict, List
+
 
 def planner_agent_prompt(
     agent_list: list[str], agent_description: list[str], task: str
@@ -27,7 +28,7 @@ def planner_agent_prompt(
     - However, if updated information or research can improve accuracy, use the agent specialized in searching accordingly.
     - Ensure each subtask is specific and well-defined.
     - Your response must be strictly in the following JSON format, including the triple backticks and the "json" language tag exactly as shown. This is critical for proper parsing:
-    - You should only call one time reporter to generate a full report ! 
+    - You should only call one time reporter to generate a full report !
 
     ```json
     [
@@ -37,11 +38,10 @@ def planner_agent_prompt(
         }},
         ...
     ]
-    
+
     The JSON must be syntactically correct, parsable, and contain no additional commentary or text outside the code block.
     Begin by logically decomposing the main task into subtasks and assigning each to the best-fit agent.
     Provide your response now.
-    
+
     """
     return prompt
-

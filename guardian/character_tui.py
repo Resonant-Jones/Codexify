@@ -1,17 +1,20 @@
 import curses
-import os
 import json
-from pathlib import Path
+import os
 from datetime import datetime
+from pathlib import Path
 
 BASE_DIR = Path("PulseOS/actors")
+
 
 def ensure_actor_dir():
     BASE_DIR.mkdir(parents=True, exist_ok=True)
 
+
 def list_actors():
     ensure_actor_dir()
     return sorted([p.name for p in BASE_DIR.iterdir() if p.is_dir()])
+
 
 def create_actor(name):
     actor_path = BASE_DIR / name
@@ -22,16 +25,10 @@ def create_actor(name):
         "voice": "Undefined",
         "core_values": [],
         "rituals": [],
-        "style_guidelines": {
-            "avoid": [],
-            "prefer": []
-        },
+        "style_guidelines": {"avoid": [], "prefer": []},
         "user_anchors": [],
         "last_seen": datetime.now(datetime.UTC).isoformat() + "Z",
-        "affective_trace": {
-            "mood": "Neutral",
-            "theme": "Unformed"
-        }
+        "affective_trace": {"mood": "Neutral", "theme": "Unformed"},
     }
 
     cue_card = f"You are {name}, a new companion. You have no fixed form yet.\nAsk questions, observe, and adapt to support your user over time."
@@ -44,11 +41,13 @@ def create_actor(name):
     with open(actor_path / "last_context.md", "w") as f:
         f.write(last_context)
 
+
 def delete_actor(name):
     actor_path = BASE_DIR / name
     for file in actor_path.glob("*"):
         file.unlink()
     actor_path.rmdir()
+
 
 def draw_menu(stdscr):
     curses.curs_set(0)
@@ -91,6 +90,7 @@ def draw_menu(stdscr):
             stdscr.getch()
 
         stdscr.refresh()
+
 
 if __name__ == "__main__":
     curses.wrapper(draw_menu)

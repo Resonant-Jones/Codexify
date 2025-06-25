@@ -1,12 +1,17 @@
 import json
-from pathlib import Path
-from importlib import import_module
+import logging
 import sys
+from importlib import import_module
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
 
 def get_default_model_key():
     if sys.platform == "darwin":
         try:
             import objc  # crude check for iOS via Pythonista or embedded Python
+
             return "phi_local"
         except ImportError:
             return "gemma_local"
@@ -25,6 +30,9 @@ def load_model_backend(name="default"):
         registry = json.load(f)
 
     model_key = get_default_model_key() if name == "default" else name
+    logger.info(f"Loading model backend: {model_key}")
+    logger.debug(f"Available registry keys: {list(registry.keys())}")
+
     if model_key not in registry:
         raise ValueError(f"Model backend '{model_key}' not found in registry.")
 
@@ -45,13 +53,14 @@ def resolve_adapter(adapter_name):
     """
     known_adapters = {
         "GemmaOllamaAdapter": "guardian.core.orchestrator.model_interface",
-        "PhiOllamaAdapter": "guardian.core.orchestrator.model_interface"
         # Add other adapters as needed
     }
 
     if adapter_name not in known_adapters:
+        logger.warning(f"Adapter '{adapter_name}' not found in known_adapters.")
         raise ImportError(f"No module mapping found for adapter '{adapter_name}'.")
 
     module_path = known_adapters[adapter_name]
     module = import_module(module_path)
+    logger.info(f"Resolved adapter '{adapter_name}' from module '{module_path}'")
     return getattr(module, adapter_name)

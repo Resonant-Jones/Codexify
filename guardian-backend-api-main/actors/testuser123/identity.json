@@ -1,0 +1,14 @@
+{
+  "username": "testuser123",
+  "created_at": "2025-06-23T13:10:29.757193+00:00",
+  "user_anchors": [],
+  "affective_trace": {
+    "mood": "welcoming",
+    "theme": "getting_started"
+  },
+  "narrative_style": "friendly",
+  "communication_preferences": {
+    "response_length": "medium",
+    "formality_level": "casual"
+  }
+}

@@ -1,20 +1,15 @@
-
-
 {
-  
   "default": "gemma_local",
   "gemma_local": {
     "type": "ollama",
     "adapter": "GemmaOllamaAdapter",
     "model": "gemma:4b-it"
   },
-
   "phi_local": {
     "type": "ollama",
     "adapter": "PhiOllamaAdapter",
     "model": "phi3:mini"
   },
-
   "models": [
     {
       "id": "phi3_mini",

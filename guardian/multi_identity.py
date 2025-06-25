@@ -1,13 +1,16 @@
 import json
 from pathlib import Path
 
+
 def load_file(path):
-    with open(path, 'r') as f:
+    with open(path, "r") as f:
         return f.read().strip()
 
+
 def load_json(path):
-    with open(path, 'r') as f:
+    with open(path, "r") as f:
         return json.load(f)
+
 
 def assemble_prompt(actor_name, actors_dir="actors", current_goal=None):
     actor_path = Path(actors_dir) / actor_name
@@ -37,13 +40,17 @@ Theme: {theme}
 
 Current Goal:
 {current_goal if current_goal else "Assist user with ongoing task."}
-"""    
+"""
     return prompt
+
 
 # Example usage:
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Assemble identity-based prompt for local LLM inference.")
+
+    parser = argparse.ArgumentParser(
+        description="Assemble identity-based prompt for local LLM inference."
+    )
     parser.add_argument("actor", help="Name of the actor (e.g., gregorios)")
     parser.add_argument("--goal", help="Optional current goal or task", default=None)
     parser.add_argument("--dir", help="Base actors directory", default="actors")

@@ -1,28 +1,27 @@
-from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.by import By
+import random
+import time
+from urllib.parse import parse_qs, urlparse
 
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs
-
-import time
-import random
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 
 """
     Browser class should provide every kinds of interation allow to model to choose which action to perform
 
     The purpose of browser is just to get the url for crawl_ai to get content
-    
-    Brower should have the follwoing methods 
-    - Scroll Up 
-    - Scrool Down 
+
+    Brower should have the follwoing methods
+    - Scroll Up
+    - Scrool Down
     - Access specific link
     - Print Screen
-    - Access to next page 
+    - Access to next page
     - get text from the current web page []
     - switch tab [done , refactor need]
-    - open multiple tab [done] 
-    - next page [done] 
+    - open multiple tab [done]
+    - next page [done]
     - previous page [done]
 
 """

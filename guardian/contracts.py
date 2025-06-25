@@ -1,9 +1,10 @@
-import os
 import json
+import os
 
 CONTRACTS_DIR = os.path.join(os.path.dirname(__file__), "../guardian-codex/integrity")
 
 _contract_cache = {}
+
 
 def load_contract(contract_id: str) -> str:
     filename = f"{contract_id}.md"
@@ -13,16 +14,20 @@ def load_contract(contract_id: str) -> str:
     with open(path, "r") as f:
         return f.read()
 
+
 def extract_json_block(md_text: str) -> dict:
     import re
+
     match = re.search(r"```json\s*({.*?})\s*```", md_text, re.DOTALL)
     if not match:
         raise ValueError("No JSON block found in contract.")
     return json.loads(match.group(1))
 
+
 def validate_identity_contract(data: dict) -> bool:
     required_keys = {"identity", "origin", "model_substrate", "context", "restrictions"}
     return required_keys.issubset(data.keys())
+
 
 def get_identity_context(contract_id: str) -> dict:
     if contract_id in _contract_cache:

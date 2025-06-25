@@ -6,10 +6,10 @@ Each agent should have a router connected. The following diagram explain how it 
 Agent<-->Router<--> Server <--> Router <--> Agent
 """
 
-from .server import Server
-from ..agent.agent import Agent
-
 from pydantic import BaseModel
+
+from ..agent.agent import Agent
+from .server import Server
 
 
 class Router(object):

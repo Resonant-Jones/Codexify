@@ -1,27 +1,32 @@
 import os
+
 from dotenv import load_dotenv
 
-env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
 load_dotenv(dotenv_path=env_path, override=True)
-import os
-from pathlib import Path
-import json
 import csv
 import io
-import yaml
-
-from jinja2 import Template
-import pandas as pd
-# For Notion export markdown -> blocks
-from .codexify import markdown_to_notion_blocks, flatten_notion_blocks
+import json
 import logging
+import os
+from pathlib import Path
+
+import pandas as pd
+import yaml
+from jinja2 import Template
+
+# For Notion export markdown -> blocks
+from .codexify import flatten_notion_blocks, markdown_to_notion_blocks
+
 logging.basicConfig(level=logging.INFO)
 logging.debug("NOTION_API_KEY loaded")
 # ========== Export Functions ==========
 
+
 def export_json(records):
     """Export records as pretty JSON."""
     return json.dumps(records, indent=2)
+
 
 def export_csv(records):
     """Export records as CSV string."""
@@ -29,6 +34,7 @@ def export_csv(records):
         return ""
     df = pd.DataFrame(records)
     return df.to_csv(index=False)
+
 
 def export_markdown(records, template_str=None):
     """Export records as Markdown using Jinja2 templates."""
@@ -38,6 +44,7 @@ def export_markdown(records, template_str=None):
 {% endfor %}"""
     template = Template(template_str or default_template)
     return template.render(records=records)
+
 
 def export_html(records, template_str=None):
     """Export records as HTML using Jinja2 templates."""
@@ -56,9 +63,11 @@ def export_html(records, template_str=None):
     template = Template(template_str or default_template)
     return template.render(records=records)
 
+
 def export_yaml(records):
     """Export records as YAML."""
     return yaml.dump(records, sort_keys=False)
+
 
 def export_mermaid(records):
     """Export memory graph in Mermaid format."""
@@ -70,6 +79,7 @@ def export_mermaid(records):
     graph = "\n".join(lines)
     return f"flowchart LR\n{graph}"
 
+
 # ========== Export Dispatcher ==========
 
 EXPORTERS = {
@@ -80,6 +90,7 @@ EXPORTERS = {
     "yaml": export_yaml,
     "mermaid": export_mermaid,
 }
+
 
 def export_records(records, format, template=None):
     """Dispatch export to correct format using dict-based dispatch."""
@@ -93,7 +104,10 @@ def export_records(records, format, template=None):
 
 # ========== iCloud Export Function ==========
 
-def export_to_icloud(records, format="md", filename=None, template=None, subfolder="Guardian Exports"):
+
+def export_to_icloud(
+    records, format="md", filename=None, template=None, subfolder="Guardian Exports"
+):
     """
     Export records to iCloud Drive (Guardian Exports subfolder).
     - format: 'md', 'csv', 'json', etc.
@@ -111,6 +125,7 @@ def export_to_icloud(records, format="md", filename=None, template=None, subfold
 
     # Determine filename
     from datetime import datetime
+
     ext = format if format != "md" else "md"
     if not filename:
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -130,7 +145,16 @@ def export_to_icloud(records, format="md", filename=None, template=None, subfold
 
 # ========== Notion Export Function ==========
 
-def export_to_notion(records, parent_id, notion_token, format="md", title=None, template=None, parent_type="page"):
+
+def export_to_notion(
+    records,
+    parent_id,
+    notion_token,
+    format="md",
+    title=None,
+    template=None,
+    parent_type="page",
+):
     """
     Export records to Notion as a new page under the given parent_id (page or database).
     - parent_id: Notion page or database ID
@@ -144,7 +168,9 @@ def export_to_notion(records, parent_id, notion_token, format="md", title=None, 
     try:
         from notion_client import Client
     except ImportError:
-        raise ImportError("notion-client package required. Run 'pip install notion-client'.")
+        raise ImportError(
+            "notion-client package required. Run 'pip install notion-client'."
+        )
 
     if not notion_token:
         raise ValueError("Notion token required (from app secure storage or argument).")
@@ -162,16 +188,15 @@ def export_to_notion(records, parent_id, notion_token, format="md", title=None, 
         children = flatten_notion_blocks(blocks)
         # If empty fallback (shouldn't happen), insert a dummy paragraph
         if not children:
-            children = [{
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{
-                        "type": "text",
-                        "text": {"content": md_content}
-                    }]
+            children = [
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{"type": "text", "text": {"content": md_content}}]
+                    },
                 }
-            }]
+            ]
     elif format == "json":
         json_content = export_json(records)
         children = [
@@ -179,11 +204,8 @@ def export_to_notion(records, parent_id, notion_token, format="md", title=None, 
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [{
-                        "type": "text",
-                        "text": {"content": json_content}
-                    }]
-                }
+                    "rich_text": [{"type": "text", "text": {"content": json_content}}]
+                },
             }
         ]
     elif format == "csv":
@@ -193,19 +215,19 @@ def export_to_notion(records, parent_id, notion_token, format="md", title=None, 
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [{
-                        "type": "text",
-                        "text": {"content": csv_content}
-                    }]
-                }
+                    "rich_text": [{"type": "text", "text": {"content": csv_content}}]
+                },
             }
         ]
     else:
-        raise ValueError("Only 'md', 'json', 'csv' formats supported for Notion MVP export.")
+        raise ValueError(
+            "Only 'md', 'json', 'csv' formats supported for Notion MVP export."
+        )
 
     # Set page title
     if not title:
         from datetime import datetime
+
         title = f"Guardian Export {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
     # Build parent param (page or database) explicitly from parent_type
@@ -216,15 +238,8 @@ def export_to_notion(records, parent_id, notion_token, format="md", title=None, 
     try:
         response = client.pages.create(
             parent=parent,
-            properties={
-                "title": [
-                    {
-                        "type": "text",
-                        "text": {"content": title}
-                    }
-                ]
-            },
-            children=children
+            properties={"title": [{"type": "text", "text": {"content": title}}]},
+            children=children,
         )
         page_url = response.get("url")
         return page_url or response
@@ -234,7 +249,10 @@ def export_to_notion(records, parent_id, notion_token, format="md", title=None, 
 
 # ========== Google Drive Export/Import Functions ==========
 
-def export_to_gdrive(records, format="md", filename=None, folder_id=None, credentials=None, template=None):
+
+def export_to_gdrive(
+    records, format="md", filename=None, folder_id=None, credentials=None, template=None
+):
     """
     Export records to Google Drive as a file.
     - format: 'md', 'csv', 'json', etc.
@@ -245,13 +263,17 @@ def export_to_gdrive(records, format="md", filename=None, folder_id=None, creden
     Returns: file metadata from Drive.
     """
     try:
+        import pickle
+
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaFileUpload
-        import pickle
     except ImportError:
-        raise ImportError("google-api-python-client required. Run 'pip install google-api-python-client google-auth-oauthlib'.")
+        raise ImportError(
+            "google-api-python-client required. Run 'pip install google-api-python-client google-auth-oauthlib'."
+        )
 
     from datetime import datetime
+
     ext = format if format != "md" else "md"
     if not filename:
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -271,19 +293,28 @@ def export_to_gdrive(records, format="md", filename=None, folder_id=None, creden
             with open(token_path, "rb") as token:
                 creds = pickle.load(token)
         else:
-            raise ValueError("Google Drive credentials required. Provide as argument or run OAuth flow to create token.pickle.")
+            raise ValueError(
+                "Google Drive credentials required. Provide as argument or run OAuth flow to create token.pickle."
+            )
 
-    service = build('drive', 'v3', credentials=creds)
-    file_metadata = {'name': filename}
+    service = build("drive", "v3", credentials=creds)
+    file_metadata = {"name": filename}
     if folder_id:
-        file_metadata['parents'] = [folder_id]
+        file_metadata["parents"] = [folder_id]
 
     media = MediaFileUpload(tmp_path, resumable=True)
-    uploaded = service.files().create(body=file_metadata, media_body=media, fields='id, name, webViewLink').execute()
+    uploaded = (
+        service.files()
+        .create(body=file_metadata, media_body=media, fields="id, name, webViewLink")
+        .execute()
+    )
     os.remove(tmp_path)
     return uploaded
 
-def import_from_gdrive(query=None, folder_id=None, credentials=None, download_dir="/tmp"):
+
+def import_from_gdrive(
+    query=None, folder_id=None, credentials=None, download_dir="/tmp"
+):
     """
     Import files from Google Drive matching query/folder_id.
     - query: search string for filenames (optional).
@@ -293,11 +324,14 @@ def import_from_gdrive(query=None, folder_id=None, credentials=None, download_di
     Returns: list of file paths (downloaded), or file contents.
     """
     try:
+        import pickle
+
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaIoBaseDownload
-        import pickle
     except ImportError:
-        raise ImportError("google-api-python-client required. Run 'pip install google-api-python-client google-auth-oauthlib'.")
+        raise ImportError(
+            "google-api-python-client required. Run 'pip install google-api-python-client google-auth-oauthlib'."
+        )
 
     creds = credentials
     if not creds:
@@ -306,9 +340,11 @@ def import_from_gdrive(query=None, folder_id=None, credentials=None, download_di
             with open(token_path, "rb") as token:
                 creds = pickle.load(token)
         else:
-            raise ValueError("Google Drive credentials required. Provide as argument or run OAuth flow to create token.pickle.")
+            raise ValueError(
+                "Google Drive credentials required. Provide as argument or run OAuth flow to create token.pickle."
+            )
 
-    service = build('drive', 'v3', credentials=creds)
+    service = build("drive", "v3", credentials=creds)
     q = []
     if query:
         q.append(f"name contains '{query}'")
@@ -316,13 +352,15 @@ def import_from_gdrive(query=None, folder_id=None, credentials=None, download_di
         q.append(f"'{folder_id}' in parents")
     qstr = " and ".join(q) if q else None
 
-    results = service.files().list(q=qstr, pageSize=10, fields="files(id, name)").execute()
-    files = results.get('files', [])
+    results = (
+        service.files().list(q=qstr, pageSize=10, fields="files(id, name)").execute()
+    )
+    files = results.get("files", [])
     downloaded_files = []
 
     for file in files:
-        file_id = file['id']
-        name = file['name']
+        file_id = file["id"]
+        name = file["name"]
         request = service.files().get_media(fileId=file_id)
         file_path = os.path.join(download_dir, name)
         with open(file_path, "wb") as fh:
@@ -332,6 +370,7 @@ def import_from_gdrive(query=None, folder_id=None, credentials=None, download_di
                 status, done = downloader.next_chunk()
         downloaded_files.append(file_path)
     return downloaded_files
+
 
 def import_from_icloud(filename_or_pattern="*", subfolder="Guardian Exports"):
     """

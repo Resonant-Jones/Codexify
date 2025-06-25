@@ -1,16 +1,24 @@
-# --------------------------------------------------------------------------- #
-# Orchestrate Command
-# --------------------------------------------------------------------------- #
-import typer
-app = typer.Typer()
+from memoryOS.memory_manager import MemoryManager
+
+memory = MemoryManager()
 import json
+
+import typer
+
 from guardian.core.orchestrator.pulse_orchestrator import orchestrate
+# Vision helpers
+from guardian.utils.groq_helpers import (run_groq_vision_file,
+                                         run_groq_vision_url)
+
+app = typer.Typer()
 
 
 # Add a new CLI command for orchestrate
 @app.command("orchestrate")
 def orchestrate_command(
-    json_input: str = typer.Argument(..., help="JSON string representing the command for Gemma to orchestrate.")
+    json_input: str = typer.Argument(
+        ..., help="JSON string representing the command for Gemma to orchestrate."
+    )
 ):
     """Send a structured command to Gemma's orchestrator engine."""
     try:
@@ -21,20 +29,27 @@ def orchestrate_command(
     result = orchestrate(command_dict)
     print("[bold green]Orchestration Result:[/bold green]")
     print(json.dumps(result, indent=2))
+
+
 # --------------------------------------------------------------------------- #
 # Research Agent Command
 # --------------------------------------------------------------------------- #
 from datetime import timezone
 
+
 @app.command("research")
 def research(
     query: str = typer.Argument(..., help="What do you want to research?"),
-    mode: str = typer.Option("web", "--mode", "-m", help="'web', 'codex', or 'hybrid' (default: web)"),
+    mode: str = typer.Option(
+        "web", "--mode", "-m", help="'web', 'codex', or 'hybrid' (default: web)"
+    ),
 ):
     """Run the research agent (web, codex, or hybrid)."""
     import asyncio
-    from guardian.core.research.Modules.main import generate_report, read_config
-    from guardian.core.research.Modules.agent import Planner, Agent
+
+    from guardian.core.research.Modules.agent import Agent, Planner
+    from guardian.core.research.Modules.main import (generate_report,
+                                                     read_config)
 
     config = read_config()
     planner = Planner(**config.get("planner", {}))
@@ -45,6 +60,8 @@ def research(
     report = asyncio.run(generate_report(query, planner, agents))
     print("[bold magenta]Research Report:[/bold magenta]\n")
     print(report)
+
+
 """
 guardian.cli.main
 =================
@@ -62,8 +79,8 @@ from typing import Optional
 
 from rich import print
 
-from guardian.core.db import GuardianDB
 from guardian.config import get_settings
+from guardian.core.db import GuardianDB
 from guardian.core.utils.hybrid_router import HybridRouter
 
 # --------------------------------------------------------------------------- #
@@ -78,6 +95,7 @@ db = GuardianDB(settings.GUARDIAN_DB_PATH)
 # --------------------------------------------------------------------------- #
 # Commands
 # --------------------------------------------------------------------------- #
+
 
 @app.command()
 def init() -> None:
@@ -107,6 +125,36 @@ def log(
         timestamp=timestamp,
     )
     print(f"[green]Logged:[/green] {command!r} at {timestamp}")
+    memory.log_event(
+        user_id=user_id,
+        agent=agent,
+        data={
+            "type": "log",
+            "content": command,
+            "tag": tag,
+            "timestamp": timestamp,
+        },
+    )
+
+
+# --------------------------------------------------------------------------- #
+# MemoryOS Memory History Command
+# --------------------------------------------------------------------------- #
+
+
+@app.command("memory-history")
+def memory_history(
+    user_id: str = typer.Option("default", "--user", "-u"),
+    limit: int = typer.Option(10, "--limit", "-n"),
+):
+    logs = memory.fetch_memory(user_id=user_id, limit=limit)
+    if not logs:
+        print("[yellow]No memoryOS history found.[/yellow]")
+        return
+    for item in logs:
+        ts = item.get("timestamp", "(no timestamp)")
+        content = item.get("data", {}).get("content", "(no content)")
+        print(f"[cyan]{ts}[/cyan] {content}")
 
 
 @app.command()
@@ -129,8 +177,10 @@ def history(
 def check_config():
     """Show current config status and highlight any missing/invalid values."""
     from pydantic import ValidationError
+
     try:
         from guardian.config import Settings
+
         current_settings = Settings()
         print("[bold green]✅ All required config variables are set![/bold green]\n")
         for key, value in current_settings.dict().items():
@@ -141,7 +191,9 @@ def check_config():
                 display = value or "(Not set)"
             print(f"[bold]{key}:[/bold] {display}")
     except ValidationError as e:
-        print("[bold red]❌ Configuration error: Missing or invalid settings.[/bold red]\n")
+        print(
+            "[bold red]❌ Configuration error: Missing or invalid settings.[/bold red]\n"
+        )
         for err in e.errors():
             field = err["loc"][0]
             print(f" - {field}: {err['msg']}")
@@ -150,12 +202,61 @@ def check_config():
 
 
 # --------------------------------------------------------------------------- #
+# Config Status Command
+# --------------------------------------------------------------------------- #
+
+
+@app.command("config-status")
+def config_status():
+    """Print a summary of the active config and warn if anything is missing."""
+    from guardian.config import print_config_status
+
+    print_config_status()
+
+
+# --------------------------------------------------------------------------- #
+# Set AI Backend Command
+# --------------------------------------------------------------------------- #
+
+
+@app.command("set-backend")
+def set_backend(
+    backend: str = typer.Argument(
+        ..., help="AI backend to use (e.g., ollama, openai, gemini, nebius, groq)"
+    )
+):
+    """Update the AI_BACKEND setting in the .env file."""
+    from pathlib import Path
+
+    env_path = Path(".env")
+    if not env_path.exists():
+        print("[red]No .env file found in this directory.[/red]")
+        raise typer.Exit(code=1)
+
+    lines = env_path.read_text().splitlines()
+    updated = False
+    for idx, line in enumerate(lines):
+        if line.startswith("AI_BACKEND="):
+            lines[idx] = f"AI_BACKEND={backend}"
+            updated = True
+            break
+    if not updated:
+        lines.append(f"AI_BACKEND={backend}")
+
+    env_path.write_text("\n".join(lines) + "\n")
+    print(f"[bold green]✅ AI_BACKEND updated to:[/bold green] {backend}")
+
+
+# --------------------------------------------------------------------------- #
 # Chat History and Summarize Commands
 # --------------------------------------------------------------------------- #
 
+
 @app.command("chat-history")
 def chat_history(
-    session_id: str = typer.Option(..., "--session-id", "-s", help="Session ID to fetch"),
+    session_id: str = typer.Option(
+        ..., "--session-id", "-s", help="Session ID to fetch"
+    ),
     user_id: str = typer.Option("default", "--user", "-u", help="User ID"),
     limit: int = typer.Option(20, "--limit", "-n", help="Number of messages"),
 ) -> None:
@@ -172,12 +273,18 @@ def chat_history(
 
 @app.command("summarize-chat")
 def summarize_chat(
-    session_id: str = typer.Option(..., "--session-id", "-s", help="Session ID to summarize"),
+    session_id: str = typer.Option(
+        ..., "--session-id", "-s", help="Session ID to summarize"
+    ),
     user_id: str = typer.Option("default", "--user", "-u", help="User ID"),
-    limit: int = typer.Option(20, "--limit", "-n", help="How many messages to summarize"),
+    limit: int = typer.Option(
+        20, "--limit", "-n", help="How many messages to summarize"
+    ),
 ):
     """Summarize the chat log for a session using the active LLM backend."""
-    from guardian.core.ai_router import chat_with_ai  # Import here to avoid CLI boot issues if backend changes
+    from guardian.core.ai_router import \
+        chat_with_ai  # Import here to avoid CLI boot issues if backend changes
+
     rows = db.get_chat_history(session_id=session_id, user_id=user_id, limit=limit)
     if not rows:
         print("[yellow]No chat history found.[/yellow]")
@@ -190,7 +297,10 @@ def summarize_chat(
             messages.append({"role": "assistant", "content": row[6]})
 
     summary_prompt = [
-        {"role": "system", "content": "Summarize this conversation for future recall. Capture all key facts, emotional beats, and decisions. Be specific."}
+        {
+            "role": "system",
+            "content": "Summarize this conversation for future recall. Capture all key facts, emotional beats, and decisions. Be specific.",
+        }
     ] + messages
     summary = chat_with_ai(summary_prompt)
     print("[bold green]Summary:[/bold green]\n" + summary)
@@ -200,13 +310,17 @@ def summarize_chat(
 # Thread Lineage Commands
 # --------------------------------------------------------------------------- #
 
+
 @app.command("list-threads")
 def list_threads(
     user_id: str = typer.Option(None, "--user", "-u", help="User ID (optional)"),
-    project_id: str = typer.Option(None, "--project", "-p", help="Project ID (optional)")
+    project_id: str = typer.Option(
+        None, "--project", "-p", help="Project ID (optional)"
+    ),
 ):
     """List all threads (optionally filtered by user or project)."""
     import sqlite3
+
     query = "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id FROM threads WHERE 1=1"
     params = []
     if user_id:
@@ -223,22 +337,25 @@ def list_threads(
         print("[yellow]No threads found.[/yellow]")
         return
     for row in rows:
-        print(f"[cyan]Thread {row[0]}[/cyan] | Parent: {row[1] or '-'} | Session: {row[2] or '-'} | [magenta]User:[/magenta] {row[5] or '-'} | [magenta]Project:[/magenta] {row[6] or '-'}")
+        print(
+            f"[cyan]Thread {row[0]}[/cyan] | Parent: {row[1] or '-'} | Session: {row[2] or '-'} | [magenta]User:[/magenta] {row[5] or '-'} | [magenta]Project:[/magenta] {row[6] or '-'}"
+        )
         print(f"  [green]Summary:[/green] {row[3] or '(None)'}")
         print(f"  Created: {row[4]}")
         print("")
 
+
 @app.command("show-thread")
-def show_thread(
-    thread_id: int = typer.Argument(..., help="Thread ID to show")
-):
+def show_thread(thread_id: int = typer.Argument(..., help="Thread ID to show")):
     """Show details for a single thread (summary, parent, children)."""
     thread = db.get_thread(thread_id)
     if not thread:
         print(f"[red]Thread {thread_id} not found.[/red]")
         return
     print(f"[bold cyan]Thread {thread[0]}[/bold cyan]")
-    print(f"Parent: {thread[1] or '-'} | Session: {thread[2] or '-'} | User: {thread[5] or '-'} | Project: {thread[6] or '-'}")
+    print(
+        f"Parent: {thread[1] or '-'} | Session: {thread[2] or '-'} | User: {thread[5] or '-'} | Project: {thread[6] or '-'}"
+    )
     print(f"[green]Summary:[/green] {thread[3] or '(None)'}")
     print(f"Created: {thread[4]}\n")
 
@@ -247,26 +364,36 @@ def show_thread(
     if children:
         print("[blue]Children:[/blue]")
         for child in children:
-            print(f" - [cyan]Thread {child[0]}[/cyan] (Session: {child[1]}, Summary: {child[2]})")
+            print(
+                f" - [cyan]Thread {child[0]}[/cyan] (Session: {child[1]}, Summary: {child[2]})"
+            )
     else:
         print("[blue]No children.[/blue]")
+
 
 @app.command("branch-thread")
 def branch_thread(
     parent_thread_id: int = typer.Argument(..., help="Parent thread ID"),
-    session_id: str = typer.Option(None, "--session-id", "-s", help="Session ID for new thread"),
-    summary: str = typer.Option("", "--summary", "-m", help="Initial summary for child thread"),
+    session_id: str = typer.Option(
+        None, "--session-id", "-s", help="Session ID for new thread"
+    ),
+    summary: str = typer.Option(
+        "", "--summary", "-m", help="Initial summary for child thread"
+    ),
     user_id: str = typer.Option("default", "--user", "-u", help="User ID"),
-    project_id: str = typer.Option(None, "--project", "-p", help="Project ID")
+    project_id: str = typer.Option(None, "--project", "-p", help="Project ID"),
 ):
     """Create a new child thread branching from a parent."""
-    new_id = db.create_thread(parent_thread_id, session_id, summary, user_id, project_id)
-    print(f"[green]Branched new thread {new_id} from parent {parent_thread_id}.[/green]")
+    new_id = db.create_thread(
+        parent_thread_id, session_id, summary, user_id, project_id
+    )
+    print(
+        f"[green]Branched new thread {new_id} from parent {parent_thread_id}.[/green]"
+    )
+
 
 @app.command("show-children")
-def show_children(
-    parent_thread_id: int = typer.Argument(..., help="Parent thread ID")
-):
+def show_children(parent_thread_id: int = typer.Argument(..., help="Parent thread ID")):
     """List all child threads for a given parent."""
     children = db.get_child_threads(parent_thread_id)
     if not children:
@@ -274,18 +401,51 @@ def show_children(
         return
     print(f"[blue]Children of thread {parent_thread_id}:[/blue]")
     for child in children:
-        print(f" - [cyan]Thread {child[0]}[/cyan] (Session: {child[1]}, Summary: {child[2]})")
+        print(
+            f" - [cyan]Thread {child[0]}[/cyan] (Session: {child[1]}, Summary: {child[2]})"
+        )
+
 
 # --------------------------------------------------------------------------- #
 # Entrypoint
 # --------------------------------------------------------------------------- #
 
 
+# --------------------------------------------------------------------------- #
+# Groq Vision Command
+# --------------------------------------------------------------------------- #
+
+
+@app.command("vision")
+def vision(
+    image_url: str = typer.Option(None, "--image-url", help="URL to the image"),
+    image_file: str = typer.Option(
+        None, "--image-file", help="Path to a local image file"
+    ),
+    text: str = typer.Option(
+        "What's in this image?", "--text", "-t", help="Prompt text for vision model"
+    ),
+):
+    """Run Groq vision model on a URL or local image."""
+    if image_url:
+        result = run_groq_vision_url(image_url, text)
+    elif image_file:
+        result = run_groq_vision_file(image_file, text)
+    else:
+        print("[red]❌ Please specify either --image-url or --image-file[/red]")
+        raise typer.Exit(code=1)
+
+    print("[bold green]Groq Vision Result:[/bold green]")
+    print(result)
+
+
 # CLI root callback to set LLM routing mode via CLI flags
 @app.callback()
 def main(
     cloud_only: bool = typer.Option(
-        False, "--cloud-only", help="Force all LLM calls to cloud (sovereignty warning!)"
+        False,
+        "--cloud-only",
+        help="Force all LLM calls to cloud (sovereignty warning!)",
     ),
     hybrid: bool = typer.Option(
         False, "--hybrid", help="Enable hybrid mode: cloud for research, local for chat"
@@ -296,7 +456,9 @@ def main(
     """
     if cloud_only:
         HybridRouter.set_cloud_only(True)
-        print("[bold yellow]⚠️  CLOUD ONLY MODE ENABLED: All LLM tasks routed to cloud.[/bold yellow]")
+        print(
+            "[bold yellow]⚠️  CLOUD ONLY MODE ENABLED: All LLM tasks routed to cloud.[/bold yellow]"
+        )
     elif hybrid:
         HybridRouter.set_hybrid_enabled(True)
         print("[cyan]Hybrid mode enabled: cloud for research, local for chat.[/cyan]")

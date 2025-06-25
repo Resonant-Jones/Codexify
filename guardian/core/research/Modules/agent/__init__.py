@@ -1,4 +1,4 @@
-from .planner import Planner
-from .search import Search_agent
-from .reporter import Reporter
 from .agent import Agent
+from .planner import Planner
+from .reporter import Reporter
+from .search import SearchAgent

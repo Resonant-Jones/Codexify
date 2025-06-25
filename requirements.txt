@@ -1,21 +1,29 @@
-fastapi
-uvicorn[standard]
-google-generativeai
-pydantic
-python-dotenv
-pyyaml
-jinja2
-notion-client
-requests
-pandas
-typer
-rich
-crawl4ai
-selenium
-beautifulsoup4
-markitdown
-aiohttp
-chromadb
-litellm
-pytest-asyncio
-anyio
+typer[all]==0.9.0
+rich==13.5.2
+python-dotenv==1.0.0
+requests==2.31.0
+openai==1.30.1
+notion-client==2.0.0
+pydantic==2.7.1
+packaging==23.2
+ollama==0.1.9
+pytest==8.2.1
+flake8==7.0.0
+mistune>=2.0.0,<3.0.0
+
+# fastapi==0.110.0
+# uvicorn==0.30.1
+# sympy==1.12
+# aiohttp
+# selenium
+# beautifulsoup4
+# crawl4ai
+# markitdown
+# chromadb
+# litellm
+# pandas
+# jinja2
+# pyyaml
+# anyio
+# pytest-asyncio
+# google-generativeai

@@ -1,7 +1,8 @@
-from .model import Model
+from ollama import chat
 from openai import OpenAI
 
-from ollama import chat
+from .model import Model
+
 try:
     from crawl4ai import LLMConfig
 except ImportError:  # pragma: no cover - fallback for older crawl4ai versions
@@ -20,9 +21,9 @@ class Ollama(Model):
 
     def set_api(self, api):
         """
-            no need to do anything
+        no need to do anything
         """
-        return 
+        return
 
     def completion(self, message: str, stream: str = False):
         self._append_message(message=message, role="user")
@@ -45,7 +46,11 @@ class Ollama(Model):
         else:
             res = chat(model=self.model, messages=self.messages, stream=True)
             for chunk in res:
-                part = chunk.get("message", {}).get("content", "") if isinstance(chunk, dict) else str(chunk)
+                part = (
+                    chunk.get("message", {}).get("content", "")
+                    if isinstance(chunk, dict)
+                    else str(chunk)
+                )
                 msg_cache += part
                 print(part, end="", flush=True)
             # Wrap stream result in OpenAI-style format
@@ -69,5 +74,3 @@ class Ollama(Model):
 
     def _append_message(self, role: str, message: str):
         self.messages.append({"role": role, "content": message})
-
-    
