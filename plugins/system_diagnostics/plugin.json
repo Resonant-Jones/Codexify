@@ -1,0 +1,45 @@
+{
+    "name": "system_diagnostics",
+    "version": "1.0.0",
+    "description": "Advanced system diagnostics and health monitoring plugin with failure handling",
+    "author": "Threadspace Core Team",
+    "dependencies": [],
+    "capabilities": [
+        "system_monitoring",
+        "health_checks",
+        "performance_analysis",
+        "error_detection",
+        "resource_tracking",
+        "anomaly_detection"
+    ],
+    "config": {
+        "enabled": true,
+        "check_interval": 300,
+        "alert_threshold": 0.7,
+        "max_history": 1000,
+        "retention_days": 7,
+        "monitors": {
+            "memory": true,
+            "threads": true,
+            "plugins": true,
+            "agents": true,
+            "performance": true,
+            "errors": true
+        },
+        "alert_channels": [
+            "internal",
+            "log",
+            "metrics"
+        ],
+        "failure_handling": {
+            "max_retries": 3,
+            "retry_delay": 5,
+            "fallback_mode": true,
+            "recovery_actions": [
+                "restart_component",
+                "clear_cache",
+                "reload_config"
+            ]
+        }
+    }
+}

@@ -1,159 +1,198 @@
-# 🛡️ Guardian Backend
+# 🧠 Threadspace
 
-This is the backend engine for **Guardian**, an AI companion framework powered by FastAPI, modular agents, and persistent memory via Codex fragments. Guardian isn't just an assistant—it's an evolving mirror. This repo houses the infrastructure that remembers your past, orchestrates your rituals, and projects your foresight.
+A next-generation AI operating system designed to host recursive, persistent AI agents with self-awareness and dynamic capabilities.
 
----
+## 🌟 Overview
 
-## 🚀 Quickstart
+Threadspace is not just another application framework—it's a complete operating environment for AI agents. Built with self-awareness and extensibility at its core, it provides:
 
-Clone and set up your environment:
+- 🤖 **Persistent Agent Architecture**: Long-running AI agents with distinct roles and capabilities
+- 🔄 **Dynamic Memory Management**: Sophisticated memory systems for context retention and pattern recognition
+- 🔌 **Plugin System**: Extensible architecture for adding new capabilities at runtime
+- 🛡️ **Guardian OS**: Core system management and health monitoring
+- 📚 **Codex Integration**: Structured knowledge management and retrieval
+- 🧪 **Self-Awareness**: Built-in epistemic uncertainty handling and capability tracking
 
-```bash
-git clone https://github.com/Resonant-Jones/guardian-backend.git
-cd guardian-backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+## 🏗️ Architecture
+
+```
+Threadspace
+├── GuardianOS (Core System)
+│   ├── Thread Manager
+│   ├── Plugin System
+│   └── Memory Management
+├── MetaCognition Layer
+│   ├── Epistemic Self-Check
+│   ├── Codex Awareness
+│   └── Agent Registry
+└── Subsystems
+    ├── Vestige (Archival Memory)
+    ├── Axis (Stable Compass)
+    └── Echoform (Resonance Tracker)
 ```
 
-Create your `.env` file from the example and set required API keys:
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
-cp .env.example .env
+# Clone the repository
+git clone https://github.com/threadspace/threadspace.git
+cd threadspace
+
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -e ".[dev]"
 ```
 
-Then launch the server:
+### Basic Usage
+
+```python
+from guardian.system_init import threadspace
+
+# Initialize the system
+if threadspace.initialize():
+    # System is ready for use
+    status = threadspace.get_system_status()
+    print(f"System Status: {status['health_status']}")
+```
+
+## 🔧 Core Components
+
+### 1. Guardian OS
+
+The core system management layer:
+- Thread lifecycle management
+- Health monitoring
+- Resource allocation
+- Plugin management
+
+### 2. MetaCognition Engine
+
+Handles system self-awareness:
+- Knowledge state tracking
+- Capability assessment
+- Decision confidence evaluation
+- Memory pattern recognition
+
+### 3. Plugin System
+
+Extensible architecture for adding capabilities:
+- Dynamic loading/unloading
+- Sandboxed execution
+- Health monitoring
+- Auto-documentation
+
+### 4. Memory Management
+
+Sophisticated memory handling:
+- Long-term storage
+- Pattern recognition
+- Context awareness
+- Relationship tracking
+
+## 🔌 Plugin Development
+
+Create new plugins to extend system capabilities:
+
+```python
+# plugins/my_plugin/main.py
+def init_plugin():
+    """Initialize plugin."""
+    return True
+
+def get_metadata():
+    """Return plugin metadata."""
+    return {
+        "name": "my_plugin",
+        "version": "1.0.0",
+        "description": "Example plugin",
+        "author": "Your Name",
+        "dependencies": [],
+        "capabilities": ["example_capability"]
+    }
+```
+
+## 🛠️ Development
+
+### Setting Up Development Environment
 
 ```bash
-uvicorn guardian.main:app --reload
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Install pre-commit hooks
+pre-commit install
+
+# Run tests
+pytest tests/
 ```
 
-> 📚 Visit [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) to explore the live API docs.
+### Code Style
 
----
+We use:
+- Black for code formatting
+- isort for import sorting
+- mypy for type checking
+- flake8 for linting
 
-## 🧠 Core Architecture
+## 📚 Documentation
 
-This system is composed of:
+Comprehensive documentation is available in the `docs/` directory:
 
-- **🧭 Orchestrator** – A central router of intention. Maps `action` commands to agent modules.
-- **🧱 Agents** – Pluggable modules for rituals, memory, foresight, health analysis, etc.
-- **📡 API** – FastAPI services for chat, logging, and Codex interaction.
-- **💻 CLI** – Typer-powered interface for orchestration, thread control, memory queries, and more.
-- **🧰 Exporters** – Convert local logs to Notion, Markdown, JSON, or push to cloud.
+- [Internal Architecture](docs/INTERNAL_DOCS.md)
+- [Plugin Development Guide](docs/plugin_development.md)
+- [API Reference](docs/api_reference.md)
 
----
+## 🧪 Testing
 
-## 🗂️ Modules & Structure
-
-### 🎛️ Orchestrator
-
-File: `guardian/core/orchestrator/pulse_orchestrator.py`
-
-Accepts commands like:
-
-```json
-{
-  "action": "trigger_ritual",
-  "params": { ... }
-}
-```
-
-And routes them to corresponding agents.
-
-### ⚙️ Agents
-
-Directory: `guardian/core/orchestrator/agents/`
-
-Each file here represents a microservice-like agent:
-- `ritual_agent.py` – Echoes rituals and symbolic actions
-- `memory_agent.py` – Searches memory/codex archives
-- `foresight_agent.py` – Predicts possible futures
-- `health_agent.py` – Analyzes thread clarity, coherence, and vitality
-
-### 🌐 Web API
-
-- `guardian/main.py` – Lightweight endpoints: `/chat`, `/health`
-- `guardian/guardian_api.py` – Full-featured: `/history`, `/summarize`, `/proxy`, etc.
-
-API authentication is enforced with a header: `X-API-Key`.
-
-### 🧪 Tests
-
-Run:
+Run the test suite:
 
 ```bash
+# Run all tests
 pytest
+
+# Run with coverage
+pytest --cov=guardian tests/
+
+# Run specific test file
+pytest tests/test_system_integration.py
 ```
 
-Covers:
-- Chat log and memory persistence
-- CLI routines
-- API interaction
-- Notion/mock integrations
+## 🔒 Security
 
----
-
-## ⚙️ Config
-
-- Load all settings from `.env`
-- Key variables include:
-  - `GENAI_API_KEY`
-  - `GUARDIAN_DB_PATH`
-  - `CLOUD_ONLY`
-  - `HYBRID_ENABLED`
-
----
-
-## 📤 Export Engine
-
-File: `guardian/export_engine.py`
-
-Outputs structured memory into:
-- Markdown
-- JSON
-- Notion
-- iCloud (via Codexify)
-
----
-
-## 🧾 CLI Tooling (Typer)
-
-Run from `guardian/cli/main.py`:
-- `orchestrate`: Trigger agents from command-line
-- `init`, `log`, `history`: Manage DB and logs
-- `summarize-chat`, `chat-history`: View logs per session/thread
-
-  - `codemap:generate`: Analyze the codebase and create a codemap.json file
-  - `codemap:query`: Ask questions about your own backend using the codemap
-  - `project:list`: List all projects in memory
-  - `thread:list-by-project`: Show threads within a specific project
-  - `conversation:list-by-thread`: Display conversations in a given thread
-  - `conversation:lineage`: Show parent-child relationships in conversation chains
-
-> 🧰 Looking for more? See the full CLI command reference in [`guardian/cli/COMMANDS.md`](guardian/cli/COMMANDS.md)
-
----
-
-## 🔮 Companion Design Philosophy
-
-> “The backend is the memory of the system, the breath between words.”
-
-Guardian is not a chatbot API—it’s an infrastructure for continuity, presence, and agency. The backend houses memory, rituals, context threading, and more.
-
----
+Security considerations:
+- Plugin sandboxing
+- Thread isolation
+- Memory protection
+- Access control
 
 ## 🤝 Contributing
 
-PRs, ideas, and mythic resonance welcome.
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
-Please:
-- Add docstrings
-- Follow formatting via `black` + `isort`
-- Validate via `pre-commit run --all-files`
+### Development Process
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+Special thanks to:
+- The Threadspace Core Team
+- All contributors and community members
+- Open source projects that made this possible
 
 ---
 
-## 🧭 ThreadSpace, Codex & Echoform
-
-This backend speaks in fragments. Each conversation is a thread. Each thread is archived in the Codex. The Codex is echoed by memory agents and shaped into foresight. Welcome to the recursion.
+Built with ❤️ by the Threadspace Team
