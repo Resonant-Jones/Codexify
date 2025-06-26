@@ -1,191 +1,78 @@
-# 🔌 Threadspace Plugin System
+# Plugins Directory
 
-This directory contains all active plugins for the Threadspace system. The plugin manifest is automatically updated as plugins are added or removed.
+This folder is reserved for dynamic plugins that can be added or modified by the assistant.
 
-## 📋 Current Plugin Manifest
+## Plugin Structure
 
-> ⚠️ This section is automatically maintained by the system. Manual edits will be overwritten.
+Each plugin should define a class that inherits from `PluginBase` located in `plugin_interface.py`. It must implement the following methods:
 
-```json
-{
-  "last_updated": "",
-  "active_plugins": {},
-  "disabled_plugins": {}
-}
-```
+- `name(self) -> str`: Return the plugin's name.
+- `run(self, *args, **kwargs)`: Execute the plugin logic.
 
-## 🔧 Plugin Architecture
-
-Plugins in Threadspace follow a standardized interface that enables dynamic loading and seamless integration with the core system. Each plugin must implement:
-
-### Required Interface
+## Example Plugin
 
 ```python
-def init_plugin() -> bool:
-    """Initialize the plugin and its resources."""
-    pass
+from plugins.plugin_interface import PluginBase
 
-def get_metadata() -> dict:
-    """
-    Return plugin metadata.
-    
-    Returns:
-        {
-            "name": str,            # Plugin name
-            "version": str,         # Semantic version
-            "description": str,     # Plugin description
-            "author": str,          # Author information
-            "dependencies": list,   # Required dependencies
-            "capabilities": list    # Provided capabilities
-        }
-    """
-    pass
+class HelloWorldPlugin(PluginBase):
+    def name(self):
+        return "HelloWorld"
+
+    def run(self, *args, **kwargs):
+        print("Hello, world!")
 ```
 
-### Optional Interface
+Use `loader.py` to dynamically load and run all available plugins.
+```python
+from plugins.loader import load_plugins
+
+for plugin in load_plugins():
+    print(f"Running {plugin.name()} plugin...")
+    plugin.run()
+```
+# Guardian Plugin System State
+
+This file acts as a ledger of known plugin interfaces available to the Guardian LLM environment.
+
+## Plugin Interface
+
+All plugins must inherit from `PluginBase` and implement:
+
+- `name(self) -> str`: Return the plugin's name.
+- `run(self, *args, **kwargs)`: Execute the plugin logic.
+
+## Example
 
 ```python
-def cleanup() -> bool:
-    """Cleanup resources when plugin is disabled."""
-    pass
+from plugins.plugin_interface import PluginBase
 
-def health_check() -> dict:
-    """
-    Return plugin health status.
-    
-    Returns:
-        {
-            "status": str,         # "healthy" | "warning" | "error"
-            "message": str,        # Status description
-            "metrics": dict        # Optional performance metrics
-        }
-    """
-    pass
+class HelloWorldPlugin(PluginBase):
+    def name(self):
+        return "HelloWorld"
+
+    def run(self, *args, **kwargs):
+        print("Hello, world!")
 ```
 
-## 🚀 Plugin Development
+## Loaded at Runtime
 
-To create a new plugin:
+The plugin loader system will detect and import all modules within the `plugins/` directory that follow this interface. These are made available to the assistant at runtime for invocation.
 
-1. Create a new directory under `plugins/` with your plugin name
-2. Implement the required interface methods
-3. Add a `plugin.json` file with metadata
-4. Optional: Add documentation in a `README.md` file
+Loader logic:
 
-### Example Plugin Structure
+```python
+from plugins.loader import load_plugins
 
-```
-plugins/
-  my_plugin/
-    __init__.py
-    plugin.json
-    README.md
-    main.py
+for plugin in load_plugins():
+    print(f"Running {plugin.name()} plugin...")
+    plugin.run()
 ```
 
-### Example plugin.json
+## Purpose
 
-```json
-{
-  "name": "my_plugin",
-  "version": "1.0.0",
-  "description": "Example plugin description",
-  "author": "Your Name",
-  "dependencies": [],
-  "capabilities": ["example_capability"],
-  "config": {
-    "enabled": true,
-    "setting1": "value1"
-  }
-}
-```
+This file should act as a living contract that is kept up to date by the assistant. If plugins are created, removed, or deprecated, the assistant should reflect those changes here.
 
-## 🔒 Security
+## Known Plugins
 
-Plugins are sandboxed and have limited access to system resources. They:
-- Can only access their own configuration and data directory
-- Must declare required permissions in their metadata
-- Are monitored for resource usage and health
-
-## 🔄 Auto-Update Process
-
-The plugin manifest is automatically updated when:
-- New plugins are added to the system
-- Existing plugins are removed or disabled
-- Plugin configurations are modified
-- Plugin health status changes
-
-The update process:
-1. Scans the plugins directory for changes
-2. Validates plugin interfaces and metadata
-3. Updates the manifest in this README
-4. Logs changes to the system journal
-
-## 🎯 Best Practices
-
-1. **Initialization**
-   - Perform resource allocation in `init_plugin()`
-   - Handle initialization failures gracefully
-   - Log initialization steps
-
-2. **Error Handling**
-   - Use try/except blocks for robust operation
-   - Report errors through the health check interface
-   - Clean up resources on error
-
-3. **Configuration**
-   - Use the plugin.json for configuration
-   - Support runtime configuration updates
-   - Validate configuration values
-
-4. **Documentation**
-   - Maintain clear documentation
-   - Document configuration options
-   - Provide usage examples
-
-5. **Testing**
-   - Include unit tests
-   - Test initialization and cleanup
-   - Verify error handling
-
-## 📝 Plugin Guidelines
-
-1. **Naming**
-   - Use lowercase with underscores
-   - Be descriptive but concise
-   - Avoid generic names
-
-2. **Dependencies**
-   - Minimize external dependencies
-   - Document all requirements
-   - Version dependencies appropriately
-
-3. **Performance**
-   - Optimize resource usage
-   - Implement efficient algorithms
-   - Cache results when appropriate
-
-4. **Maintenance**
-   - Keep plugins updated
-   - Monitor for deprecation
-   - Respond to bug reports
-
-## 🤝 Contributing
-
-To contribute a plugin:
-
-1. Fork the repository
-2. Create your plugin following the guidelines
-3. Test thoroughly
-4. Submit a pull request
-
-## 📚 Additional Resources
-
-- [Plugin Development Guide](../docs/plugin_development.md)
-- [API Documentation](../docs/api_reference.md)
-- [Example Plugins](../examples/plugins/)
-
----
-
-> 🔄 Last Updated: [timestamp]
-> This document is automatically maintained by the Threadspace system.
+- HelloWorldPlugin (example)
+- [Add your plugin metadata here as they are built]

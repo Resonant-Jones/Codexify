@@ -32,3 +32,4 @@ htmlcov/
 *.sqlite3
 *.db
 *.bak
+guardian-token.md

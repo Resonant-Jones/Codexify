@@ -20,7 +20,7 @@ The plugin.json file should contain:
 
 ```json
 {
-  "last_updated": "2025-06-26T03:24:07.732874",
+  "last_updated": "2025-06-26T03:54:26.170870",
   "active_plugins": {},
   "disabled_plugins": {}
 }

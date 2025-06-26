@@ -16639,5 +16639,1765 @@
     ],
     "confidence": 1.0,
     "related_artifacts": []
+  },
+  {
+    "id": "test_2025-06-26T03:54:25.294219",
+    "content": {
+      "type": "test_memory",
+      "data": "test_data",
+      "timestamp": "2025-06-26T03:54:25.294214"
+    },
+    "source": "test",
+    "timestamp": "2025-06-26T03:54:25.294221",
+    "tags": [
+      "test",
+      "memory_test"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": []
+  },
+  {
+    "id": "test_2025-06-26T03:54:25.304367",
+    "content": {
+      "type": "related_memory",
+      "data": "related_data",
+      "timestamp": "2025-06-26T03:54:25.304360"
+    },
+    "source": "test",
+    "timestamp": "2025-06-26T03:54:25.304368",
+    "tags": [
+      "test",
+      "memory_test",
+      "related"
+    ],
+    "confidence": 0.9,
+    "related_artifacts": [
+      "test_2025-06-26T03:54:25.294219"
+    ]
+  },
+  {
+    "id": "test_2025-06-26T03:54:25.313517",
+    "content": {
+      "type": "related_memory",
+      "data": "test_data_0",
+      "timestamp": "2025-06-26T03:54:25.313514"
+    },
+    "source": "test",
+    "timestamp": "2025-06-26T03:54:25.313518",
+    "tags": [
+      "test",
+      "memory_test",
+      "related"
+    ],
+    "confidence": 0.9,
+    "related_artifacts": [
+      "test_2025-06-26T03:54:25.294219"
+    ]
+  },
+  {
+    "id": "test_2025-06-26T03:54:25.322031",
+    "content": {
+      "type": "related_memory",
+      "data": "test_data_1",
+      "timestamp": "2025-06-26T03:54:25.322026"
+    },
+    "source": "test",
+    "timestamp": "2025-06-26T03:54:25.322032",
+    "tags": [
+      "test",
+      "memory_test",
+      "related"
+    ],
+    "confidence": 0.9,
+    "related_artifacts": [
+      "test_2025-06-26T03:54:25.294219"
+    ]
+  },
+  {
+    "id": "test_2025-06-26T03:54:25.329913",
+    "content": {
+      "type": "related_memory",
+      "data": "test_data_2",
+      "timestamp": "2025-06-26T03:54:25.329909"
+    },
+    "source": "test",
+    "timestamp": "2025-06-26T03:54:25.329914",
+    "tags": [
+      "test",
+      "memory_test",
+      "related"
+    ],
+    "confidence": 0.9,
+    "related_artifacts": [
+      "test_2025-06-26T03:54:25.294219"
+    ]
+  },
+  {
+    "id": "vestige_test_2025-06-26T03:54:26.171248",
+    "content": {
+      "type": "test_memory",
+      "data": [
+        "a",
+        "b",
+        "a",
+        "b",
+        "a",
+        "b"
+      ],
+      "counts": {
+        "a": 3,
+        "b": 3
+      },
+      "pairs": [
+        [
+          "x",
+          "y"
+        ],
+        [
+          "x",
+          "y"
+        ]
+      ],
+      "timestamp": "2025-06-26T03:54:26.171234"
+    },
+    "source": "vestige_test",
+    "timestamp": "2025-06-26T03:54:26.171252",
+    "tags": [
+      "test",
+      "pattern_test"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "['a', 'b', 'a', 'b', 'a', 'b']",
+      "[['x', 'y'], ['x', 'y']]",
+      "{'type': 'test_memory', 'data': ['a', 'b', 'a', 'b', 'a', 'b'], 'counts': {'a': 3, 'b': 3}, 'pairs': [['x', 'y'], ['x', 'y']], 'timestamp': '2025-06-26T03:54:26.171234'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.183746",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "vestige_test_2025-06-26T03:54:26.171248",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'test_memory', 'data': ['a', 'b', 'a', 'b', 'a', 'b'], 'counts': {'a': 3, 'b': 3}, 'pairs': [['x', 'y'], ['x', 'y']], 'timestamp': '2025-06-26T03:54:26.171234'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "data",
+              "counts",
+              "pairs",
+              "timestamp"
+            ],
+            "depth": 2
+          },
+          "timestamp": "2025-06-26T03:54:26.183698",
+          "verified": false
+        },
+        {
+          "pattern_type": "sequence",
+          "confidence": 0.7,
+          "artifacts": [
+            "['a', 'b', 'a', 'b', 'a', 'b']"
+          ],
+          "metadata": {
+            "length": 6,
+            "unique_elements": 2,
+            "repetitions": {
+              "a": 3,
+              "b": 3
+            }
+          },
+          "timestamp": "2025-06-26T03:54:26.183718",
+          "verified": false
+        },
+        {
+          "pattern_type": "sequence",
+          "confidence": 0.7,
+          "artifacts": [
+            "[['x', 'y'], ['x', 'y']]"
+          ],
+          "metadata": {
+            "length": 2,
+            "unique_elements": 1,
+            "repetitions": {
+              "['x', 'y']": 2
+            }
+          },
+          "timestamp": "2025-06-26T03:54:26.183725",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.183741"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.183748",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3333333333333333,
+    "related_artifacts": []
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.196068",
+    "content": {
+      "timestamp": "2025-06-26T03:54:26.196064",
+      "pattern_count": 0,
+      "verified_patterns": 0,
+      "active_analyses": []
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.196069",
+    "tags": [
+      "checkpoint",
+      "system_state"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.206848",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "type": "test_data"
+        }
+      },
+      "options": [
+        {
+          "id": "opt1",
+          "value": "direct_route"
+        },
+        {
+          "id": "opt2",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.206097",
+      "selected_option": {
+        "id": "opt1",
+        "value": "direct_route",
+        "score": 0.6499999999999999,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 1.0
+        }
+      },
+      "outcome": {
+        "success": true
+      }
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.206849",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.216364",
+    "content": {
+      "decision_type": "resource",
+      "context": {
+        "resource_type": "memory",
+        "quantity": 100
+      },
+      "options": [
+        {
+          "id": "allocate",
+          "value": true
+        },
+        {
+          "id": "defer",
+          "value": false
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.215556",
+      "selected_option": {
+        "id": "allocate",
+        "value": true,
+        "score": 0.6499999999999999,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 1.0
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.216365",
+    "tags": [
+      "decision",
+      "resource"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.224478",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "type": "test_data"
+        }
+      },
+      "options": [
+        {
+          "id": "opt1",
+          "value": "direct_route"
+        },
+        {
+          "id": "opt2",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.206097",
+      "selected_option": {
+        "id": "opt1",
+        "value": "direct_route",
+        "score": 0.6499999999999999,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 1.0
+        }
+      },
+      "outcome": {
+        "success": true
+      }
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.224479",
+    "tags": [
+      "decision",
+      "outcome"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "echoform_2025-06-26T03:54:26.232448",
+    "content": {
+      "type": "resonance_assessment",
+      "resonance_state": "harmonic",
+      "metrics": {
+        "resource_balance": 0.95,
+        "performance_score": 0.7,
+        "error_rate": 0.995,
+        "coherence_score": 0.925
+      },
+      "patterns": {
+        "trends": {},
+        "cycles": {
+          "resources": {
+            "cpu": {
+              "periodic": false,
+              "frequency": null
+            },
+            "memory": {
+              "periodic": false,
+              "frequency": null
+            }
+          }
+        },
+        "anomalies": {}
+      },
+      "timestamp": "2025-06-26T03:54:26.232444"
+    },
+    "source": "echoform",
+    "timestamp": "2025-06-26T03:54:26.232449",
+    "tags": [
+      "resonance",
+      "assessment"
+    ],
+    "confidence": 0.84625,
+    "related_artifacts": []
+  },
+  {
+    "id": "integration_2025-06-26T03:54:26.240154",
+    "content": {
+      "type": "integration_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.240152"
+    },
+    "source": "integration",
+    "timestamp": "2025-06-26T03:54:26.240156",
+    "tags": [
+      "test",
+      "integration"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'integration_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.240152'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.247726",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "integration_2025-06-26T03:54:26.240154",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'integration_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.240152'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.247711",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.247723"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.247727",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.255714",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "integration_2025-06-26T03:54:26.240154"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.255080",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.623,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.91
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.255715",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "echoform_2025-06-26T03:54:26.262944",
+    "content": {
+      "type": "resonance_assessment",
+      "resonance_state": "harmonic",
+      "metrics": {
+        "resource_balance": 0.8500000000000001,
+        "performance_score": 0.7,
+        "error_rate": 0.995,
+        "coherence_score": 0.925
+      },
+      "patterns": {
+        "trends": {},
+        "cycles": {
+          "resources": {
+            "memory": {
+              "periodic": false,
+              "frequency": null
+            },
+            "cpu": {
+              "periodic": false,
+              "frequency": null
+            }
+          }
+        },
+        "anomalies": {}
+      },
+      "timestamp": "2025-06-26T03:54:26.262941"
+    },
+    "source": "echoform",
+    "timestamp": "2025-06-26T03:54:26.262945",
+    "tags": [
+      "resonance",
+      "assessment"
+    ],
+    "confidence": 0.83375,
+    "related_artifacts": []
+  },
+  {
+    "id": "error_handler_2025-06-26T03:54:26.270590",
+    "content": {
+      "type": "system_error",
+      "error": "Test value error",
+      "context": {
+        "source": "test",
+        "error_type": "ValueError",
+        "severity": "medium",
+        "component": "test_system",
+        "pre_error_state": {
+          "timestamp": "2025-06-26T03:54:26.270566",
+          "agent_status": {
+            "Vestige": "nominal",
+            "Axis": "nominal",
+            "Echoform": "initializing"
+          },
+          "memory_status": "nominal",
+          "thread_health": {
+            "status": "nominal",
+            "thread_count": 2,
+            "threads": {
+              "system_monitor": {
+                "thread_id": "system_monitor",
+                "thread_type": "core",
+                "start_time": "2025-06-26T03:54:25.189517",
+                "last_heartbeat": "2025-06-26T03:54:25.189517",
+                "uptime": "0:00:01.081000",
+                "error_count": 0,
+                "last_error": null,
+                "status": "initializing",
+                "metrics": {}
+              },
+              "test_thread": {
+                "thread_id": "test_thread",
+                "thread_type": "worker",
+                "start_time": "2025-06-26T03:54:25.191256",
+                "last_heartbeat": "2025-06-26T03:54:25.191256",
+                "uptime": "0:00:01.079265",
+                "error_count": 0,
+                "last_error": null,
+                "status": "running",
+                "metrics": {}
+              }
+            },
+            "timestamp": "2025-06-26T03:54:26.270525"
+          },
+          "overall_health": "nominal"
+        }
+      },
+      "timestamp": "2025-06-26T03:54:26.270588"
+    },
+    "source": "error_handler",
+    "timestamp": "2025-06-26T03:54:26.270592",
+    "tags": [
+      "error",
+      "system"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": []
+  },
+  {
+    "id": "recovery_handler_2025-06-26T03:54:26.278060",
+    "content": {
+      "type": "recovery_attempt",
+      "error": "Test value error",
+      "actions": [
+        {
+          "component": "system",
+          "status": "recovered"
+        }
+      ],
+      "timestamp": "2025-06-26T03:54:26.278059"
+    },
+    "source": "recovery_handler",
+    "timestamp": "2025-06-26T03:54:26.278061",
+    "tags": [
+      "recovery",
+      "system"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": []
+  },
+  {
+    "id": "error_handler_2025-06-26T03:54:26.391286",
+    "content": {
+      "type": "system_error",
+      "error": "Test runtime error",
+      "context": {
+        "source": "test",
+        "error_type": "RuntimeError",
+        "severity": "medium",
+        "component": "test_system",
+        "pre_error_state": {
+          "timestamp": "2025-06-26T03:54:26.391214",
+          "agent_status": {
+            "Vestige": "nominal",
+            "Axis": "nominal",
+            "Echoform": "initializing"
+          },
+          "memory_status": "nominal",
+          "thread_health": {
+            "status": "nominal",
+            "thread_count": 2,
+            "threads": {
+              "system_monitor": {
+                "thread_id": "system_monitor",
+                "thread_type": "core",
+                "start_time": "2025-06-26T03:54:25.189517",
+                "last_heartbeat": "2025-06-26T03:54:25.189517",
+                "uptime": "0:00:01.201637",
+                "error_count": 0,
+                "last_error": null,
+                "status": "initializing",
+                "metrics": {}
+              },
+              "test_thread": {
+                "thread_id": "test_thread",
+                "thread_type": "worker",
+                "start_time": "2025-06-26T03:54:25.191256",
+                "last_heartbeat": "2025-06-26T03:54:25.191256",
+                "uptime": "0:00:01.199901",
+                "error_count": 0,
+                "last_error": null,
+                "status": "running",
+                "metrics": {}
+              }
+            },
+            "timestamp": "2025-06-26T03:54:26.391159"
+          },
+          "overall_health": "nominal"
+        }
+      },
+      "timestamp": "2025-06-26T03:54:26.391283"
+    },
+    "source": "error_handler",
+    "timestamp": "2025-06-26T03:54:26.391288",
+    "tags": [
+      "error",
+      "system"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": []
+  },
+  {
+    "id": "recovery_handler_2025-06-26T03:54:26.402639",
+    "content": {
+      "type": "recovery_attempt",
+      "error": "Test runtime error",
+      "actions": [
+        {
+          "component": "system",
+          "status": "recovered"
+        }
+      ],
+      "timestamp": "2025-06-26T03:54:26.402637"
+    },
+    "source": "recovery_handler",
+    "timestamp": "2025-06-26T03:54:26.402640",
+    "tags": [
+      "recovery",
+      "system"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": []
+  },
+  {
+    "id": "error_handler_2025-06-26T03:54:26.516717",
+    "content": {
+      "type": "system_error",
+      "error": "Test generic error",
+      "context": {
+        "source": "test",
+        "error_type": "Exception",
+        "severity": "medium",
+        "component": "test_system",
+        "pre_error_state": {
+          "timestamp": "2025-06-26T03:54:26.516504",
+          "agent_status": {
+            "Vestige": "nominal",
+            "Axis": "nominal",
+            "Echoform": "initializing"
+          },
+          "memory_status": "nominal",
+          "thread_health": {
+            "status": "nominal",
+            "thread_count": 2,
+            "threads": {
+              "system_monitor": {
+                "thread_id": "system_monitor",
+                "thread_type": "core",
+                "start_time": "2025-06-26T03:54:25.189517",
+                "last_heartbeat": "2025-06-26T03:54:25.189517",
+                "uptime": "0:00:01.326899",
+                "error_count": 0,
+                "last_error": null,
+                "status": "initializing",
+                "metrics": {}
+              },
+              "test_thread": {
+                "thread_id": "test_thread",
+                "thread_type": "worker",
+                "start_time": "2025-06-26T03:54:25.191256",
+                "last_heartbeat": "2025-06-26T03:54:25.191256",
+                "uptime": "0:00:01.325165",
+                "error_count": 0,
+                "last_error": null,
+                "status": "running",
+                "metrics": {}
+              }
+            },
+            "timestamp": "2025-06-26T03:54:26.516426"
+          },
+          "overall_health": "nominal"
+        }
+      },
+      "timestamp": "2025-06-26T03:54:26.516709"
+    },
+    "source": "error_handler",
+    "timestamp": "2025-06-26T03:54:26.516720",
+    "tags": [
+      "error",
+      "system"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": []
+  },
+  {
+    "id": "recovery_handler_2025-06-26T03:54:26.531833",
+    "content": {
+      "type": "recovery_attempt",
+      "error": "Test generic error",
+      "actions": [
+        {
+          "component": "system",
+          "status": "recovered"
+        }
+      ],
+      "timestamp": "2025-06-26T03:54:26.531830"
+    },
+    "source": "recovery_handler",
+    "timestamp": "2025-06-26T03:54:26.531834",
+    "tags": [
+      "recovery",
+      "system"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.650175",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.650162"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.650180",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.650162'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.671260",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.650175",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.650162'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.671234",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.671253"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.671262",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.685019",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.650175"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.683972",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.5984,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.8280000000000001
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.685021",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.697586",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.697583"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.697588",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.697583'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.707407",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.697586",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.697583'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.707389",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.707402"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.707408",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.717448",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.697586"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.716681",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.57872,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.7624000000000001
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.717449",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.727453",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.727451"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.727454",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.727451'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.735605",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.727453",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.727451'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.735592",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.735602"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.735606",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.744163",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.727453"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.743491",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.562976,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.7099200000000001
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.744164",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.753427",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.753424"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.753428",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.753424'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.760870",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.753427",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.753424'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.760860",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.760868"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.760871",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.769252",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.753427"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.768601",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.5503808,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.6679360000000001
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.769253",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.778143",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.778141"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.778144",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.778141'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.785930",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.778143",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.778141'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.785917",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.785927"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.785931",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.794465",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.778143"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.793795",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.54030464,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.6343488
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.794466",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.803869",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.803867"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.803870",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.803867'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.811711",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.803869",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.803867'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.811700",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.811709"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.811712",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.820119",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.803869"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.819466",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.532243712,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.6074790400000001
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.820119",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.829369",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.829366"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.829370",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.829366'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.837091",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.829369",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.829366'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.837080",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.837089"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.837092",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.845637",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.829369"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.844945",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.5257949696,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.5859832320000001
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.845638",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.855240",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.855237"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.855241",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.855237'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.863214",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.855240",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.855237'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.863203",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.863211"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.863214",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.871779",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.855240"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.871107",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.5206359756800001,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.5687865856000002
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.871780",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.881178",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.881176"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.881179",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.881176'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.889216",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.881178",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.881176'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.889204",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.889214"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.889217",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.897545",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.881178"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.896887",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.5165087805440001,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.5550292684800001
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.897546",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "performance_2025-06-26T03:54:26.907052",
+    "content": {
+      "type": "performance_test",
+      "key1": "value2",
+      "timestamp": "2025-06-26T03:54:26.907050"
+    },
+    "source": "performance",
+    "timestamp": "2025-06-26T03:54:26.907054",
+    "tags": [
+      "test",
+      "performance"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": [
+      "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.907050'}"
+    ]
+  },
+  {
+    "id": "vestige_2025-06-26T03:54:26.915164",
+    "content": {
+      "type": "memory_analysis",
+      "memory_id": "performance_2025-06-26T03:54:26.907052",
+      "patterns": [
+        {
+          "pattern_type": "structure",
+          "confidence": 0.6,
+          "artifacts": [
+            "{'type': 'performance_test', 'key1': 'value2', 'timestamp': '2025-06-26T03:54:26.907050'}"
+          ],
+          "metadata": {
+            "keys": [
+              "type",
+              "key1",
+              "timestamp"
+            ],
+            "depth": 1
+          },
+          "timestamp": "2025-06-26T03:54:26.915150",
+          "verified": false
+        }
+      ],
+      "related_patterns": [],
+      "timestamp": "2025-06-26T03:54:26.915161"
+    },
+    "source": "vestige",
+    "timestamp": "2025-06-26T03:54:26.915164",
+    "tags": [
+      "analysis",
+      "patterns"
+    ],
+    "confidence": 0.3,
+    "related_artifacts": []
+  },
+  {
+    "id": "axis_2025-06-26T03:54:26.923698",
+    "content": {
+      "decision_type": "routing",
+      "context": {
+        "destination": "memory_system",
+        "payload": {
+          "memory_id": "performance_2025-06-26T03:54:26.907052"
+        }
+      },
+      "options": [
+        {
+          "id": "direct",
+          "value": "direct_route"
+        },
+        {
+          "id": "cached",
+          "value": "cached_route"
+        }
+      ],
+      "confidence": 0.5,
+      "timestamp": "2025-06-26T03:54:26.923042",
+      "selected_option": {
+        "id": "direct",
+        "value": "direct_route",
+        "score": 0.5132070244352,
+        "metrics": {
+          "base_score": 0.5,
+          "historical_score": 0.5,
+          "stability_score": 0.5440234147840001
+        }
+      },
+      "outcome": null
+    },
+    "source": "axis",
+    "timestamp": "2025-06-26T03:54:26.923699",
+    "tags": [
+      "decision",
+      "routing"
+    ],
+    "confidence": 0.5,
+    "related_artifacts": []
+  },
+  {
+    "id": "system_2025-06-26T03:54:32.137004",
+    "content": {
+      "type": "system_event",
+      "event": "shutdown",
+      "timestamp": "2025-06-26T03:54:32.136975"
+    },
+    "source": "system",
+    "timestamp": "2025-06-26T03:54:32.137010",
+    "tags": [
+      "system",
+      "shutdown"
+    ],
+    "confidence": 1.0,
+    "related_artifacts": []
   }
 ]
