@@ -1,9 +1,9 @@
 """
 Guardian Configuration Package
-----------------------------
-Configuration management for the Guardian system.
+--------------------------
+Provides system-wide configuration and settings.
 """
 
-from .system_config import system_config
+from guardian.config.config import Config
 
-__all__ = ['system_config']
+__all__ = ['Config']

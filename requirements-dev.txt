@@ -1,14 +1,27 @@
-# Linting and formatting
-flake8
-black
+# Core dependencies
+aiohttp>=3.8.0
+asyncio>=3.4.3
+pyyaml>=6.0
+python-dotenv>=0.19.0
+sqlalchemy>=1.4.0
+structlog>=21.1.0
 
 # Testing
-pytest
+pytest>=7.0.0
+pytest-asyncio>=0.18.0
+pytest-cov>=3.0.0
+pytest-mock>=3.7.0
 
-# Environment variable loading for tests
-python-dotenv
+# Development
+black>=22.3.0
+flake8>=4.0.1
+mypy>=0.950
+isort>=5.10.1
 
-# Optional: type checking (if you adopt typing in the codebase)
-mypy
+# Performance monitoring
+psutil>=5.9.0
+memory-profiler>=0.60.0
 
-pre-commit
+# Cache and storage
+diskcache>=5.4.0
+msgpack>=1.0.3
