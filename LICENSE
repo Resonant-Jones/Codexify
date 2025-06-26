@@ -1,0 +1,75 @@
+MIT License
+
+Copyright (c) 2023 Threadspace Core Team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Additional Terms:
+
+1. Attribution Requirement:
+   When using this software in a product or service, appropriate credit must be
+   given to the Threadspace Core Team by including the following notice in your
+   documentation or other materials provided with the distribution:
+   "This product includes software developed by the Threadspace Core Team
+   (https://threadspace.ai)."
+
+2. Plugin Distribution:
+   Plugins developed for this software may be distributed separately under
+   different terms, provided they clearly indicate they are plugins for
+   Threadspace and include appropriate attribution.
+
+3. Contribution Agreement:
+   By contributing to this project, contributors agree that their contributions
+   will be licensed under the same MIT license terms as the original software.
+
+4. Trademark Usage:
+   The names "Threadspace" and "GuardianOS" may not be used to endorse or
+   promote products derived from this software without specific prior written
+   permission.
+
+5. Patent Grant:
+   Each contributor grants a non-exclusive, worldwide, royalty-free patent
+   license under the contributor's essential patent claims, to make, use, sell,
+   offer for sale, import and otherwise run, modify and propagate the contents
+   of their contribution.
+
+6. Third Party Components:
+   This software may include or depend upon third-party components that are
+   licensed under their own terms. Please refer to the documentation for
+   information about third-party licenses.
+
+7. Commercial Use:
+   This software may be used for commercial purposes. However, we appreciate
+   notification of commercial use to help us understand how the software is
+   being utilized.
+
+8. Modifications:
+   Any modifications to this software should be clearly marked as such, and
+   must not misrepresent themselves as the original software.
+
+9. No Warranty Extension:
+   Contributors providing modifications, patches, or other changes are not
+   required to provide support, warranty, or updates for their changes.
+
+10. Ethical Use:
+    This software must not be used for purposes that violate applicable laws
+    or promote harm to individuals or communities.
+
+For questions about licensing or usage, please contact:
+legal@threadspace.ai

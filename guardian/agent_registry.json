@@ -1,0 +1,41 @@
+{
+  "Vestige": {
+    "role": "archival memory",
+    "description": "Long-term memory and pattern recognition system",
+    "llm": "default",
+    "status": "active",
+    "capabilities": [
+      "memory_storage",
+      "pattern_recognition",
+      "context_retrieval"
+    ],
+    "last_active": null,
+    "health_status": "nominal"
+  },
+  "Axis": {
+    "role": "stable compass",
+    "description": "Core decision making and routing system",
+    "llm": "groq",
+    "status": "active",
+    "capabilities": [
+      "decision_routing",
+      "priority_assessment",
+      "coherence_checking"
+    ],
+    "last_active": null,
+    "health_status": "nominal"
+  },
+  "Echoform": {
+    "role": "resonance tracker",
+    "description": "Emotional and contextual intelligence system",
+    "llm": "anthropic",
+    "status": "pending",
+    "capabilities": [
+      "emotion_tracking",
+      "context_awareness",
+      "response_tuning"
+    ],
+    "last_active": null,
+    "health_status": "initializing"
+  }
+}
