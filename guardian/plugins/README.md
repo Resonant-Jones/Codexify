@@ -20,7 +20,11 @@ The plugin.json file should contain:
 
 ```json
 {
+<<<<<<< HEAD
   "last_updated": "2025-06-26T03:54:26.170870",
+=======
+  "last_updated": "2025-06-26T05:38:05.365713",
+>>>>>>> 7f93d0c (✅ Add event-loop-safe global rate limiter system with Safe Mode config + test suite)
   "active_plugins": {},
   "disabled_plugins": {}
 }
