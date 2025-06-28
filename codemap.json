@@ -1,0 +1,47 @@
+{
+    "MemoryOS.__init__": {
+        "file": "guardian/memory/memoryos.py",
+        "line": 19,
+        "description": "Initialize MemoryOS with required services including codemap loading and conversation management"
+    },
+    "query_codemap": {
+        "file": "guardian/memory/codemap.py",
+        "line": 45,
+        "description": "Query the codemap using fuzzy matching to find relevant code locations"
+    },
+    "format_results": {
+        "file": "guardian/memory/codemap.py",
+        "line": 89,
+        "description": "Format codemap query results for CLI display with optional explanation"
+    },
+    "cli_codemap_query": {
+        "file": "guardian/cli/commands.py",
+        "line": 15,
+        "description": "CLI command handler for querying the codemap with optional LLM explanation"
+    },
+    "monitor_conversation_length": {
+        "file": "guardian/memory/memoryos.py",
+        "line": 89,
+        "description": "Monitor conversation token count and trigger auto-branching when approaching limit"
+    },
+    "summarize_conversation": {
+        "file": "guardian/memory/memoryos.py",
+        "line": 124,
+        "description": "Summarize conversation content and create a new branch when token limit is reached"
+    },
+    "cli_conversation_simulate_overflow": {
+        "file": "guardian/cli/commands.py",
+        "line": 43,
+        "description": "CLI command to simulate conversation token limit overflow and test auto-branching"
+    },
+    "Conversation": {
+        "file": "guardian/memory/conversation.py",
+        "line": 15,
+        "description": "Core conversation data structure with token limit management and lineage tracking"
+    },
+    "ConversationManager": {
+        "file": "guardian/memory/conversation.py",
+        "line": 89,
+        "description": "Manages conversation storage, retrieval, and parent-child relationships"
+    }
+}

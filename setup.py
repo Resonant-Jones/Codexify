@@ -1,25 +1,32 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="threadspace",
-    version="0.1.0",
-    description="A next-generation AI operating system with recursive, persistent agents",
-    author="Threadspace Core Team",
+    name="guardian",
+    version="1.0.0",
+    description="A modular AI assistant with plugin support and core memory management",
+    author="Guardian Core Team",
     packages=find_packages(exclude=["tests*", "docs*"]),
-    python_requires=">=3.8",
+    python_requires=">=3.10",
     install_requires=[
-        "typer>=0.9.0",
-        "rich>=13.0.0",
+        # Core dependencies
+        "click>=8.0.0",
+        "pyyaml>=6.0.0",
+        "python-dotenv>=1.0.0",
         "fastapi>=0.100.0",
         "pydantic>=2.0.0",
         "pydantic-settings>=2.0.0",
         "uvicorn>=0.23.0",
-        "python-dotenv>=1.0.0",
         "sqlalchemy>=2.0.0",
         "aiosqlite>=0.19.0",
         "httpx>=0.24.0",
+        
+        # Plugin system
         "importlib-metadata>=6.0.0",
         "pluggy>=1.0.0",
+        
+        # TTS Plugin dependencies
+        "requests>=2.31.0",
+        "google-cloud-texttospeech>=2.14.1",
     ],
     extras_require={
         "dev": [
@@ -41,7 +48,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "threadspace=guardian.system_init:main",
+            "guardian=guardian.cli.plugin_cli:main",
         ],
     },
 )
