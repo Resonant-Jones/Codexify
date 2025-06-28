@@ -188,4 +188,24 @@ Each release section includes:
 
 ---
 
-Last Updated: [YYYY-MM-DD]
+Last Updated: [2025-06-12]
+
+
+# 🗝️ CHANGELOG — Guardian Ritual Flow
+
+## v0.1.0 — Ritual Flow + Semantic Memory
+
+### Added
+- `Body Mirror`, `Signal Pinger`, `Aura Summarizer`, `Aura API` modules
+- Semantic in-memory cache for ephemeral signal storage
+- Configurable `MEMORY_DB_PATH` exposed in config summary
+- Codexify plugin adapters stubbed for pipeline integration
+- Basic `pytest` coverage for plugin boot + semantic queries
+- Documentation: semantic caching usage, plugin hooks, config guide
+
+### Notes
+- Ritual Flow signals do not persist beyond the rolling window.
+- Codexify plugins will evolve into full Hotbox orchestration.
+- Foresight Ritual planned for next iteration.
+
+Last Updated: [2025-06-28]
