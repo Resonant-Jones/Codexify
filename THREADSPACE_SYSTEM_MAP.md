@@ -69,3 +69,23 @@
 ✅ COMMIT:
    ```bash
    chore(guardian): remove platform-specific Swift modules; align repo to Python-only
+
+# Make sure you’re on the right branch:
+git checkout main
+
+# Remove the Swift files:
+rm guardian/HealthKitManager.swift
+rm guardian/ProprioceptionGraphView.swift
+rm guardian/SignalPinger.swift
+rm guardian/AmbientVolumeManager.swift
+rm guardian/MotionManager.swift
+rm guardian/GPSManager.swift
+
+# Add updated AXIS_SYSTEM_PROMPT.md (Python-only note)
+# Add your updated THREADSPACE_SYSTEM_MAP.md
+# Add AXIS_REMOVAL_INSTRUCTIONS.md for historical clarity
+
+git add .
+git commit -m "chore(guardian): remove platform-specific Swift modules; align repo to Python-only"
+git push origin main
+
