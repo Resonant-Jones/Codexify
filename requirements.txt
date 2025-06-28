@@ -38,3 +38,7 @@ prometheus-client>=0.17.0
 # Security
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
+
+# TTS Dependencies
+requests>=2.31.0
+google-cloud-texttospeech>=2.14.1

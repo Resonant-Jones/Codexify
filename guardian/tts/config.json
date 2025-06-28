@@ -1,0 +1,21 @@
+{
+    "default_provider": "local",
+    "providers": {
+        "elevenlabs": {
+            "api_key": null,
+            "default_voice": "josh"
+        },
+        "google": {
+            "credentials_path": null,
+            "default_voice": "en-US-Standard-A"
+        },
+        "local": {
+            "enabled": true,
+            "default_voice": "local-neutral-1"
+        }
+    },
+    "output_directory": "tts_output",
+    "audio_format": "wav",
+    "cache_enabled": true,
+    "cache_directory": ".tts_cache"
+}

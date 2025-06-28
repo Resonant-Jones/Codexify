@@ -1,0 +1,33 @@
+# Guardian Configuration
+
+core:
+  plugins_dir: "guardian/plugins"
+  conversation_token_limit: 90000
+
+plugins:
+  enabled:
+    - tts
+    - codexify
+
+tts:
+  default_provider: "local"
+  output_dir: "tts_output"
+  providers:
+    elevenlabs:
+      api_key: null  # Set via ELEVENLABS_API_KEY env var
+    google:
+      credentials_path: null  # Set via GOOGLE_APPLICATION_CREDENTIALS env var
+    local:
+      enabled: true
+
+codexify:
+  adapters:
+    - name: "memory"
+      enabled: true
+    - name: "codemap"
+      enabled: true
+  pipelines:
+    - name: "knowledge_extraction"
+      enabled: true
+    - name: "insight_generation"
+      enabled: true
