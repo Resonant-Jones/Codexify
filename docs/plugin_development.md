@@ -122,6 +122,7 @@ def health_check() -> Dict[str, Any]:
 |--------|-------------|-------------|
 | `cleanup()` | Clean up resources | `bool` |
 | `health_check()` | Check plugin health | `Dict[str, Any]` |
+| `register_cli()` | Register CLI commands | `None` |
 
 ## ⚙️ Plugin Configuration
 
