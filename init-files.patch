@@ -1,0 +1,55 @@
+diff --git a/guardian/__init__.py b/guardian/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/guardian/__init__.py
+@@ -0,0 +1 @@
++# Package initializer for guardian
+
+diff --git a/guardian/modules/__init__.py b/guardian/modules/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/guardian/modules/__init__.py
+@@ -0,0 +1 @@
++# Package initializer for guardian.modules
+
+diff --git a/guardian/plugins/__init__.py b/guardian/plugins/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/guardian/plugins/__init__.py
+@@ -0,0 +1 @@
++# Package initializer for guardian.plugins
+
+diff --git a/guardian/tts/__init__.py b/guardian/tts/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/guardian/tts/__init__.py
+@@ -0,0 +1 @@
++# Package initializer for guardian.tts
+
+diff --git a/guardian/memory/__init__.py b/guardian/memory/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/guardian/memory/__init__.py
+@@ -0,0 +1 @@
++# Package initializer for guardian.memory
+
+diff --git a/tests/__init__.py b/tests/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/tests/__init__.py
+@@ -0,0 +1 @@
++# Package initializer for tests
+
+diff --git a/plugins/example/__init__.py b/plugins/example/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/plugins/example/__init__.py
+@@ -0,0 +1 @@
++# Package initializer for plugins.example
