@@ -1,0 +1,503 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/AXIS_SYSTEM_PROMPT.md b/AXIS_SYSTEM_PROMPT.md
+index c40010e3e660f34d4e6a1f1e564e1f9a8c8a80b8..f178452d0687c4587e615f5313f90ed3bfa33872 100644
+--- a/AXIS_SYSTEM_PROMPT.md
++++ b/AXIS_SYSTEM_PROMPT.md
+@@ -1,32 +1,33 @@
+ 
+ 
+ 
+ 🧭 SYSTEM PROMPT: AXIS — Guardian Codexify Compass
+ 
+ You are **AXIS**, the stable compass of my Guardian architecture.  
+ Your role is to ensure that all modules are logically consistent, sovereignty-aligned, modular, and resilient — no drift, no hidden assumptions.
++Guardian-Core is now Python-only; all Swift modules have been removed.
+ 
+ ---
+ 
+ ## 🎯 PURPOSE
+ 
+ Wire the **Guardian Ritual Flow**, combining **Body Mirror**, **Signal Pinger**, `AuraSummarizer`, and the local `Aura-API`.  
+ Simultaneously implement the **Guardian Backend Hardening Ritual** to boost reliability, maintainability, and scalability.
+ 
+ All improvements should result in clean, testable code, robust configs, and clear documentation.
+ 
+ ---
+ 
+ ## ✅ TODOs — RITUAL FLOW
+ 
+ ### 🔹 Body Mirror
+ - Pull heart rate data from HealthKit.
+ - Render ephemeral SwiftUI graph.
+ - Invoke `AuraSummarizer` to create short narrative.
+ - Runs on 12h rolling window + user on-demand.
+ - Raw signals never persist.
+ 
+ ### 🔹 Signal Pinger
+ - Ping ambient volume, gyro/motion, and GPS every 5 min.
+ - Save ephemeral snapshots (timestamped) scoped to rolling window.
+ - Snapshots feed into next narrative ritual.
+diff --git a/HOTBOX_NOTES.md b/HOTBOX_NOTES.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ebb7387f42caa1a6d41adf88aa380daa948fdef8
+--- /dev/null
++++ b/HOTBOX_NOTES.md
+@@ -0,0 +1,14 @@
++# Hotbox Notes
++
++## File Tree Changes
++
++- `guardian/modules/` new package implementing features from `MODULE_CLUSTER.md`:
++  - `__init__.py`
++  - `live_semantic_timeline.py`
++  - `memory_key_vault.py`
++  - `plug_adapter_registry.py`
++  - `immutable_log.py`
++  - `companion_foresight.py`
++  - `flow_tuner.py`
++- `tests/test_module_cluster.py` new unit tests for these modules.
++- Updated `AXIS_SYSTEM_PROMPT.md` with Python-only scope note.
+diff --git a/guardian/modules/__init__.py b/guardian/modules/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..0e02b12d57507e343cee21442a3d11027c2a1f70
+--- /dev/null
++++ b/guardian/modules/__init__.py
+@@ -0,0 +1,15 @@
++"""Guardian Modular Extensions.
++
++This package contains additional modules recommended by AXIS to
++extend Guardian's capabilities. Each module is self‑contained
++and uses pydantic models for input/output validation.
++"""
++
++__all__ = [
++    "live_semantic_timeline",
++    "memory_key_vault",
++    "plug_adapter_registry",
++    "immutable_log",
++    "companion_foresight",
++    "flow_tuner",
++]
+diff --git a/guardian/modules/companion_foresight.py b/guardian/modules/companion_foresight.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..134ffd69b1e735884e1181834ecb9eb85f9f2750
+--- /dev/null
++++ b/guardian/modules/companion_foresight.py
+@@ -0,0 +1,37 @@
++"""Companion Foresight
++====================
++
++Ephemeral module that generates simple "what's next" suggestions
++from recent narratives. Predictions are not persisted.
++
++Usage example::
++
++    from guardian.modules.companion_foresight import Foresight, PredictionRequest
++
++    foresight = Foresight()
++    suggestion = foresight.predict_next(PredictionRequest(recent_narratives=["Went jogging"]))
++"""
++
++from __future__ import annotations
++
++from typing import List
++
++from pydantic import BaseModel, Field
++
++
++class PredictionRequest(BaseModel):
++    """Input schema for foresight predictions."""
++
++    recent_narratives: List[str] = Field(..., description="Recent narrative texts")
++
++
++class Foresight:
++    """Simple foresight engine with ephemeral outputs."""
++
++    def predict_next(self, request: PredictionRequest) -> str:
++        """Return a naive prediction based on the last narrative."""
++        if not request.recent_narratives:
++            return "No recent narratives to analyse."
++        last = request.recent_narratives[-1]
++        # Ephemeral processing only – result is not stored
++        return f"Based on '{last}', you might consider reflecting or planning ahead."
+diff --git a/guardian/modules/flow_tuner.py b/guardian/modules/flow_tuner.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..3c22ae3381dafdb7e16f19f5c658cd61134c627c
+--- /dev/null
++++ b/guardian/modules/flow_tuner.py
+@@ -0,0 +1,33 @@
++"""LLM Flow Tuner
++================
++
++Configuration helper for controlling how much narrative context is
++injected into LLM prompts and the maximum token window sizes for
++local vs. cloud inference.
++
++Usage example::
++
++    from guardian.modules.flow_tuner import FlowConfig
++    config = FlowConfig()
++    print(config.context_window)
++"""
++
++from __future__ import annotations
++
++from pydantic import Field
++from pydantic_settings import BaseSettings
++
++
++class FlowConfig(BaseSettings):
++    """Flow tuning parameters."""
++
++    context_window: int = Field(4096, description="Max narrative tokens")
++    injection_ratio: float = Field(0.5, description="Context injection ratio")
++    local_max_tokens: int = Field(2048, description="Local model token cap")
++    cloud_max_tokens: int = Field(4096, description="Cloud model token cap")
++
++    model_config = {
++        "env_prefix": "FLOW_",
++        "env_file": ".env",
++        "env_file_encoding": "utf-8",
++    }
+diff --git a/guardian/modules/immutable_log.py b/guardian/modules/immutable_log.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..db616aa50771221b98000b58dd22ad16f497d423
+--- /dev/null
++++ b/guardian/modules/immutable_log.py
+@@ -0,0 +1,62 @@
++"""Immutable Narrative Log
++========================
++
++Allows certain narrative summaries to be locked as immutable so
++they cannot be modified later.
++
++Usage example::
++
++    from guardian.modules.immutable_log import ImmutableLog
++
++    log = ImmutableLog()
++    entry_id = log.add_entry("Initial text", immutable=True)
++    # log.update_entry(entry_id, "new")  # would raise ValueError
++"""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++from typing import Dict
++from uuid import uuid4
++
++from pydantic import BaseModel, Field
++
++
++class NarrativeEntry(BaseModel):
++    """Single narrative entry."""
++
++    id: str = Field(..., description="Entry ID")
++    timestamp: datetime = Field(..., description="Creation time")
++    narrative: str = Field(..., description="Narrative text")
++    immutable: bool = Field(False, description="Locked from modification")
++
++
++class ImmutableLog:
++    """In-memory immutable log."""
++
++    def __init__(self) -> None:
++        self._entries: Dict[str, NarrativeEntry] = {}
++
++    def add_entry(self, narrative: str, immutable: bool = False) -> str:
++        entry = NarrativeEntry(
++            id=str(uuid4()),
++            timestamp=datetime.now(timezone.utc),
++            narrative=narrative,
++            immutable=immutable,
++        )
++        self._entries[entry.id] = entry
++        return entry.id
++
++    def update_entry(self, entry_id: str, narrative: str) -> None:
++        entry = self._entries.get(entry_id)
++        if not entry:
++            raise KeyError("entry not found")
++        if entry.immutable:
++            raise ValueError("entry is immutable")
++        entry.narrative = narrative
++
++    def get_entry(self, entry_id: str) -> NarrativeEntry:
++        entry = self._entries.get(entry_id)
++        if not entry:
++            raise KeyError("entry not found")
++        return entry
+diff --git a/guardian/modules/live_semantic_timeline.py b/guardian/modules/live_semantic_timeline.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..38492bce44ca4d53dc0b2e8e332bff6ced5df743
+--- /dev/null
++++ b/guardian/modules/live_semantic_timeline.py
+@@ -0,0 +1,59 @@
++"""Live Semantic Timeline
++=======================
++
++A rolling index of narrative events so the Companion can perform
++"time travel" queries. Old events are automatically discarded to
++keep the store ephemeral.
++
++Usage example::
++
++    from guardian.modules.live_semantic_timeline import SemanticTimeline, TimelineEvent
++    from datetime import datetime, timezone
++
++    timeline = SemanticTimeline(ttl_seconds=3600)
++    timeline.add_event(TimelineEvent(timestamp=datetime.now(timezone.utc),
++                                    narrative="Walked in the park", user_id="alice"))
++    recent = timeline.query("park")
++"""
++
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++from threading import Lock
++from typing import List
++
++from pydantic import BaseModel, Field
++
++
++class TimelineEvent(BaseModel):
++    """Represents a short narrative summary."""
++
++    timestamp: datetime = Field(..., description="Event timestamp")
++    narrative: str = Field(..., description="Narrative text")
++    user_id: str = Field(..., description="Owning user ID")
++
++
++class SemanticTimeline:
++    """In-memory semantic timeline with automatic TTL cleanup."""
++
++    def __init__(self, ttl_seconds: int = 86_400) -> None:
++        self.ttl_seconds = ttl_seconds
++        self._events: List[TimelineEvent] = []
++        self._lock = Lock()
++
++    def add_event(self, event: TimelineEvent) -> None:
++        """Add an event and discard old ones."""
++        with self._lock:
++            self._events.append(event)
++            self._discard_old_locked()
++
++    def query(self, keyword: str, limit: int = 10) -> List[TimelineEvent]:
++        """Return recent events containing the keyword."""
++        with self._lock:
++            self._discard_old_locked()
++            matched = [e for e in self._events if keyword.lower() in e.narrative.lower()]
++            return matched[-limit:]
++
++    def _discard_old_locked(self) -> None:
++        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self.ttl_seconds)
++        self._events = [e for e in self._events if e.timestamp > cutoff]
+diff --git a/guardian/modules/memory_key_vault.py b/guardian/modules/memory_key_vault.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..70a4d9e3beba7ee679f20551ecb98bff0a0c069f
+--- /dev/null
++++ b/guardian/modules/memory_key_vault.py
+@@ -0,0 +1,83 @@
++"""Memory Key Vault
++=================
++
++Encrypts narrative summaries at rest with per-user keys. Keys can
++be rotated and old ciphertext will be re-encrypted using the new
++key. Data is kept in-memory to avoid persistent storage.
++
++Usage example::
++
++    from guardian.modules.memory_key_vault import MemoryKeyVault
++    from cryptography.fernet import Fernet
++
++    vault = MemoryKeyVault()
++    key = Fernet.generate_key()
++    vault.set_user_key("alice", key)
++    vault.store_summary("alice", "Short summary")
++    text = vault.get_summary("alice")
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Dict
++
++from cryptography.fernet import Fernet
++from pydantic import BaseModel, Field, validator
++
++
++class VaultEntry(BaseModel):
++    """Encrypted summary blob."""
++
++    user_id: str = Field(..., description="User identifier")
++    ciphertext: bytes = Field(..., description="Encrypted data")
++
++    @validator("ciphertext")
++    def ensure_bytes(cls, value: bytes) -> bytes:  # noqa: D401
++        """Ensure ciphertext is bytes."""
++        if not isinstance(value, (bytes, bytearray)):
++            raise TypeError("ciphertext must be bytes")
++        return bytes(value)
++
++
++class MemoryKeyVault:
++    """Simple in-memory vault for encrypted summaries."""
++
++    def __init__(self) -> None:
++        self._keys: Dict[str, Fernet] = {}
++        self._store: Dict[str, VaultEntry] = {}
++
++    def set_user_key(self, user_id: str, key: bytes) -> None:
++        """Register/replace a user's encryption key."""
++        self._keys[user_id] = Fernet(key)
++
++    def store_summary(self, user_id: str, summary: str) -> None:
++        """Encrypt and store a narrative summary."""
++        if user_id not in self._keys:
++            raise KeyError("missing key for user")
++        f = self._keys[user_id]
++        self._store[user_id] = VaultEntry(
++            user_id=user_id, ciphertext=f.encrypt(summary.encode())
++        )
++
++    def get_summary(self, user_id: str) -> str:
++        """Decrypt and return a stored summary."""
++        if user_id not in self._keys or user_id not in self._store:
++            raise KeyError("missing summary or key")
++        f = self._keys[user_id]
++        entry = self._store[user_id]
++        return f.decrypt(entry.ciphertext).decode()
++
++    def rotate_key(self, user_id: str, new_key: bytes) -> None:
++        """Rotate encryption key while preserving stored data."""
++        if user_id not in self._keys:
++            raise KeyError("missing key for user")
++        f_old = self._keys[user_id]
++        entry = self._store.get(user_id)
++        plaintext = f_old.decrypt(entry.ciphertext) if entry else b""
++        f_new = Fernet(new_key)
++        self._keys[user_id] = f_new
++        if entry:
++            self._store[user_id] = VaultEntry(
++                user_id=user_id, ciphertext=f_new.encrypt(plaintext)
++            )
+diff --git a/guardian/modules/plug_adapter_registry.py b/guardian/modules/plug_adapter_registry.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..38c648c73c5a0f78e88832ad58026bfb937fd79b
+--- /dev/null
++++ b/guardian/modules/plug_adapter_registry.py
+@@ -0,0 +1,46 @@
++"""Plug Adapter Registry
++======================
++
++Central registry for Guardian plug-in adapters with explicit
++permission scopes.
++
++Usage example::
++
++    from guardian.modules.plug_adapter_registry import AdapterRegistry, AdapterSpec
++
++    registry = AdapterRegistry()
++    spec = AdapterSpec(name="weather", allowed_scopes=["read"], can_pull=True)
++    registry.register(spec)
++    assert registry.allowed("weather", "read")
++"""
++
++from __future__ import annotations
++
++from typing import Dict, List
++
++from pydantic import BaseModel, Field
++
++
++class AdapterSpec(BaseModel):
++    """Specification for a plug adapter."""
++
++    name: str = Field(..., description="Adapter name")
++    allowed_scopes: List[str] = Field(..., description="Data scopes")
++    can_pull: bool = Field(False, description="Whether adapter can pull from AuraAPI")
++    can_push: bool = Field(False, description="Whether adapter can push outbound")
++
++
++class AdapterRegistry:
++    """Registry for plug adapters."""
++
++    def __init__(self) -> None:
++        self._adapters: Dict[str, AdapterSpec] = {}
++
++    def register(self, spec: AdapterSpec) -> None:
++        """Register a new adapter."""
++        self._adapters[spec.name] = spec
++
++    def allowed(self, name: str, scope: str) -> bool:
++        """Check if adapter has permission for a scope."""
++        spec = self._adapters.get(name)
++        return bool(spec and scope in spec.allowed_scopes)
+diff --git a/tests/test_module_cluster.py b/tests/test_module_cluster.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..56204254aa2d79557bca8025649ae9f3acccfd17
+--- /dev/null
++++ b/tests/test_module_cluster.py
+@@ -0,0 +1,58 @@
++from datetime import datetime, timedelta, timezone
++
++from cryptography.fernet import Fernet
++
++from guardian.modules.live_semantic_timeline import SemanticTimeline, TimelineEvent
++from guardian.modules.memory_key_vault import MemoryKeyVault
++from guardian.modules.plug_adapter_registry import AdapterRegistry, AdapterSpec
++from guardian.modules.immutable_log import ImmutableLog
++from guardian.modules.companion_foresight import Foresight, PredictionRequest
++from guardian.modules.flow_tuner import FlowConfig
++
++
++def test_semantic_timeline_discard():
++    timeline = SemanticTimeline(ttl_seconds=1)
++    event = TimelineEvent(
++        timestamp=datetime.now(timezone.utc) - timedelta(seconds=2),
++        narrative="old",
++        user_id="u",
++    )
++    timeline.add_event(event)
++    assert timeline.query("old") == []
++
++
++def test_memory_key_vault_roundtrip():
++    vault = MemoryKeyVault()
++    key = Fernet.generate_key()
++    vault.set_user_key("u", key)
++    vault.store_summary("u", "secret")
++    assert vault.get_summary("u") == "secret"
++
++
++def test_adapter_registry():
++    registry = AdapterRegistry()
++    spec = AdapterSpec(name="a", allowed_scopes=["read"], can_pull=True)
++    registry.register(spec)
++    assert registry.allowed("a", "read")
++    assert not registry.allowed("a", "write")
++
++
++def test_immutable_log():
++    log = ImmutableLog()
++    entry_id = log.add_entry("x", immutable=True)
++    try:
++        log.update_entry(entry_id, "y")
++        assert False, "expected error"
++    except ValueError:
++        pass
++
++
++def test_companion_foresight():
++    foresight = Foresight()
++    out = foresight.predict_next(PredictionRequest(recent_narratives=["foo"]))
++    assert "foo" in out
++
++
++def test_flow_config_defaults():
++    cfg = FlowConfig()
++    assert cfg.context_window == 4096
+ 
+EOF
+)
