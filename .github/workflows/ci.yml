@@ -1,0 +1,17 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - run: pip install -e .[dev] pip-audit
+      - run: black --check .
+      - run: flake8
+      - run: mypy guardian plugins || true
+      - run: pytest
+      - run: pip-audit
+      - run: python -m build
