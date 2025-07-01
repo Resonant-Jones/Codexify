@@ -16,16 +16,14 @@ plugin_name/
 
 ## Plugin Manifest
 
-The plugin.json file should contain:
+The plugin.json file should contain a manifest describing active and disabled plugins.
 
 ```json
 {
-<<<<<<< HEAD
-  "last_updated": "2025-06-26T03:54:26.170870",
-=======
   "last_updated": "2025-06-26T05:38:05.365713",
->>>>>>> 7f93d0c (✅ Add event-loop-safe global rate limiter system with Safe Mode config + test suite)
-  "active_plugins": {},
+  "active_plugins": {
+    "example": {"entry": "plugins/example/main.py"}
+  },
   "disabled_plugins": {}
 }
 ```
