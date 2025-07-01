@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="guardian",
-    version="1.0.0",
+    name="guardian_codex",
+    version="0.1.0",
     description="A modular AI assistant with plugin support and core memory management",
     author="Guardian Core Team",
     packages=find_packages(exclude=["tests*", "docs*"]),
