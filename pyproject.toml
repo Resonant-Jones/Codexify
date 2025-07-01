@@ -25,3 +25,31 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["guardian", "guardian_codex"]
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+exclude = '''
+(
+  \.git
+  | \.venv
+  | build
+  | dist
+  | guardian\.egg-info
+  | migrations
+  | .*_pb2\.py
+)
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = ["guardian"]
+skip = [
+  ".venv",
+  "build",
+  "dist",
+  "guardian.egg-info",
+  "migrations"
+]

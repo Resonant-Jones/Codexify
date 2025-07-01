@@ -98,12 +98,36 @@ run:
 dev:
 	$(PYTHON) -m guardian.system_init --debug
 
-# Initialize plugin
+# Initialize plugin with scaffold
 init-plugin:
-	@read -p "Enter plugin name: " plugin_name; \
+	@if [ -z "$(name)" ]; then \
+		read -p "Enter plugin name: " plugin_name; \
+	else \
+		plugin_name="$(name)"; \
+	fi; \
 	mkdir -p plugins/$$plugin_name; \
-	cp plugins/README.md plugins/$$plugin_name/; \
-	echo "Plugin $$plugin_name initialized"
+	echo '{\n    "name": "'$$plugin_name'",\n    "version": "0.1.0",\n    "description": "New plugin",\n    "author": "Guardian Team",\n    "dependencies": [],\n    "capabilities": []\n}' > plugins/$$plugin_name/plugin.json; \
+	echo 'def init_plugin():\n    return True\n\ndef get_metadata():\n    return {}\n\ndef run(**kwargs):\n    return {"status": "success"}' > plugins/$$plugin_name/main.py; \
+	echo "Plugin $$plugin_name initialized with scaffold"
+
+# Query memory logs
+logs:
+	@if [ -z "$(hours)" ]; then \
+		hours=24; \
+	fi; \
+	guardianctl query-memory --last $(hours)
+
+# Run specific plugin
+plugin:
+	@if [ -z "$(name)" ]; then \
+		echo "Usage: make plugin name=<plugin_name>"; \
+		exit 1; \
+	fi; \
+	guardianctl run-plugin $(name) $(args)
+
+# List all plugins
+plugins:
+	guardianctl list-plugins
 
 # Health check
 health:
@@ -120,7 +144,7 @@ report:
 
 # Help target
 help:
-	@echo "Threadspace Makefile commands:"
+	@echo "Guardian System Makefile commands:"
 	@echo "  make install        - Install production dependencies"
 	@echo "  make dev-install    - Install development dependencies"
 	@echo "  make test          - Run tests"
@@ -135,7 +159,10 @@ help:
 	@echo "  make upload        - Upload to PyPI"
 	@echo "  make run           - Run the system"
 	@echo "  make dev           - Start development server"
-	@echo "  make init-plugin   - Initialize new plugin"
+	@echo "  make init-plugin   - Initialize new plugin (make init-plugin name=<name>)"
+	@echo "  make plugin        - Run specific plugin (make plugin name=<name> [args=...])"
+	@echo "  make plugins       - List all plugins"
+	@echo "  make logs          - Query memory logs (make logs [hours=24])"
 	@echo "  make health        - Run system health check"
 	@echo "  make status        - Show system status"
 	@echo "  make report        - Generate system report"
