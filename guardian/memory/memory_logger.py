@@ -48,8 +48,11 @@ class MemoryLogger:
         self.current_log_file = self._get_log_file()
         
         # Start batch processing
-        asyncio.create_task(self._process_buffer())
-    
+        try:
+            asyncio.get_running_loop().create_task(self._process_buffer())
+        except RuntimeError:
+            # Imported outside a loop – task will start later
+            pass
     def _get_log_file(self) -> Path:
         """Get current log file path."""
         timestamp = time.strftime("%Y%m%d")
