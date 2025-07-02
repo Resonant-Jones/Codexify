@@ -1,0 +1,24 @@
+Metadata-Version: 2.4
+Name: guardian_codex
+Version: 0.1.0
+Summary: PulseOS Guardian Backend
+Author: Guardian Core Team
+Author-email: Catalyst Design Labs <dev@catalystlabs.ai>
+Requires-Python: >=3.10
+License-File: LICENSE
+Requires-Dist: fastapi
+Requires-Dist: httpx
+Requires-Dist: python-dotenv
+Requires-Dist: uvicorn
+Requires-Dist: PyYAML
+Provides-Extra: dev
+Requires-Dist: black; extra == "dev"
+Requires-Dist: flake8; extra == "dev"
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-asyncio; extra == "dev"
+Requires-Dist: mcp; extra == "dev"
+Requires-Dist: notion-client; extra == "dev"
+Requires-Dist: markitdown; extra == "dev"
+Dynamic: author
+Dynamic: license-file
+Dynamic: requires-python

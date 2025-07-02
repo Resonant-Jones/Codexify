@@ -3,6 +3,7 @@
 import subprocess
 from pathlib import Path
 from typing import List
+import sys
 
 
 def run_plugin(path: Path, args: List[str]) -> subprocess.CompletedProcess:
@@ -15,5 +16,8 @@ def run_plugin(path: Path, args: List[str]) -> subprocess.CompletedProcess:
     args: List[str]
         Arguments to pass to the plugin.
     """
-    command = ["python", str(path)] + args
-    return subprocess.run(command, capture_output=True, text=True)
+    command = [sys.executable, str(path)] + args
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Plugin failed: {result.stderr}")
+    return result

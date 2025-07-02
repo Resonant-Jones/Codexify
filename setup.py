@@ -28,24 +28,6 @@ setup(
         "requests>=2.31.0",
         "google-cloud-texttospeech>=2.14.1",
     ],
-    extras_require={
-        "dev": [
-            "pytest>=7.0.0",
-            "pytest-asyncio>=0.21.0",
-            "pytest-cov>=4.1.0",
-            "pytest-mock>=3.11.0",
-            "black>=23.0.0",
-            "isort>=5.12.0",
-            "mypy>=1.0.0",
-            "flake8>=6.0.0",
-            "pre-commit>=3.3.0",
-        ],
-        "docs": [
-            "mkdocs>=1.4.0",
-            "mkdocs-material>=9.1.0",
-            "mkdocstrings>=0.22.0",
-        ],
-    },
     entry_points={
         "console_scripts": [
             "guardian=guardian.cli.plugin_cli:main",
