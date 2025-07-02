@@ -14,7 +14,7 @@ from typing import List, Dict, Any
 import pytest
 
 from guardian.cache import lru_cache_safe, memoize_to_disk
-from guardian.config.config import Config
+from guardian.config import Config
 from guardian.memory.memory_logger import memory_logger
 from guardian.memory.query_memory import memory_store
 from guardian.threads.plugin_executor import plugin_executor

@@ -3,7 +3,7 @@ import os
 import pytest
 from pydantic import ValidationError
 
-from guardian.config import Settings, get_settings
+from guardian.config import Config, get_settings
 
 
 def test_settings_loads_from_env(monkeypatch):
@@ -11,7 +11,7 @@ def test_settings_loads_from_env(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "fake-openai-key")
     monkeypatch.setenv("NOTION_API_KEY", "fake-notion-key")
     s = get_settings()
-    assert isinstance(s, Settings)
+    assert isinstance(s, Config)
     assert s.GENAI_API_KEY == "fake-gemini-key"
     assert s.OPENAI_API_KEY == "fake-openai-key"
 

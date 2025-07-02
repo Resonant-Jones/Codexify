@@ -1,0 +1,14 @@
+fastapi
+httpx
+python-dotenv
+uvicorn
+PyYAML
+
+[dev]
+black
+flake8
+pytest
+pytest-asyncio
+mcp
+notion-client
+markitdown

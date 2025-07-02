@@ -120,3 +120,29 @@ def format_results(results: CodemapResult, explain: bool = False) -> str:
             ])
     
     return "\n".join(output)
+
+
+# Service wrapper for codemap operations
+class CodemapService:
+    """
+    Service wrapper for codemap operations.
+    """
+    def __init__(self, codemap_path: Optional[str] = None):
+        """
+        Initialize the service, optionally loading a custom codemap file.
+        """
+        from typing import Optional
+        if codemap_path:
+            try:
+                with open(codemap_path, "r") as f:
+                    self._codemap = json.load(f)
+            except Exception:
+                self._codemap = load_codemap()
+        else:
+            self._codemap = load_codemap()
+
+    def query(self, term: str) -> CodemapResult:
+        """
+        Query the loaded codemap for a search term.
+        """
+        return query_codemap(term, self._codemap)

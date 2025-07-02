@@ -10,6 +10,7 @@ dependencies = [
     "httpx",
     "python-dotenv",
     "uvicorn",
+    "PyYAML",
 ]
 requires-python = ">=3.10"
 
@@ -18,7 +19,14 @@ dev = [
     "black",
     "flake8",
     "pytest",
+    "pytest-asyncio",
+    "mcp",
+    "notion-client",
+    "markitdown",
 ]
+
+[project.scripts]
+guardian = "guardian.cli.plugin_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["guardian", "guardian_codex"]
@@ -50,3 +58,6 @@ skip = [
   "guardian.egg-info",
   "migrations"
 ]
+
+[tool.pytest.ini_options]
+markers = ["asyncio"]

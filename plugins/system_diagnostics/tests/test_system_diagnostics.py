@@ -17,7 +17,7 @@ from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
 from guardian.threads.thread_manager import ThreadManager
 
-from ..main import SystemDiagnostics, DiagnosticResult
+from plugins.system_diagnostics.main import SystemDiagnostics, DiagnosticResult
 
 # Configure logging
 logging.basicConfig(
