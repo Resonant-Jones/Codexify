@@ -34,14 +34,18 @@ class MetacognitionEngine:
     Coordinates self-awareness and metacognitive capabilities across the system.
     """
     
-    def __init__(self, thread_manager: Optional[ThreadManager] = None):
+    def __init__(
+        self,
+        thread_manager: Optional[ThreadManager] = None,
+        codex_awareness: Optional[CodexAwareness] = None
+    ):
         """Initialize the metacognition engine.
         
         Args:
-            thread_manager: Optional ThreadManager instance. If not provided,
-                          thread management capabilities will be limited.
+            thread_manager: Optional ThreadManager instance.
+            codex_awareness: Optional CodexAwareness instance. If None, creates its own.
         """
-        self.codex_awareness = CodexAwareness()
+        self.codex_awareness = codex_awareness or CodexAwareness()
         self.thread_manager = thread_manager
         self.registry_path = Path(__file__).parent / 'agent_registry.json'
         self.last_health_check: Optional[Dict[str, Any]] = None
@@ -121,10 +125,11 @@ class MetacognitionEngine:
             memory_status = "error"
         
         # Aggregate health status
-        agent_status = {
-            agent_id: info['health_status']
-            for agent_id, info in registry.items()
-        }
+        agent_status = {}
+        for agent_id, info in registry.items():
+            if isinstance(info, dict): # Ensure 'info' is a dictionary
+                agent_status[agent_id] = info.get('health_status', 'unknown')
+            # else: skip non-dict items like 'companions': []
         
         overall_health = self._assess_overall_health(
             agent_status,
@@ -194,10 +199,10 @@ class MetacognitionEngine:
         
         # Get current agent states
         agent_registry = self.load_agent_registry()
-        active_agents = [
-            agent_id for agent_id, info in agent_registry.items()
-            if info['status'] == 'active'
-        ]
+        active_agents = []
+        for agent_id, info in agent_registry.items():
+            if isinstance(info, dict) and info.get('status') == 'active':
+                active_agents.append(agent_id)
         
         reflection = {
             'timestamp': datetime.utcnow().isoformat(),

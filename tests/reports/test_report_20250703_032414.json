@@ -1,0 +1,29 @@
+{
+  "summary": {
+    "total": 2,
+    "passed": 0,
+    "failed": 0,
+    "error": 2
+  },
+  "execution_time": {
+    "start": "2025-07-03T03:24:14.452798",
+    "end": "2025-07-03T03:24:14.459857",
+    "duration": 0.007059
+  },
+  "results": [
+    {
+      "name": "test_system_integration",
+      "status": "error",
+      "duration": 0.0,
+      "error": "No module named 'guardian'",
+      "timestamp": "2025-07-03T03:24:14.456282"
+    },
+    {
+      "name": "test_agents_and_plugins",
+      "status": "error",
+      "duration": 0.0,
+      "error": "No module named 'guardian'",
+      "timestamp": "2025-07-03T03:24:14.459801"
+    }
+  ]
+}

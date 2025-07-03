@@ -1,0 +1,106 @@
+{
+  "summary": {
+    "total": 13,
+    "passed": 1,
+    "failed": 0,
+    "error": 12
+  },
+  "execution_time": {
+    "start": "2025-07-03T03:25:20.669309",
+    "end": "2025-07-03T03:25:20.716992",
+    "duration": 0.047683
+  },
+  "results": [
+    {
+      "name": "SystemIntegrationTest.test_codex_awareness",
+      "status": "error",
+      "duration": 2.6226043701171875e-05,
+      "error": "'SystemIntegrationTest' object has no attribute 'codex_awareness'",
+      "timestamp": "2025-07-03T03:25:20.697762"
+    },
+    {
+      "name": "SystemIntegrationTest.test_epistemic_self_check",
+      "status": "passed",
+      "duration": 0.00034928321838378906,
+      "error": null,
+      "timestamp": "2025-07-03T03:25:20.698128"
+    },
+    {
+      "name": "SystemIntegrationTest.test_full_system_interaction",
+      "status": "error",
+      "duration": 1.2636184692382812e-05,
+      "error": "'SystemIntegrationTest' object has no attribute 'thread_manager'",
+      "timestamp": "2025-07-03T03:25:20.698152"
+    },
+    {
+      "name": "SystemIntegrationTest.test_metacognition_integration",
+      "status": "error",
+      "duration": 6.4373016357421875e-06,
+      "error": "'SystemIntegrationTest' object has no attribute 'metacognition'",
+      "timestamp": "2025-07-03T03:25:20.698166"
+    },
+    {
+      "name": "SystemIntegrationTest.test_plugin_system",
+      "status": "error",
+      "duration": 6.198883056640625e-06,
+      "error": "'SystemIntegrationTest' object has no attribute 'plugin_loader'",
+      "timestamp": "2025-07-03T03:25:20.698177"
+    },
+    {
+      "name": "SystemIntegrationTest.test_thread_management",
+      "status": "error",
+      "duration": 5.4836273193359375e-06,
+      "error": "'SystemIntegrationTest' object has no attribute 'thread_manager'",
+      "timestamp": "2025-07-03T03:25:20.698188"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_agent_error_recovery",
+      "status": "error",
+      "duration": 7.867813110351562e-06,
+      "error": "'TestAgentsAndPlugins' object has no attribute 'codex'",
+      "timestamp": "2025-07-03T03:25:20.716900"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_axis_decision_making",
+      "status": "error",
+      "duration": 3.337860107421875e-06,
+      "error": "'TestAgentsAndPlugins' object has no attribute 'codex'",
+      "timestamp": "2025-07-03T03:25:20.716915"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_echoform_resonance",
+      "status": "error",
+      "duration": 2.384185791015625e-06,
+      "error": "'TestAgentsAndPlugins' object has no attribute 'codex'",
+      "timestamp": "2025-07-03T03:25:20.716922"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_plugin_error_handling",
+      "status": "error",
+      "duration": 1.9073486328125e-06,
+      "error": "'TestAgentsAndPlugins' object has no attribute 'codex'",
+      "timestamp": "2025-07-03T03:25:20.716928"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_plugin_lifecycle",
+      "status": "error",
+      "duration": 1.9073486328125e-06,
+      "error": "'TestAgentsAndPlugins' object has no attribute 'codex'",
+      "timestamp": "2025-07-03T03:25:20.716934"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_system_integration",
+      "status": "error",
+      "duration": 1.9073486328125e-06,
+      "error": "'TestAgentsAndPlugins' object has no attribute 'codex'",
+      "timestamp": "2025-07-03T03:25:20.716940"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_vestige_memory_processing",
+      "status": "error",
+      "duration": 2.1457672119140625e-06,
+      "error": "'TestAgentsAndPlugins' object has no attribute 'codex'",
+      "timestamp": "2025-07-03T03:25:20.716946"
+    }
+  ]
+}

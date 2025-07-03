@@ -1,0 +1,106 @@
+{
+  "summary": {
+    "total": 13,
+    "passed": 5,
+    "failed": 6,
+    "error": 2
+  },
+  "execution_time": {
+    "start": "2025-07-03T03:44:33.484258",
+    "end": "2025-07-03T03:44:44.102692",
+    "duration": 10.618434
+  },
+  "results": [
+    {
+      "name": "SystemIntegrationTest.test_codex_awareness",
+      "status": "failed",
+      "duration": 0.03551483154296875,
+      "error": "10 != 1",
+      "timestamp": "2025-07-03T03:44:33.622004"
+    },
+    {
+      "name": "SystemIntegrationTest.test_epistemic_self_check",
+      "status": "passed",
+      "duration": 0.00046539306640625,
+      "error": null,
+      "timestamp": "2025-07-03T03:44:33.622495"
+    },
+    {
+      "name": "SystemIntegrationTest.test_full_system_interaction",
+      "status": "error",
+      "duration": 1.0482091903686523,
+      "error": "list indices must be integers or slices, not str",
+      "timestamp": "2025-07-03T03:44:34.670728"
+    },
+    {
+      "name": "SystemIntegrationTest.test_metacognition_integration",
+      "status": "error",
+      "duration": 0.0004978179931640625,
+      "error": "list indices must be integers or slices, not str",
+      "timestamp": "2025-07-03T03:44:35.632611"
+    },
+    {
+      "name": "SystemIntegrationTest.test_plugin_system",
+      "status": "failed",
+      "duration": 0.03762221336364746,
+      "error": "'memory_analyzer' not found in {}",
+      "timestamp": "2025-07-03T03:44:35.670257"
+    },
+    {
+      "name": "SystemIntegrationTest.test_thread_management",
+      "status": "failed",
+      "duration": 7.004727363586426,
+      "error": "False is not true",
+      "timestamp": "2025-07-03T03:44:42.675014"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_agent_error_recovery",
+      "status": "failed",
+      "duration": 0.04091238975524902,
+      "error": "'success' != 'error'\n- success\n+ error\n",
+      "timestamp": "2025-07-03T03:44:43.776636"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_axis_decision_making",
+      "status": "passed",
+      "duration": 0.08064818382263184,
+      "error": null,
+      "timestamp": "2025-07-03T03:44:43.857317"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_echoform_resonance",
+      "status": "passed",
+      "duration": 0.04163694381713867,
+      "error": null,
+      "timestamp": "2025-07-03T03:44:43.898986"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_plugin_error_handling",
+      "status": "passed",
+      "duration": 0.007744550704956055,
+      "error": null,
+      "timestamp": "2025-07-03T03:44:43.906761"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_plugin_lifecycle",
+      "status": "failed",
+      "duration": 0.0038247108459472656,
+      "error": "'memory_analyzer' not found in {}",
+      "timestamp": "2025-07-03T03:44:43.910601"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_system_integration",
+      "status": "failed",
+      "duration": 0.11269044876098633,
+      "error": "'error' != 'success'\n- error\n+ success\n",
+      "timestamp": "2025-07-03T03:44:44.023312"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_vestige_memory_processing",
+      "status": "passed",
+      "duration": 0.07930946350097656,
+      "error": null,
+      "timestamp": "2025-07-03T03:44:44.102640"
+    }
+  ]
+}

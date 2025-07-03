@@ -126,8 +126,10 @@ class CodexAwareness:
             related_artifacts=related_artifacts or []
         )
         
+        logger.info(f"[TEMP_DEBUG] Storing memory_id: {artifact_id}, content: {content}, tags: {tags}") # DEBUG
         self.artifacts[artifact_id] = artifact
         self.save_artifacts()
+        logger.info(f"[TEMP_DEBUG] CodexAwareness.artifacts after store for {artifact_id}: {list(self.artifacts.keys())}") # DEBUG
         return artifact_id
     
     def query_memory(
@@ -151,42 +153,51 @@ class CodexAwareness:
         Returns:
             List[MemoryArtifact]: Matching memory artifacts
         """
+        logger.info(f"[TEMP_DEBUG] query_memory: query='{query}', tags={tags}, current artifact keys: {list(self.artifacts.keys())}") # DEBUG
         results = []
         
-        for artifact in self.artifacts.values():
-            if source_filter and artifact.source != source_filter:
+        for artifact_id, artifact_obj in self.artifacts.items(): # Iterate items to log ID
+            logger.info(f"[TEMP_DEBUG] Checking artifact: {artifact_id} with content type {artifact_obj.content.get('type', 'N/A')}") # DEBUG
+            if source_filter and artifact_obj.source != source_filter:
                 continue
                 
-            if tags and not all(tag in artifact.tags for tag in tags):
+            if tags and not all(tag in artifact_obj.tags for tag in tags):
+                logger.info(f"[TEMP_DEBUG] Artifact {artifact_id} failed tag check: artifact_tags={artifact_obj.tags}, query_tags={tags}") # DEBUG
                 continue
                 
-            if artifact.confidence < min_confidence:
+            if artifact_obj.confidence < min_confidence:
+                logger.info(f"[TEMP_DEBUG] Artifact {artifact_id} failed confidence check: {artifact_obj.confidence} < {min_confidence}") # DEBUG
                 continue
                 
-            # Simple text matching for now - could be enhanced with
-            # semantic search or embedding similarity
-            if self._matches_query(artifact, query):
-                results.append(artifact)
+            matches = self._matches_query(artifact_obj, query)
+            # Logging for match status is now inside _matches_query
+            if matches:
+                results.append(artifact_obj)
                 
             if len(results) >= limit:
                 break
         
+        logger.info(f"[TEMP_DEBUG] query_memory for '{query}' found {len(results)} results: {[r.id for r in results]}") # DEBUG
         return results
     
     def _matches_query(self, artifact: MemoryArtifact, query: str) -> bool:
         """Check if an artifact matches the search query."""
-        # Convert query and content to lowercase for case-insensitive matching
-        query = query.lower()
+        query_l = query.lower()
+        logger.info(f"[TEMP_DEBUG] _matches_query: artifact ID {artifact.id}, query_l '{query_l}', artifact.content {artifact.content}, artifact.tags {artifact.tags}") # DEBUG
         
         # Check content
         content_str = json.dumps(artifact.content).lower()
         if query in content_str:
+            logger.info(f"[TEMP_DEBUG] _matches_query: Matched query '{query_l}' in content_str for artifact ID {artifact.id}") # DEBUG
             return True
         
         # Check tags
-        if any(query in tag.lower() for tag in artifact.tags):
+        # Ensure artifact.tags is not None before iterating
+        if artifact.tags and any(query_l in tag.lower() for tag in artifact.tags):
+            logger.info(f"[TEMP_DEBUG] _matches_query: Matched query '{query_l}' in tags for artifact ID {artifact.id}") # DEBUG
             return True
         
+        logger.info(f"[TEMP_DEBUG] _matches_query: No match for query '{query_l}' in artifact ID {artifact.id}") # DEBUG
         return False
     
     def get_related_memories(
