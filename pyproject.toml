@@ -61,3 +61,7 @@ skip = [
 
 [tool.pytest.ini_options]
 markers = ["asyncio"]
+
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
