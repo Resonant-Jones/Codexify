@@ -149,34 +149,58 @@ class EchoformAgent:
         system_state: Dict[str, Any]
     ) -> Dict[str, float]:
         """Analyze system metrics for resonance assessment."""
+        logger.info(f"[TEMP_DEBUG] EchoformAgent._analyze_metrics called with system_state: {system_state}") # DEBUG
         metrics = {}
         
         # Resource utilization
         if 'resources' in system_state:
             resources = system_state['resources']
-            metrics['resource_balance'] = self._calculate_resource_balance(
-                resources
-            )
-        
+            if isinstance(resources, dict): # DEBUG Check
+                metrics['resource_balance'] = self._calculate_resource_balance(resources)
+            else:
+                logger.warning(f"[TEMP_DEBUG] 'resources' in system_state is not a dict: {resources}") # DEBUG
+                metrics['resource_balance'] = 0.0
+        else:
+            logger.info("[TEMP_DEBUG] 'resources' key not in system_state for _analyze_metrics") # DEBUG
+            metrics['resource_balance'] = 0.0
+
         # Performance metrics
         if 'performance' in system_state:
             performance = system_state['performance']
-            metrics['performance_score'] = self._calculate_performance_score(
-                performance
-            )
-        
+            if isinstance(performance, dict): # DEBUG Check
+                metrics['performance_score'] = self._calculate_performance_score(performance)
+            else:
+                logger.warning(f"[TEMP_DEBUG] 'performance' in system_state is not a dict: {performance}") # DEBUG
+                metrics['performance_score'] = 0.0
+        else:
+            logger.info("[TEMP_DEBUG] 'performance' key not in system_state for _analyze_metrics") # DEBUG
+            metrics['performance_score'] = 0.0
+
         # Error rates
         if 'errors' in system_state:
             errors = system_state['errors']
-            metrics['error_rate'] = self._calculate_error_rate(errors)
-        
+            if isinstance(errors, dict): # DEBUG Check
+                metrics['error_rate'] = self._calculate_error_rate(errors)
+            else:
+                logger.warning(f"[TEMP_DEBUG] 'errors' in system_state is not a dict: {errors}") # DEBUG
+                metrics['error_rate'] = 0.0 # Default to a safe value (1.0 implies no errors, 0.0 implies all errors)
+        else:
+            logger.info("[TEMP_DEBUG] 'errors' key not in system_state for _analyze_metrics") # DEBUG
+            metrics['error_rate'] = 1.0 # Assume no errors if not provided
+
         # System coherence
         if 'coherence' in system_state:
             coherence = system_state['coherence']
-            metrics['coherence_score'] = self._calculate_coherence_score(
-                coherence
-            )
-        
+            if isinstance(coherence, dict): # DEBUG Check
+                metrics['coherence_score'] = self._calculate_coherence_score(coherence)
+            else:
+                logger.warning(f"[TEMP_DEBUG] 'coherence' in system_state is not a dict: {coherence}") # DEBUG
+                metrics['coherence_score'] = 0.0
+        else:
+            logger.info("[TEMP_DEBUG] 'coherence' key not in system_state for _analyze_metrics") # DEBUG
+            metrics['coherence_score'] = 0.0
+
+        logger.info(f"[TEMP_DEBUG] _analyze_metrics returning: {metrics}") # DEBUG
         return metrics
     
     def _calculate_resource_balance(
@@ -515,7 +539,10 @@ class EchoformAgent:
     ) -> ResonanceState:
         """Determine system resonance state."""
         # Calculate overall health score
-        health_score = sum(metrics.values()) / len(metrics)
+        if not metrics: # Handle empty metrics
+            health_score = 0.0
+        else:
+            health_score = sum(metrics.values()) / len(metrics)
         
         # Check for anomalies
         anomaly_count = len(pattern_analysis.get('anomalies', {}))
@@ -573,7 +600,10 @@ class EchoformAgent:
     ) -> float:
         """Calculate confidence in resonance assessment."""
         # Base confidence from metrics
-        metric_confidence = sum(metrics.values()) / len(metrics)
+        if not metrics: # Handle empty metrics
+            metric_confidence = 0.0
+        else:
+            metric_confidence = sum(metrics.values()) / len(metrics)
         
         # Adjust based on pattern clarity
         pattern_confidence = 0.5

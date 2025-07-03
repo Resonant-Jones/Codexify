@@ -20,10 +20,8 @@ The plugin.json file should contain a manifest describing active and disabled pl
 
 ```json
 {
-  "last_updated": "2025-06-26T05:38:05.365713",
-  "active_plugins": {
-    "example": {"entry": "plugins/example/main.py"}
-  },
+  "last_updated": "2025-07-03T03:27:30.965439",
+  "active_plugins": {},
   "disabled_plugins": {}
 }
 ```

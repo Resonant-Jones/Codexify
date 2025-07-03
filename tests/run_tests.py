@@ -160,7 +160,11 @@ class TestRunner:
         test_cases = self._get_test_cases(module)
         
         for test_case in test_cases:
+            if hasattr(test_case, 'setUpClass'):
+                test_case.setUpClass()
             await self._run_test_case(test_case)
+            if hasattr(test_case, 'tearDownClass'):
+                test_case.tearDownClass()
     
     def _get_test_cases(self, module: Any) -> List[unittest.TestCase]:
         """Get all test cases from a module."""

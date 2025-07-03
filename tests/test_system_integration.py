@@ -40,11 +40,17 @@ class TestWorkerThread(threading.Thread):
     
     def run(self):
         while self.running:
+            # Check status from ThreadManager
+            with self.manager.lock: # Need to acquire lock to safely access health_metrics
+                health_status = self.manager.health_metrics.get(self.thread_id)
+                if health_status and health_status.status in ["stopping", "stopped"]:
+                    break
+
             self.manager.heartbeat(
                 self.thread_id,
                 {'status': 'running', 'timestamp': datetime.utcnow().isoformat()}
             )
-            time.sleep(1)
+            time.sleep(0.1) # Reduced sleep for faster test reaction
     
     def stop(self):
         self.running = False
@@ -56,16 +62,31 @@ class SystemIntegrationTest(unittest.TestCase):
     """
     
     @classmethod
+    @classmethod
     def setUpClass(cls):
-        """Initialize system components for testing."""
+        """Initialize system components for testing (class-level)."""
         cls.config = SystemConfig()
-        cls.thread_manager = ThreadManager()
-        cls.codex_awareness = CodexAwareness()
-        cls.plugin_loader = PluginLoader()
-        cls.metacognition = MetacognitionEngine()
-    
+        # These are re-initialized in setUp if they need per-test isolation
+        # or if their state should not persist across tests within the class.
+
     def setUp(self):
-        """Set up test-specific resources."""
+        """Set up test-specific resources for each test method."""
+        self.thread_manager = ThreadManager() # Fresh instance per test
+
+        # Ensure artifacts.json is clean for CodexAwareness
+        artifact_path = Path(__file__).parent.parent / 'guardian' / 'memory' / 'artifacts.json'
+        if artifact_path.exists():
+            artifact_path.unlink()
+
+        self.codex_awareness = CodexAwareness() # Fresh instance per test
+        self.codex_awareness.artifacts.clear() # Explicitly clear in-memory artifacts
+        self.plugin_loader = PluginLoader() # Assuming this can be fresh or state doesn't conflict
+        # Pass the test's codex_awareness instance to MetacognitionEngine
+        self.metacognition = MetacognitionEngine(
+            thread_manager=self.thread_manager,
+            codex_awareness=self.codex_awareness
+        )
+
         self.test_threads: List[TestWorkerThread] = []
     
     def tearDown(self):

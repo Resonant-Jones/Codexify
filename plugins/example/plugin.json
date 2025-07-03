@@ -1,5 +1,9 @@
 {
   "name": "example",
   "version": "0.1.0",
+  "description": "An example plugin",
+  "author": "Guardian Team",
+  "dependencies": [],
+  "capabilities": ["example_capability"],
   "entry": "plugins/example/main.py"
 }
