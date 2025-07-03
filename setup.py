@@ -19,6 +19,7 @@ setup(
         "sqlalchemy>=2.0.0",
         "aiosqlite>=0.19.0",
         "httpx>=0.24.0",
+        "structlog>=21.1.0",  # Added structlog
         
         # Plugin system
         "importlib-metadata>=6.0.0",

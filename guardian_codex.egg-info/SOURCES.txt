@@ -53,6 +53,7 @@ tests/test_export_notion.py
 tests/test_final_async.py
 tests/test_global_limits.py
 tests/test_guardian_db.py
+tests/test_integration.py
 tests/test_limiter.py
 tests/test_limiter_isolation.py
 tests/test_logger.py

@@ -100,14 +100,25 @@ class AxisAgent:
         Returns:
             Dict containing decision results
         """
+        # --- Input Validation for decision_type ---
+        actual_decision_type: DecisionType
+        if isinstance(decision_type, str):
+            try:
+                actual_decision_type = DecisionType(decision_type)
+            except ValueError as e: # If string is invalid enum member
+                logger.error(f"Invalid decision_type string '{decision_type}': {e}")
+                raise e # Re-raise to be caught by test's assertRaises
+        elif isinstance(decision_type, DecisionType):
+            actual_decision_type = decision_type
+        else:
+            raise TypeError(f"decision_type must be DecisionType or str, got {type(decision_type).__name__}")
+        # --- End Input Validation for decision_type ---
+
         try:
-            # Convert string to DecisionType if needed
-            if isinstance(decision_type, str):
-                decision_type = DecisionType(decision_type)
-            
             # Validate context and options
+            # Use actual_decision_type from now on
             if not self._validate_decision_input(
-                decision_type,
+                actual_decision_type,
                 context,
                 options
             ):

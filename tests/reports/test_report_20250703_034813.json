@@ -1,0 +1,106 @@
+{
+  "summary": {
+    "total": 13,
+    "passed": 6,
+    "failed": 5,
+    "error": 2
+  },
+  "execution_time": {
+    "start": "2025-07-03T03:47:53.597838",
+    "end": "2025-07-03T03:48:13.715154",
+    "duration": 20.117316
+  },
+  "results": [
+    {
+      "name": "SystemIntegrationTest.test_codex_awareness",
+      "status": "failed",
+      "duration": 0.0012850761413574219,
+      "error": "5 != 1",
+      "timestamp": "2025-07-03T03:47:53.614950"
+    },
+    {
+      "name": "SystemIntegrationTest.test_epistemic_self_check",
+      "status": "passed",
+      "duration": 0.0002503395080566406,
+      "error": null,
+      "timestamp": "2025-07-03T03:47:53.615218"
+    },
+    {
+      "name": "SystemIntegrationTest.test_full_system_interaction",
+      "status": "error",
+      "duration": 1.0033352375030518,
+      "error": "list indices must be integers or slices, not str",
+      "timestamp": "2025-07-03T03:47:54.618570"
+    },
+    {
+      "name": "SystemIntegrationTest.test_metacognition_integration",
+      "status": "error",
+      "duration": 0.0004177093505859375,
+      "error": "list indices must be integers or slices, not str",
+      "timestamp": "2025-07-03T03:47:55.618616"
+    },
+    {
+      "name": "SystemIntegrationTest.test_plugin_system",
+      "status": "passed",
+      "duration": 5.040459156036377,
+      "error": null,
+      "timestamp": "2025-07-03T03:48:00.659098"
+    },
+    {
+      "name": "SystemIntegrationTest.test_thread_management",
+      "status": "failed",
+      "duration": 7.001530647277832,
+      "error": "False is not true",
+      "timestamp": "2025-07-03T03:48:07.660656"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_agent_error_recovery",
+      "status": "failed",
+      "duration": 0.0022661685943603516,
+      "error": "'success' != 'error'\n- success\n+ error\n",
+      "timestamp": "2025-07-03T03:48:08.676878"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_axis_decision_making",
+      "status": "passed",
+      "duration": 0.0049228668212890625,
+      "error": null,
+      "timestamp": "2025-07-03T03:48:08.681824"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_echoform_resonance",
+      "status": "passed",
+      "duration": 0.0025911331176757812,
+      "error": null,
+      "timestamp": "2025-07-03T03:48:08.684438"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_plugin_error_handling",
+      "status": "passed",
+      "duration": 0.001043081283569336,
+      "error": null,
+      "timestamp": "2025-07-03T03:48:08.685501"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_plugin_lifecycle",
+      "status": "failed",
+      "duration": 5.017372369766235,
+      "error": "'healthy' == 'healthy'",
+      "timestamp": "2025-07-03T03:48:13.702888"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_system_integration",
+      "status": "failed",
+      "duration": 0.006948709487915039,
+      "error": "'error' != 'success'\n- error\n+ success\n",
+      "timestamp": "2025-07-03T03:48:13.709854"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_vestige_memory_processing",
+      "status": "passed",
+      "duration": 0.005240678787231445,
+      "error": null,
+      "timestamp": "2025-07-03T03:48:13.715110"
+    }
+  ]
+}
