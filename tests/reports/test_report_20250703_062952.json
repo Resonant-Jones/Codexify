@@ -1,0 +1,106 @@
+{
+  "summary": {
+    "total": 13,
+    "passed": 11,
+    "failed": 2,
+    "error": 0
+  },
+  "execution_time": {
+    "start": "2025-07-03T06:29:39.403860",
+    "end": "2025-07-03T06:29:52.716802",
+    "duration": 13.312942
+  },
+  "results": [
+    {
+      "name": "SystemIntegrationTest.test_codex_awareness",
+      "status": "passed",
+      "duration": 0.0032014846801757812,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:39.489577"
+    },
+    {
+      "name": "SystemIntegrationTest.test_epistemic_self_check",
+      "status": "passed",
+      "duration": 0.002707242965698242,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:39.492325"
+    },
+    {
+      "name": "SystemIntegrationTest.test_full_system_interaction",
+      "status": "failed",
+      "duration": 1.0048503875732422,
+      "error": "0.5 not greater than 0.5",
+      "timestamp": "2025-07-03T06:29:40.497196"
+    },
+    {
+      "name": "SystemIntegrationTest.test_metacognition_integration",
+      "status": "passed",
+      "duration": 0.0028662681579589844,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:40.503095"
+    },
+    {
+      "name": "SystemIntegrationTest.test_plugin_system",
+      "status": "passed",
+      "duration": 5.131593704223633,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:45.634723"
+    },
+    {
+      "name": "SystemIntegrationTest.test_thread_management",
+      "status": "passed",
+      "duration": 2.0089941024780273,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:47.643745"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_agent_error_recovery",
+      "status": "failed",
+      "duration": 0.0014431476593017578,
+      "error": "ValueError not raised",
+      "timestamp": "2025-07-03T06:29:47.686206"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_axis_decision_making",
+      "status": "passed",
+      "duration": 0.002694368362426758,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:47.688959"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_echoform_resonance",
+      "status": "passed",
+      "duration": 0.002225637435913086,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:47.691202"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_plugin_error_handling",
+      "status": "passed",
+      "duration": 0.003731250762939453,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:47.694982"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_plugin_lifecycle",
+      "status": "passed",
+      "duration": 5.01568865776062,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:52.710686"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_system_integration",
+      "status": "passed",
+      "duration": 0.00429844856262207,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:52.715002"
+    },
+    {
+      "name": "TestAgentsAndPlugins.test_vestige_memory_processing",
+      "status": "passed",
+      "duration": 0.0017364025115966797,
+      "error": null,
+      "timestamp": "2025-07-03T06:29:52.716751"
+    }
+  ]
+}

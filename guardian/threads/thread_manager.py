@@ -216,18 +216,20 @@ class ThreadManager:
             current = threading.current_thread()
             
             # Signal thread to stop
-            health.status = "stopping"
+            health.status = "stopping" # Signal the thread to stop
+
+        # Don't try to join the current thread
+        if thread is current:
+            logger.warning(f"Skipping join of current thread {thread_id}")
+            return True
+
+        # Wait for thread to stop (lock is released before this)
+        try:
+            thread.join(timeout)
+            success = not thread.is_alive()
             
-            # Don't try to join the current thread
-            if thread is current:
-                logger.warning(f"Skipping join of current thread {thread_id}")
-                return True
-            
-            # Wait for thread to stop
-            try:
-                thread.join(timeout)
-                success = not thread.is_alive()
-                
+            with self.lock: # Re-acquire lock to update final status
+                health = self.health_metrics[thread_id] # Re-fetch health obj
                 if success:
                     health.status = "stopped"
                     logger.info(f"Stopped thread {thread_id}")
@@ -235,14 +237,16 @@ class ThreadManager:
                     health.status = "error"
                     health.last_error = "Failed to stop thread"
                     logger.warning(f"Thread {thread_id} did not stop within timeout")
-                
-                return success
-                
-            except Exception as e:
+
+            return success
+
+        except Exception as e:
+            with self.lock: # Re-acquire lock to update error status
+                health = self.health_metrics[thread_id] # Re-fetch health obj
                 health.status = "error"
                 health.last_error = f"Error stopping thread: {e}"
-                logger.error(f"Failed to stop thread {thread_id}: {e}")
-                return False
+            logger.error(f"Failed to stop thread {thread_id}: {e}")
+            return False
     
     def heartbeat(
         self,
@@ -360,6 +364,24 @@ class ThreadManager:
                 [t for t in self.threads.values() if t.is_alive()]
             )
             return self.performance_metrics.copy()
+
+    # --- Placeholder methods for system_diagnostics plugin ---
+    def get_memory_info(self) -> Dict[str, Any]:
+        logger.warning("ThreadManager.get_memory_info is a placeholder and not fully implemented.")
+        return {"total": 0, "available": 0, "percent": 0, "used": 0}
+
+    def get_plugins(self) -> List[Any]: # Actual type might be List[Plugin] or List[Dict]
+        logger.warning("ThreadManager.get_plugins is a placeholder and not fully implemented.")
+        return []
+
+    def get_agents(self) -> List[Any]: # Actual type might be List[Agent] or List[Dict]
+        logger.warning("ThreadManager.get_agents is a placeholder and not fully implemented.")
+        return []
+
+    def update_metrics(self, metrics: Dict[str, Any]) -> None:
+        logger.warning(f"ThreadManager.update_metrics called with {metrics}, but is a placeholder.")
+        pass
+    # --- End placeholder methods ---
 
     def health_check(self) -> Dict[str, Any]:
         """

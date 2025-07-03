@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from guardian.codex_awareness import CodexAwareness
+from guardian.codex_awareness import CodexAwareness, MemoryArtifact
 from guardian.metacognition import MetacognitionEngine
 
 # Configure logging
@@ -85,16 +85,12 @@ class VestigeAgent:
             # Get memory artifact directly
             memory = self.codex.artifacts.get(memory_id)
             if not memory:
-                logger.warning(f"Memory {memory_id} not found, using empty placeholder")
-                memory = MemoryArtifact(
-                    id=memory_id,
-                    content={},
-                    source="unknown",
-                    timestamp=datetime.utcnow(),
-                    tags=[],
-                    confidence=0.0,
-                    related_artifacts=[]
-                )
+                logger.warning(f"Memory {memory_id} not found.")
+                return {
+                    'status': 'error',
+                    'memory_id': memory_id,
+                    'error': f"Memory ID '{memory_id}' not found."
+                }
             
             # Check for existing patterns
             related_patterns = self._find_related_patterns(memory)

@@ -82,8 +82,14 @@ class PluginLoader:
     
     def __init__(self):
         self.plugins: Dict[str, Plugin] = {}
-        self.plugin_dir = system_config.get_path('plugins_dir')
-        self.manifest_path = self.plugin_dir / 'README.md'
+        # Ensure this path is correct relative to where PluginLoader is instantiated
+        self.plugin_dir = Path('plugins')
+        self.manifest_path = self.plugin_dir / 'plugin_manifest.json'
+        # Create plugin_manifest.json if it doesn't exist
+        if not self.manifest_path.exists():
+            self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.manifest_path, 'w') as f:
+                json.dump({}, f)
         self.max_retries = system_config.get('plugins', 'max_retries')
     
     def discover_plugins(self) -> List[Path]:
@@ -257,6 +263,12 @@ class PluginLoader:
                 'message': f"Plugin {plugin_name} not found"
             }
         
+        if not plugin.enabled:
+            return {
+                'status': 'disabled',
+                'message': f"Plugin {plugin_name} is disabled."
+            }
+
         try:
             if hasattr(plugin.module, 'health_check'):
                 health = plugin.module.health_check()

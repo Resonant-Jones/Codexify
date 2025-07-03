@@ -213,6 +213,11 @@ class PatternAnalyzer:
 
         return patterns
 
+    def _build_dependency_graph(self, memories: List[Any]) -> Dict[str, List[str]]:
+        """Placeholder for building component dependency graph."""
+        logger.warning("PatternAnalyzer._build_dependency_graph is a placeholder.")
+        return {}
+
     def _analyze_structural_patterns(self, memories: List[Any]) -> List[Pattern]:
         """Analyze structural patterns in system components."""
         patterns: List[Pattern] = []

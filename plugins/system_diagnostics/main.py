@@ -136,7 +136,7 @@ class SystemDiagnostics:
                 # Get memory usage from core system
                 memory_info = self.diagnostics.thread_manager.get_memory_info()
 
-                usage = memory_info["usage_percent"]
+                usage = memory_info.get("usage_percent", 0.0) # Use .get() with default
                 threshold = 80.0  # 80% memory usage threshold
 
                 status = "healthy" if usage < threshold else "warning"
@@ -168,12 +168,21 @@ class SystemDiagnostics:
 
         async def check(self) -> DiagnosticResult:
             try:
-                thread_info = self.diagnostics.thread_manager.get_thread_info()
+                # Use health_check() which exists and provides detailed status
+                health_check_report = self.diagnostics.thread_manager.health_check()
 
-                active_threads = thread_info["active_count"]
-                dead_threads = thread_info["dead_count"]
+                active_threads = 0
+                dead_threads = 0 # Or count threads with status 'error' or 'stopped' unexpectedly
+                monitored_threads_info = health_check_report.get('threads', {})
+
+                for tid, tinfo in monitored_threads_info.items():
+                    if isinstance(tinfo, dict):
+                        if tinfo.get('status') == 'running' or tinfo.get('status') == 'initializing': # Consider initializing as active for this check
+                            active_threads += 1
+                        elif tinfo.get('status') == 'error' or tinfo.get('status') == 'stopped': # Assuming 'stopped' might indicate an issue if not part of shutdown
+                            dead_threads +=1 # This definition of "dead" might need refinement based on expected states
+
                 threshold = self.diagnostics.config.get("max_dead_threads", 5)
-
                 status = "healthy" if dead_threads < threshold else "warning"
 
                 result = DiagnosticResult(
