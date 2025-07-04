@@ -162,6 +162,10 @@ pytest --cov=guardian tests/
 pytest tests/test_system_integration.py
 ```
 
+Some integration tests under `MemoryOS-main/memoryos-mcp` rely on the optional
+`mcp` package. These tests will be skipped automatically if `mcp` is not
+installed.
+
 ## 🔒 Security
 
 Security considerations:

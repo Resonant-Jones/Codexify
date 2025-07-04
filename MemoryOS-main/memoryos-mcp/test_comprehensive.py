@@ -11,14 +11,12 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-# 尝试导入官方MCP客户端
-try:
-    from mcp import ClientSession, StdioServerParameters, types
-    from mcp.client.stdio import stdio_client
-except ImportError as e:
-    print(f"❌ 无法导入MCP客户端库: {e}")
-    print("请安装官方MCP SDK: pip install mcp")
-    sys.exit(1)
+import pytest
+
+# Gracefully skip tests if the optional 'mcp' dependency is missing
+mcp = pytest.importorskip("mcp")
+from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.stdio import stdio_client
 
 
 class MemoryOSMCPTester:
