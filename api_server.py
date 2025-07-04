@@ -1,71 +1,79 @@
-import subprocess
-
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+from guardian.export_engine import (
+    export_to_gdrive,
+    import_from_gdrive,
+    import_from_icloud,
+)
+from guardian.codexify import create_notion_database_from_records
 
 app = FastAPI(title="Codexify API", version="0.1")
 
 
 class GDriveExportRequest(BaseModel):
-    pass  # add options here if needed later
+    records: list[dict]
+    format: str = "md"
+    folder: str | None = None
+
+
+class GDriveImportRequest(BaseModel):
+    query: str | None = None
+    folder: str | None = None
+
+
+class ICloudImportRequest(BaseModel):
+    pattern: str = "*"
+    subfolder: str = "Guardian Exports"
 
 
 class NotionImportRequest(BaseModel):
-    records: str
-    fieldmap: str
-    aliasmap: str
+    records: list[dict]
     parent_id: str
-    parent_title: str
-    seed: bool = False
-    edit_aliases: bool = False
+    token: str
+    db_title: str | None = None
+    with_template: bool = True
 
 
 @app.post("/guardian/export-gdrive")
-def export_gdrive():
-    result = subprocess.run(
-        ["python", "guardian/guardian_cli.py", "export_gdrive"],
-        capture_output=True,
-        text=True,
-    )
-    return {"stdout": result.stdout, "stderr": result.stderr}
+def export_gdrive(req: GDriveExportRequest):
+    try:
+        result = export_to_gdrive(
+            req.records, format=req.format, folder_id=req.folder
+        )
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/guardian/import-gdrive")
-def import_gdrive():
-    result = subprocess.run(
-        ["python", "guardian/guardian_cli.py", "import_gdrive"],
-        capture_output=True,
-        text=True,
-    )
-    return {"stdout": result.stdout, "stderr": result.stderr}
+def import_gdrive(req: GDriveImportRequest):
+    try:
+        files = import_from_gdrive(query=req.query, folder_id=req.folder)
+        return {"files": files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/guardian/import-icloud")
-def import_icloud():
-    result = subprocess.run(
-        ["python", "guardian/guardian_cli.py", "import_icloud"],
-        capture_output=True,
-        text=True,
-    )
-    return {"stdout": result.stdout, "stderr": result.stderr}
+def import_icloud(req: ICloudImportRequest):
+    try:
+        files = import_from_icloud(req.pattern, req.subfolder)
+        return {"files": files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/codexify/create")
 def codexify_create(req: NotionImportRequest):
-    command = ["python", "guardian/codexify.py", "create"]
-    if req.records:
-        command.extend(["--records", req.records])
-    if req.fieldmap:
-        command.extend(["--fieldmap", req.fieldmap])
-    if req.aliasmap:
-        command.extend(["--aliasmap", req.aliasmap])
-    if req.parent_id:
-        command.extend(["--parent-id", req.parent_id])
-    if req.parent_title:
-        command.extend(["--parent-title", req.parent_title])
-    if req.seed:
-        command.append("--seed")
-    if req.edit_aliases:
-        command.append("--edit-aliases")
-    result = subprocess.run(command, capture_output=True, text=True)
-    return {"stdout": result.stdout, "stderr": result.stderr}
+    try:
+        db_id = create_notion_database_from_records(
+            req.records,
+            req.parent_id,
+            req.token,
+            db_title=req.db_title,
+            with_template=req.with_template,
+        )
+        return {"db_id": db_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
