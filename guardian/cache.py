@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import time
+import math
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, TypeVar, Union
 
@@ -164,15 +165,38 @@ def lru_cache_safe(
     
     return decorator
 
-def semantic_cache(query: str) -> Optional[Any]:
-    """
-    Placeholder for semantic caching using embeddings.
-    
-    Args:
-        query: Query string to match
-        
-    Returns:
-        Optional[Any]: Cached result if found
-    """
-    # TODO: Implement semantic caching using embeddings
+_semantic_store: list[tuple[dict[str, float], Any]] = []
+
+
+def _embed(text: str) -> dict[str, float]:
+    """Very small embedding function using term frequencies."""
+    words = [w.lower() for w in text.split() if w.isalpha()]
+    counts: Dict[str, int] = {}
+    for w in words:
+        counts[w] = counts.get(w, 0) + 1
+    norm = math.sqrt(sum(v * v for v in counts.values())) or 1.0
+    return {w: c / norm for w, c in counts.items()}
+
+
+def semantic_cache(query: str, threshold: float = 0.8) -> Optional[Any]:
+    """Retrieve a cached result based on cosine similarity."""
+
+    q_vec = _embed(query)
+    best_score = 0.0
+    best_result: Optional[Any] = None
+    for vec, result in _semantic_store:
+        score = sum(q_vec.get(k, 0.0) * v for k, v in vec.items())
+        if score > best_score:
+            best_score = score
+            best_result = result
+    if best_score >= threshold:
+        logger.debug("Semantic cache hit with score %.2f", best_score)
+        return best_result
     return None
+
+
+def semantic_cache_store(query: str, result: Any) -> None:
+    """Store a query and result in the semantic cache."""
+
+    vec = _embed(query)
+    _semantic_store.append((vec, result))
