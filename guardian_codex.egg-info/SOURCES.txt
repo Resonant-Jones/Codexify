@@ -38,6 +38,7 @@ guardian_codex.egg-info/requires.txt
 guardian_codex.egg-info/top_level.txt
 tests/test_advanced_limiter.py
 tests/test_agents_and_plugins.py
+tests/test_api_server.py
 tests/test_async_control.py
 tests/test_async_efficiency.py
 tests/test_async_system.py
@@ -53,6 +54,7 @@ tests/test_export_notion.py
 tests/test_final_async.py
 tests/test_global_limits.py
 tests/test_guardian_db.py
+tests/test_guardian_semantic_loop.py
 tests/test_integration.py
 tests/test_limiter.py
 tests/test_limiter_isolation.py
@@ -63,6 +65,7 @@ tests/test_rate_control.py
 tests/test_rate_limit.py
 tests/test_safeguards.py
 tests/test_search_agent.py
+tests/test_semantic_cache.py
 tests/test_simple_limiter.py
 tests/test_system_integration.py
 tests/test_system_limits.py
