@@ -86,7 +86,7 @@ repos:
 
 # Custom settings
 default_language_version:
-    python: python3.8
+    python: python3.13
 
 default_stages: [commit, push]
 
@@ -95,6 +95,7 @@ ci:
     autoupdate_commit_msg: 'chore: pre-commit autoupdate'
     skip: []
     submodules: false
+    require_serial: true
 
 # File patterns to exclude
 exclude: |

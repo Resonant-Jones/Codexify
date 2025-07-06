@@ -1,0 +1,7 @@
+# dev-requirements.in
+black>=25.1.0
+isort
+flake8==7.3.0
+mypy
+pytest
+pytest-cov
