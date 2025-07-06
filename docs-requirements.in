@@ -1,0 +1,8 @@
+
+
+sphinx
+sphinx-autobuild
+sphinx_rtd_theme
+myst-parser
+starlette>=0.40.0,<0.47.0
+snowballstemmer>=2.2,<3.0
