@@ -1,0 +1,29 @@
+# pytest.ini
+[pytest]
+minversion = 7.0
+addopts = -ra -q
+testpaths = 
+    tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+# pytest.ini
+[pytest]
+minversion = 7.0
+addopts = -ra -q --tb=short
+
+# Test discovery
+testpaths = 
+    tests
+
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+
+# Custom markers
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+    integration: marks tests as integration tests
+
+# Coverage config example (uncomment if using pytest-cov)
+# addopts = --cov=guardian --cov-report=term-missing
