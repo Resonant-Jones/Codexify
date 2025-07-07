@@ -17,10 +17,7 @@ from jinja2 import Template
 
 # For Notion export markdown -> blocks
 from .codexify import flatten_notion_blocks, markdown_to_notion_blocks
-from notion_client import Client
 
-notion_token = os.getenv("NOTION_API_KEY")
-client = Client(auth=notion_token)
 
 logging.basicConfig(level=logging.INFO)
 logging.debug("NOTION_API_KEY loaded")
@@ -180,7 +177,7 @@ def export_to_notion(
         raise ValueError("Notion token required (from app secure storage or argument).")
     if not parent_id:
         raise ValueError("Notion parent_id (page or database) required.")
-
+    
     client = Client(auth=notion_token)
 
     # Prepare content (markdown to Notion blocks, robust production)

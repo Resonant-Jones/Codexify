@@ -19,13 +19,6 @@ def mock_fetch_gmail():
             "summary": "Discuss funding strategy and user onboarding funnel.",
             "tags": ["meeting", "strategy"],
         },
-        {
-            "subject": "Invoice from Nebius",
-            "sender": "billing@nebius.cloud",
-            "timestamp": "2025-06-07T14:02:00",
-            "summary": "Monthly invoice for GPU inference service.",
-            "tags": ["billing", "cloud"],
-        },
     ]
 
 

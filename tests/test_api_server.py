@@ -5,7 +5,11 @@ import os
 
 sys.modules.setdefault('pandas', types.ModuleType('pandas'))
 notion_stub = types.ModuleType('notion_client')
-notion_stub.Client = object
+class FakeClient:
+    def __init__(self, **kwargs):
+        pass
+
+notion_stub.Client = FakeClient
 sys.modules.setdefault('notion_client', notion_stub)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))

@@ -15,7 +15,7 @@ import pytest
 import pytest_asyncio
 
 from guardian.cache import lru_cache_safe, memoize_to_disk
-from guardian.config.config import Config
+from guardian.config import Config
 from guardian.memory.async_logger import memory_logger
 from guardian.memory.query_memory import memory_store
 from guardian.threads.async_executor import plugin_executor

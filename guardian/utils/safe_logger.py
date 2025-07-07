@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from guardian.config import Config
+from guardian.config.core import Config
 from guardian.utils.safeguard import throttle, debounce
 
 # Configure logging
@@ -25,10 +25,14 @@ class BatchLogger:
     def __init__(
         self,
         log_dir: Path,
-        batch_size: int = Config.MEMORY_BATCH_SIZE,
-        flush_interval: float = Config.MEMORY_FLUSH_INTERVAL,
-        max_buffer: int = Config.MAX_MEMORY_BUFFER
+        batch_size: Optional[int] = None,
+        flush_interval: Optional[float] = None,
+        max_buffer: Optional[int] = None
     ):
+        cfg = Config()  # Now you have the full Settings instance
+        self.batch_size = batch_size or cfg.MEMORY_BATCH_SIZE
+        self.flush_interval = flush_interval or cfg.MEMORY_FLUSH_INTERVAL
+        self.max_buffer = max_buffer or cfg.MAX_MEMORY_BUFFER
         """
         Initialize batch logger.
         
@@ -51,8 +55,13 @@ class BatchLogger:
         # Create log directory
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
-        # Start background flush task
-        self.flush_task = asyncio.create_task(self._auto_flush())
+        # Start background flush task if event loop exists
+        try:
+            loop = asyncio.get_running_loop()
+            self.flush_task = loop.create_task(self._auto_flush())
+        except RuntimeError:
+            # No running loop at init time, disable auto-flush
+            self.flush_task = None
     
     @throttle(rate=10.0)  # Limit to 10 logs/sec
     async def log(
@@ -166,7 +175,8 @@ class SafeLogger:
             log_dir: Optional custom log directory
         """
         self.name = name
-        self.log_dir = log_dir or Path(Config.LOG_DIR) / name
+        settings = Config()
+        self.log_dir = log_dir or Path(settings.LOG_DIR) / name
         self.batch_logger = BatchLogger(self.log_dir)
     
     @throttle(rate=20.0)  # Limit INFO logs

@@ -4,6 +4,11 @@ import pickle
 
 from ..export_engine import (export_to_gdrive, import_from_gdrive,
                              import_from_icloud)
+from ..flows.sync_gsuite_to_notion import sync_gsuite_to_notion
+
+
+def cli_sync_gsuite_to_notion(args):
+    sync_gsuite_to_notion()
 
 
 def cli_export_gdrive(args):
@@ -86,6 +91,12 @@ def main():
         "--subfolder", type=str, default="Guardian Exports", help="iCloud subfolder"
     )
     imp_ic.set_defaults(func=cli_import_icloud)
+
+    # Sync GSuite to Notion Flow
+    sync_flow = subparsers.add_parser(
+        "sync_gsuite_to_notion", help="Sync GSuite Sheets to Notion database"
+    )
+    sync_flow.set_defaults(func=cli_sync_gsuite_to_notion)
 
     args = parser.parse_args()
     if hasattr(args, "func"):

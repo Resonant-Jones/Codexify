@@ -1,33 +1,39 @@
 # guardian/config.py
 
 import sys
+import os
+from typing import Optional
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, ConfigDict
 from pydantic_settings import BaseSettings
 
-
 class Settings(BaseSettings):
+    DEFAULT_RATE_LIMIT: float = 0.1  # seconds between plugin calls
+    MEMORY_BATCH_SIZE: int = 100  # Default batch size for the SafeLogger
+    MEMORY_FLUSH_INTERVAL: float = 5.0  # Or your default interval in seconds
+    MAX_MEMORY_BUFFER: int = 1000  # Or whatever cap you want
+    LOG_DIR: str = "logs"  # Default log directory for SafeLogger
+    SAFE_MODE: bool = False
+    SAFE_MODE_RATE_LIMIT: float = 0.01
+    CACHE_ENABLED: bool = True  # Toggle for enabling/disabling caching in plugin execution
+    PLUGIN_DIR: str = "guardian/plugins"  # Default plugin directory path
     # Core/legacy
     GENAI_API_KEY: str = Field(None, description="Google Gemini API Key")
     GUARDIAN_DB_PATH: str = Field("guardian.db", description="SQLite DB path")
     NOTION_API_KEY: str = Field(None, description="Notion API Key (optional)")
 
     # Google Gemini & Cloud
-    GOOGLE_API_KEY: str = Field(None, description="Google API Key (Gemini/other)")
+    GOOGLE_API_KEY: Optional[str] = None
 
     # OpenAI
     OPENAI_API_KEY: str = Field(None, description="OpenAI API Key")
-
-    # Nebius
-    NEBIUS_API_KEY: str = Field(None, description="Nebius API Key")
-    NEBIUS_API_ENDPOINT: str = Field(
-        "https://api.studio.nebius.com/v1/chat/completions",
-        description="Nebius API Endpoint",
+    OPENAI_API_ENDPOINT: str = Field(
+        "https://api.openai.com/v1", description="OpenAI API Endpoint"
     )
-    NEBIUS_MODEL: str = Field(
-        "deepseek-ai/DeepSeek-V3-0324-fast", description="Nebius Model"
+    OPENAI_MODEL: str = Field(
+        "gpt-4",
+        description="OpenAI model name (e.g., gpt-4, gpt-3.5-turbo)"
     )
-
     # Groq
     GROQ_API_KEY: str = Field(None, description="Groq API Key")
     GROQ_API_ENDPOINT: str = Field(
@@ -49,7 +55,7 @@ class Settings(BaseSettings):
 
     # Ollama (Local LLM)
     OLLAMA_MODEL: str = Field(
-        "gemma3:4b", description="Ollama model tag (e.g. 'gemma3b:4b', 'gemma3:12b')"
+        "gemma3n:e2b-it-q4_K_M", description="Ollama model tag (e.g. 'gemma3b:e4b-it-q4_K_M', 'gemma3n:e4b-it-q8_0', 'gemma3n:e4b-it-fp16')"
     )
     OLLAMA_HOST: str = Field("http://localhost:11434", description="Ollama server URL")
 
@@ -78,11 +84,11 @@ class Settings(BaseSettings):
         description="Cloud API endpoint",
     )
 
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "extra": "allow",
-    }
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="allow",
+    )
 
 
 # ===== Helper functions for backend/model/key selection =====
@@ -97,8 +103,6 @@ def get_active_model(settings: Settings) -> str:
         return "gpt-4"
     elif backend == "gemini":
         return settings.CLOUD_MODEL_NAME
-    elif backend == "nebius":
-        return settings.NEBIUS_MODEL
     elif backend == "groq":
         return settings.GROQ_MODEL
     return "unknown"
@@ -116,8 +120,6 @@ def get_model_and_host(settings: Settings) -> tuple[str, str]:
         return "gpt-4", "https://api.openai.com/v1"
     elif backend == "gemini":
         return settings.CLOUD_MODEL_NAME, settings.CLOUD_API_HOST
-    elif backend == "nebius":
-        return settings.NEBIUS_MODEL, settings.NEBIUS_API_ENDPOINT
     elif backend == "groq":
         return settings.GROQ_MODEL, settings.GROQ_API_ENDPOINT
     return "unknown", "unknown"
@@ -132,7 +134,15 @@ def is_backend_capable(settings: Settings, capability: str) -> bool:
 
 # ===== Backend helper functions =====
 def is_cloud_backend(settings: Settings) -> bool:
-    return settings.AI_BACKEND.lower() in {"openai", "gemini", "nebius", "groq"}
+    """
+    Return True if CLOUD_BACKEND environment variable is truthy
+    or if the AI_BACKEND setting indicates a cloud provider.
+    """
+    # Environment override
+    if os.getenv("CLOUD_BACKEND", "false").lower() in ("1", "true", "yes"):
+        return True
+    # Fallback to settings.AI_BACKEND
+    return settings.AI_BACKEND.lower() in {"openai", "gemini", "groq"}
 
 
 def get_backend_capabilities(settings: Settings) -> dict:
@@ -140,7 +150,6 @@ def get_backend_capabilities(settings: Settings) -> dict:
         "ollama": {"local": True, "can_stream": True, "sovereign": True},
         "openai": {"can_search": True, "can_stream": True},
         "gemini": {"can_search": True},
-        "nebius": {"can_stream": True},
         "groq": {"can_stream": True, "can_vision": True},
     }
     return capabilities.get(settings.AI_BACKEND.lower(), {})
@@ -153,10 +162,10 @@ def warn_if_missing_keys(settings: Settings):
         print("⚠️  Warning: Missing OpenAI API key.")
     elif backend == "gemini" and not settings.GENAI_API_KEY:
         print("⚠️  Warning: Missing Gemini API key.")
-    elif backend == "nebius" and not settings.NEBIUS_API_KEY:
-        print("⚠️  Warning: Missing Nebius API key.")
     elif backend == "groq" and not settings.GROQ_API_KEY:
         print("⚠️  Warning: Missing Groq API key.")
+    elif backend == "google" and not settings.GOOGLE_API_KEY:
+        print("⚠️  Warning: Missing Google API key for YouTube Data API.")
 
 
 def print_config_errors(e: ValidationError):
@@ -186,14 +195,18 @@ def config_summary(settings: Settings):
 
 
 def get_settings() -> Settings:
-    settings = Settings()
+    try:
+        settings = Settings()
+    except ValidationError as e:
+        print_config_errors(e)
+        raise
 
     # Enforce Groq-only backend in production
     if settings.ENV == "production" and settings.AI_BACKEND.lower() != "groq":
         raise RuntimeError("❌ In production, only the Groq backend is supported.")
 
     if settings.ENV == "production":
-        settings.GROQ_MODEL = "groq-1"
+        settings.GROQ_MODEL = "meta-llama/llama-4-scout-17B-16e-instruct"
 
     return settings
 
@@ -207,3 +220,7 @@ def print_config_status():
         warn_if_missing_keys(settings)
     except ValidationError as e:
         print_config_errors(e)
+
+
+# Alias for legacy compatibility
+Config = Settings

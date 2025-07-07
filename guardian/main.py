@@ -18,10 +18,13 @@ import google.generativeai as genai
 from fastapi import FastAPI, Query
 from memoryOS.logger import log_interaction
 from pydantic import BaseModel
+from guardian.config import Config
 
 # --------------------------------------------------------------------------- #
 # Configuration
 # --------------------------------------------------------------------------- #
+
+config = Config()
 
 genai.configure(api_key=os.getenv("GENAI_API_KEY"))  # Load key from env
 
