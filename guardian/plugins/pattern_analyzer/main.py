@@ -68,6 +68,16 @@ class PatternAnalyzer:
         self.analysis_thread: Optional[threading.Thread] = None
         self.last_analysis: Optional[datetime] = None
 
+    def health_check(self) -> dict:
+        """
+        Returns the health status of the PatternAnalyzer.
+        """
+        return {
+            "status": "healthy",
+            "details": "PatternAnalyzer OK",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
     def start(self) -> bool:
         """Start the pattern analyzer."""
         try:

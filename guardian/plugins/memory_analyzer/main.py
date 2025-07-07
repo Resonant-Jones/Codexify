@@ -9,7 +9,7 @@ class MemoryAnalyzer:
         self.metacognition = None
 
     async def analyze_memories(self) -> dict:
-        memories = self.codex.query_memories()
+        memories = self.codex.query_memory(query="", min_confidence=0.0, limit=100)
         patterns = await self.detect_patterns(memories)
         stats = self.calculate_statistics(memories)
         return {"patterns": patterns, "statistics": stats}
