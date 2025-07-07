@@ -55,7 +55,7 @@ async def test_memory_analysis():
             'tags': ['test']
         }
     ]
-    codex.query_memory.return_value = test_memories
+    codex.query_memories.return_value = test_memories
     result = await analyzer.analyze_memories()
     assert result is not None
     assert 'patterns' in result
@@ -87,7 +87,7 @@ async def test_pattern_detection():
             'timestamp': '2024-01-03T00:00:00Z'
         }
     ]
-    codex.query_memory.return_value = test_memories
+    codex.query_memories.return_value = test_memories
     patterns = await analyzer.detect_patterns(test_memories)
     assert len(patterns) > 0
     assert 'recurring pattern A' in str(patterns[0])
@@ -129,7 +129,7 @@ async def test_error_handling():
     analyzer = MemoryAnalyzer(config)
     analyzer.codex = codex
     analyzer.metacognition = metacognition
-    codex.query_memory.side_effect = Exception("Test error")
+    codex.query_memories.side_effect = Exception("Test error")
     import pytest
     with pytest.raises(Exception):
         await analyzer.analyze_memories()

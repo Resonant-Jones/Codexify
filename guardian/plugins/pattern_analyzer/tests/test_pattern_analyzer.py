@@ -41,7 +41,7 @@ class TestPatternAnalyzer(unittest.TestCase):
         self.metacognition = MagicMock(spec=MetacognitionEngine)
         
         # Initialize plugin
-        from ..main import PatternAnalyzer
+        from guardian.plugins.pattern_analyzer.main import PatternAnalyzer
         self.analyzer = PatternAnalyzer(self.config)
         self.analyzer.codex = self.codex
         self.analyzer.metacognition = self.metacognition
