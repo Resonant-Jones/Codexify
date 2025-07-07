@@ -193,7 +193,7 @@ class SystemDiagnostics:
                     metadata={
                         "active_threads": active_threads,
                         "dead_threads": dead_threads,
-                        "thread_info": thread_info,
+                        "threads": monitored_threads_info,
                     },
                 )
 

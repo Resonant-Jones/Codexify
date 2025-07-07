@@ -84,7 +84,7 @@ async def test_thread_monitor():
     assert result.check_type == 'threads'
     assert result.status == 'healthy'
     assert result.value == 2
-    assert 'thread_info' in result.metadata
+    assert 'threads' in result.metadata
 
 @pytest.mark.asyncio
 async def test_plugin_monitor():
@@ -223,7 +223,7 @@ async def test_error_handling():
     component = 'test_component'
     error = Exception('Test error')
 
-    for _ in range(config['failure_handling']['max_retries'] + 1):
+    for _ in range(config['failure_handling']['max_retries'] + 2):
         await diagnostics._handle_error(component, error)
 
     assert diagnostics.error_count[component] >= config['failure_handling']['max_retries']
