@@ -8,13 +8,14 @@ import asyncio
 import json
 import logging
 import unittest
+from unittest import IsolatedAsyncioTestCase
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
-
+from guardian.plugins.memory_analyzer.main import MemoryAnalyzer
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -22,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class TestMemoryAnalyzer(unittest.TestCase):
+class TestMemoryAnalyzer(IsolatedAsyncioTestCase):
     """Test suite for memory analyzer plugin."""
     
     @classmethod
@@ -67,12 +68,12 @@ class TestMemoryAnalyzer(unittest.TestCase):
                 'tags': ['test']
             }
         ]
-        
-        self.codex.query_memories.return_value = test_memories
-        
+
+        self.codex.query_memory.return_value = test_memories
+
         # Run analysis
         result = await self.analyzer.analyze_memories()
-        
+
         # Verify analysis
         self.assertIsNotNone(result)
         self.assertIn('patterns', result)
@@ -98,12 +99,12 @@ class TestMemoryAnalyzer(unittest.TestCase):
                 'timestamp': '2024-01-03T00:00:00Z'
             }
         ]
-        
-        self.codex.query_memories.return_value = test_memories
-        
+
+        self.codex.query_memory.return_value = test_memories
+
         # Run pattern detection
         patterns = await self.analyzer.detect_patterns(test_memories)
-        
+
         # Verify patterns
         self.assertTrue(len(patterns) > 0)
         self.assertIn('recurring pattern A', str(patterns[0]))
@@ -138,12 +139,12 @@ class TestMemoryAnalyzer(unittest.TestCase):
     async def test_error_handling(self):
         """Test error handling during analysis."""
         # Mock error in codex
-        self.codex.query_memories.side_effect = Exception("Test error")
-        
+        self.codex.query_memory.side_effect = Exception("Test error")
+
         # Run analysis
         with self.assertRaises(Exception):
             await self.analyzer.analyze_memories()
-        
+
         # Verify error handling
         self.metacognition.handle_error.assert_called_once()
     

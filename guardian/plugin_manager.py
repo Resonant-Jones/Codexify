@@ -87,7 +87,7 @@ class SafePluginManager:
     
     def __init__(self):
         self.plugins: Dict[str, SafePlugin] = {}
-        self.plugin_dir = Path(Config.PLUGIN_DIR)
+        self.plugin_dir = Path(Config().PLUGIN_DIR)
         self.manifest_path = self.plugin_dir / 'plugin_manifest.json'
         self.active_plugins: Set[str] = set()
         self.lock = asyncio.Lock()
@@ -126,16 +126,16 @@ class SafePluginManager:
             if 'rate_limit' in metadata:
                 try:
                     rate = float(metadata['rate_limit'].split('/')[0])
-                    if rate > Config.DEFAULT_RATE_LIMIT:
+                    if rate > Config().DEFAULT_RATE_LIMIT:
                         logger.warning(
                             f"Plugin {metadata['name']} requested rate {rate} "
-                            f"exceeding limit {Config.DEFAULT_RATE_LIMIT}"
+                            f"exceeding limit {Config().DEFAULT_RATE_LIMIT}"
                         )
-                        rate = Config.DEFAULT_RATE_LIMIT
+                        rate = Config().DEFAULT_RATE_LIMIT
                 except (ValueError, IndexError):
-                    rate = Config.DEFAULT_RATE_LIMIT
+                    rate = Config().DEFAULT_RATE_LIMIT
             else:
-                rate = Config.DEFAULT_RATE_LIMIT
+                rate = Config().DEFAULT_RATE_LIMIT
             
             # Load module
             module_path = plugin_path / 'main.py'
@@ -163,7 +163,7 @@ class SafePluginManager:
             
             # Initialize with timeout
             try:
-                async with asyncio.timeout(Config.PLUGIN_TIMEOUT):
+                async with asyncio.timeout(Config().PLUGIN_TIMEOUT):
                     if hasattr(module, 'init_plugin'):
                         await module.init_plugin()
             except asyncio.TimeoutError:
@@ -182,7 +182,7 @@ class SafePluginManager:
             paths = await self.discover_plugins()
             
             for path in paths:
-                if Config.SAFE_MODE and len(self.plugins) >= Config.MAX_CONCURRENT_PLUGINS:
+                if Config().SAFE_MODE and len(self.plugins) >= Config().MAX_CONCURRENT_PLUGINS:
                     logger.warning("Maximum plugin limit reached in safe mode")
                     break
                 
@@ -199,7 +199,7 @@ class SafePluginManager:
         try:
             manifest = {
                 'last_updated': datetime.utcnow().isoformat(),
-                'safe_mode': Config.SAFE_MODE,
+                'safe_mode': Config().SAFE_MODE,
                 'active_plugins': {
                     name: plugin.to_dict()
                     for name, plugin in self.plugins.items()

@@ -81,7 +81,7 @@ def safe_model_call(func: F) -> F:
             
     return wrapper  # type: ignore
 
-def safe_plugin_execution(rate: float = Config.DEFAULT_RATE_LIMIT) -> Callable[[F], F]:
+def safe_plugin_execution(rate: float = Config().DEFAULT_RATE_LIMIT) -> Callable[[F], F]:
     """
     Combined decorator for safe plugin execution.
     
@@ -92,20 +92,20 @@ def safe_plugin_execution(rate: float = Config.DEFAULT_RATE_LIMIT) -> Callable[[
         Decorator function
     """
     def decorator(func: F) -> F:
+        # Use a live instance for settings resolution
+        settings = Config()
         # Apply rate limiting
         rate_limited_func = rate_limited(
             "plugin_execution",
-            rate=rate if not Config.SAFE_MODE else Config.SAFE_MODE_RATE_LIMIT
+            rate=rate if not settings.SAFE_MODE else settings.SAFE_MODE_RATE_LIMIT
         )(func)
-        
         # Add caching if enabled
-        if Config.CACHE_ENABLED:
+        if settings.CACHE_ENABLED:
             cached_func = lru_cache_safe(
                 maxsize=100,
                 expire=300
             )(rate_limited_func)
             return cached_func  # type: ignore
-        
         return rate_limited_func  # type: ignore
     return decorator
 

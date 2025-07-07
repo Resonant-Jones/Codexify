@@ -1,3 +1,7 @@
+try:
+    from notion_client import Client
+except ImportError:
+    raise ImportError("notion-client package required. Run 'pip install notion-client'.")
 def load_alias_map(alias_path):
     if not alias_path or not os.path.exists(alias_path):
         return {}
@@ -162,13 +166,10 @@ import json
 import os
 
 import jinja2
-from notion_client import Client
 
 
 def export_notion_database_to_json(db_id, notion_token, out_file):
     import sys
-
-    from notion_client import Client
 
     client = Client(auth=notion_token)
     # Get database schema
@@ -962,7 +963,6 @@ import datetime
 
 import jinja2
 import requests
-from notion_client import Client
 
 
 def guess_notion_type(value):

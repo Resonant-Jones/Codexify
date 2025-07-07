@@ -12,8 +12,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
-from guardian.config.system_config import system_config
+from guardian.config import system_config
 
 # Configure logging
 logging.basicConfig(

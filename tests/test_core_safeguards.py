@@ -11,7 +11,7 @@ from typing import List
 
 import pytest
 
-from guardian.config.config import Config
+from guardian.config import Config
 from guardian.utils.safeguard import throttle, rate_limited
 
 # Configure logging
