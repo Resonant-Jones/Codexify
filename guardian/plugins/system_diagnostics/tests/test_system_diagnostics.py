@@ -8,7 +8,7 @@ import json
 import logging
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 from guardian.plugins.system_diagnostics.main import SystemDiagnostics, DiagnosticResult
 from guardian.codex_awareness import CodexAwareness
@@ -122,11 +122,11 @@ async def test_agent_monitor():
     diagnostics.metacognition = MagicMock(spec=MetacognitionEngine)
     diagnostics.thread_manager = MagicMock(spec=ThreadManager)
 
-    agent1 = MagicMock()
+    agent1 = AsyncMock()
     agent1.name = 'agent1'
     agent1.get_status.return_value = {'status': 'healthy'}
 
-    agent2 = MagicMock()
+    agent2 = AsyncMock()
     agent2.name = 'agent2'
     agent2.get_status.return_value = {'status': 'healthy'}
 
@@ -138,7 +138,7 @@ async def test_agent_monitor():
     result = await diagnostics.monitors['agents'].check()
 
     assert result.check_type == 'agents'
-    assert result.status == ['healthy', 'warning', 'critical']
+    assert result.status in ['healthy', 'warning', 'critical']
     assert result.value == 0  # No unhealthy agents
     assert len(result.metadata['agents']) == 2
 
