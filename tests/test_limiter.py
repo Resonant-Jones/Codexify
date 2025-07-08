@@ -8,6 +8,8 @@ import asyncio
 import time
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.utils.rate_limiter import rate_limit, SimpleRateLimiter
 
 @pytest.fixture
@@ -15,7 +17,6 @@ async def limiter():
     """Provide a test rate limiter."""
     return SimpleRateLimiter(rate=10.0)
 
-@pytest.mark.asyncio
 async def test_basic_limiting():
     """Test basic rate limiting."""
     timestamps = []
@@ -40,7 +41,6 @@ async def test_basic_limiting():
         f"Intervals should be >= {min_interval}s (with 10% tolerance)"
     )
 
-@pytest.mark.asyncio
 async def test_concurrent_limiting():
     """Test rate limiting under concurrent load."""
     timestamps = []
@@ -69,7 +69,6 @@ async def test_concurrent_limiting():
         f"Intervals should be >= {min_interval}s (with 10% tolerance)"
     )
 
-@pytest.mark.asyncio
 async def test_direct_limiter_usage(limiter):
     """Test using rate limiter directly."""
     timestamps = []
@@ -91,7 +90,6 @@ async def test_direct_limiter_usage(limiter):
         f"Intervals should be >= {min_interval}s (with 10% tolerance)"
     )
 
-@pytest.mark.asyncio
 async def test_error_handling():
     """Test rate limiting with errors."""
     error_count = 0
@@ -110,7 +108,6 @@ async def test_error_handling():
     # Should allow all error calls through
     assert error_count == 3
 
-@pytest.mark.asyncio
 async def test_mixed_durations():
     """Test rate limiting with varying operation durations."""
     timestamps = []

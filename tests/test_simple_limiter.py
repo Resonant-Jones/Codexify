@@ -8,9 +8,10 @@ import asyncio
 import time
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.utils.rate_limiter import SimpleRateLimiter, rate_limit
 
-@pytest.mark.asyncio
 async def test_simple_rate_limit():
     """Test basic rate limiting."""
     limiter = SimpleRateLimiter(rate=5.0)  # 5 ops/sec
@@ -33,7 +34,6 @@ async def test_simple_rate_limit():
         f"Intervals should be >= {min_interval}s (with 10% tolerance)"
     )
 
-@pytest.mark.asyncio
 async def test_decorator():
     """Test rate limit decorator."""
     timestamps = []
@@ -58,7 +58,6 @@ async def test_decorator():
         f"Intervals should be >= {min_interval}s (with 10% tolerance)"
     )
 
-@pytest.mark.asyncio
 async def test_concurrent():
     """Test concurrent rate limiting."""
     limiter = SimpleRateLimiter(rate=10.0)  # 10 ops/sec

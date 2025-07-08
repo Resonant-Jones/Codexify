@@ -122,8 +122,8 @@ class TestRunner:
     def __init__(self):
         self.report = TestReport()
         self.test_modules = [
-            'test_system_integration',
-            'test_agents_and_plugins'
+            'guardian.plugins.system_diagnostics.tests.test_system_diagnostics',
+            'guardian.plugins.agents_and_plugins.tests.test_agents_and_plugins'
         ]
     
     async def run_tests(self) -> TestReport:

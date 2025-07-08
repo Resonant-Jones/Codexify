@@ -14,10 +14,9 @@ sys.modules.setdefault('notion_client', notion_stub)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from guardian import codexify
-import api_server
+from guardian.api_server import app, export_to_gdrive, import_from_gdrive, import_from_icloud, create_notion_database_from_records
 
-client = TestClient(api_server.app)
+client = TestClient(app)
 
 
 def test_export_gdrive(monkeypatch):
@@ -27,7 +26,7 @@ def test_export_gdrive(monkeypatch):
         called['args'] = (records, format, folder_id)
         return {'id': '123'}
 
-    monkeypatch.setattr(api_server, 'export_to_gdrive', fake_export)
+    monkeypatch.setattr('guardian.api_server.export_to_gdrive', fake_export)
 
     resp = client.post('/guardian/export-gdrive', json={'records': [{'a': 1}]})
     assert resp.status_code == 200
@@ -36,14 +35,14 @@ def test_export_gdrive(monkeypatch):
 
 
 def test_import_gdrive(monkeypatch):
-    monkeypatch.setattr(api_server, 'import_from_gdrive', lambda **kw: ['f1'])
+    monkeypatch.setattr('guardian.api_server.import_from_gdrive', lambda **kw: ['f1'])
     resp = client.post('/guardian/import-gdrive', json={})
     assert resp.status_code == 200
     assert resp.json()['files'] == ['f1']
 
 
 def test_import_icloud(monkeypatch):
-    monkeypatch.setattr(api_server, 'import_from_icloud', lambda *a: ['f2'])
+    monkeypatch.setattr('guardian.api_server.import_from_icloud', lambda *a: ['f2'])
     resp = client.post('/guardian/import-icloud', json={})
     assert resp.status_code == 200
     assert resp.json()['files'] == ['f2']
@@ -53,7 +52,7 @@ def test_codexify_create(monkeypatch):
     def fake_create(records, parent_id, token, db_title=None, with_template=True):
         return 'db123'
 
-    monkeypatch.setattr(api_server, 'create_notion_database_from_records', fake_create)
+    monkeypatch.setattr('guardian.api_server.create_notion_database_from_records', fake_create)
     resp = client.post('/codexify/create', json={
         'records': [{'t': 1}],
         'parent_id': 'pid',

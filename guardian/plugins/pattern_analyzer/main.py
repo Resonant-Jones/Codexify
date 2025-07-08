@@ -78,6 +78,30 @@ class PatternAnalyzer:
             "timestamp": datetime.utcnow().isoformat()
         }
 
+    def get_metadata(self) -> dict:
+        """
+        Returns the plugin metadata.
+        """
+        return {
+            "name": "PatternAnalyzer",
+            "version": "1.0",
+            "description": "Analyzes patterns and anomalies in memory data",
+            "capabilities": ["pattern_detection", "anomaly_detection", "pattern_metrics"]
+        }
+
+    def calculate_pattern_metrics(self, patterns: List[dict]) -> dict:
+        """
+        Calculate simple metrics for given patterns.
+        """
+        total_patterns = len(patterns)
+        average_confidence = (
+            sum(p.get("confidence", 0.0) for p in patterns) / total_patterns if total_patterns else 0.0
+        )
+        return {
+            "total_patterns": total_patterns,
+            "average_confidence": average_confidence
+        }
+
     def start(self) -> bool:
         """Start the pattern analyzer."""
         try:

@@ -10,6 +10,8 @@ import pytest
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.utils.event_safe_limiter import RateLimiter, rate_limit
 from guardian.config import Config
 

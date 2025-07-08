@@ -1,3 +1,4 @@
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 import os
 from unittest.mock import patch
 

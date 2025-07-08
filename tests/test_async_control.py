@@ -11,6 +11,8 @@ from typing import List
 
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.utils.async_control import (
     rate_limited,
     debounced,
@@ -21,7 +23,6 @@ from guardian.utils.async_control import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-@pytest.mark.asyncio
 async def test_rate_limiting():
     """Test rate limiting."""
     call_times: List[float] = []
@@ -42,7 +43,6 @@ async def test_rate_limiting():
     ]
     assert all(interval >= 0.5 for interval in intervals)
 
-@pytest.mark.asyncio
 async def test_debounce():
     """Test debouncing."""
     call_count = 0
@@ -71,7 +71,6 @@ async def test_debounce():
     assert all(v is None for v in values[:-1]), "Intermediate calls should return None"
     assert values[-1] == 4, "Final call should return last value"
 
-@pytest.mark.asyncio
 async def test_throttle():
     """Test throttling."""
     call_times: List[float] = []
@@ -98,7 +97,6 @@ async def test_throttle():
         ]
         assert all(interval >= 0.5 for interval in intervals)
 
-@pytest.mark.asyncio
 async def test_concurrent_rate_limiting():
     """Test rate limiting under concurrent load."""
     results = []
@@ -119,7 +117,6 @@ async def test_concurrent_rate_limiting():
     assert duration >= 2.0, "Should take at least 2 seconds due to rate limiting"
     assert list(results) == list(range(10)), "Results should maintain order"
 
-@pytest.mark.asyncio
 async def test_debounce_cancellation():
     """Test debounce cancellation behavior."""
     call_count = 0
@@ -145,7 +142,6 @@ async def test_debounce_cancellation():
     assert all(r is None for r in results[:-1]), "Cancelled calls should return None"
     assert results[-1] == 1, "Last call should return result"
 
-@pytest.mark.asyncio
 async def test_throttle_bursts():
     """Test throttle behavior with bursts."""
     successes = []

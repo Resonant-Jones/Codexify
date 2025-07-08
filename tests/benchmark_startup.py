@@ -1,5 +1,5 @@
 import time
-from guardian.cli import plugin_cli
+from guardian.chat.cli import plugin_cli
 
 def test_cli_startup_benchmark(benchmark):
     start = time.time()

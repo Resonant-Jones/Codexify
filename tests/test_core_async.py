@@ -11,6 +11,8 @@ from typing import List
 
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.utils.async_core import (
     rate_limited,
     debounced,

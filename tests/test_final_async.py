@@ -17,6 +17,9 @@ from guardian.utils.async_final import (
     throttled
 )
 
+# Ensure all tests run with asyncio mode
+pytestmark = pytest.mark.asyncio
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -14,12 +14,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import pytest
 from guardian.codex_awareness import CodexAwareness
 from guardian.config.system_config import SystemConfig
 from guardian.metacognition import MetacognitionEngine
 from guardian.plugin_loader import PluginLoader
 from guardian.self_check import epistemic_self_check
 from guardian.threads.thread_manager import ThreadManager
+
+# Ensure all system integration tests run with pytest-asyncio if needed in future
+pytestmark = pytest.mark.asyncio
 
 # Configure logging
 logging.basicConfig(

@@ -13,6 +13,8 @@ from typing import List
 
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.config import Config
 from guardian.utils.safeguard import (
     safe_model_call,
