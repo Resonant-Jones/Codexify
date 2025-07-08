@@ -9,10 +9,16 @@ class MemoryAnalyzer:
         self.metacognition = None
 
     async def analyze_memories(self) -> dict:
-        memories = self.codex.query_memory(query="", min_confidence=0.0, limit=100)
-        patterns = await self.detect_patterns(memories)
-        stats = self.calculate_statistics(memories)
-        return {"patterns": patterns, "statistics": stats}
+        try:
+            memories = self.codex.query_memory(query="", min_confidence=0.0, limit=100)
+            patterns = await self.detect_patterns(memories)
+            stats = self.calculate_statistics(memories)
+            return {"patterns": patterns, "statistics": stats}
+        except Exception as e:
+            # Call error handling before re-raising the exception
+            if self.metacognition:
+                self.metacognition.handle_error(e)
+            raise
 
     async def detect_patterns(self, memories: list[dict]) -> list:
         contents = [m.get("content", "") for m in memories]
