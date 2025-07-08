@@ -43,29 +43,20 @@ class Memoryos:
     def __init__(
         self,
         user_id: str,
-        openai_api_key: str,
         data_storage_path: str,
+        embedder,  # required argument
+        openai_api_key: str = None,   # Still here for LLM chat
         openai_base_url: str = None,
         assistant_id: str = DEFAULT_ASSISTANT_ID,
-        short_term_capacity=10,
-        mid_term_capacity=2000,
-        long_term_knowledge_capacity=100,
-        retrieval_queue_capacity=7,
-        mid_term_heat_threshold=H_PROFILE_UPDATE_THRESHOLD,
-        llm_model="gpt-4o-mini",  # Unified model for all LLM operations
     ):
         self.user_id = user_id
-        self.assistant_id = assistant_id
-        self.data_storage_path = os.path.abspath(data_storage_path)
-        self.llm_model = llm_model
+        self.data_storage_path = data_storage_path
+        self.embedder = embedder  # 🔑 PLUGGABLE!
 
-        print(
-            f"Initializing Memoryos for user '{self.user_id}' and assistant '{self.assistant_id}'. Data path: {self.data_storage_path}"
+        self.client = OpenAIClient(
+            api_key=openai_api_key,
+            base_url=openai_base_url
         )
-        print(f"Using unified LLM model: {self.llm_model}")
-
-        # Initialize OpenAI Client
-        self.client = OpenAIClient(api_key=openai_api_key, base_url=openai_base_url)
 
         # Define file paths for user-specific data
         self.user_data_dir = os.path.join(self.data_storage_path, "users", self.user_id)
@@ -597,20 +588,19 @@ def cli():
 def codemap_query(question):
     """Ask a question about the codebase using codemap.json."""
     import os
-
     from memoryos.memoryos import Memoryos
-
+    from local_embedder import LocalEmbedder
     # Setup dummy user credentials and data path
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")  # Replace as needed
     data_storage_path = "./data"
-
+    embedder = LocalEmbedder()
     memory = Memoryos(
         user_id=user_id,
         openai_api_key=openai_api_key,
         data_storage_path=data_storage_path,
+        embedder=embedder,
     )
-
     answer = memory.query_codemap(question)
     print("\n--- CODEMAP ANSWER ---\n")
     print(answer)
@@ -621,17 +611,17 @@ def codemap_query(question):
 def show_user_profile():
     """Display the current user's profile from long-term memory."""
     import os
-
     from memoryos.memoryos import Memoryos
-
+    from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
-
+    embedder = LocalEmbedder()
     memory = Memoryos(
         user_id=user_id,
         openai_api_key=openai_api_key,
         data_storage_path=data_storage_path,
+        embedder=embedder,
     )
     profile = memory.get_user_profile_summary()
     print("\n--- USER PROFILE ---\n")
@@ -643,17 +633,17 @@ def show_user_profile():
 def show_assistant_knowledge():
     """Display current assistant knowledge from long-term memory."""
     import os
-
     from memoryos.memoryos import Memoryos
-
+    from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
-
+    embedder = LocalEmbedder()
     memory = Memoryos(
         user_id=user_id,
         openai_api_key=openai_api_key,
         data_storage_path=data_storage_path,
+        embedder=embedder,
     )
     knowledge = memory.get_assistant_knowledge_summary()
     print("\n--- ASSISTANT KNOWLEDGE ---\n")
@@ -666,17 +656,17 @@ def show_assistant_knowledge():
 def show_projects():
     """Display all known projects from long-term memory."""
     import os
-
     from memoryos.memoryos import Memoryos
-
+    from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
-
+    embedder = LocalEmbedder()
     memory = Memoryos(
         user_id=user_id,
         openai_api_key=openai_api_key,
         data_storage_path=data_storage_path,
+        embedder=embedder,
     )
     projects = memory.get_all_projects_summary()
     print("\n--- PROJECTS ---\n")
@@ -690,17 +680,17 @@ def show_projects():
 def show_threads_by_project(project_id):
     """Display threads associated with a specific project."""
     import os
-
     from memoryos.memoryos import Memoryos
-
+    from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
-
+    embedder = LocalEmbedder()
     memory = Memoryos(
         user_id=user_id,
         openai_api_key=openai_api_key,
         data_storage_path=data_storage_path,
+        embedder=embedder,
     )
     threads = memory.get_threads_by_project(project_id)
     print(f"\n--- THREADS in PROJECT {project_id} ---\n")
@@ -714,17 +704,17 @@ def show_threads_by_project(project_id):
 def show_conversations_by_thread(thread_id):
     """Display conversations associated with a specific thread."""
     import os
-
     from memoryos.memoryos import Memoryos
-
+    from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
-
+    embedder = LocalEmbedder()
     memory = Memoryos(
         user_id=user_id,
         openai_api_key=openai_api_key,
         data_storage_path=data_storage_path,
+        embedder=embedder,
     )
     conversations = memory.get_conversations_by_thread(thread_id)
     print(f"\n--- CONVERSATIONS in THREAD {thread_id} ---\n")
@@ -739,17 +729,17 @@ def get_conversation_by_id(conversation_id):
     """Retrieve a specific conversation by its ID."""
     import json
     import os
-
     from memoryos.memoryos import Memoryos
-
+    from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
-
+    embedder = LocalEmbedder()
     memory = Memoryos(
         user_id=user_id,
         openai_api_key=openai_api_key,
         data_storage_path=data_storage_path,
+        embedder=embedder,
     )
     convo = memory.get_conversation_by_id(conversation_id)
     print(f"\n--- CONVERSATION {conversation_id} ---\n")
@@ -827,17 +817,17 @@ def get_conversation_by_id(conversation_id):
 def summarize_and_branch(conversation_id):
     """Summarize a conversation and create a child branch."""
     import os
-
     from memoryos.memoryos import Memoryos
-
+    from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
-
+    embedder = LocalEmbedder()
     memory = Memoryos(
         user_id=user_id,
         openai_api_key=openai_api_key,
         data_storage_path=data_storage_path,
+        embedder=embedder,
     )
     result = memory.summarize_and_branch_conversation(conversation_id)
     print("\n--- SUMMARY RESULT ---\n")
