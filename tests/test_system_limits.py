@@ -8,6 +8,8 @@ import asyncio
 import time
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.utils.rate_limiter import SimpleRateLimiter, rate_limit
 from guardian.config import Config
 

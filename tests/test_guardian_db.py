@@ -4,6 +4,8 @@ import os
 
 import pytest
 
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
 from guardian.core.db import GuardianDB
 
 TEST_DB_PATH = "test_guardian.db"

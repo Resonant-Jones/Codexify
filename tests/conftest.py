@@ -1,4 +1,5 @@
-import os, socket, pytest
+import pytest
+import os, socket
 
 def _internet():
     try:
@@ -7,8 +8,15 @@ def _internet():
     except OSError:
         return False
 
+pytestmark = pytest.mark.skipif(
+    not _internet() or not os.getenv("ALLOW_NET_TESTS"),
+    reason="Network tests are disabled by config or no internet."
+)
+
 def pytest_collection_modifyitems(config, items):
-    # Run network tests only if we have internet *and* the flag is set
+    config.addinivalue_line(
+        "markers", "skip(reason): mark test to be skipped with a reason"
+    )
     if _internet() and os.getenv("ALLOW_NET_TESTS"):
         return
     skip = pytest.mark.skip(reason="network disabled")

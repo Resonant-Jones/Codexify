@@ -10,6 +10,7 @@ import time
 from typing import List
 
 import pytest
+pytestmark = pytest.mark.asyncio
 
 from guardian.utils.rate_control import (
     rate_limited,

@@ -13,6 +13,8 @@ from typing import List, Dict, Any
 
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.cache import lru_cache_safe, memoize_to_disk
 from guardian.config import Config
 from guardian.memory.memory_logger import memory_logger

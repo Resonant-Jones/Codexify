@@ -9,6 +9,9 @@ from guardian.modules.immutable_log import ImmutableLog
 from guardian.modules.companion_foresight import Foresight, PredictionRequest
 from guardian.modules.flow_tuner import FlowConfig
 
+import pytest
+pytestmark = pytest.mark.asyncio
+
 
 def test_semantic_timeline_discard():
     timeline = SemanticTimeline(ttl_seconds=1)

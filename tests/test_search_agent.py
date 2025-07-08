@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.core.research.Modules.agent.search import Search_agent
 
 

@@ -1,6 +1,7 @@
+import pytest
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 import os
 
-import pytest
 from pydantic import ValidationError
 
 from guardian.config import Config, get_settings

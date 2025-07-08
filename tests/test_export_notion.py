@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class FakePages:
     def create(self, **kwargs):
         return {"url": "https://notion.so/fake-page"}

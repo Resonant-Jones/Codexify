@@ -1,10 +1,10 @@
 # tests/test_guardian_db.py
 
 import os
-
 import pytest
-
 from guardian.core.db import GuardianDB
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 TEST_DB_PATH = "test_guardian.db"
 

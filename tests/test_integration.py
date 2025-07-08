@@ -1,3 +1,10 @@
+import pytest
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.filterwarnings("ignore::DeprecationWarning"),
+]
+
 # ---------------------------------------------------------------------------
 # Legacy‑compat shims
 # ---------------------------------------------------------------------------

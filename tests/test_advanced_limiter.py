@@ -10,7 +10,8 @@ import pytest
 
 from guardian.utils.rate_limiter import SimpleRateLimiter, rate_limit
 
-@pytest.mark.asyncio
+pytestmark = pytest.mark.asyncio
+
 async def test_error_propagation():
     """Test that errors propagate correctly through rate limiter."""
     error_count = 0
@@ -29,7 +30,6 @@ async def test_error_propagation():
     # Should allow all error calls through
     assert error_count == 3, "All error calls should be executed"
 
-@pytest.mark.asyncio
 async def test_high_frequency():
     """Test rate limiting at high frequencies."""
     limiter = SimpleRateLimiter(rate=50.0)  # 50 ops/sec
@@ -49,7 +49,6 @@ async def test_high_frequency():
         "(with 10% tolerance)"
     )
 
-@pytest.mark.asyncio
 async def test_mixed_durations():
     """Test rate limiting with varying operation durations."""
     timestamps = []
@@ -76,7 +75,6 @@ async def test_mixed_durations():
         f"Intervals should be >= {min_interval}s (with 10% tolerance)"
     )
 
-@pytest.mark.asyncio
 async def test_task_cancellation():
     """Test rate limiting behavior with task cancellation."""
     limiter = SimpleRateLimiter(rate=2.0)  # 2 ops/sec
@@ -105,7 +103,6 @@ async def test_task_cancellation():
         "Should not wait full interval after cancellation"
     )
 
-@pytest.mark.asyncio
 async def test_concurrent_bursts():
     """Test handling concurrent bursts of requests."""
     limiter = SimpleRateLimiter(rate=10.0)  # 10 ops/sec

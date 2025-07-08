@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
+from guardian.plugins.pattern_analyzer.main import PatternAnalyzer
 
 # Configure logging
 logging.basicConfig(
@@ -41,7 +42,6 @@ class TestPatternAnalyzer(unittest.TestCase):
         self.metacognition = MagicMock(spec=MetacognitionEngine)
         
         # Initialize plugin
-        from guardian.plugins.pattern_analyzer.main import PatternAnalyzer
         self.analyzer = PatternAnalyzer(self.config)
         self.analyzer.codex = self.codex
         self.analyzer.metacognition = self.metacognition
@@ -189,7 +189,7 @@ class TestPatternAnalyzer(unittest.TestCase):
     def test_plugin_metadata(self):
         """Test plugin metadata."""
         metadata = self.analyzer.get_metadata()
-        
+
         self.assertIn('name', metadata)
         self.assertIn('version', metadata)
         self.assertIn('description', metadata)
@@ -203,9 +203,21 @@ class TestPatternAnalyzer(unittest.TestCase):
         self.assertIn('timestamp', health)
         self.assertEqual(health['status'], 'healthy')
 
-def run_tests():
-    """Run the test suite."""
-    unittest.main()
 
-if __name__ == '__main__':
-    run_tests()
+    def calculate_pattern_metrics(self, patterns):
+        total_patterns = len(patterns)
+        average_confidence = (
+        sum(p['confidence'] for p in patterns) / total_patterns if total_patterns else 0.0
+    )
+        return {
+            "total_patterns": total_patterns,
+            "average_confidence": average_confidence
+    }
+
+def get_metadata():
+    return {
+        "name": "PatternAnalyzer",
+        "version": "1.0",
+        "description": "Analyzes patterns and anomalies in memory data",
+        "capabilities": ["pattern_detection", "anomaly_detection"]
+    }

@@ -1,8 +1,9 @@
+import pytest
+
+pytestmark = pytest.mark.asyncio
 import os
 import shutil
 import tempfile
-
-import pytest
 
 from guardian.core.db import GuardianDB
 

@@ -14,6 +14,8 @@ from typing import List, Dict, Any, AsyncGenerator
 import pytest
 import pytest_asyncio
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.cache import lru_cache_safe, memoize_to_disk
 from guardian.config import Config
 from guardian.memory.async_logger import memory_logger

@@ -4,6 +4,8 @@ import sys
 from cryptography.fernet import Fernet
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 # Ensure project root is on sys.path so `guardian` can be imported
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 

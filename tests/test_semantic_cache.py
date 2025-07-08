@@ -1,5 +1,7 @@
 import pytest
 
+pytestmark = pytest.mark.asyncio
+
 from guardian.cache import semantic_cache, semantic_cache_store
 
 

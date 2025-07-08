@@ -5,6 +5,10 @@ Full System Test Suite
 Comprehensive testing of all system components and integrations.
 """
 
+import pytest
+
+pytestmark = pytest.mark.asyncio
+
 import asyncio
 import functools
 import json
