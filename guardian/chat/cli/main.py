@@ -1,4 +1,4 @@
-from memoryOS.memory_manager import MemoryManager
+from MemoryOS_main.memory_manager import MemoryManager
 
 memory = MemoryManager()
 import json

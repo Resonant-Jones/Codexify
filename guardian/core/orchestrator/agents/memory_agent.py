@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 from typing import Optional, Union
 
-from memoryOS.core import MemoryManager
+from Memoryos.core import MemoryManager
 
 logger = logging.getLogger(__name__)
 # For demo purposes, define a simple memory log directory

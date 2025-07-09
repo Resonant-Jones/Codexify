@@ -2,7 +2,7 @@
 
 import os
 
-from memoryos import Memoryos
+from MemoryOS_main import Memoryos
 
 # --- 基础配置 ---
 USER_ID = "demo_user"

@@ -1,7 +1,7 @@
 import json
 from collections import deque
 
-from utils import ensure_directory_exists, get_timestamp
+from .utils import ensure_directory_exists, get_timestamp
 
 
 class ShortTermMemory:

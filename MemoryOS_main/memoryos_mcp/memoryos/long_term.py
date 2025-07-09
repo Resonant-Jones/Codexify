@@ -1,9 +1,9 @@
 import json
 from collections import deque
-
+from . import prompts
 import faiss
 import numpy as np
-from utils import (ensure_directory_exists, get_embedding, get_timestamp,
+from .utils import (ensure_directory_exists, get_embedding, get_timestamp,
                    normalize_vector)
 
 

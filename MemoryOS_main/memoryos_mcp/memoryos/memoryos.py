@@ -21,18 +21,18 @@ def get_conversation_by_id(self, conversation_id: str) -> dict:
 import json
 import os
 
-import prompts
-from long_term import LongTermMemory
-from mid_term import (MidTermMemory,  # For H_THRESHOLD logic
-                      compute_segment_heat)
-from retriever import Retriever
-from short_term import ShortTermMemory
-from updater import Updater
-from utils import (OpenAIClient, ensure_directory_exists, generate_id,
-                   get_timestamp, gpt_knowledge_extraction, gpt_update_profile,
-                   gpt_user_profile_analysis)
+from . import prompts
+from .long_term import LongTermMemory
+from .mid_term import (MidTermMemory,  # For H_THRESHOLD logic
+                       compute_segment_heat)
+from .retriever import Retriever
+from .short_term import ShortTermMemory
+from .updater import Updater
+from .utils import (OpenAIClient, ensure_directory_exists, generate_id,
+                    get_timestamp, gpt_knowledge_extraction, gpt_update_profile,
+                    gpt_user_profile_analysis)
 
-from guardian.codemap.generate_codemap import load_codemap
+from guardian.codemap.generate_codemap import generate_codemap as load_codemap
 
 # Heat threshold for triggering profile/knowledge update from mid-term memory
 H_PROFILE_UPDATE_THRESHOLD = 5.0
@@ -588,7 +588,7 @@ def cli():
 def codemap_query(question):
     """Ask a question about the codebase using codemap.json."""
     import os
-    from memoryos.memoryos import Memoryos
+    from MemoryOS_main.memoryos.memoryos import Memoryos
     from local_embedder import LocalEmbedder
     # Setup dummy user credentials and data path
     user_id = "default"
@@ -611,7 +611,7 @@ def codemap_query(question):
 def show_user_profile():
     """Display the current user's profile from long-term memory."""
     import os
-    from memoryos.memoryos import Memoryos
+    from MemoryOS_main.memoryos.memoryos import Memoryos
     from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
@@ -633,7 +633,7 @@ def show_user_profile():
 def show_assistant_knowledge():
     """Display current assistant knowledge from long-term memory."""
     import os
-    from memoryos.memoryos import Memoryos
+    from MemoryOS_main.memoryos.memoryos import Memoryos
     from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
@@ -656,7 +656,7 @@ def show_assistant_knowledge():
 def show_projects():
     """Display all known projects from long-term memory."""
     import os
-    from memoryos.memoryos import Memoryos
+    from MemoryOS_main.memoryos.memoryos import Memoryos
     from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
@@ -680,7 +680,7 @@ def show_projects():
 def show_threads_by_project(project_id):
     """Display threads associated with a specific project."""
     import os
-    from memoryos.memoryos import Memoryos
+    from MemoryOS_main.memoryos.memoryos import Memoryos
     from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
@@ -704,7 +704,7 @@ def show_threads_by_project(project_id):
 def show_conversations_by_thread(thread_id):
     """Display conversations associated with a specific thread."""
     import os
-    from memoryos.memoryos import Memoryos
+    from MemoryOS_main.memoryos.memoryos import Memoryos
     from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
@@ -729,7 +729,7 @@ def get_conversation_by_id(conversation_id):
     """Retrieve a specific conversation by its ID."""
     import json
     import os
-    from memoryos.memoryos import Memoryos
+    from MemoryOS_main.memoryos.memoryos import Memoryos
     from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
@@ -817,7 +817,7 @@ def get_conversation_by_id(conversation_id):
 def summarize_and_branch(conversation_id):
     """Summarize a conversation and create a child branch."""
     import os
-    from memoryos.memoryos import Memoryos
+    from MemoryOS_main.memoryos.memoryos import Memoryos
     from local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")

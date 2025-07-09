@@ -16,7 +16,7 @@ import traceback
 
 import google.generativeai as genai
 from fastapi import FastAPI, Query
-from memoryOS.logger import log_interaction
+from MemoryOS_main.logger import log_interaction
 from pydantic import BaseModel
 from guardian.config import Config
 

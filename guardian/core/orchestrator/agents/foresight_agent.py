@@ -7,7 +7,7 @@ health data, and optionally calendar events or behavior patterns.
 import logging
 from typing import Any, Optional
 
-from memoryOS.memory_manager import MemoryManager
+from memoryos_mcp.memoryos.memoryos import Memoryos
 
 ForesightResponse = dict[str, Any]
 
@@ -28,7 +28,7 @@ def run_foresight(
         A dictionary containing foresight status and a human-readable message.
     """
     logger.debug(f"Foresight triggered with context={context}, timeframe={timeframe}")
-    memory = MemoryManager(
+    memory = Memoryos(
         root_path="/Users/resonant_jones/Resonant Constructs/guardian-backend"
     )
     if context == "stress":
