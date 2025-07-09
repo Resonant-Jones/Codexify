@@ -165,7 +165,7 @@ pip install -i https://pypi.org/simple/ MemoryOS-BaiJia
 ```python
 
 import os
-from memoryos import Memoryos
+from MemoryOS_main import Memoryos
 
 # --- Basic Configuration ---
 USER_ID = "demo_user"

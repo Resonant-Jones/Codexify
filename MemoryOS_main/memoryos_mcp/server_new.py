@@ -15,7 +15,7 @@ except ImportError as e:
     sys.exit(1)
 
 try:
-    from memoryos import Memoryos
+    from MemoryOS_main import Memoryos
     from utils import get_timestamp
 except ImportError as e:
     print(f"无法导入MemoryOS模块: {e}", file=sys.stderr)

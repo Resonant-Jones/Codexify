@@ -1,11 +1,17 @@
 from typing import Dict, Optional
 
-from long_term import LongTermMemory
-from mid_term import MidTermMemory
-from short_term import ShortTermMemory
-from utils import (OpenAIClient, check_conversation_continuity, generate_id,
-                   generate_page_meta_info, get_timestamp,
-                   gpt_generate_multi_summary, llm_extract_keywords)
+from .long_term import LongTermMemory
+from .mid_term import MidTermMemory
+from .short_term import ShortTermMemory
+from .utils import (
+    OpenAIClient,
+    check_conversation_continuity,
+    generate_id,
+    generate_page_meta_info,
+    get_timestamp,
+    gpt_generate_multi_summary,
+    llm_extract_keywords,
+)
 
 
 class Updater:

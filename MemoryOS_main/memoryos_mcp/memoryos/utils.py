@@ -5,7 +5,7 @@ import uuid
 
 import numpy as np
 import openai
-import prompts  # Assuming prompts.py is in the same directory
+from . import prompts
 from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 
