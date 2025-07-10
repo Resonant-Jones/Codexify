@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from MemoryOS_main import Memoryos
+from MemoryOS_main.memoryos_mcp.memoryos.memoryos import Memoryos
 from rich import print
 
 from guardian import config
@@ -64,8 +64,9 @@ def init_db():
     """
     import sqlite3
 
-    from guardian.guardian_main import \
-        GuardianDB  # Import here to avoid circular import
+    from guardian.guardian_main import (
+        GuardianDB,
+    )  # Import here to avoid circular import
     from guardian.projects import projects as projects_module
 
     # Initialize memory, agent_profiles, etc.

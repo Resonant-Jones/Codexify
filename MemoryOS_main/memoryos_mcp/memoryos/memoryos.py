@@ -23,13 +23,18 @@ import os
 
 from . import prompts
 from .long_term import LongTermMemory
-from .mid_term import (MidTermMemory,  # For H_THRESHOLD logic
-                       compute_segment_heat)
+from .mid_term import MidTermMemory, compute_segment_heat  # For H_THRESHOLD logic
 from .short_term import ShortTermMemory
 from .updater import Updater
-from .utils import (OpenAIClient, ensure_directory_exists, generate_id,
-                    get_timestamp, gpt_knowledge_extraction, gpt_update_profile,
-                    gpt_user_profile_analysis)
+from .utils import (
+    OpenAIClient,
+    ensure_directory_exists,
+    generate_id,
+    get_timestamp,
+    gpt_knowledge_extraction,
+    gpt_update_profile,
+    gpt_user_profile_analysis,
+)
 
 from guardian.codemap.generate_codemap import generate_codemap as load_codemap
 
@@ -51,6 +56,7 @@ class Memoryos:
         self.user_id = user_id
         self.data_storage_path = data_storage_path
         self.embedder = embedder  # 🔑 PLUGGABLE!
+        self.assistant_id = assistant_id
 
         self.client = OpenAIClient(api_key=llm_api_key, base_url=llm_base_url)
 
@@ -604,6 +610,7 @@ def codemap_query(question):
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
     from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
     # Setup dummy user credentials and data path
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")  # Replace as needed
@@ -627,6 +634,7 @@ def show_user_profile():
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
     from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -649,6 +657,7 @@ def show_assistant_knowledge():
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
     from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -672,6 +681,7 @@ def show_projects():
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
     from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -696,6 +706,7 @@ def show_threads_by_project(project_id):
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
     from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -720,6 +731,7 @@ def show_conversations_by_thread(thread_id):
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
     from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -745,6 +757,7 @@ def get_conversation_by_id(conversation_id):
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
     from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -833,6 +846,7 @@ def summarize_and_branch(conversation_id):
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
     from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"

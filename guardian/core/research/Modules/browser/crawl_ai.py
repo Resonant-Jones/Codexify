@@ -8,8 +8,13 @@ lightweight stub implementations when they are unavailable.  The tests patch the
 """
 
 try:  # Most recent crawl4ai versions
-    from crawl4ai import (AsyncWebCrawler, BrowserConfig, CacheMode,
-                          CrawlerRunConfig, LLMConfig)
+    from crawl4ai import (
+        AsyncWebCrawler,
+        BrowserConfig,
+        CacheMode,
+        CrawlerRunConfig,
+        LLMConfig,
+    )
 except Exception:  # pragma: no cover - missing attributes or old package
     from dataclasses import dataclass
 

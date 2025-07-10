@@ -98,7 +98,6 @@ def orchestrate(command: dict):
         }
 
 
-
 # Example usage for testing
 if __name__ == "__main__":
     test_command = {"action": "trigger_ritual", "params": {"name": "evening_grounding"}}

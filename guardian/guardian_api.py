@@ -90,8 +90,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import requests
-from fastapi import (Body, Depends, FastAPI, Header, HTTPException, Query,
-                     Request)
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
@@ -637,8 +636,7 @@ def research_agent(
     import asyncio
 
     from guardian.core.research.Modules.agent import Agent, Planner
-    from guardian.core.research.Modules.main import (generate_report,
-                                                     read_config)
+    from guardian.core.research.Modules.main import generate_report, read_config
 
     config = read_config()
     planner = Planner(**config.get("planner", {}))

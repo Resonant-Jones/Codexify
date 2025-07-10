@@ -142,18 +142,23 @@ class SystemDiagnostics:
                 return result
             except Exception as e:
                 logger.error(f"Memory check failed: {e}")
-                return DiagnosticResult("memory", "error", None, metadata={"error": str(e)})
+                return DiagnosticResult(
+                    "memory", "error", None, metadata={"error": str(e)}
+                )
 
     # Thread Monitor
     class ThreadMonitor(BaseMonitor):
         async def check(self) -> DiagnosticResult:
             try:
                 # Try get_thread_info first (for test compatibility), then fallback to health_check
-                if hasattr(self.diagnostics.thread_manager, 'get_thread_info'):
+                if hasattr(self.diagnostics.thread_manager, "get_thread_info"):
                     thread_info = self.diagnostics.thread_manager.get_thread_info()
                     active_threads = thread_info.get("active_count", 0)
                     dead_threads = thread_info.get("dead_count", 0)
-                    monitored_threads_info = {"active_count": active_threads, "dead_count": dead_threads}
+                    monitored_threads_info = {
+                        "active_count": active_threads,
+                        "dead_count": dead_threads,
+                    }
                 else:
                     health_check_report = self.diagnostics.thread_manager.health_check()
                     active_threads, dead_threads = 0, 0
@@ -185,14 +190,18 @@ class SystemDiagnostics:
                 return result
             except Exception as e:
                 logger.error(f"Thread check failed: {e}")
-                return DiagnosticResult("threads", "error", None, metadata={"error": str(e)})
+                return DiagnosticResult(
+                    "threads", "error", None, metadata={"error": str(e)}
+                )
 
     # Plugin Monitor
     class PluginMonitor(BaseMonitor):
         async def check(self) -> DiagnosticResult:
             try:
                 plugin_info = await self.diagnostics._check_plugins()
-                unhealthy = len([p for p in plugin_info["plugins"] if p["status"] != "healthy"])
+                unhealthy = len(
+                    [p for p in plugin_info["plugins"] if p["status"] != "healthy"]
+                )
                 threshold = self.diagnostics.config.get("max_unhealthy_plugins", 2)
                 status = "healthy" if unhealthy < threshold else "warning"
 
@@ -204,14 +213,18 @@ class SystemDiagnostics:
                 return result
             except Exception as e:
                 logger.error(f"Plugin check failed: {e}")
-                return DiagnosticResult("plugins", "error", None, metadata={"error": str(e)})
+                return DiagnosticResult(
+                    "plugins", "error", None, metadata={"error": str(e)}
+                )
 
     # Agent Monitor
     class AgentMonitor(BaseMonitor):
         async def check(self) -> DiagnosticResult:
             try:
                 agent_info = await self.diagnostics._check_agents()
-                unhealthy = len([a for a in agent_info["agents"] if a["status"] != "healthy"])
+                unhealthy = len(
+                    [a for a in agent_info["agents"] if a["status"] != "healthy"]
+                )
                 threshold = 0
                 status = "healthy" if unhealthy == 0 else "critical"
 
@@ -223,7 +236,9 @@ class SystemDiagnostics:
                 return result
             except Exception as e:
                 logger.error(f"Agent check failed: {e}")
-                return DiagnosticResult("agents", "error", None, metadata={"error": str(e)})
+                return DiagnosticResult(
+                    "agents", "error", None, metadata={"error": str(e)}
+                )
 
     # Performance Monitor
     class PerformanceMonitor(BaseMonitor):
@@ -242,7 +257,9 @@ class SystemDiagnostics:
                 return result
             except Exception as e:
                 logger.error(f"Performance check failed: {e}")
-                return DiagnosticResult("performance", "error", None, metadata={"error": str(e)})
+                return DiagnosticResult(
+                    "performance", "error", None, metadata={"error": str(e)}
+                )
 
     # Error Monitor
     class ErrorMonitor(BaseMonitor):
@@ -261,7 +278,9 @@ class SystemDiagnostics:
                 return result
             except Exception as e:
                 logger.error(f"Error check failed: {e}")
-                return DiagnosticResult("errors", "error", None, metadata={"error": str(e)})
+                return DiagnosticResult(
+                    "errors", "error", None, metadata={"error": str(e)}
+                )
 
     async def _check_plugins(self) -> Dict[str, Any]:
         plugins = []
@@ -270,19 +289,23 @@ class SystemDiagnostics:
             for plugin in plugin_list:
                 try:
                     health = plugin.health_check()
-                    plugins.append({
-                        "name": plugin.name,
-                        "status": health["status"],
-                        "message": health.get("message", ""),
-                        "metrics": health.get("metrics", {})
-                    })
+                    plugins.append(
+                        {
+                            "name": plugin.name,
+                            "status": health["status"],
+                            "message": health.get("message", ""),
+                            "metrics": health.get("metrics", {}),
+                        }
+                    )
                 except Exception as e:
-                    plugins.append({
-                        "name": plugin.name,
-                        "status": "error",
-                        "message": str(e),
-                        "metrics": {}
-                    })
+                    plugins.append(
+                        {
+                            "name": plugin.name,
+                            "status": "error",
+                            "message": str(e),
+                            "metrics": {},
+                        }
+                    )
             return {
                 "plugins": plugins,
                 "total": len(plugins),
@@ -300,19 +323,23 @@ class SystemDiagnostics:
             for agent in agent_list:
                 try:
                     status = await agent.get_status()
-                    agents.append({
-                        "name": agent.name,
-                        "status": status["status"],
-                        "message": status.get("message", ""),
-                        "metrics": status.get("metrics", {})
-                    })
+                    agents.append(
+                        {
+                            "name": agent.name,
+                            "status": status["status"],
+                            "message": status.get("message", ""),
+                            "metrics": status.get("metrics", {}),
+                        }
+                    )
                 except Exception as e:
-                    agents.append({
-                        "name": agent.name,
-                        "status": "error",
-                        "message": str(e),
-                        "metrics": {}
-                    })
+                    agents.append(
+                        {
+                            "name": agent.name,
+                            "status": "error",
+                            "message": str(e),
+                            "metrics": {},
+                        }
+                    )
             return {
                 "agents": agents,
                 "total": len(agents),
@@ -340,10 +367,15 @@ class SystemDiagnostics:
     def _check_errors(self) -> Dict[str, Any]:
         try:
             total_ops = sum(
-                1 for r in self.check_results if r.timestamp > datetime.utcnow() - timedelta(hours=1)
+                1
+                for r in self.check_results
+                if r.timestamp > datetime.utcnow() - timedelta(hours=1)
             )
             error_count = sum(
-                1 for r in self.check_results if r.status == "error" and r.timestamp > datetime.utcnow() - timedelta(hours=1)
+                1
+                for r in self.check_results
+                if r.status == "error"
+                and r.timestamp > datetime.utcnow() - timedelta(hours=1)
             )
             error_rate = error_count / total_ops if total_ops else 0
             return {
@@ -360,13 +392,15 @@ class SystemDiagnostics:
         try:
             for check_type, result in results.items():
                 if isinstance(result, dict):
-                    self.check_results.append(DiagnosticResult(
-                        check_type=check_type,
-                        status=result["status"],
-                        value=result.get("value"),
-                        threshold=result.get("threshold"),
-                        metadata=result.get("metadata", {})
-                    ))
+                    self.check_results.append(
+                        DiagnosticResult(
+                            check_type=check_type,
+                            status=result["status"],
+                            value=result.get("value"),
+                            threshold=result.get("threshold"),
+                            metadata=result.get("metadata", {}),
+                        )
+                    )
             while len(self.check_results) > self.config["max_history"]:
                 self.check_results.pop(0)
             self.codex.store_memory(
@@ -388,16 +422,18 @@ class SystemDiagnostics:
             for check_type, result in results.items():
                 if isinstance(result, dict):
                     if result["status"] in ("warning", "critical", "error"):
-                        alerts.append({
-                            "type": check_type,
-                            "status": result["status"],
-                            "message": f"{check_type} check {result['status']}",
-                            "details": result,
-                        })
+                        alerts.append(
+                            {
+                                "type": check_type,
+                                "status": result["status"],
+                                "message": f"{check_type} check {result['status']}",
+                                "details": result,
+                            }
+                        )
             if alerts:
                 await self._send_alerts(alerts)
                 # Update metrics after sending alerts
-                if hasattr(self.thread_manager, 'update_metrics'):
+                if hasattr(self.thread_manager, "update_metrics"):
                     self.thread_manager.update_metrics(alerts)
         except Exception as e:
             logger.error(f"Alert check failed: {e}")
@@ -405,7 +441,10 @@ class SystemDiagnostics:
     async def _handle_error(self, component: str, error: Exception) -> None:
         try:
             self.error_count[component] = self.error_count.get(component, 0) + 1
-            if self.error_count[component] >= self.config["failure_handling"]["max_retries"]:
+            if (
+                self.error_count[component]
+                >= self.config["failure_handling"]["max_retries"]
+            ):
                 if not self.recovery_in_progress:
                     await self._initiate_recovery(component)
         except Exception as e:
@@ -425,14 +464,14 @@ class SystemDiagnostics:
                 for monitor_name, monitor in self.monitors.items():
                     result = await monitor.check()
                     self.check_results.append(result)
-                
+
                 # Update last check timestamp
                 self.last_check = datetime.utcnow()
-                
+
                 # Trim results to max history
                 while len(self.check_results) > self.config.get("max_history", 100):
                     self.check_results.pop(0)
-                
+
                 # Sleep for the configured interval
                 await asyncio.sleep(self.config.get("diagnostic_interval", 1))
             except Exception as e:
@@ -444,13 +483,13 @@ class SystemDiagnostics:
         try:
             self.recovery_in_progress = True
             logger.info(f"Initiating recovery for component: {component}")
-            
+
             # Simulate recovery delay
             await asyncio.sleep(0.1)
-            
+
             # Reset error count for the component
             self.error_count[component] = 0
-            
+
             logger.info(f"Recovery completed for component: {component}")
         except Exception as e:
             logger.error(f"Recovery failed for {component}: {e}")

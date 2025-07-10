@@ -1,8 +1,7 @@
-
-
 from .base_embedders import BaseEmbedder
 import os
 import requests
+
 
 class GeminiEmbedder(BaseEmbedder):
     """
@@ -16,19 +15,12 @@ class GeminiEmbedder(BaseEmbedder):
             raise ValueError("GEMINI_API_KEY not found in environment variables")
 
     def embed(self, text: str) -> list:
-        payload = {
-            "model": "embedding-001",
-            "content": {
-                "parts": [{"text": text}]
-            }
-        }
-        headers = {
-            "Content-Type": "application/json"
-        }
-        params = {
-            "key": self.api_key
-        }
-        response = requests.post(self.api_url, json=payload, headers=headers, params=params)
+        payload = {"model": "embedding-001", "content": {"parts": [{"text": text}]}}
+        headers = {"Content-Type": "application/json"}
+        params = {"key": self.api_key}
+        response = requests.post(
+            self.api_url, json=payload, headers=headers, params=params
+        )
         response.raise_for_status()
         result = response.json()
         return result["embedding"]["values"]

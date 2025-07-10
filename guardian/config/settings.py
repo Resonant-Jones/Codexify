@@ -1,6 +1,7 @@
 # guardian/config/settings.py
 from typing import Any
 
+
 class RuntimeConfig(dict):
     """Minimal dict‑backed settings container for dynamic runtime tweaks."""
 
@@ -10,7 +11,9 @@ class RuntimeConfig(dict):
     def __setattr__(self, key: str, value: Any) -> None:
         self[key] = value
 
+
 _RuntimeConfig_SINGLETON: RuntimeConfig | None = None
+
 
 def get_settings() -> RuntimeConfig:
     global _RuntimeConfig_SINGLETON

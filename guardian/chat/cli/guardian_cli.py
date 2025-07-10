@@ -2,8 +2,7 @@ import argparse
 import json
 import pickle
 
-from ..export_engine import (export_to_gdrive, import_from_gdrive,
-                             import_from_icloud)
+from ..export_engine import export_to_gdrive, import_from_gdrive, import_from_icloud
 from ..flows.sync_gsuite_to_notion import sync_gsuite_to_notion
 
 

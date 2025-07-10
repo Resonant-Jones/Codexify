@@ -5,9 +5,16 @@ from datetime import datetime
 
 import faiss
 import numpy as np
-from .utils import (OpenAIClient, compute_time_decay, ensure_directory_exists,
-                   generate_id, get_embedding, get_timestamp,
-                   llm_extract_keywords, normalize_vector)
+from .utils import (
+    OpenAIClient,
+    compute_time_decay,
+    ensure_directory_exists,
+    generate_id,
+    get_embedding,
+    get_timestamp,
+    llm_extract_keywords,
+    normalize_vector,
+)
 
 # Heat computation constants (can be tuned or made configurable)
 HEAT_ALPHA = 1.0

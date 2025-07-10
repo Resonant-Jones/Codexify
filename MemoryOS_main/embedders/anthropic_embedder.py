@@ -1,6 +1,7 @@
 from .base_embedders import BaseEmbedder
 import os
 
+
 class AnthropicEmbedder(BaseEmbedder):
     """
     Placeholder for an Anthropic embedder.
@@ -18,4 +19,6 @@ class AnthropicEmbedder(BaseEmbedder):
         """
         This method is not implemented as Anthropic does not offer a public embedding API.
         """
-        raise NotImplementedError("Anthropic does not provide a dedicated public embedding API.")
+        raise NotImplementedError(
+            "Anthropic does not provide a dedicated public embedding API."
+        )

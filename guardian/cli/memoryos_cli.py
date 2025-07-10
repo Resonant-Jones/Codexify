@@ -1,8 +1,10 @@
 import os
+
 import json
 import click
-from MemoryOS_main.memoryos.memoryos import Memoryos
+from MemoryOS_main.memoryos_mcp.memoryos.memoryos import Memoryos
 from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
 
 def get_memory_instance():
     user_id = "default"
@@ -17,9 +19,11 @@ def get_memory_instance():
     )
     return memory
 
+
 @click.group()
 def cli():
     pass
+
 
 @cli.command("codemap:query")
 @click.argument("question", type=str)
@@ -30,6 +34,7 @@ def codemap_query(question):
     click.echo("\n--- CODEMAP ANSWER ---\n")
     click.echo(answer)
 
+
 @cli.command("memory:show-user-profile")
 def show_user_profile():
     """Display the current user's profile from long-term memory."""
@@ -37,6 +42,7 @@ def show_user_profile():
     profile = memory.get_user_profile_summary()
     click.echo("\n--- USER PROFILE ---\n")
     click.echo(profile)
+
 
 @cli.command("memory:show-assistant-knowledge")
 def show_assistant_knowledge():
@@ -47,6 +53,7 @@ def show_assistant_knowledge():
     for entry in knowledge:
         click.echo(f"- {entry['knowledge']} (Recorded: {entry['timestamp']})")
 
+
 @cli.command("memory:show-projects")
 def show_projects():
     """Display all known projects from long-term memory."""
@@ -55,6 +62,7 @@ def show_projects():
     click.echo("\n--- PROJECTS ---\n")
     for project in projects:
         click.echo(f"- {project.get('project_id')} | {project.get('project_name')}")
+
 
 @cli.command("memory:show-threads")
 @click.argument("project_id", type=str)
@@ -66,6 +74,7 @@ def show_threads_by_project(project_id):
     for thread in threads:
         click.echo(f"- {thread.get('thread_id')} | {thread.get('thread_title')}")
 
+
 @cli.command("memory:show-conversations")
 @click.argument("thread_id", type=str)
 def show_conversations_by_thread(thread_id):
@@ -74,7 +83,10 @@ def show_conversations_by_thread(thread_id):
     conversations = memory.get_conversations_by_thread(thread_id)
     click.echo(f"\n--- CONVERSATIONS in THREAD {thread_id} ---\n")
     for convo in conversations:
-        click.echo(f"- {convo.get('conversation_id')} | {convo.get('title', 'Untitled')}")
+        click.echo(
+            f"- {convo.get('conversation_id')} | {convo.get('title', 'Untitled')}"
+        )
+
 
 @cli.command("memory:get-conversation")
 @click.argument("conversation_id", type=str)
@@ -84,6 +96,7 @@ def get_conversation_by_id(conversation_id):
     convo = memory.get_conversation_by_id(conversation_id)
     click.echo(f"\n--- CONVERSATION {conversation_id} ---\n")
     click.echo(json.dumps(convo, indent=2))
+
 
 @cli.command("memory:summarize-and-branch")
 @click.argument("conversation_id", type=str)

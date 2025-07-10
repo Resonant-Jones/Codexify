@@ -11,9 +11,7 @@ from memoryos_mcp.memoryos.memoryos import Memoryos
 logger = logging.getLogger(__name__)
 
 
-def fetch_memory(
-    memory_client: Memoryos, query: str, limit: int = 10
-) -> dict:
+def fetch_memory(memory_client: Memoryos, query: str, limit: int = 10) -> dict:
     """Fetches memories based on a query using the injected client."""
     logger.debug(f"Fetching memory with query: '{query}'")
     try:

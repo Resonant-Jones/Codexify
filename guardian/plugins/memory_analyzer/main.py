@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+
 class MemoryAnalyzer:
     def __init__(self, config: dict):
         self.config = config
@@ -38,11 +39,8 @@ class MemoryAnalyzer:
             "name": "MemoryAnalyzer",
             "version": "1.0",
             "description": "Analyzes memories and detects patterns.",
-            "capabilities": ["analysis", "pattern_detection", "statistics"]
+            "capabilities": ["analysis", "pattern_detection", "statistics"],
         }
 
     def health_check(self) -> dict:
-        return {
-            "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        }
+        return {"status": "healthy", "timestamp": datetime.utcnow().isoformat() + "Z"}

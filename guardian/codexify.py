@@ -1,7 +1,11 @@
 try:
     from notion_client import Client
 except ImportError:
-    raise ImportError("notion-client package required. Run 'pip install notion-client'.")
+    raise ImportError(
+        "notion-client package required. Run 'pip install notion-client'."
+    )
+
+
 def load_alias_map(alias_path):
     if not alias_path or not os.path.exists(alias_path):
         return {}

@@ -1,0 +1,7 @@
+pydantic
+pydantic-settings
+pytest
+click
+requests
+pebble
+google-cloud-texttospeech
