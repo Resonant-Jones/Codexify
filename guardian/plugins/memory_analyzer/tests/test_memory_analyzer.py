@@ -17,8 +17,8 @@ from guardian.plugins.memory_analyzer.main import MemoryAnalyzer
 # Helper function to load config
 def load_config():
     plugin_dir = Path(__file__).parent.parent
-    with open(plugin_dir / 'plugin.json', 'r') as f:
-        return json.load(f)['config']
+    with open(plugin_dir / "plugin.json", "r") as f:
+        return json.load(f)["config"]
 
 
 @pytest.mark.asyncio
@@ -43,23 +43,23 @@ async def test_memory_analysis():
     analyzer.metacognition = metacognition
     test_memories = [
         {
-            'id': 'mem1',
-            'content': 'test memory 1',
-            'timestamp': '2024-01-01T00:00:00Z',
-            'tags': ['test']
+            "id": "mem1",
+            "content": "test memory 1",
+            "timestamp": "2024-01-01T00:00:00Z",
+            "tags": ["test"],
         },
         {
-            'id': 'mem2',
-            'content': 'test memory 2',
-            'timestamp': '2024-01-02T00:00:00Z',
-            'tags': ['test']
-        }
+            "id": "mem2",
+            "content": "test memory 2",
+            "timestamp": "2024-01-02T00:00:00Z",
+            "tags": ["test"],
+        },
     ]
     codex.query_memory.return_value = test_memories
     result = await analyzer.analyze_memories()
     assert result is not None
-    assert 'patterns' in result
-    assert 'statistics' in result
+    assert "patterns" in result
+    assert "statistics" in result
 
 
 @pytest.mark.asyncio
@@ -72,25 +72,25 @@ async def test_pattern_detection():
     analyzer.metacognition = metacognition
     test_memories = [
         {
-            'id': 'mem1',
-            'content': 'recurring pattern A',
-            'timestamp': '2024-01-01T00:00:00Z'
+            "id": "mem1",
+            "content": "recurring pattern A",
+            "timestamp": "2024-01-01T00:00:00Z",
         },
         {
-            'id': 'mem2',
-            'content': 'recurring pattern A',
-            'timestamp': '2024-01-02T00:00:00Z'
+            "id": "mem2",
+            "content": "recurring pattern A",
+            "timestamp": "2024-01-02T00:00:00Z",
         },
         {
-            'id': 'mem3',
-            'content': 'unique content',
-            'timestamp': '2024-01-03T00:00:00Z'
-        }
+            "id": "mem3",
+            "content": "unique content",
+            "timestamp": "2024-01-03T00:00:00Z",
+        },
     ]
     codex.query_memory.return_value = test_memories
     patterns = await analyzer.detect_patterns(test_memories)
     assert len(patterns) > 0
-    assert 'recurring pattern A' in str(patterns[0])
+    assert "recurring pattern A" in str(patterns[0])
 
 
 def test_memory_statistics():
@@ -102,23 +102,23 @@ def test_memory_statistics():
     analyzer.metacognition = metacognition
     test_memories = [
         {
-            'id': 'mem1',
-            'content': 'test content',
-            'timestamp': '2024-01-01T00:00:00Z',
-            'confidence': 0.8
+            "id": "mem1",
+            "content": "test content",
+            "timestamp": "2024-01-01T00:00:00Z",
+            "confidence": 0.8,
         },
         {
-            'id': 'mem2',
-            'content': 'test content',
-            'timestamp': '2024-01-02T00:00:00Z',
-            'confidence': 0.9
-        }
+            "id": "mem2",
+            "content": "test content",
+            "timestamp": "2024-01-02T00:00:00Z",
+            "confidence": 0.9,
+        },
     ]
     stats = analyzer.calculate_statistics(test_memories)
-    assert 'total_memories' in stats
-    assert 'average_confidence' in stats
-    assert stats['total_memories'] == 2
-    assert abs(stats['average_confidence'] - 0.85) < 1e-6
+    assert "total_memories" in stats
+    assert "average_confidence" in stats
+    assert stats["total_memories"] == 2
+    assert abs(stats["average_confidence"] - 0.85) < 1e-6
 
 
 @pytest.mark.asyncio
@@ -131,6 +131,7 @@ async def test_error_handling():
     analyzer.metacognition = metacognition
     codex.query_memory.side_effect = Exception("Test error")
     import pytest
+
     with pytest.raises(Exception):
         await analyzer.analyze_memories()
     metacognition.handle_error.assert_called_once()
@@ -144,20 +145,12 @@ def test_memory_filtering():
     analyzer.codex = codex
     analyzer.metacognition = metacognition
     test_memories = [
-        {
-            'id': 'mem1',
-            'content': 'important memory',
-            'tags': ['important']
-        },
-        {
-            'id': 'mem2',
-            'content': 'regular memory',
-            'tags': ['regular']
-        }
+        {"id": "mem1", "content": "important memory", "tags": ["important"]},
+        {"id": "mem2", "content": "regular memory", "tags": ["regular"]},
     ]
-    filtered = analyzer.filter_memories(test_memories, tags=['important'])
+    filtered = analyzer.filter_memories(test_memories, tags=["important"])
     assert len(filtered) == 1
-    assert filtered[0]['id'] == 'mem1'
+    assert filtered[0]["id"] == "mem1"
 
 
 def test_plugin_metadata():
@@ -168,10 +161,10 @@ def test_plugin_metadata():
     analyzer.codex = codex
     analyzer.metacognition = metacognition
     metadata = analyzer.get_metadata()
-    assert 'name' in metadata
-    assert 'version' in metadata
-    assert 'description' in metadata
-    assert 'capabilities' in metadata
+    assert "name" in metadata
+    assert "version" in metadata
+    assert "description" in metadata
+    assert "capabilities" in metadata
 
 
 def test_health_check():
@@ -182,6 +175,6 @@ def test_health_check():
     analyzer.codex = codex
     analyzer.metacognition = metacognition
     health = analyzer.health_check()
-    assert 'status' in health
-    assert 'timestamp' in health
-    assert health['status'] == 'healthy'
+    assert "status" in health
+    assert "timestamp" in health
+    assert health["status"] == "healthy"

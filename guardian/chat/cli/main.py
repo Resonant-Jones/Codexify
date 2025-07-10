@@ -1,16 +1,21 @@
-from MemoryOS_main.memory_manager import MemoryManager
+from MemoryOS_main.memoryos_mcp.server_new import MemoryosServer
 
-memory = MemoryManager()
+memory = MemoryosServer()
 import json
 
 import typer
 
 from guardian.core.orchestrator.pulse_orchestrator import orchestrate
+
 # Vision helpers
-from guardian.utils.groq_helpers import (run_groq_vision_file,
-                                         run_groq_vision_url)
+from guardian.utils.groq_helpers import run_groq_vision_file, run_groq_vision_url
+
+import typer
+from guardian.cli.imprint_zero_cli import ImprintZero
 
 app = typer.Typer()
+
+app.add_typer(ImprintZero, name="imprint-zero")
 
 
 # Add a new CLI command for orchestrate
@@ -48,8 +53,7 @@ def research(
     import asyncio
 
     from guardian.core.research.Modules.agent import Agent, Planner
-    from guardian.core.research.Modules.main import (generate_report,
-                                                     read_config)
+    from guardian.core.research.Modules.main import generate_report, read_config
 
     config = read_config()
     planner = Planner(**config.get("planner", {}))
@@ -282,8 +286,9 @@ def summarize_chat(
     ),
 ):
     """Summarize the chat log for a session using the active LLM backend."""
-    from guardian.core.ai_router import \
-        chat_with_ai  # Import here to avoid CLI boot issues if backend changes
+    from guardian.core.ai_router import (
+        chat_with_ai,
+    )  # Import here to avoid CLI boot issues if backend changes
 
     rows = db.get_chat_history(session_id=session_id, user_id=user_id, limit=limit)
     if not rows:

@@ -10,9 +10,9 @@ from .local_provider import LocalProvider
 
 # Map of provider names to their classes
 PROVIDERS = {
-    'elevenlabs': ElevenLabsProvider,
-    'google': GoogleProvider,
-    'local': LocalProvider
+    "elevenlabs": ElevenLabsProvider,
+    "google": GoogleProvider,
+    "local": LocalProvider,
 }
 
-__all__ = ['ElevenLabsProvider', 'GoogleProvider', 'LocalProvider', 'PROVIDERS']
+__all__ = ["ElevenLabsProvider", "GoogleProvider", "LocalProvider", "PROVIDERS"]

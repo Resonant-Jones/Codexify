@@ -4,9 +4,10 @@ from unittest.mock import MagicMock, patch
 
 import tempfile
 from pathlib import Path
-from click.testing import CliRunner
+import typer
+from typer.testing import CliRunner
 
-from guardian.cli import cli
+from guardian.chat.cli.main import app as cli
 
 
 class TestCli(unittest.TestCase):

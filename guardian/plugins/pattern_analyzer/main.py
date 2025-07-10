@@ -75,7 +75,7 @@ class PatternAnalyzer:
         return {
             "status": "healthy",
             "details": "PatternAnalyzer OK",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
     def get_metadata(self) -> dict:
@@ -86,7 +86,11 @@ class PatternAnalyzer:
             "name": "PatternAnalyzer",
             "version": "1.0",
             "description": "Analyzes patterns and anomalies in memory data",
-            "capabilities": ["pattern_detection", "anomaly_detection", "pattern_metrics"]
+            "capabilities": [
+                "pattern_detection",
+                "anomaly_detection",
+                "pattern_metrics",
+            ],
         }
 
     def calculate_pattern_metrics(self, patterns: List[dict]) -> dict:
@@ -95,11 +99,13 @@ class PatternAnalyzer:
         """
         total_patterns = len(patterns)
         average_confidence = (
-            sum(p.get("confidence", 0.0) for p in patterns) / total_patterns if total_patterns else 0.0
+            sum(p.get("confidence", 0.0) for p in patterns) / total_patterns
+            if total_patterns
+            else 0.0
         )
         return {
             "total_patterns": total_patterns,
-            "average_confidence": average_confidence
+            "average_confidence": average_confidence,
         }
 
     def start(self) -> bool:

@@ -17,7 +17,8 @@ class Settings(BaseSettings):
         default="groq", description="The LLM provider to use ('groq', 'openai')."
     )
     EMBEDDER_PROVIDER: str = Field(
-        default="local", description="The embedding provider to use ('local', 'openai', 'groq')."
+        default="local",
+        description="The embedding provider to use ('local', 'openai', 'groq').",
     )
     GROQ_API_KEY: str | None = Field(default=None, description="API key for Groq.")
     OPENAI_API_KEY: str | None = Field(default=None, description="API key for OpenAI.")

@@ -7,6 +7,7 @@ from typing import Optional, Literal
 from pydantic import Field, ValidationError, ConfigDict
 from pydantic_settings import BaseSettings
 
+
 class Settings(BaseSettings):
     DEFAULT_RATE_LIMIT: float = 0.1  # seconds between plugin calls
     MEMORY_BATCH_SIZE: int = 100  # Default batch size for the SafeLogger
@@ -15,7 +16,9 @@ class Settings(BaseSettings):
     LOG_DIR: str = "logs"  # Default log directory for SafeLogger
     SAFE_MODE: bool = False
     SAFE_MODE_RATE_LIMIT: float = 0.01
-    CACHE_ENABLED: bool = True  # Toggle for enabling/disabling caching in plugin execution
+    CACHE_ENABLED: bool = (
+        True  # Toggle for enabling/disabling caching in plugin execution
+    )
     PLUGIN_DIR: str = "guardian/plugins"  # Default plugin directory path
     # Core/legacy
     GENAI_API_KEY: str = Field(None, description="Google Gemini API Key")
@@ -31,8 +34,7 @@ class Settings(BaseSettings):
         "https://api.openai.com/v1", description="OpenAI API Endpoint"
     )
     OPENAI_MODEL: str = Field(
-        "gpt-4",
-        description="OpenAI model name (e.g., gpt-4, gpt-3.5-turbo)"
+        "gpt-4", description="OpenAI model name (e.g., gpt-4, gpt-3.5-turbo)"
     )
     # Groq
     GROQ_API_KEY: str = Field(None, description="Groq API Key")
@@ -57,14 +59,17 @@ class Settings(BaseSettings):
     )
 
     # Backend selector
-    AI_BACKEND: Literal["ollama", "openai", "gemini", "groq", "anthropic"] = Field("groq", description="Active AI backend")
+    AI_BACKEND: Literal["ollama", "openai", "gemini", "groq", "anthropic"] = Field(
+        "groq", description="Active AI backend"
+    )
     ENV: str = Field(
         "development", description="Environment: development or production"
     )
 
     # Ollama (Local LLM)
     OLLAMA_MODEL: str = Field(
-        "gemma3n:e2b-it-q4_K_M", description="Ollama model tag (e.g. 'gemma3b:e4b-it-q4_K_M', 'gemma3n:e4b-it-q8_0', 'gemma3n:e4b-it-fp16')"
+        "gemma3n:e2b-it-q4_K_M",
+        description="Ollama model tag (e.g. 'gemma3b:e4b-it-q4_K_M', 'gemma3n:e4b-it-q8_0', 'gemma3n:e4b-it-fp16')",
     )
     OLLAMA_HOST: str = Field("http://localhost:11434", description="Ollama server URL")
 

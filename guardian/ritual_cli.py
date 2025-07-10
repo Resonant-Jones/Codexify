@@ -10,7 +10,10 @@ This is not your average CLI. This is the backbone of automation and background 
 import argparse
 
 from guardian_rituals import (  # In the future: import_from_drive_with_progress, etc.
-    RITUAL_JOBS, seed_notion_db_with_progress, start_ritual_job)
+    RITUAL_JOBS,
+    seed_notion_db_with_progress,
+    start_ritual_job,
+)
 
 
 def cli_seed_notion(args):

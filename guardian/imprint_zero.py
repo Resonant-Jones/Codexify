@@ -7,6 +7,7 @@ from pathlib import Path
 # These imports create a dependency on other parts of the application.
 # A more advanced pattern would inject these dependencies at the server level.
 from guardian.core.client_factory import get_memoryos_instance
+from guardian.core.user_manager import UserManager
 from guardian.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,9 @@ class ImprintZero:
             with open(prompts_dir / "imprint_zero_question_scaffold.md", "r") as f:
                 self.question_scaffold = f.read()
         except FileNotFoundError as e:
-            logger.error(f"Could not load ImprintZero prompts from {prompts_dir}: {e}. Using fallback defaults.")
+            logger.error(
+                f"Could not load ImprintZero prompts from {prompts_dir}: {e}. Using fallback defaults."
+            )
             self.system_prompt = "You are a friendly onboarding assistant."
             self.question_scaffold = "Please tell me a little about yourself."
         self.status = "initialized"

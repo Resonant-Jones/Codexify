@@ -1,6 +1,3 @@
-
-
-
 from .base_embedders import BaseEmbedder
 from .local_embedder import LocalEmbedder
 from .openai_embedder import OpenAIEmbedder

@@ -1,10 +1,14 @@
 import json
-from collections import deque   
+from collections import deque
 from . import prompts
 import faiss
 import numpy as np
-from .utils import (ensure_directory_exists, get_embedding, get_timestamp,
-                   normalize_vector)
+from .utils import (
+    ensure_directory_exists,
+    get_embedding,
+    get_timestamp,
+    normalize_vector,
+)
 
 
 class LongTermMemory:

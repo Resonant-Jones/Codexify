@@ -5,7 +5,9 @@ from .long_term import LongTermMemory
 from .mid_term import MidTermMemory
 from .short_term import ShortTermMemory
 from .utils import (  # OpenAIClient might not be directly used here but good for consistency
-    OpenAIClient, get_timestamp)
+    OpenAIClient,
+    get_timestamp,
+)
 
 # from .updater import Updater # Updater is not directly used by Retriever
 

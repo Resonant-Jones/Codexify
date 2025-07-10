@@ -25,7 +25,9 @@ class TestImprintZero(unittest.TestCase):
             imprint = ImprintZero()
 
             # Assert that the fallback prompts are used
-            self.assertEqual(imprint.system_prompt, "You are a friendly onboarding assistant.")
+            self.assertEqual(
+                imprint.system_prompt, "You are a friendly onboarding assistant."
+            )
             self.assertEqual(
                 imprint.question_scaffold, "Please tell me a little about yourself."
             )

@@ -2,10 +2,11 @@
 from functools import lru_cache
 
 from .config import settings
-from memoryos_mcp.memoryos.memoryos import Memoryos
+from MemoryOS_main.memoryos_mcp.memoryos.memoryos import Memoryos
 
 # Import embedders
 from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+
 # from MemoryOS_main.embedders.openai_embedder import OpenAIEmbedder # Example
 # from MemoryOS_main.embedders.groq_embedder import GroqEmbedder # Example
 

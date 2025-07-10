@@ -177,7 +177,7 @@ def export_to_notion(
         raise ValueError("Notion token required (from app secure storage or argument).")
     if not parent_id:
         raise ValueError("Notion parent_id (page or database) required.")
-    
+
     client = Client(auth=notion_token)
 
     # Prepare content (markdown to Notion blocks, robust production)

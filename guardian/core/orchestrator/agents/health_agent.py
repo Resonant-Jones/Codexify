@@ -47,5 +47,7 @@ def get_health_summary(
     return {"status": "ok", "summary": result, "timeframe": timeframe}
 
 
-def get_past_health_entries(memory_client: Memoryos, query: str = "health summary") -> list[str]:
+def get_past_health_entries(
+    memory_client: Memoryos, query: str = "health summary"
+) -> list[str]:
     return memory_client.query(query)

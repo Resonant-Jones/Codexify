@@ -1,8 +1,7 @@
-
-
 from .base_embedders import BaseEmbedder
 import os
 import requests
+
 
 class GroqEmbedder(BaseEmbedder):
     """
@@ -16,13 +15,10 @@ class GroqEmbedder(BaseEmbedder):
             raise ValueError("GROQ_API_KEY not found in environment variables")
 
     def embed(self, text: str) -> list:
-        payload = {
-            "input": text,
-            "model": "nomic-embed-text"
-        }
+        payload = {"input": text, "model": "nomic-embed-text"}
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
         response = requests.post(self.api_url, json=payload, headers=headers)
         response.raise_for_status()

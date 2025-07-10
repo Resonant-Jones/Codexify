@@ -121,8 +121,9 @@ if __name__ == "__main__":
         agent = LookingGlassAgent(model=model_instance)
     else:
         print("[Router] Using remote planner backend")
-        from guardian.core.research.Modules.agent.remote_planner import \
-            RemotePlannerAgent
+        from guardian.core.research.Modules.agent.remote_planner import (
+            RemotePlannerAgent,
+        )
 
         agent = RemotePlannerAgent()
 

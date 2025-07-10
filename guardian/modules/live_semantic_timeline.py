@@ -51,7 +51,9 @@ class SemanticTimeline:
         """Return recent events containing the keyword."""
         with self._lock:
             self._discard_old_locked()
-            matched = [e for e in self._events if keyword.lower() in e.narrative.lower()]
+            matched = [
+                e for e in self._events if keyword.lower() in e.narrative.lower()
+            ]
             return matched[-limit:]
 
     def _discard_old_locked(self) -> None:
