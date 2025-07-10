@@ -7,15 +7,16 @@ sleep hours, etc., potentially pulled from Apple HealthKit or similar APIs.
 import logging
 from typing import Optional
 
-from memoryos_mcp.memoryos.interface import MemoryClient
+from memoryos_mcp.memoryos.memoryos import Memoryos
 
 logger = logging.getLogger(__name__)
-memory = MemoryClient(agent="health_agent")
 
 
 # TODO: Replace with actual HealthKit API call integration when available
 def get_health_summary(
-    timeframe: str = "last_week", metrics: Optional[list[str]] = None
+    memory_client: Memoryos,
+    timeframe: str = "last_week",
+    metrics: Optional[list[str]] = None,
 ) -> dict:
     if metrics is None:
         metrics = ["heart_rate", "HRV", "sleep"]
@@ -29,11 +30,15 @@ def get_health_summary(
 
     result = {m: mock_data.get(m, "Data not available") for m in metrics}
 
-    memory.save(
-        title=f"Health Summary ({timeframe})",
-        content=f"Summary of {metrics} for {timeframe}: {result}",
-        tags=["health", "summary", timeframe],
-    )
+    # Attempt to save the summary to memory, but don't let it block the response.
+    try:
+        memory_client.save(
+            title=f"Health Summary ({timeframe})",
+            content=f"Summary of {metrics} for {timeframe}: {result}",
+            tags=["health", "summary", timeframe],
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save health summary to memory: {e}")
 
     logger.debug(
         f"Returning health summary for timeframe: {timeframe} with metrics: {metrics}"
@@ -42,5 +47,5 @@ def get_health_summary(
     return {"status": "ok", "summary": result, "timeframe": timeframe}
 
 
-def get_past_health_entries(query: str = "health summary") -> list[str]:
-    return memory.query(query)
+def get_past_health_entries(memory_client: Memoryos, query: str = "health summary") -> list[str]:
+    return memory_client.query(query)

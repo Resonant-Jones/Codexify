@@ -1,36 +1,50 @@
-# 🎴 ritual_agent.py
+# 🙏 ritual_agent.py
 """
-Handles the execution of rituals—daily check-ins, grounding exercises, etc.
-Each ritual returns a predefined message or triggers downstream actions.
+This agent handles the triggering of pre-defined rituals and logs their
+execution to memory using the injected memory client.
 """
 
 import logging
+from memoryos_mcp.memoryos.memoryos import Memoryos
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def trigger_ritual(name: str):
+def trigger_ritual(memory_client: Memoryos, name: str) -> dict:
+    """Triggers a ritual and logs it to memory using the injected client."""
+    logger.info(f"Ritual '{name}' triggered.")
+    response = {}
+
     if name == "evening_grounding":
-        logging.info("Triggered ritual: evening_grounding")
-        return {
+        response = {
             "status": "success",
             "message": "Evening grounding ritual activated: breath, stillness, and ambient focus engaged.",
         }
     elif name == "daily_checkin":
-        logging.info("Triggered ritual: daily_checkin")
-        return {
+        response = {
             "status": "success",
             "message": "Daily check-in ritual initiated. Prompt dispatched for reflection.",
         }
     elif name == "morning_initiation":
-        logging.info("Triggered ritual: morning_initiation")
-        return {
+        response = {
             "status": "success",
             "message": "Morning initiation ritual complete: light music, intention set, ready for day.",
         }
     else:
-        logging.warning(f"Attempted to trigger unknown ritual: {name}")
-        return {
+        logger.warning(f"Attempted to trigger unknown ritual: {name}")
+        response = {
             "status": "error",
             "message": f"Ritual '{name}' is not recognized or not yet implemented.",
         }
+
+    # Log the execution of the ritual to memory
+    try:
+        memory_client.add_memory(
+            user_input=f"Ritual triggered: {name}",
+            agent_response=response.get("message", "No message."),
+            meta_data={"tags": ["ritual", "log", name]},
+        )
+    except Exception as e:
+        logger.error(f"Failed to log ritual '{name}' to memory: {e}")
+
+    return response
