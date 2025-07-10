@@ -1,8 +1,8 @@
 # openai_embedder.py
 import openai
-from embedding_provider import EmbeddingProvider
+from .base_embedders import BaseEmbedder
 
-class OpenAIEmbedder(EmbeddingProvider):
+class OpenAIEmbedder(BaseEmbedder):
     def __init__(self, api_key: str):
         openai.api_key = api_key
 

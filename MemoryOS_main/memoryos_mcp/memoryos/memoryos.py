@@ -25,7 +25,6 @@ from . import prompts
 from .long_term import LongTermMemory
 from .mid_term import (MidTermMemory,  # For H_THRESHOLD logic
                        compute_segment_heat)
-from .retriever import Retriever
 from .short_term import ShortTermMemory
 from .updater import Updater
 from .utils import (OpenAIClient, ensure_directory_exists, generate_id,
@@ -45,18 +44,15 @@ class Memoryos:
         user_id: str,
         data_storage_path: str,
         embedder,  # required argument
-        openai_api_key: str = None,   # Still here for LLM chat
-        openai_base_url: str = None,
+        llm_api_key: str = None,
+        llm_base_url: str = None,
         assistant_id: str = DEFAULT_ASSISTANT_ID,
     ):
         self.user_id = user_id
         self.data_storage_path = data_storage_path
         self.embedder = embedder  # 🔑 PLUGGABLE!
 
-        self.client = OpenAIClient(
-            api_key=openai_api_key,
-            base_url=openai_base_url
-        )
+        self.client = OpenAIClient(api_key=llm_api_key, base_url=llm_base_url)
 
         # Define file paths for user-specific data
         self.user_data_dir = os.path.join(self.data_storage_path, "users", self.user_id)
@@ -495,6 +491,24 @@ class Memoryos:
 
         return response_content
 
+    def save(self, title: str, content: str, tags: list = None, **kwargs):
+        """A convenience method to save a memory entry, aliasing add_memory."""
+        meta_data = {"tags": tags or []}
+        self.add_memory(user_input=title, agent_response=content, meta_data=meta_data)
+
+    def query(self, query: str, limit: int = 10, **kwargs):
+        """
+        A convenience method to query memories, aliasing the retriever.
+        kwargs accepts unused params like 'timeframe' for agent compatibility.
+        """
+        results = self.retriever.retrieve_context(user_query=query, limit=limit)
+        # Return a list of pages for consistency with what agents might expect
+        return results.get("retrieved_pages", [])
+
+    def fetch_memory(self, query: str, limit: int = 10, **kwargs):
+        """An alias for the query method for agent compatibility."""
+        return self.query(query, limit=limit, **kwargs)
+
     # --- Helper/Maintenance methods (optional additions) ---
     def get_user_profile_summary(self) -> str:
         return self.user_long_term_memory.get_raw_user_profile(self.user_id)
@@ -589,7 +603,7 @@ def codemap_query(question):
     """Ask a question about the codebase using codemap.json."""
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
-    from local_embedder import LocalEmbedder
+    from MemoryOS_main.embedders.local_embedder import LocalEmbedder
     # Setup dummy user credentials and data path
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")  # Replace as needed
@@ -612,7 +626,7 @@ def show_user_profile():
     """Display the current user's profile from long-term memory."""
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
-    from local_embedder import LocalEmbedder
+    from MemoryOS_main.embedders.local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -634,7 +648,7 @@ def show_assistant_knowledge():
     """Display current assistant knowledge from long-term memory."""
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
-    from local_embedder import LocalEmbedder
+    from MemoryOS_main.embedders.local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -657,7 +671,7 @@ def show_projects():
     """Display all known projects from long-term memory."""
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
-    from local_embedder import LocalEmbedder
+    from MemoryOS_main.embedders.local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -681,7 +695,7 @@ def show_threads_by_project(project_id):
     """Display threads associated with a specific project."""
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
-    from local_embedder import LocalEmbedder
+    from MemoryOS_main.embedders.local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -705,7 +719,7 @@ def show_conversations_by_thread(thread_id):
     """Display conversations associated with a specific thread."""
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
-    from local_embedder import LocalEmbedder
+    from MemoryOS_main.embedders.local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -730,7 +744,7 @@ def get_conversation_by_id(conversation_id):
     import json
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
-    from local_embedder import LocalEmbedder
+    from MemoryOS_main.embedders.local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
@@ -818,7 +832,7 @@ def summarize_and_branch(conversation_id):
     """Summarize a conversation and create a child branch."""
     import os
     from MemoryOS_main.memoryos.memoryos import Memoryos
-    from local_embedder import LocalEmbedder
+    from MemoryOS_main.embedders.local_embedder import LocalEmbedder
     user_id = "default"
     openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"

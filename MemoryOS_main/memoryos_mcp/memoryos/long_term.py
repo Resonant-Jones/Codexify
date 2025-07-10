@@ -1,5 +1,5 @@
 import json
-from collections import deque
+from collections import deque   
 from . import prompts
 import faiss
 import numpy as np

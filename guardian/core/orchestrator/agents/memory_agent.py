@@ -1,53 +1,41 @@
-# 🧠 memory_agent.py
+# 📚 memory_agent.py
 """
-This agent interfaces with the Codex-style memory logs,
-retrieving entries based on tags, timestamps, or keywords.
+This agent is responsible for querying and retrieving information from MemoryOS
+using the injected memory client.
 """
 
 import logging
-import os
-from datetime import datetime
-from typing import Optional, Union
-
-from Memoryos.core import MemoryManager
+from typing import Optional
+from memoryos_mcp.memoryos.memoryos import Memoryos
 
 logger = logging.getLogger(__name__)
-# For demo purposes, define a simple memory log directory
-MEMORY_DIR = "codex_memory"
-
-memory = MemoryManager("memory_store.json")
 
 
 def fetch_memory(
-    tag: Optional[str] = None, keyword: Optional[str] = None
-) -> dict[str, Union[str, list[dict[str, str]]]]:
-    logger.info(f"Fetching memory with tag={tag} and keyword={keyword}")
+    memory_client: Memoryos, query: str, limit: int = 10
+) -> dict:
+    """Fetches memories based on a query using the injected client."""
+    logger.debug(f"Fetching memory with query: '{query}'")
     try:
-        results = memory.fetch_memory(tag=tag, keyword=keyword)
-        if results:
-            return {"status": "ok", "results": results}
-        else:
-            return {"status": "ok", "results": "No relevant entries found."}
+        results = memory_client.query(query, limit=limit)
+        return {"status": "ok", "memories": results}
     except Exception as e:
         logger.error(f"Error fetching memory: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-        }
+        return {"status": "error", "message": f"Failed to fetch memory: {e}"}
 
 
 def save_memory_entry(
-    content: str, tags: Optional[list[str]] = None, timestamp: Optional[str] = None
+    memory_client: Memoryos, content: str, tags: Optional[list[str]] = None
 ) -> dict:
+    """Saves a new memory entry using the injected client."""
     logger.info(f"Saving memory entry with tags={tags}")
     try:
-        entry = {
-            "type": "memory",
-            "content": content,
-            "tags": tags or [],
-            "timestamp": timestamp or datetime.utcnow().isoformat(),
-        }
-        memory.log_event(user_id="system", agent="memory_agent", data=entry)
+        # Use the existing add_memory method from the Memoryos class
+        memory_client.add_memory(
+            user_input="System Log",
+            agent_response=content,
+            meta_data={"tags": tags or []},
+        )
         return {"status": "ok", "message": "Memory entry saved successfully."}
     except Exception as e:
         logger.error(f"Error saving memory: {e}")

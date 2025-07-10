@@ -2,7 +2,7 @@
 
 import sys
 import os
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import Field, ValidationError, ConfigDict
 from pydantic_settings import BaseSettings
@@ -47,8 +47,17 @@ class Settings(BaseSettings):
         description="Groq Vision model for image input",
     )
 
+    # Anthropic
+    ANTHROPIC_API_KEY: str = Field(None, description="Anthropic Claude API Key")
+    ANTHROPIC_API_ENDPOINT: str = Field(
+        "https://api.anthropic.com/v1", description="Anthropic API Endpoint"
+    )
+    ANTHROPIC_MODEL: str = Field(
+        "claude-3-opus-20240229", description="Anthropic Claude model name"
+    )
+
     # Backend selector
-    AI_BACKEND: str = Field("groq", description="Active AI backend")
+    AI_BACKEND: Literal["ollama", "openai", "gemini", "groq", "anthropic"] = Field("groq", description="Active AI backend")
     ENV: str = Field(
         "development", description="Environment: development or production"
     )
@@ -105,6 +114,8 @@ def get_active_model(settings: Settings) -> str:
         return settings.CLOUD_MODEL_NAME
     elif backend == "groq":
         return settings.GROQ_MODEL
+    elif backend == "anthropic":
+        return settings.ANTHROPIC_MODEL
     return "unknown"
 
 
@@ -122,6 +133,8 @@ def get_model_and_host(settings: Settings) -> tuple[str, str]:
         return settings.CLOUD_MODEL_NAME, settings.CLOUD_API_HOST
     elif backend == "groq":
         return settings.GROQ_MODEL, settings.GROQ_API_ENDPOINT
+    elif backend == "anthropic":
+        return settings.ANTHROPIC_MODEL, settings.ANTHROPIC_API_ENDPOINT
     return "unknown", "unknown"
 
 
@@ -151,21 +164,24 @@ def get_backend_capabilities(settings: Settings) -> dict:
         "openai": {"can_search": True, "can_stream": True},
         "gemini": {"can_search": True},
         "groq": {"can_stream": True, "can_vision": True},
+        "anthropic": {"can_stream": True},
     }
     return capabilities.get(settings.AI_BACKEND.lower(), {})
 
 
 def warn_if_missing_keys(settings: Settings):
     """Warn if required API keys are missing based on active backend."""
+    BACKEND_KEYS = {
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GENAI_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "google": "GOOGLE_API_KEY",
+    }
     backend = settings.AI_BACKEND.lower()
-    if backend == "openai" and not settings.OPENAI_API_KEY:
-        print("⚠️  Warning: Missing OpenAI API key.")
-    elif backend == "gemini" and not settings.GENAI_API_KEY:
-        print("⚠️  Warning: Missing Gemini API key.")
-    elif backend == "groq" and not settings.GROQ_API_KEY:
-        print("⚠️  Warning: Missing Groq API key.")
-    elif backend == "google" and not settings.GOOGLE_API_KEY:
-        print("⚠️  Warning: Missing Google API key for YouTube Data API.")
+    key_attr = BACKEND_KEYS.get(backend)
+    if key_attr and not getattr(settings, key_attr, None):
+        print(f"⚠️  Warning: Missing {backend.capitalize()} API key.")
 
 
 def print_config_errors(e: ValidationError):
