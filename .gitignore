@@ -20,16 +20,30 @@ htmlcov/
 .tox/
 .nox/
 .cache/
+.pytest_cache/
+.mypy_cache/
 
 # IDEs and editors
 .vscode/
 .idea/
+*.sublime-workspace
+*.code-workspace
 
 # OS files
 .DS_Store
+.AppleDouble
+.LSOverride
 
 # Database / temp files
 *.sqlite3
 *.db
 *.bak
 guardian-token.md
+node_modules
+build/
+dist/
+*.egg-info/
+
+# Sourcegraph local deployment
+# Sourcegraph local deployment
+dev_tools/deploy-sourcegraph-docker/

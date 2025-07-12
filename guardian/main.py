@@ -13,10 +13,11 @@ parameter.  Keys are defined in `MODEL_ALIASES`.
 
 import os
 import traceback
-
 import google.generativeai as genai
 from fastapi import FastAPI, Query
-from MemoryOS_main.logger import log_interaction
+# Assuming `log_interaction` is in a `logger.py` inside the `memoryos` package
+# after the restructure. If not, adjust the path accordingly.
+from memoryos.logger import log_interaction
 from pydantic import BaseModel
 from guardian.config import Config
 

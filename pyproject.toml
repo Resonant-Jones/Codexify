@@ -29,7 +29,7 @@ dev = [
 guardian = "guardian.cli.plugin_cli:main"
 
 [tool.setuptools.packages.find]
-include = ["guardian", "guardian_codex"]
+include = ["guardian", "memoryos"]
 
 [tool.black]
 line-length = 88

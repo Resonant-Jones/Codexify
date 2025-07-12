@@ -7,7 +7,7 @@ sleep hours, etc., potentially pulled from Apple HealthKit or similar APIs.
 import logging
 from typing import Optional
 
-from memoryos_mcp.memoryos.memoryos import Memoryos
+from memoryos.memoryos import Memoryos
 
 logger = logging.getLogger(__name__)
 

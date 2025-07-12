@@ -29,6 +29,12 @@ setup(
         "requests>=2.31.0",
         "google-cloud-texttospeech>=2.14.1",
     ],
+    extras_require={
+        "test": [
+            "pytest>=7.0.0",
+            "pytest-cov>=3.0.0",  # For code coverage reports
+        ],
+    },
     entry_points={
         "console_scripts": [
             "guardian=guardian.cli.plugin_cli:main",

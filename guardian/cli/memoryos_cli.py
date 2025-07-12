@@ -2,8 +2,8 @@ import os
 
 import json
 import click
-from MemoryOS_main.memoryos_mcp.memoryos.memoryos import Memoryos
-from MemoryOS_main.embedders.local_embedder import LocalEmbedder
+from memoryos.memoryos import Memoryos
+from memoryos.embedders.local_embedder import LocalEmbedder
 
 
 def get_memory_instance():

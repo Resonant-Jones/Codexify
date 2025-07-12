@@ -44,6 +44,7 @@ def generate_codemap():
         json.dump(codemap, f, indent=2)
 
     print(f"Codemap written to {output_path}")
+    return codemap
 
 
 if __name__ == "__main__":

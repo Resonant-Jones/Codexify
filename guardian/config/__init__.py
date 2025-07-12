@@ -13,7 +13,7 @@ from .core import (
     is_cloud_backend,
 )
 from .system_config import system_config, SystemConfig
-from guardian.config.settings import get_settings
+from guardian.config.core import get_settings
 
 __all__ = [
     "Config",
