@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from guardian.core.orchestrator.pulse_orchestrator import orchestrate
 from guardian.imprint_zero import ImprintZero
-from guardian.user_management import UserManager
+from guardian.core.user_manager import UserManager
 
 # Initialize FastAPI app
 app = FastAPI(title="Guardian AI Companion API")
@@ -234,7 +234,12 @@ async def update_user_settings(
 
 
 # Mount static files
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
+import os
+from fastapi.staticfiles import StaticFiles
+
+frontend_dir = os.path.join(os.path.dirname(__file__), "../../../frontend")
+if os.path.exists(frontend_dir):
+    app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 
 
 @app.get("/")

@@ -8,13 +8,13 @@ guardian/character_switcher.py
 guardian/character_tui.py
 guardian/codex_awareness.py
 guardian/codexify.py
-guardian/config.py
 guardian/config_loader.py
 guardian/contracts.py
 guardian/export_engine.py
 guardian/guardian-main.py
 guardian/guardian_api.py
 guardian/guardian_rituals.py
+guardian/imprint_zero.py
 guardian/inspect_schema.py
 guardian/logging_config.py
 guardian/main.py
@@ -30,8 +30,11 @@ guardian/ritual_cli.py
 guardian/router.py
 guardian/self_check.py
 guardian/system_init.py
+guardian/test_cli.py
+guardian/test_imprint_zero.py
 guardian_codex.egg-info/PKG-INFO
 guardian_codex.egg-info/SOURCES.txt
+guardian_codex.egg-info/__init__.py
 guardian_codex.egg-info/dependency_links.txt
 guardian_codex.egg-info/entry_points.txt
 guardian_codex.egg-info/requires.txt

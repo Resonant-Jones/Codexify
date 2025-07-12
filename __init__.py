@@ -7,8 +7,7 @@
 import logging
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
-from .MemoryOS_main.embedders.local_embedder import LocalEmbedder
-from .embedders.local_embedder import LocalEmbedder
+from memoryos.embedders.local_embedder import LocalEmbedder
 
 __all__ = ["LocalEmbedder"]
 __version__ = "0.1.0"

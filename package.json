@@ -1,0 +1,27 @@
+{
+  "name": "guardian-backend_v2",
+  "version": "1.0.0",
+  "description": "A next-generation AI operating system designed to host recursive, persistent AI agents with self-awareness and dynamic capabilities.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Resonant-Jones/guardian-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Resonant-Jones/guardian-backend/issues"
+  },
+  "homepage": "https://github.com/Resonant-Jones/guardian-backend#readme",
+  "devDependencies": {
+    "@google/gemini-cli": "^0.1.11"
+  }
+}

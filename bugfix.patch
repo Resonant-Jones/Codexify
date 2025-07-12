@@ -16,7 +16,8 @@ index abc1234..def5678 100644
 -    codex.query_memories.side_effect = Exception("Test error")
 +    codex.query_memory.side_effect = Exception("Test error")
 
-
+# TODO: Reconnect Retriever dependencies:
+# mid_term_memory, long_term_memory, assistant_long_term_memory, queue_capacity
 # --- Part 2: Add aliases to your Codex class (optional but safe) ---
 
 diff --git a/guardian/plugins/memory_analyzer/main.py b/guardian/plugins/memory_analyzer/main.py

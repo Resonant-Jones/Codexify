@@ -1,6 +1,12 @@
-from MemoryOS_main.memoryos_mcp.server_new import MemoryosServer
+from memoryos.memoryos import Memoryos
+from memoryos.embedders.local_embedder import LocalEmbedder
 
-memory = MemoryosServer()
+embedder = LocalEmbedder()
+memory = Memoryos(
+    user_id="default",
+    data_storage_path="./data",
+    embedder=embedder,
+)
 import json
 
 import typer
@@ -10,12 +16,14 @@ from guardian.core.orchestrator.pulse_orchestrator import orchestrate
 # Vision helpers
 from guardian.utils.groq_helpers import run_groq_vision_file, run_groq_vision_url
 
-import typer
 from guardian.cli.imprint_zero_cli import ImprintZero
 
 app = typer.Typer()
 
 app.add_typer(ImprintZero, name="imprint-zero")
+
+
+
 
 
 # Add a new CLI command for orchestrate

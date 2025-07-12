@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from MemoryOS_main.memoryos_mcp.memoryos.memoryos import Memoryos
+from memoryos.memoryos import Memoryos
 from rich import print
 
 from guardian import config
@@ -224,13 +224,7 @@ def generate_codemap():
 
 @app.command("codemap:summary")
 def codemap_summary():
-    """
-    Print a summary of the codemap from MemoryOS_main.
-    """
-    memos = Memoryos(
-        user_id="test_user", openai_api_key="your-openai-key", data_storage_path="data"
-    )
-    print(memos.get_codemap_summary())
+    
 
 
 @app.command("codemap:query")
@@ -254,8 +248,6 @@ def codemap_query(
     memos = Memoryos(
         user_id=user_id,
         data_storage_path=data_storage_path,
-        provider=provider,
-        api_key=api_key,
     )
     print(memos.query_codemap(query))
 

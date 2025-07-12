@@ -5,7 +5,7 @@ execution to memory using the injected memory client.
 """
 
 import logging
-from memoryos_mcp.memoryos.memoryos import Memoryos
+from memoryos.memoryos import Memoryos
 
 logger = logging.getLogger(__name__)
 
