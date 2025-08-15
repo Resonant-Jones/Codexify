@@ -102,15 +102,15 @@ jobs:
             PY=$(command -v python || command -v python3)
           fi
           "$PY" - <<'PY'
-import sys, shutil
-print('sys.executable =', sys.executable)
-print('pytest in path  =', shutil.which('pytest'))
-try:
-    import pytest
-    print('pytest version =', pytest.__version__)
-except Exception as e:
-    print('pytest import failed:', e)
-PY
+          import sys, shutil
+          print('sys.executable =', sys.executable)
+          print('pytest in path  =', shutil.which('pytest'))
+          try:
+              import pytest
+              print('pytest version =', pytest.__version__)
+          except Exception as e:
+              print('pytest import failed:', e)
+          PY
 
       - name: Run Pytest
         env:
