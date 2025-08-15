@@ -46,4 +46,5 @@ dist/
 
 # Sourcegraph local deployment
 # Sourcegraph local deployment
-dev_tools/deploy-sourcegraph-docker/
+dev_tools/deploy-sourcegraph-docker/guardian/codemap/*.json
+!guardian/codemap/.gitkeep
