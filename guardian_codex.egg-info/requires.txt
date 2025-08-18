@@ -3,6 +3,16 @@ httpx
 python-dotenv
 uvicorn
 PyYAML
+click
+pydantic
+pydantic-settings
+SQLAlchemy
+aiosqlite
+structlog
+importlib-metadata
+pluggy
+requests
+google-cloud-texttospeech
 
 [dev]
 black
@@ -12,3 +22,14 @@ pytest-asyncio
 mcp
 notion-client
 markitdown
+
+[rag]
+chromadb>=0.5
+faiss-cpu>=1.7
+sentence-transformers>=2.6
+numpy>=1.26
+openai>=1.0
+
+[tui]
+textual<1,>=0.50
+rich>=13

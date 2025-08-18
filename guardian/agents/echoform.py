@@ -7,7 +7,7 @@ Manages system state transitions and maintains operational resonance.
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, UTC, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -55,7 +55,7 @@ class StateTransition:
         self.from_state = from_state
         self.to_state = to_state
         self.metadata = metadata
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
         self.completed = False
         self.success: Optional[bool] = None
         self.duration: Optional[float] = None
@@ -137,7 +137,7 @@ class EchoformAgent:
     def _analyze_metrics(self, system_state: Dict[str, Any]) -> Dict[str, float]:
         """Analyze system metrics for resonance assessment."""
         logger.info(
-            f"[TEMP_DEBUG] EchoformAgent._analyze_metrics called with system_state: {system_state}"
+            logger.debug(f"EchoformAgent._analyze_metrics called with system_state: {system_state}")
         )  # DEBUG
         metrics = {}
 
@@ -150,12 +150,12 @@ class EchoformAgent:
                 )
             else:
                 logger.warning(
-                    f"[TEMP_DEBUG] 'resources' in system_state is not a dict: {resources}"
+                    logger.debug('resources in system_state is not a dict: {resources}')
                 )  # DEBUG
                 metrics["resource_balance"] = 0.0
         else:
             logger.info(
-                "[TEMP_DEBUG] 'resources' key not in system_state for _analyze_metrics"
+                logger.debug("resources key not in system_state for _analyze_metrics")
             )  # DEBUG
             metrics["resource_balance"] = 0.0
 
@@ -168,12 +168,12 @@ class EchoformAgent:
                 )
             else:
                 logger.warning(
-                    f"[TEMP_DEBUG] 'performance' in system_state is not a dict: {performance}"
+                    logger.debug(f"'performance' in system_state is not a dict: {performance}")
                 )  # DEBUG
                 metrics["performance_score"] = 0.0
         else:
             logger.info(
-                "[TEMP_DEBUG] 'performance' key not in system_state for _analyze_metrics"
+                logger.debug("'performance' key not in system_state for _analyze_metrics")
             )  # DEBUG
             metrics["performance_score"] = 0.0
 
@@ -184,14 +184,14 @@ class EchoformAgent:
                 metrics["error_rate"] = self._calculate_error_rate(errors)
             else:
                 logger.warning(
-                    f"[TEMP_DEBUG] 'errors' in system_state is not a dict: {errors}"
+                    logger.debug(f"'errors' in system_state is not a dict: {errors}")
                 )  # DEBUG
                 metrics["error_rate"] = (
                     0.0  # Default to a safe value (1.0 implies no errors, 0.0 implies all errors)
                 )
         else:
             logger.info(
-                "[TEMP_DEBUG] 'errors' key not in system_state for _analyze_metrics"
+                logger.debug("'errors' key not in system_state for _analyze_metrics")
             )  # DEBUG
             metrics["error_rate"] = 1.0  # Assume no errors if not provided
 
@@ -202,16 +202,16 @@ class EchoformAgent:
                 metrics["coherence_score"] = self._calculate_coherence_score(coherence)
             else:
                 logger.warning(
-                    f"[TEMP_DEBUG] 'coherence' in system_state is not a dict: {coherence}"
+                    logger.debug(f"'coherence' in system_state is not a dict: {coherence}")
                 )  # DEBUG
                 metrics["coherence_score"] = 0.0
         else:
             logger.info(
-                "[TEMP_DEBUG] 'coherence' key not in system_state for _analyze_metrics"
+                logger.debug("'coherence' key not in system_state for _analyze_metrics")
             )  # DEBUG
             metrics["coherence_score"] = 0.0
 
-        logger.info(f"[TEMP_DEBUG] _analyze_metrics returning: {metrics}")  # DEBUG
+        logger.info(f"_analyze_metrics returning: {metrics}")
         return metrics
 
     def _calculate_resource_balance(self, resources: Dict[str, Any]) -> float:
@@ -515,7 +515,7 @@ class EchoformAgent:
 
     def _update_resonance_history(self, new_state: ResonanceState) -> None:
         """Update resonance state history."""
-        self.resonance_history.append((datetime.utcnow(), new_state))
+        self.resonance_history.append((datetime.now(UTC), new_state))
 
         # Maintain history size
         while len(self.resonance_history) > 1000:
@@ -536,7 +536,7 @@ class EchoformAgent:
                 "resonance_state": resonance.value,
                 "metrics": metrics,
                 "patterns": patterns,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
             source="echoform",
             tags=["resonance", "assessment"],

@@ -7,7 +7,7 @@ Follows a structured flow to generate companion identity files.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -38,7 +38,7 @@ class ImprintZeroAgent:
         self.current_flow = {
             "step": 1,
             "answers": {},
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         return (
@@ -158,7 +158,7 @@ class ImprintZeroAgent:
     def _save_draft(self) -> None:
         """Save current flow state as draft."""
         draft_path = (
-            self.draft_dir / f"draft_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+            self.draft_dir / f"draft_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.json"
         )
         with open(draft_path, "w") as f:
             json.dump(self.current_flow, f, indent=2)

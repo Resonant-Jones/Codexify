@@ -1,0 +1,35 @@
+# Google Gemini API Key for language model access
+GEMINI_API_KEY=AI****
+GENAI_API_KEY=FA****
+# Google API Key for YouTube Data API fallback (server quota)
+GOOGLE_API_KEY=AI****
+GOOGLE_CLIENT_ID=57****
+# Database file location (optional; default is guardian.db)
+GUARDIAN_DB_PATH=gu****
+POSTGRES_URL=po****
+# Notion API Key (if using Notion integrations)
+NOTION_API_KEY=nt****
+
+NOTION_DATABASE_ID=20****
+# .env.template
+# Environment configuration template for Guardian backend
+
+OPENAI_API_KEY=du****
+ANTHROPIC_API_KEY=sk****
+GROQ_API_KEY=gs****
+DEBUG=tr****
+LOG_LEVEL=IN****
+ENV=de****
+# Optional additions if your system evolves
+DATABASE_URL=yo****
+ADMIN_EMAIL=ad****
+CACHE_ENABLED=fa****
+PORT=80****
+# Default LLM Models
+GROQ_MODEL=me****
+OPENAI_MODEL=4.****
+GEMINI_MODEL=ge****
+ANTHROPIC_MODEL=cl****
+
+# Select active AI backend provider
+AI_BACKEND=gr****

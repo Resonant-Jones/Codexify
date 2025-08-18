@@ -1,0 +1,1 @@
+RUN: Outlined provider and hooks wiring.

@@ -21,7 +21,7 @@ from guardian.agents.vestige import VestigeAgent
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
 from guardian.plugin_loader import PluginLoader
-from guardian.threads.thread_manager import ThreadManager
+from guardian.threads_structure.thread_manager import ThreadManager
 
 # Configure logging
 logging.basicConfig(

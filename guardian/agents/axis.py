@@ -7,7 +7,7 @@ Provides stable compass for system operations and maintains operational coherenc
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -47,7 +47,7 @@ class Decision:
         self.context = context
         self.options = options
         self.confidence = confidence
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
         self.selected_option: Optional[Dict[str, Any]] = None
         self.outcome: Optional[Dict[str, Any]] = None
 
@@ -397,7 +397,7 @@ class AxisAgent:
                     "decision_type": "unknown",
                     "context": {},
                     "confidence": 0.5,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
 
             # Update decision with outcome

@@ -8,7 +8,7 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -76,7 +76,7 @@ class BatchLogger:
         async with self.lock:
             # Add metadata
             event_with_meta = {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "level": level,
                 **event,
             }
@@ -104,7 +104,7 @@ class BatchLogger:
             self.buffer = []
 
             # Generate log file name
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             log_file = self.log_dir / f"events_{timestamp}.jsonl"
 
             try:

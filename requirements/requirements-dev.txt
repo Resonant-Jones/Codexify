@@ -25,3 +25,8 @@ memory-profiler>=0.60.0
 # Cache and storage
 diskcache>=5.4.0
 msgpack>=1.0.3
+pydantic-settings>=2.0.0
+openai>=1.13.3
+httpx>=0.24.0
+sentence-transformers>=2.5.1faiss-cpu>=1.7.4
+pebble>=5.0.0

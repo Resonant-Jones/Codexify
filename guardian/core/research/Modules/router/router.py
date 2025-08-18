@@ -48,7 +48,7 @@ class Router(object):
         self.recv_format = r
 
     def get_send_format(self):
-        self.agent.get_send_format()
+        return self.agent.get_send_format()
 
     def get_recv_format(self):
-        self.agent.get_recv_format()
+        return self.agent.get_recv_format()

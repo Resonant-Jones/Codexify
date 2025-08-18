@@ -1,3 +1,4 @@
+from datetime import UTC
 """
 Plugin Loader Module
 -----------------
@@ -197,7 +198,7 @@ class PluginLoader:
         self.update_manifest()
 
     def update_manifest(self) -> None:
-        """Update the plugin manifest in README.md."""
+        """Update the plugin manifest in plugin_manifest.json."""
         try:
             # Read existing README content
             with open(self.manifest_path, "r") as f:
@@ -205,7 +206,7 @@ class PluginLoader:
 
             # Prepare manifest data
             manifest = {
-                "last_updated": datetime.utcnow().isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
                 "active_plugins": {
                     name: plugin.to_dict()
                     for name, plugin in self.plugins.items()

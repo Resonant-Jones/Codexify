@@ -1,0 +1,15 @@
+[
+  {"timestamp": "2025-06-03 12:00", "command": "Test export", "tag": "test", "agent": "Echo"},
+  {
+    "timestamp": "2025-06-05 10:00",
+    "command": "Write a poem",
+    "tag": "creative",
+    "agent": "Echo"
+  },
+  {
+    "timestamp": "2025-06-05 10:05",
+    "command": "List daily tasks",
+    "tag": "todo",
+    "agent": "Echo"
+  }
+]

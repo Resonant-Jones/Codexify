@@ -9,7 +9,7 @@ import importlib.util
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -192,7 +192,7 @@ class SafePluginManager:
         """Update plugin manifest with rate limiting."""
         try:
             manifest = {
-                "last_updated": datetime.utcnow().isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
                 "safe_mode": Config().SAFE_MODE,
                 "active_plugins": {
                     name: plugin.to_dict()

@@ -1,21 +1,5 @@
-def get_all_projects_summary(self) -> list:
-    """Returns a list of all known projects from long-term memory."""
-    return self.user_long_term_memory.get_all_projects()
+from __future__ import annotations
 
-
-def get_threads_by_project(self, project_id: str) -> list:
-    """Returns threads associated with a given project ID."""
-    return self.user_long_term_memory.get_threads_for_project(project_id)
-
-
-def get_conversations_by_thread(self, thread_id: str) -> list:
-    """Returns conversations associated with a given thread ID."""
-    return self.user_long_term_memory.get_conversations_for_thread(thread_id)
-
-
-def get_conversation_by_id(self, conversation_id: str) -> dict:
-    """Returns a specific conversation given its ID."""
-    return self.user_long_term_memory.get_conversation(conversation_id)
 
 
 import json
@@ -28,7 +12,6 @@ from memoryos.retriever import Retriever
 from memoryos.short_term import ShortTermMemory
 from memoryos.updater import Updater
 from memoryos.utils import (
-    OpenAIClient,
     ensure_directory_exists,
     generate_id,
     get_timestamp,
@@ -36,6 +19,12 @@ from memoryos.utils import (
     gpt_update_profile,
     gpt_user_profile_analysis,
 )
+
+from typing import Protocol, List
+
+class LLMClient(Protocol):
+    def chat_completion(self, *, model: str, messages: list, temperature: float = 0.7, max_tokens: int = 1500) -> str: ...
+    def tokenize(self, text: str) -> List[int]: ...
 
 from guardian.codemap.generate_codemap import generate_codemap as load_codemap
 
@@ -55,8 +44,9 @@ class Memoryos:
         user_id: str,
         data_storage_path: str,
         embedder,  # required argument
-        llm_api_key: str = None,
-        llm_base_url: str = None,
+        llm_client: "LLMClient" | None = None,
+        llm_api_key: str | None = None,
+        llm_base_url: str | None = None,
         assistant_id: str = DEFAULT_ASSISTANT_ID,
         llm_model: str = "gpt-4",
     ):
@@ -69,7 +59,11 @@ class Memoryos:
         # Load codemap once during initialization
         self.codemap = load_codemap()
         print(f"Memoryos: Loaded codemap with {len(self.codemap)} top-level entries.")
-        self.client = OpenAIClient(api_key=llm_api_key, base_url=llm_base_url)
+        # Prefer injected client; otherwise build from environment (OpenAI or Groq)
+        if llm_client is not None:
+            self.client = llm_client
+        else:
+            self.client = _build_llm_client_from_env()
 
         # Define file paths for user-specific data
         self.user_data_dir = os.path.join(self.data_storage_path, "users", self.user_id)
@@ -127,10 +121,6 @@ class Memoryos:
         self.retriever = Retriever()
 
         self.mid_term_heat_threshold = mid_term_heat_threshold
-
-        # Load codemap once during initialization
-        self.codemap = load_codemap()
-        print(f"Memoryos: Loaded codemap with {len(self.codemap)} top-level entries.")
 
     def _trigger_profile_and_knowledge_update_if_needed(self):
         """
@@ -541,6 +531,22 @@ class Memoryos:
     def __repr__(self):
         return f"<Memoryos user_id='{self.user_id}' assistant_id='{self.assistant_id}' data_path='{self.data_storage_path}'>"
 
+    def get_all_projects_summary(self) -> list:
+        """Returns a list of all known projects from long-term memory."""
+        return self.user_long_term_memory.get_all_projects()
+
+    def get_threads_by_project(self, project_id: str) -> list:
+        """Returns threads associated with a given project ID."""
+        return self.user_long_term_memory.get_threads_for_project(project_id)
+
+    def get_conversations_by_thread(self, thread_id: str) -> list:
+        """Returns conversations associated with a given thread ID."""
+        return self.user_long_term_memory.get_conversations_for_thread(thread_id)
+
+    def get_conversation_by_id(self, conversation_id: str) -> dict:
+        """Returns a specific conversation given its ID."""
+        return self.user_long_term_memory.get_conversation(conversation_id)
+
     def query_codemap(self, query: str) -> str:
         """
         Uses LLM to answer natural language questions about the codebase using codemap context.
@@ -571,231 +577,16 @@ class Memoryos:
 
         return response.strip()
 
-    def get_codemap_summary(self) -> dict:
+    def get_codemap_summary(self) -> list[str]:
         """
-        Returns a brief summary of codemap keys for inspection or debugging.
+        Returns a brief list of codemap filenames for inspection or debugging.
         """
         return list(self.codemap.keys())
-
-    def cli_codemap_query(self):
-        """
-        Exposes a CLI interface for querying the codemap.
-        """
-        import argparse
-
-        parser = argparse.ArgumentParser(
-            description="Ask a question about the project's codebase using the codemap."
-        )
-        parser.add_argument(
-            "question",
-            type=str,
-            help="Your natural language question about the codebase.",
-        )
-
-        args = parser.parse_args()
-        result = self.query_codemap(args.question)
-        print("\n--- CODEMAP ANSWER ---\n")
-        print(result)
-
-
-import os
-
-# --- CLI command for codemap:query ---
-import click
-
-
-@click.group()
-def cli():
-    pass
-
-
-@cli.command("codemap:query")
-@click.argument("question", type=str)
-def codemap_query(question):
-    """Ask a question about the codebase using codemap.json."""
-    import os
-    from memoryos.memoryos import Memoryos
-    from memoryos.embedders.local_embedder import LocalEmbedder
-
-    # Setup dummy user credentials and data path
-    user_id = "default"
-    llm_model = os.getenv("LLM_MODEL", "gpt-4")
-    openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")  # Replace as needed
-    data_storage_path = "./data"
-    embedder = LocalEmbedder()
-    memory = Memoryos(
-        user_id=user_id,
-        openai_api_key=openai_api_key,
-        data_storage_path=data_storage_path,
-        embedder=embedder,
-        llm_model=llm_model,
-    )
-    answer = memory.query_codemap(question)
-    print("\n--- CODEMAP ANSWER ---\n")
-    print(answer)
-
-
-# --- CLI command for memory:show-user-profile ---
-@cli.command("memory:show-user-profile")
-def show_user_profile():
-    """Display the current user's profile from long-term memory."""
-    import os
-    from memoryos.memoryos import Memoryos
-    from memoryos.embedders.local_embedder import LocalEmbedder
-
-    user_id = "default"
-    llm_model = os.getenv("LLM_MODEL", "gpt-4")
-    openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
-    data_storage_path = "./data"
-    embedder = LocalEmbedder()
-    memory = Memoryos(
-        user_id=user_id,
-        openai_api_key=openai_api_key,
-        data_storage_path=data_storage_path,
-        embedder=embedder,
-        llm_model=llm_model,
-    )
-    profile = memory.get_user_profile_summary()
-    print("\n--- USER PROFILE ---\n")
-    print(profile)
-
-
-# --- CLI command for memory:show-assistant-knowledge ---
-@cli.command("memory:show-assistant-knowledge")
-def show_assistant_knowledge():
-    """Display current assistant knowledge from long-term memory."""
-    import os
-    from memoryos.memoryos import Memoryos
-    from memoryos.embedders.local_embedder import LocalEmbedder
-
-    user_id = "default"
-    llm_model = os.getenv("LLM_MODEL", "gpt-4")
-    openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
-    data_storage_path = "./data"
-    embedder = LocalEmbedder()
-    memory = Memoryos(
-        user_id=user_id,
-        openai_api_key=openai_api_key,
-        data_storage_path=data_storage_path,
-        embedder=embedder,
-        llm_model=llm_model,
-    )
-    knowledge = memory.get_assistant_knowledge_summary()
-    print("\n--- ASSISTANT KNOWLEDGE ---\n")
-    for entry in knowledge:
-        print(f"- {entry['knowledge']} (Recorded: {entry['timestamp']})")
-
-
-# --- CLI command for memory:show-projects ---
-@cli.command("memory:show-projects")
-def show_projects():
-    """Display all known projects from long-term memory."""
-    import os
-    from memoryos.memoryos import Memoryos
-    from memoryos.embedders.local_embedder import LocalEmbedder
-
-    user_id = "default"
-    llm_model = os.getenv("LLM_MODEL", "gpt-4")
-    openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
-    data_storage_path = "./data"
-    embedder = LocalEmbedder()
-    memory = Memoryos(
-        user_id=user_id,
-        openai_api_key=openai_api_key,
-        data_storage_path=data_storage_path,
-        embedder=embedder,
-        llm_model=llm_model,
-    )
-    projects = memory.get_all_projects_summary()
-    print("\n--- PROJECTS ---\n")
-    for project in projects:
-        print(f"- {project.get('project_id')} | {project.get('project_name')}")
-
-
-# --- CLI command for memory:show-threads ---
-@cli.command("memory:show-threads")
-@click.argument("project_id", type=str)
-def show_threads_by_project(project_id):
-    """Display threads associated with a specific project."""
-    import os
-    from memoryos.memoryos import Memoryos
-    from memoryos.embedders.local_embedder import LocalEmbedder
-
-    user_id = "default"
-    llm_model = os.getenv("LLM_MODEL", "gpt-4")
-    openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
-    data_storage_path = "./data"
-    embedder = LocalEmbedder()
-    memory = Memoryos(
-        user_id=user_id,
-        openai_api_key=openai_api_key,
-        data_storage_path=data_storage_path,
-        embedder=embedder,
-        llm_model=llm_model,
-    )
-    threads = memory.get_threads_by_project(project_id)
-    print(f"\n--- THREADS in PROJECT {project_id} ---\n")
-    for thread in threads:
-        print(f"- {thread.get('thread_id')} | {thread.get('thread_title')}")
-
-
-# --- CLI command for memory:show-conversations ---
-@cli.command("memory:show-conversations")
-@click.argument("thread_id", type=str)
-def show_conversations_by_thread(thread_id):
-    """Display conversations associated with a specific thread."""
-    import os
-    from memoryos.memoryos import Memoryos
-    from memoryos.embedders.local_embedder import LocalEmbedder
-
-    user_id = "default"
-    llm_model = os.getenv("LLM_MODEL", "gpt-4")
-    openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
-    data_storage_path = "./data"
-    embedder = LocalEmbedder()
-    memory = Memoryos(
-        user_id=user_id,
-        openai_api_key=openai_api_key,
-        data_storage_path=data_storage_path,
-        embedder=embedder,
-        llm_model=llm_model,
-    )
-    conversations = memory.get_conversations_by_thread(thread_id)
-    print(f"\n--- CONVERSATIONS in THREAD {thread_id} ---\n")
-    for convo in conversations:
-        print(f"- {convo.get('conversation_id')} | {convo.get('title', 'Untitled')}")
-
-
-# --- CLI command for memory:get-conversation ---
-@cli.command("memory:get-conversation")
-@click.argument("conversation_id", type=str)
-def get_conversation_by_id(conversation_id):
-    """Retrieve a specific conversation by its ID."""
-    import json
-    import os
-    from memoryos.memoryos import Memoryos
-    from memoryos.embedders.local_embedder import LocalEmbedder
-
-    user_id = "default"
-    llm_model = os.getenv("LLM_MODEL", "gpt-4")
-    openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
-    data_storage_path = "./data"
-    embedder = LocalEmbedder()
-    memory = Memoryos(
-        user_id=user_id,
-        openai_api_key=openai_api_key,
-        data_storage_path=data_storage_path,
-        embedder=embedder,
-        llm_model=llm_model,
-    )
-    convo = memory.get_conversation_by_id(conversation_id)
-    print(f"\n--- CONVERSATION {conversation_id} ---\n")
-    print(json.dumps(convo, indent=2))
 
     def summarize_and_branch_conversation(self, conversation_id: str):
         """
         Summarizes the specified conversation and creates a child conversation linked to it.
-        Stores summary inside the original conversation object.
+        Stores the summary on the parent and creates an empty child conversation.
         """
         print(f"Memoryos: Summarizing and branching conversation '{conversation_id}'")
 
@@ -808,10 +599,8 @@ def get_conversation_by_id(conversation_id):
         # Compose content for summarization
         messages = conversation.get("messages", [])
         convo_text = "\n".join(
-            [
-                f"User: {m['user_input']}\nAssistant: {m['agent_response']}"
-                for m in messages
-            ]
+            f"User: {m.get('user_input','')}\nAssistant: {m.get('agent_response','')}"
+            for m in messages
         )
 
         system_prompt = (
@@ -858,25 +647,214 @@ def get_conversation_by_id(conversation_id):
         return summary_blob
 
 
+ 
+
+# --- CLI command for codemap:query ---
+import click
+
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command("codemap:query")
+@click.argument("question", type=str)
+def codemap_query(question):
+    """Ask a question about the codebase using codemap.json."""
+    from memoryos.embedders.local_embedder import LocalEmbedder
+    user_id = "default"
+    llm_model = os.getenv("LLM_MODEL", "gpt-4")
+    data_storage_path = "./data"
+    embedder = LocalEmbedder()
+    llm_client = _build_llm_client_from_env()
+    memory = Memoryos(
+        user_id=user_id,
+        data_storage_path=data_storage_path,
+        embedder=embedder,
+        llm_client=llm_client,
+        llm_model=llm_model,
+    )
+    answer = memory.query_codemap(question)
+    print("\n--- CODEMAP ANSWER ---\n")
+    print(answer)
+
+
+# --- CLI command for memory:show-user-profile ---
+@cli.command("memory:show-user-profile")
+def show_user_profile():
+    """Display the current user's profile from long-term memory."""
+    from memoryos.embedders.local_embedder import LocalEmbedder
+    user_id = "default"
+    llm_model = os.getenv("LLM_MODEL", "gpt-4")
+    data_storage_path = "./data"
+    embedder = LocalEmbedder()
+    llm_client = _build_llm_client_from_env()
+    memory = Memoryos(
+        user_id=user_id,
+        data_storage_path=data_storage_path,
+        embedder=embedder,
+        llm_client=llm_client,
+        llm_model=llm_model,
+    )
+    profile = memory.get_user_profile_summary()
+    print("\n--- USER PROFILE ---\n")
+    print(profile)
+
+
+# --- CLI command for memory:show-assistant-knowledge ---
+@cli.command("memory:show-assistant-knowledge")
+def show_assistant_knowledge():
+    """Display current assistant knowledge from long-term memory."""
+    from memoryos.embedders.local_embedder import LocalEmbedder
+    user_id = "default"
+    llm_model = os.getenv("LLM_MODEL", "gpt-4")
+    data_storage_path = "./data"
+    embedder = LocalEmbedder()
+    llm_client = _build_llm_client_from_env()
+    memory = Memoryos(
+        user_id=user_id,
+        data_storage_path=data_storage_path,
+        embedder=embedder,
+        llm_client=llm_client,
+        llm_model=llm_model,
+    )
+    knowledge = memory.get_assistant_knowledge_summary()
+    print("\n--- ASSISTANT KNOWLEDGE ---\n")
+    for entry in knowledge:
+        print(f"- {entry['knowledge']} (Recorded: {entry['timestamp']})")
+
+
+# --- CLI command for memory:show-projects ---
+@cli.command("memory:show-projects")
+def show_projects():
+    """Display all known projects from long-term memory."""
+    from memoryos.embedders.local_embedder import LocalEmbedder
+    user_id = "default"
+    llm_model = os.getenv("LLM_MODEL", "gpt-4")
+    data_storage_path = "./data"
+    embedder = LocalEmbedder()
+    llm_client = _build_llm_client_from_env()
+    memory = Memoryos(
+        user_id=user_id,
+        data_storage_path=data_storage_path,
+        embedder=embedder,
+        llm_client=llm_client,
+        llm_model=llm_model,
+    )
+    projects = memory.get_all_projects_summary()
+    print("\n--- PROJECTS ---\n")
+    for project in projects:
+        print(f"- {project.get('project_id')} | {project.get('project_name')}")
+
+
+# --- CLI command for memory:show-threads ---
+@cli.command("memory:show-threads")
+@click.argument("project_id", type=str)
+def show_threads_by_project(project_id):
+    """Display threads associated with a specific project."""
+    from memoryos.embedders.local_embedder import LocalEmbedder
+    user_id = "default"
+    llm_model = os.getenv("LLM_MODEL", "gpt-4")
+    data_storage_path = "./data"
+    embedder = LocalEmbedder()
+    llm_client = _build_llm_client_from_env()
+    memory = Memoryos(
+        user_id=user_id,
+        data_storage_path=data_storage_path,
+        embedder=embedder,
+        llm_client=llm_client,
+        llm_model=llm_model,
+    )
+    threads = memory.get_threads_by_project(project_id)
+    print(f"\n--- THREADS in PROJECT {project_id} ---\n")
+    for thread in threads:
+        print(f"- {thread.get('thread_id')} | {thread.get('thread_title')}")
+
+
+# --- CLI command for memory:show-conversations ---
+@cli.command("memory:show-conversations")
+@click.argument("thread_id", type=str)
+def show_conversations_by_thread(thread_id):
+    """Display conversations associated with a specific thread."""
+    from memoryos.embedders.local_embedder import LocalEmbedder
+    user_id = "default"
+    llm_model = os.getenv("LLM_MODEL", "gpt-4")
+    data_storage_path = "./data"
+    embedder = LocalEmbedder()
+    llm_client = _build_llm_client_from_env()
+    memory = Memoryos(
+        user_id=user_id,
+        data_storage_path=data_storage_path,
+        embedder=embedder,
+        llm_client=llm_client,
+        llm_model=llm_model,
+    )
+    conversations = memory.get_conversations_by_thread(thread_id)
+    print(f"\n--- CONVERSATIONS in THREAD {thread_id} ---\n")
+    for convo in conversations:
+        print(f"- {convo.get('conversation_id')} | {convo.get('title', 'Untitled')}")
+
+
+# --- CLI command for memory:get-conversation ---
+@cli.command("memory:get-conversation")
+@click.argument("conversation_id", type=str)
+def get_conversation_by_id(conversation_id):
+    """Retrieve a specific conversation by its ID."""
+    import json
+    from memoryos.embedders.local_embedder import LocalEmbedder
+    user_id = "default"
+    llm_model = os.getenv("LLM_MODEL", "gpt-4")
+    data_storage_path = "./data"
+    embedder = LocalEmbedder()
+    llm_client = _build_llm_client_from_env()
+    memory = Memoryos(
+        user_id=user_id,
+        data_storage_path=data_storage_path,
+        embedder=embedder,
+        llm_client=llm_client,
+        llm_model=llm_model,
+    )
+    convo = memory.get_conversation_by_id(conversation_id)
+    print(f"\n--- CONVERSATION {conversation_id} ---\n")
+    print(json.dumps(convo, indent=2))
+
+ # Environment-based LLM client factory used by Memoryos when no client is injected
+def _build_llm_client_from_env():
+    """Pick OpenAI or Groq via LLM_PROVIDER.
+    OpenAI env: OPENAI_API_KEY, OPENAI_BASE_URL or OPENAI_API_BASE
+    Groq   env: GROQ_API_KEY, GROQ_BASE_URL (optional)
+    """
+    provider = os.getenv("LLM_PROVIDER", "openai").lower().strip()
+    if provider == "groq":
+        from memoryos.utils import GroqClient
+        return GroqClient(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url=os.getenv("GROQ_BASE_URL"),
+        )
+    else:
+        from memoryos.utils import OpenAIClient
+        return OpenAIClient(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            base_url=os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE"),
+        )
+        
 # --- CLI command for memory:summarize-and-branch ---
 @cli.command("memory:summarize-and-branch")
 @click.argument("conversation_id", type=str)
 def summarize_and_branch(conversation_id):
     """Summarize a conversation and create a child branch."""
-    import os
-    from memoryos.memoryos import Memoryos
     from memoryos.embedders.local_embedder import LocalEmbedder
-
     user_id = "default"
     llm_model = os.getenv("LLM_MODEL", "gpt-4")
-    openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")
     data_storage_path = "./data"
     embedder = LocalEmbedder()
+    llm_client = _build_llm_client_from_env()
     memory = Memoryos(
         user_id=user_id,
-        openai_api_key=openai_api_key,
         data_storage_path=data_storage_path,
         embedder=embedder,
+        llm_client=llm_client,
         llm_model=llm_model,
     )
     result = memory.summarize_and_branch_conversation(conversation_id)

@@ -46,5 +46,29 @@ dist/
 
 # Sourcegraph local deployment
 # Sourcegraph local deployment
-dev_tools/deploy-sourcegraph-docker/guardian/codemap/*.json
-!guardian/codemap/.gitkeep
+dev_tools/deploy-sourcegraph-docker/
+# codemap snapshots
+guardian/codemap/codemap.json
+artifacts/
+
+# embedded repos we do NOT track
+dev_tools/deploy-sourcegraph-docker/
+groq-code-cli/
+
+# build junk
+guardian.egg-info/
+guardian_codex.egg-info/
+artifacts/
+guardian/codemap/*.json
+
+# embedded repos; do not track
+dev_tools/deploy-sourcegraph-docker/
+groq-code-cli/
+
+# build junk
+guardian.egg-info/
+guardian_codex.egg-info/
+artifacts/
+guardian/codemap/*.json
+dev_tools/deploy-sourcegraph-docker/
+groq-code-cli/

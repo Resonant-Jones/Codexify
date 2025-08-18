@@ -7,7 +7,7 @@ Preserves and analyzes system memory artifacts, identifying patterns and relatio
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -35,7 +35,7 @@ class MemoryPattern:
         self.confidence = confidence
         self.artifacts = artifacts
         self.metadata = metadata
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
         self.verified = False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -105,7 +105,7 @@ class VestigeAgent:
                     "memory_id": memory_id,
                     "patterns": [p.to_dict() for p in new_patterns],
                     "related_patterns": [p.to_dict() for p in related_patterns],
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 source="vestige",
                 tags=["analysis", "patterns"],
@@ -183,7 +183,7 @@ class VestigeAgent:
                         ),
                         metadata={
                             "memory_count": len(memories),
-                            "analysis_timestamp": datetime.utcnow().isoformat(),
+                            "analysis_timestamp": datetime.now(UTC).isoformat(),
                         },
                     )
                 ]
@@ -200,7 +200,7 @@ class VestigeAgent:
                     artifacts=["error"],
                     metadata={
                         "error": str(e),
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                 )
             ]
@@ -485,7 +485,7 @@ class VestigeAgent:
         """
         try:
             checkpoint_data = {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "pattern_count": len(self.patterns),
                 "verified_patterns": len([p for p in self.patterns if p.verified]),
                 "active_analyses": list(self.active_analyses),
@@ -499,7 +499,7 @@ class VestigeAgent:
                 confidence=1.0,
             )
 
-            self.last_checkpoint = datetime.utcnow()
+            self.last_checkpoint = datetime.now(UTC)
 
             return {
                 "status": "success",

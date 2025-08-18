@@ -1,0 +1,72 @@
+name: Codemap maintenance
+
+on:
+  schedule:
+    - cron: '23 3 * * *'   # nightly UTC
+    - cron: '15 4 * * 0'   # weekly Sunday UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: codemap-maintenance
+  cancel-in-progress: true
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install project (for codemap generator)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Clean old codemap snapshots (keep 7)
+        env:
+          KEEP: '7'
+        run: make codemap-clean
+
+      - name: Generate new codemap snapshot
+        shell: bash
+        run: |
+          ts=$(date -u +%Y%m%d-%H%M%S)
+          export CODEMAP_PATH="artifacts/codemap/codemap-$ts.json"
+          make codemap
+
+      - name: Size gate (<= 50 MB)
+        shell: bash
+        run: |
+          f=$(ls -1t artifacts/codemap/*.json | head -n1)
+          bytes=$(wc -c <"$f")
+          echo "Codemap size: $bytes bytes"
+          [ "$bytes" -le 52428800 ] || { echo "Codemap too large"; exit 1; }
+
+      - name: Upload codemap artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: codemap-${{ github.run_id }}
+          path: artifacts/codemap/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  weekly-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Hard prune to 1 snapshot
+        env:
+          KEEP: '1'
+        run: make codemap-clean

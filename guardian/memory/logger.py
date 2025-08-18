@@ -8,7 +8,7 @@ Provides structured logging for memory events with support for multiple backends
 import json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -36,7 +36,7 @@ class MemoryEvent:
         self.event_type = event_type
         self.payload = payload
         self.tags = tags
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or datetime.now(UTC)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert event to dictionary representation."""
@@ -79,7 +79,7 @@ class JSONLMemoryLogger(MemoryLogger):
 
     def _get_current_log(self) -> Path:
         """Get or create current log file."""
-        current = self.log_dir / f"memory_{datetime.utcnow().strftime('%Y%m')}.jsonl"
+        current = self.log_dir / f"memory_{datetime.now(UTC).strftime('%Y%m')}.jsonl"
         current.parent.mkdir(parents=True, exist_ok=True)
         return current
 

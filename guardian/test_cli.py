@@ -1,11 +1,22 @@
+import os
+# Provide dummy env so importing CLI doesn't trigger Settings validation during test collection
+os.environ.setdefault("GENAI_API_KEY", "test")
+os.environ.setdefault("NOTION_API_KEY", "test")
+os.environ.setdefault("ANTHROPIC_API_KEY", "test")
+
+# Lazy import to avoid import-time settings validation during test collection
+def _load_cli():
+    from guardian.cli.imprint_zero_cli import app as cli
+    return cli
+
 import json
 import pytest
+import logging
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 from typer.testing import CliRunner
 
-from guardian.chat.cli.main import app as cli
-
+logger = logging.getLogger(__name__)
 
 @patch("guardian.cli.imprint_zero_cli.ImprintZeroCore")
 def test_dump_imprint_zero_prompt_text(mock_imprint_zero: MagicMock):
@@ -19,7 +30,7 @@ def test_dump_imprint_zero_prompt_text(mock_imprint_zero: MagicMock):
     mock_imprint_zero.return_value = mock_instance
 
     runner = CliRunner()
-    result = runner.invoke(cli, ["imprint-zero", "dump-imprint-zero-prompt"])
+    result = runner.invoke(_load_cli(), ["imprint-zero", "dump-imprint-zero-prompt"])
 
     assert result.exit_code == 0
     assert "--- System Prompt ---" in result.output
@@ -40,7 +51,7 @@ def test_dump_imprint_zero_prompt_json(mock_imprint_zero: MagicMock):
     mock_imprint_zero.return_value = mock_instance
 
     runner = CliRunner()
-    result = runner.invoke(cli, ["imprint-zero", "dump-imprint-zero-prompt", "--json-output"])
+    result = runner.invoke(_load_cli(), ["imprint-zero", "dump-imprint-zero-prompt", "--json-output"])
 
     assert result.exit_code == 0
 
@@ -71,7 +82,7 @@ def test_cli_dump_end_to_end(
     mock_settings.PROMPT_DIR_PATH = str(prompt_dir)
 
     runner = CliRunner()
-    result = runner.invoke(cli, ["imprint-zero", "dump-imprint-zero-prompt"])
+    result = runner.invoke(_load_cli(), ["imprint-zero", "dump-imprint-zero-prompt"])
 
     assert result.exit_code == 0
     assert system_prompt_content in result.output
@@ -86,4 +97,4 @@ def test_cli_dump_graceful_failure(mock_imprint_zero: MagicMock):
     mock_imprint_zero.side_effect = Exception("Simulated broken config")
     runner = CliRunner()
     with pytest.raises(Exception, match="Simulated broken config"):
-        runner.invoke(cli, ["imprint-zero", "dump-imprint-zero-prompt"], catch_exceptions=False)
+        runner.invoke(_load_cli(), ["imprint-zero", "dump-imprint-zero-prompt"], catch_exceptions=False)

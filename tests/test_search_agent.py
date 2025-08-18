@@ -3,7 +3,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.settings, pytest.mark.asyncio]
+
+# Skip this module if crawl4ai is not installed (dependency of browser crawler)
+pytest.importorskip("crawl4ai")
 
 from guardian.core.research.Modules.agent.search import Search_agent
 

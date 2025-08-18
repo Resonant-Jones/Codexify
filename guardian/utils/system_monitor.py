@@ -10,7 +10,7 @@ import os
 import psutil
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Dict, List, Optional
 
 from guardian.config import Config
@@ -90,7 +90,7 @@ class SystemMonitor:
             event_queue_size = len(asyncio.all_tasks())
 
             usage = ResourceUsage(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 cpu_percent=cpu_percent,
                 memory_percent=memory_percent,
                 disk_usage_percent=disk_percent,

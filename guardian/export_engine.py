@@ -252,7 +252,15 @@ def export_to_notion(
 
 
 def export_to_gdrive(
-    records, format="md", filename=None, folder_id=None, credentials=None, template=None
+    records,
+    format="md",
+    filename=None,
+    folder_id=None,
+    credentials=None,
+    template=None,
+    service=None,
+    share_anyone=None,
+    content=None,
 ):
     """
     Export records to Google Drive as a file.
@@ -277,28 +285,35 @@ def export_to_gdrive(
 
     ext = format if format != "md" else "md"
     if not filename:
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"guardian_export_{ts}.{ext}"
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        time_str = datetime.now().strftime("%H-%M-%S")
+        slug = "guardian_export"
+        tmpl = os.environ.get("CODEXIFY_FILENAME_TEMPLATE", "")
+        if tmpl:
+            try:
+                filename = tmpl.format(date=date_str, time=time_str, slug=slug, ext=ext)
+            except Exception:
+                filename = f"{date_str}_{slug}_{time_str}.{ext}"
+        else:
+            filename = f"{date_str}_{slug}_{time_str}.{ext}"
     tmp_path = os.path.join("/tmp", filename)
-    output = export_records(records, format, template)
+    if content is not None:
+        output = content
+    else:
+        output = export_records(records, format, template)
     mode = "w"
     if isinstance(output, bytes):
         mode = "wb"
     with open(tmp_path, mode, encoding="utf-8" if "b" not in mode else None) as f:
         f.write(output)
 
-    creds = credentials
-    if not creds:
-        token_path = "token.pickle"
-        if os.path.exists(token_path):
-            with open(token_path, "rb") as token:
-                creds = pickle.load(token)
-        else:
+    if service is None:
+        # Legacy path: allow passing in credentials object (OAuth or SA)
+        if credentials is None:
             raise ValueError(
-                "Google Drive credentials required. Provide as argument or run OAuth flow to create token.pickle."
+                "Google Drive credentials required. Provide a service instance or credentials object."
             )
-
-    service = build("drive", "v3", credentials=creds)
+        service = build("drive", "v3", credentials=credentials)
     file_metadata = {"name": filename}
     if folder_id:
         file_metadata["parents"] = [folder_id]
@@ -309,6 +324,21 @@ def export_to_gdrive(
         .create(body=file_metadata, media_body=media, fields="id, name, webViewLink")
         .execute()
     )
+    # Optional sharing: anyone with the link can view
+    try:
+        share_flag = (
+            share_anyone
+            if share_anyone is not None
+            else os.environ.get("CODEXIFY_SHARE_ANYONE", "").strip().lower()
+            in ("1", "true", "yes", "on")
+        )
+        if share_flag and uploaded.get("id"):
+            service.permissions().create(
+                fileId=uploaded["id"], body={"type": "anyone", "role": "reader"}
+            ).execute()
+    except Exception:
+        # Don't fail export if sharing fails
+        pass
     os.remove(tmp_path)
     return uploaded
 

@@ -1,0 +1,1 @@
+PLAN: Expose /api/retrieve, client, and caching; latency budget <150ms local.

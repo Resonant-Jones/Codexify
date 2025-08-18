@@ -20,7 +20,7 @@ from guardian.cache import lru_cache_safe, memoize_to_disk
 from guardian.config import Config
 from guardian.memory.async_logger import memory_logger
 from guardian.memory.query_memory import memory_store
-from guardian.threads.plugin_executor import plugin_executor
+from guardian.threads_structure.plugin_executor import plugin_executor
 from guardian.utils.performance import (
     debounce,
     throttle,

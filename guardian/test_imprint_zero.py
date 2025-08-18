@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import tempfile
 from pathlib import Path
 
-from guardian.imprint_zero import ImprintZero
+from guardian.imprint_zero_onboarding import ImprintZero
 
 
 class TestImprintZero(unittest.TestCase):

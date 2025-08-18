@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guardian AI Companion</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827;
+            color: #F3F4F6;
+        }
+        .chat-container {
+            height: calc(100vh - 4rem);
+        }
+        .messages-container {
+            height: calc(100% - 80px);
+            scrollbar-width: thin;
+            scrollbar-color: #4B5563 #1F2937;
+        }
+        .messages-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .messages-container::-webkit-scrollbar-track {
+            background: #1F2937;
+        }
+        .messages-container::-webkit-scrollbar-thumb {
+            background-color: #4B5563;
+            border-radius: 4px;
+        }
+        .message {
+            max-width: 80%;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeIn 0.3s ease forwards;
+        }
+        .user-message {
+            background-color: #3B82F6;
+            color: white;
+            border-radius: 1rem 1rem 0 1rem;
+        }
+        .ai-message {
+            background-color: #1F2937;
+            color: #F3F4F6;
+            border-radius: 1rem 1rem 1rem 0;
+        }
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .typing-indicator {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background-color: #1F2937;
+            border-radius: 1rem;
+            margin: 0.5rem 0;
+        }
+        .typing-indicator span {
+            width: 4px;
+            height: 4px;
+            background-color: #9CA3AF;
+            border-radius: 50%;
+            margin: 0 2px;
+            animation: typing 1.4s infinite;
+        }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+        .weaving-loader {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background-color: #1F2937;
+            border-radius: 1rem;
+            margin: 0.5rem 0;
+        }
+        .weaving-loader::before {
+            content: '';
+            width: 16px;
+            height: 16px;
+            border: 2px solid #4B5563;
+            border-top-color: #9CA3AF;
+            border-radius: 50%;
+            animation: weaving 1s linear infinite;
+        }
+        @keyframes weaving {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900">
+    <!-- Top Navigation -->
+    <nav class="bg-gray-800 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-bold text-white">Guardian AI</h1>
+                </div>
+                <div class="flex items-center">
+                    <div class="ml-3 relative">
+                        <button id="userMenuButton" class="flex items-center text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
+                            <span class="sr-only">Open user menu</span>
+                            <div class="h-8 w-8 rounded-full bg-gray-700 flex items-center justify-center">
+                                <span class="text-sm font-medium text-gray-300" id="userInitials">U</span>
+                            </div>
+                        </button>
+                        <!-- Dropdown menu -->
+                        <div id="userMenu" class="hidden origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-gray-800 ring-1 ring-black ring-opacity-5 focus:outline-none">
+                            <a href="#" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700" id="profileSettings">Profile Settings</a>
+                            <a href="#" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700" id="signOut">Sign Out</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="bg-gray-800 rounded-lg shadow-xl">
+            <div class="chat-container flex flex-col">
+                <!-- Chat Messages -->
+                <div class="messages-container p-4 overflow-y-auto space-y-4" id="messagesContainer">
+                    <!-- Messages will be inserted here -->
+                </div>
+
+                <!-- Input Area -->
+                <div class="border-t border-gray-700 p-4 bg-gray-800">
+                    <form id="messageForm" class="flex space-x-4">
+                        <div class="flex-1">
+                            <input type="text" id="messageInput"
+                                class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="Type your message...">
+                        </div>
+                        <button type="submit"
+                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 transition-colors duration-200">
+                            Send
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center">
+        <div class="bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div class="px-6 py-4 border-b border-gray-700">
+                <h3 class="text-lg font-medium text-gray-100">Profile Settings</h3>
+            </div>
+            <div class="px-6 py-4 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300">Communication Style</label>
+                    <select id="communicationStyle" class="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="friendly">Friendly & Casual</option>
+                        <option value="professional">Professional & Focused</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300">Response Length</label>
+                    <select id="responseLength" class="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="concise">Concise & Brief</option>
+                        <option value="medium">Balanced & Moderate</option>
+                        <option value="detailed">Detailed & Thorough</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label class="block text-sm font-medium text-gray-300">Accessibility Preferences</label>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="clearStructure" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-500 rounded bg-gray-700">
+                        <label for="clearStructure" class="ml-2 text-sm text-gray-300">Clear structure</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="bulletPoints" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-500 rounded bg-gray-700">
+                        <label for="bulletPoints" class="ml-2 text-sm text-gray-300">Bullet points</label>
+                    </div>
+                </div>
+            </div>
+            <div class="px-6 py-4 border-t border-gray-700 flex justify-end space-x-4">
+                <button id="closeSettings" class="px-4 py-2 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-300 bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500">
+                    Cancel
+                </button>
+                <button id="saveSettings" class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State management
+        let isOnboarding = true;
+        let eventSource = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            startOnboarding();
+        });
+
+        async function startOnboarding() {
+            // Show initial welcome message
+            addMessage("Welcome to your AI Companion creation journey. Let's begin...", 'ai');
+            showTypingIndicator();
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: JSON.stringify({
+                        message: "start_onboarding",
+                        is_onboarding: true
+                    })
+                });
+
+                if (response.ok) {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+
+                    while (true) {
+                        const {value, done} = await reader.read();
+                        if (done) break;
+
+                        const chunk = decoder.decode(value);
+                        const messages = chunk.split('\n\n');
+
+                        for (const message of messages) {
+                            if (message.startsWith('data: ')) {
+                                const content = message.slice(6);
+                                if (content === 'ONBOARDING_COMPLETE') {
+                                    completeOnboarding();
+                                } else {
+                                    updateLastAiMessage(content);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error starting onboarding:', error);
+                addMessage("Sorry, there was an error starting the onboarding process. Please try again.", 'ai');
+            } finally {
+                hideTypingIndicator();
+            }
+        }
+
+        // Message handling
+        const messageForm = document.getElementById('messageForm');
+        const messageInput = document.getElementById('messageInput');
+        const messagesContainer = document.getElementById('messagesContainer');
+
+        messageForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            // Add user message
+            addMessage(message, 'user');
+            messageInput.value = '';
+            showTypingIndicator();
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: JSON.stringify({
+                        message,
+                        is_onboarding: isOnboarding
+                    })
+                });
+
+                if (response.ok) {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+
+                    while (true) {
+                        const {value, done} = await reader.read();
+                        if (done) break;
+
+                        const chunk = decoder.decode(value);
+                        const messages = chunk.split('\n\n');
+
+                        for (const message of messages) {
+                            if (message.startsWith('data: ')) {
+                                const content = message.slice(6);
+                                if (content === 'ONBOARDING_COMPLETE') {
+                                    completeOnboarding();
+                                } else {
+                                    updateLastAiMessage(content);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                addMessage('Sorry, there was an error processing your message.', 'ai');
+            } finally {
+                hideTypingIndicator();
+            }
+        });
+
+        function addMessage(text, sender) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'flex items-start ' + (sender === 'user' ? 'justify-end' : '');
+
+            const messageBubble = document.createElement('div');
+            messageBubble.className = `message ${sender}-message p-4`;
+            messageBubble.textContent = text;
+
+            messageDiv.appendChild(messageBubble);
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function updateLastAiMessage(text) {
+            const lastMessage = messagesContainer.querySelector('.ai-message:last-child');
+            if (lastMessage) {
+                lastMessage.textContent += text;
+            } else {
+                addMessage(text, 'ai');
+            }
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            const indicatorDiv = document.createElement('div');
+            indicatorDiv.className = 'flex items-start';
+            indicatorDiv.innerHTML = `
+                <div class="weaving-loader">
+                    <span>weaving thread</span>
+                </div>
+            `;
+            messagesContainer.appendChild(indicatorDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            const indicator = messagesContainer.querySelector('.weaving-loader')?.parentElement;
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        function completeOnboarding() {
+            isOnboarding = false;
+            addMessage("Onboarding complete! Your AI Companion is ready. How can I assist you today?", 'ai');
+        }
+
+        // Settings Modal
+        const settingsModal = document.getElementById('settingsModal');
+        const profileSettings = document.getElementById('profileSettings');
+        const closeSettings = document.getElementById('closeSettings');
+        const saveSettings = document.getElementById('saveSettings');
+
+        profileSettings.addEventListener('click', () => {
+            settingsModal.classList.remove('hidden');
+            loadUserSettings();
+        });
+
+        closeSettings.addEventListener('click', () => {
+            settingsModal.classList.add('hidden');
+        });
+
+        saveSettings.addEventListener('click', async () => {
+            await saveUserSettings();
+            settingsModal.classList.add('hidden');
+        });
+
+        // User Menu
+        const userMenuButton = document.getElementById('userMenuButton');
+        const userMenu = document.getElementById('userMenu');
+
+        userMenuButton.addEventListener('click', () => {
+            userMenu.classList.toggle('hidden');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!userMenuButton.contains(e.target)) {
+                userMenu.classList.add('hidden');
+            }
+        });
+
+        // Settings Management
+        async function loadUserSettings() {
+            try {
+                const response = await fetch('/api/user/settings', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    }
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    const settings = data.settings;
+                    document.getElementById('communicationStyle').value = settings.narrative_style || 'friendly';
+                    document.getElementById('responseLength').value = settings.communication_preferences?.response_length || 'medium';
+                    document.getElementById('clearStructure').checked = settings.accessibility_needs?.needs_clear_structure || false;
+                    document.getElementById('bulletPoints').checked = settings.accessibility_needs?.prefers_bullet_points || false;
+                }
+            } catch (error) {
+                console.error('Error loading settings:', error);
+            }
+        }
+
+        async function saveUserSettings() {
+            const settings = {
+                narrative_style: document.getElementById('communicationStyle').value,
+                communication_preferences: {
+                    response_length: document.getElementById('responseLength').value
+                },
+                accessibility_needs: {
+                    needs_clear_structure: document.getElementById('clearStructure').checked,
+                    prefers_bullet_points: document.getElementById('bulletPoints').checked
+                }
+            };
+
+            try {
+                const response = await fetch('/api/user/settings', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: JSON.stringify(settings)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save settings');
+                }
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                alert('Failed to save settings. Please try again.');
+            }
+        }
+
+        // Sign Out
+        document.getElementById('signOut').addEventListener('click', (e) => {
+            e.preventDefault();
+            localStorage.removeItem('authToken');
+            window.location.href = '/index.html';
+        });
+    </script>
+</body>
+</html>

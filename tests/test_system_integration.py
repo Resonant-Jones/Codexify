@@ -20,7 +20,7 @@ from guardian.config.system_config import SystemConfig
 from guardian.metacognition import MetacognitionEngine
 from guardian.plugin_loader import PluginLoader
 from guardian.self_check import epistemic_self_check
-from guardian.threads.thread_manager import ThreadManager
+from guardian.threads_structure.thread_manager import ThreadManager
 
 # Ensure all system integration tests run with pytest-asyncio if needed in future
 pytestmark = pytest.mark.asyncio
