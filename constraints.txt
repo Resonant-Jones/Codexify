@@ -1,0 +1,11 @@
+# Guardian backend constraints (macOS arm64, Python 3.13)
+# Lock to versions with prebuilt wheels that work together.
+
+protobuf==6.31.1
+grpcio==1.74.0
+grpcio-status==1.74.0
+
+# Heads up: keep these uninstalled to avoid forcing protobuf<6
+# e2b / e2b-code-interpreter pull protobuf<6 via their pins.
+# If they sneak back in via transitive deps:
+#   pip uninstall -y e2b e2b-code-interpreter

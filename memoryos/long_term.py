@@ -1,7 +1,14 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 from collections import deque
 import memoryos.prompts as prompts
-import faiss
+try:
+    import faiss  # type: ignore
+except ImportError:
+    faiss = None  # type: ignore
 import numpy as np
 from memoryos.utils import (
     ensure_directory_exists,
@@ -27,6 +34,9 @@ class LongTermMemory:
             maxlen=self.knowledge_capacity
         )  # For assistant specific knowledge
         self.conversation_summaries = {}
+        self.conversations = deque(
+            maxlen=self.knowledge_capacity
+        )  # Store raw conversation records (optionally upserted by id)
         self.load()
 
     def update_user_profile(self, user_id, new_data, merge=True):
@@ -48,7 +58,7 @@ class LongTermMemory:
             "data": updated_data,
             "last_updated": get_timestamp(),
         }
-        print(f"LongTermMemory: Updated user profile for {user_id} (merge={merge}).")
+        logger.info(f"LongTermMemory: Updated user profile for {user_id} (merge={merge}).")
         self.save()
 
     def get_raw_user_profile(self, user_id):
@@ -68,7 +78,7 @@ class LongTermMemory:
             "- none",
             "- none.",
         ]:
-            print(f"LongTermMemory: Empty {type_name} received, not saving.")
+            logger.info(f"LongTermMemory: Empty {type_name} received, not saving.")
             return
 
         # If deque is full, the oldest item is automatically removed when appending.
@@ -80,9 +90,7 @@ class LongTermMemory:
             "knowledge_embedding": vec,
         }
         knowledge_deque.append(entry)
-        print(
-            f"LongTermMemory: Added {type_name}. Current count: {len(knowledge_deque)}."
-        )
+        logger.info(f"LongTermMemory: Added {type_name}. Current count: {len(knowledge_deque)}.")
         self.save()
 
     def add_user_knowledge(self, knowledge_text):
@@ -105,6 +113,10 @@ class LongTermMemory:
         if not knowledge_deque:
             return []
 
+        if faiss is None:
+            logger.error("FAISS library not available. Install faiss-cpu to enable vector search.")
+            return []
+
         query_vec = get_embedding(query)
         query_vec = normalize_vector(query_vec)
 
@@ -118,7 +130,7 @@ class LongTermMemory:
                 valid_entries.append(entry)
             else:
                 print(
-                    f"Warning: Entry without embedding found in knowledge_deque: {entry.get('knowledge','N/A')[:50]}"
+                    logger.warning(f"Warning: Entry without embedding found in knowledge_deque: {entry.get('knowledge','N/A')[:50]}")
                 )
 
         if not embeddings:
@@ -157,18 +169,14 @@ class LongTermMemory:
         results = self._search_knowledge_deque(
             query, self.knowledge_base, threshold, top_k
         )
-        print(
-            f"LongTermMemory: Searched user knowledge for '{query[:30]}...'. Found {len(results)} matches."
-        )
+        logger.info(f"LongTermMemory: Searched user knowledge for '{query[:30]}...'. Found {len(results)} matches.")
         return results
 
     def search_assistant_knowledge(self, query, threshold=0.1, top_k=5):
         results = self._search_knowledge_deque(
             query, self.assistant_knowledge, threshold, top_k
         )
-        print(
-            f"LongTermMemory: Searched assistant knowledge for '{query[:30]}...'. Found {len(results)} matches."
-        )
+        logger.info(f"LongTermMemory: Searched assistant knowledge for '{query[:30]}...'. Found {len(results)} matches.")
         return results
 
     def save(self):
@@ -179,12 +187,13 @@ class LongTermMemory:
             ),  # Convert deques to lists for JSON serialization
             "assistant_knowledge": list(self.assistant_knowledge),
             "conversation_summaries": getattr(self, "conversation_summaries", {}),
+            "conversations": list(self.conversations),
         }
         try:
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except IOError as e:
-            print(f"Error saving LongTermMemory to {self.file_path}: {e}")
+            logger.exception(f"Error saving LongTermMemory to {self.file_path}: {e}")
 
     def load(self):
         try:
@@ -201,19 +210,19 @@ class LongTermMemory:
                 )
 
                 self.conversation_summaries = data.get("conversation_summaries", {})
+                conv_data = data.get("conversations", [])
+                self.conversations = deque(conv_data, maxlen=self.knowledge_capacity)
 
-            print(f"LongTermMemory: Loaded from {self.file_path}.")
+            logger.info(f"LongTermMemory: Loaded from {self.file_path}.")
         except FileNotFoundError:
-            print(
-                f"LongTermMemory: No history file found at {self.file_path}. Initializing new memory."
-            )
+            logger.info(f"LongTermMemory: No history file found at {self.file_path}. Initializing new memory.")
         except json.JSONDecodeError:
             print(
-                f"LongTermMemory: Error decoding JSON from {self.file_path}. Initializing new memory."
+                logger.warning(f"LongTermMemory: Error decoding JSON from {self.file_path}. Initializing new memory.")
             )
         except Exception as e:
             print(
-                f"LongTermMemory: An unexpected error occurred during load from {self.file_path}: {e}. Initializing new memory."
+                logger.exception(f"LongTermMemory: An unexpected error occurred during load from {self.file_path}: {e}. Initializing new memory.")
             )
 
     def store_conversation_summary(self, conversation_id, summary_text):
@@ -222,7 +231,7 @@ class LongTermMemory:
             "summary": summary_text,
             "timestamp": get_timestamp(),
         }
-        print(f"LongTermMemory: Stored summary for conversation {conversation_id}.")
+        logger.info(f"LongTermMemory: Stored summary for conversation {conversation_id}.")
         self.save()
 
     def get_conversation_summary(self, conversation_id):
@@ -232,3 +241,58 @@ class LongTermMemory:
             .get(conversation_id, {})
             .get("summary", None)
         )
+
+    def store_conversation(self, conversation):
+        """Store or replace a full conversation record.
+
+        Expected shape (flexible):
+            {
+                "conversation_id": str,      # required
+                "messages": list,            # optional but recommended
+                ...                            # any other metadata
+            }
+        """
+        if not isinstance(conversation, dict):
+            logger.error("LongTermMemory: store_conversation expects a dict.")
+            return
+        conv_id = conversation.get("conversation_id")
+        if not conv_id:
+            logger.error("LongTermMemory: store_conversation requires 'conversation_id'.")
+            return
+
+        # Remove any existing record with the same id (upsert behavior)
+        try:
+            self.conversations = deque(
+                [c for c in self.conversations if c.get("conversation_id") != conv_id],
+                maxlen=self.knowledge_capacity,
+            )
+        except Exception:
+            # If anything odd happens, fall back to rebuilding
+            tmp = []
+            for c in list(self.conversations):
+                try:
+                    if c.get("conversation_id") != conv_id:
+                        tmp.append(c)
+                except Exception:
+                    continue
+            self.conversations = deque(tmp, maxlen=self.knowledge_capacity)
+
+        # Attach/refresh timestamp and append
+        record = dict(conversation)
+        record.setdefault("timestamp", get_timestamp())
+        self.conversations.append(record)
+        logger.info(f"LongTermMemory: Stored conversation {conv_id} (size={len(self.conversations)}).")
+        self.save()
+
+    def get_conversations(self, conversation_id=None):
+        """Return all conversations or a specific one by id."""
+        if conversation_id is None:
+            return list(self.conversations)
+        for c in self.conversations:
+            if c.get("conversation_id") == conversation_id:
+                return c
+        return None
+
+    def upsert_conversation(self, conversation):
+        """Alias for store_conversation for clarity."""
+        return self.store_conversation(conversation)

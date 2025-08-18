@@ -1,0 +1,139 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0 -- /Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/venv_memoryos_cli/bin/python3.13
+cachedir: .pytest_cache
+rootdir: /Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2
+configfile: pytest.ini
+plugins: anyio-4.9.0, asyncio-1.1.0, cov-6.2.1, mock-3.14.1
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 0 items / 6 errors
+
+==================================== ERRORS ====================================
+____ ERROR collecting guardian/core/orchestrator/test_pulse_orchestrator.py ____
+ImportError while importing test module '/Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/guardian/core/orchestrator/test_pulse_orchestrator.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+guardian/__init__.py:11: in <module>
+    from . import imprint_zero
+guardian/imprint_zero.py:5: in <module>
+    from guardian.imprint_zero_onboarding import imprint_zero as _agent
+guardian/imprint_zero_onboarding.py:9: in <module>
+    from guardian.core.client_factory import get_memoryos_instance
+guardian/core/client_factory.py:5: in <module>
+    from memoryos.memoryos import Memoryos
+memoryos/memoryos.py:26: in <module>
+    from memoryos.mid_term import MidTermMemory, compute_segment_heat
+memoryos/mid_term.py:6: in <module>
+    import faiss
+E   ModuleNotFoundError: No module named 'faiss'
+_ ERROR collecting guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py _
+ImportError while importing test module '/Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+guardian/__init__.py:11: in <module>
+    from . import imprint_zero
+guardian/imprint_zero.py:5: in <module>
+    from guardian.imprint_zero_onboarding import imprint_zero as _agent
+guardian/imprint_zero_onboarding.py:9: in <module>
+    from guardian.core.client_factory import get_memoryos_instance
+guardian/core/client_factory.py:5: in <module>
+    from memoryos.memoryos import Memoryos
+memoryos/memoryos.py:26: in <module>
+    from memoryos.mid_term import MidTermMemory, compute_segment_heat
+memoryos/mid_term.py:6: in <module>
+    import faiss
+E   ModuleNotFoundError: No module named 'faiss'
+_ ERROR collecting guardian/plugins/pattern_analyzer/tests/test_pattern_analyzer.py _
+ImportError while importing test module '/Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/guardian/plugins/pattern_analyzer/tests/test_pattern_analyzer.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+guardian/__init__.py:11: in <module>
+    from . import imprint_zero
+guardian/imprint_zero.py:5: in <module>
+    from guardian.imprint_zero_onboarding import imprint_zero as _agent
+guardian/imprint_zero_onboarding.py:9: in <module>
+    from guardian.core.client_factory import get_memoryos_instance
+guardian/core/client_factory.py:5: in <module>
+    from memoryos.memoryos import Memoryos
+memoryos/memoryos.py:26: in <module>
+    from memoryos.mid_term import MidTermMemory, compute_segment_heat
+memoryos/mid_term.py:6: in <module>
+    import faiss
+E   ModuleNotFoundError: No module named 'faiss'
+_ ERROR collecting guardian/plugins/system_diagnostics/tests/test_system_diagnostics.py _
+ImportError while importing test module '/Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/guardian/plugins/system_diagnostics/tests/test_system_diagnostics.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+guardian/__init__.py:11: in <module>
+    from . import imprint_zero
+guardian/imprint_zero.py:5: in <module>
+    from guardian.imprint_zero_onboarding import imprint_zero as _agent
+guardian/imprint_zero_onboarding.py:9: in <module>
+    from guardian.core.client_factory import get_memoryos_instance
+guardian/core/client_factory.py:5: in <module>
+    from memoryos.memoryos import Memoryos
+memoryos/memoryos.py:26: in <module>
+    from memoryos.mid_term import MidTermMemory, compute_segment_heat
+memoryos/mid_term.py:6: in <module>
+    import faiss
+E   ModuleNotFoundError: No module named 'faiss'
+____________________ ERROR collecting guardian/test_cli.py _____________________
+ImportError while importing test module '/Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/guardian/test_cli.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+guardian/__init__.py:11: in <module>
+    from . import imprint_zero
+guardian/imprint_zero.py:5: in <module>
+    from guardian.imprint_zero_onboarding import imprint_zero as _agent
+guardian/imprint_zero_onboarding.py:9: in <module>
+    from guardian.core.client_factory import get_memoryos_instance
+guardian/core/client_factory.py:5: in <module>
+    from memoryos.memoryos import Memoryos
+memoryos/memoryos.py:26: in <module>
+    from memoryos.mid_term import MidTermMemory, compute_segment_heat
+memoryos/mid_term.py:6: in <module>
+    import faiss
+E   ModuleNotFoundError: No module named 'faiss'
+________________ ERROR collecting guardian/test_imprint_zero.py ________________
+ImportError while importing test module '/Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/guardian/test_imprint_zero.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+guardian/__init__.py:11: in <module>
+    from . import imprint_zero
+guardian/imprint_zero.py:5: in <module>
+    from guardian.imprint_zero_onboarding import imprint_zero as _agent
+guardian/imprint_zero_onboarding.py:9: in <module>
+    from guardian.core.client_factory import get_memoryos_instance
+guardian/core/client_factory.py:5: in <module>
+    from memoryos.memoryos import Memoryos
+memoryos/memoryos.py:26: in <module>
+    from memoryos.mid_term import MidTermMemory, compute_segment_heat
+memoryos/mid_term.py:6: in <module>
+    import faiss
+E   ModuleNotFoundError: No module named 'faiss'
+=========================== short test summary info ============================
+ERROR guardian/core/orchestrator/test_pulse_orchestrator.py
+ERROR guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py
+ERROR guardian/plugins/pattern_analyzer/tests/test_pattern_analyzer.py
+ERROR guardian/plugins/system_diagnostics/tests/test_system_diagnostics.py
+ERROR guardian/test_cli.py
+ERROR guardian/test_imprint_zero.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 6 errors during collection !!!!!!!!!!!!!!!!!!!!
+============================== 6 errors in 3.26s ===============================

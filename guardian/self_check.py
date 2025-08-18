@@ -10,7 +10,7 @@ maintain accurate beliefs about its own capabilities and knowledge state.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -98,7 +98,7 @@ def epistemic_self_check(
     recommendations = _generate_recommendations(gaps, confidence)
 
     assessment = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "intent": intent,
         "confidence_level": confidence,
         "knowledge_gaps": gaps,

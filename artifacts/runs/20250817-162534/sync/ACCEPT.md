@@ -1,0 +1,1 @@
+ACCEPT: sync spec stub created.

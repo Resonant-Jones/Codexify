@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, AsyncMock
 from guardian.plugins.system_diagnostics.main import SystemDiagnostics, DiagnosticResult
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
-from guardian.threads.thread_manager import ThreadManager
+from guardian.threads_structure.thread_manager import ThreadManager
 
 # Configure logging
 logging.basicConfig(

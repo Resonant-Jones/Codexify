@@ -1,0 +1,284 @@
+name: "Tauri ↔ Vite wiring + UI scaffold"
+mode: APPLY
+goals:
+  - Fix Tauri <-> Vite wiring
+  - Clean duplicates/old crates
+  - Add minimal UI shell (Tailwind) so the window isn’t a white rectangle of shame
+  - Harden CORS/CSP; unify Python CLI entry point
+context:
+  frontend_dir: "src"
+  tauri_dir: "src-tauri"
+  vite_port: 5173
+approvals:
+  - "Proceed with file moves and deletions (layout consolidation)?"
+  - "Proceed with Tauri config updates and security CSP?"
+  - "Add Tailwind AppShell scaffold?"
+  - "Migrate Python deps to pyproject and remove setup.py?"
+
+steps:
+
+  # ---------- Consolidate layout ----------
+  - name: "Move Tauri v2 app to repo-root src-tauri/"
+    run: |
+      if [ -d tauri-app/src-tauri ]; then
+        rm -rf src-tauri && mv tauri-app/src-tauri src-tauri
+      fi
+      [ -f package.json ] && rm -f package.json
+      [ -f vite.config.ts ] && rm -f vite.config.ts
+
+  - name: "Archive legacy crates and junk"
+    run: |
+      mkdir -p archive
+      if [ -d tauri-app ]; then
+        mkdir -p archive/secure_vault && shopt -s dotglob && mv tauri-app/* archive/secure_vault/ || true
+        rmdir tauri-app 2>/dev/null || true
+      fi
+      [ -f package-lock.json ] && mv package-lock.json archive/root-package-lock.json || true
+      [ -d guardian_backend_api_main ] && mv guardian_backend_api_main archive/guardian_backend_api_main || true
+
+  # ---------- Tauri wiring ----------
+  - name: "Patch src-tauri/tauri.conf.json for dev/build and CSP"
+    patch:
+      file: src-tauri/tauri.conf.json
+      unified_diff: |
+        --- a/src-tauri/tauri.conf.json
+        +++ b/src-tauri/tauri.conf.json
+        @@
+         {
+           "$schema": "https://schema.tauri.app/config/2",
+           "productName": "Codexify",
+           "version": "0.1.0",
+           "identifier": "com.tauri.dev",
+           "build": {
+        -    "frontendDist": "../src/dist",
+        -    "devUrl": "http://localhost:3000",
+        -    "beforeDevCommand": "npm run dev",
+        -    "beforeBuildCommand": "npm run build"
+        +    "frontendDist": "../src/dist",
+        +    "devUrl": "http://localhost:5173",
+        +    "beforeDevCommand": "npm --prefix ../src run dev",
+        +    "beforeBuildCommand": "npm --prefix ../src run build"
+           },
+           "app": {
+             "windows": [
+               { "title": "Codexify", "width": 1200, "height": 800, "resizable": true, "fullscreen": false }
+             ],
+        -    "security": { "csp": null }
+        +    "security": {
+        +      "csp": "default-src 'self' http://localhost:5173; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' 'unsafe-inline' http://localhost:5173; connect-src 'self' http://localhost:5173"
+        +    }
+           },
+           "bundle": { "active": true, "targets": "all", "icon": ["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"] }
+         }
+
+  # ---------- Robust dev/build scripts (avoid cwd weirdness) ----------
+  - name: "Add src-tauri/scripts helpers"
+    write:
+      - path: src-tauri/scripts/dev-frontend.sh
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$(dirname "$0")/../.."/src
+          npm run dev
+      - path: src-tauri/scripts/build-frontend.sh
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$(dirname "$0")/../.."/src
+          npm run build
+
+  - name: "Point Tauri to the helper scripts"
+    patch:
+      file: src-tauri/tauri.conf.json
+      unified_diff: |
+        --- a/src-tauri/tauri.conf.json
+        +++ b/src-tauri/tauri.conf.json
+        @@
+-        "beforeDevCommand": "npm --prefix ../src run dev",
+-        "beforeBuildCommand": "npm --prefix ../src run build"
++        "beforeDevCommand": "bash scripts/dev-frontend.sh",
++        "beforeBuildCommand": "bash scripts/build-frontend.sh"
+
+  # ---------- Frontend sanity checks ----------
+  - name: "Ensure frontend scripts exist"
+    run: |
+      test -f src/package.json || { echo "Missing src/package.json"; exit 1; }
+      node -e "const p=require('./src/package.json'); ['dev','build','preview'].forEach(s=>{if(!p.scripts||!p.scripts[s]){throw new Error('Missing script '+s)}}); console.log('frontend scripts OK')"
+
+  - name: "Ensure vite excludes @tauri-apps/api in optimizeDeps"
+    run: |
+      grep -E "@tauri-apps/api" src/vite.config.* >/dev/null || echo "WARNING: consider excluding @tauri-apps/api in optimizeDeps"
+
+  # ---------- Python fixes ----------
+  - name: "Set CLI entry point to guardian.cli.memoryos_cli:cli"
+    patch:
+      file: pyproject.toml
+      unified_diff: |
+        --- a/pyproject.toml
+        +++ b/pyproject.toml
+        @@
+        [project.scripts]
+-       guardian = "guardian.cli.plugin_cli:main"
++       guardian = "guardian.cli.memoryos_cli:cli"
+
+  - name: "Add in-memory vector store to unblock API (if missing)"
+    write_if_absent:
+      path: guardian/vector_store.py
+      content: |
+        from __future__ import annotations
+        from math import sqrt
+        from typing import Any, Dict, List, Tuple
+        class VectorStore:
+            def __init__(self): self.rows: List[Tuple[List[float], str, Dict[str, Any]]] = []
+            def add(self, text: str, embedding: List[float], metadata: Dict[str, Any] | None = None):
+                self.rows.append((embedding, text, metadata or {}))
+            def search(self, query: List[float], top_k: int = 5):
+                def dot(a,b): return sum(x*y for x,y in zip(a,b))
+                def norm(a): return sqrt(sum(x*x for x in a)) or 1e-9
+                qn = norm(query)
+                scored = [ (dot(e,query)/(norm(e)*qn), text, meta) for e,text,meta in self.rows ]
+                return [ {"score":s, "text":t, "metadata":m} for s,t,m in sorted(scored, key=lambda x:-x[0])[:top_k] ]
+
+  - name: "Migrate deps into pyproject, remove setup.py (if present)"
+    run: |
+      if [ -f setup.py ]; then rm -f setup.py; fi
+      # You can pin versions later; this just ensures runtime deps are present.
+      python3 - <<'PY'
+      from pathlib import Path
+      toml = Path('pyproject.toml').read_text()
+      deps = ["fastapi","uvicorn","pydantic","pydantic-settings","sqlalchemy","aiosqlite","python-dotenv","click","requests","structlog","importlib-metadata","pluggy","PyYAML","httpx","google-cloud-texttospeech"]
+      if "[project]\n" in toml and "dependencies =" in toml:
+          pass
+      else:
+          toml = toml.replace("[project]\n", "[project]\ndependencies = []\n")
+      import re, json
+      m = re.search(r"dependencies\s*=\s*\[(.*?)\]", toml, re.S)
+      cur = []
+      if m:
+          cur = [x.strip().strip('",\'') for x in m.group(1).split(",") if x.strip()]
+          for d in deps:
+              if d not in cur: cur.append(d)
+          block = "dependencies = [" + ", ".join(f'"{d}"' for d in cur) + "]"
+          toml = re.sub(r"dependencies\s*=\s*\[(.*?)\]", block, toml, flags=re.S)
+      Path('pyproject.toml').write_text(toml)
+      print("pyproject dependencies merged")
+      PY
+
+  # ---------- Security hardening ----------
+  - name: "Guard API key logging and CORS via env"
+    patch:
+      file: guardian/guardian_api.py
+      unified_diff: |
+        --- a/guardian/guardian_api.py
+        +++ b/guardian/guardian_api.py
+        @@
+-       logger.warning(f"Invalid API key provided: {api_key}")
++       logger.warning("Invalid API key provided (redacted)")
+        @@
+-       origins = ["*"]
++       import os
++       _orig = os.getenv("GUARDIAN_ALLOWED_ORIGINS", "http://localhost:5173")
++       origins = [o.strip() for o in _orig.split(",") if o.strip()]
+
+  # ---------- Optional UI scaffold (Tailwind) ----------
+  - name: "Add Tailwind config + AppShell"
+    write:
+      - path: src/postcss.config.js
+        content: |
+          module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } }
+      - path: src/tailwind.config.ts
+        content: |
+          import type { Config } from "tailwindcss"
+          export default {
+            darkMode: ["class"],
+            content: ["./index.html","./**/*.{ts,tsx}"],
+            theme: {
+              extend: {
+                colors: {
+                  bg: "var(--color-bg)",
+                  fg: "var(--color-fg)",
+                  muted: "var(--color-muted)",
+                  primary: "var(--color-primary)"
+                },
+                borderRadius: { DEFAULT: "var(--radius)" }
+              }
+            }
+          } satisfies Config
+      - path: src/index.css
+        merge_strategy: replace_if_contains
+        content: |
+          @tailwind base;
+          @tailwind components;
+          @tailwind utilities;
+
+          :root {
+            --color-bg: #0b0b0c;
+            --color-fg: #e7e7ea;
+            --color-muted: #2a2a2f;
+            --color-primary: #7c3aed;
+            --radius: 12px;
+          }
+          .dark {
+            --color-bg: #0a0a0b;
+            --color-fg: #f1f1f5;
+            --color-muted: #222227;
+            --color-primary: #69d6cf;
+          }
+          html, body, #root { height: 100%; background: var(--color-bg); color: var(--color-fg); }
+      - path: src/components/layout/AppShell.tsx
+        content: |
+          import { PropsWithChildren, useEffect, useState } from "react"
+          export function AppShell({ children }: PropsWithChildren) {
+            const [dark, setDark] = useState(true)
+            useEffect(() => { document.documentElement.classList.toggle("dark", dark) }, [dark])
+            return (
+              <div className="min-h-screen grid grid-cols-[264px_1fr]">
+                <aside className="border-r border-muted p-4">
+                  <div className="font-semibold mb-4">ThreadSpace</div>
+                  <nav className="space-y-2 text-sm opacity-80">
+                    <a href="#" className="block hover:opacity-100">Dashboard</a>
+                    <a href="#" className="block hover:opacity-100">Threads</a>
+                    <a href="#" className="block hover:opacity-100">Memory</a>
+                    <a href="#" className="block hover:opacity-100">Research</a>
+                    <a href="#" className="block hover:opacity-100">Settings</a>
+                  </nav>
+                </aside>
+                <div className="grid grid-rows-[56px_1fr]">
+                  <header className="border-b border-muted px-4 flex items-center justify-between">
+                    <div className="opacity-90">Codexify</div>
+                    <button className="text-sm px-2 py-1 rounded border border-muted" onClick={()=>setDark(!dark)}>
+                      {dark ? "Light" : "Dark"}
+                    </button>
+                  </header>
+                  <main className="p-4">{children}</main>
+                </div>
+              </div>
+            )
+          }
+      - path: src/App.tsx
+        merge_strategy: patch_or_create
+        content: |
+          import { AppShell } from "./components/layout/AppShell"
+          import ThreadPromptBox from "./components/ThreadPromptBox" // adjust if path differs
+          export default function App() {
+            return (
+              <AppShell>
+                <div className="max-w-3xl space-y-4">
+                  <h1 className="text-xl font-semibold">Welcome</h1>
+                  <ThreadPromptBox />
+                </div>
+              </AppShell>
+            )
+          }
+
+  # ---------- Smoke test ----------
+  - name: "Smoke test (dev)"
+    run: |
+      echo "Starting desktop dev. If your environment is weird about cwd, start Vite manually: npm --prefix src run dev"
+      (cd src-tauri && cargo tauri dev) || true
+
+outputs:
+  - "If Tauri fails to start Vite automatically, run: npm --prefix src run dev  |  then: cargo tauri dev -C src-tauri"
+  - "To restrict CORS in prod: export GUARDIAN_ALLOWED_ORIGINS=https://your.app"

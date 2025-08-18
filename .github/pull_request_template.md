@@ -1,144 +1,40 @@
-## 📝 Description
-<!-- Provide a detailed description of the changes in this PR -->
+## Summary
 
-### Type of Change
-<!-- Mark the relevant option with an [x] -->
-- [ ] 🐛 Bug fix (non-breaking change that fixes an issue)
-- [ ] ✨ New feature (non-breaking change that adds functionality)
-- [ ] 💥 Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] 📚 Documentation update
-- [ ] 🔧 Code refactoring
-- [ ] 🚀 Performance improvement
-- [ ] ✅ Test update
-- [ ] 🔨 Build/CI configuration change
+- Title: <!-- short, imperative -->
+- Context: <!-- why this change is needed -->
 
-### Component(s) Modified
-<!-- Mark all that apply -->
-- [ ] Core System
-  - [ ] Thread Manager
-  - [ ] Plugin System
-  - [ ] Memory Management
-- [ ] Agents
-  - [ ] Vestige
-  - [ ] Axis
-  - [ ] Echoform
-- [ ] Plugins
-  - [ ] Memory Analyzer
-  - [ ] Pattern Analyzer
-- [ ] Documentation
-- [ ] Tests
-- [ ] Build System
-- [ ] Other: <!-- specify -->
+## Changes
 
-## 🎯 Motivation and Context
-<!-- Why is this change required? What problem does it solve? -->
+- Files touched (high-level):
+- Key diffs: <!-- link code sections or summarize -->
 
-### Related Issues
-<!-- Link to related issues using #issue_number -->
-Fixes #
-Related to #
+## Artifacts
 
-## 🔄 Changes Made
-<!-- List the changes made in this PR -->
+- Preflight summary: `artifacts/preflight/<timestamp>/summary.md`
+- Run manifest: `docs/prompts/run-manifest.yml`
+- Infra prompt pack: `docs/prompts/infra-codex-pack.md`
+- Batch run summary (if executed): `artifacts/runs/<timestamp>/summary.md`
 
-1. <!-- First change -->
-2. <!-- Second change -->
-3. <!-- Additional changes -->
+## Validation
 
-### Implementation Details
-<!-- Provide technical details about the implementation -->
+- [ ] Preflight ACCEPT (clean tree, tag, branch, env, ports, prompts)
+- [ ] Lint/typecheck pass
+- [ ] Tests pass (unit/integration as applicable)
+- [ ] Security/Privacy Check: no secrets committed; local-first defaults
+- [ ] Mobile limits respected (embedders ≤ 3 GB; LLM ≤ 3 GB)
+- [ ] Preserved files intact: `src/TagSelector.tsx`, `src/ThreadPromptBox.tsx`, `src/PersonaEngine.ts`
 
-### API Changes
-<!-- Document any API changes -->
+## Screenshots / Logs
 
-## 📊 Test Coverage
-<!-- Describe the tests added/modified -->
+<!-- drop relevant images or log excerpts -->
 
-### New Tests
-<!-- List new tests added -->
+## Risks & Rollback
 
-1. <!-- First test -->
-2. <!-- Second test -->
+- Risk level: low/medium/high
+- Rollback plan: revert to tag `vX.Y.Z` and stash failures in `artifacts/failures/<timestamp>`
 
-### Modified Tests
-<!-- List modified tests -->
+## Next Steps
 
-1. <!-- First modification -->
-2. <!-- Second modification -->
+- Follow-ups / dependent tasks:
+- Link to run-manifest stages affected:
 
-### Test Results
-```
-Add test results output here
-```
-
-## 📝 Documentation
-<!-- List documentation updates -->
-
-- [ ] README updates
-- [ ] API documentation
-- [ ] Code comments
-- [ ] Other: <!-- specify -->
-
-## 🔍 Review Focus
-<!-- Areas that need particular attention during review -->
-
-## 📋 Checklist
-<!-- Mark completed items with an [x] -->
-
-### General
-- [ ] Code follows project style guidelines
-- [ ] Comments are clear and helpful
-- [ ] Commit messages are descriptive
-- [ ] Changes are documented
-
-### Testing
-- [ ] New tests added for new functionality
-- [ ] Existing tests updated if needed
-- [ ] All tests pass locally
-- [ ] Coverage maintained or improved
-
-### Documentation
-- [ ] Documentation updated
-- [ ] Code is self-documenting
-- [ ] Examples updated if needed
-
-### Security
-- [ ] No sensitive information exposed
-- [ ] Security implications considered
-- [ ] Dependencies are secure
-
-### Performance
-- [ ] Performance impact considered
-- [ ] No significant performance regressions
-- [ ] Optimizations documented
-
-### Compatibility
-- [ ] Backwards compatibility maintained
-- [ ] Breaking changes documented
-- [ ] Migration guide provided if needed
-
-## 🖼️ Screenshots
-<!-- If applicable, add screenshots to help explain your changes -->
-
-## 💡 Additional Notes
-<!-- Any additional information that would help reviewers -->
-
-## 📈 Impact Analysis
-<!-- Describe the impact of these changes -->
-
-### Performance Impact
-<!-- Any performance implications? -->
-
-### Security Impact
-<!-- Any security implications? -->
-
-### Scalability Impact
-<!-- Any scalability implications? -->
-
-## 🔄 Rollback Plan
-<!-- How can these changes be rolled back if needed? -->
-
-## 👥 Reviewers
-<!-- Tag relevant reviewers -->
-
-/cc @reviewer1 @reviewer2

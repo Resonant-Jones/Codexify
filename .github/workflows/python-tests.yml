@@ -1,0 +1,71 @@
+name: Python tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: >-
+            ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml','**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          # Optional: lint tools
+          # pip install ruff==0.5.7
+
+      - name: Env for tests (dummy + gate)
+        env:
+          GUARDIAN_ALLOW_DUMMY_SETTINGS: "1"
+          GENAI_API_KEY: "dummy"
+          NOTION_API_KEY: "dummy"
+          ANTHROPIC_API_KEY: "dummy"
+          OPENAI_API_KEY: "dummy"
+          GEMINI_API_KEY: "dummy"
+          GOOGLE_API_KEY: "dummy"
+          PYTEST_VERBOSE_BOOT: "1"
+        run: |
+          python - <<'PY'
+          import os
+          print("CI env seeded? ",
+                all(os.getenv(k) for k in
+                    ["GUARDIAN_ALLOW_DUMMY_SETTINGS","GENAI_API_KEY","NOTION_API_KEY","ANTHROPIC_API_KEY"]))
+          PY
+
+      - name: Run tests
+        env:
+          GUARDIAN_ALLOW_DUMMY_SETTINGS: "1"
+          OPENAI_API_KEY: "dummy"
+          GENAI_API_KEY: "dummy"
+          NOTION_API_KEY: "dummy"
+          ANTHROPIC_API_KEY: "dummy"
+          GEMINI_API_KEY: "dummy"
+          GOOGLE_API_KEY: "dummy"
+          FORESIGHT_TIMEOUT: "2"
+          # If a 3rd-party pytest plugin causes noise:
+          # PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          pytest -q -s

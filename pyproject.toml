@@ -11,6 +11,17 @@ dependencies = [
     "python-dotenv",
     "uvicorn",
     "PyYAML",
+    "click",
+    "pydantic",
+    "pydantic-settings",
+    "SQLAlchemy",
+    "aiosqlite",
+    "structlog",
+    "importlib-metadata",
+    "pluggy",
+    "requests",
+    "google-cloud-texttospeech",
+    "typer>=0.12.3",
 ]
 requires-python = ">=3.10"
 
@@ -24,12 +35,29 @@ dev = [
     "notion-client",
     "markitdown",
 ]
+tui = [
+    "textual>=0.50,<1",
+    "rich>=13",
+]
+rag = [
+    "chromadb>=0.5",
+    "faiss-cpu>=1.7",
+    "sentence-transformers>=2.6",
+    "numpy>=1.26",
+    "openai>=1.0",
+]
 
 [project.scripts]
-guardian = "guardian.cli.plugin_cli:main"
+guardian = "guardian.cli.memoryos_cli:cli"
+guardian-diag = "guardian.tui.diag_app:main"
+guardian-main = "guardian.guardian_main:app"
+guardian-api = "guardian.server.run:main"
 
 [tool.setuptools.packages.find]
 include = ["guardian", "memoryos"]
+
+[tool.setuptools.package-data]
+"guardian.prompts" = ["*.md", "*.txt", "*.yaml"]
 
 [tool.black]
 line-length = 88

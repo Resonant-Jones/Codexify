@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any, Dict, Optional
 
 DB_PATH = "guardian.db"
@@ -41,7 +41,7 @@ def create_user(
         sqlite3.IntegrityError: If the username already exists.
         Exception: For other database errors.
     """
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(UTC).isoformat()
     extra_data_json = json.dumps(extra_data) if extra_data is not None else None
     try:
         with sqlite3.connect(DB_PATH) as conn:

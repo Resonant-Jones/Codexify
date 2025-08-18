@@ -14,13 +14,13 @@ This module enables the system to:
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from guardian.codex_awareness import CodexAwareness, MemoryArtifact
 from guardian.self_check import epistemic_self_check
-from guardian.threads.thread_manager import ThreadManager  # We'll create this next
+from guardian.threads_structure.thread_manager import ThreadManager  # We'll create this next
 
 # Configure logging
 logging.basicConfig(
@@ -81,7 +81,7 @@ class MetacognitionEngine:
                     {
                         "status": status,
                         "health_status": health_status,
-                        "last_active": datetime.utcnow().isoformat(),
+                        "last_active": datetime.now(UTC).isoformat(),
                     }
                 )
 
@@ -135,7 +135,7 @@ class MetacognitionEngine:
         )
 
         health_report = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "agent_status": agent_status,
             "memory_status": memory_status,
             "thread_health": thread_health,
@@ -200,7 +200,7 @@ class MetacognitionEngine:
                 active_agents.append(agent_id)
 
         reflection = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "intent": intent,
             "epistemic_check": epistemic_check,
             "relevant_memories": [m.to_dict() for m in relevant_memories],
@@ -281,7 +281,7 @@ class MetacognitionEngine:
                 "type": "system_error",
                 "error": str(error),
                 "context": context,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             memory_id = self.codex_awareness.store_memory(
@@ -302,7 +302,7 @@ class MetacognitionEngine:
                 "error": str(error),
                 "memory_id": memory_id,
                 "recovery_status": recovery_result["status"],
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -310,7 +310,7 @@ class MetacognitionEngine:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
     def _initiate_recovery(
@@ -342,7 +342,7 @@ class MetacognitionEngine:
                     "type": "recovery_attempt",
                     "error": str(error),
                     "actions": recovery_actions,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 source="recovery_handler",
                 tags=["recovery", "system"],
@@ -352,7 +352,7 @@ class MetacognitionEngine:
             return {
                 "status": "recovered",
                 "actions": recovery_actions,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -360,7 +360,7 @@ class MetacognitionEngine:
             return {
                 "status": "failed",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
     def _identify_affected_components(
@@ -437,7 +437,7 @@ class MetacognitionEngine:
             if recovery_memories:
                 latest_recovery = recovery_memories[0].content
                 recovery_time = datetime.fromisoformat(latest_recovery["timestamp"])
-                current_time = datetime.utcnow()
+                current_time = datetime.now(UTC)
 
                 if (
                     current_time - recovery_time
@@ -446,13 +446,13 @@ class MetacognitionEngine:
                         "status": "recovered",
                         "health_status": health["overall_health"],
                         "last_recovery": latest_recovery,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     }
 
             return {
                 "status": "nominal",
                 "health_status": health["overall_health"],
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         except Exception as e:
@@ -460,7 +460,7 @@ class MetacognitionEngine:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
     def store_decision_outcome(
@@ -482,7 +482,7 @@ class MetacognitionEngine:
             "intent": intent,
             "outcome": outcome,
             "original_confidence": confidence,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         return self.codex_awareness.store_memory(

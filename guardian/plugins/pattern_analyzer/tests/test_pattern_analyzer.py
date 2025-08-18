@@ -1,3 +1,4 @@
+from datetime import UTC
 """
 Pattern Analyzer Plugin Tests
 --------------------------
@@ -8,7 +9,8 @@ import asyncio
 import json
 import logging
 import unittest
-from datetime import datetime, timedelta
+import pytest
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
@@ -24,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class TestPatternAnalyzer(unittest.TestCase):
+class TestPatternAnalyzer(unittest.IsolatedAsyncioTestCase):
     """Test suite for pattern analyzer plugin."""
 
     @classmethod
@@ -58,13 +60,13 @@ class TestPatternAnalyzer(unittest.TestCase):
             {
                 "id": "data1",
                 "content": "recurring pattern X",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "metadata": {"type": "test"},
             },
             {
                 "id": "data2",
                 "content": "recurring pattern X",
-                "timestamp": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+                "timestamp": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
                 "metadata": {"type": "test"},
             },
         ]
@@ -83,13 +85,13 @@ class TestPatternAnalyzer(unittest.TestCase):
         """Test temporal pattern detection."""
         # Mock time series data
         time_series = [
-            {"timestamp": datetime.utcnow().isoformat(), "value": 1.0},
+            {"timestamp": datetime.now(UTC).isoformat(), "value": 1.0},
             {
-                "timestamp": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+                "timestamp": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
                 "value": 2.0,
             },
             {
-                "timestamp": (datetime.utcnow() + timedelta(hours=2)).isoformat(),
+                "timestamp": (datetime.now(UTC) + timedelta(hours=2)).isoformat(),
                 "value": 3.0,
             },
         ]

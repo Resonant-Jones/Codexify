@@ -1,3 +1,4 @@
+from datetime import UTC
 import argparse
 import asyncio
 import datetime
@@ -33,7 +34,7 @@ def generate_markdown_log(
 ) -> str:
     if tags is None:
         tags = []
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(UTC)
     iso_timestamp = now.isoformat() + "Z"
     date_path = now.strftime("%Y/%m/%d")
     safe_query = query[:30].replace(" ", "_").replace("/", "-")

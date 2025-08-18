@@ -1,101 +1,34 @@
 # =========================
-# Chat Log v2 Endpoints
+# Imports
 # =========================
 
-# Import settings, db, and LLM router for chat_log-aware endpoints
-from guardian.config import get_settings
-from guardian.core.ai_router import chat_with_ai  # Adjust import if needed
-from guardian.core.db import GuardianDB as NewGuardianDB
-
-# Ensure db uses the new chat_log-aware GuardianDB!
-settings = get_settings()
-chatlog_db = NewGuardianDB(settings.GUARDIAN_DB_PATH)
-
-
-# /history/v2: Retrieve chat logs from new chat_log table
-@app.get("/history/v2", summary="Retrieve chat log history (v2)", tags=["Memory"])
-def chat_log_history(
-    session_id: str = Query(..., description="Session ID to fetch"),
-    user_id: str = Query("default", description="User ID"),
-    limit: int = Query(20, ge=1, le=200, description="Number of messages"),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    Returns latest chat logs for a session/user, from the new chat_log table.
-    """
-    history = chatlog_db.get_chat_history(
-        session_id=session_id, user_id=user_id, limit=limit
-    )
-    results = [
-        {
-            "id": row[0],
-            "timestamp": row[1],
-            "session_id": row[2],
-            "user_id": row[3],
-            "role": row[4],
-            "message": row[5],
-            "response": row[6],
-            "backend": row[7],
-            "model": row[8],
-            "agent": row[9],
-            "tag": row[10],
-            "extra": row[11],
-        }
-        for row in history
-    ]
-    return {"history": results}
-
-
-# /summarize/v2: Summarize recent chat logs using active LLM
-@app.post("/summarize/v2", summary="Summarize chat log history (v2)", tags=["Memory"])
-def summarize_chat_log(
-    session_id: str = Query(..., description="Session ID to summarize"),
-    user_id: str = Query("default", description="User ID"),
-    limit: int = Query(20, ge=1, le=200, description="How many messages to summarize"),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    Summarizes chat history for a session/user using the currently active LLM backend.
-    """
-    history = chatlog_db.get_chat_history(
-        session_id=session_id, user_id=user_id, limit=limit
-    )
-    if not history:
-        return {"summary": "No chat history found for this session."}
-
-    # Compose LLM-ready message format (chronological)
-    messages = []
-    for row in reversed(history):
-        # row: id, timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra
-        if row[4] == "user" and row[5]:
-            messages.append({"role": "user", "content": row[5]})
-        elif row[4] == "assistant" and row[6]:
-            messages.append({"role": "assistant", "content": row[6]})
-
-    summary_prompt = [
-        {
-            "role": "system",
-            "content": "Summarize this conversation for future recall. Capture all key facts, emotional beats, and decisions. Be specific.",
-        }
-    ] + messages
-
-    summary = chat_with_ai(summary_prompt)
-    return {"summary": summary}
-
-
-import logging
+# Standard Library
 import os
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from guardian.routes.codexify_router import router as codexify_router
 
+# Third-Party
 import requests
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 
-from guardian import GuardianDB  # If your function is in guardian.py
+# Internal
+from guardian.config import get_settings
+from guardian.core.db import GuardianDB
+from guardian.threads_structure.threads import get_thread_summary
+from guardian.routes import research, memory, agent, threads
+
+# Optional AI Backend
+try:
+    from guardian.core.ai_router import chat_with_ai
+except ModuleNotFoundError as e:
+    chat_with_ai = None
+    logging.warning(f"[Codexify ⚠️] Optional chat_with_ai module not available: {e}")
 
 # API Key authentication is enforced on all major endpoints (except /ping, /test, /)
 # Pass `X-API-Key` header with your requests.
@@ -111,7 +44,8 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 def require_api_key(api_key: str = Depends(api_key_header)):
     if api_key != API_KEY:
-        logger.warning("Unauthorized attempt with API key: %s", api_key)
+        # Do not log the provided key to avoid leaking secrets.
+        logger.warning("Unauthorized attempt with API key")
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
     return api_key
 
@@ -124,12 +58,28 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "your_gemini_api_key_here")
 # Initialize database
 db = GuardianDB(DB_PATH)
 
+# Ensure db uses the new chat_log-aware GuardianDB!
+settings = get_settings()
+chatlog_db = GuardianDB(settings.GUARDIAN_DB_PATH)
+
+# Initialize FastAPI app
 app = FastAPI(title="Guardian Codex API")
 
+# Include routers for modular endpoints
+app.include_router(threads.router, prefix="/threads")
+app.include_router(research.router, prefix="/research")
+app.include_router(memory.router, prefix="/memory")
+app.include_router(agent.router, prefix="/agent")
+app.include_router(codexify_router)
 # CORS middleware for local/frontend use
+# Configure allowed origins via environment variable for production safety.
+# GUARDIAN_ALLOWED_ORIGINS can be a comma-separated list of origins.
+_origins_env = os.getenv("GUARDIAN_ALLOWED_ORIGINS", "http://localhost:5173")
+allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust origins as needed for security
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -356,9 +306,6 @@ def history(
 # =========================
 # Thread Lineage Endpoints
 # =========================
-
-from pydantic import BaseModel
-
 
 class ThreadCreateRequest(BaseModel):
     parent_thread_id: int = None
@@ -644,3 +591,80 @@ def research_agent(
 
     report = asyncio.run(generate_report(query, planner, agents))
     return {"mode": mode, "report": report}
+
+
+# =========================
+# Chat Log v2 Endpoints
+# =========================
+
+# /history/v2: Retrieve chat logs from new chat_log table
+@app.get("/history/v2", summary="Retrieve chat log history (v2)", tags=["Memory"])
+def chat_log_history(
+    session_id: str = Query(..., description="Session ID to fetch"),
+    user_id: str = Query("default", description="User ID"),
+    limit: int = Query(20, ge=1, le=200, description="Number of messages"),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    Returns latest chat logs for a session/user, from the new chat_log table.
+    """
+    history = chatlog_db.get_chat_history(
+        session_id=session_id, user_id=user_id, limit=limit
+    )
+    results = [
+        {
+            "id": row[0],
+            "timestamp": row[1],
+            "session_id": row[2],
+            "user_id": row[3],
+            "role": row[4],
+            "message": row[5],
+            "response": row[6],
+            "backend": row[7],
+            "model": row[8],
+            "agent": row[9],
+            "tag": row[10],
+            "extra": row[11],
+        }
+        for row in history
+    ]
+    return {"history": results}
+
+
+# /summarize/v2: Summarize recent chat logs using active LLM
+@app.post("/summarize/v2", summary="Summarize chat log history (v2)", tags=["Memory"])
+def summarize_chat_log(
+    session_id: str = Query(..., description="Session ID to summarize"),
+    user_id: str = Query("default", description="User ID"),
+    limit: int = Query(20, ge=1, le=200, description="How many messages to summarize"),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    Summarizes chat history for a session/user using the currently active LLM backend.
+    """
+    history = chatlog_db.get_chat_history(
+        session_id=session_id, user_id=user_id, limit=limit
+    )
+    if not history:
+        return {"summary": "No chat history found for this session."}
+
+    # Compose LLM-ready message format (chronological)
+    messages = []
+    for row in reversed(history):
+        # row: id, timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra
+        if row[4] == "user" and row[5]:
+            messages.append({"role": "user", "content": row[5]})
+        elif row[4] == "assistant" and row[6]:
+            messages.append({"role": "assistant", "content": row[6]})
+
+    summary_prompt = [
+        {
+            "role": "system",
+            "content": "Summarize this conversation for future recall. Capture all key facts, emotional beats, and decisions. Be specific.",
+        }
+    ] + messages
+
+    if not chat_with_ai:
+        raise HTTPException(status_code=503, detail="LLM backend is not available.")
+    summary = chat_with_ai(summary_prompt)
+    return {"summary": summary}

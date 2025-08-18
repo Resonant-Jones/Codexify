@@ -9,7 +9,7 @@ import logging
 import signal
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -17,7 +17,7 @@ from guardian.codex_awareness import CodexAwareness
 from guardian.config.system_config import system_config
 from guardian.metacognition import MetacognitionEngine
 from guardian.plugin_loader import plugin_loader
-from guardian.threads.thread_manager import ThreadManager
+from guardian.threads_structure.thread_manager import ThreadManager
 
 # Configure logging
 logging.basicConfig(
@@ -95,7 +95,7 @@ class ThreadspaceSystem:
 
         self.shutdown_event = threading.Event()
         self.initialized = False
-        self.startup_timestamp = datetime.utcnow()
+        self.startup_timestamp = datetime.now(UTC)
         self.health_status = "initializing"
 
     def initialize(self) -> bool:
@@ -130,7 +130,7 @@ class ThreadspaceSystem:
 
             # 6. Record initialization success
             self.initialized = True
-            self.startup_timestamp = datetime.utcnow()
+            self.startup_timestamp = datetime.now(UTC)
             self.health_status = initial_health["status"]
 
             logger.info("Threadspace system initialization completed successfully")
@@ -165,7 +165,7 @@ class ThreadspaceSystem:
                 content={
                     "type": "system_health",
                     "status": "initialized",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 source="system",
                 tags=["system", "health", "initialization"],
@@ -237,7 +237,7 @@ class ThreadspaceSystem:
 
         return {
             "status": status,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "components": {
                 "threads": thread_health,
                 "plugins": plugin_health,
@@ -269,7 +269,7 @@ class ThreadspaceSystem:
                 content={
                     "type": "system_event",
                     "event": "shutdown",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 source="system",
                 tags=["system", "shutdown"],
@@ -298,7 +298,7 @@ class ThreadspaceSystem:
             ),
             "health_status": self.health_status,
             "uptime": (
-                str(datetime.utcnow() - self.startup_timestamp)
+                str(datetime.now(UTC) - self.startup_timestamp)
                 if self.startup_timestamp
                 else None
             ),

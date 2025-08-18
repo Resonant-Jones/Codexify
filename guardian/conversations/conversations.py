@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any, Dict, List, Optional
 
 DB_PATH = "guardian.db"
@@ -31,7 +31,7 @@ def create_conversation(
     title: Optional[str],
     summary: Optional[str] = None,
 ) -> int:
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(UTC).isoformat()
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute(

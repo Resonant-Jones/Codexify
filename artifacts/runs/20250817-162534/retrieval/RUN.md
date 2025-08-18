@@ -1,0 +1,1 @@
+RUN: Outlined endpoint and client.

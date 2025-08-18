@@ -1,39 +1,91 @@
+from __future__ import annotations
+import logging
+
+from typing import Protocol, runtime_checkable, List
+
+logger = logging.getLogger(__name__)
+
 import json
 import os
 import time
 import uuid
-
 import numpy as np
-import openai
 import memoryos.prompts as prompts
-from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 
 
-# ---- OpenAI Client ----
-class OpenAIClient:
-    def __init__(self, api_key, base_url=None):
-        self.api_key = api_key
-        self.base_url = base_url if base_url else "https://api.openai.com/v1"
-        # The openai library looks for OPENAI_API_KEY and OPENAI_BASE_URL env vars by default
-        # or they can be passed directly to the client.
-        # For simplicity and explicit control, we'll pass them to the client constructor.
-        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+# ---- Common LLM Client Protocol ----
+@runtime_checkable
+class LLMClient(Protocol):
+    def chat_completion(self, *, model: str, messages: list, temperature: float = 0.7, max_tokens: int = 1500) -> str: ...
+    def tokenize(self, text: str) -> List[int]: ...
 
-    def chat_completion(self, model, messages, temperature=0.7, max_tokens=2000):
-        print(f"Calling OpenAI API. Model: {model}")
+
+# ---- OpenAI Client ----
+class GroqClient:
+    """LLM client using Groq's SDK (OpenAI-compatible).
+    Exposes the minimal interface Memoryos expects.
+    """
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, timeout: int = 60):
+        if not api_key:
+            api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY is required for GroqClient")
+        # Import SDK lazily to avoid hard dependency when unused
         try:
-            response = self.client.chat.completions.create(
+            from groq import Groq  # type: ignore
+        except Exception as e:  # pragma: no cover
+            raise RuntimeError(f"Groq SDK not installed: {e}")
+        self._client = Groq(api_key=api_key, base_url=base_url) if base_url else Groq(api_key=api_key)
+        self._timeout = timeout
+
+    def chat_completion(self, *, model: str, messages: list, temperature: float = 0.7, max_tokens: int = 1500) -> str:
+        resp = self._client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        try:
+            return (resp.choices[0].message.content or "").strip()
+        except Exception:
+            return ""
+
+    def tokenize(self, text: str) -> List[int]:
+        # Simple, stable token estimate (enough for thresholds)
+        return list(range(len(text.split())))
+
+class OpenAIClient:
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        api_key = api_key or os.getenv("OPENAI_API_KEY")
+        base_url = base_url or os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or "https://api.openai.com/v1"
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for OpenAIClient")
+        # Import SDK lazily to avoid hard dependency when unused
+        try:
+            from openai import OpenAI  # type: ignore
+        except Exception as e:  # pragma: no cover
+            raise RuntimeError(f"openai SDK not installed: {e}")
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
+
+    def chat_completion(self, *, model: str, messages: list, temperature: float = 0.7, max_tokens: int = 2000) -> str:
+        logger.info(f"Calling OpenAI API. Model: {model}")
+        try:
+            response = self._client.chat.completions.create(
                 model=model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-            return response.choices[0].message.content.strip()
+            return (response.choices[0].message.content or "").strip()
         except Exception as e:
-            print(f"Error calling OpenAI API: {e}")
+            logger.exception(f"Error calling OpenAI API: {e}")
             # Fallback or error handling
-            return "Error: Could not get response from LLM."
+            return ""
+
+    def tokenize(self, text: str) -> List[int]:
+        # Simple, stable token estimate (enough for thresholds)
+        return list(range(len(text.split())))
 
 
 # ---- Basic Utilities ----
@@ -55,7 +107,7 @@ _model_cache = {}
 
 def get_embedding(text, model_name="all-MiniLM-L6-v2"):
     if model_name not in _model_cache:
-        print(f"Loading sentence transformer model: {model_name}")
+        logger.info(f"Loading sentence transformer model: {model_name}")
         _model_cache[model_name] = SentenceTransformer(model_name)
     model = _model_cache[model_name]
     embedding = model.encode([text], convert_to_numpy=True)[0]
@@ -87,7 +139,7 @@ def compute_time_decay(event_timestamp_str, current_timestamp_str, tau_hours=24)
 # ---- LLM-based Utility Functions ----
 
 
-def gpt_summarize_dialogs(dialogs, client: OpenAIClient, model="gpt-4o-mini"):
+def gpt_summarize_dialogs(dialogs, client: LLMClient, model="gpt-4o-mini"):
     dialog_text = "\n".join(
         [
             f"User: {d.get('user_input','')} Assistant: {d.get('agent_response','')}"
@@ -103,11 +155,11 @@ def gpt_summarize_dialogs(dialogs, client: OpenAIClient, model="gpt-4o-mini"):
             ),
         },
     ]
-    print("Calling LLM to generate topic summary...")
+    logger.info("Calling LLM to generate topic summary...")
     return client.chat_completion(model=model, messages=messages)
 
 
-def gpt_generate_multi_summary(text, client: OpenAIClient, model="gpt-4o-mini"):
+def gpt_generate_multi_summary(text, client: LLMClient, model="gpt-4o-mini"):
     messages = [
         {"role": "system", "content": prompts.MULTI_SUMMARY_SYSTEM_PROMPT},
         {
@@ -115,18 +167,18 @@ def gpt_generate_multi_summary(text, client: OpenAIClient, model="gpt-4o-mini"):
             "content": prompts.MULTI_SUMMARY_USER_PROMPT.format(text=text),
         },
     ]
-    print("Calling LLM to generate multi-topic summary...")
+    logger.info("Calling LLM to generate multi-topic summary...")
     response_text = client.chat_completion(model=model, messages=messages)
     try:
         summaries = json.loads(response_text)
     except json.JSONDecodeError:
-        print(f"Warning: Could not parse multi-summary JSON: {response_text}")
+        logger.warning(f"Warning: Could not parse multi-summary JSON: {response_text}")
         summaries = []  # Return empty list or a default structure
     return {"input": text, "summaries": summaries}
 
 
 def gpt_user_profile_analysis(
-    dialogs, client: OpenAIClient, model="gpt-4o-mini", known_user_traits="None"
+    dialogs, client: LLMClient, model="gpt-4o-mini", known_user_traits="None"
 ):
     """Analyze user personality profile from dialogs"""
     conversation = "\n".join(
@@ -144,12 +196,12 @@ def gpt_user_profile_analysis(
             ),
         },
     ]
-    print("Calling LLM for user profile analysis...")
+    logger.info("Calling LLM for user profile analysis...")
     result_text = client.chat_completion(model=model, messages=messages)
     return result_text.strip() if result_text else "None"
 
 
-def gpt_knowledge_extraction(dialogs, client: OpenAIClient, model="gpt-4o-mini"):
+def gpt_knowledge_extraction(dialogs, client: LLMClient, model="gpt-4o-mini"):
     """Extract user private data and assistant knowledge from dialogs"""
     conversation = "\n".join(
         [
@@ -166,7 +218,7 @@ def gpt_knowledge_extraction(dialogs, client: OpenAIClient, model="gpt-4o-mini")
             ),
         },
     ]
-    print("Calling LLM for knowledge extraction...")
+    logger.info("Calling LLM for knowledge extraction...")
     result_text = client.chat_completion(model=model, messages=messages)
 
     private_data = "None"
@@ -194,7 +246,7 @@ def gpt_knowledge_extraction(dialogs, client: OpenAIClient, model="gpt-4o-mini")
             assistant_knowledge = result_text[assistant_knowledge_start:].strip()
 
     except Exception as e:
-        print(f"Error parsing knowledge extraction: {e}. Raw result: {result_text}")
+        logger.exception(f"Error parsing knowledge extraction: {e}. Raw result: {result_text}")
 
     return {
         "private": private_data if private_data else "None",
@@ -204,7 +256,7 @@ def gpt_knowledge_extraction(dialogs, client: OpenAIClient, model="gpt-4o-mini")
 
 # Keep the old function for backward compatibility, but mark as deprecated
 def gpt_personality_analysis(
-    dialogs, client: OpenAIClient, model="gpt-4o-mini", known_user_traits="None"
+    dialogs, client: LLMClient, model="gpt-4o-mini", known_user_traits="None"
 ):
     """
     DEPRECATED: Use gpt_user_profile_analysis and gpt_knowledge_extraction instead.
@@ -222,7 +274,7 @@ def gpt_personality_analysis(
 
 
 def gpt_update_profile(
-    old_profile, new_analysis, client: OpenAIClient, model="gpt-4o-mini"
+    old_profile, new_analysis, client: LLMClient, model="gpt-4o-mini"
 ):
     messages = [
         {"role": "system", "content": prompts.UPDATE_PROFILE_SYSTEM_PROMPT},
@@ -233,11 +285,11 @@ def gpt_update_profile(
             ),
         },
     ]
-    print("Calling LLM to update user profile...")
+    logger.info("Calling LLM to update user profile...")
     return client.chat_completion(model=model, messages=messages)
 
 
-def gpt_extract_theme(answer_text, client: OpenAIClient, model="gpt-4o-mini"):
+def gpt_extract_theme(answer_text, client: LLMClient, model="gpt-4o-mini"):
     messages = [
         {"role": "system", "content": prompts.EXTRACT_THEME_SYSTEM_PROMPT},
         {
@@ -247,11 +299,11 @@ def gpt_extract_theme(answer_text, client: OpenAIClient, model="gpt-4o-mini"):
             ),
         },
     ]
-    print("Calling LLM to extract theme...")
+    logger.info("Calling LLM to extract theme...")
     return client.chat_completion(model=model, messages=messages)
 
 
-def llm_extract_keywords(text, client: OpenAIClient, model="gpt-4o-mini"):
+def llm_extract_keywords(text, client: LLMClient, model="gpt-4o-mini"):
     messages = [
         {"role": "system", "content": prompts.EXTRACT_KEYWORDS_SYSTEM_PROMPT},
         {
@@ -259,14 +311,14 @@ def llm_extract_keywords(text, client: OpenAIClient, model="gpt-4o-mini"):
             "content": prompts.EXTRACT_KEYWORDS_USER_PROMPT.format(text=text),
         },
     ]
-    print("Calling LLM to extract keywords...")
+    logger.info("Calling LLM to extract keywords...")
     response = client.chat_completion(model=model, messages=messages)
     return [kw.strip() for kw in response.split(",") if kw.strip()]
 
 
 # ---- Functions from dynamic_update.py (to be used by Updater class) ----
 def check_conversation_continuity(
-    previous_page, current_page, client: OpenAIClient, model="gpt-4o-mini"
+    previous_page, current_page, client: LLMClient, model="gpt-4o-mini"
 ):
     prev_user = previous_page.get("user_input", "") if previous_page else ""
     prev_agent = previous_page.get("agent_response", "") if previous_page else ""
@@ -288,7 +340,7 @@ def check_conversation_continuity(
 
 
 def generate_page_meta_info(
-    last_page_meta, current_page, client: OpenAIClient, model="gpt-4o-mini"
+    last_page_meta, current_page, client: LLMClient, model="gpt-4o-mini"
 ):
     current_conversation = f"User: {current_page.get('user_input', '')}\nAssistant: {current_page.get('agent_response', '')}"
     user_prompt = prompts.META_INFO_USER_PROMPT.format(
@@ -302,3 +354,5 @@ def generate_page_meta_info(
     return client.chat_completion(
         model=model, messages=messages, temperature=0.3, max_tokens=100
     ).strip()
+
+__all__ = ["LLMClient", "OpenAIClient", "GroqClient"]

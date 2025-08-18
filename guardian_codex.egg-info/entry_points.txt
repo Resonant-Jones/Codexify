@@ -1,2 +1,5 @@
 [console_scripts]
-guardian = guardian.cli.plugin_cli:main
+guardian = guardian.cli.memoryos_cli:cli
+guardian-api = guardian.server.run:main
+guardian-diag = guardian.tui.diag_app:main
+guardian-main = guardian.guardian_main:app

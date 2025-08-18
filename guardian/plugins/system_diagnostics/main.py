@@ -1,3 +1,4 @@
+from datetime import UTC
 """
 System Diagnostics Plugin
 ------------------------
@@ -10,13 +11,13 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
-from guardian.threads.thread_manager import ThreadManager
+from guardian.threads_structure.thread_manager import ThreadManager
 from guardian.logging_config import configure_logging
 
 # Configure logging
@@ -40,7 +41,7 @@ class DiagnosticResult:
         self.value = value
         self.threshold = threshold
         self.metadata = metadata or {}
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
         self.anomaly_score = self._calculate_anomaly_score()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -128,7 +129,12 @@ class SystemDiagnostics:
                 memory_info = self.diagnostics.thread_manager.get_memory_info()
                 usage = memory_info.get("usage_percent", 0.0)
                 threshold = 80.0
-                status = "healthy" if usage < threshold else "warning"
+                def _lt(a, b):
+                    try:
+                        return float(a) < float(b)
+                    except (TypeError, ValueError):
+                        return False
+                status = "healthy" if _lt(usage, threshold) else "warning"
 
                 result = DiagnosticResult(
                     check_type="memory",
@@ -172,7 +178,12 @@ class SystemDiagnostics:
                                 dead_threads += 1
 
                 threshold = self.diagnostics.config.get("max_dead_threads", 5)
-                status = "healthy" if dead_threads < threshold else "warning"
+                def _lt(a, b):
+                    try:
+                        return float(a) < float(b)
+                    except Exception:
+                        return False
+                status = "healthy" if _lt(dead_threads, threshold) else "warning"
 
                 result = DiagnosticResult(
                     check_type="threads",
@@ -247,7 +258,12 @@ class SystemDiagnostics:
                 perf_info = await self.diagnostics._check_performance()
                 response_time = perf_info["avg_response_time"]
                 threshold = self.diagnostics.config.get("max_response_time", 1000)
-                status = "healthy" if response_time < threshold else "warning"
+                def _lt(a, b):
+                    try:
+                        return float(a) < float(b)
+                    except (TypeError, ValueError):
+                        return False
+                status = "healthy" if _lt(response_time, threshold) else "warning"
 
                 result = DiagnosticResult(
                     "performance", status, response_time, threshold, metadata=perf_info
@@ -268,7 +284,12 @@ class SystemDiagnostics:
                 error_info = self.diagnostics._check_errors()
                 error_rate = error_info["error_rate"]
                 threshold = self.diagnostics.config.get("max_error_rate", 0.1)
-                status = "healthy" if error_rate < threshold else "warning"
+                def _lt(a, b):
+                    try:
+                        return float(a) < float(b)
+                    except (TypeError, ValueError):
+                        return False
+                status = "healthy" if _lt(error_rate, threshold) else "warning"
 
                 result = DiagnosticResult(
                     "errors", status, error_rate, threshold, metadata=error_info
@@ -310,7 +331,7 @@ class SystemDiagnostics:
                 "plugins": plugins,
                 "total": len(plugins),
                 "healthy": len([p for p in plugins if p["status"] == "healthy"]),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as e:
             logger.error(f"Plugin check failed: {e}")
@@ -344,7 +365,7 @@ class SystemDiagnostics:
                 "agents": agents,
                 "total": len(agents),
                 "healthy": len([a for a in agents if a["status"] == "healthy"]),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as e:
             logger.error(f"Agent check failed: {e}")
@@ -358,35 +379,35 @@ class SystemDiagnostics:
                 "throughput": metrics["throughput"],
                 "cpu_usage": metrics["cpu_usage"],
                 "memory_usage": metrics["memory_usage"],
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as e:
             logger.error(f"Performance check failed: {e}")
-            return {"error": str(e), "timestamp": datetime.utcnow().isoformat()}
+            return {"error": str(e), "timestamp": datetime.now(UTC).isoformat()}
 
     def _check_errors(self) -> Dict[str, Any]:
         try:
             total_ops = sum(
                 1
                 for r in self.check_results
-                if r.timestamp > datetime.utcnow() - timedelta(hours=1)
+                if r.timestamp > datetime.now(UTC) - timedelta(hours=1)
             )
             error_count = sum(
                 1
                 for r in self.check_results
                 if r.status == "error"
-                and r.timestamp > datetime.utcnow() - timedelta(hours=1)
+                and r.timestamp > datetime.now(UTC) - timedelta(hours=1)
             )
             error_rate = error_count / total_ops if total_ops else 0
             return {
                 "error_rate": error_rate,
                 "error_count": error_count,
                 "total_operations": total_ops,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as e:
             logger.error(f"Error check failed: {e}")
-            return {"error": str(e), "timestamp": datetime.utcnow().isoformat()}
+            return {"error": str(e), "timestamp": datetime.now(UTC).isoformat()}
 
     def _store_results(self, results: Dict[str, Any]) -> None:
         try:
@@ -407,7 +428,7 @@ class SystemDiagnostics:
                 content={
                     "type": "diagnostic_results",
                     "results": results,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 source="system_diagnostics",
                 tags=["diagnostics", "system_health"],
@@ -466,7 +487,7 @@ class SystemDiagnostics:
                     self.check_results.append(result)
 
                 # Update last check timestamp
-                self.last_check = datetime.utcnow()
+                self.last_check = datetime.now(UTC)
 
                 # Trim results to max history
                 while len(self.check_results) > self.config.get("max_history", 100):
@@ -504,7 +525,7 @@ class SystemDiagnostics:
                     content={
                         "type": "system_alert",
                         "alert": alert,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                     source="system_diagnostics",
                     tags=["alert"],

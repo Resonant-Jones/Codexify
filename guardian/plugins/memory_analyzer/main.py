@@ -1,6 +1,7 @@
+from datetime import UTC
 # guardian/plugins/memory_analyzer/main.py
 
-from datetime import datetime
+from datetime import datetime, UTC
 
 
 class MemoryAnalyzer:
@@ -43,4 +44,4 @@ class MemoryAnalyzer:
         }
 
     def health_check(self) -> dict:
-        return {"status": "healthy", "timestamp": datetime.utcnow().isoformat() + "Z"}
+        return {"status": "healthy", "timestamp": datetime.now(UTC).isoformat()}

@@ -1,70 +1,54 @@
-# guardian/config.py
-
 import sys
 import os
 from typing import Optional, Literal
 
-from pydantic import Field, ValidationError, ConfigDict
+from pydantic import Field, ValidationError, ConfigDict, model_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    DEFAULT_RATE_LIMIT: float = 0.1  # seconds between plugin calls
-    MEMORY_BATCH_SIZE: int = 100  # Default batch size for the SafeLogger
-    MEMORY_FLUSH_INTERVAL: float = 5.0  # Or your default interval in seconds
-    MAX_MEMORY_BUFFER: int = 1000  # Or whatever cap you want
-    LOG_DIR: str = "logs"  # Default log directory for SafeLogger
+    DEFAULT_RATE_LIMIT: float = 0.1
+    MEMORY_BATCH_SIZE: int = 100
+    MEMORY_FLUSH_INTERVAL: float = 5.0
+    MAX_MEMORY_BUFFER: int = 1000
+    LOG_DIR: str = "logs"
     SAFE_MODE: bool = False
     SAFE_MODE_RATE_LIMIT: float = 0.01
-    CACHE_ENABLED: bool = (
-        True  # Toggle for enabling/disabling caching in plugin execution
-    )
-    PLUGIN_DIR: str = "guardian/plugins"  # Default plugin directory path
+    CACHE_ENABLED: bool = True
+    PLUGIN_DIR: str = "guardian/plugins"
+
     # Core/legacy
-    GENAI_API_KEY: str = Field(None, description="Google Gemini API Key")
+    GENAI_API_KEY: Optional[str] = Field(None, description="Google Gemini API Key")
     GUARDIAN_DB_PATH: str = Field("guardian.db", description="SQLite DB path")
-    NOTION_API_KEY: str = Field(None, description="Notion API Key (optional)")
+    NOTION_API_KEY: Optional[str] = Field(None, description="Notion API Key (optional)")
 
     # Google Gemini & Cloud
     GOOGLE_API_KEY: Optional[str] = None
 
     # OpenAI
-    OPENAI_API_KEY: str = Field(None, description="OpenAI API Key")
-    OPENAI_API_ENDPOINT: str = Field(
-        "https://api.openai.com/v1", description="OpenAI API Endpoint"
-    )
-    OPENAI_MODEL: str = Field(
-        "gpt-4", description="OpenAI model name (e.g., gpt-4, gpt-3.5-turbo)"
-    )
+    OPENAI_API_KEY: Optional[str] = Field(None, description="OpenAI API Key")
+    OPENAI_API_ENDPOINT: str = Field("https://api.openai.com/v1", description="OpenAI API Endpoint")
+    OPENAI_MODEL: str = Field("gpt-4", description="OpenAI model name (e.g., gpt-4, gpt-3.5-turbo)")
+
     # Groq
-    GROQ_API_KEY: str = Field(None, description="Groq API Key")
-    GROQ_API_ENDPOINT: str = Field(
-        "https://api.groq.com/openai/v1", description="Groq API Endpoint"
-    )
-    GROQ_MODEL: str = Field(
-        "meta-llama/llama-4-scout-17B-16e-instruct", description="Groq Model"
-    )
+    GROQ_API_KEY: Optional[str] = Field(None, description="Groq API Key")
+    GROQ_API_ENDPOINT: str = Field("https://api.groq.com/openai/v1", description="Groq API Endpoint")
+    GROQ_MODEL: str = Field("meta-llama/llama-4-scout-17B-16e-instruct", description="Groq Model")
     GROQ_VISION_MODEL: str = Field(
         "meta-llama/llama-4-scout-17b-16e-instruct",
         description="Groq Vision model for image input",
     )
 
     # Anthropic
-    ANTHROPIC_API_KEY: str = Field(None, description="Anthropic Claude API Key")
-    ANTHROPIC_API_ENDPOINT: str = Field(
-        "https://api.anthropic.com/v1", description="Anthropic API Endpoint"
-    )
-    ANTHROPIC_MODEL: str = Field(
-        "claude-3-opus-20240229", description="Anthropic Claude model name"
-    )
+    ANTHROPIC_API_KEY: Optional[str] = Field(None, description="Anthropic Claude API Key")
+    ANTHROPIC_API_ENDPOINT: str = Field("https://api.anthropic.com/v1", description="Anthropic API Endpoint")
+    ANTHROPIC_MODEL: str = Field("claude-3-opus-20240229", description="Anthropic Claude model name")
 
     # Backend selector
     AI_BACKEND: Literal["ollama", "openai", "gemini", "groq", "anthropic"] = Field(
         "groq", description="Active AI backend"
     )
-    ENV: str = Field(
-        "development", description="Environment: development or production"
-    )
+    ENV: str = Field("development", description="Environment: development or production")
 
     # Ollama (Local LLM)
     OLLAMA_MODEL: str = Field(
@@ -74,29 +58,38 @@ class Settings(BaseSettings):
     OLLAMA_HOST: str = Field("http://localhost:11434", description="Ollama server URL")
 
     # ===== PulseOS Routing Layer =====
-    # These settings control AI routing behavior (local/cloud/hybrid)
-    # AI Routing Toggles
-    CLOUD_ONLY: bool = Field(
-        False,
-        description="Force all LLM calls to cloud backend (overrides hybrid/local)",
-    )
-    HYBRID_ENABLED: bool = Field(
-        True,
-        description="Enable hybrid routing: cloud for research/search, local for chat/general)",
-    )
-    LOCAL_MODEL_NAME: str = Field(
-        "gemma3n", description="Default local model name (e.g., gemma3n for mobile)"
-    )
-    LOCAL_API_HOST: str = Field(
-        "http://localhost:11434", description="Local API host (or mobile endpoint)"
-    )
-    CLOUD_MODEL_NAME: str = Field(
-        "gemini", description="Default cloud model name (e.g., gpt-4, gemini-pro)"
-    )
+    CLOUD_ONLY: bool = Field(False, description="Force all LLM calls to cloud backend")
+    HYBRID_ENABLED: bool = Field(True, description="Enable hybrid routing")
+    LOCAL_MODEL_NAME: str = Field("gemma3n", description="Default local model name")
+    LOCAL_API_HOST: str = Field("http://localhost:11434", description="Local API host")
+    CLOUD_MODEL_NAME: str = Field("gemini", description="Default cloud model name")
     CLOUD_API_HOST: str = Field(
         "https://generativelanguage.googleapis.com/v1/models",
         description="Cloud API endpoint",
     )
+
+    @model_validator(mode="after")
+    def _validate_provider_keys(self):
+        """In development: do not hard-fail on missing keys; in production: enforce."""
+        backend = (self.AI_BACKEND or "").lower()
+        required_map = {
+            "openai": ("OPENAI_API_KEY",),
+            "gemini": ("GENAI_API_KEY", "GOOGLE_API_KEY"),
+            "groq": ("GROQ_API_KEY",),
+            "anthropic": ("ANTHROPIC_API_KEY",),
+            "ollama": tuple(),
+        }
+        required = required_map.get(backend, tuple())
+        if self.ENV == "production" and required:
+            if backend == "gemini":
+                has_any = any(bool(getattr(self, k, None)) for k in required)
+                if not has_any:
+                    raise ValueError("Missing API key for 'gemini': set GENAI_API_KEY or GOOGLE_API_KEY.")
+            else:
+                missing = [k for k in required if not getattr(self, k, None)]
+                if missing:
+                    raise ValueError(f"Missing API key(s) for '{backend}': {', '.join(missing)}")
+        return self
 
     model_config = ConfigDict(
         env_file=".env",
@@ -105,62 +98,45 @@ class Settings(BaseSettings):
     )
 
 
-# ===== Helper functions for backend/model/key selection =====
-
-
 def get_active_model(settings: Settings) -> str:
-    """Resolve the currently active model based on backend setting."""
     backend = settings.AI_BACKEND.lower()
     if backend == "ollama":
         return settings.OLLAMA_MODEL
-    elif backend == "openai":
-        return "gpt-4"
-    elif backend == "gemini":
+    if backend == "openai":
+        return settings.OPENAI_MODEL
+    if backend == "gemini":
         return settings.CLOUD_MODEL_NAME
-    elif backend == "groq":
+    if backend == "groq":
         return settings.GROQ_MODEL
-    elif backend == "anthropic":
+    if backend == "anthropic":
         return settings.ANTHROPIC_MODEL
     return "unknown"
 
 
-# ===== New helper function: get_model_and_host =====
-
-
 def get_model_and_host(settings: Settings) -> tuple[str, str]:
-    """Resolve both the model name and its corresponding endpoint based on the backend."""
     backend = settings.AI_BACKEND.lower()
     if backend == "ollama":
         return settings.OLLAMA_MODEL, settings.OLLAMA_HOST
-    elif backend == "openai":
-        return "gpt-4", "https://api.openai.com/v1"
-    elif backend == "gemini":
+    if backend == "openai":
+        return settings.OPENAI_MODEL, settings.OPENAI_API_ENDPOINT
+    if backend == "gemini":
         return settings.CLOUD_MODEL_NAME, settings.CLOUD_API_HOST
-    elif backend == "groq":
+    if backend == "groq":
         return settings.GROQ_MODEL, settings.GROQ_API_ENDPOINT
-    elif backend == "anthropic":
+    if backend == "anthropic":
         return settings.ANTHROPIC_MODEL, settings.ANTHROPIC_API_ENDPOINT
     return "unknown", "unknown"
 
 
-# ===== Backend capability helper =====
 def is_backend_capable(settings: Settings, capability: str) -> bool:
-    """Check if the current backend supports a specific capability (e.g., can_search, can_stream)."""
     capabilities = get_backend_capabilities(settings)
     return capabilities.get(capability, False)
 
 
-# ===== Backend helper functions =====
 def is_cloud_backend(settings: Settings) -> bool:
-    """
-    Return True if CLOUD_BACKEND environment variable is truthy
-    or if the AI_BACKEND setting indicates a cloud provider.
-    """
-    # Environment override
     if os.getenv("CLOUD_BACKEND", "false").lower() in ("1", "true", "yes"):
         return True
-    # Fallback to settings.AI_BACKEND
-    return settings.AI_BACKEND.lower() in {"openai", "gemini", "groq"}
+    return settings.AI_BACKEND.lower() in {"openai", "gemini", "groq", "anthropic"}
 
 
 def get_backend_capabilities(settings: Settings) -> dict:
@@ -175,16 +151,14 @@ def get_backend_capabilities(settings: Settings) -> dict:
 
 
 def warn_if_missing_keys(settings: Settings):
-    """Warn if required API keys are missing based on active backend."""
-    BACKEND_KEYS = {
-        "openai": "OPENAI_API_KEY",
-        "gemini": "GENAI_API_KEY",
-        "groq": "GROQ_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-    }
-    backend = settings.AI_BACKEND.lower()
-    key_attr = BACKEND_KEYS.get(backend)
+    if settings.ENV == "production":
+        return
+    backend = (settings.AI_BACKEND or "").lower()
+    if backend == "gemini":
+        if not (getattr(settings, "GENAI_API_KEY", None) or getattr(settings, "GOOGLE_API_KEY", None)):
+            print("⚠️  Warning: Missing Gemini API key (set GENAI_API_KEY or GOOGLE_API_KEY).")
+        return
+    key_attr = {"openai": "OPENAI_API_KEY", "groq": "GROQ_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(backend)
     if key_attr and not getattr(settings, key_attr, None):
         print(f"⚠️  Warning: Missing {backend.capitalize()} API key.")
 
@@ -197,9 +171,7 @@ def print_config_errors(e: ValidationError):
     print("\nTo fix, set these as environment variables or in your .env file.")
 
 
-# ===== PulseOS Configuration Summary =====
 def config_summary(settings: Settings):
-    """Print a summary of the current configuration state."""
     print("🧩 PulseOS Backend Configuration Summary")
     print("─────────────────────────────────────────")
     print(f"🔧 AI_BACKEND         : {settings.AI_BACKEND}")
@@ -216,25 +188,32 @@ def config_summary(settings: Settings):
 
 
 def get_settings() -> Settings:
+    """
+    Load Settings. In production, fail fast on invalid/missing config.
+    In tests/CI only, allow benign dummy fallbacks so import-time validation
+    doesn’t kill pytest collection.
+    """
     try:
-        settings = Settings()
+        return Settings()
     except ValidationError as e:
-        print_config_errors(e)
+        # Only soften behavior in test/CI contexts
+        if (
+            os.getenv("GUARDIAN_ALLOW_DUMMY_SETTINGS") == "1"
+            or os.getenv("PYTEST_CURRENT_TEST")
+            or os.getenv("GITHUB_ACTIONS") == "true"
+        ):
+            print_config_errors(e)
+            overrides = {
+                "GENAI_API_KEY": os.getenv("GENAI_API_KEY", "dummy"),
+                "NOTION_API_KEY": os.getenv("NOTION_API_KEY", "dummy"),
+                "ANTHROPIC_API_KEY": os.getenv("ANTHROPIC_API_KEY", "dummy"),
+            }
+            return Settings(**overrides)
+        # Not a test/CI context: keep strong validation
         raise
 
-    # Enforce Groq-only backend in production
-    if settings.ENV == "production" and settings.AI_BACKEND.lower() != "groq":
-        raise RuntimeError("❌ In production, only the Groq backend is supported.")
 
-    if settings.ENV == "production":
-        settings.GROQ_MODEL = "meta-llama/llama-4-scout-17B-16e-instruct"
-
-    return settings
-
-
-# ===== CLI Utility Wrapper =====
 def print_config_status():
-    """Convenience function to print config summary + key warnings."""
     try:
         settings = get_settings()
         config_summary(settings)
@@ -243,5 +222,8 @@ def print_config_status():
         print_config_errors(e)
 
 
-# Alias for legacy compatibility
 Config = Settings
+
+
+def get_settings_no_env(**overrides) -> Settings:
+    return Settings(_env_file=None, **overrides)
