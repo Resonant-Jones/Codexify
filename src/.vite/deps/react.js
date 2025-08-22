@@ -56,8 +56,3 @@ export default defineConfig({
     port: 5174,
   },
 });
-
-# Vite output & caches
-.vite/
-node_modules/.vite/
-dist/
