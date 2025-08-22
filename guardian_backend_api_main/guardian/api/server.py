@@ -5,7 +5,7 @@ Handles user authentication, chat, and profile management
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -71,7 +71,7 @@ class UserSettingsUpdate(BaseModel):
 
 def create_jwt_token(user_id: int, username: str) -> str:
     """Create a JWT token for the user"""
-    expiration = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    expiration = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
     return jwt.encode(
         {"user_id": user_id, "username": username, "exp": expiration},
         JWT_SECRET,

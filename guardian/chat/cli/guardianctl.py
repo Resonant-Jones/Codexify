@@ -9,7 +9,7 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -82,7 +82,7 @@ def query_memory(args: argparse.Namespace) -> None:
     end_time = None
 
     if args.last:
-        start_time = datetime.utcnow() - timedelta(hours=args.last)
+        start_time = datetime.now(timezone.utc) - timedelta(hours=args.last)
     else:
         if args.start:
             start_time = datetime.fromisoformat(args.start)

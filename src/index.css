@@ -29,23 +29,20 @@ img, svg, video, canvas { display: block; }
    (AppShell will override via inline styleVars)
 --------------------------*/
 :root {
-  --accent: #7c3aed;
-  --accent-weak: #a3e635;        /* focus rings, subtle accents */
-  --accent-strong: #6d28d9;
-
-  --panel-bg: #f3f4f6;           /* light card/panel */
+  --accent: #6B7280;
+  --accent-weak: #7c8491;
+  --accent-strong: #5b6575;
+  --panel-bg: #f3f4f6;
   --panel-border: #e5e7eb;
   --chip-bg: #e5e7eb;
-
-  --text: #111827;               /* near-black */
-  --muted: #374151;              /* labels, hints */
+  --text: #111827;
+  --muted: #374151;
 }
 
 .dark:root {
-  --panel-bg: #202020;           /* dark card/panel */
+  --panel-bg: #202020;
   --panel-border: #3f3f3f;
   --chip-bg: #2f2f2f;
-
   --text: #ffffff;
   --muted: rgba(255,255,255,0.88);
 }
@@ -86,18 +83,11 @@ hr { border-color: var(--panel-border); }
 }
 
 /* Frosted "glass" card (Dashboard/Workspace back card) */
-.glass-card {
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)),
-    rgba(255,255,255,.06);
-  border: 1px solid var(--panel-border);
-  box-shadow:
-    inset 0 1px rgba(255,255,255,.18),
-    inset 0 -1px rgba(0,0,0,.25),
-    0 10px 22px rgba(0,0,0,.25);
+.glass-surface {
   backdrop-filter: blur(12px) saturate(120%);
   -webkit-backdrop-filter: blur(12px) saturate(120%);
-  border-radius: 1rem; /* matches your rounded-2xl look */
+  box-shadow: inset 0 1px rgba(255,255,255,0.18), inset 0 -1px rgba(0,0,0,0.25), 0 10px 22px rgba(0,0,0,0.25);
+  background: linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)), rgba(255,255,255,0.06);
 }
 
 /* Optional: subtle “edge refraction” sheen on glass edges */
