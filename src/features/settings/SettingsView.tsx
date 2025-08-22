@@ -137,6 +137,19 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
                     Clear
                   </Button>
                 )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-xl"
+                  onClick={() => {
+                    const url = "https://images.unsplash.com/photo-1596709031408-b0b2c9659c8a?q=80&w=1440&auto=format&fit=crop";
+                    setWallpaper(url);
+                    if (typeof window !== "undefined") localStorage.setItem("cfy.wallpaper", url);
+                  }}
+                >
+                  Use Demo
+                </Button>
                 <span className="text-xs opacity-70">{fileLabel}</span>
               </div>
             </div>
