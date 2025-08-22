@@ -77,3 +77,12 @@ groq-code-cli/
 .vite/
 node_modules/.vite/
 dist/
+
+# --- allow Vitest files in src ---
+!src/**/__tests__/
+!src/**/__tests__/**
+!src/**/*.test.ts
+!src/**/*.test.tsx
+!src/vitest.config.ts
+!src/test/
+!src/test/**/*
