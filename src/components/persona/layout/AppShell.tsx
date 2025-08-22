@@ -200,10 +200,10 @@ export function AppShell({}: PropsWithChildren) {
           )}
           {view === "dashboard" && (
             <div className="flex min-h-0 w-full gap-3">
-              <ReactiveGlassCard className="flex min-w-0 flex-1 rounded-2xl overflow-hidden glass-surface">
+              <ReactiveGlassCard wallpaperUrl={wallpaper} className="flex min-w-0 flex-1 rounded-2xl overflow-hidden glass-surface">
                 <DashboardView extColors={extColors} gallery={gallery} onImagePrompt={openChatWithPrompt} />
               </ReactiveGlassCard>
-              <ReactiveGlassCard className="glass-surface"><WorkspacePane /></ReactiveGlassCard>
+              <ReactiveGlassCard wallpaperUrl={wallpaper} className="glass-surface"><WorkspacePane /></ReactiveGlassCard>
             </div>
           )}
           {view === "settings" && (
@@ -235,7 +235,7 @@ export function AppShell({}: PropsWithChildren) {
                   setExtColors={setExtColors}
                 />
               </div>
-              <ReactiveGlassCard className="glass-surface"><WorkspacePane /></ReactiveGlassCard>
+              <ReactiveGlassCard wallpaperUrl={wallpaper} className="glass-surface"><WorkspacePane /></ReactiveGlassCard>
             </div>
           )}
         </div>
