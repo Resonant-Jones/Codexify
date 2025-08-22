@@ -1,17 +1,7 @@
 import * as React from "react";
 
-export const Separator = ({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div
-    role="separator"
-    className={
-      "h-px w-full bg-[var(--panel-border)] " + (className || "")
-    }
-    {...props}
-  />
+export const Separator = ({ className = "", ...props }: { className?: string } & React.HTMLAttributes<HTMLHRElement>) => (
+  <hr className={("border-t border-[var(--panel-border)] " + className).trim()} {...props} />
 );
 
 export default Separator;
-

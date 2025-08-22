@@ -10,7 +10,7 @@ export const Card = React.forwardRef<HTMLDivElement, DivProps>(
     <div
       ref={ref}
       className={cx(
-        "rounded-xl border bg-[var(--panel-bg)] text-[var(--text)]",
+        "rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)]/60 backdrop-blur-md text-[var(--text)]",
         className
       )}
       {...props}
@@ -36,4 +36,3 @@ export const CardFooter = ({ className, ...props }: DivProps) => (
 );
 
 export default Card;
-
