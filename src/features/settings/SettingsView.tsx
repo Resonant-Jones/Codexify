@@ -128,8 +128,9 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
               <div className="text-sm font-semibold">Wallpaper</div>
               <div className="flex items-center gap-2">
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
-                <Button type="button" variant="outline" className="rounded-xl" onClick={triggerFile}>
-                  <ImagePlus className="mr-2 h-4 w-4" /> Choose Image
+                <Button type="button" variant="ghost" size="sm" className="rounded-xl flex items-center gap-2" onClick={triggerFile}>
+                  <ImagePlus className="h-4 w-4" />
+                  Choose Image
                 </Button>
                 {wallpaper && (
                   <Button type="button" variant="ghost" className="rounded-xl" onClick={clearWallpaper}>
@@ -147,4 +148,3 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
 }
 
 export default SettingsView;
-

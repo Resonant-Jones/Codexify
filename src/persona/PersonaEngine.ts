@@ -49,11 +49,12 @@ export const PersonaEngine = {
   ): Promise<GenerationResult> {
     if (isTauri()) {
       const { invoke } = await new Function('return import("@tauri-apps/api/tauri")')();
-      return await invoke<GenerationResult>("generate_with_memory", {
+      const out = (await invoke("generate_with_memory", {
         inputPrompt: input_prompt,
         personaId: persona_id,
         memoryTags: memory_tags,
-      });
+      })) as GenerationResult;
+      return out;
     }
     return {
       completion: "Mock response for web preview.",
@@ -68,9 +69,10 @@ export const PersonaEngine = {
   async getAllTags(persona_id: string): Promise<TagStats[]> {
     if (isTauri()) {
       const { invoke } = await new Function('return import("@tauri-apps/api/tauri")')();
-      return await invoke<TagStats[]>("get_all_tags", {
+      const tags = (await invoke("get_all_tags", {
         personaId: persona_id,
-      });
+      })) as TagStats[];
+      return tags;
     }
     return [
       { tag: "example", count: 1 },

@@ -5,7 +5,7 @@ interface PersonaContextProps {
   activePersonaId: string;
   setActivePersonaId: (id: string) => void;
   memoryTags: string[];
-  setMemoryTags: (tags: string[]) => void;
+  setMemoryTags: React.Dispatch<React.SetStateAction<string[]>>;
   recentTags: string[];
   setRecentTags: (tags: string[]) => void;
   debugMode: boolean;
@@ -93,10 +93,19 @@ export const PersonaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     console.warn(`[Persona] normalized ${kind}`, { inCount: input.length, outCount: output.length, dropped, added, sampleIn, sampleOut });
   };
 
-  const setMemoryTagsNormalized = (tags: string[]) => {
-    const out = normalizeMemory(tags);
-    devWarnNormalization("memoryTags", tags, out);
-    setMemoryTagsState(out);
+  const setMemoryTagsNormalized: React.Dispatch<React.SetStateAction<string[]>> = (next) => {
+    if (typeof next === "function") {
+      setMemoryTagsState((prev) => {
+        const raw = (next as (p: string[]) => string[])(prev);
+        const out = normalizeMemory(raw);
+        devWarnNormalization("memoryTags", raw, out);
+        return out;
+      });
+    } else {
+      const out = normalizeMemory(next);
+      devWarnNormalization("memoryTags", next, out);
+      setMemoryTagsState(out);
+    }
   };
   const setRecentTagsNormalized = (tags: string[]) => {
     const out = normalizeRecent(tags);

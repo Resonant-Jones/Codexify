@@ -61,38 +61,43 @@ export const RefractiveGlassCard: React.FC<Props> = ({
 
   useEffect(() => {
     if (!ready || failed) return;
-    const canvas = canvasRef.current!;
-    const el = containerRef.current!;
-    const gl = canvas.getContext("webgl2", { premultipliedAlpha: true });
+    const canvas = canvasRef.current;
+    const el = containerRef.current;
+    if (!canvas || !el) return;
+    const gl = canvas.getContext("webgl2", { premultipliedAlpha: true }) as WebGL2RenderingContext | null;
     if (!gl) { setFailed(true); return; }
 
     const vert = `#version 300 es\nprecision highp float;\nlayout(location=0) in vec2 position;\nout vec2 vUv;\nvoid main(){ vUv = position*0.5+0.5; gl_Position = vec4(position,0.0,1.0); }`;
 
     const frag = `#version 300 es\nprecision highp float;\nuniform sampler2D uTex;\nuniform vec2 uCanvasSize;\nuniform vec2 uWindowSize;\nuniform vec2 uImageSize;\nuniform vec2 uCoverSize;\nuniform vec2 uCoverOffset;\nuniform vec2 uCanvasTopLeft;\nuniform float uRadius;\nuniform float uIntensity;\nuniform float uAberration;\nin vec2 vUv;\nout vec4 outColor;\nfloat sdRoundRect(vec2 p, vec2 b, float r){ vec2 q = abs(p)-b+r; return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r; }\nvec2 toWindow(vec2 uv){ return uCanvasTopLeft + uv * uCanvasSize; }\nvec2 windowToImage(vec2 wp){ vec2 p = (wp - uCoverOffset)/uCoverSize; return p; }\nvec3 sampleWP(vec2 uv){ return texture(uTex, uv).rgb; }\nvoid main(){ vec2 size = uCanvasSize; vec2 p = (vUv*size); vec2 halfSize = size*0.5; float r = uRadius; float sdf = sdRoundRect(p-halfSize, halfSize - vec2(1.0), r); float edge = smoothstep(2.0, 0.0, abs(sdf)); vec2 n = normalize(vec2(dFdx(sdf), dFdy(sdf)) + 1e-5); float k = clamp(1.0-abs(sdf)/r,0.0,1.0); float mag = uIntensity * k; vec2 wp = toWindow(vUv); vec2 baseUV = windowToImage(wp); vec2 offs = n * mag; vec3 col; col.r = sampleWP(baseUV + offs*uAberration).r; col.g = sampleWP(baseUV).g; col.b = sampleWP(baseUV - offs*uAberration).b; float bevelHi = smoothstep(-1.5, -0.5, -sdf); float bevelLo = smoothstep(-2.0, -0.5, sdf); col = mix(col, col*0.96, bevelLo*0.5); col += 0.06*bevelHi; outColor = vec4(col, edge*0.95); }`;
 
-    function sh(type: number, src: string) {
-      const s = gl.createShader(type)!;
+    function compileShader(type: number, src: string): WebGLShader | null {
+      const s = gl.createShader(type);
+      if (!s) { setFailed(true); return null; }
       gl.shaderSource(s, src);
       gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { setFailed(true); return null; }
       return s;
     }
 
-    const vs = sh(gl.VERTEX_SHADER, vert);
-    const fs = sh(gl.FRAGMENT_SHADER, frag);
+    const vs = compileShader(gl.VERTEX_SHADER, vert);
+    const fs = compileShader(gl.FRAGMENT_SHADER, frag);
     if (!vs || !fs) return;
-    const prog = gl.createProgram()!;
+    const prog = gl.createProgram();
+    if (!prog) { setFailed(true); return; }
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.bindAttribLocation(prog, 0, "position");
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { setFailed(true); return; }
 
-    const quad = gl.createBuffer()!;
+    const quad = gl.createBuffer();
+    if (!quad) { setFailed(true); return; }
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
 
-    const tex = gl.createTexture()!;
+    const tex = gl.createTexture();
+    if (!tex) { setFailed(true); return; }
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
