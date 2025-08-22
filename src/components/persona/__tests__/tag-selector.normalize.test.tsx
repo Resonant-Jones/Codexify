@@ -30,12 +30,11 @@ test("add trims input, prevents duplicates, remove works", async () => {
   await u.clear(input);
   await u.type(input, "Alpha");
   await u.click(addBtn);
-  const alphas = screen.getAllByText(/^alpha$/i);
-  expect(alphas).toHaveLength(1);
+  const removeBtns = screen.getAllByRole("button", { name: /remove alpha/i });
+  expect(removeBtns).toHaveLength(1);
 
   // Remove via “Remove alpha” button (TagSelector should set aria-label like this)
   const remove = screen.getByRole("button", { name: /remove alpha/i });
   await u.click(remove);
   expect(screen.queryByText(/^alpha$/i)).not.toBeInTheDocument();
 });
-

@@ -6,7 +6,6 @@ import AppShell from "@/components/persona/layout/AppShell";
 // JSDOM: stub matchMedia so "system" resolves predictably
 beforeAll(() => {
   // Light by default
-  // @ts-expect-error jsdom shim
   window.matchMedia = (q: string) => ({
     media: q,
     matches: false,
@@ -39,4 +38,3 @@ test("Settings/Appearance toggles dark class on <html>", async () => {
   await u.click(screen.getByRole("button", { name: /^light$/i }));
   expect(document.documentElement.classList.contains("dark")).toBe(false);
 });
-

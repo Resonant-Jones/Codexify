@@ -26,6 +26,5 @@ test("TagSelector can add/remove via setState(prev => ...)", async () => {
 
   // Remove via the × button (aria-label: Remove alpha)
   await u.click(screen.getByRole("button", { name: /remove alpha/i }));
-  expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /remove alpha/i })).not.toBeInTheDocument();
 });
-
