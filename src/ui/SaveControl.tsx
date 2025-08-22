@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { savePrimary, getPins } from '@/hooks/useSaveRitual';
 
 export function SaveControl({ payload, projectSlug }:{
@@ -41,7 +41,3 @@ const caret = ()=>({ padding:'6px 8px', borderRadius:10, border:'1px solid rgba(
 const menu = ()=>({ position:'absolute' as const, top:34, right:0, background:'rgba(0,0,0,.85)', color:'#fff', border:'1px solid rgba(255,255,255,.15)', borderRadius:10, padding:6, minWidth:180, zIndex:999 });
 const row = (kind?:'muted')=>({ display:'block', width:'100%', textAlign:'left' as const, padding:'6px 8px', borderRadius:8, border:0, background:'transparent', color: kind==='muted'?'#ddd':'#fff', cursor:'pointer' });
 const empty = ()=>({ fontSize:12, opacity:.8, padding:'6px 8px' });
-
-
-
-

@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.tauri.dev",
   "build": {
-    "frontendDist": "../src/dist",
+    "frontendDist": "./src/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "bash scripts/dev-frontend.sh",
-    "beforeBuildCommand": "npm --prefix ../src run build"
+    "beforeDevCommand": "pnpm -C ./src dev",
+    "beforeBuildCommand": "pnpm -C ./src build"
   },
   "app": {
     "windows": [
@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' http://localhost:5173; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' 'unsafe-inline' http://localhost:5173; connect-src 'self' http://localhost:5173 http://127.0.0.1:8888 ws://localhost:5173 ws://127.0.0.1:5173"
+      "csp": "default-src 'self' http://localhost:5173; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' 'unsafe-inline' http://localhost:5173; connect-src 'self' http://localhost:5173 http://127.0.0.1:8888 ws://localhost:5173 ws://127.0.0.1:5173 https:"
     }
   },
   "bundle": {

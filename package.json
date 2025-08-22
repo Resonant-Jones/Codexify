@@ -22,6 +22,10 @@
   },
   "homepage": "https://github.com/Resonant-Jones/guardian-backend#readme",
   "devDependencies": {
-    "@google/gemini-cli": "^0.1.11"
+    "@google/gemini-cli": "^0.1.11",
+    "@tauri-apps/cli": "^2.8.1"
+  },
+  "dependencies": {
+    "lucide-react": "^0.540.0"
   }
 }

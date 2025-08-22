@@ -1,6 +1,6 @@
 import React from "react";
 
-const NavItem: React.FC<{ label: string }>= ({ label }) => (
+const NavItem: React.FC<{ label: string }> = ({ label }) => (
   <button className="w-full text-left px-3 py-2 rounded-md hover:bg-white/5">
     {label}
   </button>

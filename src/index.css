@@ -1,60 +1,122 @@
+/* -------------------------
+   Tailwind + base plumbing
+--------------------------*/
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Let the browser pick light/dark palettes where it helps (e.g., form controls) */
+:root { color-scheme: light dark; }
+
+/* Full-height app; prevent white flash; good text rendering */
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: #000; /* Wallpaper/gradient sits on top via AppShell inline style */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "kern" 1, "liga" 1, "clig" 1, "calt" 1;
+}
+
+/* Don’t force link blue; let UI control link color */
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { color: inherit; }
+img, svg, video, canvas { display: block; }
+* { -webkit-tap-highlight-color: transparent; }
+
+/* -------------------------
+   Theme variable fallbacks
+   (AppShell will override via inline styleVars)
+--------------------------*/
 :root {
-  --color-bg: #0b0b0c;
-  --color-surface: #131316;
-  --color-fg: #e7e7ea;
-  --color-muted: #2a2a2f;
-  --color-primary: #7c3aed;
-  --radius: 12px;
-}
-.dark {
-  --color-bg: #0a0a0b;
-  --color-surface: #101012;
-  --color-fg: #f1f1f5;
-  --color-muted: #222227;
-  --color-primary: #69d6cf;
+  --accent: #7c3aed;
+  --accent-weak: #a3e635;        /* focus rings, subtle accents */
+  --accent-strong: #6d28d9;
+
+  --panel-bg: #f3f4f6;           /* light card/panel */
+  --panel-border: #e5e7eb;
+  --chip-bg: #e5e7eb;
+
+  --text: #111827;               /* near-black */
+  --muted: #374151;              /* labels, hints */
 }
 
-html, body, #root {
-  height: 100%;
-  background: var(--color-bg);
-  color: var(--color-fg);
+.dark:root {
+  --panel-bg: #202020;           /* dark card/panel */
+  --panel-border: #3f3f3f;
+  --chip-bg: #2f2f2f;
+
+  --text: #ffffff;
+  --muted: rgba(255,255,255,0.88);
 }
 
-a {
-  font-weight: 500;
-  color: var(--color-primary);
-  text-decoration: inherit;
-}
-a:hover {
-  color: var(--color-primary);
-}
-
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+/* -------------------------
+   Accessibility & polish
+--------------------------*/
+/* Global focus ring spec: accent-weak, offset 2px */
+*:focus-visible {
+  outline: 2px solid var(--accent-weak);
+  outline-offset: 2px;
 }
 
-button {
-  border-radius: var(--radius);
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: var(--color-surface);
-  cursor: pointer;
-  transition: border-color 0.25s;
+/* Scrollbars: subtle, match panel border */
+* { scrollbar-width: thin; scrollbar-color: var(--panel-border) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--panel-border) 75%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
-button:hover {
-  border-color: var(--color-primary);
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Ensure <hr> (or shadcn Separator fallback) blends in if used anywhere */
+hr { border-color: var(--panel-border); }
+
+/* -------------------------
+   Helpers used by your UI
+--------------------------*/
+/* 3px reveal around the app chrome (you already use p-[3px] in AppShell) */
+.app-edge-reveal { padding: 3px; }
+
+/* Opaque card helper (most interactive surfaces) */
+.card-opaque {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
 }
 
+/* Frosted "glass" card (Dashboard/Workspace back card) */
+.glass-card {
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)),
+    rgba(255,255,255,.06);
+  border: 1px solid var(--panel-border);
+  box-shadow:
+    inset 0 1px rgba(255,255,255,.18),
+    inset 0 -1px rgba(0,0,0,.25),
+    0 10px 22px rgba(0,0,0,.25);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  border-radius: 1rem; /* matches your rounded-2xl look */
+}
+
+/* Optional: subtle “edge refraction” sheen on glass edges */
+.refractive-edges {
+  position: relative;
+}
+.refractive-edges::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    conic-gradient(from 0deg at 50% 50%,
+      rgba(255,255,255,.35) 0deg,
+      rgba(255,255,255,0) 80deg,
+      rgba(255,255,255,.35) 180deg,
+      rgba(255,255,255,0) 260deg,
+      rgba(255,255,255,.35) 360deg);
+  mix-blend-mode: overlay;
+  opacity: .35;
+}
