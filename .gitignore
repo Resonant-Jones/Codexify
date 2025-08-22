@@ -72,3 +72,8 @@ artifacts/
 guardian/codemap/*.json
 dev_tools/deploy-sourcegraph-docker/
 groq-code-cli/
+
+# Vite output & caches
+.vite/
+node_modules/.vite/
+dist/
