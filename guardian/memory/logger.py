@@ -9,6 +9,7 @@ import json
 import logging
 import sqlite3
 from datetime import datetime, UTC
+from guardian.utils.datetime import to_iso_z
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -251,7 +252,7 @@ class SQLiteMemoryLogger(MemoryLogger):
 
         if start_time:
             query += " AND timestamp >= ?"
-            params.append(start_time.isoformat())
+            params.append(to_iso_z(start_time))
 
         if end_time:
             query += " AND timestamp <= ?"

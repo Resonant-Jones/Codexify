@@ -13,6 +13,7 @@ import logging
 import threading
 import time
 from datetime import datetime, UTC, timedelta
+from guardian.utils.datetime import to_iso_z
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -41,7 +42,7 @@ class ThreadHealth:
         return {
             "thread_id": self.thread_id,
             "thread_type": self.thread_type,
-            "start_time": self.start_time.isoformat(),
+            "start_time": to_iso_z(self.start_time),
             "last_heartbeat": self.last_heartbeat.isoformat(),
             "uptime": str(datetime.now(UTC) - self.start_time),
             "error_count": self.error_count,

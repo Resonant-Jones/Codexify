@@ -1,5 +1,6 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
+from guardian.utils.datetime import utc_now, to_iso_z
 from typing import Any, Dict, List, Optional
 
 DB_PATH = "guardian.db"
@@ -39,7 +40,7 @@ def create_thread(
     Create a new thread, optionally as a child/branch of another thread.
     Returns the new thread's ID.
     """
-    created_at = datetime.utcnow().isoformat()
+    created_at = to_iso_z(utc_now())
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute(

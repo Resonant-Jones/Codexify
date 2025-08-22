@@ -12,7 +12,8 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from guardian.utils.datetime import utc_now, to_iso_z
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -29,7 +30,7 @@ class ThreadHealth:
     def __init__(self, thread_id: str, thread_type: str):
         self.thread_id = thread_id
         self.thread_type = thread_type
-        self.start_time = datetime.utcnow()
+        self.start_time = utc_now()
         self.last_heartbeat = self.start_time
         self.error_count = 0
         self.last_error: Optional[str] = None
@@ -41,9 +42,9 @@ class ThreadHealth:
         return {
             "thread_id": self.thread_id,
             "thread_type": self.thread_type,
-            "start_time": self.start_time.isoformat(),
-            "last_heartbeat": self.last_heartbeat.isoformat(),
-            "uptime": str(datetime.utcnow() - self.start_time),
+            "start_time": to_iso_z(self.start_time),
+            "last_heartbeat": to_iso_z(self.last_heartbeat),
+            "uptime": str(utc_now() - self.start_time),
             "error_count": self.error_count,
             "last_error": self.last_error,
             "status": self.status,
@@ -108,7 +109,7 @@ class ThreadManager:
     def _check_thread_health(self) -> None:
         """Check health of all registered threads."""
         with self.lock:
-            current_time = datetime.utcnow()
+            current_time = utc_now()
             for thread_id, health in self.health_metrics.items():
                 # Check if thread is still alive
                 thread = self.threads.get(thread_id)
@@ -243,7 +244,7 @@ class ThreadManager:
         with self.lock:
             if thread_id in self.health_metrics:
                 health = self.health_metrics[thread_id]
-                health.last_heartbeat = datetime.utcnow()
+                health.last_heartbeat = utc_now()
                 if metrics:
                     health.metrics.update(metrics)
 
@@ -398,7 +399,7 @@ class ThreadManager:
                 "status": status,
                 "thread_count": len(self.threads),
                 "threads": thread_health,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": to_iso_z(utc_now()),
             }
 
     def shutdown(self, timeout: float = 5.0) -> bool:
