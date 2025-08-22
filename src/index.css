@@ -38,6 +38,8 @@ img, svg, video, canvas { display: block; }
   --chip-bg: #e5e7eb;
   --text: #111827;
   --muted: #374151;
+  --panel-bg-rgb: 243 244 246;      /* f3f4f6 */
+  --panel-border-rgb: 229 231 235;  /* e5e7eb */
 }
 
 .dark:root {
@@ -46,6 +48,8 @@ img, svg, video, canvas { display: block; }
   --chip-bg: #2f2f2f;
   --text: #ffffff;
   --muted: rgba(255,255,255,0.88);
+  --panel-bg-rgb: 32 32 32;         /* 202020 */
+  --panel-border-rgb: 63 63 63;     /* 3f3f3f */
 }
 
 /* -------------------------

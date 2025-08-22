@@ -136,15 +136,92 @@ export function AppShell({}: PropsWithChildren) {
     }
   }, [baseColor, depth, fade]);
 
+  // --- color helpers to generate gradient from base ---
+  function hexToRgb(hex: string) {
+    const n = hex.replace("#", "");
+    const v = n.length === 3 ? n.split("").map((c) => c + c).join("") : n;
+    const num = parseInt(v, 16);
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+  }
+  function rgbToHsl(r: number, g: number, b: number) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0; const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+    return { h: h * 360, s: s * 100, l: l * 100 };
+  }
+  function hslToHex(h: number, s: number, l: number) {
+    s /= 100; l /= 100;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    let r = 0, g = 0, b = 0;
+    if (0 <= h && h < 60) { r = c; g = x; }
+    else if (60 <= h && h < 120) { r = x; g = c; }
+    else if (120 <= h && h < 180) { g = c; b = x; }
+    else if (180 <= h && h < 240) { g = x; b = c; }
+    else if (240 <= h && h < 300) { r = x; b = c; }
+    else { r = c; b = x; }
+    const to255 = (v: number) => Math.round((v + m) * 255);
+    const out = (n: number) => n.toString(16).padStart(2, "0");
+    return `#${out(to255(r))}${out(to255(g))}${out(to255(b))}`;
+  }
+  function lighten(hex: string, amount: number) {
+    const { r, g, b } = hexToRgb(hex);
+    const { h, s, l } = rgbToHsl(r, g, b);
+    const nl = Math.min(100, l + amount * 100);
+    return hslToHex(h, s, nl);
+  }
+  function darken(hex: string, amount: number) {
+    const { r, g, b } = hexToRgb(hex);
+    const { h, s, l } = rgbToHsl(r, g, b);
+    const nl = Math.max(0, l - amount * 100);
+    return hslToHex(h, s, nl);
+  }
+
   const accent = baseColor;
-  const accentWeak = baseColor; // simplified; original rotated hues preserved via CSS vars
+  const accentWeak = baseColor;
   const accentStrong = baseColor;
   const bgStyleNoWallpaper = (() => {
-    return { background: `linear-gradient(to bottom, ${baseColor}, ${baseColor})` } as React.CSSProperties;
+    const start = lighten(baseColor, fade * 0.6);
+    const end = darken(baseColor, depth * 0.8);
+    return { background: `linear-gradient(135deg, ${start}, ${end})` } as React.CSSProperties;
   })();
-  const backgroundStyle: React.CSSProperties = wallpaper
-    ? { backgroundImage: `url(${wallpaper})`, backgroundSize: "cover", backgroundPosition: "center" }
-    : bgStyleNoWallpaper;
+  // Build background styles: if wallpaper present, overlay a gradient so
+  // light/dark flips are visually obvious beyond token changes.
+  const backgroundStyle: React.CSSProperties = (() => {
+    if (!wallpaper) return bgStyleNoWallpaper;
+    // Overlay gradient with alpha to bias the scene per theme
+    const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
+    const f = clamp(fade);
+    const d = clamp(depth);
+    let start = "rgba(255,255,255,0.0)";
+    let end = "rgba(255,255,255,0.0)";
+    if (resolved === "dark") {
+      // dark: emphasize depth (heavier overlay), minimal fade
+      start = `rgba(0,0,0,${(d * 0.7).toFixed(3)})`;
+      end = `rgba(0,0,0,${(f * 0.35).toFixed(3)})`;
+    } else {
+      // light: emphasize fade (brighter wash), low depth
+      start = `rgba(255,255,255,${(f * 0.5).toFixed(3)})`;
+      end = `rgba(255,255,255,${(d * 0.25).toFixed(3)})`;
+    }
+    return {
+      backgroundImage: `linear-gradient(135deg, ${start}, ${end}), url(${wallpaper})`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+      backgroundRepeat: "no-repeat",
+    } as React.CSSProperties;
+  })();
   const panelBg = resolved === "dark" ? "#202020" : "#f3f4f6";
   const chipBg = resolved === "dark" ? "#2f2f2f" : "#e5e7eb";
   const panelBorder = resolved === "dark" ? "#3f3f3f" : "#e5e7eb";
@@ -178,6 +255,19 @@ export function AppShell({}: PropsWithChildren) {
   });
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
   function openChatWithPrompt(p: string) { setPrefill(p); setView("guardian"); }
+
+  // Drive dramatic background differences when no wallpaper is set
+  useEffect(() => {
+    if (wallpaper) return; // wallpaper drives the look instead
+    if (resolved === "dark") {
+      setDepth(0.92);
+      setFade(0.1);
+    } else {
+      setDepth(0.1);
+      setFade(0.9);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolved, wallpaper]);
 
   return (
     <div
