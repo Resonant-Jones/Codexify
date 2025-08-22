@@ -180,7 +180,10 @@ export function AppShell({}: PropsWithChildren) {
   function openChatWithPrompt(p: string) { setPrefill(p); setView("guardian"); }
 
   return (
-    <div className={`h-dvh w-full p-[3px] ${resolved === "dark" ? "dark" : ""}`} style={{ ...backgroundStyle, ...styleVars }}>
+    <div
+      className={`h-dvh w-full flex flex-col px-4 pb-4 gap-4 ${resolved === "dark" ? "dark" : ""}`}
+      style={{ ...backgroundStyle, ...styleVars }}
+    >
       <div className="flex h-full w-full flex-col rounded-2xl">
         {/* Top Nav without seam */}
         <div className="flex items-center justify-between gap-2 p-3">

@@ -65,7 +65,7 @@ export const RefractiveGlassCard: React.FC<Props> = ({
     const el = containerRef.current;
     if (!canvas || !el) { setFailed(true); return; }
     const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
-    if (!gl) { setFailed(true); return; }
+    if (!gl) { setFailed(true); containerRef.current?.classList.add("fallback"); return; }
 
     const vert = `#version 300 es\nprecision highp float;\nlayout(location=0) in vec2 position;\nout vec2 vUv;\nvoid main(){ vUv = position*0.5+0.5; gl_Position = vec4(position,0.0,1.0); }`;
 
@@ -82,7 +82,7 @@ export const RefractiveGlassCard: React.FC<Props> = ({
 
     const vs = compileShader(gl, gl.VERTEX_SHADER, vert);
     const fs = compileShader(gl, gl.FRAGMENT_SHADER, frag);
-    if (!vs || !fs) return;
+    if (!vs || !fs) { setFailed(true); containerRef.current?.classList.add("fallback"); return; }
     const prog = gl.createProgram();
     if (!prog) { setFailed(true); return; }
     gl.attachShader(prog, vs);
