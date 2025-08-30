@@ -86,3 +86,7 @@ dist/
 !src/vitest.config.ts
 !src/test/
 !src/test/**/*
+guardian/guardian.db
+guardian/guardian.*.db
+.env.local
+.env
