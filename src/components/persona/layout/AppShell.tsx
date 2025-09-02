@@ -1,7 +1,9 @@
 import { PropsWithChildren, useEffect, useMemo, useState } from "react";
+import React from "react";
 import { Button } from "@/components/ui/button";
 import ReactiveGlassCard from "@/components/surface/ReactiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
+import ProviderSwitchFAB from "@/components/ProviderSwitchFAB";
 import WorkspacePane from "@/features/workspace/WorkspacePane";
 import DashboardView from "@/features/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
@@ -122,9 +124,23 @@ export function AppShell({}: PropsWithChildren) {
     }
   }, [userName, role, notes, systemPrompt]);
 
-  const [view, setView] = useState<"dashboard" | "guardian" | "settings">(() => (typeof window === "undefined" ? "guardian" : ((localStorage.getItem("cfy.lastView") as any) || "guardian")));
+  const [view, setView] = useState<"dashboard" | "documents" | "gallery" | "guardian" | "settings">(() =>
+    (typeof window === "undefined" ? "guardian" : ((localStorage.getItem("cfy.lastView") as any) || "guardian"))
+  );
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.lastView", view); }, [view]);
   const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? null : localStorage.getItem("cfy.wallpaper")));
+
+  type DocItem = { name: string; ext: keyof ExtColors };
+  const [documents] = useState<DocItem[]>(() => {
+    const def: DocItem[] = [
+      { name: "Covenant", ext: "pdf" },
+      { name: "Roadmap", ext: "md" },
+      { name: "Vision", ext: "txt" },
+      { name: "Design", ext: "sketch" },
+    ];
+    if (typeof window === "undefined") return def;
+    try { const raw = localStorage.getItem("cfy.documents"); return raw ? JSON.parse(raw) : def; } catch { return def; }
+  });
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   const [depth, setDepth] = useState<number>(() => (typeof window === "undefined" ? 0.6 : Number(localStorage.getItem("cfy.depth") || "0.6")));
   const [fade, setFade] = useState<number>(() => (typeof window === "undefined" ? 0.4 : Number(localStorage.getItem("cfy.fade") || "0.4")));
@@ -271,37 +287,85 @@ export function AppShell({}: PropsWithChildren) {
 
   return (
     <div
-      className={`h-dvh w-full flex flex-col px-4 pb-4 gap-4 ${resolved === "dark" ? "dark" : ""}`}
+      className={`min-h-dvh w-full flex flex-col gap-[var(--gutter)] px-[var(--page-pad)] ${resolved === "dark" ? "dark" : ""}`}
       style={{ ...backgroundStyle, ...styleVars }}
     >
-      <div className="flex h-full w-full flex-col rounded-2xl">
-        {/* Top Nav without seam */}
-        <div className="flex items-center justify-between gap-2 p-3">
-          <div className="flex items-center gap-2">
-            <span className="rounded-full px-2 py-1 text-xs font-semibold" style={{ background: "#000", color: "#fff" }}>Codexify</span>
-            <Button variant={view === "dashboard" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setView("dashboard")}>Dashboard</Button>
-            <Button variant={view === "guardian" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setView("guardian")}>Guardian</Button>
-            <Button variant={view === "settings" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setView("settings")}>Settings</Button>
-          </div>
-          <div className="text-xs opacity-80" style={{ color: "var(--text)" }}>Mode: {resolved}</div>
+      {/* Glass Pill Menu Bar at Top */}
+      <div className="cap-width w-full flex justify-center pt-6">
+        <div className="flex items-center gap-3 rounded-full bg-white/20 dark:bg-neutral-800/20 shadow-lg px-3 py-2 backdrop-blur-md border border-white/30 dark:border-neutral-700/30">
+          <span className="rounded-full px-2 py-1 text-xs font-semibold" style={{ background: "#000", color: "#fff" }}>Codexify</span>
+          <button onClick={() => setView("dashboard")} className={`px-4 py-2 rounded-full text-sm font-medium transition ${view === "dashboard" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Dashboard</button>
+          <button onClick={() => setView("documents")} className={`px-4 py-2 rounded-full text-sm font-medium transition ${view === "documents" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Documents</button>
+          <button onClick={() => setView("gallery")} className={`px-4 py-2 rounded-full text-sm font-medium transition ${view === "gallery" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Gallery</button>
+          <button onClick={() => setView("guardian")} className={`px-4 py-2 rounded-full text-sm font-medium transition ${view === "guardian" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Guardian</button>
+          <button onClick={() => setView("settings")} className={`px-4 py-2 rounded-full text-sm font-medium transition ${view === "settings" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Settings</button>
         </div>
+      </div>
 
-        {/* Main Content */}
-        <div className="flex min-h-0 flex-1 p-3">
+      {/* Main Content Area */}
+      <div className="cap-width flex h-full w-full flex-col rounded-[var(--radius)] overflow-hidden">
+        <div className="flex min-h-0 flex-1">
+          {view === "documents" && (
+            <div className="flex min-h-0 w-full items-stretch gap-[var(--gutter)]">
+              <div className="flex min-w-0 flex-1 rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
+                <div className="min-h-0 w-full p-[var(--card-pad)]">
+                  <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>DOCS</div>
+                  <div className="flex flex-col gap-[calc(var(--gutter)/2)]">
+                    {documents.map((d) => {
+                      const color = (extColors as any)[d.ext] || "#6B7280";
+                      return (
+                        <div key={d.name + d.ext} className="rounded-[var(--radius)] overflow-hidden border" style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)" }}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 p-3">
+                              <div className="w-7 h-7 rounded-md" style={{ background: color }} />
+                              <div className="text-sm" style={{ color: "var(--text)" }}>{d.name}.{d.ext}</div>
+                            </div>
+                            <div className="text-xs pr-3 opacity-70" style={{ color: "var(--muted)" }}>Open</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-[var(--radius)] overflow-hidden basis-96 shrink-0" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}><WorkspacePane /></div>
+            </div>
+          )}
+          {view === "gallery" && (
+            <div className="flex min-h-0 w-full items-stretch gap-[var(--gutter)]">
+              <div className="flex min-w-0 flex-1 rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
+                <div className="min-h-0 w-full p-[var(--card-pad)]">
+                  <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>GALLERY</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--gutter)]">
+                    {gallery.map((g, i) => (
+                      <div key={i} className="aspect-square rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
+                        <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-[var(--radius)] overflow-hidden basis-96 shrink-0" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}><WorkspacePane /></div>
+            </div>
+          )}
           {view === "guardian" && (
-            <GuardianChat guardianName={guardianName} userName={userName} prefill={prefill} onPrefillConsumed={() => setPrefill(undefined)} />
+            <>
+              <GuardianChat guardianName={guardianName} userName={userName} prefill={prefill} onPrefillConsumed={() => setPrefill(undefined)} />
+              {/* Provider switch is only available in Chat view */}
+              <ProviderSwitchFAB />
+            </>
           )}
           {view === "dashboard" && (
-            <div className="flex min-h-0 w-full gap-3">
-              <ReactiveGlassCard wallpaperUrl={wallpaper} className="flex min-w-0 flex-1 rounded-2xl overflow-hidden glass-surface">
+            <div className="flex min-h-0 w-full items-stretch gap-[var(--gutter)]">
+              <div className="flex min-w-0 flex-1 rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
                 <DashboardView extColors={extColors} gallery={gallery} onImagePrompt={openChatWithPrompt} />
-              </ReactiveGlassCard>
-              <ReactiveGlassCard wallpaperUrl={wallpaper} className="glass-surface"><WorkspacePane /></ReactiveGlassCard>
+              </div>
+              <div className="rounded-[var(--radius)] overflow-hidden basis-96 shrink-0" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}><WorkspacePane /></div>
             </div>
           )}
           {view === "settings" && (
-            <div className="flex min-h-0 w-full gap-3">
-              <div className="flex min-w-0 flex-1 rounded-2xl overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
+            <div className="flex min-h-0 w-full items-stretch gap-[var(--gutter)]">
+              <div className="flex min-w-0 flex-1 rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
                 <SettingsView
                   mode={mode}
                   setMode={setMode}
@@ -328,7 +392,7 @@ export function AppShell({}: PropsWithChildren) {
                   setExtColors={setExtColors}
                 />
               </div>
-              <ReactiveGlassCard wallpaperUrl={wallpaper} className="glass-surface"><WorkspacePane /></ReactiveGlassCard>
+              <div className="rounded-[var(--radius)] overflow-hidden basis-96 shrink-0" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}><WorkspacePane /></div>
             </div>
           )}
         </div>
