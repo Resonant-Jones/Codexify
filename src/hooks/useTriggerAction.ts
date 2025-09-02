@@ -1,4 +1,4 @@
-import { Tools } from "../dcw-services/gc";
+import { Tools } from "@/dcw-services/gc";
 
 export function useTriggerAction() {
   const trigger = async (type: string, args: Record<string, any>) => {

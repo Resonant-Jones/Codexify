@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Optional
+import os
 
 import typer
-from memoryos.memoryos import Memoryos
 from rich import print
 
 import json
@@ -256,16 +256,17 @@ def init_db():
     Initialize all Guardian DB tables: memory, chat, agent_profiles, projects, etc.
     """
     import sqlite3
-
-    from guardian.guardian_main import (
-        GuardianDB,
-    )  # Import here to avoid circular import
+    from guardian.core.db import GuardianDB
     from guardian.projects import projects as projects_module
 
     # Initialize memory, agent_profiles, etc.
     db = GuardianDB(DB_PATH)
     db.init_db()
-    db.migrate_agent_profiles()
+    # Older GuardianDB may not have migrate_agent_profiles; skip gracefully
+    if hasattr(db, "migrate_agent_profiles"):
+        db.migrate_agent_profiles()
+    else:
+        print("[yellow]GuardianDB.migrate_agent_profiles() not available; skipping.[/yellow]")
     # Initialize chat tables
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
@@ -397,8 +398,61 @@ def show_mcp_map(base_path: str = "guardian"):
     """MCP integration not available."""
     print("[yellow]MCP module not found. Install or configure guardian.mcp to enable this command.[/yellow]")
 
+# ---- Providers diagnostics ----
+try:
+    from guardian.providers.registry import ProviderRegistry  # type: ignore
+except Exception:
+    ProviderRegistry = None  # type: ignore
+
+
+@app.command("providers:capabilities")
+def providers_capabilities():
+    """Print available chat and embeddings providers based on current env + installs."""
+    if ProviderRegistry is None:
+        print("{\"chat\": [], \"embeddings\": []}")
+        return
+    reg = ProviderRegistry()
+    print(reg.capabilities())
+
+
 
 # ---- CODEMAP GENERATION CLI COMMAND ----
+
+# --- Codemap normalization helpers (ensure dict shape expected by MemoryOS) ---
+def _normalize_codemap_mapping(obj):
+    """
+    MemoryOS expects a mapping for the codemap (path -> metadata).
+    Some generators produce a list. Convert list -> dict keyed by path/file.
+    """
+    if isinstance(obj, dict):
+        return obj
+    if isinstance(obj, list):
+        fixed = {}
+        for i, entry in enumerate(obj):
+            if isinstance(entry, dict):
+                key = entry.get("path") or entry.get("file") or f"__entry_{i}"
+                fixed[key] = entry
+        return fixed
+    return obj
+
+def _normalize_codemap(obj):
+    # simple alias so other code can call a stable name
+    return _normalize_codemap_mapping(obj)
+
+def _normalize_codemap_file(path: Path) -> dict | None:
+    try:
+        if path.exists():
+            raw = path.read_text(encoding="utf-8")
+            import json as _json
+            data = _json.loads(raw)
+            fixed = _normalize_codemap_mapping(data)
+            if fixed is not data:
+                path.write_text(_json.dumps(fixed, indent=2), encoding="utf-8")
+                print(f"[yellow]Normalized codemap at {path}[/yellow]")
+            return fixed
+    except Exception as e:
+        print(f"[yellow]Codemap normalization skipped: {e}[/yellow]")
+    return None
 
 
 @app.command()
@@ -406,6 +460,9 @@ def generate_codemap():
     """Generate a codemap.json file of the project structure."""
     try:
         codemap_module.generate_codemap()
+        # Normalize codemap on disk to dict shape
+        codemap_path = Path(__file__).parent / "codemap" / "codemap.json"
+        _normalize_codemap_file(codemap_path)
         print("[green]Codemap generated successfully.[/green]")
     except Exception as e:
         print(f"[red]Failed to generate codemap: {e}[/red]")
@@ -413,7 +470,33 @@ def generate_codemap():
 
 @app.command("codemap:summary")
 def codemap_summary():
-    pass
+    """Print a quick summary of the current codemap.json (after normalizing)."""
+    codemap_path = Path(__file__).parent / "codemap" / "codemap.json"
+
+    # Normalize on-disk file first (if present)
+    fixed = _normalize_codemap_file(codemap_path)
+
+    # If normalization didn't load content, read it raw (best-effort)
+    import json as _json
+    if fixed is None and codemap_path.exists():
+        try:
+            fixed = _json.loads(codemap_path.read_text(encoding="utf-8"))
+            fixed = _normalize_codemap(fixed)
+        except Exception:
+            fixed = {}
+
+    # Print a compact summary
+    if isinstance(fixed, dict) and fixed:
+        keys = list(fixed.keys())
+        print(f"[green]Codemap entries:[/green] {len(keys)}")
+        for k in keys[:10]:
+            print(f" - {k}")
+        if len(keys) > 10:
+            print(f"... (+{len(keys) - 10} more)")
+    elif isinstance(fixed, dict) and not fixed:
+        print("[yellow]Codemap is present but empty after normalization.[/yellow]")
+    else:
+        print("[yellow]Codemap not found or unreadable. Run `generate-codemap` first.[/yellow]")
 
 
 @app.command("codemap:query")
@@ -422,23 +505,106 @@ def codemap_query(
         ..., help="Natural language query against the codemap."
     ),
     provider: str = typer.Option(
-        "openai", "--provider", "-p", help="LLM provider: openai, groq, local, etc."
+        "openai", "--provider", "-p", help="LLM provider for answering the query (e.g., openai, groq, local)."
+    ),
+    embedder: str = typer.Option(
+        "openai", "--embedder", "-e", help="Embedding backend required by MemoryOS (e.g., openai, local)."
     ),
     user_id: str = typer.Option(
         "default_user", "--user-id", "-u", help="User ID for the MemoryOS session."
     ),
     api_key: str = typer.Option(
-        "your-api-key", "--api-key", "-k", help="API key for the chosen provider."
+        "your-api-key", "--api-key", "-k", help="API key for the chosen provider/embedder."
     ),
     data_storage_path: str = typer.Option(
         "data", "--data-path", "-d", help="Path to MemoryOS data directory."
     ),
 ):
-    memos = Memoryos(
-        user_id=user_id,
-        data_storage_path=data_storage_path,
-    )
-    print(memos.query_codemap(query))
+    # Ensure MemoryOS will always see a dict-shaped codemap
+    # 1) Normalize on-disk JSON (helps any consumer that reads the file)
+    CODEMAP_PATH = Path(__file__).parent / "codemap" / "codemap.json"
+    _normalize_codemap_file(CODEMAP_PATH)
+
+    # 2) Monkey-patch the provider module that MemoryOS imports so its
+    #    generate_codemap() returns a dict (list -> dict)
+    try:
+        import importlib, json as _json
+        gen = importlib.import_module("guardian.codemap.generate_codemap")
+        _orig_generate = getattr(gen, "generate_codemap", None)
+        if callable(_orig_generate):
+            def _wrapped_generate(*args, **kwargs):
+                result = _orig_generate(*args, **kwargs)
+                try:
+                    return _normalize_codemap(result)
+                except Exception:
+                    return result
+            setattr(gen, "generate_codemap", _wrapped_generate)
+    except Exception:
+        # Non-fatal; downstream guards handle list->dict too
+        pass
+
+    # 3) Now import MemoryOS (after patching)
+    try:
+        from memoryos.memoryos import Memoryos
+    except Exception as e:
+        print(f"[red]MemoryOS import failed: {e}[/red]")
+        print("[yellow]Tip: install it with `pip install memoryos` or disable this command.")
+        raise typer.Exit(code=1)
+
+    # Wire API keys into env for backends that expect them
+    try:
+        if api_key:
+            # Embedding backend expects its own key (e.g., OpenAI embeddings)
+            if isinstance(embedder, str) and embedder.lower() == "openai":
+                os.environ.setdefault("OPENAI_API_KEY", api_key)
+            # LLM provider (e.g., Groq) may expect its own key
+            if isinstance(provider, str) and provider.lower() == "groq":
+                os.environ.setdefault("GROQ_API_KEY", api_key)
+    except Exception:
+        # Non-fatal: continue; MemoryOS may also read keys from its own config
+        pass
+
+    try:
+        # Prefer newer signature including provider
+        try:
+            memos = Memoryos(
+                user_id=user_id,
+                data_storage_path=data_storage_path,
+                embedder=embedder,
+                provider=provider,
+            )
+        except TypeError:
+            # Fallback for older MemoryOS without `provider` arg
+            memos = Memoryos(
+                user_id=user_id,
+                data_storage_path=data_storage_path,
+                embedder=embedder,
+            )
+    except TypeError as e:
+        print(f"[red]MemoryOS init error: {e}[/red]")
+        print("[yellow]Tip: pass a supported --embedder (e.g., openai or local). "
+              "If using OpenAI embeddings, provide an API key via --api-key or OPENAI_API_KEY. "
+              "If using Groq for the LLM, set GROQ_API_KEY or pass --api-key with --provider groq.[/yellow]")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        print(f"[red]MemoryOS initialization failed: {e}[/red]")
+        raise typer.Exit(code=1)
+
+    # Normalize in-memory codemap if MemoryOS exposed a list
+    try:
+        cm = getattr(memos, "codemap", None)
+        if isinstance(cm, list):
+            memos.codemap = _normalize_codemap(cm)
+    except Exception:
+        # Non-fatal; continue to query
+        pass
+
+    try:
+        result = memos.query_codemap(query)
+        print(result)
+    except Exception as e:
+        print(f"[red]Codemap query failed: {e}[/red]")
+        raise typer.Exit(code=1)
 
 
 # ---- CONVERSATIONS MANAGEMENT CLI COMMANDS ----

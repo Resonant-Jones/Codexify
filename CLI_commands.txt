@@ -17,9 +17,9 @@ python guardian/guardian_cli.py [COMMAND] [OPTIONS]
 |--------------------|--------------------------------------------------|
 | codemap:query      | Ask a question about the current codebase        |
 
-**Sample Usage:**
+**Sample Usage (prefer underscore path):**
 ```bash
-python guardian/guardian-main.py codemap:query "Which file handles thread lineage?"
+python guardian/guardian_main.py codemap:query "Which file handles thread lineage?"
 ```
 
 | Command       | Description                     |
@@ -115,11 +115,13 @@ guardian-backend/
 
 ---
 
-## guardian-main.py
-**File:** `guardian/guardian-main.py`
+## guardian_main.py (preferred)
+**File:** `guardian/guardian_main.py`
+
+Note: `guardian/guardian-main.py` remains as a compatibility shim that forwards to this CLI. Prefer the underscore version in new scripts and docs.
 
 ```bash
-python guardian/guardian-main.py [COMMAND] [OPTIONS]
+python guardian/guardian_main.py [COMMAND] [OPTIONS]
 ```
 
 ### **Project Management**
@@ -158,9 +160,9 @@ python guardian/guardian-main.py [COMMAND] [OPTIONS]
 
 **Sample Usage:**
 ```bash
-python guardian/guardian-main.py crawl-url 'https://example.com'
-python guardian/guardian-main.py crawl-summary 'https://example.com/article'
-python guardian/guardian-main.py crawl-table 'https://example.com/data-table'
+python guardian/guardian_main.py crawl-url 'https://example.com'
+python guardian/guardian_main.py crawl-summary 'https://example.com/article'
+python guardian/guardian_main.py crawl-table 'https://example.com/data-table'
 ```
 
 ### **Codemap Tools**
@@ -173,37 +175,37 @@ python guardian/guardian-main.py crawl-table 'https://example.com/data-table'
 
 **Sample Usage:**
 ```bash
-python guardian/guardian-main.py generate-codemap
-python guardian/guardian-main.py codemap:summary
-python guardian/guardian-main.py codemap:query "Where is the conversation creation function?"
+python guardian/guardian_main.py generate-codemap
+python guardian/guardian_main.py codemap:summary
+python guardian/guardian_main.py codemap:query "Where is the conversation creation function?"
 ```
 
 **Sample Usage:**
 ```bash
-python guardian/guardian-main.py create-conversation 1 'Reflecting on token limits' --user-id 2 --parent-id 10
-python guardian/guardian-main.py list-conversations-by-thread 1
-python guardian/guardian-main.py show-conversation-lineage 42
+python guardian/guardian_main.py create-conversation 1 'Reflecting on token limits' --user-id 2 --parent-id 10
+python guardian/guardian_main.py list-conversations-by-thread 1
+python guardian/guardian_main.py show-conversation-lineage 42
 ```
 
 **Sample Usage:**
 ```bash
 # Initialize
-python guardian/guardian-main.py init-projects
-python guardian/guardian-main.py init-threads-table-cmd
+python guardian/guardian_main.py init-projects
+python guardian/guardian_main.py init-threads-table-cmd
 
 # Create & list projects
-python guardian/guardian-main.py create-project-cmd 'Demo Project' --description 'Test project'
-python guardian/guardian-main.py list-projects-cmd
+python guardian/guardian_main.py create-project-cmd 'Demo Project' --description 'Test project'
+python guardian/guardian_main.py list-projects-cmd
 
 # Create a thread in a project (optionally with parent thread and user ID)
-python guardian/guardian-main.py create-thread-cmd 'Demo Project' 'Conversation about context windows' --user-id 1 --parent-id 5
+python guardian/guardian_main.py create-thread-cmd 'Demo Project' 'Conversation about context windows' --user-id 1 --parent-id 5
 
 # List threads for a project
-python guardian/guardian-main.py list-threads-by-project 'Demo Project'
+python guardian/guardian_main.py list-threads-by-project 'Demo Project'
 
 # List child threads for a parent
-python guardian/guardian-main.py list-child-threads 5
+python guardian/guardian_main.py list-child-threads 5
 
 # Show thread lineage
-python guardian/guardian-main.py show-thread-lineage 5
+python guardian/guardian_main.py show-thread-lineage 5
 ```

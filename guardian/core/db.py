@@ -23,6 +23,32 @@ class GuardianDB:
         self.db_path = db_path
         self.upgrade_db_schema()  # <-- Add this line so table always exists
 
+    def __enter__(self):
+        # Allow: with GuardianDB(...) as db:
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        # Best-effort close; do not suppress exceptions
+        try:
+            self.close()
+        except Exception:
+            pass
+        return False
+
+    def close(self):
+        """
+        Safely close underlying connection if present.
+        Note: This class uses per-operation sqlite3.connect(...) so there may be
+        no persistent connection to close; this is a no-op in that case.
+        """
+        try:
+            conn = getattr(self, "conn", None)
+            if conn is not None:
+                conn.close()
+        except Exception:
+            # Do not raise on close during context manager exit
+            pass
+
     def init_db(self) -> None:
         """Initializes the database schema for memory storage (legacy) and calls upgrade_db_schema for chat_log."""
         with sqlite3.connect(self.db_path) as conn:

@@ -2,18 +2,20 @@
 
 This document outlines the CLI commands available for interacting with the Guardian backend system.
 
+Note: Prefer invoking the CLI via `guardian/guardian_main.py`. The hyphenated path `guardian/guardian-main.py` remains as a compatibility shim that forwards to the same app.
+
 ---
 
 ## Project Commands
 
 ### Create a Project
 ```
-python guardian/guardian-main.py project:create "My Project Name"
+python guardian/guardian_main.py project:create "My Project Name"
 ```
 
 ### List All Projects
 ```
-python guardian/guardian-main.py project:list
+python guardian/guardian_main.py project:list
 ```
 
 ---
@@ -22,17 +24,17 @@ python guardian/guardian-main.py project:list
 
 ### Create a Thread
 ```
-python guardian/guardian-main.py thread:create --project "My Project Name" --title "Thread Title"
+python guardian/guardian_main.py thread:create --project "My Project Name" --title "Thread Title"
 ```
 
 ### List Threads by Project
 ```
-python guardian/guardian-main.py thread:list --project "My Project Name"
+python guardian/guardian_main.py thread:list --project "My Project Name"
 ```
 
 ### Show Thread Lineage
 ```
-python guardian/guardian-main.py thread:lineage --thread-id THREAD_ID
+python guardian/guardian_main.py thread:lineage --thread-id THREAD_ID
 ```
 
 ---
@@ -41,17 +43,17 @@ python guardian/guardian-main.py thread:lineage --thread-id THREAD_ID
 
 ### Create a Conversation
 ```
-python guardian/guardian-main.py conversation:create --thread-id THREAD_ID --title "Conversation Title"
+python guardian/guardian_main.py conversation:create --thread-id THREAD_ID --title "Conversation Title"
 ```
 
 ### List Conversations by Thread
 ```
-python guardian/guardian-main.py conversation:list --thread-id THREAD_ID
+python guardian/guardian_main.py conversation:list --thread-id THREAD_ID
 ```
 
 ### Show Conversation Lineage
 ```
-python guardian/guardian-main.py conversation:lineage --conversation-id CONVERSATION_ID
+python guardian/guardian_main.py conversation:lineage --conversation-id CONVERSATION_ID
 ```
 
 ---
@@ -65,7 +67,7 @@ python guardian/codemap/generate_codemap.py
 
 ### Query Codemap
 ```
-python guardian/guardian-main.py codemap:query "What does create-conversation do?"
+python guardian/guardian_main.py codemap:query "What does create-conversation do?"
 ```
 
 ---
@@ -74,7 +76,7 @@ python guardian/guardian-main.py codemap:query "What does create-conversation do
 
 ### Show Memory Summary
 ```
-python guardian/guardian-main.py memory:summary
+python guardian/guardian_main.py memory:summary
 ```
 
 ---

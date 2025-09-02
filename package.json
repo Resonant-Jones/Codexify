@@ -8,7 +8,12 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "npm --prefix src run dev",
+    "build": "npm --prefix src run build",
+    "preview": "npm --prefix src run preview",
+    "typecheck": "npm --prefix src run typecheck",
+    "test": "npm --prefix src run test",
+    "test:watch": "npm --prefix src run test:watch"
   },
   "repository": {
     "type": "git",
@@ -23,9 +28,12 @@
   "homepage": "https://github.com/Resonant-Jones/guardian-backend#readme",
   "devDependencies": {
     "@google/gemini-cli": "^0.1.11",
-    "@tauri-apps/cli": "^2.8.1"
+    "@tailwindcss/vite": "^4.1.12",
+    "@tauri-apps/cli": "^2.8.1",
+    "tailwindcss": "^4.1.12"
   },
   "dependencies": {
-    "lucide-react": "^0.540.0"
+    "lucide-react": "^0.540.0",
+    "typescript": "^5.9.2"
   }
 }
