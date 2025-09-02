@@ -90,3 +90,4 @@ guardian/guardian.db
 guardian/guardian.*.db
 .env.local
 .env
+guardian/codemap/codemap.json
