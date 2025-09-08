@@ -1,5 +1,13 @@
 // src/components/dashboard/PreviewTile.tsx
-export function PreviewTile({ children, onClick, className = "" }) {
+export function PreviewTile({
+  children,
+  onClick,
+  className = "",
+}: {
+  children?: React.ReactNode;
+  onClick?: (e?: React.MouseEvent) => void;
+  className?: string;
+}) {
   return (
     <div
       onClick={onClick}

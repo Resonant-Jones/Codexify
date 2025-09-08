@@ -148,4 +148,3 @@ export const ConnectorBar: React.FC<{
   );
 };
 
-export { ConnectorBar };

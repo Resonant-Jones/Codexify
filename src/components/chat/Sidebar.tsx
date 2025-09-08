@@ -1,10 +1,10 @@
 import * as React from "react";
-import { Search, Plus, ChevronDown, Folder, Inbox } from "lucide-react";
+import { Search, Plus, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import PreviewTile from "@/components/ui/PreviewTile";
 import { DocChip } from "@/components/layout/WorkspacePane";
-import { deleteProject, deleteThread } from "@/api";
+// removed unused: deleteProject, deleteThread
 
 /*
  * Sidebar.tsx
