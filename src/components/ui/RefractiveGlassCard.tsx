@@ -122,24 +122,18 @@ export const RefractiveGlassCard: React.FC<Props> = ({
 
     function resize() {
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const elNow = containerRef.current;
-      const cv = canvasRef.current;
-      if (!elNow || !cv || !gl) return;
-      const rect = elNow.getBoundingClientRect();
-      cv.width = Math.max(2, Math.round(rect.width * dpr));
-      cv.height = Math.max(2, Math.round(rect.height * dpr));
-      cv.style.width = `${Math.max(1, Math.round(rect.width))}px`;
-      cv.style.height = `${Math.max(1, Math.round(rect.height))}px`;
-      gl.viewport(0, 0, cv.width, cv.height);
+      const rect = el.getBoundingClientRect();
+      canvas.width = Math.max(2, Math.round(rect.width * dpr));
+      canvas.height = Math.max(2, Math.round(rect.height * dpr));
+      canvas.style.width = `${Math.max(1, Math.round(rect.width))}px`;
+      canvas.style.height = `${Math.max(1, Math.round(rect.height))}px`;
+      gl.viewport(0, 0, canvas.width, canvas.height);
     }
 
     function sync() {
       if (!img || !(img as any).width || !(img as any).height) return;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const elNow = containerRef.current;
-      const cv = canvasRef.current;
-      if (!elNow || !cv || !gl) return;
-      const rect = elNow.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
       const winW = Math.round(window.innerWidth * dpr);
       const winH = Math.round(window.innerHeight * dpr);
       const topLeftX = Math.round((rect.left + window.scrollX) * dpr);
@@ -162,7 +156,7 @@ export const RefractiveGlassCard: React.FC<Props> = ({
       const offY = Math.round((winH - cov.h) / 2);
 
       gl.uniform1i(uTex, 0);
-      gl.uniform2f(uCanvasSize, cv.width, cv.height);
+      gl.uniform2f(uCanvasSize, canvas.width, canvas.height);
       gl.uniform2f(uWindowSize, winW, winH);
       gl.uniform2f(uImageSize, (img as any).width, (img as any).height);
       gl.uniform2f(uCoverSize, cov.w, cov.h);

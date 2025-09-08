@@ -1,4 +1,4 @@
-import { Notes, Agent } from "@/dcw-services/gc";
+import { Notes, Agent } from "../dcw-services/gc";
 export async function getPins(): Promise<string[]> {
   try {
     const me = await Agent.whoami();

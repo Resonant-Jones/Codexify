@@ -18,9 +18,9 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       "inline-flex items-center justify-center font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none rounded-xl focus:outline-none";
     const variants: Record<Variant, string> = {
       default:
-        "bg-[var(--accent)] text-[var(--panel-bg)] hover:bg-[var(--accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]",
+        "bg-[var(--accent)] text-[--panel-bg] hover:bg-[var(--accent-strong)] focus-visible:ring-2 focus-visible:ring-[--accent-strong]",
       ghost:
-        "bg-transparent text-[var(--text)] hover:bg-[var(--accent-weak)]/20 focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+        "bg-transparent text-[--text] hover:bg-[--accent-weak]/20 focus-visible:ring-2 focus-visible:ring-[--accent]",
       destructive:
         "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-700",
     };

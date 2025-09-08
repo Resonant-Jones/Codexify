@@ -1,26 +1,12 @@
 /* -------------------------
-   Tailwind (v4) + base plumbing
+   Tailwind + base plumbing
 --------------------------*/
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* Let the browser pick light/dark palettes where it helps (e.g., form controls) */
 :root { color-scheme: light dark; }
-
-/* Layout tokens */
-:root {
-  --page-pad: 24px;      /* outer x padding of the page */
-  --gutter: 16px;        /* gaps between major sections */
-  --radius: 16px;        /* unified corner radius */
-  --card-pad: 14px;      /* padding inside major surfaces */
-  --content-max: 1440px; /* cap main container width */
-}
-.dark:root {
-  --page-pad: 24px;
-  --gutter: 16px;
-  --radius: 16px;
-  --card-pad: 14px;
-  --content-max: 1440px;
-}
 
 /* Full-height app; prevent white flash; good text rendering */
 html, body, #root { height: 100%; }
@@ -142,9 +128,3 @@ hr { border-color: var(--panel-border); }
   mix-blend-mode: overlay;
   opacity: .35;
 }
-
-/* Center and cap the main app width */
-.cap-width { max-width: var(--content-max); margin-inline: auto; width: 100%; }
-
-/* Let any glass frame inherit container radius without forcing its own */
-.glass-frame { position: relative; border-radius: inherit; overflow: hidden; }
