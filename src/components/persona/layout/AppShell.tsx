@@ -1,12 +1,29 @@
 import { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import ReactiveGlassCard from "@/components/surface/ReactiveGlassCard";
+import FrameCard from "@/components/surface/FrameCard";
+import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
+import ProviderSwitchFAB from "@/components/ProviderSwitchFAB";
 import WorkspacePane from "@/features/workspace/WorkspacePane";
-import DashboardView from "@/features/dashboard/DashboardView";
+import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import { ExtColors, GalleryItem, ThemeMode } from "@/types/ui";
-
+/* ──────────────────────────────────────────────────────────────────────────
+   TUNING PRIMER (safe knobs)
+   - Per-VIEW overrides: add CSS vars on the wrapper just after `{view === "…"`:
+       --radius, --frame, --bezel, --rim, --gutter, --card-pad,
+       --workspace-w, --min-h/--max-h, --min-w/--max-w
+   - Per-CARD overrides: add vars on the *placement wrapper* (the <div> with
+     `style={{ padding: "var(--board-edge)", … }}`) using:
+       --w/--min-w/--max-w, --h/--min-h/--max-h, --flex
+     Examples:
+       • Fixed height:         {"--h":"560px","--flex":"0 0 auto"}
+       • Responsive floor:     {"--min-h":"clamp(520px,70vh,900px)"}
+       • Share space (2:1):    {"--flex":"2 1 0%"}  vs  {"--flex":"1 1 0%"}
+       • Workspace width:      {"--w":"clamp(16rem,22vw,28rem)","--flex":"0 0 var(--w)"}
+   - Keep aberration off on glass: <RefractiveGlassCard … aberration={0} />
+   ────────────────────────────────────────────────────────────────────────── */
 type Resolved = "light" | "dark";
 
 function coerceMode(v: unknown): ThemeMode {
@@ -51,7 +68,7 @@ function writeSessionOverride(v: Resolved | null) {
   }
 }
 
-export function AppShell({}: PropsWithChildren) {
+export default function AppShell({}: PropsWithChildren) {
   const [mode, setMode] = useState<ThemeMode>(() => {
     if (typeof window === "undefined") return "system";
     const raw = window.localStorage.getItem("cfy.themeMode");
@@ -122,9 +139,31 @@ export function AppShell({}: PropsWithChildren) {
     }
   }, [userName, role, notes, systemPrompt]);
 
-  const [view, setView] = useState<"dashboard" | "guardian" | "settings">(() => (typeof window === "undefined" ? "guardian" : ((localStorage.getItem("cfy.lastView") as any) || "guardian")));
+  const [view, setView] = useState<"dashboard" | "documents" | "gallery" | "guardian" | "settings">(() =>
+    (typeof window === "undefined" ? "dashboard" : ((localStorage.getItem("cfy.lastView") as any) || "dashboard"))
+  );
+  const [workspaceOpen, setWorkspaceOpen] = useState<boolean>(false);
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.lastView", view); }, [view]);
   const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? null : localStorage.getItem("cfy.wallpaper")));
+
+  type DocItem = { name: string; ext: keyof ExtColors };
+  const [documents] = useState<DocItem[]>(() => {
+    const def: DocItem[] = [
+      { name: "Covenant", ext: "pdf" },
+      { name: "Roadmap", ext: "md" },
+      { name: "Vision", ext: "txt" },
+      { name: "Design", ext: "sketch" },
+    ];
+    if (typeof window === "undefined") return def;
+    try {
+      const raw = localStorage.getItem("cfy.documents");
+      if (!raw) return def;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : def;
+    } catch {
+      return def;
+    }
+  });
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   const [depth, setDepth] = useState<number>(() => (typeof window === "undefined" ? 0.6 : Number(localStorage.getItem("cfy.depth") || "0.6")));
   const [fade, setFade] = useState<number>(() => (typeof window === "undefined" ? 0.4 : Number(localStorage.getItem("cfy.fade") || "0.4")));
@@ -194,7 +233,7 @@ export function AppShell({}: PropsWithChildren) {
   const bgStyleNoWallpaper = (() => {
     const start = lighten(baseColor, fade * 0.6);
     const end = darken(baseColor, depth * 0.8);
-    return { background: `linear-gradient(135deg, ${start}, ${end})` } as React.CSSProperties;
+    return { background: `linear-gradient(to bottom, ${start}, ${end})` } as React.CSSProperties;
   })();
   // Build background styles: if wallpaper present, overlay a gradient so
   // light/dark flips are visually obvious beyond token changes.
@@ -224,9 +263,12 @@ export function AppShell({}: PropsWithChildren) {
   })();
   const panelBg = resolved === "dark" ? "#202020" : "#f3f4f6";
   const chipBg = resolved === "dark" ? "#2f2f2f" : "#e5e7eb";
-  const panelBorder = resolved === "dark" ? "#3f3f3f" : "#e5e7eb";
+  // Global: soften panel border
+  const panelBorder = resolved === "dark" ? "rgba(255,255,255,0.08)" : "rgba(17,24,39,0.06)";
   const textColor = resolved === "dark" ? "#ffffff" : "#111827";
   const mutedColor = resolved === "dark" ? "rgba(255,255,255,0.88)" : "#374151";
+  // Local-only: translucent bezel for Dashboard cards
+  const panelBezel = resolved === "dark" ? "rgba(255,255,255,0.12)" : "rgba(17,24,39,0.10)";
   const styleVars = {
     "--accent": accent,
     "--accent-weak": accentWeak,
@@ -234,13 +276,41 @@ export function AppShell({}: PropsWithChildren) {
     "--panel-bg": panelBg,
     "--chip-bg": chipBg,
     "--panel-border": panelBorder,
+    "--panel-bezel": panelBezel,
     "--text": textColor,
     "--muted": mutedColor,
+    /* layout tokens */
+    "--page-pad": "0px",
+    "--radius": "19px",
+    "--card-pad": "10px",
+    "--frame": "1px",
+    "--rim": "1px",
+    "--board-edge": "6px",
+    "--gutter": "16px",
+    "--bezel": "3px",
+    "--workspace-w": "24rem",
   } as React.CSSProperties as any;
 
+  const DEFAULT_EXT_COLORS: ExtColors = {
+    pdf:   "#E23B3B", // red
+    doc:   "#0EA5E9", // cyan-blue
+    md:    "#6B7280", // slate gray
+    png:   "#06B6D4", // teal
+    sketch:"#F59E0B", // amber
+    txt:   "#8B5CF6", // violet
+    docx:  "#2563EB", // blue
+    jpeg:  "#D946EF", // fuchsia
+  };
   const [extColors, setExtColors] = useState<ExtColors>(() => {
-    if (typeof window === "undefined") return { pdf: "#ef4444", md: "#6366f1", txt: "#06b6d4", sketch: "#f59e0b" };
-    try { const raw = localStorage.getItem("cfy.extColors"); return raw ? JSON.parse(raw) : { pdf: "#ef4444", md: "#6366f1", txt: "#06b6d4", sketch: "#f59e0b" }; } catch { return { pdf: "#ef4444", md: "#6366f1", txt: "#06b6d4", sketch: "#f59e0b" }; }
+    // Merge any saved colors with explicit defaults, so new keys get sensible values
+    if (typeof window === "undefined") return DEFAULT_EXT_COLORS;
+    try {
+      const raw = localStorage.getItem("cfy.extColors");
+      const saved = raw ? JSON.parse(raw) : {};
+      return { ...DEFAULT_EXT_COLORS, ...saved } as ExtColors;
+    } catch {
+      return DEFAULT_EXT_COLORS;
+    }
   });
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.extColors", JSON.stringify(extColors)); }, [extColors]);
   const [gallery] = useState<GalleryItem[]>(() => {
@@ -254,6 +324,15 @@ export function AppShell({}: PropsWithChildren) {
     try { const raw = localStorage.getItem("cfy.gallery"); return raw ? JSON.parse(raw) : def; } catch { return def; }
   });
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
+  const [activeDoc, setActiveDoc] = useState<string | null>(null);
+  const openDocInPlace = (name: string, ext: string) => {
+    setActiveDoc(`${name}.${ext}`);
+    setWorkspaceOpen(true);
+  };
+  // Use an active wallpaper for refractive glass; fall back to first gallery image if none chosen yet
+  const activeWallpaper = useMemo(() => {
+    return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : null);
+  }, [wallpaper, gallery]);
   function openChatWithPrompt(p: string) { setPrefill(p); setView("guardian"); }
 
   // Drive dramatic background differences when no wallpaper is set
@@ -271,64 +350,605 @@ export function AppShell({}: PropsWithChildren) {
 
   return (
     <div
-      className={`h-dvh w-full flex flex-col px-4 pb-4 gap-4 ${resolved === "dark" ? "dark" : ""}`}
+      className={`relative h-dvh w-full flex flex-col overflow-hidden ${resolved === "dark" ? "dark" : ""}`}
       style={{ ...backgroundStyle, ...styleVars }}
     >
-      <div className="flex h-full w-full flex-col rounded-2xl">
-        {/* Top Nav without seam */}
-        <div className="flex items-center justify-between gap-2 p-3">
-          <div className="flex items-center gap-2">
-            <span className="rounded-full px-2 py-1 text-xs font-semibold" style={{ background: "#000", color: "#fff" }}>Codexify</span>
-            <Button variant={view === "dashboard" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setView("dashboard")}>Dashboard</Button>
-            <Button variant={view === "guardian" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setView("guardian")}>Guardian</Button>
-            <Button variant={view === "settings" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setView("settings")}>Settings</Button>
-          </div>
-          <div className="text-xs opacity-80" style={{ color: "var(--text)" }}>Mode: {resolved}</div>
+      {/* Full-window rounded glass sheet (final layer) */}
+<div
+  aria-hidden="true"
+  className="absolute rounded-[var(--radius)] overflow-hidden pointer-events-none"
+  style={{
+    left: "1px",
+    right: "1px",
+    top: "1px",
+    bottom: "1px",
+    borderRadius: "var(--radius)",
+    zIndex: 5,
+    border: "1px solid var(--panel-border)",
+    // combine subtle color softening with soft rim and outer feather
+    filter: "saturate(0.85) contrast(0.9) brightness(0.9) drop-shadow(0 6px 18px rgba(0,0,0,0.25))",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)",
+  }}
+>
+  <RefractiveGlassCard
+    wallpaperUrl={activeWallpaper}
+    className="w-full h-full rounded-[var(--radius)]"
+    style={{ background: "transparent", border: "none" }}
+    intensity={0.003}
+    aberration={0}
+  />
+  {/* neutral scrim so text stays readable over bright wallpapers */}
+  <div
+    className="absolute inset-0"
+    style={{
+      background:
+        "linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.28))",
+    }}
+  />
+</div>
+      {/* Glass Pill Menu Bar - Left Corner */}
+      <div className="relative z-10 cap-width w-full flex justify-start pt-3 px-[var(--board-edge)]">
+        <div className="flex items-center gap-3 rounded-full bg-white/20 dark:bg-neutral-800/20 shadow-lg px-3 py-2 backdrop-blur-md border border-white/30 dark:border-neutral-700/30">
+          <span className="rounded-full px-3 py-1 text-xs font-semibold" style={{ background: "#000", color: "#fff" }}>Codexify</span>
+          <button onClick={() => setView("dashboard")} className={`px-3 py-2 rounded-full text-sm font-medium transition ${view === "dashboard" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Dashboard</button>
+          <button onClick={() => setView("documents")} className={`px-3 py-2 rounded-full text-sm font-medium transition ${view === "documents" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Documents</button>
+          <button onClick={() => setView("gallery")} className={`px-3 py-2 rounded-full text-sm font-medium transition ${view === "gallery" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Gallery</button>
+          <button onClick={() => setView("guardian")} className={`px-3 py-2 rounded-full text-sm font-medium transition ${view === "guardian" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Guardian</button>
+          <button onClick={() => setView("settings")} className={`px-3 py-2 rounded-full text-sm font-medium transition ${view === "settings" ? "bg-white/90 dark:bg-neutral-700/90 text-black dark:text-white" : "text-white dark:text-neutral-300 hover:bg-white/20 dark:hover:bg-neutral-700/20"}`}>Settings</button>
         </div>
+      </div>
 
-        {/* Main Content */}
-        <div className="flex min-h-0 flex-1 p-3">
+      {/* Main Content Area */}
+      <div className="relative z-10 flex-1 min-h-0 px-[var(--board-edge)] pb-[var(--board-edge)] pt-[var(--gutter)] overflow-hidden">
+        <div className="h-full min-h-0 flex">
+          {view === "documents" && (
+            <div style={{ "--radius": "19px", "--frame": "250px", "--bezel": "4px", "--rim": "3px", "--gutter": "16px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)" } as React.CSSProperties}>
+              <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
+              <div
+                className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
+                style={{
+                  padding: "var(--board-edge)",
+                  width: "var(--w, auto)",
+                  maxWidth: "var(--max-w, none)",
+                  minWidth: "var(--min-w, 0)",
+                  height: "var(--h, auto)",
+                  minHeight: "var(--min-h, 0)",
+                  maxHeight: "var(--max-h, none)",
+                  flex: "var(--flex, 1 1 0%)",
+                  "--flex": "0 0 33.33%",
+                  "--min-h": "clamp(520px, 70vh, 1000px)",
+                }}
+              >
+                <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
+                  <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
+                    <div className="relative rounded-[var(--radius)]">
+                      <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                        <RefractiveGlassCard
+                          wallpaperUrl={activeWallpaper}
+                          className="w-full h-full rounded-[var(--radius)]"
+                          style={{ background: "transparent", border: "none" }}
+                          intensity={0.008}
+                          aberration={0}
+                        />
+                      </div>
+                      <div className="min-h-0 w-full rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                        <div className="min-h-0 w-full px-[var(--card-pad)] pt-[var(--card-pad)] pb-0">
+                          <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>DOCS</div>
+                          <div className="flex flex-col gap-[calc(var(--gutter)/2)]">
+                            {documents.map((d) => {
+                              const color = (extColors as any)[d.ext] || "#6B7280";
+                              return (
+                                <FrameCard key={d.name + d.ext}>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3 p-3">
+                                      <div className="w-7 h-7 rounded-md" style={{ background: color }} />
+                                      <div className="text-sm" style={{ color: "var(--text)" }}>{d.name}.{d.ext}</div>
+                                    </div>
+                                    <button
+                                      className="text-xs pr-3 opacity-80 hover:opacity-100 underline-offset-2 hover:underline"
+                                      style={{ color: "var(--muted)" }}
+                                      onClick={() => openDocInPlace(d.name, d.ext)}
+                                    >
+                                      Open
+                                    </button>
+                                  </div>
+                                </FrameCard>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {workspaceOpen && (
+                <div
+                  className="rounded-[var(--radius)] shrink-0 overflow-visible"
+                  style={{
+                    padding: "var(--board-edge)",
+                    width: "var(--w, var(--workspace-w))",
+                    maxWidth: "var(--max-w, none)",
+                    minWidth: "var(--min-w, 0)",
+                    height: "var(--h, auto)",
+                    minHeight: "var(--min-h, 0)",
+                    maxHeight: "var(--max-h, none)",
+                    flex: "var(--flex, 0 0 var(--workspace-w))",
+                    "--w": "calc(66.67% - var(--gutter))",
+                    "--flex": "0 0 var(--w)",
+                    "--min-h": "clamp(520px, 70vh, 1000px)",
+                  }}
+                >
+                  <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
+                    <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
+                      <div className="relative rounded-[var(--radius)]">
+                        <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                          <RefractiveGlassCard
+                            wallpaperUrl={activeWallpaper}
+                            className="w-full h-full rounded-[var(--radius)]"
+                            style={{ background: "transparent", border: "none" }}
+                            intensity={0.008}
+                            aberration={0}
+                          />
+                        </div>
+                        <div className="rounded-[var(--radius)] overflow-hidden relative" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                          <button
+                            onClick={() => setWorkspaceOpen(false)}
+                            className="absolute top-2 right-2 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
+                            style={{ borderColor: "var(--panel-border)", color: "var(--muted)", background: "var(--panel-bg)" }}
+                            aria-label="Close workspace"
+                            title="Close"
+                          >
+                            ×
+                          </button>
+                          <WorkspacePane />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              </div>
+            </div>
+          )}
+          {view === "gallery" && (
+            <div style={{ "--radius": "16px", "--frame": "5px", "--bezel": "4px", "--rim": "3px", "--gutter": "16px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)" } as React.CSSProperties}>
+              <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
+              <div
+                className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
+                style={{
+                  padding: "var(--board-edge)",
+                  width: "var(--w, auto)",
+                  maxWidth: "var(--max-w, none)",
+                  minWidth: "var(--min-w, 0)",
+                  height: "var(--h, auto)",
+                  minHeight: "var(--min-h, 0)",
+                  maxHeight: "var(--max-h, none)",
+                  flex: "var(--flex, 1 1 0%)",
+                  "--flex": "1 1 0%",
+                  "--min-h": "clamp(520px, 70vh, 1000px)",
+                }}
+              >
+                <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
+                  <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
+                    <div className="relative rounded-[var(--radius)]">
+                      <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                        <RefractiveGlassCard
+                          wallpaperUrl={activeWallpaper}
+                          className="w-full h-full rounded-[var(--radius)]"
+                          style={{ background: "transparent", border: "none" }}
+                          intensity={0.006}
+                          aberration={0}
+                        />
+                      </div>
+                      <div className="min-h-0 w-full rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                        <div className="min-h-0 w-full px-[var(--board-edge)] pt-[var(--card-pad)] pb-[var(--board-edge)]">
+                          <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>GALLERY</div>
+                          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--gutter)]">
+                            {gallery.map((g, i) => (
+                              <div key={i} className="aspect-square rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                                <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              </div>
+            </div>
+          )}
           {view === "guardian" && (
-            <GuardianChat guardianName={guardianName} userName={userName} prefill={prefill} onPrefillConsumed={() => setPrefill(undefined)} />
+            <div style={{ "--radius": "16px", "--frame": "5px", "--bezel": "4px", "--rim": "3px", "--gutter": "16px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)", "--workspace-w": "clamp(16rem, 25vw, 28rem)" } as React.CSSProperties}>
+              <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
+                <div
+                  className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
+                  style={{
+                    padding: "var(--board-edge)",
+                    width: "var(--w, auto)",
+                    maxWidth: "var(--max-w, none)",
+                    minWidth: "var(--min-w, 0)",
+                    height: "var(--h, auto)",
+                    minHeight: "var(--min-h, 0)",
+                    maxHeight: "var(--max-h, none)",
+                    flex: "var(--flex, 1 1 0%)",
+                    "--flex": "1 1 0%",
+                    "--min-h": "clamp(520px, 70vh, 1000px)",
+                  }}
+                >
+                  <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
+                    <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
+                      <div className="relative rounded-[var(--radius)]">
+                        <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                          <RefractiveGlassCard
+                            wallpaperUrl={activeWallpaper}
+                            className="w-full h-full rounded-[var(--radius)]"
+                            style={{ background: "transparent", border: "none" }}
+                            intensity={0.008}
+                            aberration={0}
+                          />
+                        </div>
+                        {/* Chat panel with fully rounded corners (top & bottom) */}
+                        <div
+                          className="flex flex-col h-full min-h-0 w-full rounded-[var(--radius)] overflow-hidden"
+                          style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}
+                        >
+                          <div className="flex-1 min-h-0 w-full px-[var(--board-edge)] pt-[var(--card-pad)] pb-[var(--board-edge)]">
+                            <GuardianChat
+                              guardianName={guardianName}
+                              userName={userName}
+                              prefill={prefill}
+                              onPrefillConsumed={() => setPrefill(undefined)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Optional right-side workspace when toggled, same pattern to keep rounded edges */}
+                {workspaceOpen && (
+                  <div
+                    className="rounded-[var(--radius)] shrink-0 overflow-visible"
+                    style={{
+                      padding: "var(--board-edge)",
+                      width: "var(--w, var(--workspace-w))",
+                      maxWidth: "var(--max-w, none)",
+                      minWidth: "var(--min-w, 0)",
+                      height: "var(--h, auto)",
+                      minHeight: "var(--min-h, 0)",
+                      maxHeight: "var(--max-h, none)",
+                      flex: "var(--flex, 0 0 var(--workspace-w))",
+                      "--w": "var(--workspace-w)",
+                      "--flex": "0 0 var(--w)",
+                      "--min-h": "clamp(520px, 70vh, 1000px)",
+                    }}
+                  >
+                    <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}>
+                      <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
+                        <div className="relative rounded-[var(--radius)]">
+                          <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                            <RefractiveGlassCard
+                              wallpaperUrl={activeWallpaper}
+                              className="w-full h-full rounded-[var(--radius)]"
+                              style={{ background: "transparent", border: "none" }}
+                              intensity={0.008}
+                              aberration={0}
+                            />
+                          </div>
+                          <div className="rounded-[var(--radius)] overflow-hidden relative" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                            <button
+                              onClick={() => setWorkspaceOpen(false)}
+                              className="absolute top-2 right-2 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
+                              style={{ borderColor: "var(--panel-border)", color: "var(--muted)", background: "var(--panel-bg)" }}
+                              aria-label="Close workspace"
+                              title="Close"
+                            >
+                              ×
+                            </button>
+                            <WorkspacePane />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Provider switch is only available in Chat view */}
+              <ProviderSwitchFAB />
+              <button
+                onClick={() => setWorkspaceOpen(v => !v)}
+                className="fixed bottom-6 right-6 z-20 rounded-full h-10 w-10 shadow-lg border backdrop-blur-md"
+                style={{ background: "rgba(255,255,255,0.8)", borderColor: "var(--panel-border)" }}
+                aria-label="Toggle workspace"
+                title="Workspace"
+              >
+                🗂️
+              </button>
+            </div>
           )}
           {view === "dashboard" && (
-            <div className="flex min-h-0 w-full gap-3">
-              <ReactiveGlassCard wallpaperUrl={wallpaper} className="flex min-w-0 flex-1 rounded-2xl overflow-hidden glass-surface">
-                <DashboardView extColors={extColors} gallery={gallery} onImagePrompt={openChatWithPrompt} />
-              </ReactiveGlassCard>
-              <ReactiveGlassCard wallpaperUrl={wallpaper} className="glass-surface"><WorkspacePane /></ReactiveGlassCard>
+            <div style={{ "--radius": "16px", "--frame": "5px", "--bezel": "4px", "--rim": "3px", "--gutter": "16px", "--card-pad": "10px", "--min-h": "100%" } as React.CSSProperties}>
+              <div className="grid h-full min-h-0 w-full gap-[var(--gutter)] grid-cols-1 lg:grid-cols-2 grid-rows-1 content-stretch">
+              <div className="min-h-0 h-full flex flex-col gap-[10px]">
+                {/* LEFT COLUMN: stacked cards (top: DashboardView, bottom: Recent) */}
+                <div
+                  className="min-h-0 h-full overflow-visible rounded-[var(--radius)] basis-0"
+                  style={{
+                    padding: "var(--board-edge)",
+                    width: "auto",
+                    height: "auto",
+                    minWidth: "0",
+                    minHeight: "0",
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                    // equal split in column
+                    flex: "1 1 0%",
+                  }}
+                >
+                  <div
+                    className="rounded-[var(--radius)]"
+                    style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}
+                  >
+                    <div
+                      className="rounded-[var(--radius)]"
+                      style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}
+                    >
+                      <div className="relative rounded-[var(--radius)]">
+                        <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                          <RefractiveGlassCard
+                            wallpaperUrl={activeWallpaper}
+                            className="w-full h-full rounded-[var(--radius)]"
+                            style={{ background: "transparent", border: "none" }}
+                            intensity={0.008}
+                            aberration={0}
+                          />
+                        </div>
+                        <div className="min-h-0 h-full overflow-hidden rounded-[var(--radius)]" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                          <div className="p-[var(--card-pad)] min-h-0 overflow-auto">
+                            <DashboardView
+                              extColors={extColors}
+                              gallery={gallery}
+                              onImagePrompt={openChatWithPrompt}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className="min-h-0 h-full overflow-visible rounded-[var(--radius)] basis-0"
+                  style={{
+                    padding: "var(--board-edge)",
+                    width: "auto",
+                    height: "auto",
+                    minWidth: "0",
+                    minHeight: "0",
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                    // equal split in column
+                    flex: "1 1 0%",
+                  }}
+                >
+                  <div
+                    className="rounded-[var(--radius)]"
+                    style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}
+                  >
+                    <div
+                      className="rounded-[var(--radius)]"
+                      style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}
+                    >
+                      <div className="relative rounded-[var(--radius)]">
+                        <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                          <RefractiveGlassCard
+                            wallpaperUrl={activeWallpaper}
+                            className="w-full h-full rounded-[var(--radius)]"
+                            style={{ background: "transparent", border: "none" }}
+                            intensity={0.008}
+                            aberration={0}
+                          />
+                        </div>
+                        <div className="min-h-0 h-full overflow-hidden rounded-[var(--radius)]" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                          <div className="p-[var(--card-pad)] min-h-0 overflow-auto">
+                            <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Recent</div>
+                            <div className="flex flex-col gap-[calc(var(--gutter)/2)]">
+                              {documents.map((d) => {
+                                const color = (extColors as any)[d.ext] || "#6B7280";
+                                return (
+                                  <FrameCard key={d.name + d.ext}>
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-3 p-3">
+                                        <div className="w-7 h-7 rounded-md" style={{ background: color }} />
+                                        <div className="text-sm" style={{ color: "var(--text)" }}>{d.name}.{d.ext}</div>
+                                      </div>
+                                      <button
+                                        className="text-xs pr-3 opacity-80 hover:opacity-100 underline-offset-2 hover:underline"
+                                        style={{ color: "var(--muted)" }}
+                                        onClick={() => openDocInPlace(d.name, d.ext)}
+                                      >
+                                        Open
+                                      </button>
+                                    </div>
+                                  </FrameCard>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CENTER COLUMN: Gallery as its own full-height layered card */}
+             <div
+               className="min-w-0 min-h-0 h-full overflow-visible rounded-[var(--radius)] lg:row-span-2"
+               style={{
+                 padding: "var(--board-edge)",
+                 width: "var(--w, auto)",
+                 maxWidth: "var(--max-w, none)",
+                 minWidth: "var(--min-w, 0)",
+                 height: "var(--h)",
+                 minHeight: "var(--min-h, 0)",
+                 maxHeight: "var(--max-h, none)",
+                 flex: "var(--flex, 1 1 0%)",
+                 "--min-h": "100%",
+                 "--h": "100%",
+               }}
+            >
+                <div
+                  className="rounded-[var(--radius)]"
+                  style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}
+                >
+                  <div
+                    className="rounded-[var(--radius)]"
+                    style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}
+                  >
+                    <div className="relative rounded-[var(--radius)]">
+                      <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                        <RefractiveGlassCard
+                          wallpaperUrl={activeWallpaper}
+                          className="w-full h-full rounded-[var(--radius)]"
+                          style={{ background: "transparent", border: "none" }}
+                          intensity={0.008}
+                          aberration={0}
+                        />
+                      </div>
+                      <div className="min-w-0 min-h-0 overflow-hidden rounded-[var(--radius)]" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                        <div className="p-[var(--card-pad)] min-h-0 overflow-auto">
+                          <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Generated Images</div>
+                          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--gutter)]">
+                            {gallery.map((g, i) => (
+                              <div key={i} className="aspect-square rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                                <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: WorkspacePane, conditional on workspaceOpen */}
+              {workspaceOpen && (
+                <div
+                  className="rounded-[var(--radius)] shrink-0 overflow-visible"
+                  style={{
+                    padding: "var(--board-edge)",
+                    width: "var(--w, var(--workspace-w))",
+                    maxWidth: "var(--max-w, none)",
+                    minWidth: "var(--min-w, 0)",
+                    height: "var(--h, auto)",
+                    minHeight: "var(--min-h, 0)",
+                    maxHeight: "var(--max-h, none)",
+                    flex: "var(--flex, 0 0 var(--workspace-w))",
+                  }}
+                >
+                  <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
+                    <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
+                      <div className="relative rounded-[var(--radius)]">
+                        <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                          <RefractiveGlassCard
+                            wallpaperUrl={activeWallpaper}
+                            className="w-full h-full rounded-[var(--radius)]"
+                            style={{ background: "transparent", border: "none" }}
+                            intensity={0.006}
+                            aberration={0}
+                          />
+                        </div>
+                        <div className="rounded-[var(--radius)] overflow-hidden relative" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                          <button
+                            onClick={() => setWorkspaceOpen(false)}
+                            className="absolute top-2 right-2 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
+                            style={{ borderColor: "var(--panel-border)", color: "var(--muted)", background: "var(--panel-bg)" }}
+                            aria-label="Close workspace"
+                            title="Close"
+                          >
+                            ×
+                          </button>
+                          <WorkspacePane />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              </div>
             </div>
           )}
           {view === "settings" && (
-            <div className="flex min-h-0 w-full gap-3">
-              <div className="flex min-w-0 flex-1 rounded-2xl overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
-                <SettingsView
-                  mode={mode}
-                  setMode={setMode}
-                  guardianName={guardianName}
-                  setGuardianName={setGuardianName}
-                  userName={userName}
-                  setUserName={setUserName}
-                  role={role}
-                  setRole={setRole}
-                  notes={notes}
-                  setNotes={setNotes}
-                  baseColor={baseColor}
-                  setBaseColor={setBaseColor}
-                  depth={depth}
-                  setDepth={setDepth}
-                  fade={fade}
-                  setFade={setFade}
-                  resolved={resolved}
-                  systemPrompt={systemPrompt}
-                  setSystemPrompt={setSystemPrompt}
-                  wallpaper={wallpaper}
-                  setWallpaper={setWallpaper}
-                  extColors={extColors}
-                  setExtColors={setExtColors}
-                />
+            <div style={{ "--radius": "16px", "--frame": "5px", "--bezel": "4px", "--rim": "3px" } as React.CSSProperties}>
+              <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
+              <div
+                className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
+                style={{
+                  padding: "var(--board-edge)",
+                  width: "var(--w, auto)",
+                  maxWidth: "var(--max-w, none)",
+                  minWidth: "var(--min-w, 0)",
+                  height: "var(--h, auto)",
+                  minHeight: "var(--min-h, 0)",
+                  maxHeight: "var(--max-h, none)",
+                  flex: "var(--flex, 1 1 0%)",
+                }}
+              >
+                <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
+                  <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
+                    <div className="relative rounded-[var(--radius)]">
+                      <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                        <RefractiveGlassCard
+                          wallpaperUrl={activeWallpaper}
+                          className="w-full h-full rounded-[var(--radius)]"
+                          style={{ background: "transparent", border: "none" }}
+                          intensity={0.006}
+                          aberration={0}
+                        />
+                      </div>
+                      <div className="min-h-0 w-full rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                        <div className="min-h-0 w-full overflow-auto p-[var(--card-pad)]">
+                          <div className="max-w-[18rem] mr-auto">
+                            <SettingsView
+                              mode={mode}
+                              setMode={setMode}
+                              guardianName={guardianName}
+                              setGuardianName={setGuardianName}
+                              userName={userName}
+                              setUserName={setUserName}
+                              role={role}
+                              setRole={setRole}
+                              notes={notes}
+                              setNotes={setNotes}
+                              baseColor={baseColor}
+                              setBaseColor={setBaseColor}
+                              depth={depth}
+                              setDepth={setDepth}
+                              fade={fade}
+                              setFade={setFade}
+                              resolved={resolved}
+                              systemPrompt={systemPrompt}
+                              setSystemPrompt={setSystemPrompt}
+                              wallpaper={wallpaper}
+                              setWallpaper={setWallpaper}
+                              extColors={extColors}
+                              setExtColors={setExtColors}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <ReactiveGlassCard wallpaperUrl={wallpaper} className="glass-surface"><WorkspacePane /></ReactiveGlassCard>
+              </div>
             </div>
           )}
         </div>
@@ -336,5 +956,3 @@ export function AppShell({}: PropsWithChildren) {
     </div>
   );
 }
-
-export default AppShell

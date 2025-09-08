@@ -1,12 +1,26 @@
 /* -------------------------
-   Tailwind + base plumbing
+   Tailwind (v4) + base plumbing
 --------------------------*/
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* Let the browser pick light/dark palettes where it helps (e.g., form controls) */
 :root { color-scheme: light dark; }
+
+/* Layout tokens */
+:root {
+  --page-pad: 24px;      /* outer x padding of the page */
+  --gutter: 16px;        /* gaps between major sections */
+  --radius: 16px;        /* unified corner radius */
+  --card-pad: 14px;      /* padding inside major surfaces */
+  --content-max: 1440px; /* cap main container width */
+}
+.dark:root {
+  --page-pad: 24px;
+  --gutter: 16px;
+  --radius: 16px;
+  --card-pad: 14px;
+  --content-max: 1440px;
+}
 
 /* Full-height app; prevent white flash; good text rendering */
 html, body, #root { height: 100%; }
@@ -35,6 +49,10 @@ img, svg, video, canvas { display: block; }
   --accent-strong: #5b6575;
   --panel-bg: #f3f4f6;
   --panel-border: #e5e7eb;
+  --panel-bezel: var(--panel-border);
+  --bezel-highlight: rgba(255,255,255,0.22);
+  --bezel-shadow: rgba(0,0,0,0.22);
+  --elevation-shadow-front: 0 8px 24px rgba(0,0,0,0.22), 0 2px 6px rgba(0,0,0,0.18);
   --chip-bg: #e5e7eb;
   --text: #111827;
   --muted: #374151;
@@ -45,6 +63,7 @@ img, svg, video, canvas { display: block; }
 .dark:root {
   --panel-bg: #202020;
   --panel-border: #3f3f3f;
+  --panel-bezel: #3f3f3f;
   --chip-bg: #2f2f2f;
   --text: #ffffff;
   --muted: rgba(255,255,255,0.88);
@@ -128,3 +147,9 @@ hr { border-color: var(--panel-border); }
   mix-blend-mode: overlay;
   opacity: .35;
 }
+
+/* Center and cap the main app width */
+.cap-width { max-width: var(--content-max); margin-inline: auto; width: 100%; }
+
+/* Let any glass frame inherit container radius without forcing its own */
+.glass-frame { position: relative; border-radius: inherit; overflow: hidden; }

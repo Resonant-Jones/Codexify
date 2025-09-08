@@ -18,7 +18,15 @@ export type Thread = {
   messages: Message[];
 };
 
-export type ExtColors = Record<string, string>;
+export type ExtColors = {
+  pdf: string;
+  doc: string;
+  md: string;
+  png: string;
+  sketch: string;
+  txt: string;
+  docx: string;
+  jpeg: string;
+};
 
 export type GalleryItem = { src: string; prompt: string };
-

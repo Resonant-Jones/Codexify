@@ -1,13 +1,64 @@
+/**
+ * Composer.tsx
+ *
+ * Purpose:
+ * Renders the message composer (text entry box + send button) used in the chat UI.
+ * This component is the primary surface for user input in conversational flows and
+ * encapsulates autosizing behavior, keyboard shortcuts, optimistic send behavior,
+ * theming, and an optional ModelProvider wrapper to scope model configuration.
+ *
+ * Responsibilities:
+ *  - Provide an accessible, resizable textarea that honors Enter-to-send and
+ *    Shift+Enter for newline.
+ *  - Expose a simple `onSend` callback and support a `prefill` prop for guided
+ *    prompts or completions.
+ *  - Render a prominent send button that conveys affordance and state (sending).
+ *  - Be theme-aware (reads CSS variables) and keep presentation concerns local.
+ *
+ * Integration notes:
+ *  - The Composer currently wraps itself with `ModelProvider` so model config can
+ *    be set per-composer (useful for per-chat model overrides). If multiple
+ *    composers should share a provider, move the provider higher in the tree.
+ *  - `onSend` is called synchronously; consider returning/awaiting a Promise from
+ *    `onSend` if you want to reflect server-acknowledged sends instead of optimistic.
+ */
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send } from "lucide-react";
+import ModelProvider from "@/components/providers/ModelProvider";
+
+/**
+ * Read a CSS variable from the document root with a fallback.
+ * This utility is server-safe (returns fallback if `window` is undefined).
+ *
+ * @param {string} name - CSS variable name (eg. '--accent-strong')
+ * @param {string} fallback - fallback value used if CSS var is not available
+ * @returns {string}
+ */
 
 function readCssVar(name: string, fallback: string) {
   if (typeof window === "undefined") return fallback;
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return v || fallback;
 }
+
+
+/**
+ * Composer component
+ *
+ * Props:
+ * @param {{ onSend: (text: string) => void; prefill?: string; onPrefillConsumed?: () => void }} props
+ *
+ * Notes:
+ * - `onSend` is invoked with the trimmed message text. The current implementation
+ *   calls `onSend` synchronously; if you switch to an async send pipeline, consider
+ *   returning a Promise from `onSend` and awaiting it in `send()` so the UI can reflect
+ *   server acknowledgement (success/failure).
+ * - `prefill` is consumed once and triggers focus + auto-resize.
+ */
+
 
 export function Composer({
   onSend,
@@ -17,11 +68,14 @@ export function Composer({
   onSend: (t: string) => void;
   prefill?: string;
   onPrefillConsumed?: () => void;
-}) {
+}) 
+// Refs & local state: textarea ref, value and sending flag
+{
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
 
+  // Auto-resize helper: expand textarea to fit content but cap at ~40vh
   const autoResize = useCallback(() => {
     const ta = ref.current;
     if (!ta) return;
@@ -31,6 +85,7 @@ export function Composer({
     ta.style.height = Math.min(ta.scrollHeight, cap) + "px";
   }, []);
 
+// Handle `prefill` prop: set value, focus textarea and call onPrefillConsumed
   useEffect(() => {
     if (prefill && prefill !== value) {
       setValue(prefill);
@@ -42,10 +97,13 @@ export function Composer({
     }
   }, [prefill]);
 
+// Recompute textarea size when the value changes
   useEffect(() => {
     autoResize();
   }, [value, autoResize]);
 
+  // Send handler: optimistic send (sets sending=true), clears input.
+  // Consider awaiting a promise from onSend if you want server-confirmed sends.
   function send() {
     const v = value.trim();
     if (!v) return;
@@ -61,19 +119,24 @@ export function Composer({
   const bg = isDark ? "color-mix(in srgb, var(--panel-bg) 86%, black 14%)" : "#ffffff"; // white in light mode
   const ink = isDark ? readCssVar("--text", "#ffffff") : "#000000";
 
+  // Presentation: ModelProvider wraps the composer so model config can be per-composer
   return (
-    <div
-      data-composer-root
-      className="w-full max-w-none mx-0 flex items-end gap-2 rounded-2xl border px-[var(--composer-pad-x,12px)] py-[var(--composer-pad-y,12px)]"
-      style={{
-        margin: 0,
-        background: bg,
-        borderColor: "var(--panel-bezel)",
-        // strong floaty shadow so it "sits above" the card beneath
-        boxShadow: "0 14px 34px rgba(0,0,0,0.28), 0 4px 10px rgba(0,0,0,0.22)",
-        backgroundClip: "padding-box",
-      }}
-    >
+    // ModelProvider: defaultModel="gpt-120b-oss" sets the per-composer default model.
+    // If provider expects a different prop name, update accordingly.
+    <ModelProvider defaultModel="gpt-120b-oss">
+      <div
+        data-composer-root
+        className="w-full max-w-none mx-0 flex items-end gap-2 rounded-2xl border px-[var(--composer-pad-x,12px)] py-[var(--composer-pad-y,12px)]"
+        style={{
+          margin: 0,
+          background: bg,
+          borderColor: "var(--panel-bezel)",
+          // strong floaty shadow so it "sits above" the card beneath
+          boxShadow: "0 14px 34px rgba(0,0,0,0.28), 0 4px 10px rgba(0,0,0,0.22)",
+          backgroundClip: "padding-box",
+        }}
+      >
+        {/* Textarea: auto-resizes on input; Enter sends (unless Shift is held) */}
       <Textarea
         ref={ref}
         value={value}
@@ -97,6 +160,7 @@ export function Composer({
       />
 
       <div data-send-wrap className="shrink-0 m-0">
+      {/* Send Button: visually prominent, shows disabled state while sending */}
         <Button
           type="button"
           onClick={send}
@@ -129,7 +193,8 @@ export function Composer({
           />
         </Button>
       </div>
-    </div>
+      </div>
+    </ModelProvider>
   );
 }
 

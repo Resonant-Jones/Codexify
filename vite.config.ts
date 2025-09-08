@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
 
 // Root Vite config for the repository. We point the project root at `src/`
@@ -15,11 +16,11 @@ export default defineConfig({
   // so accidental non-VITE prefixes don't silently become undefined.
   envPrefix: ['VITE_', 'GUARDIAN_', 'GC_'],
 
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
 
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src'),
+      '@': resolve(__dirname, './'),
     },
     // Prevent duplicate React copies (which can cause blank/white screen bugs)
     dedupe: ['react', 'react-dom'],
