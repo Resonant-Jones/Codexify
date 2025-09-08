@@ -148,59 +148,48 @@ export default function PreviewTile({
       onClick={onClick}
     >
       {/* 3px internal rim always */}
-      <CardContent className="p-[3px]" style={{ background: "var(--chip-bg)", boxShadow: ornate ? "inset 0 1px 0 var(--bezel-highlight), inset 0 -2px 0 var(--bezel-shadow)" : undefined }}>
-        <div
-          className={
-            square
-              ? bezel === "simple"
-                ? "relative rounded-xl aspect-square overflow-hidden"
-                : "relative rounded-xl border aspect-square overflow-hidden"
-              : mergeClass(
-                  "rounded-xl border px-3 shadow-sm",
-                  compact ? "py-1.5" : "py-2.5"
-                )
-          }
-          style={{
-            background: "var(--chip-bg)",
-            borderColor: bezel === "simple" && square ? undefined : "var(--panel-border)",
-            color: "var(--text)",
-            boxShadow: bezel === "simple" && square ? undefined : "var(--elevation-shadow-front)",
-            minHeight: !square ? rectH : undefined,
-            ...style,
-          }}
-        >
-          {bevel !== "none" && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0 rounded-[inherit] z-[1]"
-              style={{
-                boxShadow:
-                  bevel === "chunky"
-                    ? "inset 0 0 0 3px rgba(255,255,255,0.90), inset 0 -2px 0 rgba(0,0,0,0.28)"
-                    : bevel === "crisp"
-                    ? "inset 0 0 0 1px rgba(255,255,255,0.90), inset 0 -1px 0 rgba(0,0,0,0.35)"
-                    : "inset 0 1px 0 rgba(255,255,255,0.75), inset 0 -1px 0 rgba(0,0,0,0.18)",
-              }}
-            />
-          )}
-          {square ? (
-            <div className="relative w-full h-full">
-              {React.isValidElement(children) ? (
-                React.cloneElement(children as React.ReactElement<any>, {
-                  className: mergeClass(
-                    (children as any).props?.className,
-                    "absolute inset-0 w-full h-full object-cover block"
-                  ),
-                })
-              ) : (
-                <div className="absolute inset-0 grid place-items-center">{children}</div>
-              )}
-            </div>
-          ) : (
-            children
-          )}
-        </div>
-      </CardContent>
+      {/* 3px internal rim always; square branch renders full-bleed media with soft bezel */}
+      {square ? (
+        <CardContent className="p-[3px] h-full">
+          <div
+            className="relative aspect-square w-full h-full rounded-xl overflow-hidden"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--panel-border)",
+              boxShadow: "var(--elevation-shadow-front)",
+              color: "var(--text)",
+              ...style,
+            }}
+          >
+            {React.isValidElement(children) ? (
+              React.cloneElement(children as React.ReactElement<any>, {
+                className: mergeClass(
+                  (children as any).props?.className,
+                  "absolute inset-0 w-full h-full object-cover block"
+                ),
+              })
+            ) : (
+              <div className="absolute inset-0 grid place-items-center">{children}</div>
+            )}
+          </div>
+        </CardContent>
+      ) : (
+        <CardContent className="p-[3px]" style={{ background: "var(--chip-bg)", boxShadow: ornate ? "inset 0 1px 0 var(--bezel-highlight), inset 0 -2px 0 var(--bezel-shadow)" : undefined }}>
+          <div
+            className={mergeClass("rounded-xl border px-3 shadow-sm", compact ? "py-1.5" : "py-2.5")}
+            style={{
+              background: "var(--chip-bg)",
+              borderColor: "var(--panel-border)",
+              color: "var(--text)",
+              boxShadow: "var(--elevation-shadow-front)",
+              minHeight: rectH,
+              ...style,
+            }}
+          >
+            {children}
+          </div>
+        </CardContent>
+      )}
     </LayeredCard>
   );
 }

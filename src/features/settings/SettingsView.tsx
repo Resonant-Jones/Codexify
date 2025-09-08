@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import SegmentedThemeControl from "@/components/controls/SegmentedThemeControl";
 import { ThemeMode, ExtColors } from "@/types/ui";
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { ImagePlus, FolderOpen } from "lucide-react";
+import { ImagePlus } from "lucide-react";
 
 export function SettingsView({ mode, setMode, guardianName, setGuardianName, userName, setUserName, role, setRole, notes, setNotes, baseColor, setBaseColor, depth, setDepth, fade, setFade, resolved, systemPrompt, setSystemPrompt, wallpaper, setWallpaper, extColors, setExtColors }: { mode: ThemeMode; setMode: (m: ThemeMode) => void; guardianName: string; setGuardianName: (s: string) => void; userName: string; setUserName: (s: string) => void; role: string; setRole: (s: string) => void; notes: string; setNotes: (s: string) => void; baseColor: string; setBaseColor: (s: string) => void; depth: number; setDepth: (n: number) => void; fade: number; setFade: (n: number) => void; resolved: "light" | "dark"; systemPrompt: string; setSystemPrompt: (s: string) => void; wallpaper: string | null; setWallpaper: (s: string | null) => void; extColors: ExtColors; setExtColors: (m: ExtColors) => void }) {
   const [tab, setTab] = useState<"appearance" | "system">("appearance");
@@ -58,8 +56,8 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
   }
 
   return (
-    <div className="h-full p-4" style={{ color: "var(--text)" }}>
-      <CardContent className="mx-auto w-full max-w-4xl space-y-6 p-4 rounded-2xl border shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
+    <div className="h-full overflow-auto" style={{ color: "var(--text)" }}>
+      <div className="mx-auto w-full max-w-[30rem] space-y-6 p-4">
         <div className="flex items-center gap-2">
           <Button type="button" variant={tab === "appearance" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setTab("appearance")}>
             Appearance
@@ -109,21 +107,6 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
               <div className="text-xs opacity-80">Resolved: {resolved}</div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">Base Color</div>
-                <Input type="color" value={baseColor} onChange={(e) => setBaseColor(e.target.value)} aria-label="Base color" />
-              </div>
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">Depth</div>
-                <Input type="range" min={0} max={1} step={0.01} value={depth} onChange={(e) => setDepth(Number(e.target.value))} />
-              </div>
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">Fade</div>
-                <Input type="range" min={0} max={1} step={0.01} value={fade} onChange={(e) => setFade(Number(e.target.value))} />
-              </div>
-            </div>
-
             <div className="space-y-2">
               <div className="text-sm font-semibold">Wallpaper</div>
               <div className="flex items-center gap-2">
@@ -137,25 +120,78 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
                     Clear
                   </Button>
                 )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-xl"
-                  onClick={() => {
-                    const url = "https://images.unsplash.com/photo-1596709031408-b0b2c9659c8a?q=80&w=1440&auto=format&fit=crop";
-                    setWallpaper(url);
-                    if (typeof window !== "undefined") localStorage.setItem("cfy.wallpaper", url);
-                  }}
-                >
-                  Use Demo
-                </Button>
                 <span className="text-xs opacity-70">{fileLabel}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-base font-semibold">Background Accents</div>
+              <div className="text-xs opacity-80">Base color (used when no wallpaper)</div>
+              <Input
+                type="color"
+                value={baseColor}
+                onChange={(e) => setBaseColor(e.target.value)}
+                aria-label="Base color"
+                className="p-0 border border-[color:var(--panel-border)] rounded-md bg-transparent cursor-pointer shrink-0"
+                style={{ width: "32px", height: "32px" }}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-base font-semibold">File Type Colors</div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-4 max-w-md">
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs">PDF</span>
+                  <Input id="color-pdf" type="color" value={extColors.pdf} onChange={(e) => setExtColors({ ...extColors, pdf: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-md bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs">DOC</span>
+                  <Input id="color-doc" type="color" value={extColors.doc} onChange={(e) => setExtColors({ ...extColors, doc: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-md bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs">MD</span>
+                  <Input id="color-md" type="color" value={extColors.md} onChange={(e) => setExtColors({ ...extColors, md: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-md bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs">PNG</span>
+                  <Input id="color-png" type="color" value={extColors.png} onChange={(e) => setExtColors({ ...extColors, png: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-md bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs">SKETCH</span>
+                  <Input id="color-sketch" type="color" value={extColors.sketch} onChange={(e) => setExtColors({ ...extColors, sketch: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-md bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs">TXT</span>
+                  <Input id="color-txt" type="color" value={extColors.txt} onChange={(e) => setExtColors({ ...extColors, txt: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-md bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs">DOCX</span>
+                  <Input id="color-docx" type="color" value={extColors.docx} onChange={(e) => setExtColors({ ...extColors, docx: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-md bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs">JPEG</span>
+                  <Input id="color-jpeg" type="color" value={extColors.jpeg} onChange={(e) => setExtColors({ ...extColors, jpeg: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-md bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center space-y-4">
+              <div className="space-y-2 text-center">
+                <div className="text-sm font-semibold">Depth</div>
+                <div className="w-[300px] max-w-full mx-auto">
+                  <Input type="range" min={0} max={1} step={0.01} value={depth} onChange={(e) => setDepth(Number(e.target.value))} />
+                </div>
+              </div>
+              <div className="space-y-2 text-center">
+                <div className="text-sm font-semibold">Fade</div>
+                <div className="w-[300px] max-w-full mx-auto">
+                  <Input type="range" min={0} max={1} step={0.01} value={fade} onChange={(e) => setFade(Number(e.target.value))} />
+                </div>
               </div>
             </div>
           </div>
         )}
-      </CardContent>
+      </div>
     </div>
   );
 }

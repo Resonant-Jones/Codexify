@@ -1,6 +1,6 @@
 import React, { useContext, useMemo } from "react";
 import { ProjectContext } from "@/components/layout/ProjectContext";
-import DocumentPreviewTile from "@/components/ui/DocumentPreviewTile";
+import PreviewTile from "@/components/ui/PreviewTile";
 
 function getExt(name: string): string {
   const m = name.match(/\.([^.]+)$/);
@@ -23,9 +23,15 @@ export default function DocumentsView({ docs, projectId: projectIdProp }: { docs
   return (
     <div className="h-full px-4 pt-3 pb-2 space-y-2">
       <div className="text-lg font-semibold" style={{ color: "var(--text)" }}>Documents</div>
-      <div className="grid gap-5 justify-start" style={{ gridTemplateColumns: "repeat(auto-fill, 112px)" }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {visible.map((d) => (
-          <DocumentPreviewTile key={d.name} file={{ name: d.name }} />
+          <PreviewTile key={d.name} tone="panel">
+            <div className="space-y-2">
+              <div className="rounded-[10px] aspect-[4/3]" style={{ background: "var(--panel-bg)" }} />
+              <div className="text-sm font-medium truncate">{d.name}</div>
+              <div className="text-xs opacity-70 truncate">{getExt(d.name).toUpperCase()}</div>
+            </div>
+          </PreviewTile>
         ))}
       </div>
     </div>

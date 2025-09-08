@@ -1,12 +1,3 @@
-{
-  "step": 6,
-  "answers": {
-    "step_1": "Begin",
-    "step_2": "Best Friend",
-    "step_3": "Gently ground me",
-    "step_4": "Conversational & Real",
-    "step_5": "John,Sarah,Max",
-    "step_6": "Don't talk like a robot"
-  },
-  "timestamp": "2025-06-26T05:38:04.984351"
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:1fab846371c02c339b2c8feaffcde53f9bb0c60cd392a8aea2e73f13ea18383b
+size 277

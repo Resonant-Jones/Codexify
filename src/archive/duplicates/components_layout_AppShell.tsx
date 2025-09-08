@@ -1,5 +1,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Switch } from "@headlessui/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -344,7 +345,7 @@ function ChatBubble({ message, isMe, guardianName }: { message: Message; isMe: b
 function WorkspacePane() {
   return (
     <aside className="hidden lg:flex w-[360px] shrink-0 flex-col ml-3">
-      <Card className="flex-1 rounded-2xl border shadow-sm overflow-hidden" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)), rgba(255,255,255,0.06)", backdropFilter: "blur(12px) saturate(120%)", WebkitBackdropFilter: "blur(12px) saturate(120%)", borderColor: "var(--panel-border)", boxShadow: "inset 0 1px rgba(255,255,255,0.18), inset 0 -1px rgba(0,0,0,0.25), 0 10px 22px rgba(0,0,0,0.25)" }}>
+      <Card className="flex-1 rounded-2xl border shadow-sm overflow-hidden" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)), rgba(255,255,255,0.06)", backdropFilter: "blur(12px) saturate(120%)", WebkitBackdropFilter: "blur(12px) saturate(120%)", borderColor: "var(--panel-bezel)", boxShadow: "inset 0 1px rgba(255,255,255,0.18), inset 0 -1px rgba(0,0,0,0.25), 0 10px 22px rgba(0,0,0,0.25)" }}>
         <div className="p-3 border-b" style={{ borderColor: "var(--panel-border)" }}>
           <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
             Workspace
@@ -453,7 +454,7 @@ export function GuardianChat({ guardianName, userName, prefill, onPrefillConsume
   return (
     <div className="flex h-full w-full gap-3">
       {threadsOpen && (
-        <Card className="hidden lg:flex w-80 shrink-0 overflow-hidden rounded-2xl border shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}>
+        <Card className="hidden lg:flex w-80 shrink-0 overflow-hidden rounded-2xl border shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-bezel)" }}>
           <Sidebar
             threads={threads}
             activeId={activeId}
@@ -469,7 +470,7 @@ export function GuardianChat({ guardianName, userName, prefill, onPrefillConsume
           />
         </Card>
       )}
-      <Card className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-lg" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}>
+      <Card className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-lg" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-bezel)" }}>
         <div className="flex items-center justify-between border-b p-2 lg:hidden" style={{ borderColor: "var(--panel-border)" }}>
           <div className="flex items-center gap-2">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -587,7 +588,7 @@ function DashboardView({ extColors, gallery, onImagePrompt }: { extColors: ExtCo
   const colorFor = (name: string) => extColors[ext(name)] || "#6366f1";
   return (
     <div className="grid h-full grid-cols-1 gap-4 p-4 lg:grid-cols-2">
-      <Card className="rounded-2xl border shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}>
+      <Card className="rounded-2xl border shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-bezel)" }}>
         <CardContent className="p-4 space-y-4">
           <div>
             <div className="mb-3 text-lg font-semibold" style={{ color: "var(--text)" }}>
@@ -613,7 +614,7 @@ function DashboardView({ extColors, gallery, onImagePrompt }: { extColors: ExtCo
           </div>
         </CardContent>
       </Card>
-      <Card className="rounded-2xl border shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}>
+      <Card className="rounded-2xl border shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-bezel)" }}>
         <CardContent className="p-4">
           <div className="mb-3 flex items-center justify-between">
             <div className="text-lg font-semibold" style={{ color: "var(--text)" }}>
@@ -642,7 +643,59 @@ function DashboardView({ extColors, gallery, onImagePrompt }: { extColors: ExtCo
   );
 }
 
-function SettingsView({ mode, setMode, guardianName, setGuardianName, userName, setUserName, role, setRole, notes, setNotes, baseColor, setBaseColor, depth, setDepth, fade, setFade, resolved, systemPrompt, setSystemPrompt, wallpaper, setWallpaper, extColors, setExtColors }: { mode: ThemeMode; setMode: (m: ThemeMode) => void; guardianName: string; setGuardianName: (s: string) => void; userName: string; setUserName: (s: string) => void; role: string; setRole: (s: string) => void; notes: string; setNotes: (s: string) => void; baseColor: string; setBaseColor: (s: string) => void; depth: number; setDepth: (n: number) => void; fade: number; setFade: (n: number) => void; resolved: "light" | "dark"; systemPrompt: string; setSystemPrompt: (s: string) => void; wallpaper: string | null; setWallpaper: (s: string | null) => void; extColors: ExtColors; setExtColors: (m: ExtColors) => void }) {
+function SettingsView({
+  mode,
+  setMode,
+  guardianName,
+  setGuardianName,
+  userName,
+  setUserName,
+  role,
+  setRole,
+  notes,
+  setNotes,
+  baseColor,
+  setBaseColor,
+  depth,
+  setDepth,
+  fade,
+  setFade,
+  resolved,
+  systemPrompt,
+  setSystemPrompt,
+  wallpaper,
+  setWallpaper,
+  extColors,
+  setExtColors,
+  openDashboardOnLaunch,
+  setOpenDashboardOnLaunch,
+}: {
+  mode: ThemeMode;
+  setMode: (m: ThemeMode) => void;
+  guardianName: string;
+  setGuardianName: (s: string) => void;
+  userName: string;
+  setUserName: (s: string) => void;
+  role: string;
+  setRole: (s: string) => void;
+  notes: string;
+  setNotes: (s: string) => void;
+  baseColor: string;
+  setBaseColor: (s: string) => void;
+  depth: number;
+  setDepth: (n: number) => void;
+  fade: number;
+  setFade: (n: number) => void;
+  resolved: "light" | "dark";
+  systemPrompt: string;
+  setSystemPrompt: (s: string) => void;
+  wallpaper: string | null;
+  setWallpaper: (s: string | null) => void;
+  extColors: ExtColors;
+  setExtColors: (m: ExtColors) => void;
+  openDashboardOnLaunch: boolean;
+  setOpenDashboardOnLaunch: (b: boolean) => void;
+}) {
   const [tab, setTab] = useState<"appearance" | "system">("appearance");
   const [name, setName] = useState(guardianName);
   const [uName, setUName] = useState(userName);
@@ -693,7 +746,7 @@ function SettingsView({ mode, setMode, guardianName, setGuardianName, userName, 
 
   return (
     <div className="h-full p-4" style={{ color: "var(--text)" }}>
-      <Card className="mx-auto w-full max-w-4xl rounded-2xl border shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
+      <Card className="mx-auto w-full max-w-4xl rounded-2xl border shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-bezel)", color: "var(--text)" }}>
         <CardContent className="space-y-6 p-4">
           <div className="flex items-center gap-2">
             <Button type="button" variant={tab === "appearance" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setTab("appearance")}>
@@ -738,9 +791,30 @@ function SettingsView({ mode, setMode, guardianName, setGuardianName, userName, 
 
           {tab === "appearance" && (
             <div className="space-y-6">
+              {/* Codexify Badge or brand header is above */}
               <div>
                 <div className="mb-2 text-lg font-semibold">Theme</div>
                 <SegmentedThemeControl mode={mode} onChange={setMode} />
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-300 dark:text-gray-100 mb-1">
+                  Launch to Dashboard on Startup
+                </label>
+                <p className="text-xs text-gray-400 mb-2">
+                  When enabled, the app opens to the Dashboard instead of Guardian on fresh launch.
+                </p>
+                <Switch
+                  checked={openDashboardOnLaunch}
+                  onChange={(checked) => setOpenDashboardOnLaunch(checked)}
+                  className={`${openDashboardOnLaunch ? "bg-green-500" : "bg-gray-600"} 
+                    relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200`}
+                >
+                  <span
+                    className={`${
+                      openDashboardOnLaunch ? "translate-x-6" : "translate-x-1"
+                    } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+                  />
+                </Switch>
               </div>
               <div>
                 <div className="mb-2 text-lg font-semibold">Wallpaper</div>
@@ -822,6 +896,16 @@ export default function AppShell() {
   const [userName, setUserName] = useState<string>(() => (typeof window === "undefined" ? "You" : localStorage.getItem("cfy.userName") || "You"));
   const [role, setRole] = useState<string>(() => (typeof window === "undefined" ? "" : localStorage.getItem("cfy.role") || ""));
   const [notes, setNotes] = useState<string>(() => (typeof window === "undefined" ? "" : localStorage.getItem("cfy.notes") || ""));
+  // --- Persist openDashboardOnLaunch toggle ---
+  const [openDashboardOnLaunch, setOpenDashboardOnLaunch] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("cfy.openDashboardOnLaunch") === "true";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cfy.openDashboardOnLaunch", String(openDashboardOnLaunch));
+    }
+  }, [openDashboardOnLaunch]);
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("cfy.assistantName", guardianName);
@@ -836,7 +920,12 @@ export default function AppShell() {
       localStorage.setItem("cfy.systemPrompt", systemPrompt);
     }
   }, [userName, role, notes, systemPrompt]);
-  const [view, setView] = useState<"dashboard" | "guardian" | "settings">(() => (typeof window === "undefined" ? "guardian" : ((localStorage.getItem("cfy.lastView") as any) || "guardian")));
+  const [view, setView] = useState<"dashboard" | "guardian" | "settings">(() => {
+    if (typeof window === "undefined") return "guardian";
+    const last = localStorage.getItem("cfy.lastView") as any;
+    if (last) return last;
+    return localStorage.getItem("cfy.openDashboardOnLaunch") === "true" ? "dashboard" : "guardian";
+  });
   useEffect(() => {
     if (typeof window !== "undefined") localStorage.setItem("cfy.lastView", view);
   }, [view]);
@@ -880,6 +969,7 @@ export default function AppShell() {
   const panelBorder = resolved === "dark" ? "#3f3f3f" : "#e5e7eb";
   const textColor = resolved === "dark" ? "#ffffff" : "#111827";
   const mutedColor = resolved === "dark" ? "rgba(255,255,255,0.88)" : "#374151";
+  const panelBezel = resolved === "dark" ? "rgba(255,255,255,0.08)" : "rgba(17,24,39,0.06)";
   const styleVars = {
     "--accent": accent,
     "--accent-weak": accentWeak,
@@ -887,6 +977,7 @@ export default function AppShell() {
     "--panel-bg": panelBg,
     "--chip-bg": chipBg,
     "--panel-border": panelBorder,
+    "--panel-bezel": panelBezel,
     "--text": textColor,
     "--muted": mutedColor,
   } as React.CSSProperties as any;
@@ -962,7 +1053,7 @@ export default function AppShell() {
           )}
           {view === "dashboard" && (
             <div className="flex min-h-0 w-full gap-3">
-              <Card className="flex min-w-0 flex-1 rounded-2xl border shadow-sm overflow-hidden" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)), rgba(255,255,255,0.06)", backdropFilter: "blur(12px) saturate(120%)", WebkitBackdropFilter: "blur(12px) saturate(120%)", borderColor: "var(--panel-border)", boxShadow: "inset 0 1px rgba(255,255,255,0.18), inset 0 -1px rgba(0,0,0,0.25), 0 10px 22px rgba(0,0,0,0.25)" }}>
+              <Card className="flex min-w-0 flex-1 rounded-2xl border shadow-sm overflow-hidden" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)), rgba(255,255,255,0.06)", backdropFilter: "blur(12px) saturate(120%)", WebkitBackdropFilter: "blur(12px) saturate(120%)", borderColor: "var(--panel-bezel)", boxShadow: "inset 0 1px rgba(255,255,255,0.18), inset 0 -1px rgba(0,0,0,0.25), 0 10px 22px rgba(0,0,0,0.25)" }}>
                 <DashboardView extColors={extColors} gallery={gallery} onImagePrompt={openChatWithPrompt} />
               </Card>
               <WorkspacePane />
@@ -970,7 +1061,7 @@ export default function AppShell() {
           )}
           {view === "settings" && (
             <div className="flex min-h-0 w-full gap-3">
-              <Card className="flex min-w-0 flex-1 rounded-2xl border shadow-sm overflow-hidden" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}>
+              <Card className="flex min-w-0 flex-1 rounded-2xl border shadow-sm overflow-hidden" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-bezel)" }}>
                 <SettingsView
                   mode={mode}
                   setMode={setMode}
@@ -995,6 +1086,8 @@ export default function AppShell() {
                   setWallpaper={setWallpaper}
                   extColors={extColors}
                   setExtColors={setExtColors}
+                  openDashboardOnLaunch={openDashboardOnLaunch}
+                  setOpenDashboardOnLaunch={setOpenDashboardOnLaunch}
                 />
               </Card>
               <WorkspacePane />

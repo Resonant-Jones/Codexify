@@ -64,14 +64,19 @@ export const RefractiveGlassCard: React.FC<Props> = ({
     const canvas = canvasRef.current;
     const el = containerRef.current;
     if (!canvas || !el) { setFailed(true); return; }
-    const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+    // Prefer WebGL2; gracefully fall back to WebGL1 with compatible shaders.
+    const gl2 = canvas.getContext("webgl2") as WebGL2RenderingContext | null;
+    const gl = (gl2 || (canvas.getContext("webgl") || canvas.getContext("experimental-webgl"))) as any;
     if (!gl) { setFailed(true); containerRef.current?.classList.add("fallback"); return; }
 
-    const vert = `#version 300 es\nprecision highp float;\nlayout(location=0) in vec2 position;\nout vec2 vUv;\nvoid main(){ vUv = position*0.5+0.5; gl_Position = vec4(position,0.0,1.0); }`;
+    const vert300 = `#version 300 es\nprecision highp float;\nlayout(location=0) in vec2 position;\nout vec2 vUv;\nvoid main(){ vUv = position*0.5+0.5; gl_Position = vec4(position,0.0,1.0); }`;
 
-    const frag = `#version 300 es\nprecision highp float;\nuniform sampler2D uTex;\nuniform vec2 uCanvasSize;\nuniform vec2 uWindowSize;\nuniform vec2 uImageSize;\nuniform vec2 uCoverSize;\nuniform vec2 uCoverOffset;\nuniform vec2 uCanvasTopLeft;\nuniform float uRadius;\nuniform float uIntensity;\nuniform float uAberration;\nin vec2 vUv;\nout vec4 outColor;\nfloat sdRoundRect(vec2 p, vec2 b, float r){ vec2 q = abs(p)-b+r; return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r; }\nvec2 toWindow(vec2 uv){ return uCanvasTopLeft + uv * uCanvasSize; }\nvec2 windowToImage(vec2 wp){ vec2 p = (wp - uCoverOffset)/uCoverSize; return p; }\nvec3 sampleWP(vec2 uv){ return texture(uTex, uv).rgb; }\nvoid main(){ vec2 size = uCanvasSize; vec2 p = (vUv*size); vec2 halfSize = size*0.5; float r = uRadius; float sdf = sdRoundRect(p-halfSize, halfSize - vec2(1.0), r); float edge = smoothstep(2.0, 0.0, abs(sdf)); vec2 n = normalize(vec2(dFdx(sdf), dFdy(sdf)) + 1e-5); float k = clamp(1.0-abs(sdf)/r,0.0,1.0); float mag = uIntensity * k; vec2 wp = toWindow(vUv); vec2 baseUV = windowToImage(wp); vec2 offs = n * mag; vec3 col; col.r = sampleWP(baseUV + offs*uAberration).r; col.g = sampleWP(baseUV).g; col.b = sampleWP(baseUV - offs*uAberration).b; float bevelHi = smoothstep(-1.5, -0.5, -sdf); float bevelLo = smoothstep(-2.0, -0.5, sdf); col = mix(col, col*0.96, bevelLo*0.5); col += 0.06*bevelHi; outColor = vec4(col, edge*0.95); }`;
+    const frag300 = `#version 300 es\nprecision highp float;\nuniform sampler2D uTex;\nuniform vec2 uCanvasSize;\nuniform vec2 uWindowSize;\nuniform vec2 uImageSize;\nuniform vec2 uCoverSize;\nuniform vec2 uCoverOffset;\nuniform vec2 uCanvasTopLeft;\nuniform float uRadius;\nuniform float uIntensity;\nuniform float uAberration;\nin vec2 vUv;\nout vec4 outColor;\nfloat sdRoundRect(vec2 p, vec2 b, float r){ vec2 q = abs(p)-b+r; return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r; }\nvec2 toWindow(vec2 uv){ return uCanvasTopLeft + uv * uCanvasSize; }\nvec2 windowToImage(vec2 wp){ vec2 p = (wp - uCoverOffset)/uCoverSize; return p; }\nvec3 sampleWP(vec2 uv){ return texture(uTex, uv).rgb; }\nvoid main(){ vec2 size = uCanvasSize; vec2 p = (vUv*size); vec2 halfSize = size*0.5; float r = uRadius; float sdf = sdRoundRect(p-halfSize, halfSize - vec2(1.0), r); float edge = smoothstep(2.0, 0.0, abs(sdf)); vec2 n = normalize(vec2(dFdx(sdf), dFdy(sdf)) + 1e-5); float k = clamp(1.0-abs(sdf)/r,0.0,1.0); float mag = uIntensity * k; vec2 wp = toWindow(vUv); vec2 baseUV = windowToImage(wp); vec2 offs = n * mag; vec3 col; col.r = sampleWP(baseUV + offs*uAberration).r; col.g = sampleWP(baseUV).g; col.b = sampleWP(baseUV - offs*uAberration).b; float bevelHi = smoothstep(-1.5, -0.5, -sdf); float bevelLo = smoothstep(-2.0, -0.5, sdf); col = mix(col, col*0.96, bevelLo*0.5); col += 0.06*bevelHi; outColor = vec4(col, edge*0.95); }`;
 
-    function compileShader(ctx: WebGLRenderingContext, type: number, src: string): WebGLShader | null {
+    const vert100 = `precision highp float;\nattribute vec2 position;\nvarying vec2 vUv;\nvoid main(){ vUv = position*0.5+0.5; gl_Position = vec4(position,0.0,1.0); }`;
+    const frag100 = `precision highp float;\n#ifdef GL_OES_standard_derivatives\n#extension GL_OES_standard_derivatives : enable\n#endif\nuniform sampler2D uTex;\nuniform vec2 uCanvasSize;\nuniform vec2 uWindowSize;\nuniform vec2 uImageSize;\nuniform vec2 uCoverSize;\nuniform vec2 uCoverOffset;\nuniform vec2 uCanvasTopLeft;\nuniform float uRadius;\nuniform float uIntensity;\nuniform float uAberration;\nvarying vec2 vUv;\nfloat sdRoundRect(vec2 p, vec2 b, float r){ vec2 q = abs(p)-b+r; return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r; }\nvec2 toWindow(vec2 uv){ return uCanvasTopLeft + uv * uCanvasSize; }\nvec2 windowToImage(vec2 wp){ vec2 p = (wp - uCoverOffset)/uCoverSize; return p; }\nvec3 sampleWP(vec2 uv){ return texture2D(uTex, uv).rgb; }\nvoid main(){ vec2 size = uCanvasSize; vec2 p = (vUv*size); vec2 halfSize = size*0.5; float r = uRadius; float sdf = sdRoundRect(p-halfSize, halfSize - vec2(1.0), r); float edge = smoothstep(2.0, 0.0, abs(sdf)); vec2 n = normalize(vec2(dFdx(sdf), dFdy(sdf)) + 1e-5); float k = clamp(1.0-abs(sdf)/r,0.0,1.0); float mag = uIntensity * k; vec2 wp = toWindow(vUv); vec2 baseUV = windowToImage(wp); vec2 offs = n * mag; vec3 col; col.r = sampleWP(baseUV + offs*uAberration).r; col.g = sampleWP(baseUV).g; col.b = sampleWP(baseUV - offs*uAberration).b; float bevelHi = smoothstep(-1.5, -0.5, -sdf); float bevelLo = smoothstep(-2.0, -0.5, sdf); col = mix(col, col*0.96, bevelLo*0.5); col += 0.06*bevelHi; gl_FragColor = vec4(col, edge*0.95); }`;
+
+    function compileShader(ctx: WebGLRenderingContext | WebGL2RenderingContext, type: number, src: string): WebGLShader | null {
       const s = ctx.createShader(type);
       if (!s) return null;
       ctx.shaderSource(s, src);
@@ -80,8 +85,9 @@ export const RefractiveGlassCard: React.FC<Props> = ({
       return s;
     }
 
-    const vs = compileShader(gl, gl.VERTEX_SHADER, vert);
-    const fs = compileShader(gl, gl.FRAGMENT_SHADER, frag);
+    const use300 = !!gl2;
+    const vs = compileShader(gl, gl.VERTEX_SHADER, use300 ? vert300 : vert100);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, use300 ? frag300 : frag100);
     if (!vs || !fs) { setFailed(true); containerRef.current?.classList.add("fallback"); return; }
     const prog = gl.createProgram();
     if (!prog) { setFailed(true); return; }
@@ -122,18 +128,24 @@ export const RefractiveGlassCard: React.FC<Props> = ({
 
     function resize() {
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const rect = el.getBoundingClientRect();
-      canvas.width = Math.max(2, Math.round(rect.width * dpr));
-      canvas.height = Math.max(2, Math.round(rect.height * dpr));
-      canvas.style.width = `${Math.max(1, Math.round(rect.width))}px`;
-      canvas.style.height = `${Math.max(1, Math.round(rect.height))}px`;
-      gl.viewport(0, 0, canvas.width, canvas.height);
+      const elNow = containerRef.current;
+      const cv = canvasRef.current;
+      if (!elNow || !cv || !gl) return;
+      const rect = elNow.getBoundingClientRect();
+      cv.width = Math.max(2, Math.round(rect.width * dpr));
+      cv.height = Math.max(2, Math.round(rect.height * dpr));
+      cv.style.width = `${Math.max(1, Math.round(rect.width))}px`;
+      cv.style.height = `${Math.max(1, Math.round(rect.height))}px`;
+      gl.viewport(0, 0, cv.width, cv.height);
     }
 
     function sync() {
       if (!img || !(img as any).width || !(img as any).height) return;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const rect = el.getBoundingClientRect();
+      const elNow = containerRef.current;
+      const cv = canvasRef.current;
+      if (!elNow || !cv || !gl) return;
+      const rect = elNow.getBoundingClientRect();
       const winW = Math.round(window.innerWidth * dpr);
       const winH = Math.round(window.innerHeight * dpr);
       const topLeftX = Math.round((rect.left + window.scrollX) * dpr);
@@ -156,7 +168,7 @@ export const RefractiveGlassCard: React.FC<Props> = ({
       const offY = Math.round((winH - cov.h) / 2);
 
       gl.uniform1i(uTex, 0);
-      gl.uniform2f(uCanvasSize, canvas.width, canvas.height);
+      gl.uniform2f(uCanvasSize, cv.width, cv.height);
       gl.uniform2f(uWindowSize, winW, winH);
       gl.uniform2f(uImageSize, (img as any).width, (img as any).height);
       gl.uniform2f(uCoverSize, cov.w, cov.h);

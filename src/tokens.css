@@ -1,0 +1,8 @@
+:root{
+    --tile-size: 112px;
+    --tile-radius: 1rem;
+    --panel-bg: #202020;
+    --panel-border: rgba(255,255,255,0.06);
+    --panel-bezel: rgba(255,255,255,0.08);
+    --accent: #6B7280;
+  }

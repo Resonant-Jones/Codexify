@@ -1,21 +1,3 @@
-{
-    "default_provider": "local",
-    "providers": {
-        "elevenlabs": {
-            "api_key": null,
-            "default_voice": "josh"
-        },
-        "google": {
-            "credentials_path": null,
-            "default_voice": "en-US-Standard-A"
-        },
-        "local": {
-            "enabled": true,
-            "default_voice": "local-neutral-1"
-        }
-    },
-    "output_directory": "tts_output",
-    "audio_format": "wav",
-    "cache_enabled": true,
-    "cache_directory": ".tts_cache"
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:529be472aeabd1509741484f73e29181b25b55cc2d263bbccda56496308b0fa3
+size 513

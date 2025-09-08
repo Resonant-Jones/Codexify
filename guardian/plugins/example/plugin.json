@@ -1,9 +1,3 @@
-{
-  "name": "example",
-  "version": "0.1.0",
-  "description": "An example plugin",
-  "author": "Guardian Team",
-  "dependencies": [],
-  "capabilities": ["example_capability"],
-  "entry": "plugins/example/main.py"
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:d13d53b25245a72d731b9953922d3b3e6bc25c6f1ac2cf5cf152bf1fa033116f
+size 215

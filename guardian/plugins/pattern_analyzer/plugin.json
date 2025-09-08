@@ -1,25 +1,3 @@
-{
-  "name": "pattern_analyzer",
-  "version": "1.0.0",
-  "description": "Analyzes system behavior patterns and generates codex entries for identified patterns",
-  "author": "Threadspace Core Team",
-  "dependencies": [],
-  "capabilities": [
-    "pattern_recognition",
-    "codex_generation",
-    "behavior_analysis",
-    "trend_detection"
-  ],
-  "config": {
-    "enabled": true,
-    "analysis_interval": 600,
-    "min_confidence": 0.7,
-    "max_patterns": 100,
-    "pattern_types": [
-      "behavioral",
-      "temporal",
-      "structural",
-      "relational"
-    ]
-  }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:b24856a902ab7da6989bea4c667c51641a4ef7dd11fcd0315914aea46f2dd8aa
+size 571

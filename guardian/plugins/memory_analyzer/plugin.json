@@ -1,18 +1,3 @@
-{
-  "name": "memory_analyzer",
-  "version": "1.0.0",
-  "description": "Analyzes memory patterns and provides insights on system memory usage",
-  "author": "Threadspace Core Team",
-  "dependencies": [],
-  "capabilities": [
-    "memory_analysis",
-    "pattern_recognition",
-    "usage_metrics"
-  ],
-  "config": {
-    "enabled": true,
-    "analysis_interval": 300,
-    "retention_period": 86400,
-    "alert_threshold": 0.8
-  }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:b51f1c462dadbfc6b385e9928b684cdd19dd44ae40c19eba37755dd75bcf2aae
+size 426

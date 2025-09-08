@@ -1,7 +1,3 @@
-{
-  "timestamp": "date",
-  "tag": "rich_text",
-  "command": "rich_text",
-  "agent": "rich_text",
-  "Title": "title"
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:a5cf3bb454d73a946161597ac8b2c9035a59a129101184d9efc0ae3f59fd62b6
+size 118

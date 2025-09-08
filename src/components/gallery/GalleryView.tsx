@@ -25,9 +25,9 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
         <div className="text-lg font-semibold mb-2" style={{ color: "var(--text)" }}>
           Gallery
         </div>
-        <div className="grid flex-1 min-h-0 gap-5 content-start justify-start" style={{ gridTemplateColumns: "repeat(auto-fill, 112px)" }}>
+        <div className="grid flex-1 min-h-0 gap-4 content-start justify-start" style={{ gridTemplateColumns: "repeat(auto-fill, 156px)" }}>
           {visible.map((item, i) => (
-            <PreviewTile key={i} tone="panel" layer="flat" square bezel="simple" elevation="md" bevel="soft" className="w-[112px] cursor-pointer" onClick={() => onSelect(item.prompt)}>
+            <PreviewTile key={i} tone="panel" square className="w-[156px] cursor-pointer" onClick={() => onSelect(item.prompt)}>
               <img src={item.src} alt={item.prompt} />
             </PreviewTile>
           ))}

@@ -1,22 +1,3 @@
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "Bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "allowJs": false,
-    "types": ["vitest/globals", "vite/client", "node"],
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./*"]
-    }
-  },
-  "include": ["**/*", "vite.config.ts"]
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:a907ce4e61c3e021f27fda42777b1932890f0e585b0a0b94ce4fe77fdd4aca23
+size 528

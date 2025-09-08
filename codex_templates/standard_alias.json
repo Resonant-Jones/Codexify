@@ -1,7 +1,3 @@
-
-    {
-      "frogspawn_date": "timestamp",
-      "taggy": "tag",
-      "utterance": "command",
-      "who": "agent"
-    }
+version https://git-lfs.github.com/spec/v1
+oid sha256:9ec318416ea226140dc2ba93ed2cd3fb98cc338c5bb94ed57a48f3ac1b0bca93
+size 123

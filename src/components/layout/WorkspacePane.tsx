@@ -1,6 +1,6 @@
 import React, { useContext, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import LayeredCard from "@/components/ui/LayeredCard";
+import PreviewTile from "@/components/ui/PreviewTile";
 import { Button } from "@/components/ui/button";
 import { ProjectContext } from "@/components/layout/ProjectContext";
 
@@ -8,10 +8,14 @@ export function DocChip({
   label,
   onClick,
   active = false,
+  variant = "default",
+  className = "",
 }: {
   label: string;
   onClick?: () => void;
   active?: boolean;
+  variant?: "default" | "dock";
+  className?: string;
 }) {
   const isDark = typeof window !== "undefined"
     ? document.documentElement.classList.contains("dark")
@@ -26,21 +30,36 @@ export function DocChip({
     ? (getComputedStyle(document.documentElement).getPropertyValue("--panel-bg").trim() || "var(--panel-bg)")
     : "var(--panel-bg)";
 
+  // Base outer shell (beveled plate)
+  const outer = "group w-full rounded-2xl border p-[3px] text-left appearance-none transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-white/10";
+  const ring = active ? "ring-1" : "";
+
+  // Inner face (paper) — default keeps your original shadows; dock trims padding/weight
+  const innerBase = "rounded-xl border text-sm shadow-[0_0_18px_rgba(0,0,0,0.12),0_8px_18px_rgba(0,0,0,0.18),0_2px_6px_rgba(0,0,0,0.12),inset_0_1px_0_rgba(255,255,255,0.28),inset_0_-1px_0_rgba(0,0,0,0.08)] group-hover:shadow-[0_0_24px_rgba(0,0,0,0.14),0_12px_24px_rgba(0,0,0,0.22),0_4px_12px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.30),inset_0_-1px_0_rgba(0,0,0,0.10)] group-active:shadow-[0_0_14px_rgba(0,0,0,0.12),0_6px_16px_rgba(0,0,0,0.18),0_2px_6px_rgba(0,0,0,0.14),inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-1px_0_rgba(0,0,0,0.08)]";
+  const innerPadding = variant === "dock" ? "px-3 py-1.5" : "px-3 py-2";
+  const innerRadius  = variant === "dock" ? "rounded-xl" : "rounded-xl"; // same radius, different density
+  const innerClasses = [innerBase, innerPadding, innerRadius].join(" ");
+
   return (
     <button
       onClick={onClick}
-      className={`group w-full rounded-2xl border p-[3px] text-left appearance-none transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-white/10 ${active ? "ring-1" : ""}`}
+      className={[outer, ring, className].join(" ")}
       style={{ background: backPlate, borderColor: "var(--panel-bezel)" }}
     >
       <div
-        className="rounded-xl border px-3 py-2 text-sm shadow-[0_0_18px_rgba(0,0,0,0.12),0_8px_18px_rgba(0,0,0,0.18),0_2px_6px_rgba(0,0,0,0.12),inset_0_1px_0_rgba(255,255,255,0.28),inset_0_-1px_0_rgba(0,0,0,0.08)] group-hover:shadow-[0_0_24px_rgba(0,0,0,0.14),0_12px_24px_rgba(0,0,0,0.22),0_4px_12px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.30),inset_0_-1px_0_rgba(0,0,0,0.10)] group-active:shadow-[0_0_14px_rgba(0,0,0,0.12),0_6px_16px_rgba(0,0,0,0.18),0_2px_6px_rgba(0,0,0,0.14),inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-1px_0_rgba(0,0,0,0.08)]"
+        className={innerClasses}
         style={{ background: paperBg, borderColor: "var(--panel-bezel)", color: ink }}
       >
-        <span className="workspace-ink">{label}</span>
+        <span className="workspace-ink truncate">{label}</span>
       </div>
     </button>
   );
 }
+
+// Convenience alias for top dock chips without changing other files:
+export const DockChip = (props: Omit<Parameters<typeof DocChip>[0], "variant">) => (
+  <DocChip {...props} variant="dock" />
+);
 
 export default function WorkspacePane({ bare = false }: { bare?: boolean }) {
   const { projectId } = useContext(ProjectContext);
@@ -83,24 +102,13 @@ export default function WorkspacePane({ bare = false }: { bare?: boolean }) {
         {/* Documents */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {docs.map((d) => (
-            <LayeredCard key={d} tone="sheet" className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0">
-              <CardContent className="p-[3px]">
-                <button
-                  type="button"
-                  className="block w-full text-left rounded-xl border px-3 py-2.5 min-h-[112px]"
-                  style={{
-                    background: "var(--chip-bg, var(--panel-bg))",
-                    borderColor: "var(--panel-border)",
-                    color: "var(--text)",
-                    boxShadow: "var(--elevation-shadow-front)",
-                  }}
-                >
-                  <div className="rounded-[10px] aspect-[4/3]" style={{ background: "var(--panel-bg)" }} />
-                  <div className="mt-2 text-sm font-medium truncate">{d}</div>
-                  <div className="text-xs opacity-70 truncate">&nbsp;</div>
-                </button>
-              </CardContent>
-            </LayeredCard>
+            <PreviewTile key={d} tone="panel" className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0">
+              <div className="min-h-[112px]">
+                <div className="rounded-[10px] aspect-[4/3]" style={{ background: "var(--panel-bg)" }} />
+                <div className="mt-2 text-sm font-medium truncate">{d}</div>
+                <div className="text-xs opacity-70 truncate">&nbsp;</div>
+              </div>
+            </PreviewTile>
           ))}
         </div>
       </div>

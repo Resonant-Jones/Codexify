@@ -1,4 +1,3 @@
-[
-  { "title": "First Note", "body": "Hello world" },
-  { "title": "Second Note", "body": "More content here" }
-]
+version https://git-lfs.github.com/spec/v1
+oid sha256:1dcfcccb580cda2154d98cca6b905dd5c2ed850039cbc820df01474d7f6c12b3
+size 114

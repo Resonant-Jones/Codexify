@@ -1,3 +1,13 @@
+# AGENTS.md — Codexify UI dev rules
+
+- Canonical UI components live in `src/components/`.
+- Archive duplicate or experimental copies to `src/archive/duplicates/` using `git mv`. Do not delete.
+- For DashboardView, canonical = `src/components/dashboard/DashboardView.tsx`.
+- Make changes in small batches (<= 5 files per commit).
+- After each batch run `npm run build` (or `npm run dev`) and `npm test`. Fail fast on build/test errors.
+- Preserve git history. Always create a PR for review.
+- If an import is ambiguous, stop and request human review.
+
 You are doing a SURGICAL, MINIMAL patch. Honor these invariants exactly:
 
 - Keep 6px page rim and 3px inner rim.
