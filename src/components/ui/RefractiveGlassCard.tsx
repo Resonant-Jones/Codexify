@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type Props = {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   wallpaperUrl: string | null;
   radius?: number;
   intensity?: number;

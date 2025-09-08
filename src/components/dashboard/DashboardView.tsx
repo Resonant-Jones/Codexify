@@ -26,7 +26,8 @@ export default function DashboardView({
     const L = 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
     return L > 0.5 ? "#111111" : "#ffffff";
   };
-  const colorFor = (name: string) => extColors[ext(name)] || "#6366f1";
+  const colorFor = (name: string) =>
+    extColors[ext(name) as keyof typeof extColors] || "#6366f1";
 
   // Demo lists (replace with real data when wired)
   const recentDocs = ["Covenant.pdf", "Roadmap.md", "Vision.txt", "Design.sketch"];
