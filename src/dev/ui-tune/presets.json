@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Studio/SoftGlass",
+    "vars": {
+      "radius": 19,
+      "blur": 10,
+      "depth": 1,
+      "panelOpacity": 0.78,
+      "glassOpacity": 0.6,
+      "borderAlpha": 0.1,
+      "accent": "#6D6AFE"
+    }
+  },
+  {
+    "name": "Guardian/Chrome High",
+    "vars": {
+      "radius": 19,
+      "blur": 12,
+      "depth": 1.25,
+      "panelOpacity": 0.72,
+      "glassOpacity": 0.56,
+      "borderAlpha": 0.14,
+      "accent": "#9b87f5"
+    }
+  },
+  {
+    "name": "Matte/Low Elevation",
+    "vars": {
+      "radius": 19,
+      "blur": 6,
+      "depth": 0.75,
+      "panelOpacity": 0.9,
+      "glassOpacity": 0.82,
+      "borderAlpha": 0.06,
+      "accent": "#22b3a6"
+    }
+  }
+]

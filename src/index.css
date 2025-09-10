@@ -50,6 +50,7 @@ img, svg, video, canvas { display: block; }
   --panel-bg: #f3f4f6;
   --panel-border: #e5e7eb;
   --panel-bezel: var(--panel-border);
+  --panel-bg-hover: color-mix(in srgb, var(--panel-bg) 90%, black);
   --bezel-highlight: rgba(255,255,255,0.22);
   --bezel-shadow: rgba(0,0,0,0.22);
   --elevation-shadow-front: 0 8px 24px rgba(0,0,0,0.22), 0 2px 6px rgba(0,0,0,0.18);
@@ -64,6 +65,7 @@ img, svg, video, canvas { display: block; }
   --panel-bg: #202020;
   --panel-border: #3f3f3f;
   --panel-bezel: #3f3f3f;
+  --panel-bg-hover: color-mix(in srgb, var(--panel-bg) 90%, white);
   --chip-bg: #2f2f2f;
   --text: #ffffff;
   --muted: rgba(255,255,255,0.88);

@@ -3,7 +3,7 @@
 
 ## 📜 Purpose
 
-This ritual scroll defines the **guardrails** and **patterns** for how the **Gemini CLI** (and any semi-autonomous agents) may operate on this project.  
+This ritual scroll defines the **guardrails** and **patterns** for how the coding Agent may operate on this project.  
 It ensures that automated code generation, refactors, and fixes stay aligned with my architectural vision, interconnection logic, and symbolic design.
 
 This document **must be updated** whenever we shift foundational structures, major module boundaries, or key rituals.

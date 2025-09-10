@@ -100,7 +100,13 @@ export default function Sidebar({
     : "All";
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col p-[6px] gap-2" style={{color:"var(--text)"}}>
+    <div
+      className="flex min-h-0 w-full flex-col p-[6px] gap-2"
+      style={{
+        color: "var(--text)",
+        height: "var(--card-height)"
+      }}
+    >
       {/* Segmented tabs — accessible + sliding indicator */}
       <div
         role="tablist"

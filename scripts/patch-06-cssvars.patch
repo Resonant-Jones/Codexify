@@ -1,0 +1,14 @@
+*** Begin Patch
+*** Add File: src/types/css-vars.d.ts
++import "react";
++
++declare module "react" {
++  // Allow CSS custom properties in inline style objects: --*
++  interface CSSProperties {
++    // e.g. "--flex": "1 1 0%"
++    [key: `--${string}`]: string | number | undefined;
++  }
++}
++
++export {};
+*** End Patch

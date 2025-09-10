@@ -77,7 +77,7 @@ export const PersonaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const hydrated = useRef(false);
 
   const arraysEqual = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
-  const norm = (s: string) => s.trim().replace(/\s+/g, " ").slice(0, 64);
+  const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase().slice(0, 64);
   const normalizeMemory = (arr: string[]) => Array.from(new Set(arr.map(norm))).filter(Boolean).slice(0, 200);
   const normalizeRecent = (arr: string[]) => Array.from(new Set(arr.map(norm))).filter(Boolean).slice(0, 50);
 

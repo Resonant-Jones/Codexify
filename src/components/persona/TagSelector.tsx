@@ -9,6 +9,7 @@ export const TagSelector: React.FC<{ onSelect?: (tag: string) => void }> = ({ on
     memoryTags,
     setMemoryTags,
     recentTags,
+    setRecentTags,
     addMemoryTag,
     removeMemoryTag,
     clearMemoryTags,
@@ -17,11 +18,16 @@ export const TagSelector: React.FC<{ onSelect?: (tag: string) => void }> = ({ on
 
   const [q, setQ] = useState("");
 
-  const norm = (s: string) => s.trim().replace(/\s+/g, " ").slice(0, 64);
+  const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase().slice(0, 64);
 
   const add = (raw: string) => {
     const t = norm(raw);
     if (!t) return;
+    // Prevent duplicate tags (case‑insensitive)
+    if (memoryTags.includes(t) || recentTags.includes(t)) {
+      setQ("");
+      return;
+    }
     if (addMemoryTag) addMemoryTag(t);
     else setMemoryTags((prev) => Array.from(new Set([...prev, t])));
     if (pushRecentTag) pushRecentTag(t);
@@ -32,6 +38,11 @@ export const TagSelector: React.FC<{ onSelect?: (tag: string) => void }> = ({ on
   const remove = (t: string) => {
     if (removeMemoryTag) removeMemoryTag(t);
     else setMemoryTags((prev) => prev.filter((x) => x !== t));
+    // Also purge from recent tags to avoid lingering button after removal
+    if (setRecentTags) {
+      const newRecent = recentTags.filter((x) => x !== t);
+      setRecentTags(newRecent);
+    }
   };
 
   const filteredMemory = useMemo(

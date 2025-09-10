@@ -1,0 +1,8 @@
+*** Begin Patch
+*** Add File: src/types/model.d.ts
++// Temporary minimal type stubs for build — replace with full definitions when available.
++export type ModelConfig = any;
++export type ModelContextValue = any;
++
++export {};
+*** End Patch

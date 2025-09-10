@@ -27,7 +27,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send } from "lucide-react";
-import ModelProvider from "@/components/providers/ModelProvider";
+import { ModelProvider } from "@/Providers/ModelProvider";
 
 /**
  * Read a CSS variable from the document root with a fallback.
@@ -123,7 +123,7 @@ export function Composer({
   return (
     // ModelProvider: defaultModel="gpt-120b-oss" sets the per-composer default model.
     // If provider expects a different prop name, update accordingly.
-    <ModelProvider defaultModel="gpt-120b-oss">
+    <ModelProvider>
       <div
         data-composer-root
         className="w-full max-w-none mx-0 flex items-end gap-2 rounded-2xl border px-[var(--composer-pad-x,12px)] py-[var(--composer-pad-y,12px)]"
