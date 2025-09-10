@@ -1,0 +1,88 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0 -- /Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/venv_memoryos_cli/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2
+configfile: pytest.ini
+plugins: anyio-4.9.0, asyncio-1.1.0, cov-6.2.1, mock-3.14.1
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... ============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0 -- /Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/venv_memoryos_cli/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2
+configfile: pytest.ini
+plugins: anyio-4.9.0, asyncio-1.1.0, cov-6.2.1, mock-3.14.1
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 141 items / 3 errors
+
+==================================== ERRORS ====================================
+__________________ ERROR collecting tests/test_api_server.py ___________________
+ImportError while importing test module '/Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/tests/test_api_server.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_api_server.py:17: in <module>
+    from guardian.api_server import app, export_to_gdrive, import_from_gdrive, import_from_icloud, create_notion_database_from_records
+E   ModuleNotFoundError: No module named 'guardian.api_server'
+_________________ ERROR collecting tests/test_export_engine.py _________________
+tests/test_export_engine.py:1: in <module>
+    pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+                 ^^^^^^
+E   NameError: name 'pytest' is not defined
+_________________ ERROR collecting tests/test_search_agent.py __________________
+tests/test_search_agent.py:8: in <module>
+    from guardian.core.research.Modules.agent.search import Search_agent
+guardian/core/research/Modules/__init__.py:1: in <module>
+    from .agent import Planner
+guardian/core/research/Modules/agent/__init__.py:2: in <module>
+    from .planner import Planner
+guardian/core/research/Modules/agent/planner.py:4: in <module>
+    from guardian.utils.logger import logger
+guardian/utils/logger.py:21: in <module>
+    logger = get_Logger
+             ^^^^^^^^^^
+E   NameError: name 'get_Logger' is not defined
+=========================== short test summary info ============================
+ERROR tests/test_api_server.py
+ERROR tests/test_export_engine.py - NameError: name 'pytest' is not defined
+ERROR tests/test_search_agent.py - NameError: name 'get_Logger' is not defined
+!!!!!!!!!!!!!!!!!!! Interrupted: 3 errors during collection !!!!!!!!!!!!!!!!!!!!
+======================== 7 warnings, 3 errors in 1.92s =========================
+collected 141 items / 3 errors
+
+==================================== ERRORS ====================================
+__________________ ERROR collecting tests/test_api_server.py ___________________
+ImportError while importing test module '/Users/resonant_jones/Keep/Resonant Constructs/guardian-backend_v2/tests/test_api_server.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_api_server.py:17: in <module>
+    from guardian.api_server import app, export_to_gdrive, import_from_gdrive, import_from_icloud, create_notion_database_from_records
+E   ModuleNotFoundError: No module named 'guardian.api_server'
+_________________ ERROR collecting tests/test_export_engine.py _________________
+tests/test_export_engine.py:1: in <module>
+    pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+                 ^^^^^^
+E   NameError: name 'pytest' is not defined
+_________________ ERROR collecting tests/test_search_agent.py __________________
+tests/test_search_agent.py:8: in <module>
+    from guardian.core.research.Modules.agent.search import Search_agent
+guardian/core/research/Modules/__init__.py:1: in <module>
+    from .agent import Planner
+guardian/core/research/Modules/agent/__init__.py:2: in <module>
+    from .planner import Planner
+guardian/core/research/Modules/agent/planner.py:4: in <module>
+    from guardian.utils.logger import logger
+guardian/utils/logger.py:21: in <module>
+    logger = get_Logger
+             ^^^^^^^^^^
+E   NameError: name 'get_Logger' is not defined
+=========================== short test summary info ============================
+ERROR tests/test_api_server.py
+ERROR tests/test_export_engine.py - NameError: name 'pytest' is not defined
+ERROR tests/test_search_agent.py - NameError: name 'get_Logger' is not defined
+!!!!!!!!!!!!!!!!!!! Interrupted: 3 errors during collection !!!!!!!!!!!!!!!!!!!!
+======================== 7 warnings, 3 errors in 1.92s =========================

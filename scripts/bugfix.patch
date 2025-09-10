@@ -1,0 +1,58 @@
+# --- Part 1: Fix your MemoryAnalyzer test mocks ---
+
+diff --git a/guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py b/guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py
+index abc1234..def5678 100644
+--- a/guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py
++++ b/guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py
+@@ -58,7 +58,7 @@ def test_memory_analysis():
+-    codex.query_memories.return_value = test_memories
++    codex.query_memory.return_value = test_memories
+
+@@ -90,7 +90,7 @@ def test_pattern_detection():
+-    codex.query_memories.return_value = test_memories
++    codex.query_memory.return_value = test_memories
+
+@@ -132,7 +132,7 @@ def test_error_handling():
+-    codex.query_memories.side_effect = Exception("Test error")
++    codex.query_memory.side_effect = Exception("Test error")
+
+# TODO: Reconnect Retriever dependencies:
+# mid_term_memory, long_term_memory, assistant_long_term_memory, queue_capacity
+# --- Part 2: Add aliases to your Codex class (optional but safe) ---
+
+diff --git a/guardian/plugins/memory_analyzer/main.py b/guardian/plugins/memory_analyzer/main.py
+index abc1234..def5678 100644
+--- a/guardian/plugins/memory_analyzer/main.py
++++ b/guardian/plugins/memory_analyzer/main.py
+@@ class Codex:
++    def query_memories(self, *args, **kwargs):
++        return self.query_memory(*args, **kwargs)
+
+
+# --- Part 3: Add missing methods to PatternAnalyzer ---
+
+diff --git a/guardian/plugins/pattern_analyzer/main.py b/guardian/plugins/pattern_analyzer/main.py
+index abc1234..def5678 100644
+--- a/guardian/plugins/pattern_analyzer/main.py
++++ b/guardian/plugins/pattern_analyzer/main.py
+@@ class PatternAnalyzer:
++    def calculate_pattern_metrics(self, patterns):
++        return {}
++
++    def get_metadata(self):
++        return {"name": "PatternAnalyzer", "version": "1.0"}
+
+
+# --- Part 4: Fix your pytest.ini ---
+
+diff --git a/pytest.ini b/pytest.ini
+index abc1234..def5678 100644
+--- a/pytest.ini
++++ b/pytest.ini
+@@ -1,2 +1,4 @@
+-[pytest]
+-testpaths = guardian
+-addopts = -s -v
++[pytest]
++testpaths = guardian
++addopts = -s -v
