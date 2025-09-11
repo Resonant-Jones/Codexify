@@ -463,14 +463,13 @@ export default function AppShell({}: PropsWithChildren) {
      ───────────────────────────────────────────────────────────────────────────── */
   return (
     <div
-      className="w-screen h-screen p-[6px] box-border flex justify-center items-center bg-transparent rounded-[19px]"
+      className="w-screen h-screen p-[6px] box-border flex flex-col bg-transparent rounded-[19px]"
       style={{
         background: "transparent",
         padding: "6px",
         boxSizing: "border-box",
         display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
+        flexDirection: "column",
       }}
     >
       {/* ─────────────────────────────────────────────────────────────────────────────
@@ -513,7 +512,7 @@ export default function AppShell({}: PropsWithChildren) {
           - Settings
          ───────────────────────────────────────────────────────────────────────────── */}
       <div className="relative z-10 flex flex-col flex-1 h-full min-h-0 px-[var(--board-edge)] pt-[var(--gutter)] overflow-hidden">
-        <div className="h-full min-h-0 flex">
+        <div className="flex-1 h-full min-h-0 flex">
           {view === "documents" && (
             <div style={{ "--radius": "var(--card-radius)", "--frame": "250px", "--bezel": "4px", "--rim": "3px", "--gutter": "16px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)" } as React.CSSProperties}>
               <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
@@ -908,12 +907,10 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
 
   return (
     <div
-      className={`flex-1 min-h-0 h-full grid auto-rows-fr transition-all duration-300 ${
-        isSidebarVisible ? "grid-cols-[minmax(280px,360px)_1fr]" : "grid-cols-1"
-      }`}
+      className={`flex-1 min-h-0 h-full flex transition-all duration-300`}
     >
       {isSidebarVisible && (
-        <div className={`flex h-full min-h-0`}>
+        <div className={`flex h-full min-h-0 w-[360px] max-w-[360px] min-w-[280px]`}>
             <div className="h-full rounded-[var(--radius)] flex-1 min-h-0" style={{ padding: "var(--board-edge)" }}>
                 <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}>
                     <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))", padding: "var(--rim)" }}>
@@ -937,7 +934,7 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
             </div>
         </div>
       )}
-      <div className="relative flex flex-col h-full min-h-0 flex-1">
+      <div className="relative flex flex-col flex-1 h-full min-h-0">
         {!isSidebarVisible && (
           <Button
             variant="ghost"
@@ -950,7 +947,7 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
         )}
         {activeThread && (
           <div
-            className="flex-1 flex flex-col rounded-[var(--radius)] overflow-hidden h-full w-full"
+            className="flex-1 min-h-0 flex flex-col rounded-[var(--radius)] overflow-hidden w-full"
           >
             <GuardianChat
               guardianName={guardianName}
