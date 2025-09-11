@@ -42,16 +42,24 @@ export function GuardianChat({
   }, [activeThread.messages.length]);
 
   return (
-    <div className="h-full min-h-0 min-w-0">
-      <div className="h-full rounded-[var(--radius)]" style={{ padding: "var(--board-edge)" }}>
-        <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}>
-          <div className="rounded-[var(--radius)] h-full" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))", padding: "var(--rim)" }}>
+    // KEY FIX: Add h-full to the outermost container
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col h-full">
+      {/* KEY FIX: Add h-full to this wrapper too */}
+      <div className="flex-1 min-h-0 h-full rounded-[var(--radius)]" style={{ padding: "var(--board-edge)" }}>
+        {/* KEY FIX: Add h-full here as well */}
+        <div className="flex-1 min-h-0 h-full flex flex-col rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}>
+          {/* KEY FIX: Add h-full to this wrapper */}
+          <div className="flex-1 min-h-0 h-full flex flex-col rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))", padding: "var(--rim)" }}>
+            {/* KEY FIX: Add h-full here too */}
             <div className="relative rounded-[var(--radius)] h-full">
               <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
                 <RefractiveGlassCard wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} />
               </div>
-              <div className="flex-1 min-h-0 flex flex-col rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
-                <div className="w-full px-4 py-2 flex items-center" style={{ borderBottom: "1px solid var(--panel-border)" }}>
+              {/* KEY FIX: Add h-full to the main content container */}
+              <div className="flex-1 min-h-0 h-full flex flex-col rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
+                
+                {/* Header - fixed height */}
+                <div className="w-full px-4 py-2 flex items-center shrink-0" style={{ borderBottom: "1px solid var(--panel-border)" }}>
                   <div className="flex items-center gap-2">
                     {isSidebarVisible && (
                       <Button
@@ -101,9 +109,15 @@ export function GuardianChat({
                     </DropdownMenu>
                   </div>
                 </div>
+
+                {/* Main content area - this should now fill the remaining space */}
                 <div className="flex-1 min-h-0 flex flex-col">
-                  <div className="flex-1 min-h-0 overflow-auto px-[var(--card-pad)] pb-[var(--card-pad)]">
-                    <div ref={viewportRef}>
+                  {/* Messages area - scrollable */}
+                  <div
+                    ref={viewportRef}
+                    className="flex-1 min-h-0 overflow-auto px-[var(--card-pad)] pb-[var(--card-pad)]"
+                  >
+                    <div>
                       <div className="space-y-3">
                         {activeThread.messages.map((m) => (
                           <ChatBubble key={m.id} message={m} isMe={m.authorId === "me"} guardianName={guardianName} />
@@ -111,7 +125,9 @@ export function GuardianChat({
                       </div>
                     </div>
                   </div>
-                  <div className="border-t px-[var(--card-pad)] py-2" style={{ borderColor: "var(--panel-border)" }}>
+                  
+                  {/* Composer - fixed at bottom */}
+                  <div className="border-t px-[var(--card-pad)] py-2 shrink-0" style={{ borderColor: "var(--panel-border)" }}>
                     <Composer onSend={onSendMessage} prefill={prefill} onPrefillConsumed={onPrefillConsumed} />
                   </div>
                 </div>

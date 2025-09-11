@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "clean:vite": "rimraf node_modules/.vite",
+    "dev:fresh":  "npm run clean:vite && vite --force"
+  }
+}

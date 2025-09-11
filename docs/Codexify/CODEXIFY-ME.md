@@ -1,10 +1,12 @@
-cd # 🧠 Threadspace
+cd # 🧠 guardian-backend_v2
 
-A next-generation AI operating system designed to host recursive, persistent AI agents with self-awareness and dynamic capabilities.
+
+     💠Codexify💠
+A Sovereign AI operating system designed to host recursive, persistent AI agents with self-awareness and dynamic capabilities.
 
 ## 🌟 Overview
 
-Threadspace is not just another application framework—it's a complete operating environment for AI agents. Built with self-awareness and extensibility at its core, it provides:
+Codexify/Threadspace is not just another application framework—it's a complete operating environment for AI agents. Built with self-awareness and extensibility at its core, it provides:
 
 - 🤖 **Persistent Agent Architecture**: Long-running AI agents with distinct roles and capabilities
 - 🔄 **Dynamic Memory Management**: Sophisticated memory systems for context retention and pattern recognition
