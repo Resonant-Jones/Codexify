@@ -9,6 +9,7 @@ import ProviderSwitchFAB from "@/components/ProviderSwitchFAB";
 import WorkspacePane from "@/features/workspace/WorkspacePane";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import DocumentsView from "@/components/documents/DocumentsView";
 import { ExtColors, GalleryItem, ThemeMode } from "@/types/ui";
 /* ──────────────────────────────────────────────────────────────────────────
    TUNING PRIMER (safe knobs)
@@ -94,6 +95,25 @@ function writeSessionOverride(v: Resolved | null) {
    This is the root shell for the app, handling theme, persistent state,
    background visuals, modular design tokens, and view routing.
    ───────────────────────────────────────────────────────────────────────────── */
+function useBreakpoint() {
+  const get = () => {
+    if (typeof window === "undefined") return "xl";
+    const w = window.innerWidth;
+    if (w < 768) return "sm";
+    if (w < 1024) return "md";
+    if (w < 1440) return "lg";
+    if (w < 1920) return "xl";
+    return "2xl";
+  };
+  const [bp, setBp] = useState(get);
+  useEffect(() => {
+    const on = () => setBp(get());
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return bp as "sm" | "md" | "lg" | "xl" | "2xl";
+}
+
 export default function AppShell({}: PropsWithChildren) {
   /* ─────────────────────────────────────────────────────────────────────────────
      🧠 Theme Mode Logic
@@ -435,8 +455,31 @@ export default function AppShell({}: PropsWithChildren) {
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : null);
   }, [wallpaper, gallery]);
+
+  const bp = useBreakpoint();
+
   // Helper to jump to Guardian chat with a prefilled prompt
   function openChatWithPrompt(p: string) { setPrefill(p); setView("guardian"); }
+
+  // Memoized layout helper for responsive document/workspace widths using breakpoints
+  const docsLayout = useMemo(() => {
+    if (!workspaceOpen) {
+      return { listFlex: "1 1 0%", workspaceW: "calc(0% - var(--gutter))" };
+    }
+    switch (bp) {
+      case "sm":
+      case "md":
+        // On small screens, keep documents full-width and collapse the workspace column
+        return { listFlex: "1 1 0%", workspaceW: "0%" };
+      case "lg":
+        return { listFlex: "0 0 50%", workspaceW: "calc(50% - var(--gutter))" };
+      case "xl":
+        return { listFlex: "0 0 45%", workspaceW: "calc(55% - var(--gutter))" };
+      case "2xl":
+      default:
+        return { listFlex: "0 0 40%", workspaceW: "calc(60% - var(--gutter))" };
+    }
+  }, [bp, workspaceOpen]);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🎭 SECTION: Dynamic Background Dramatic Effects
@@ -514,99 +557,69 @@ export default function AppShell({}: PropsWithChildren) {
       <div className="relative z-10 flex flex-col flex-1 h-full min-h-0 px-[var(--board-edge)] pt-[var(--gutter)] overflow-hidden">
         <div className="flex-1 h-full min-h-0 flex">
           {view === "documents" && (
-            <div style={{ "--radius": "var(--card-radius)", "--frame": "250px", "--bezel": "4px", "--rim": "3px", "--gutter": "16px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)" } as React.CSSProperties}>
+            <div style={{ "--radius": "var(--card-radius)", "--frame": "5px", "--bezel": "4px", "--rim": "3px", "--gutter": "16px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)" } as React.CSSProperties}>
               <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
-              <div
-                className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
-                style={{
-                  padding: "var(--board-edge)",
-                  width: "var(--w, auto)",
-                  maxWidth: "var(--max-w, none)",
-                  minWidth: "var(--min-w, 0)",
-                  height: "var(--h, auto)",
-                  minHeight: "var(--min-h, 0)",
-                  maxHeight: "var(--max-h, none)",
-                  flex: "var(--flex, 1 1 0%)",
-                  "--flex": "0 0 33.33%",
-                  "--min-h": "clamp(520px, 70vh, 1000px)",
-                }}
-              >
-                <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
-                  <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
-                    <div className="relative rounded-[var(--radius)]">
-                      <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                      </div>
-                      <div className="min-h-0 w-full rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
-                        <div className="min-h-0 w-full px-[var(--card-pad)] pt-[var(--card-pad)] pb-0">
-                          <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>DOCS</div>
-                          <div className="flex flex-col gap-[calc(var(--gutter)/2)]">
-                            {documents.map((d) => {
-                              const color = (extColors as any)[d.ext] || "#6B7280";
-                              return (
-                                <FrameCard key={d.name + d.ext}>
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3 p-3">
-                                      <div className="w-7 h-7 rounded-md" style={{ background: color }} />
-                                      <div className="text-sm" style={{ color: "var(--text)" }}>{d.name}.{d.ext}</div>
-                                    </div>
-                                    <button
-                                      className="text-xs pr-3 opacity-80 hover:opacity-100 underline-offset-2 hover:underline"
-                                      style={{ color: "var(--muted)" }}
-                                      onClick={() => openDocInPlace(d.name, d.ext)}
-                                    >
-                                      Open
-                                    </button>
-                                  </div>
-                                </FrameCard>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {workspaceOpen && (
                 <div
-                  className="rounded-[var(--radius)] shrink-0 overflow-visible"
+                  className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
                   style={{
                     padding: "var(--board-edge)",
-                    width: "var(--w, var(--workspace-w))",
+                    width: "var(--w, auto)",
                     maxWidth: "var(--max-w, none)",
                     minWidth: "var(--min-w, 0)",
                     height: "var(--h, auto)",
                     minHeight: "var(--min-h, 0)",
                     maxHeight: "var(--max-h, none)",
-                    flex: "var(--flex, 0 0 var(--workspace-w))",
-                    "--w": "calc(66.67% - var(--gutter))",
-                    "--flex": "0 0 var(--w)",
+                    flex: "var(--flex, 1 1 0%)",
+                    "--flex": docsLayout.listFlex,
                     "--min-h": "clamp(520px, 70vh, 1000px)",
                   }}
                 >
-                  <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
-                    <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
-                      <div className="relative rounded-[var(--radius)]">
+                  <DocumentsView
+                    documents={documents}
+                    extColors={extColors}
+                    onDocumentClick={openDocInPlace}
+                  />
+                </div>
+                {workspaceOpen && (
+                  <div
+                    className="rounded-[var(--radius)] shrink-0 overflow-visible"
+                    style={{
+                      padding: "var(--board-edge)",
+                      width: "var(--w, var(--workspace-w))",
+                      maxWidth: "var(--max-w, none)",
+                      minWidth: "var(--min-w, 0)",
+                      height: "var(--h, auto)",
+                      minHeight: "var(--min-h, 0)",
+                      maxHeight: "var(--max-h, none)",
+                      flex: "var(--flex, 0 0 var(--workspace-w))",
+                      "--w": docsLayout.workspaceW,
+                      "--flex": "0 0 var(--w)",
+                      "--min-h": "clamp(520px, 70vh, 1000px)",
+                    }}
+                  >
+                    <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
+                      <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
+                        <div className="relative rounded-[var(--radius)]">
 <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
   {/* Glass removed for recent column */}
 </div>
-                        <div className="rounded-[var(--radius)] overflow-hidden relative" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
-                          <button
-                            onClick={() => setWorkspaceOpen(false)}
-                            className="absolute top-2 right-2 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
-                            style={{ borderColor: "var(--panel-border)", color: "var(--muted)", background: "var(--panel-bg)" }}
-                            aria-label="Close workspace"
-                            title="Close"
-                          >
-                            ×
-                          </button>
-                          <WorkspacePane />
+                          <div className="rounded-[var(--radius)] overflow-hidden relative" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                            <button
+                              onClick={() => setWorkspaceOpen(false)}
+                              className="absolute top-2 right-2 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
+                              style={{ borderColor: "var(--panel-border)", color: "var(--muted)", background: "var(--panel-bg)" }}
+                              aria-label="Close workspace"
+                              title="Close"
+                            >
+                              ×
+                            </button>
+                            <WorkspacePane />
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
               </div>
             </div>
           )}
