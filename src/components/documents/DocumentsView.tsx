@@ -1,38 +1,48 @@
-import React, { useContext, useMemo } from "react";
-import { ProjectContext } from "@/components/layout/ProjectContext";
-import PreviewTile from "@/components/ui/PreviewTile";
+import React from "react";
+import DocumentPreviewTile from "@/components/ui/DocumentPreviewTile";
+import { ExtColors } from "@/types/ui";
 
-function getExt(name: string): string {
-  const m = name.match(/\.([^.]+)$/);
-  return m ? m[1].toLowerCase() : "";
-}
-function readExtColors(): Record<string, string> {
-  if (typeof window === "undefined") return { pdf: "#ef4444", md: "#6366f1", txt: "#06b6d4", sketch: "#f59e0b" };
-  try {
-    const raw = localStorage.getItem("cfy.extColors");
-    return raw ? JSON.parse(raw) : { pdf: "#ef4444", md: "#6366f1", txt: "#06b6d4", sketch: "#f59e0b" };
-  } catch {
-    return { pdf: "#ef4444", md: "#6366f1", txt: "#06b6d4", sketch: "#f59e0b" };
-  }
+interface DocumentsViewProps {
+  documents: Array<{ name: string; ext: keyof ExtColors }>;
+  extColors: ExtColors;
+  onDocumentClick?: (name: string, ext: string) => void;
 }
 
-export default function DocumentsView({ docs, projectId: projectIdProp }: { docs: Array<{ name: string; project?: string }>; projectId?: string }) {
-  const { projectId: ctxProject } = useContext(ProjectContext);
-  const projectId = projectIdProp ?? ctxProject ?? undefined;
-  const visible = useMemo(() => (projectId ? docs.filter((d) => (d as any).project === projectId) : docs), [docs, projectId]);
+export default function DocumentsView({ 
+  documents, 
+  extColors, 
+  onDocumentClick 
+}: DocumentsViewProps) {
+  const handleDocumentClick = (name: string, ext: string) => {
+    if (onDocumentClick) {
+      onDocumentClick(name, ext);
+    }
+  };
+
   return (
-    <div className="h-full px-4 pt-3 pb-2 space-y-2">
-      <div className="text-lg font-semibold" style={{ color: "var(--text)" }}>Documents</div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {visible.map((d) => (
-          <PreviewTile key={d.name} tone="panel">
-            <div className="space-y-2">
-              <div className="rounded-[10px] aspect-[4/3]" style={{ background: "var(--panel-bg)" }} />
-              <div className="text-sm font-medium truncate">{d.name}</div>
-              <div className="text-xs opacity-70 truncate">{getExt(d.name).toUpperCase()}</div>
-            </div>
-          </PreviewTile>
-        ))}
+    <div 
+      className="glass-surface rounded-2xl p-[3px] h-full min-h-0"
+      style={{ "--radius": "var(--card-radius)", "--frame": "5px", "--bezel": "4px", "--rim": "3px", "--gutter": "16px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)" } as React.CSSProperties}
+    >
+      <div
+        className="rounded-xl border shadow-sm h-full flex flex-col"
+        style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)", color: "var(--text)" }}
+      >
+        <div className="px-4 pt-3 pb-2 shrink-0">
+          <div className="text-lg font-semibold">Documents</div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-4 pt-0">
+          <div className="grid gap-4 justify-start" style={{ gridTemplateColumns: "repeat(auto-fill, 112px)" }}>
+            {documents.map((d) => (
+              <DocumentPreviewTile
+                key={`${d.name}.${d.ext}`}
+                file={{ name: `${d.name}.${d.ext}` }}
+                onClick={() => handleDocumentClick(d.name, d.ext)}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
+              />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
