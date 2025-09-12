@@ -30,7 +30,8 @@
     "@google/gemini-cli": "^0.1.11",
     "@tailwindcss/vite": "^4.1.12",
     "@tauri-apps/cli": "^2.8.1",
-    "tailwindcss": "^4.1.12"
+    "tailwindcss": "^4.1.12",
+    "vite-plugin-pwa": "^1.0.3"
   },
   "dependencies": {
     "lucide-react": "^0.540.0",

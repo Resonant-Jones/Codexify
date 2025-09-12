@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
+import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -13,7 +14,39 @@ export default defineConfig({
   // Allow non-VITE prefixes to be visible in import.meta.env if needed
   envPrefix: ['VITE_', 'GUARDIAN_', 'GC_', 'GROQ_'],
 
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      manifest: {
+        name: 'Codexify',
+        short_name: 'Codexify',
+        description: 'Your AI-powered chat & docs workspace',
+        icons: [
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }
+        ],
+        theme_color: '#00FF00',
+        background_color: '#000000',
+        display: 'standalone',
+        start_url: '/'
+      },
+      workbox: {
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/,
+            handler: 'CacheFirst',
+            options: { cacheName: 'google-fonts' }
+          },
+          {
+            urlPattern: /\.(?:js|css|html|png|svg|jpg|jpeg)$/,
+            handler: 'StaleWhileRevalidate',
+            options: { cacheName: 'assets' }
+          }
+        ]
+      }
+    })
+  ],
 
   resolve: {
     alias: {

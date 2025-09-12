@@ -1,6 +1,7 @@
  // @ts-nocheck
-import { PropsWithChildren, useEffect, useMemo, useState } from "react";
+import React, { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { X, ChevronLeft, ChevronRight, Menu } from "lucide-react";
 import ReactiveGlassCard from "@/components/surface/ReactiveGlassCard";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
@@ -10,7 +11,9 @@ import WorkspacePane from "@/features/workspace/WorkspacePane";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import DocumentsView from "@/components/documents/DocumentsView";
-import { ExtColors, GalleryItem, ThemeMode } from "@/types/ui";
+import Sidebar from "@/components/chat/Sidebar";
+import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
+import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 /* ──────────────────────────────────────────────────────────────────────────
    TUNING PRIMER (safe knobs)
    - Per-VIEW overrides: add CSS vars on the wrapper just after `{view === "…"`:
@@ -481,6 +484,16 @@ export default function AppShell({}: PropsWithChildren) {
     }
   }, [bp, workspaceOpen]);
 
+  // Responsive layout helper for Settings view
+  const settingsLayout = useMemo(() => {
+    // On small (sm, md) breakpoints, let the settings card fill width
+    if (bp === "sm" || bp === "md") {
+      return { flex: "1 1 100%", maxWidth: "none" };
+    }
+    // On larger screens, enforce max width (18rem)
+    return { flex: "1 1 0%", maxWidth: "18rem" };
+  }, [bp]);
+
   /* ─────────────────────────────────────────────────────────────────────────────
      🎭 SECTION: Dynamic Background Dramatic Effects
      When no wallpaper is set, we dramatically adjust background depth/fade
@@ -513,6 +526,8 @@ export default function AppShell({}: PropsWithChildren) {
         boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
+        minWidth: "608px",
+        minHeight: "548px",
       }}
     >
       {/* ─────────────────────────────────────────────────────────────────────────────
@@ -795,68 +810,66 @@ export default function AppShell({}: PropsWithChildren) {
             </div>
           )}
           {view === "settings" && (
-            <div style={{ "--radius": "var(--card-radius)", "--frame": "5px", "--bezel": "4px", "--rim": "3px" } as React.CSSProperties}>
-              <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
-              <div
-                className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
-                style={{
-                  padding: "var(--board-edge)",
-                  width: "var(--w, auto)",
-                  maxWidth: "var(--max-w, none)",
-                  minWidth: "var(--min-w, 0)",
-                  height: "var(--h, auto)",
-                  minHeight: "var(--min-h, 0)",
-                  maxHeight: "var(--max-h, none)",
-                  flex: "var(--flex, 1 1 0%)",
-                }}
-              >
-                <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
-                  <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
-                    <div className="relative rounded-[var(--radius)]">
-                      <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                        <RefractiveGlassCard
-                          wallpaperUrl={activeWallpaper}
-                          className="w-full h-full rounded-[var(--radius)]"
-                          style={{ background: "transparent", border: "none" }}
-                          intensity={0.006}
-                          aberration={0}
-                        />
-                      </div>
-                      <div className="min-h-0 w-full rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
-                        <div className="min-h-0 w-full overflow-auto p-[var(--card-pad)]">
-                          <div className="max-w-[18rem] mr-auto">
-                            <SettingsView
-                              mode={mode}
-                              setMode={setMode}
-                              guardianName={guardianName}
-                              setGuardianName={setGuardianName}
-                              userName={userName}
-                              setUserName={setUserName}
-                              role={role}
-                              setRole={setRole}
-                              notes={notes}
-                              setNotes={setNotes}
-                              baseColor={baseColor}
-                              setBaseColor={setBaseColor}
-                              depth={depth}
-                              setDepth={setDepth}
-                              fade={fade}
-                              setFade={setFade}
-                              resolved={resolved}
-                              systemPrompt={systemPrompt}
-                              setSystemPrompt={setSystemPrompt}
-                              wallpaper={wallpaper}
-                              setWallpaper={setWallpaper}
-                              extColors={extColors}
-                              setExtColors={setExtColors}
-                            />
+            <div
+              className="flex-1 h-full"
+              style={{ "--radius": "var(--card-radius)", "--frame": "5px", "--bezel": "4px", "--rim": "3px" } as React.CSSProperties}
+            >
+              <div className="flex-1 h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
+                <div
+                  className="min-w-0 flex-1 min-h-0 h-full flex flex-col overflow-visible rounded-[var(--radius)]"
+                  style={{
+                    padding: "var(--board-edge)",
+                    flex: settingsLayout.flex,
+                    maxWidth: settingsLayout.maxWidth,
+                  }}
+                >
+                  <div className="rounded-[var(--radius)] flex-1 flex flex-col overflow-hidden" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel) solid var(--panel-bezel)" }}>
+                    <div className="rounded-[var(--radius)] flex-1 flex flex-col overflow-hidden" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)" }}>
+                      <div className="relative rounded-[var(--radius)] flex-1 flex flex-col overflow-hidden">
+                        <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                          <RefractiveGlassCard
+                            wallpaperUrl={activeWallpaper}
+                            className="w-full h-full rounded-[var(--radius)]"
+                            style={{ background: "transparent", border: "none" }}
+                            intensity={0.006}
+                            aberration={0}
+                          />
+                        </div>
+                        <div className="min-h-0 w-full rounded-[var(--radius)] overflow-hidden flex-1 flex flex-col" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
+                          <div className="min-h-0 h-full w-full overflow-auto p-[var(--card-pad)] flex-1 flex flex-col">
+                            <div className="max-w-[18rem] mr-auto">
+                              <SettingsView
+                                mode={mode}
+                                setMode={setMode}
+                                guardianName={guardianName}
+                                setGuardianName={setGuardianName}
+                                userName={userName}
+                                setUserName={setUserName}
+                                role={role}
+                                setRole={setRole}
+                                notes={notes}
+                                setNotes={setNotes}
+                                baseColor={baseColor}
+                                setBaseColor={setBaseColor}
+                                depth={depth}
+                                setDepth={setDepth}
+                                fade={fade}
+                                setFade={setFade}
+                                resolved={resolved}
+                                systemPrompt={systemPrompt}
+                                setSystemPrompt={setSystemPrompt}
+                                wallpaper={wallpaper}
+                                setWallpaper={setWallpaper}
+                                extColors={extColors}
+                                setExtColors={setExtColors}
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
               </div>
             </div>
           )}
@@ -867,17 +880,11 @@ export default function AppShell({}: PropsWithChildren) {
   );
 }
 
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
-import Sidebar from "@/components/chat/Sidebar";
-import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
-import { Thread, Message } from "@/types/ui";
-
-// Inline GuardianChatWithSidebar for sidebar toggle and layout logic
-import React from "react";
-
 function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillConsumed, onWorkspaceToggle }) {
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
   const { wallpaperUrl } = useWallpaperUrl();
+  const bp = useBreakpoint();
   const [threads, setThreads] = React.useState<Thread[]>([
     {
       id: "t1",
@@ -919,64 +926,84 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
   };
 
   return (
-    <div
-      className={`flex-1 min-h-0 h-full flex transition-all duration-300`}
-    >
-      {isSidebarVisible && (
-        <div className={`flex h-full min-h-0 w-[360px] max-w-[360px] min-w-[280px]`}>
-            <div className="h-full rounded-[var(--radius)] flex-1 min-h-0" style={{ padding: "var(--board-edge)" }}>
-                <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}>
-                    <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))", padding: "var(--rim)" }}>
-                        <div className="relative rounded-[var(--radius)] h-full min-h-0">
-                            <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                                <RefractiveGlassCard wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} />
-                            </div>
-                            <div className="min-h-0 h-full rounded-[var(--radius)] overflow-hidden flex flex-col" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
-                                <div className="min-h-0 flex-1 overflow-auto h-full">
-                                    <Sidebar
-                                        threads={threads}
-                                        activeId={activeId}
-                                        onSelect={setActiveId}
-                                        onNewChat={handleNewChat}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-      )}
-      <div className="relative flex flex-col flex-1 h-full min-h-0">
-        {!isSidebarVisible && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-2 left-2 z-10"
-            onClick={handleShowSidebar}
-          >
-            <ChevronRight className="h-5 w-5" />
-          </Button>
-        )}
-        {activeThread && (
-          <div
-            className="flex-1 min-h-0 flex flex-col rounded-[var(--radius)] overflow-hidden w-full"
-          >
-            <GuardianChat
-              guardianName={guardianName}
-              userName={userName}
-              prefill={prefill}
-              onPrefillConsumed={onPrefillConsumed}
-              onWorkspaceToggle={onWorkspaceToggle}
-              isSidebarVisible={isSidebarVisible}
-              onHideSidebar={handleHideSidebar}
-              activeThread={activeThread}
-              onSendMessage={handleSendMessage}
-              onNewChat={handleNewChat}
-            />
+    <>
+      
+
+      
+
+      <div
+        className={`flex-1 min-h-0 h-full flex transition-all duration-300`}
+      >
+        {/* Backdrop (only < lg) */}
+        <div
+          className={`fixed inset-0 bg-black/50 z-40 transition-opacity lg:hidden ${
+            isMobileSidebarOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          }`}
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+
+        {/* Slide-over drawer (only < lg) */}
+        <aside
+          className={`fixed inset-y-0 left-0 w-64 bg-[var(--chip-bg)] p-[var(--board-edge)] z-50 transform transition-transform duration-300 lg:hidden ${
+            isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <Sidebar
+            threads={threads}
+            activeId={activeId}
+            onSelect={setActiveId}
+            onNewChat={handleNewChat}
+          />
+        </aside>
+
+        {isSidebarVisible && (
+          <div className={`hidden lg:flex h-full min-h-0 w-[360px] max-w-[360px] min-w-[280px]`}>
+              <div className="h-full rounded-[var(--radius)] flex-1 min-h-0" style={{ padding: "var(--board-edge)" }}>
+                  <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}>
+                      <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))", padding: "var(--rim)" }}>
+                          <div className="relative rounded-[var(--radius)] h-full min-h-0">
+                              <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                                  <RefractiveGlassCard wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} />
+                              </div>
+                              <div className="min-h-0 h-full rounded-[var(--radius)] overflow-hidden flex flex-col" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
+                                  <div className="min-h-0 flex-1 overflow-auto h-full">
+                                      <Sidebar
+                                          threads={threads}
+                                          activeId={activeId}
+                                          onSelect={setActiveId}
+                                          onNewChat={handleNewChat}
+                                      />
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
           </div>
         )}
+        <div className="relative flex flex-col flex-1 h-full min-h-0">
+          {/* show sidebar when hidden */}
+          {/* Removed conditional chevron toggle */}
+          {activeThread && (
+            <div
+              className="flex-1 min-h-0 flex flex-col rounded-[var(--radius)] overflow-hidden w-full"
+            >
+              <GuardianChat
+                guardianName={guardianName}
+                userName={userName}
+                prefill={prefill}
+                onPrefillConsumed={onPrefillConsumed}
+                onWorkspaceToggle={onWorkspaceToggle}
+                isSidebarVisible={isSidebarVisible}
+                onHideSidebar={handleHideSidebar}
+                activeThread={activeThread}
+                onSendMessage={handleSendMessage}
+                onNewChat={handleNewChat}
+              />
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

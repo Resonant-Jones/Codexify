@@ -5,7 +5,7 @@ import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { ChevronLeft, MoreVertical, Plus, Sparkles } from "lucide-react";
+import { Menu, MoreVertical, Plus, Sparkles } from "lucide-react";
 import { Thread, Message } from "@/types/ui";
 import { Composer, ChatBubble } from "./components";
 
@@ -60,20 +60,16 @@ export function GuardianChat({
                 
                 {/* Header - fixed height */}
                 <div className="w-full px-4 py-2 flex items-center shrink-0" style={{ borderBottom: "1px solid var(--panel-border)" }}>
-                  <div className="flex items-center gap-2">
-                    {isSidebarVisible && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                        onClick={onHideSidebar}
-                        aria-label="Hide sidebar"
-                        style={{ outlineColor: "var(--accent-weak)", color: "var(--text)" }}
-                      >
-                        <ChevronLeft className="h-5 w-5" />
-                      </Button>
-                    )}
-                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 mr-3"
+                    aria-label="Toggle sidebar"
+                    onClick={onHideSidebar}
+                    style={{ outlineColor: "var(--accent-weak)", color: "var(--text)" }}
+                  >
+                    <Menu className="h-5 w-5" />
+                  </Button>
                   <div className="flex-1 text-center">
                     <div className="truncate font-semibold" style={{ color: "var(--text)" }}>
                       {activeThread.title}

@@ -21,7 +21,7 @@ export default function DocumentsView({
 
   return (
     <div 
-      className="glass-surface rounded-2xl p-[3px] h-full min-h-0"
+      className="glass-surface rounded-2xl p-[3px] w-full h-full min-h-0 min-w-[520px] max-w-[800px] mx-auto"
       style={{ "--radius": "var(--card-radius)", "--frame": "5px", "--bezel": "4px", "--rim": "3px", "--gutter": "16px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)" } as React.CSSProperties}
     >
       <div
@@ -31,8 +31,8 @@ export default function DocumentsView({
         <div className="px-4 pt-3 pb-2 shrink-0">
           <div className="text-lg font-semibold">Documents</div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto p-4 pt-0">
-          <div className="grid gap-4 justify-start" style={{ gridTemplateColumns: "repeat(auto-fill, 112px)" }}>
+        <div className="min-h-0 flex-1 overflow-auto p-3 pt-0">
+          <div className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(112px,1fr))] justify-items-center">
             {documents.map((d) => (
               <DocumentPreviewTile
                 key={`${d.name}.${d.ext}`}
