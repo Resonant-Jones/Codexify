@@ -33,6 +33,11 @@ const withDefaultProvider = <T extends { provider?: string }>(body: T): T & { pr
 
 // --- v2 (provider-agnostic) endpoints
 const v2 = {
+  get: async <T = unknown>(path: string): Promise<T> => {
+    const res = await fetch(base(path), { headers: headers() });
+    if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+    return res.json();
+  },
   capabilities: async (): Promise<Capabilities> => {
     const r = await fetch(base("/capabilities"), { headers: headers() });
     if (!r.ok) throw new Error(`capabilities failed: ${r.status}`);
@@ -43,7 +48,11 @@ const v2 = {
     if (!r.ok) throw new Error(`chat failed: ${r.status}`);
     return r.json();
   },
-  chatStream: (q: ChatSyncReq & { signal?: AbortSignal }, onToken: (t: string) => void): (() => void) => {
+  chatStream: (
+    q: ChatSyncReq & { signal?: AbortSignal },
+    onToken: (t: string) => void,
+    onDone?: (error?: unknown) => void,
+  ): (() => void) => {
     const { signal, ...rest } = q;
     const qWithDefault = withDefaultProvider({ ...rest });
     const qs = new URLSearchParams();
@@ -74,7 +83,10 @@ const v2 = {
           }
         }
       })
-      .catch(() => {/* surface errors upstream if needed */});
+      .then(() => onDone?.())
+      .catch((err) => {
+        onDone?.(err);
+      });
 
     return () => ctrl.abort();
   },
@@ -87,6 +99,11 @@ const v2 = {
 
 // --- v1 fallback (fill these to match your legacy routes if still needed)
 const v1 = {
+  get: async <T = unknown>(path: string): Promise<T> => {
+    const res = await fetch(base(path), { headers: headers() });
+    if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+    return res.json();
+  },
   capabilities: async (): Promise<Capabilities> => ({ chat: [], embeddings: [] }),
   chat: async (body: ChatSyncReq): Promise<ChatSyncRes> => {
     // Example: adjust to your old route if different
@@ -95,11 +112,24 @@ const v1 = {
     const text = await r.text();
     return { provider: "legacy", model: null, text };
   },
-  chatStream: (q: ChatSyncReq & { signal?: AbortSignal }, onToken: (t: string) => void): (() => void) => {
+  chatStream: (
+    q: ChatSyncReq & { signal?: AbortSignal },
+    onToken: (t: string) => void,
+    onDone?: (error?: unknown) => void,
+  ): (() => void) => {
     // If v1 had no stream, emulate by calling sync once
     let stopped = false;
-    v1.chat(q).then((res) => !stopped && onToken(res.text));
-    return () => { stopped = true; };
+    v1.chat(q)
+      .then((res) => {
+        if (!stopped) onToken(res.text);
+      })
+      .then(() => onDone?.())
+      .catch((err) => {
+        if (!stopped) onDone?.(err);
+      });
+    return () => {
+      stopped = true;
+    };
   },
   embeddings: async (_: EmbedReq): Promise<EmbedRes> => ({ provider: "legacy", model: null, vectors: [] }),
 };

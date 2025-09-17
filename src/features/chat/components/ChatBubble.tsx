@@ -6,7 +6,7 @@ const fmtTime = (ts: number) => new Intl.DateTimeFormat(undefined, { hour: "nume
 export function ChatBubble({ message, isMe, guardianName }: { message: Message; isMe: boolean; guardianName: string }) {
   if (!isMe) {
     return (
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 500, damping: 30 }} className="w-full">
+      <motion.div data-testid="chat-message" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 500, damping: 30 }} className="w-full">
         <div className="mb-1 text-xs font-semibold" style={{ color: "var(--text)" }}>
           {guardianName}
         </div>
@@ -21,6 +21,7 @@ export function ChatBubble({ message, isMe, guardianName }: { message: Message; 
   }
   return (
     <motion.div
+      data-testid="chat-message"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
@@ -36,4 +37,3 @@ export function ChatBubble({ message, isMe, guardianName }: { message: Message; 
 }
 
 export default ChatBubble;
-

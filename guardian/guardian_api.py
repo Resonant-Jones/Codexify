@@ -11,15 +11,25 @@ from pathlib import Path
 from typing import List, Optional
 from typing import Dict
 from uuid import uuid4
+from fastapi import File, UploadFile
+from typing import List
 from guardian.routes.codexify_router import router as codexify_router
 
 # Third-Party
 import requests
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, Form
+from starlette.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+# Vision/captioning imports
+from PIL import Image
+from io import BytesIO
+from transformers import BlipProcessor, BlipForConditionalGeneration
+from transformers import AutoProcessor, AutoModelForVision2Seq
+import numpy as np
 
 # Internal
 from guardian.config import get_settings
@@ -41,9 +51,11 @@ except ModuleNotFoundError as e:
 
 # Optional Groq provider
 try:
-    from guardian.providers.groq_client import groq_chat  # provides groq_chat(prompt, model=...)
+    from guardian.providers.groq_client import get_groq_chat  # lazy Groq client factory
 except ModuleNotFoundError as e:
-    groq_chat = None
+    # Fallback: define a stub that signals unavailability
+    def get_groq_chat():  # type: ignore
+        return None
     logging.warning(f"[Codexify ⚠️] Optional groq_client not available: {e}")
 
 # API Key authentication is enforced on all major endpoints (except /ping, /test, /)
@@ -103,12 +115,107 @@ GUARDIAN_PROVIDER = os.getenv("GUARDIAN_PROVIDER", "gemini").lower()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL_DEFAULT = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
 
+# Vision model for image captioning
+# Always attempt to load the fast BLIP processor first, then fallback if necessary
+try:
+    processor = BlipProcessor.from_pretrained(
+        "Salesforce/blip-image-captioning-base",
+        use_fast=True
+    )
+except Exception as e:
+    logging.warning(f"Fast BLIP processor unavailable, falling back to slow: {e}")
+    processor = BlipProcessor.from_pretrained(
+        "Salesforce/blip-image-captioning-base",
+        use_fast=False
+    )
+vision_model = BlipForConditionalGeneration.from_pretrained(
+    "Salesforce/blip-image-captioning-base"
+)
+
+# Mondream (symbolic/QA-style) initialization
+# Gate behind env flag to avoid noisy startup if not needed
+from pathlib import Path
+_ENABLE_MONDREAM = os.getenv("GUARDIAN_ENABLE_MONDREAM", "0").lower() in ("1", "true", "yes")
+mondream_processor = None
+mondream_model = None
+if _ENABLE_MONDREAM:
+    mondream_dir = Path(__file__).resolve().parents[1] / "models" / "mondream1"
+    repo_spec = str(mondream_dir) if mondream_dir.exists() else "vikhyatk/mondream1"
+    try:
+        mondream_processor = AutoProcessor.from_pretrained(
+            repo_spec,
+            trust_remote_code=True
+        )
+        mondream_model = AutoModelForVision2Seq.from_pretrained(
+            repo_spec,
+            trust_remote_code=True
+        )
+        logger.info("Mondream model loaded")
+    except Exception as e:
+        logging.warning(f"Failed to load Mondream model: {e}")
+
+# Helper: crop to content for image captioning
+def crop_to_content(pil_img, threshold: int = 10):
+    """
+    Trim away black borders only by scanning edges, leaving interior black content intact.
+    """
+    gray = pil_img.convert("L")
+    arr = np.array(gray)
+    h, w = arr.shape
+
+    # find top edge
+    top = 0
+    for i in range(h):
+        if arr[i, :].max() > threshold:
+            top = i
+            break
+
+    # find bottom edge
+    bottom = h
+    for i in range(h - 1, -1, -1):
+        if arr[i, :].max() > threshold:
+            bottom = i + 1
+            break
+
+    # find left edge
+    left = 0
+    for j in range(w):
+        if arr[:, j].max() > threshold:
+            left = j
+            break
+
+    # find right edge
+    right = w
+    for j in range(w - 1, -1, -1):
+        if arr[:, j].max() > threshold:
+            right = j + 1
+            break
+
+    # ensure we have a valid crop
+    if left >= right or top >= bottom:
+        return pil_img
+
+    # apply crop
+    return pil_img.crop((left, top, right, bottom))
+
 # Initialize database
 db = GuardianDB(DB_PATH)
 
 # Ensure db uses the new chat_log-aware GuardianDB!
 settings = get_settings()
 chatlog_db = GuardianDB(settings.GUARDIAN_DB_PATH)
+
+# ---- Memory retention and ephemeral silo
+MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
+EPHEMERAL_MEMORY: list[dict] = []
+try:
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS)).isoformat()
+    pruned = chatlog_db.prune_midterm(cutoff)
+    if pruned:
+        logger.info("[memory] pruned %d expired midterm entries", pruned)
+except Exception as _e:
+    logger.debug("[memory] prune skipped: %s", _e)
 
 # Initialize FastAPI app
 app = FastAPI(title="Guardian Codex API")
@@ -165,13 +272,511 @@ def tools_execute(body: ToolRequest, api_key: str = Depends(require_api_key)):
     logger.info("Tools.execute: %s job_id=%s", body.name, jid)
     return {"job_id": jid}
 
-@app.get("/jobs/{job_id}", response_model=JobStatus, tags=["Tools"])
-def jobs_get(job_id: str, api_key: str = Depends(require_api_key)):
-    job = JOBS.get(job_id)
-    if not job:
-        # Return a consistent shape; clients can treat unknown as terminal
-        return {"job_id": job_id, "status": "unknown", "result": {}}
-    return {"job_id": job_id, "status": job.get("status", "unknown"), "result": job.get("result", {})}
+# =========================
+# Connectors (stubbed API for frontend settings)
+# =========================
+
+def _connector_status_from_env(connector_id: str) -> str:
+    """Heuristic: mark as connected if an env token that looks relevant exists.
+    Examples: GITHUB_TOKEN, GOOGLE_DRIVE_TOKEN, NOTION_TOKEN, SLACK_BOT_TOKEN, etc.
+    """
+    cid = connector_id.upper()
+    candidates = [
+        f"{cid}_TOKEN",
+        f"{cid}_API_KEY",
+        f"{cid}_KEY",
+        f"{cid}_ACCESS_TOKEN",
+    ]
+    for k in candidates:
+        if os.getenv(k):
+            return "connected"
+    return "disconnected"
+
+def _display_name(connector_id: str) -> str:
+    return connector_id.replace("_", " ").title()
+
+def _build_connectors() -> List[dict]:
+    # Allow operators to declare available connectors via env
+    raw = os.getenv("GUARDIAN_CONNECTORS", "google_drive,github")
+    ids = [c.strip() for c in raw.split(",") if c.strip()]
+    out: List[dict] = []
+    for cid in ids:
+        out.append({
+            "id": cid,
+            "name": _display_name(cid),
+            "status": _connector_status_from_env(cid),
+            "auth": None,
+            "syncInterval": "manual",
+            "scopes": [],
+            "options": [],
+        })
+    return out
+
+# In-memory list; rebuilt on process start
+CONNECTORS: List[dict] = _build_connectors()
+
+# In-memory config and secrets (replace with DB in production)
+CONNECTOR_CONFIGS: Dict[str, dict] = {}
+CONNECTOR_SECRETS: Dict[str, dict] = {}
+AUTH_TX: Dict[str, dict] = {}
+
+# Registry metadata for richer UI
+CONNECTOR_REGISTRY: Dict[str, dict] = {
+    "github": {
+        "id": "github",
+        "name": "GitHub",
+        "capabilities": {"supportsOAuth": True, "supportsApiKey": False, "supportsLocal": False},
+        "requiredFields": [
+            {"key": "client_id", "label": "Client ID", "type": "string", "secret": False},
+            {"key": "client_secret", "label": "Client Secret", "type": "string", "secret": True},
+        ],
+        "scopes": ["repo", "read:org"],
+        "options": [{"key": "syncInterval", "label": "Sync every", "type": "select", "options": ["manual", "15m", "1h", "6h"], "value": "1h"}],
+    },
+    "google_drive": {
+        "id": "google_drive",
+        "name": "Google Drive",
+        "capabilities": {"supportsOAuth": False, "supportsApiKey": True, "supportsLocal": False},
+        "requiredFields": [
+            {"key": "api_key", "label": "API Key", "type": "string", "secret": True},
+        ],
+        "scopes": [],
+        "options": [{"key": "syncInterval", "label": "Sync every", "type": "select", "options": ["manual", "15m", "1h", "6h"], "value": "manual"}],
+    },
+}
+
+@app.get("/api/connectors", tags=["Connectors"])
+def list_connectors():
+    """Return connectors enriched with metadata and config flags."""
+    logger.info("[connectors] GET /api/connectors count=%d", len(CONNECTORS))
+    out = []
+    for c in CONNECTORS:
+        cid = c.get("id")
+        meta = CONNECTOR_REGISTRY.get(cid, {"requiredFields": [], "capabilities": {}})
+        cfg = CONNECTOR_CONFIGS.get(cid, {})
+        # Determine needsAdminSecret: any required secret missing
+        needs = False
+        for f in meta.get("requiredFields", []):
+            if f.get("secret") and not CONNECTOR_SECRETS.get(cid, {}).get(f["key"]):
+                needs = True
+        oc = {**c}
+        oc.update({
+            "capabilities": meta.get("capabilities"),
+            "requiredFields": meta.get("requiredFields"),
+            "scopes": meta.get("scopes", []),
+            "options": meta.get("options", []),
+            "needsAdminSecret": needs,
+        })
+        out.append(oc)
+    return out
+
+@app.patch("/api/connectors/{connector_id}", tags=["Connectors"])
+def update_connector(connector_id: str, updates: dict = Body(...)):
+    """Apply shallow updates to a connector in the in-memory stub.
+    - Accept only known fields; reject unknown with 400.
+    - Always return the updated connector object.
+    """
+    allowed = {"status", "auth", "syncInterval", "scopes", "options", "name"}
+    unknown = [k for k in updates.keys() if k not in allowed]
+    if unknown:
+        logger.warning("[connectors] PATCH unknown fields id=%s fields=%s", connector_id, unknown)
+        raise HTTPException(status_code=400, detail={"error": f"Unknown fields: {', '.join(unknown)}"})
+
+    for c in CONNECTORS:
+        if c.get("id") == connector_id:
+            before_status = c.get("status")
+            for key in allowed:
+                if key in updates:
+                    c[key] = updates[key]
+            logger.info("[connectors] PATCH id=%s status=%s->%s", connector_id, before_status, c.get("status"))
+            return c
+
+    raise HTTPException(status_code=404, detail={"error": "Connector not found"})
+
+@app.get("/api/connectors/{connector_id}", tags=["Connectors"])
+def get_connector(connector_id: str):
+    for c in CONNECTORS:
+        if c.get("id") == connector_id:
+            meta = CONNECTOR_REGISTRY.get(connector_id, {})
+            cfg = CONNECTOR_CONFIGS.get(connector_id, {})
+            needs = False
+            for f in meta.get("requiredFields", []):
+                if f.get("secret") and not CONNECTOR_SECRETS.get(connector_id, {}).get(f["key"]):
+                    needs = True
+            out = {**c, **{
+                "capabilities": meta.get("capabilities"),
+                "requiredFields": meta.get("requiredFields", []),
+                "scopes": meta.get("scopes", []),
+                "options": meta.get("options", []),
+                "needsAdminSecret": needs,
+                "config": {k: ("••••" if any(f.get("key") == k and f.get("secret") for f in meta.get("requiredFields", [])) else v) for k, v in {**cfg, **CONNECTOR_SECRETS.get(connector_id, {})}.items()},
+            }}
+            return out
+    raise HTTPException(status_code=404, detail={"error": "Connector not found"})
+
+@app.post("/api/connectors/{connector_id}/config", tags=["Connectors"])
+def set_connector_config(connector_id: str, body: Dict[str, dict] = Body(...)):
+    meta = CONNECTOR_REGISTRY.get(connector_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail={"error": "Connector not found"})
+    fields = body.get("fields", {})
+    allowed = {f["key"]: f for f in meta.get("requiredFields", [])}
+    unknown = [k for k in fields.keys() if k not in allowed]
+    if unknown:
+        logger.warning("[connectors] CONFIG unknown keys id=%s fields=%s", connector_id, unknown)
+        return JSONResponse(status_code=400, content={"ok": False, "error": f"Unknown fields: {', '.join(unknown)}"})
+    # Persist split by secret flag
+    cfg = CONNECTOR_CONFIGS.setdefault(connector_id, {})
+    sec = CONNECTOR_SECRETS.setdefault(connector_id, {})
+    for k, v in fields.items():
+        if allowed[k].get("secret"):
+            sec[k] = v
+        else:
+            cfg[k] = v
+    logger.info("[connectors] CONFIG id=%s updated keys=%s", connector_id, list(fields.keys()))
+    # Return masked config
+    masked = {k: ("••••" if allowed[k].get("secret") else v) for k, v in {**cfg, **sec}.items() if k in allowed}
+    return {"ok": True, "id": connector_id, "config": masked}
+
+@app.post("/api/connectors/github/authorize", tags=["Connectors"])
+def github_authorize(body: Dict[str, str] = Body(...)):
+    cid = "github"
+    redirect_uri = body.get("redirectUri")
+    if not redirect_uri:
+        raise HTTPException(status_code=400, detail={"error": "redirectUri required"})
+    client_id = CONNECTOR_CONFIGS.get(cid, {}).get("client_id") or os.getenv("GITHUB_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=400, detail={"error": "Client ID missing; set via config first"})
+    # PKCE (simplified): generate state and code_verifier; we only return state and authUrl
+    import secrets, hashlib, base64
+    def b64url(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+    code_verifier = b64url(secrets.token_bytes(32))
+    challenge = b64url(hashlib.sha256(code_verifier.encode()).digest())
+    state = b64url(secrets.token_bytes(16))
+    AUTH_TX[state] = {"connector_id": cid, "code_verifier": code_verifier, "redirect_uri": redirect_uri, "ts": datetime.utcnow().isoformat()}
+    scope = "repo read:org"
+    auth_url = (
+        "https://github.com/login/oauth/authorize"
+        f"?client_id={client_id}&redirect_uri={redirect_uri}&scope={scope}&state={state}&code_challenge={challenge}&code_challenge_method=S256"
+    )
+    logger.info("[connectors] AUTHORIZE id=github state=%s", state)
+    return {"authUrl": auth_url, "state": state}
+
+@app.get("/api/connectors/github/callback", tags=["Connectors"])
+def github_callback(code: str = Query(...), state: str = Query(...)):
+    tx = AUTH_TX.pop(state, None)
+    if not tx:
+        raise HTTPException(status_code=400, detail={"error": "Invalid state"})
+    # In production: exchange code for tokens at GitHub; here we simulate success
+    CONNECTOR_SECRETS.setdefault("github", {})["access_token"] = "gho_simulated"
+    # Mark status connected
+    for c in CONNECTORS:
+        if c["id"] == "github":
+            c["status"] = "connected"
+    logger.info("[connectors] CALLBACK id=github state=%s ok", state)
+    # Redirect back to UI
+    return {"ok": True, "message": "Authorized"}
+
+@app.post("/api/connectors/{connector_id}/test", tags=["Connectors"])
+def connector_test(connector_id: str):
+    if connector_id == "github":
+        ok = bool(CONNECTOR_SECRETS.get("github", {}).get("access_token"))
+        return {"ok": ok, "message": "Connection OK" if ok else "Not connected"}
+    return {"ok": True, "message": "Connection OK"}
+
+@app.post("/api/connectors/{connector_id}/sync", tags=["Connectors"])
+def connector_sync(connector_id: str):
+    jid = str(uuid4())
+    JOBS[jid] = {"status": "done", "result": {"connector": connector_id, "synced": True}}
+    logger.info("[connectors] SYNC id=%s job_id=%s", connector_id, jid)
+    return {"ok": True, "job_id": jid}
+
+@app.get("/health/connectors", tags=["Connectors"])
+def connectors_health():
+    total = len(CONNECTORS)
+    connected = sum(1 for c in CONNECTORS if c.get("status") == "connected")
+    return {"ok": True, "count": total, "connected": connected}
+
+@app.get("/jobs/{job_id}", tags=["Tools"])
+def jobs_get(job_id: str):
+    job = JOBS.get(job_id, {})
+    status = job.get("status", "unknown")
+    progress = 100 if status == "done" else 0
+    last_error = job.get("error") if status == "error" else None
+    return {"status": status, "progress": progress, "last_error": last_error}
+
+
+# =========================
+# Chat Threads API
+# =========================
+
+from fastapi import status
+
+
+@app.post("/api/chat/threads", tags=["Chat"])
+def chat_create_thread(body: dict = Body(...)):
+    """Create a chat thread and return its metadata."""
+    try:
+        payload = body or {}
+        raw_title = payload.get("title")
+        title = (str(raw_title).strip() if raw_title is not None else "New Chat") or "New Chat"
+        raw_user = payload.get("user_id")
+        user_id = str(raw_user) if raw_user not in (None, "") else "default"
+        raw_summary = payload.get("summary")
+        summary = str(raw_summary).strip() if raw_summary is not None else ""
+        project_id = payload.get("project_id")
+        normalized_project: Optional[int] = None
+        if project_id is not None:
+            try:
+                normalized_project = int(project_id)
+            except (TypeError, ValueError):
+                normalized_project = None
+        thread = chatlog_db.create_chat_thread(
+            user_id=user_id,
+            title=title,
+            summary=summary,
+            project_id=normalized_project,
+        )
+        chatlog_db.write_audit_log("create", "chat_thread", str(thread["id"]), user_id=user_id)
+        return {"ok": True, "thread": thread}
+    except Exception as exc:
+        logger.exception("Failed to create chat thread: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to create chat thread")
+
+
+@app.get("/api/chat/threads", tags=["Chat"])
+def chat_list_threads():
+    """Return the list of persisted chat threads."""
+    try:
+        threads = chatlog_db.list_chat_threads()
+        return {"ok": True, "threads": threads}
+    except Exception as exc:
+        logger.exception("Failed to list chat threads: %s", exc)
+        return {"ok": True, "threads": []}
+
+# =========================
+# Chat API (persisted messages)
+# =========================
+
+@app.post("/api/chat/{thread_id}/messages")
+def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
+    role = body.get("role")
+    content = body.get("content", "").strip()
+    if not role or not content:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "role and content required"})
+    owner = body.get("user_id") or "default"
+    try:
+        chatlog_db.ensure_chat_thread(
+            thread_id=thread_id,
+            user_id=str(owner),
+            title="New Chat",
+            summary="",
+        )
+    except Exception as exc:
+        logger.exception("Failed to ensure chat thread %s exists: %s", thread_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to persist chat message")
+    mid = chatlog_db.create_message(thread_id, role, content)
+    chatlog_db.write_audit_log("create", "chat_message", str(mid), user_id="default")
+    return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": role, "content": content}}
+
+@app.get("/api/chat/{thread_id}/messages")
+def chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
+    items = chatlog_db.list_messages(thread_id, limit=limit, offset=offset)
+    total = chatlog_db.count_messages(thread_id)
+    return {"ok": True, "total": total, "messages": items}
+
+@app.delete("/api/chat/{thread_id}/messages/{message_id}")
+def chat_delete_message(thread_id: int, message_id: int):
+    chatlog_db.delete_message(thread_id, message_id)
+    chatlog_db.write_audit_log("delete", "chat_message", str(message_id), user_id="default")
+    return {"ok": True}
+
+# =========================
+# Thread management
+# =========================
+
+@app.patch("/api/chat/threads/{thread_id}", tags=["Chat"])
+def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
+    if body is None:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "No fields provided"})
+
+    title: Optional[str] = None
+    summary: Optional[str] = None
+
+    if "title" in body:
+        raw_title = body.get("title")
+        title = (str(raw_title).strip() if raw_title is not None else "") or "New Chat"
+
+    if "summary" in body:
+        raw_summary = body.get("summary")
+        summary = str(raw_summary).strip() if raw_summary is not None else ""
+
+    project_id = body.get("project_id") if "project_id" in body else None
+    normalized_project: Optional[int] = None
+    if project_id is not None:
+        try:
+            normalized_project = int(project_id)
+        except (TypeError, ValueError):
+            normalized_project = None
+
+    if title is None and summary is None and project_id is None:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "No valid fields to update"})
+
+    try:
+        existing = chatlog_db.get_chat_thread(thread_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        updated = chatlog_db.update_thread(
+            thread_id,
+            title=title,
+            project_id=normalized_project if project_id is not None else None,
+            summary=summary,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        refreshed = chatlog_db.get_chat_thread(thread_id)
+        if refreshed:
+            chatlog_db.write_audit_log("update", "chat_thread", str(thread_id), user_id=refreshed.get("user_id", "default"))
+        return {"ok": True, "thread": refreshed}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to update chat thread %s: %s", thread_id, exc)
+        return JSONResponse(status_code=500, content={"ok": False, "error": "Failed to update thread"})
+
+@app.delete("/api/chat/threads/{thread_id}")
+def delete_thread(thread_id: int):
+    try:
+        chatlog_db.delete_thread(thread_id)
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+# =========================
+# Memory API (ephemeral, midterm, longterm)
+# =========================
+
+def _silo_valid(s: str) -> bool:
+    return s in ("ephemeral", "midterm", "longterm")
+
+@app.get("/api/memory/{silo}")
+def memory_list(silo: str, limit: int = 50, offset: int = 0):
+    if not _silo_valid(silo):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid silo"})
+    if silo == "ephemeral":
+        items = EPHEMERAL_MEMORY[offset: offset + limit]
+        return {"ok": True, "count": len(EPHEMERAL_MEMORY), "entries": items}
+    items = chatlog_db.list_memories(silo, limit=limit, offset=offset)
+    count = chatlog_db.count_memories(silo)
+    return {"ok": True, "count": count, "entries": items}
+
+@app.post("/api/memory/{silo}")
+def memory_create(silo: str, body: Dict[str, object] = Body(...)):
+    if not _silo_valid(silo):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid silo"})
+    content = str(body.get("content", "")).strip()
+    tags = ",".join(body.get("tags", []) or [])
+    pinned = bool(body.get("pinned", False))
+    if not content:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "content required"})
+    if silo == "ephemeral":
+        entry = {"id": len(EPHEMERAL_MEMORY) + 1, "user_id": "default", "silo": "ephemeral", "content": content, "tags": tags, "pinned": pinned, "created_at": datetime.utcnow().isoformat(), "updated_at": datetime.utcnow().isoformat()}
+        EPHEMERAL_MEMORY.append(entry)
+        return {"ok": True, "entry": entry}
+    eid = chatlog_db.add_memory("default", silo, content, tags=tags, pinned=pinned)
+    chatlog_db.write_audit_log("create", "memory_entry", str(eid), user_id="default")
+    return {"ok": True, "id": eid}
+
+@app.patch("/api/memory/{silo}/{entry_id}")
+def memory_update(silo: str, entry_id: int, body: Dict[str, object] = Body(...)):
+    if not _silo_valid(silo):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid silo"})
+    if silo == "ephemeral":
+        for e in EPHEMERAL_MEMORY:
+            if e.get("id") == entry_id:
+                if "content" in body: e["content"] = str(body["content"])
+                if "tags" in body: e["tags"] = ",".join(body.get("tags", []) or [])
+                if "pinned" in body: e["pinned"] = bool(body["pinned"])
+                e["updated_at"] = datetime.utcnow().isoformat()
+                return {"ok": True}
+        return JSONResponse(status_code=404, content={"ok": False, "error": "not found"})
+    chatlog_db.update_memory(entry_id, content=body.get("content"), tags=",".join(body.get("tags", []) or []) if body.get("tags") is not None else None, pinned=body.get("pinned") if body.get("pinned") is not None else None)
+    chatlog_db.write_audit_log("update", "memory_entry", str(entry_id), user_id="default")
+    return {"ok": True}
+
+@app.delete("/api/memory/{silo}/{entry_id}")
+def memory_delete(silo: str, entry_id: int):
+    if not _silo_valid(silo):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid silo"})
+    if silo == "ephemeral":
+        idx = next((i for i, e in enumerate(EPHEMERAL_MEMORY) if e.get("id") == entry_id), -1)
+        if idx >= 0:
+            EPHEMERAL_MEMORY.pop(idx)
+            return {"ok": True}
+        return JSONResponse(status_code=404, content={"ok": False, "error": "not found"})
+    chatlog_db.delete_memory(entry_id)
+    chatlog_db.write_audit_log("delete", "memory_entry", str(entry_id), user_id="default")
+    return {"ok": True}
+
+# =========================
+# Health endpoints for chat/memory
+# =========================
+
+@app.get("/health/memory")
+def health_memory():
+    return {"ok": True, "silos": {"ephemeral": len(EPHEMERAL_MEMORY), "midterm": chatlog_db.count_memories("midterm"), "longterm": chatlog_db.count_memories("longterm")}}
+
+@app.get("/health/chat")
+def health_chat():
+    with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:  # type: ignore[attr-defined]
+        c = conn.cursor()
+        try:
+            c.execute("SELECT COUNT(*) FROM chat_messages")
+            messages = int(c.fetchone()[0])
+        except Exception:
+            messages = 0
+        try:
+            c.execute("SELECT COUNT(*) FROM chat_threads")
+            threads = int(c.fetchone()[0])
+        except Exception:
+            # derive from distinct thread_ids in chat_messages
+            c.execute("SELECT COUNT(DISTINCT thread_id) FROM chat_messages")
+            threads = int(c.fetchone()[0])
+    return {"ok": True, "threads": threads, "messages": messages}
+
+# =========================
+# Projects management
+# =========================
+
+@app.patch("/projects/{project_id}")
+def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
+    name = body.get("name")
+    description = body.get("description")
+    try:
+        chatlog_db.update_project(project_id, name=name if name is not None else None, description=description if description is not None else None)
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+@app.delete("/projects/{project_id}")
+def delete_project_and_eject(project_id: int):
+    # Eject threads from this project first
+    try:
+        chatlog_db.eject_threads_from_project(project_id)
+    except Exception as e:
+        logger.warning("eject threads failed: %s", e)
+    # Delete project row
+    try:
+        with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:  # type: ignore[attr-defined]
+            c = conn.cursor()
+            c.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
 # =========================
 # Pydantic Models
@@ -273,7 +878,7 @@ def debug_config(api_key: str = Depends(require_api_key)):
         "provider": GUARDIAN_PROVIDER,
         "allowed_origins": allowed_origins,
         "masked_api_key": masked_key,
-        "groq_available": bool(groq_chat),
+        "groq_available": bool(get_groq_chat()),
     }
 
 
@@ -650,7 +1255,13 @@ def gemini_test():
     summary="Send chat prompt to active provider (Gemini or Groq)",
     tags=["Chat"],
 )
-def unified_chat(req: GeminiChatRequest, api_key: str = Depends(require_api_key)):
+def unified_chat(
+    prompt: str = Form(..., description="The chat prompt"),
+    caption_model: str = Form("blip", description="Vision model to use: blip or mondream"),
+    model: Optional[str] = Form(None, description="LLM model to use (optional)"),
+    files: List[UploadFile] = File([], description="Optional file attachments"),
+    api_key: str = Depends(require_api_key)
+):
     """
     Send a chat prompt to the active LLM provider (controlled by GUARDIAN_PROVIDER).
     Logs the prompt/response to memory. Provider options: 'gemini' (default), 'groq'.
@@ -659,7 +1270,7 @@ def unified_chat(req: GeminiChatRequest, api_key: str = Depends(require_api_key)
     try:
         db.insert_memory(
             timestamp=datetime.now().isoformat(),
-            command=f"User prompt: {req.prompt}",
+            command=f"User prompt: {prompt}",
             tag=GUARDIAN_PROVIDER,
             agent="user",
             type_="log",
@@ -668,15 +1279,51 @@ def unified_chat(req: GeminiChatRequest, api_key: str = Depends(require_api_key)
     except Exception as e:
         logger.debug(f"Prompt log failed (non-fatal): {e}")
 
+    # Handle image attachments (real captioning)
+    if files:
+        captions = []
+        for f in files:
+            if f.content_type.startswith("image/"):
+                # Read+crop
+                data = f.file.read()
+                img = Image.open(BytesIO(data)).convert("RGB")
+                img = crop_to_content(img)
+                if caption_model.lower() == "mondream" and mondream_processor and mondream_model:
+                    # Mondream symbolic caption
+                    inputs = mondream_processor(images=img, return_tensors="pt")
+                    enc = mondream_model.encode_image(**inputs)
+                    answer = mondream_model.answer_question(
+                        enc,
+                        mondream_processor.tokenizer,
+                        "Describe every symbolic element in this image."
+                    )
+                    captions.append(answer.strip())
+                else:
+                    # BLIP general caption
+                    inputs = processor(images=img, return_tensors="pt")
+                    outputs = vision_model.generate(**inputs)
+                    caption = processor.decode(outputs[0], skip_special_tokens=True)
+                    captions.append(caption)
+        if captions:
+            prompt = (
+                "Here’s what I see in your image:\n"
+                + "\n".join(f"- {c}" for c in captions)
+                + "\n\n"
+                + prompt
+            )
+
     provider = GUARDIAN_PROVIDER
 
     # GROQ branch
     if provider == "groq":
-        if not groq_chat:
+        gc = get_groq_chat()
+        if not gc:
             raise HTTPException(status_code=503, detail="Groq provider not available")
-        model_id = req.model if (req.model and not req.model.startswith("gemini")) else GROQ_MODEL_DEFAULT
+        # Normalize model name: drop any prefix before ':'
+        raw_model = model or GROQ_MODEL_DEFAULT
+        real_model = raw_model.split(":", 1)[-1]
         try:
-            reply_text = groq_chat(req.prompt, model=model_id)
+            reply_text = gc(prompt, model=real_model)
         except Exception as e:
             logger.error(f"Error contacting Groq API: {e}")
             raise HTTPException(status_code=502, detail=f"Groq API error: {e}")
@@ -694,14 +1341,14 @@ def unified_chat(req: GeminiChatRequest, api_key: str = Depends(require_api_key)
         except Exception as e:
             logger.debug(f"Reply log failed (non-fatal): {e}")
 
-        return GeminiChatResponse(model_used=f"groq:{model_id}", reply=reply_text)
+        return GeminiChatResponse(model_used=f"groq:{real_model}", reply=reply_text)
 
     # GEMINI branch (default)
     headers = {
         "Authorization": f"Bearer {GEMINI_API_KEY}",
         "Content-Type": "application/json",
     }
-    payload = {"model": req.model, "prompt": req.prompt}
+    payload = {"model": model, "prompt": prompt}
     try:
         response = requests.post(GEMINI_API_URL, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
@@ -721,13 +1368,55 @@ def unified_chat(req: GeminiChatRequest, api_key: str = Depends(require_api_key)
             logger.debug(f"Reply log failed (non-fatal): {e}")
 
         logger.info("Chat interaction logged successfully")
-        return GeminiChatResponse(model_used=req.model or "gemini-1.5", reply=reply_text)
+        return GeminiChatResponse(model_used=model or "gemini-1.5", reply=reply_text)
     except requests.HTTPError as http_err:
         logger.error(f"HTTP error contacting Gemini API: {http_err}")
         raise HTTPException(status_code=getattr(response, "status_code", 502), detail=f"Gemini API error: {http_err}")
     except Exception as e:
         logger.error(f"Error contacting Gemini API: {e}")
         raise HTTPException(status_code=500, detail=f"Error contacting Gemini API: {str(e)}")
+
+
+# Streaming chat endpoint (SSE)
+@app.get("/chat/stream", summary="Stream chat tokens from active provider", tags=["Chat"])
+async def stream_chat(
+    request: Request,
+    prompt: str = Query(..., description="The chat prompt"),
+    provider: Optional[str] = Query(None, description="Provider to use"),
+    model: Optional[str] = Query(None, description="Model to use (optional)"),
+):
+    """
+    Stream chat responses token-by-token via SSE.
+    """
+    # use provided provider or fall back to env default
+    provider = (provider or GUARDIAN_PROVIDER).lower()
+
+    # Validate availability BEFORE starting the stream to avoid response-started errors
+    gc = get_groq_chat() if provider == "groq" else None
+    if provider == "groq" and not gc:
+        raise HTTPException(status_code=503, detail="Groq provider not available")
+
+    # Normalize model name for streaming
+    raw_model = model or GROQ_MODEL_DEFAULT
+    real_model = raw_model.split(":", 1)[-1]
+
+    async def event_generator():
+        if provider == "groq":
+            for token in gc.stream(prompt, real_model):  # type: ignore[union-attr]
+                yield f"data: {token}\n\n"
+                if await request.is_disconnected():
+                    break
+        else:
+            # Fallback: synchronous Gemini response as single-chunk SSE
+            response = requests.post(
+                GEMINI_API_URL,
+                json={"model": model, "prompt": prompt},
+                headers={"Authorization": f"Bearer {GEMINI_API_KEY}"}, timeout=30
+            )
+            response.raise_for_status()
+            reply = response.json().get("reply", "")
+            yield f"data: {reply}\n\n"
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.get("/whoami", summary="Get agent profile and identity", tags=["Agent"])
