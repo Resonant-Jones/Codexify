@@ -8,6 +8,8 @@ import { Separator } from "@/components/ui/separator";
 import { Menu, MoreVertical, Plus, Sparkles } from "lucide-react";
 import { Thread, Message } from "@/types/ui";
 import { Composer, ChatBubble } from "./components";
+import ChatView from "@/features/chat/ChatView";
+import api from "@/lib/api";
 
 export function GuardianChat({
   guardianName,
@@ -34,6 +36,19 @@ export function GuardianChat({
 }) {
   const { wallpaperUrl } = useWallpaperUrl();
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const numericThreadId = useMemo(() => {
+    let urlId: number | null = null;
+    if (typeof window !== "undefined") {
+      const m = window.location.pathname.match(/\/chat\/(\d+)/);
+      if (m && m[1]) {
+        const v = Number(m[1]);
+        if (Number.isFinite(v)) urlId = v;
+      }
+    }
+    if (urlId != null) return urlId;
+    const n = Number((activeThread as any)?.id);
+    return Number.isFinite(n) ? (n as number) : null;
+  }, [activeThread?.id]);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -99,8 +114,45 @@ export function GuardianChat({
                         <DropdownMenuItem onClick={onWorkspaceToggle}>
                           Workspace
                         </DropdownMenuItem>
-                        <DropdownMenuItem>Rename</DropdownMenuItem>
-                        <DropdownMenuItem>Archive</DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            if (numericThreadId == null) return alert("Thread is not persisted yet");
+                            const title = window.prompt("Rename thread", activeThread.title || "");
+                            if (!title) return;
+                            try { await api.patch(`/api/chat/threads/${numericThreadId}`, { title }); } catch (e) { console.warn(e); }
+                          }}
+                        >
+                          Rename Thread
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            if (numericThreadId == null) return alert("Thread is not persisted yet");
+                            const pidRaw = window.prompt("Assign to project id (blank to cancel)", "");
+                            if (pidRaw == null || pidRaw === "") return;
+                            const pid = Number(pidRaw);
+                            if (!Number.isFinite(pid)) return alert("Invalid project id");
+                            try { await api.patch(`/api/chat/threads/${numericThreadId}`, { project_id: pid }); } catch (e) { console.warn(e); }
+                          }}
+                        >
+                          Assign to Project…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            if (numericThreadId == null) return alert("Thread is not persisted yet");
+                            try { await api.patch(`/api/chat/threads/${numericThreadId}`, { project_id: null }); } catch (e) { console.warn(e); }
+                          }}
+                        >
+                          Eject from Project
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            if (numericThreadId == null) return alert("Thread is not persisted yet");
+                            if (!window.confirm("Delete this thread? This cannot be undone.")) return;
+                            try { await api.delete(`/api/chat/threads/${numericThreadId}`); } catch (e) { console.warn(e); }
+                          }}
+                        >
+                          Delete Thread
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -109,17 +161,14 @@ export function GuardianChat({
                 {/* Main content area - this should now fill the remaining space */}
                 <div className="flex-1 min-h-0 flex flex-col">
                   {/* Messages area - scrollable */}
-                  <div
-                    ref={viewportRef}
-                    className="flex-1 min-h-0 overflow-auto px-[var(--card-pad)] pb-[var(--card-pad)]"
-                  >
-                    <div>
-                      <div className="space-y-3">
-                        {activeThread.messages.map((m) => (
-                          <ChatBubble key={m.id} message={m} isMe={m.authorId === "me"} guardianName={guardianName} />
-                        ))}
+                  <div ref={viewportRef} className="flex-1 min-h-0 overflow-auto px-[var(--card-pad)] pb-[var(--card-pad)]">
+                    {numericThreadId != null ? (
+                      <ChatView threadId={numericThreadId} guardianName={guardianName} />
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-muted-foreground">
+                        No thread selected.
                       </div>
-                    </div>
+                    )}
                   </div>
                   
                   {/* Composer - fixed at bottom */}

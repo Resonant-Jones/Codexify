@@ -5,9 +5,11 @@ import { Textarea } from "@/components/ui/textarea";
 import SegmentedThemeControl from "@/components/controls/SegmentedThemeControl";
 import { ThemeMode, ExtColors } from "@/types/ui";
 import { ImagePlus } from "lucide-react";
+import { useConnectors } from "@/features/connectors/useConnectors";
+import { ConnectorCard } from "@/features/connectors/ConnectorCard";
 
 export function SettingsView({ mode, setMode, guardianName, setGuardianName, userName, setUserName, role, setRole, notes, setNotes, baseColor, setBaseColor, depth, setDepth, fade, setFade, resolved, systemPrompt, setSystemPrompt, wallpaper, setWallpaper, extColors, setExtColors }: { mode: ThemeMode; setMode: (m: ThemeMode) => void; guardianName: string; setGuardianName: (s: string) => void; userName: string; setUserName: (s: string) => void; role: string; setRole: (s: string) => void; notes: string; setNotes: (s: string) => void; baseColor: string; setBaseColor: (s: string) => void; depth: number; setDepth: (n: number) => void; fade: number; setFade: (n: number) => void; resolved: "light" | "dark"; systemPrompt: string; setSystemPrompt: (s: string) => void; wallpaper: string | null; setWallpaper: (s: string | null) => void; extColors: ExtColors; setExtColors: (m: ExtColors) => void }) {
-  const [tab, setTab] = useState<"appearance" | "system">("appearance");
+  const [tab, setTab] = useState<"appearance" | "system" | "connectors">("appearance");
   const [name, setName] = useState(guardianName);
   const [uName, setUName] = useState(userName);
   const [uRole, setURole] = useState(role);
@@ -55,6 +57,8 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
     if (fileRef.current) fileRef.current.value = "";
   }
 
+  const { connectors, updateConnector, loading, error } = useConnectors();
+
   return (
     <div className="h-full overflow-auto" style={{ color: "var(--text)" }}>
       <div className="mx-auto w-full max-w-[30rem] space-y-6 p-4">
@@ -64,6 +68,9 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
           </Button>
           <Button type="button" variant={tab === "system" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setTab("system")}>
             System Prompt
+          </Button>
+          <Button type="button" variant={tab === "connectors" ? "default" : "ghost"} size="sm" className="rounded-xl" onClick={() => setTab("connectors")}>
+            Connectors
           </Button>
         </div>
 
@@ -189,6 +196,26 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {tab === "connectors" && (
+          <div className="space-y-4">
+            {loading && <div className="text-sm opacity-70">Loading connectors…</div>}
+            {error && <div className="text-sm text-red-500">{error}</div>}
+            {Array.isArray(connectors) && connectors.length > 0 ? (
+              connectors.map((connector) => (
+                <ConnectorCard
+                  key={connector.id}
+                  connector={connector}
+                  onUpdate={updateConnector}
+                />
+              ))
+            ) : (
+              !loading && !error && (
+                <div className="text-sm opacity-70">No connectors available</div>
+              )
+            )}
           </div>
         )}
       </div>

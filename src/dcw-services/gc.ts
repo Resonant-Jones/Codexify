@@ -26,12 +26,12 @@ export { req as request };
 
 export const Threads = {
   list: () => req('/threads'),
-  get: (id: string) => req(`/thread/${id}`),
+  get: (id: string) => req(`/threads/${id}`),
   children: (id: string) => req(`/thread/${id}/children`),
-  summary: (id: string) => req(`/thread/${id}/summary`),
+  summary: (id: string) => req(`/threads/${id}/summary`),
   create: (body: { summary?: string; title?: string; project_id?: string | null }) =>
     req('/threads', { method: 'POST', body: JSON.stringify(body) }),
-  del: (id: number | string) => req(`/thread/${id}`, { method: 'DELETE' })
+  del: (id: number | string) => req(`/threads/${id}`, { method: 'DELETE' })
 };
 export const Projects = {
   list: () => req('/projects'),

@@ -55,48 +55,49 @@ export default function DashboardView({
 
   return (
     <section className="w-full h-full min-h-0 flex flex-col overflow-hidden">
-      {/* Main grid fills the remaining height */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 items-stretch gap-[var(--gutter)]">
-        {/* Column 1: two equal-height STACKED cards (Pinned / Recent) */}
-        <ComboDashboardCard 
-          pinned={pinned} 
-          recentDocs={recentDocs} 
-          onCreateProject={handleCreateProject}
-          onCreateThread={handleCreateThread}
-        />
+      <section className="w-full h-full min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 items-stretch gap-[var(--gutter)]">
+          {/* Column 1: two equal-height STACKED cards (Pinned / Recent) */}
+          <ComboDashboardCard 
+            pinned={pinned} 
+            recentDocs={recentDocs} 
+            onCreateProject={handleCreateProject}
+            onCreateThread={handleCreateThread}
+          />
 
-        {/* Column 2: Gallery card - always visible */}
-        <div className="glass-surface rounded-2xl p-[3px] h-full min-h-0">
-          <div
-            className="rounded-xl border shadow-sm h-full flex flex-col"
-            style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)", color: "var(--text)" }}
-          >
-            <div className="px-4 pt-3 pb-2 shrink-0 flex items-center justify-between">
-              <div className="text-lg font-semibold">Gallery</div>
-              <button className="text-sm opacity-80 hover:opacity-100">See all</button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4 pt-0">
-              <div className="grid gap-5 justify-start" style={{ gridTemplateColumns: "repeat(auto-fill, 112px)" }}>
-                {gallery.map((item, i) => (
-                  <PreviewTile
-                    key={i}
-                    layer="flat"
-                    square
-                    bezel="simple"
-                    elevation="md"
-                    bevel="soft"
-                    onClick={() => onImagePrompt(item.prompt)}
-                    style={{ background: "var(--panel-bg)" }}
-                    className="cursor-pointer w-[112px]"
-                  >
-                    <img src={item.src} alt={item.prompt || "Gallery image"} />
-                  </PreviewTile>
-                ))}
+          {/* Column 2: Gallery card - always visible */}
+          <div className="glass-surface rounded-2xl p-[3px] h-full min-h-0">
+            <div
+              className="rounded-xl border shadow-sm h-full flex flex-col"
+              style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)", color: "var(--text)" }}
+            >
+              <div className="px-4 pt-3 pb-2 shrink-0 flex items-center justify-between">
+                <div className="text-lg font-semibold">Gallery</div>
+                <button className="text-sm opacity-80 hover:opacity-100">See all</button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-4 pt-0">
+                <div className="grid gap-5 justify-start" style={{ gridTemplateColumns: "repeat(auto-fill, 112px)" }}>
+                  {gallery.map((item, i) => (
+                    <PreviewTile
+                      key={i}
+                      layer="flat"
+                      square
+                      bezel="simple"
+                      elevation="md"
+                      bevel="soft"
+                      onClick={() => onImagePrompt(item.prompt)}
+                      style={{ background: "var(--panel-bg)" }}
+                      className="cursor-pointer w-[112px]"
+                    >
+                      <img src={item.src} alt={item.prompt || "Gallery image"} />
+                    </PreviewTile>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
     </section>
   );
 }

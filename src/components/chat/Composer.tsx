@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send } from "lucide-react";
 import { ModelProvider } from "@/Providers/ModelProvider";
+import api from "@/lib/api";
 
 /**
  * Read a CSS variable from the document root with a fallback.
@@ -49,7 +50,12 @@ function readCssVar(name: string, fallback: string) {
  * Composer component
  *
  * Props:
- * @param {{ onSend: (text: string) => void; prefill?: string; onPrefillConsumed?: () => void }} props
+ * @param {{
+ *   onSend: (text: string) => void;
+ *   prefill?: string;
+ *   onPrefillConsumed?: () => void;
+ *   threadId?: number;
+ * }} props
  *
  * Notes:
  * - `onSend` is invoked with the trimmed message text. The current implementation
@@ -64,10 +70,12 @@ export function Composer({
   onSend,
   prefill,
   onPrefillConsumed,
+  threadId,
 }: {
   onSend: (t: string) => void;
   prefill?: string;
   onPrefillConsumed?: () => void;
+  threadId?: number;
 }) 
 // Refs & local state: textarea ref, value and sending flag
 {
@@ -109,6 +117,10 @@ export function Composer({
     if (!v) return;
     setSending(true);
     onSend(v);
+    if (typeof threadId === "number") {
+      api.post(`/api/chat/${threadId}/messages`, { role: "user", content: v })
+        .catch((err) => console.error("Failed to persist message", err));
+    }
     setValue("");
     setTimeout(() => setSending(false), 200);
   }

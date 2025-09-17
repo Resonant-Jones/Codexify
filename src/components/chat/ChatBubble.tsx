@@ -78,7 +78,7 @@ export function ChatBubble({ message, isMe, guardianName }: { message: Message; 
   // Assistant / guardian message branch (left-aligned)
   if (!isMe) {
     return (
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 500, damping: 30 }} className="w-full">
+      <motion.div data-testid="chat-message" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 500, damping: 30 }} className="w-full">
         <div className="mb-1 text-xs font-semibold" style={{ color: "var(--text)" }}>
           {guardianName}
         </div>
@@ -94,6 +94,7 @@ export function ChatBubble({ message, isMe, guardianName }: { message: Message; 
   // User message branch (right-aligned)
   return (
     <motion.div
+      data-testid="chat-message"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
@@ -109,4 +110,3 @@ export function ChatBubble({ message, isMe, guardianName }: { message: Message; 
 }
 
 export default ChatBubble;
-

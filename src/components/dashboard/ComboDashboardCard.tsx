@@ -59,14 +59,8 @@ export default function ComboDashboardCard({
           className="rounded-xl border shadow-sm h-full flex flex-col"
           style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)", color: "var(--text)" }}
         >
-          <div className="px-4 pt-3 pb-2 shrink-0 flex items-center justify-between">
+          <div className="px-4 pt-3 pb-2 shrink-0">
             <div className="text-lg font-semibold">Recent Documents</div>
-            <button
-              onClick={() => { /* TODO: handle show all action */ }}
-              className="text-sm opacity-80 hover:opacity-100"
-            >
-              See All
-            </button>
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-4 pt-0">
             <div className="grid gap-4 justify-start" style={{ gridTemplateColumns: "repeat(auto-fill, 112px)" }}>

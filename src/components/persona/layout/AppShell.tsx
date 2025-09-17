@@ -3,6 +3,8 @@ import React, { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { X, ChevronLeft, ChevronRight, Menu } from "lucide-react";
 import ReactiveGlassCard from "@/components/surface/ReactiveGlassCard";
+import { GuardianAPI } from "@/lib/guardianApi";
+import api from "@/lib/api";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
@@ -10,6 +12,7 @@ import ProviderSwitchFAB from "@/components/ProviderSwitchFAB";
 import WorkspacePane from "@/features/workspace/WorkspacePane";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import Sidebar from "@/components/chat/Sidebar";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
@@ -216,6 +219,14 @@ export default function AppShell({}: PropsWithChildren) {
   );
   const [workspaceOpen, setWorkspaceOpen] = useState<boolean>(false);
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.lastView", view); }, [view]);
+  // Sync the main view with URL when landing directly on /chat/:id
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (window.location.pathname.startsWith("/chat/")) {
+        setView("guardian");
+      }
+    }
+  }, []);
   const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? null : localStorage.getItem("cfy.wallpaper")));
 
   /* ─────────────────────────────────────────────────────────────────────────────
@@ -837,32 +848,34 @@ export default function AppShell({}: PropsWithChildren) {
                         </div>
                         <div className="min-h-0 w-full rounded-[var(--radius)] overflow-hidden flex-1 flex flex-col" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))" }}>
                           <div className="min-h-0 h-full w-full overflow-auto p-[var(--card-pad)] flex-1 flex flex-col">
-                            <div className="max-w-[18rem] mr-auto">
-                              <SettingsView
-                                mode={mode}
-                                setMode={setMode}
-                                guardianName={guardianName}
-                                setGuardianName={setGuardianName}
-                                userName={userName}
-                                setUserName={setUserName}
-                                role={role}
-                                setRole={setRole}
-                                notes={notes}
-                                setNotes={setNotes}
-                                baseColor={baseColor}
-                                setBaseColor={setBaseColor}
-                                depth={depth}
-                                setDepth={setDepth}
-                                fade={fade}
-                                setFade={setFade}
-                                resolved={resolved}
-                                systemPrompt={systemPrompt}
-                                setSystemPrompt={setSystemPrompt}
-                                wallpaper={wallpaper}
-                                setWallpaper={setWallpaper}
-                                extColors={extColors}
-                                setExtColors={setExtColors}
-                              />
+                            <div className="max-w-5xl mr-auto w-full">
+                              <ErrorBoundary>
+                                <SettingsView
+                                  mode={mode}
+                                  setMode={setMode}
+                                  guardianName={guardianName}
+                                  setGuardianName={setGuardianName}
+                                  userName={userName}
+                                  setUserName={setUserName}
+                                  role={role}
+                                  setRole={setRole}
+                                  notes={notes}
+                                  setNotes={setNotes}
+                                  baseColor={baseColor}
+                                  setBaseColor={setBaseColor}
+                                  depth={depth}
+                                  setDepth={setDepth}
+                                  fade={fade}
+                                  setFade={setFade}
+                                  resolved={resolved}
+                                  systemPrompt={systemPrompt}
+                                  setSystemPrompt={setSystemPrompt}
+                                  wallpaper={wallpaper}
+                                  setWallpaper={setWallpaper}
+                                  extColors={extColors}
+                                  setExtColors={setExtColors}
+                                />
+                              </ErrorBoundary>
                             </div>
                           </div>
                         </div>
@@ -885,44 +898,294 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
   const { wallpaperUrl } = useWallpaperUrl();
   const bp = useBreakpoint();
-  const [threads, setThreads] = React.useState<Thread[]>([
-    {
-      id: "t1",
-      title: "Design Sync",
-      lastMessage: "Let's ship the new message bubbles today.",
-      unread: 2,
-      participants: [
-        { id: "me", name: userName },
-        { id: "bot", name: guardianName },
-      ],
-      messages: [
-        { id: "m1", authorId: "bot", authorName: guardianName, content: "Morning! Did you see the updated chat bubble spec?", createdAt: Date.now() - 1000 * 60 * 60, status: "read" },
-        { id: "m2", authorId: "me", authorName: userName, content: "Yep—looks great. The drop shadows feel a bit heavy though.", createdAt: Date.now() - 1000 * 60 * 58, status: "read" },
-        { id: "m3", authorId: "bot", authorName: guardianName, content: "Agreed. I lightened them and added a subtle border.", createdAt: Date.now() - 1000 * 60 * 42, status: "read" },
-      ],
+  const [threads, setThreads] = React.useState<Thread[]>([]);
+  const [activeId, setActiveId] = React.useState<string | null>(null);
+
+  const isDesktopLayout = bp === "lg" || bp === "xl" || bp === "2xl";
+  const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
+
+  const toggleSidebar = React.useCallback(() => {
+    if (isDesktopLayout) {
+      setIsSidebarVisible((prev) => !prev);
+    } else {
+      setIsMobileSidebarOpen((prev) => !prev);
+    }
+  }, [isDesktopLayout]);
+
+  React.useEffect(() => {
+    if (isDesktopLayout && isMobileSidebarOpen) {
+      setIsMobileSidebarOpen(false);
+    }
+  }, [isDesktopLayout, isMobileSidebarOpen]);
+
+  const mapThreadRecord = React.useCallback(
+    (raw: any): Thread | null => {
+      if (!raw) return null;
+      const rawId = raw.id ?? raw.thread_id ?? raw.threadId;
+      if (rawId == null) return null;
+      const title = raw.title ?? raw.summary ?? "Untitled Chat";
+      const last = raw.lastMessage ?? raw.last_message ?? "";
+      return {
+        id: String(rawId),
+        title,
+        lastMessage: last || "",
+        unread: 0,
+        participants: [
+          { id: "me", name: userName || "You" },
+          { id: "bot", name: guardianName || "Guardian" },
+        ],
+        messages: [],
+      };
     },
-  ]);
-  const [activeId, setActiveId] = React.useState<string>("t1");
-  const activeThread = React.useMemo(() => threads.find((t) => t.id === activeId)!, [threads, activeId]);
+    [guardianName, userName]
+  );
 
-  const handleHideSidebar = () => setIsSidebarVisible(false);
-  const handleShowSidebar = () => setIsSidebarVisible(true);
+  const handleNewChat = React.useCallback(async () => {
+    try {
+      const res = await api.post("/api/chat/threads", { title: "New Chat", user_id: userName || "default" });
+      const created = res?.data?.thread;
+      if (!created) return null;
+      const mapped = mapThreadRecord({ ...created, lastMessage: "" });
+      if (!mapped) return null;
+      setThreads((prev) => [mapped, ...prev]);
+      setActiveId(mapped.id);
+      return mapped;
+    } catch (err) {
+      console.warn("[guardian] failed to create thread", err);
+      // If API fails, create a synthetic thread as fallback
+      const fallback: Thread = {
+        id: "temp",
+        title: "New Chat",
+        lastMessage: "",
+        unread: 0,
+        participants: [
+          { id: "me", name: userName || "You" },
+          { id: "bot", name: guardianName || "Guardian" },
+        ],
+        messages: [],
+      };
+      setThreads((prev) => [fallback, ...prev]);
+      setActiveId("temp");
+      return fallback;
+    }
+  }, [mapThreadRecord, userName, guardianName]);
 
-  const handleNewChat = () => {
-    const id = `t_${Date.now()}`;
-    setThreads((prev) => [
-      { id, title: "New Chat", lastMessage: "", unread: 0, participants: [{ id: "me", name: userName }, { id: "bot", name: guardianName }], messages: [] },
-      ...prev,
-    ]);
-    setActiveId(id);
+  const loadThreads = React.useCallback(async () => {
+    try {
+      const res = await GuardianAPI.get("/api/chat/threads");
+      const rawList = Array.isArray(res?.threads) ? res.threads : Array.isArray(res) ? res : [];
+      if (!rawList.length) {
+        await handleNewChat();
+        return;
+      }
+      const mapped = rawList.map(mapThreadRecord).filter(Boolean);
+      // Deduplicate by thread id
+      const dedupedMap = new Map();
+      for (const thread of mapped) {
+        if (thread && thread.id) dedupedMap.set(thread.id, thread);
+      }
+      const deduped = Array.from(dedupedMap.values());
+      setThreads(deduped);
+      setActiveId((prev) => prev ?? (deduped[0] ? deduped[0].id : null));
+    } catch (err) {
+      console.warn("[guardian] failed to load threads", err);
+      await handleNewChat();
+    }
+  }, [handleNewChat, mapThreadRecord]);
+
+  // Ensure at least one thread exists and is active, always.
+  React.useEffect(() => {
+    loadThreads();
+  }, [loadThreads]);
+
+  // Guarantee at least one thread exists and is active (on mount or when threads/activeId changes)
+  React.useEffect(() => {
+    if ((!threads || threads.length === 0) || !activeId) {
+      // If no threads or no active thread, create one and set active
+      handleNewChat();
+    }
+  }, [threads, activeId, handleNewChat]);
+
+  const activeThread = React.useMemo(() => {
+    // Always return a usable thread object for GuardianChat
+    let found = threads.find((t) => t.id === activeId) || null;
+    if (found) return found;
+    if (threads.length > 0) return threads[0];
+    // Fallback to a synthetic blank thread
+    return {
+      id: "temp",
+      title: "New Chat",
+      lastMessage: "",
+      unread: 0,
+      participants: [
+        { id: "me", name: userName || "You" },
+        { id: "bot", name: guardianName || "Guardian" },
+      ],
+      messages: [],
+    };
+  }, [threads, activeId, userName, guardianName]);
+
+  const handleHideSidebar = React.useCallback(() => {
+    setIsSidebarVisible(false);
+    setIsMobileSidebarOpen(false);
+  }, []);
+
+  const handleNewChatImmediate = () => {
+    void handleNewChat();
   };
 
-  const handleSendMessage = (text: string) => {
-    const newMsg: Message = { id: String(Math.random()), authorId: "me", authorName: userName, content: text, createdAt: Date.now(), status: "sending" };
-    setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, messages: [...t.messages, newMsg], lastMessage: text } : t)));
-    setTimeout(() => {
-      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, messages: t.messages.map((m) => (m.id === newMsg.id ? { ...m, status: "sent" } : m)) } : t)));
-    }, 300);
+  const handleSendMessage = async (text: string) => {
+    if (!activeId) return;
+    const threadKey = activeId;
+    const numericThreadId = Number(threadKey);
+    const userMsgId = String(Math.random());
+    const userMsg: Message = { id: userMsgId, authorId: "me", authorName: userName, content: text, createdAt: Date.now(), status: "sending" };
+
+    // Update thread title if it's the first user message
+    setThreads((prev) =>
+      prev.map((t) => {
+        if (t.id === threadKey) {
+          let newTitle = t.title;
+          if (
+            // Only update if "New Chat" and no messages yet (or only system messages)
+            (t.title === "New Chat" || t.title === "Untitled Chat") &&
+            (!t.messages || t.messages.length === 0)
+          ) {
+            // Use first ~6 words of the message
+            const trimmed = text.trim().split(/\s+/).slice(0, 6).join(" ");
+            newTitle = trimmed.length > 0 ? trimmed + (text.trim().split(/\s+/).length > 6 ? "…" : "") : "New Chat";
+          }
+          return { ...t, messages: [...t.messages, userMsg], lastMessage: text, title: newTitle };
+        }
+        return t;
+      })
+    );
+
+    // If first message, update the thread title server-side as well
+    (async () => {
+      if (!Number.isFinite(numericThreadId)) return;
+      try {
+        // Fetch thread to see if it needs updating
+        const thread = threads.find((t) => t.id === threadKey);
+        if (
+          thread &&
+          (thread.title === "New Chat" || thread.title === "Untitled Chat") &&
+          (!thread.messages || thread.messages.length === 0)
+        ) {
+          // Update title on server
+          const trimmed = text.trim().split(/\s+/).slice(0, 6).join(" ");
+          const newTitle = trimmed.length > 0 ? trimmed + (text.trim().split(/\s+/).length > 6 ? "…" : "") : "New Chat";
+          await api.patch(`/api/chat/threads/${numericThreadId}`, { title: newTitle });
+        }
+        await api.post(`/api/chat/${numericThreadId}/messages`, { role: "user", content: text });
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === threadKey
+              ? {
+                  ...t,
+                  messages: t.messages.map((m) => (m.id === userMsgId ? { ...m, status: "sent" } : m)),
+                }
+              : t
+          )
+        );
+      } catch (err) {
+        console.warn("[guardian] failed to persist user message", err);
+      }
+    })();
+
+    const botMsgId = String(Math.random());
+    const botBase: Message = { id: botMsgId, authorId: "bot", authorName: guardianName, content: "", createdAt: Date.now(), status: "delivered" };
+    setThreads((prev) =>
+      prev.map((t) => (t.id === threadKey ? { ...t, messages: [...t.messages, botBase] } : t))
+    );
+
+    const provider = "groq";
+    const model = (import.meta as any).env?.VITE_DEFAULT_MODEL as string | undefined;
+
+    let acc = "";
+    let gotFirstToken = false;
+    let finalized = false;
+    let assistantPersisted = false;
+    let fallbackTimer: ReturnType<typeof setTimeout>;
+
+    const persistAssistant = async (content: string) => {
+      if (assistantPersisted) return;
+      if (!Number.isFinite(numericThreadId)) return;
+      if (!content || !content.trim()) return;
+      assistantPersisted = true;
+      try {
+        await api.post(`/api/chat/${numericThreadId}/messages`, { role: "assistant", content });
+      } catch (err) {
+        console.warn("[guardian] failed to persist assistant message", err);
+      }
+    };
+
+    const finalizeAssistant = (content: string, fallbackLast?: string) => {
+      if (finalized) return;
+      finalized = true;
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      const display = content ?? "";
+      const last = display || fallbackLast || text;
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === threadKey
+            ? {
+                ...t,
+                messages: t.messages.map((m) => (m.id === botMsgId ? { ...m, content: display } : m)),
+                lastMessage: last,
+              }
+            : t
+        )
+      );
+      void persistAssistant(display);
+    };
+
+    fallbackTimer = setTimeout(async () => {
+      if (gotFirstToken) return;
+      try {
+        const res = await GuardianAPI.chat({ prompt: text, provider, model });
+        const finalText = (res as any)?.text ?? "";
+        finalizeAssistant(finalText, text);
+      } catch (e) {
+        const errText = e instanceof Error ? e.message : String(e);
+        finalizeAssistant(errText, text);
+      }
+    }, 2500);
+
+    try {
+      const stop = GuardianAPI.chatStream(
+        { prompt: text, provider, model },
+        (chunk: string) => {
+          if (!gotFirstToken) {
+            gotFirstToken = true;
+            clearTimeout(fallbackTimer);
+          }
+          acc += chunk;
+          setThreads((prev) =>
+            prev.map((t) =>
+              t.id === threadKey
+                ? {
+                    ...t,
+                    messages: t.messages.map((m) => (m.id === botMsgId ? { ...m, content: acc } : m)),
+                    lastMessage: acc || text,
+                  }
+                : t
+            )
+          );
+        },
+        (err?: unknown) => {
+          if (!gotFirstToken && !acc.trim()) {
+            if (err) console.warn("[guardian] stream ended without tokens", err);
+            return;
+          }
+          finalizeAssistant(acc, text);
+        }
+      );
+      void stop;
+    } catch (e) {
+      const errText = e instanceof Error ? e.message : String(e);
+      finalizeAssistant(errText, text);
+    }
   };
 
   return (
@@ -932,8 +1195,20 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
       
 
       <div
-        className={`flex-1 min-h-0 h-full flex transition-all duration-300`}
+        className={`relative flex-1 min-h-0 h-full flex transition-all duration-300`}
       >
+        {/* Unified sidebar toggle */}
+        <button
+          type="button"
+          className="absolute top-4 left-4 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-white/80 p-1 shadow transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-neutral-700/30 dark:bg-neutral-800/80"
+          style={{ outlineColor: "var(--accent-weak)" }}
+          aria-label={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
+          aria-pressed={isSidebarOpen}
+          onClick={toggleSidebar}
+        >
+          <Menu size={22} />
+        </button>
+
         {/* Backdrop (only < lg) */}
         <div
           className={`fixed inset-0 bg-black/50 z-40 transition-opacity lg:hidden ${
@@ -948,14 +1223,23 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
             isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
+          <button
+            className="absolute top-2 right-2 h-8 w-8 flex items-center justify-center rounded-full border text-xl hover:opacity-90"
+            style={{ borderColor: "var(--panel-border)", color: "var(--muted)", background: "var(--panel-bg)" }}
+            aria-label="Close sidebar"
+            onClick={() => setIsMobileSidebarOpen(false)}
+          >
+            <X size={20} />
+          </button>
           <Sidebar
             threads={threads}
             activeId={activeId}
             onSelect={setActiveId}
-            onNewChat={handleNewChat}
+            onNewChat={handleNewChatImmediate}
           />
         </aside>
 
+        {/* Desktop sidebar, shown only if isSidebarVisible */}
         {isSidebarVisible && (
           <div className={`hidden lg:flex h-full min-h-0 w-[360px] max-w-[360px] min-w-[280px]`}>
               <div className="h-full rounded-[var(--radius)] flex-1 min-h-0" style={{ padding: "var(--board-edge)" }}>
@@ -966,12 +1250,20 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
                                   <RefractiveGlassCard wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} />
                               </div>
                               <div className="min-h-0 h-full rounded-[var(--radius)] overflow-hidden flex flex-col" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
+                                  <button
+                                    className="absolute top-2 right-2 h-8 w-8 flex items-center justify-center rounded-full border text-xl hover:opacity-90"
+                                    style={{ borderColor: "var(--panel-border)", color: "var(--muted)", background: "var(--panel-bg)" }}
+                                    aria-label="Close sidebar"
+                                    onClick={() => setIsSidebarVisible(false)}
+                                  >
+                                    <X size={20} />
+                                  </button>
                                   <div className="min-h-0 flex-1 overflow-auto h-full">
                                       <Sidebar
                                           threads={threads}
                                           activeId={activeId}
                                           onSelect={setActiveId}
-                                          onNewChat={handleNewChat}
+                                          onNewChat={handleNewChatImmediate}
                                       />
                                   </div>
                               </div>
@@ -982,26 +1274,23 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
           </div>
         )}
         <div className="relative flex flex-col flex-1 h-full min-h-0">
-          {/* show sidebar when hidden */}
-          {/* Removed conditional chevron toggle */}
-          {activeThread && (
-            <div
-              className="flex-1 min-h-0 flex flex-col rounded-[var(--radius)] overflow-hidden w-full"
-            >
-              <GuardianChat
-                guardianName={guardianName}
-                userName={userName}
-                prefill={prefill}
-                onPrefillConsumed={onPrefillConsumed}
-                onWorkspaceToggle={onWorkspaceToggle}
-                isSidebarVisible={isSidebarVisible}
-                onHideSidebar={handleHideSidebar}
-                activeThread={activeThread}
-                onSendMessage={handleSendMessage}
-                onNewChat={handleNewChat}
-              />
-            </div>
-          )}
+          {/* Always render GuardianChat, passing a valid activeThread */}
+          <div
+            className="flex-1 min-h-0 flex flex-col rounded-[var(--radius)] overflow-hidden w-full"
+          >
+            <GuardianChat
+              guardianName={guardianName}
+              userName={userName}
+              prefill={prefill}
+              onPrefillConsumed={onPrefillConsumed}
+              onWorkspaceToggle={onWorkspaceToggle}
+              isSidebarVisible={isSidebarVisible}
+              onHideSidebar={handleHideSidebar}
+              activeThread={activeThread}
+              onSendMessage={handleSendMessage}
+              onNewChat={handleNewChatImmediate}
+            />
+          </div>
         </div>
       </div>
     </>

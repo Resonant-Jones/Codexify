@@ -13,7 +13,8 @@
     "preview": "npm --prefix src run preview",
     "typecheck": "npm --prefix src run typecheck",
     "test": "npm --prefix src run test",
-    "test:watch": "npm --prefix src run test:watch"
+    "test:watch": "npm --prefix src run test:watch",
+    "cypress": "cypress open"
   },
   "repository": {
     "type": "git",
@@ -30,10 +31,13 @@
     "@google/gemini-cli": "^0.1.11",
     "@tailwindcss/vite": "^4.1.12",
     "@tauri-apps/cli": "^2.8.1",
+    "cypress": "^15.2.0",
+    "supabase": "^2.40.7",
     "tailwindcss": "^4.1.12",
     "vite-plugin-pwa": "^1.0.3"
   },
   "dependencies": {
+    "axios": "^1.12.2",
     "lucide-react": "^0.540.0",
     "typescript": "^5.9.2"
   }
