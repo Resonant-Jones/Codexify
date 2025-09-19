@@ -10,6 +10,7 @@ venv/
 .env
 .env.*
 !.env.example
+!.env.template
 
 # Logs
 *.log
@@ -91,3 +92,5 @@ guardian/guardian.*.db
 .env.local
 .env
 guardian/codemap/codemap.json
+models/moondream1/*.safetensors
+models/**.safetensors
