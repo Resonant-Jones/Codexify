@@ -6,13 +6,13 @@
 import os
 import logging
 import sqlite3
+import json
+import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
-from typing import Dict
+from typing import Dict, List, Optional
 from uuid import uuid4
 from fastapi import File, UploadFile
-from typing import List
 from guardian.routes.codexify_router import router as codexify_router
 
 # Third-Party
@@ -24,6 +24,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+# Optional Postgres driver (psycopg3)
+try:
+    import psycopg  # type: ignore
+except Exception:  # pragma: no cover
+    psycopg = None
 # Vision/captioning imports
 from PIL import Image
 from io import BytesIO
@@ -106,7 +111,6 @@ def require_api_key(api_key: str = Depends(api_key_header)):
 
 
 # Load configuration from environment variables
-DB_PATH = Path(os.getenv("GUARDIAN_DB_PATH", "guardian.db"))
 GEMINI_API_URL = os.getenv("GEMINI_API_URL", "https://api.gemini.ai/v1/chat")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "your_gemini_api_key_here")
 
@@ -198,12 +202,85 @@ def crop_to_content(pil_img, threshold: int = 10):
     # apply crop
     return pil_img.crop((left, top, right, bottom))
 
-# Initialize database
-db = GuardianDB(DB_PATH)
-
-# Ensure db uses the new chat_log-aware GuardianDB!
+# ────────────────────────── DB backend selection ────────────────────────────
 settings = get_settings()
-chatlog_db = GuardianDB(settings.GUARDIAN_DB_PATH)
+
+PG_DSN = os.getenv("GUARDIAN_DB_URL") or os.getenv("DATABASE_URL")
+DB_PATH = os.getenv("GUARDIAN_DB_PATH")  # may be "__DISABLE_SQLITE__"
+pg_pool = None
+effective_sqlite_path = None
+
+if PG_DSN:
+    # → Postgres
+    import psycopg
+    try:
+        pg_pool = psycopg.ConnectionPool(PG_DSN)      # global pool
+    except AttributeError:  # psycopg<3.2 fallback
+        try:
+            from psycopg_pool import ConnectionPool  # type: ignore
+        except ModuleNotFoundError:
+            pg_pool = None
+        else:
+            pg_pool = ConnectionPool(PG_DSN)
+    chatlog_db = pg_pool                          # used everywhere
+    DB_BACKEND = "postgres"
+else:
+    # → SQLite fallback
+    if DB_PATH == "__DISABLE_SQLITE__":
+        raise RuntimeError(
+            "SQLite disabled but no Postgres DSN supplied; "
+            "set GUARDIAN_DB_URL or DATABASE_URL"
+        )
+    effective_sqlite_path = DB_PATH or str(Path("guardian.db"))
+    chatlog_db = GuardianDB(effective_sqlite_path)
+    DB_BACKEND = "sqlite"
+
+logger.info("📦 DB backend selected: %s", DB_BACKEND)
+# ─────────────────────────────────────────────────────────────────────────────
+
+SQLITE_PATH = effective_sqlite_path if DB_BACKEND == "sqlite" else None
+
+
+def _require_sqlite_db(feature: str) -> GuardianDB:
+    """Ensure the requested feature only executes on the SQLite backend."""
+    if DB_BACKEND != "sqlite" or not isinstance(chatlog_db, GuardianDB):
+        raise HTTPException(
+            status_code=501,
+            detail=f"{feature} is not yet available for the Postgres backend",
+        )
+    return chatlog_db
+
+# Helper: ensure "Loose Threads" project exists at startup
+def _ensure_loose_threads_project():
+    try:
+        if DB_BACKEND == "postgres" and psycopg:
+            with psycopg.connect(PG_DSN) as conn:  # type: ignore[arg-type]
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id FROM projects WHERE name=%s", ("Loose Threads",))
+                    row = cur.fetchone()
+                    if not row:
+                        cur.execute(
+                            "INSERT INTO projects (name, description) VALUES (%s, %s)",
+                            ("Loose Threads", "Default bucket for unassigned threads"),
+                        )
+                        conn.commit()
+                        logger.info("[projects] Created default 'Loose Threads' project (pg)")
+        elif DB_BACKEND == "sqlite" and SQLITE_PATH:
+            with sqlite3.connect(SQLITE_PATH) as conn:
+                c = conn.cursor()
+                c.execute("SELECT id FROM projects WHERE name = ?", ("Loose Threads",))
+                row = c.fetchone()
+                if not row:
+                    c.execute(
+                        "INSERT INTO projects (name, description, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))",
+                        ("Loose Threads", "Default bucket for unassigned threads"),
+                    )
+                    conn.commit()
+                    logger.info("[projects] Created default 'Loose Threads' project (sqlite)")
+    except Exception as e:
+        logger.warning("[projects] Failed to ensure Loose Threads project: %s", e)
+
+_ensure_loose_threads_project()
 
 # ---- Memory retention and ephemeral silo
 MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
@@ -211,9 +288,22 @@ EPHEMERAL_MEMORY: list[dict] = []
 try:
     from datetime import timedelta
     cutoff = (datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS)).isoformat()
-    pruned = chatlog_db.prune_midterm(cutoff)
-    if pruned:
-        logger.info("[memory] pruned %d expired midterm entries", pruned)
+    if DB_BACKEND == "postgres" and psycopg:
+        with psycopg.connect(PG_DSN) as conn:  # type: ignore[arg-type]
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM memory_entries WHERE silo = 'midterm' AND updated_at < %s",
+                    (cutoff,),
+                )
+                pruned = cur.rowcount
+                if pruned:
+                    logger.info("[memory] pruned %d expired midterm entries", pruned)
+                conn.commit()
+    elif DB_BACKEND == "sqlite":
+        sqlite_db = _require_sqlite_db("midterm retention prune")
+        pruned = sqlite_db.prune_midterm(cutoff)
+        if pruned:
+            logger.info("[memory] pruned %d expired midterm entries", pruned)
 except Exception as _e:
     logger.debug("[memory] prune skipped: %s", _e)
 
@@ -508,6 +598,47 @@ def jobs_get(job_id: str):
 
 
 # =========================
+# Event System for Real-time Updates
+# =========================
+
+# In-memory event system (simple for MVP, can be replaced with Redis later)
+class EventManager:
+    def __init__(self):
+        self.subscribers = []
+    
+    def subscribe(self):
+        """Subscribe to events - returns a generator for SSE"""
+        queue = []
+        self.subscribers.append(queue)
+        return queue
+    
+    def unsubscribe(self, queue):
+        """Unsubscribe from events"""
+        if queue in self.subscribers:
+            self.subscribers.remove(queue)
+    
+    def emit(self, event_type: str, data: dict):
+        """Emit an event to all subscribers"""
+        event_data = {
+            "type": event_type,
+            "data": data,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        # Remove dead subscribers
+        dead_subscribers = []
+        for queue in self.subscribers:
+            try:
+                queue.append(event_data)
+            except:
+                dead_subscribers.append(queue)
+        
+        # Clean up dead subscribers
+        for queue in dead_subscribers:
+            self.unsubscribe(queue)
+
+event_manager = EventManager()
+
+# =========================
 # Chat Threads API
 # =========================
 
@@ -516,7 +647,7 @@ from fastapi import status
 
 @app.post("/api/chat/threads", tags=["Chat"])
 def chat_create_thread(body: dict = Body(...)):
-    """Create a chat thread and return its metadata."""
+    """Create a chat thread and return identifier metadata."""
     try:
         payload = body or {}
         raw_title = payload.get("title")
@@ -532,14 +663,29 @@ def chat_create_thread(body: dict = Body(...)):
                 normalized_project = int(project_id)
             except (TypeError, ValueError):
                 normalized_project = None
-        thread = chatlog_db.create_chat_thread(
+        if normalized_project is None:
+            # default to Loose Threads (id=1)
+            normalized_project = 1
+
+        sqlite_db = _require_sqlite_db("chat thread creation")
+
+        # Idempotency guard: check for recent empty thread from same user
+        recent_thread = sqlite_db.get_recent_thread(user_id)
+        if recent_thread:
+            # If recent thread exists and has no messages, reuse it
+            recent_id = recent_thread.get("id")
+            if recent_id and sqlite_db.count_messages(recent_id) == 0:
+                logger.info("Reusing recent empty thread %s for user %s", recent_id, user_id)
+                return {"ok": True, "id": recent_id, "thread": recent_thread}
+
+        record = sqlite_db.create_chat_thread(
             user_id=user_id,
             title=title,
             summary=summary,
             project_id=normalized_project,
         )
-        chatlog_db.write_audit_log("create", "chat_thread", str(thread["id"]), user_id=user_id)
-        return {"ok": True, "thread": thread}
+        sqlite_db.write_audit_log("create", "chat_thread", str(record["id"]), user_id=user_id)
+        return {"ok": True, "id": record["id"], "thread": record}
     except Exception as exc:
         logger.exception("Failed to create chat thread: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to create chat thread")
@@ -549,7 +695,7 @@ def chat_create_thread(body: dict = Body(...)):
 def chat_list_threads():
     """Return the list of persisted chat threads."""
     try:
-        threads = chatlog_db.list_chat_threads()
+        threads = _require_sqlite_db("chat thread listing").list_chat_threads()
         return {"ok": True, "threads": threads}
     except Exception as exc:
         logger.exception("Failed to list chat threads: %s", exc)
@@ -567,29 +713,50 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
         return JSONResponse(status_code=400, content={"ok": False, "error": "role and content required"})
     owner = body.get("user_id") or "default"
     try:
-        chatlog_db.ensure_chat_thread(
+        sqlite_db = _require_sqlite_db("chat message persistence")
+        sqlite_db.ensure_chat_thread(
             thread_id=thread_id,
             user_id=str(owner),
             title="New Chat",
             summary="",
+            project_id=1,  # always assign to Loose Threads by default
         )
     except Exception as exc:
         logger.exception("Failed to ensure chat thread %s exists: %s", thread_id, exc)
         raise HTTPException(status_code=500, detail="Failed to persist chat message")
-    mid = chatlog_db.create_message(thread_id, role, content)
-    chatlog_db.write_audit_log("create", "chat_message", str(mid), user_id="default")
-    return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": role, "content": content}}
+    mid = sqlite_db.create_message(thread_id, role, content)
+    sqlite_db.write_audit_log("create", "chat_message", str(mid), user_id=str(owner))
+    
+    # Emit event for real-time updates
+    event_manager.emit("message.created", {
+        "thread_id": thread_id,
+        "message_id": mid,
+        "role": role,
+        "content": content
+    })
+    
+    return {
+        "ok": True,
+        "message": {
+            "id": mid,
+            "thread_id": thread_id,
+            "role": role,
+            "content": content,
+        },
+    }
 
 @app.get("/api/chat/{thread_id}/messages")
 def chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
-    items = chatlog_db.list_messages(thread_id, limit=limit, offset=offset)
-    total = chatlog_db.count_messages(thread_id)
+    sqlite_db = _require_sqlite_db("chat message listing")
+    items = sqlite_db.list_messages(thread_id, limit=limit, offset=offset)
+    total = sqlite_db.count_messages(thread_id)
     return {"ok": True, "total": total, "messages": items}
 
 @app.delete("/api/chat/{thread_id}/messages/{message_id}")
 def chat_delete_message(thread_id: int, message_id: int):
-    chatlog_db.delete_message(thread_id, message_id)
-    chatlog_db.write_audit_log("delete", "chat_message", str(message_id), user_id="default")
+    sqlite_db = _require_sqlite_db("chat message deletion")
+    sqlite_db.delete_message(thread_id, message_id)
+    sqlite_db.write_audit_log("delete", "chat_message", str(message_id), user_id="default")
     return {"ok": True}
 
 # =========================
@@ -624,11 +791,12 @@ def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
         return JSONResponse(status_code=400, content={"ok": False, "error": "No valid fields to update"})
 
     try:
-        existing = chatlog_db.get_chat_thread(thread_id)
+        sqlite_db = _require_sqlite_db("chat thread update")
+        existing = sqlite_db.get_chat_thread(thread_id)
         if not existing:
             raise HTTPException(status_code=404, detail="Thread not found")
 
-        updated = chatlog_db.update_thread(
+        updated = sqlite_db.update_thread(
             thread_id,
             title=title,
             project_id=normalized_project if project_id is not None else None,
@@ -637,9 +805,9 @@ def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
         if not updated:
             raise HTTPException(status_code=404, detail="Thread not found")
 
-        refreshed = chatlog_db.get_chat_thread(thread_id)
+        refreshed = sqlite_db.get_chat_thread(thread_id)
         if refreshed:
-            chatlog_db.write_audit_log("update", "chat_thread", str(thread_id), user_id=refreshed.get("user_id", "default"))
+            sqlite_db.write_audit_log("update", "chat_thread", str(thread_id), user_id=refreshed.get("user_id", "default"))
         return {"ok": True, "thread": refreshed}
     except HTTPException:
         raise
@@ -650,7 +818,7 @@ def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
 @app.delete("/api/chat/threads/{thread_id}")
 def delete_thread(thread_id: int):
     try:
-        chatlog_db.delete_thread(thread_id)
+        _require_sqlite_db("chat thread deletion").delete_thread(thread_id)
         return {"ok": True}
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
@@ -669,8 +837,9 @@ def memory_list(silo: str, limit: int = 50, offset: int = 0):
     if silo == "ephemeral":
         items = EPHEMERAL_MEMORY[offset: offset + limit]
         return {"ok": True, "count": len(EPHEMERAL_MEMORY), "entries": items}
-    items = chatlog_db.list_memories(silo, limit=limit, offset=offset)
-    count = chatlog_db.count_memories(silo)
+    sqlite_db = _require_sqlite_db("memory listing")
+    items = sqlite_db.list_memories(silo, limit=limit, offset=offset)
+    count = sqlite_db.count_memories(silo)
     return {"ok": True, "count": count, "entries": items}
 
 @app.post("/api/memory/{silo}")
@@ -686,8 +855,9 @@ def memory_create(silo: str, body: Dict[str, object] = Body(...)):
         entry = {"id": len(EPHEMERAL_MEMORY) + 1, "user_id": "default", "silo": "ephemeral", "content": content, "tags": tags, "pinned": pinned, "created_at": datetime.utcnow().isoformat(), "updated_at": datetime.utcnow().isoformat()}
         EPHEMERAL_MEMORY.append(entry)
         return {"ok": True, "entry": entry}
-    eid = chatlog_db.add_memory("default", silo, content, tags=tags, pinned=pinned)
-    chatlog_db.write_audit_log("create", "memory_entry", str(eid), user_id="default")
+    sqlite_db = _require_sqlite_db("memory creation")
+    eid = sqlite_db.add_memory("default", silo, content, tags=tags, pinned=pinned)
+    sqlite_db.write_audit_log("create", "memory_entry", str(eid), user_id="default")
     return {"ok": True, "id": eid}
 
 @app.patch("/api/memory/{silo}/{entry_id}")
@@ -703,8 +873,9 @@ def memory_update(silo: str, entry_id: int, body: Dict[str, object] = Body(...))
                 e["updated_at"] = datetime.utcnow().isoformat()
                 return {"ok": True}
         return JSONResponse(status_code=404, content={"ok": False, "error": "not found"})
-    chatlog_db.update_memory(entry_id, content=body.get("content"), tags=",".join(body.get("tags", []) or []) if body.get("tags") is not None else None, pinned=body.get("pinned") if body.get("pinned") is not None else None)
-    chatlog_db.write_audit_log("update", "memory_entry", str(entry_id), user_id="default")
+    sqlite_db = _require_sqlite_db("memory update")
+    sqlite_db.update_memory(entry_id, content=body.get("content"), tags=",".join(body.get("tags", []) or []) if body.get("tags") is not None else None, pinned=body.get("pinned") if body.get("pinned") is not None else None)
+    sqlite_db.write_audit_log("update", "memory_entry", str(entry_id), user_id="default")
     return {"ok": True}
 
 @app.delete("/api/memory/{silo}/{entry_id}")
@@ -717,8 +888,9 @@ def memory_delete(silo: str, entry_id: int):
             EPHEMERAL_MEMORY.pop(idx)
             return {"ok": True}
         return JSONResponse(status_code=404, content={"ok": False, "error": "not found"})
-    chatlog_db.delete_memory(entry_id)
-    chatlog_db.write_audit_log("delete", "memory_entry", str(entry_id), user_id="default")
+    sqlite_db = _require_sqlite_db("memory deletion")
+    sqlite_db.delete_memory(entry_id)
+    sqlite_db.write_audit_log("delete", "memory_entry", str(entry_id), user_id="default")
     return {"ok": True}
 
 # =========================
@@ -727,25 +899,45 @@ def memory_delete(silo: str, entry_id: int):
 
 @app.get("/health/memory")
 def health_memory():
-    return {"ok": True, "silos": {"ephemeral": len(EPHEMERAL_MEMORY), "midterm": chatlog_db.count_memories("midterm"), "longterm": chatlog_db.count_memories("longterm")}}
+    sqlite_db = _require_sqlite_db("memory health check") if DB_BACKEND == "sqlite" else None
+    return {
+        "ok": True,
+        "silos": {
+            "ephemeral": len(EPHEMERAL_MEMORY),
+            "midterm": sqlite_db.count_memories("midterm") if sqlite_db else None,
+            "longterm": sqlite_db.count_memories("longterm") if sqlite_db else None,
+        },
+    }
 
 @app.get("/health/chat")
 def health_chat():
-    with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:  # type: ignore[attr-defined]
-        c = conn.cursor()
-        try:
-            c.execute("SELECT COUNT(*) FROM chat_messages")
-            messages = int(c.fetchone()[0])
-        except Exception:
-            messages = 0
-        try:
-            c.execute("SELECT COUNT(*) FROM chat_threads")
-            threads = int(c.fetchone()[0])
-        except Exception:
-            # derive from distinct thread_ids in chat_messages
-            c.execute("SELECT COUNT(DISTINCT thread_id) FROM chat_messages")
-            threads = int(c.fetchone()[0])
-    return {"ok": True, "threads": threads, "messages": messages}
+    messages = 0
+    threads = 0
+    try:
+        if DB_BACKEND == "postgres" and psycopg:
+            with psycopg.connect(PG_DSN) as conn:  # type: ignore[arg-type]
+                with conn.cursor() as cur:
+                    cur.execute("SELECT COUNT(*) FROM chat_messages")
+                    messages = int(cur.fetchone()[0])
+                    cur.execute("SELECT COUNT(*) FROM chat_threads")
+                    threads = int(cur.fetchone()[0])
+        elif DB_BACKEND == "sqlite" and SQLITE_PATH:
+            with sqlite3.connect(SQLITE_PATH) as conn:
+                c = conn.cursor()
+                try:
+                    c.execute("SELECT COUNT(*) FROM chat_messages")
+                    messages = int(c.fetchone()[0])
+                except Exception:
+                    messages = 0
+                try:
+                    c.execute("SELECT COUNT(*) FROM chat_threads")
+                    threads = int(c.fetchone()[0])
+                except Exception:
+                    c.execute("SELECT COUNT(DISTINCT thread_id) FROM chat_messages")
+                    threads = int(c.fetchone()[0])
+    except Exception as _e:
+        logger.warning("[health/chat] check failed: %s", _e)
+    return {"ok": True, "threads": threads, "messages": messages, "backend": DB_BACKEND}
 
 # =========================
 # Projects management
@@ -756,7 +948,8 @@ def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
     name = body.get("name")
     description = body.get("description")
     try:
-        chatlog_db.update_project(project_id, name=name if name is not None else None, description=description if description is not None else None)
+        sqlite_db = _require_sqlite_db("project update")
+        sqlite_db.update_project(project_id, name=name if name is not None else None, description=description if description is not None else None)
         return {"ok": True}
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
@@ -765,15 +958,21 @@ def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
 def delete_project_and_eject(project_id: int):
     # Eject threads from this project first
     try:
-        chatlog_db.eject_threads_from_project(project_id)
+        _require_sqlite_db("project thread eviction").eject_threads_from_project(project_id)
     except Exception as e:
         logger.warning("eject threads failed: %s", e)
     # Delete project row
     try:
-        with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:  # type: ignore[attr-defined]
-            c = conn.cursor()
-            c.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-            conn.commit()
+        if DB_BACKEND == "postgres" and psycopg:
+            with psycopg.connect(PG_DSN) as conn:  # type: ignore[arg-type]
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+                    conn.commit()
+        elif DB_BACKEND == "sqlite" and SQLITE_PATH:
+            with sqlite3.connect(SQLITE_PATH) as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+                conn.commit()
         return {"ok": True}
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
@@ -841,24 +1040,33 @@ def authz_debug(api_key: str = Depends(require_api_key)):
 @app.get("/healthz", tags=["Diag"], summary="DB health and table existence")
 def healthz():
     """
-    Returns DB path and existence of projects/threads tables for quick diagnostics.
+    Returns DB target and existence of projects/chat_threads for quick diagnostics.
     """
-    db_path = str(chatlog_db.db_path if hasattr(chatlog_db, "db_path") else DB_PATH)
+    db_target = PG_DSN if DB_BACKEND == "postgres" else SQLITE_PATH
     projects_exists = False
     threads_exists = False
     try:
-        with sqlite3.connect(db_path) as conn:
-            c = conn.cursor()
-            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'")
-            projects_exists = c.fetchone() is not None
-            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='threads'")
-            threads_exists = c.fetchone() is not None
+        if DB_BACKEND == "postgres" and psycopg:
+            with psycopg.connect(PG_DSN) as conn:  # type: ignore[arg-type]
+                with conn.cursor() as cur:
+                    cur.execute("SELECT to_regclass('public.projects')")
+                    projects_exists = cur.fetchone()[0] is not None
+                    cur.execute("SELECT to_regclass('public.chat_threads')")
+                    threads_exists = cur.fetchone()[0] is not None
+        elif DB_BACKEND == "sqlite" and SQLITE_PATH:
+            with sqlite3.connect(SQLITE_PATH) as conn:
+                c = conn.cursor()
+                c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'")
+                projects_exists = c.fetchone() is not None
+                c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_threads'")
+                threads_exists = c.fetchone() is not None
     except Exception as e:
-        logger.warning(f"/healthz check failed: {e}")
+        logger.warning("/healthz check failed: %s", e)
     return {
-        "db_path": db_path,
+        "db_target": db_target,
+        "backend": DB_BACKEND,
         "projects_table_exists": projects_exists,
-        "threads_table_exists": threads_exists,
+        "chat_threads_table_exists": threads_exists,
     }
 
 
@@ -871,10 +1079,11 @@ def debug_config(api_key: str = Depends(require_api_key)):
     """
     env = os.getenv("GUARDIAN_ENV", "development")
     masked_key = (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
-    db_path = str(chatlog_db.db_path if hasattr(chatlog_db, "db_path") else DB_PATH)
+    db_target = PG_DSN if DB_BACKEND == "postgres" else SQLITE_PATH
     return {
         "env": env,
-        "db_path": db_path,
+        "db_target": db_target,
+        "db_backend": DB_BACKEND,
         "provider": GUARDIAN_PROVIDER,
         "allowed_origins": allowed_origins,
         "masked_api_key": masked_key,
@@ -895,7 +1104,8 @@ def log_entry(entry: LogEntry, api_key: str = Depends(require_api_key)):
     """
     timestamp = datetime.now().isoformat()
     try:
-        db.insert_memory(
+        sqlite_db = _require_sqlite_db("memory logging")
+        sqlite_db.insert_memory(
             timestamp=timestamp,
             command=entry.command,
             tag=entry.tag,
@@ -923,7 +1133,8 @@ def summarize_entry(entry: SummaryEntry, api_key: str = Depends(require_api_key)
     """
     timestamp = datetime.now().isoformat()
     try:
-        db.insert_memory(
+        sqlite_db = _require_sqlite_db("memory summary logging")
+        sqlite_db.insert_memory(
             timestamp=timestamp,
             command=entry.summary,
             tag=entry.tag,
@@ -955,7 +1166,7 @@ def search(
         List[dict]: List of matching memory entries.
     """
     try:
-        rows = db.search_memory(query, limit)
+        rows = _require_sqlite_db("memory search").search_memory(query, limit)
         results = [
             {
                 "timestamp": r["timestamp"],
@@ -1022,7 +1233,7 @@ def history(
         )
 
     try:
-        rows = db.history_entries(limit=limit, tag=tag, agent=agent)
+        rows = _require_sqlite_db("history listing").history_entries(limit=limit, tag=tag, agent=agent)
         filtered_rows = []
         for r in rows:
             entry_dt = datetime.fromisoformat(r["timestamp"])
@@ -1073,24 +1284,43 @@ def list_threads(
     List all threads. Optionally filter by user or project.
     """
     try:
-        query = (
-            "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id "
-            "FROM threads WHERE 1=1"
-        )
-        params = []
-        if user_id:
-            query += " AND user_id = ?"
-            params.append(user_id)
-        if project_id:
-            query += " AND project_id = ?"
-            params.append(project_id)
-        query += " ORDER BY thread_id DESC"
-
-        with sqlite3.connect(chatlog_db.db_path) as conn:
-            c = conn.cursor()
-            c.execute(query, params)
-            rows = c.fetchall()
-            cols = [d[0] for d in c.description]
+        if DB_BACKEND == "postgres" and psycopg:
+            query = (
+                "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id "
+                "FROM threads WHERE 1=1"
+            )
+            params: List[object] = []
+            if user_id:
+                query += " AND user_id = %s"
+                params.append(user_id)
+            if project_id:
+                query += " AND project_id = %s"
+                params.append(project_id)
+            query += " ORDER BY thread_id DESC"
+            with psycopg.connect(PG_DSN) as conn:  # type: ignore[arg-type]
+                with conn.cursor() as cur:
+                    cur.execute(query, tuple(params))
+                    rows = cur.fetchall()
+                    cols = [d.name for d in cur.description] if cur.description else []
+            items = [dict(zip(cols, r)) for r in rows] if rows else []
+        else:
+            query = (
+                "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id "
+                "FROM threads WHERE 1=1"
+            )
+            params: List[object] = []
+            if user_id:
+                query += " AND user_id = ?"
+                params.append(user_id)
+            if project_id:
+                query += " AND project_id = ?"
+                params.append(project_id)
+            query += " ORDER BY thread_id DESC"
+            with sqlite3.connect(SQLITE_PATH) as conn:
+                c = conn.cursor()
+                c.execute(query, params)
+                rows = c.fetchall()
+                cols = [d[0] for d in c.description]
             items = [dict(zip(cols, r)) for r in rows]
         return {"threads": items}
     except sqlite3.OperationalError as e:
@@ -1099,7 +1329,9 @@ def list_threads(
             return {"threads": []}
         logger.exception("Thread listing failed")
         raise HTTPException(status_code=500, detail="Thread listing failed")
-    except Exception:
+    except Exception as exc:
+        if DB_BACKEND == "postgres" and getattr(exc, "pgcode", None) == "42P01":  # undefined_table
+            return {"threads": []}
         logger.exception("Thread listing failed")
         raise HTTPException(status_code=500, detail="Thread listing failed")
 
@@ -1109,7 +1341,8 @@ def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
     """
     Get details for a specific thread by thread_id.
     """
-    row = chatlog_db.get_thread(thread_id)
+    sqlite_db = _require_sqlite_db("thread lookup")
+    row = sqlite_db.get_thread(thread_id)
     if not row:
         raise HTTPException(status_code=404, detail="Thread not found")
     return {
@@ -1128,7 +1361,7 @@ def get_child_threads(thread_id: int, api_key: str = Depends(require_api_key)):
     """
     List all child threads for a parent thread.
     """
-    rows = chatlog_db.get_child_threads(thread_id)
+    rows = _require_sqlite_db("child thread listing").get_child_threads(thread_id)
     results = [
         {
             "thread_id": row[0],
@@ -1148,7 +1381,7 @@ def get_thread_summary(thread_id: int, api_key: str = Depends(require_api_key)):
     """
     Get the summary for a thread.
     """
-    summary = chatlog_db.get_thread_summary(thread_id)
+    summary = _require_sqlite_db("thread summary lookup").get_thread_summary(thread_id)
     return {"thread_id": thread_id, "summary": summary}
 
 
@@ -1158,7 +1391,7 @@ def create_thread(req: ThreadCreateRequest, api_key: str = Depends(require_api_k
     Create a new thread with optional parent, summary, session, user, and project.
     Returns the new thread_id.
     """
-    thread_id = chatlog_db.create_thread(
+    thread_id = _require_sqlite_db("thread creation").create_thread(
         parent_thread_id=req.parent_thread_id,
         session_id=req.session_id,
         summary=req.summary,
@@ -1268,7 +1501,7 @@ def unified_chat(
     """
     # Log incoming prompt (best-effort; don't fail chat if logging fails)
     try:
-        db.insert_memory(
+        _require_sqlite_db("prompt logging").insert_memory(
             timestamp=datetime.now().isoformat(),
             command=f"User prompt: {prompt}",
             tag=GUARDIAN_PROVIDER,
@@ -1330,7 +1563,7 @@ def unified_chat(
 
         # Log AI reply (best-effort)
         try:
-            db.insert_memory(
+            _require_sqlite_db("groq reply logging").insert_memory(
                 timestamp=datetime.now().isoformat(),
                 command=f"AI reply: {reply_text}",
                 tag="groq",
@@ -1356,7 +1589,7 @@ def unified_chat(
         reply_text = data.get("reply", "")
 
         try:
-            db.insert_memory(
+            _require_sqlite_db("gemini reply logging").insert_memory(
                 timestamp=datetime.now().isoformat(),
                 command=f"AI reply: {reply_text}",
                 tag="gemini",
@@ -1424,7 +1657,7 @@ def whoami(
     agent_id: str = Header(..., description="Agent or User ID"),
     api_key: str = Depends(require_api_key),
 ):
-    profile = db.get_agent_profile(agent_id)
+    profile = _require_sqlite_db("agent profile lookup").get_agent_profile(agent_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Agent profile not found.")
     return profile
@@ -1438,7 +1671,7 @@ def update_profile(
 ):
     if not updates:
         raise HTTPException(status_code=400, detail="No updates provided.")
-    db.upsert_agent_profile(agent_id, **updates)
+    _require_sqlite_db("agent profile update").upsert_agent_profile(agent_id, **updates)
     return {"message": "Profile updated."}
 
 
@@ -1454,7 +1687,7 @@ def set_frequency(
 ):
     if frequency not in ["daily", "weekly", "monthly"]:
         raise HTTPException(status_code=400, detail="Invalid frequency.")
-    db.upsert_agent_profile(agent_id, summarization_frequency=frequency)
+    _require_sqlite_db("agent frequency update").upsert_agent_profile(agent_id, summarization_frequency=frequency)
     return {"message": f"Frequency set to {frequency}."}
 
 
@@ -1468,7 +1701,7 @@ def summarization_check(
     requested_by: str = Query("ai"),
     api_key: str = Depends(require_api_key),
 ):
-    allowed, msg = db.check_summarization_allowed(agent_id, requested_by)
+    allowed, msg = _require_sqlite_db("agent summarization check").check_summarization_allowed(agent_id, requested_by)
     return {"allowed": allowed, "message": msg}
 
 
@@ -1497,6 +1730,41 @@ def research_agent(
 
 
 # =========================
+# SSE Endpoint for Real-time Updates
+# =========================
+
+@app.get("/api/events", tags=["Events"])
+async def events_stream(request: Request):
+    """
+    Server-Sent Events endpoint for real-time updates.
+    Emits events for message creation, thread updates, etc.
+    """
+    async def event_generator():
+        queue = event_manager.subscribe()
+        try:
+            while True:
+                # Check for new events
+                if queue:
+                    event = queue.pop(0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                
+                # Send heartbeat every 15 seconds
+                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.utcnow().isoformat()})}\n\n"
+                
+                # Small delay to prevent busy waiting
+                await asyncio.sleep(0.1)
+                
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            event_manager.unsubscribe(queue)
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+# =========================
 # Chat Log v2 Endpoints
 # =========================
 
@@ -1511,7 +1779,7 @@ def chat_log_history(
     """
     Returns latest chat logs for a session/user, from the new chat_log table.
     """
-    history = chatlog_db.get_chat_history(
+    history = _require_sqlite_db("chat history retrieval").get_chat_history(
         session_id=session_id, user_id=user_id, limit=limit
     )
     # `history` is already a list of dicts with the proper keys; return as-is
@@ -1529,7 +1797,7 @@ def summarize_chat_log(
     """
     Summarizes chat history for a session/user using the currently active LLM backend.
     """
-    history = chatlog_db.get_chat_history(
+    history = _require_sqlite_db("chat history summarization").get_chat_history(
         session_id=session_id, user_id=user_id, limit=limit
     )
     if not history:
