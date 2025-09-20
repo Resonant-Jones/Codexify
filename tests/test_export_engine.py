@@ -1,13 +1,17 @@
 import pytest
+
 pytestmark = pytest.mark.settings
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
-import os
 from unittest.mock import patch
 
 import pytest
 
-from guardian.export_engine import (export_csv, export_json, export_markdown,
-                                    export_to_notion)
+from guardian.export_engine import (
+    export_csv,
+    export_json,
+    export_markdown,
+    export_to_notion,
+)
 
 # === Test basic format exports ===
 

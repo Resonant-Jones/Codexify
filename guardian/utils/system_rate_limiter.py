@@ -7,7 +7,7 @@ Thread-safe async rate limiting with system-wide coordination.
 import asyncio
 import logging
 import time
-from typing import Dict, Optional
+from typing import Optional
 
 from guardian.config import Config
 

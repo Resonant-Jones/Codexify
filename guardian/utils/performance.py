@@ -8,8 +8,8 @@ import asyncio
 import functools
 import logging
 import time
-from typing import Any, Callable, List, Optional, TypeVar, Dict
 from collections import deque
+from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

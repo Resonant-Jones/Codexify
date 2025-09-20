@@ -4,8 +4,6 @@ from dotenv import load_dotenv
 
 env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
 load_dotenv(dotenv_path=env_path, override=True)
-import csv
-import io
 import json
 import logging
 import os
@@ -17,7 +15,6 @@ from jinja2 import Template
 
 # For Notion export markdown -> blocks
 from .codexify import flatten_notion_blocks, markdown_to_notion_blocks
-
 
 logging.basicConfig(level=logging.INFO)
 logging.debug("NOTION_API_KEY loaded")

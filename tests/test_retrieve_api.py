@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 from guardian.server.app import app
 from guardian.vector.store import VectorStore
 
-
 client = TestClient(app)
 
 

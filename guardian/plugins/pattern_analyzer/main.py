@@ -1,4 +1,5 @@
 from datetime import UTC
+
 """
 Pattern Analyzer Plugin
 --------------------
@@ -10,12 +11,12 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
-from guardian.logging_config import configure_logging
+from typing import Any, Dict, List, Optional
 
 from guardian.codex_awareness import CodexAwareness
+from guardian.logging_config import configure_logging
 from guardian.metacognition import MetacognitionEngine
 
 # Configure logging
@@ -59,14 +60,15 @@ class Pattern:
 
 class PatternAnalyzer:
     def classify_pattern(self, pattern):
-        seq = pattern.get('sequence') if isinstance(pattern, dict) else None
+        seq = pattern.get("sequence") if isinstance(pattern, dict) else None
         if isinstance(seq, list) and len(seq) >= 3:
             return {"type": "sequence", "significance": 0.9}
         return {"type": "misc", "significance": 0.5}
 
     async def detect_temporal_patterns(self, time_series):
         # expect list of {'timestamp': iso, 'value': float}
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
+
         pts = [
             (
                 datetime.fromisoformat(d["timestamp"]).replace(tzinfo=UTC),
@@ -88,6 +90,7 @@ class PatternAnalyzer:
 
     async def detect_sequence_patterns(self, sequences):
         from collections import Counter
+
         c = Counter(tuple(seq) for seq in (sequences or []))
         # Return the raw sequences that appear more than once
         return [list(k) for k, v in c.items() if v > 1]
@@ -97,6 +100,7 @@ class PatternAnalyzer:
         if not data:
             return []
         import math
+
         mean = sum(data) / len(data)
         var = sum((x - mean) ** 2 for x in data) / max(1, len(data) - 1)
         sd = math.sqrt(var) or 1.0

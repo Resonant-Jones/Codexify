@@ -1,6 +1,7 @@
 """
 Gemini chat adapter (google-generativeai)
 """
+
 # SPDX-License-Identifier: MIT
 import os
 from typing import Iterator, Optional
@@ -37,4 +38,3 @@ class GeminiChat(ChatProvider):
             t = getattr(ev, "text", None)
             if t:
                 yield t
-

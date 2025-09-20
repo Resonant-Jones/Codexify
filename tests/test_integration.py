@@ -16,6 +16,7 @@ pytestmark = [
 # with the full implementation when the real config module lands.
 from typing import Any
 
+
 class Config(dict):
     """Minimal dict‑backed settings container (legacy shim)."""
 

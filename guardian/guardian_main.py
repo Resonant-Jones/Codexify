@@ -1,23 +1,23 @@
+import json
+import os
 from pathlib import Path
 from typing import Optional
-import os
 
 import typer
 from rich import print
 
-import json
 # Import Imprint Zero helpers; provide a compatibility shim if missing
 try:
     from guardian.imprint_zero_onboarding import (
+        ImprintZeroConfigError,
         load_prompt,
         load_prompt_json,
-        ImprintZeroConfigError,
     )
 except Exception:
     # --- Fallback shim so CLI stays functional even if onboarding module lacks these symbols ---
+    import json as _json
     import logging as _logging
     from pathlib import Path as _Path
-    import json as _json
 
     _logger = _logging.getLogger(__name__)
     _PROMPTS_DIR = _Path(__file__).parent / "prompts"
@@ -47,17 +47,24 @@ except Exception:
           - boundaries (list/str)
         Unknown fields are ignored.
         """
+
         def _bulletize(value, indent="- "):
             if value is None:
                 return ""
             if isinstance(value, str):
                 # Allow multi-line strings; split into lines
-                lines = [line.strip() for line in value.strip().splitlines() if line.strip()]
+                lines = [
+                    line.strip() for line in value.strip().splitlines() if line.strip()
+                ]
                 if len(lines) <= 1:
                     return f"{indent}{value.strip()}\n" if value.strip() else ""
                 return "".join(f"{indent}{ln}\n" for ln in lines)
             if isinstance(value, list):
-                return "".join(f"{indent}{str(item).strip()}\n" for item in value if str(item).strip())
+                return "".join(
+                    f"{indent}{str(item).strip()}\n"
+                    for item in value
+                    if str(item).strip()
+                )
             return f"{indent}{str(value).strip()}\n"
 
         name = str(data.get("name") or "Imprint Zero").strip()
@@ -161,11 +168,13 @@ except Exception:
         # If no JSON, lift the text prompt into JSON
         return {"prompt": load_prompt(config_path)}
 
-from guardian import config
+
 from guardian.codemap import generate_codemap as codemap_module
 from guardian.conversations import conversations as conversations_module
-#from guardian.mcp import mcp as mcp_module
+
+# from guardian.mcp import mcp as mcp_module
 from guardian.projects import projects as projects_module
+
 try:
     from guardian.web import crawl as crawl_module
 except ImportError:
@@ -184,6 +193,7 @@ DB_PATH = Path("guardian.db")
 
 # ---- Imprint Zero CLI commands ----
 
+
 @app.command("dump-imprint-zero-prompt-text")
 def dump_imprint_zero_prompt_text():
     """
@@ -191,6 +201,7 @@ def dump_imprint_zero_prompt_text():
     """
     prompt = load_prompt()
     typer.echo(prompt)
+
 
 @app.command("dump-imprint-zero-prompt-json")
 def dump_imprint_zero_prompt_json():
@@ -200,6 +211,7 @@ def dump_imprint_zero_prompt_json():
     data = load_prompt_json()
     typer.echo(json.dumps(data, indent=2))
 
+
 @app.command("dump")
 def dump_end_to_end():
     """
@@ -207,6 +219,7 @@ def dump_end_to_end():
     """
     result = load_prompt_json()
     typer.echo(json.dumps(result, indent=2))
+
 
 @app.command("dump-graceful-failure")
 def dump_graceful_failure():
@@ -256,6 +269,7 @@ def init_db():
     Initialize all Guardian DB tables: memory, chat, agent_profiles, projects, etc.
     """
     import sqlite3
+
     from guardian.core.db import GuardianDB
     from guardian.projects import projects as projects_module
 
@@ -266,7 +280,9 @@ def init_db():
     if hasattr(db, "migrate_agent_profiles"):
         db.migrate_agent_profiles()
     else:
-        print("[yellow]GuardianDB.migrate_agent_profiles() not available; skipping.[/yellow]")
+        print(
+            "[yellow]GuardianDB.migrate_agent_profiles() not available; skipping.[/yellow]"
+        )
     # Initialize chat tables
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
@@ -396,7 +412,10 @@ def show_thread_lineage(
 @app.command()
 def show_mcp_map(base_path: str = "guardian"):
     """MCP integration not available."""
-    print("[yellow]MCP module not found. Install or configure guardian.mcp to enable this command.[/yellow]")
+    print(
+        "[yellow]MCP module not found. Install or configure guardian.mcp to enable this command.[/yellow]"
+    )
+
 
 # ---- Providers diagnostics ----
 try:
@@ -409,14 +428,14 @@ except Exception:
 def providers_capabilities():
     """Print available chat and embeddings providers based on current env + installs."""
     if ProviderRegistry is None:
-        print("{\"chat\": [], \"embeddings\": []}")
+        print('{"chat": [], "embeddings": []}')
         return
     reg = ProviderRegistry()
     print(reg.capabilities())
 
 
-
 # ---- CODEMAP GENERATION CLI COMMAND ----
+
 
 # --- Codemap normalization helpers (ensure dict shape expected by MemoryOS) ---
 def _normalize_codemap_mapping(obj):
@@ -435,15 +454,18 @@ def _normalize_codemap_mapping(obj):
         return fixed
     return obj
 
+
 def _normalize_codemap(obj):
     # simple alias so other code can call a stable name
     return _normalize_codemap_mapping(obj)
+
 
 def _normalize_codemap_file(path: Path) -> dict | None:
     try:
         if path.exists():
             raw = path.read_text(encoding="utf-8")
             import json as _json
+
             data = _json.loads(raw)
             fixed = _normalize_codemap_mapping(data)
             if fixed is not data:
@@ -478,6 +500,7 @@ def codemap_summary():
 
     # If normalization didn't load content, read it raw (best-effort)
     import json as _json
+
     if fixed is None and codemap_path.exists():
         try:
             fixed = _json.loads(codemap_path.read_text(encoding="utf-8"))
@@ -496,7 +519,9 @@ def codemap_summary():
     elif isinstance(fixed, dict) and not fixed:
         print("[yellow]Codemap is present but empty after normalization.[/yellow]")
     else:
-        print("[yellow]Codemap not found or unreadable. Run `generate-codemap` first.[/yellow]")
+        print(
+            "[yellow]Codemap not found or unreadable. Run `generate-codemap` first.[/yellow]"
+        )
 
 
 @app.command("codemap:query")
@@ -505,16 +530,25 @@ def codemap_query(
         ..., help="Natural language query against the codemap."
     ),
     provider: str = typer.Option(
-        "openai", "--provider", "-p", help="LLM provider for answering the query (e.g., openai, groq, local)."
+        "openai",
+        "--provider",
+        "-p",
+        help="LLM provider for answering the query (e.g., openai, groq, local).",
     ),
     embedder: str = typer.Option(
-        "openai", "--embedder", "-e", help="Embedding backend required by MemoryOS (e.g., openai, local)."
+        "openai",
+        "--embedder",
+        "-e",
+        help="Embedding backend required by MemoryOS (e.g., openai, local).",
     ),
     user_id: str = typer.Option(
         "default_user", "--user-id", "-u", help="User ID for the MemoryOS session."
     ),
     api_key: str = typer.Option(
-        "your-api-key", "--api-key", "-k", help="API key for the chosen provider/embedder."
+        "your-api-key",
+        "--api-key",
+        "-k",
+        help="API key for the chosen provider/embedder.",
     ),
     data_storage_path: str = typer.Option(
         "data", "--data-path", "-d", help="Path to MemoryOS data directory."
@@ -528,16 +562,19 @@ def codemap_query(
     # 2) Monkey-patch the provider module that MemoryOS imports so its
     #    generate_codemap() returns a dict (list -> dict)
     try:
-        import importlib, json as _json
+        import importlib
+
         gen = importlib.import_module("guardian.codemap.generate_codemap")
         _orig_generate = getattr(gen, "generate_codemap", None)
         if callable(_orig_generate):
+
             def _wrapped_generate(*args, **kwargs):
                 result = _orig_generate(*args, **kwargs)
                 try:
                     return _normalize_codemap(result)
                 except Exception:
                     return result
+
             setattr(gen, "generate_codemap", _wrapped_generate)
     except Exception:
         # Non-fatal; downstream guards handle list->dict too
@@ -548,7 +585,9 @@ def codemap_query(
         from memoryos.memoryos import Memoryos
     except Exception as e:
         print(f"[red]MemoryOS import failed: {e}[/red]")
-        print("[yellow]Tip: install it with `pip install memoryos` or disable this command.")
+        print(
+            "[yellow]Tip: install it with `pip install memoryos` or disable this command."
+        )
         raise typer.Exit(code=1)
 
     # Wire API keys into env for backends that expect them
@@ -582,9 +621,11 @@ def codemap_query(
             )
     except TypeError as e:
         print(f"[red]MemoryOS init error: {e}[/red]")
-        print("[yellow]Tip: pass a supported --embedder (e.g., openai or local). "
-              "If using OpenAI embeddings, provide an API key via --api-key or OPENAI_API_KEY. "
-              "If using Groq for the LLM, set GROQ_API_KEY or pass --api-key with --provider groq.[/yellow]")
+        print(
+            "[yellow]Tip: pass a supported --embedder (e.g., openai or local). "
+            "If using OpenAI embeddings, provide an API key via --api-key or OPENAI_API_KEY. "
+            "If using Groq for the LLM, set GROQ_API_KEY or pass --api-key with --provider groq.[/yellow]"
+        )
         raise typer.Exit(code=1)
     except Exception as e:
         print(f"[red]MemoryOS initialization failed: {e}[/red]")
@@ -677,7 +718,9 @@ def crawl_url(
 ):
     """Crawl the web starting from a URL using a semantic query."""
     if crawl_module is None:
-        print("[yellow]Web crawl module not available. Install or configure guardian.web to enable this command.[/yellow]")
+        print(
+            "[yellow]Web crawl module not available. Install or configure guardian.web to enable this command.[/yellow]"
+        )
         return
     try:
         result = crawl_module.crawl_url(base_url, query, max_pages)
@@ -693,7 +736,9 @@ def crawl_summary(
 ):
     """Summarize multiple pages from URLs using a focused query."""
     if crawl_module is None:
-        print("[yellow]Web crawl module not available. Install or configure guardian.web to enable this command.[/yellow]")
+        print(
+            "[yellow]Web crawl module not available. Install or configure guardian.web to enable this command.[/yellow]"
+        )
         return
     try:
         url_list = [url.strip() for url in urls.split(",")]
@@ -710,7 +755,9 @@ def crawl_table(
 ):
     """Extract tabular data from a page matching a query."""
     if crawl_module is None:
-        print("[yellow]Web crawl module not available. Install or configure guardian.web to enable this command.[/yellow]")
+        print(
+            "[yellow]Web crawl module not available. Install or configure guardian.web to enable this command.[/yellow]"
+        )
         return
     try:
         result = crawl_module.crawl_table(url, query)

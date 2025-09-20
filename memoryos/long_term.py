@@ -4,7 +4,6 @@ logger = logging.getLogger(__name__)
 
 import json
 from collections import deque
-import memoryos.prompts as prompts
 try:
     import faiss  # type: ignore
 except ImportError:

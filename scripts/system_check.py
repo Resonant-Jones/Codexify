@@ -6,10 +6,9 @@ Verifies system configuration and readiness for operation.
 
 import json
 import logging
-import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict
 from guardian.logging_config import configure_logging
 
 # Configure logging

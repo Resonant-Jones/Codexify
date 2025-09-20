@@ -5,12 +5,10 @@ Reflective and transitional process handler.
 Manages system state transitions and maintains operational resonance.
 """
 
-import json
 import logging
-from datetime import datetime, UTC, timedelta
+from datetime import UTC, datetime
 from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
@@ -137,7 +135,9 @@ class EchoformAgent:
     def _analyze_metrics(self, system_state: Dict[str, Any]) -> Dict[str, float]:
         """Analyze system metrics for resonance assessment."""
         logger.info(
-            logger.debug(f"EchoformAgent._analyze_metrics called with system_state: {system_state}")
+            logger.debug(
+                f"EchoformAgent._analyze_metrics called with system_state: {system_state}"
+            )
         )  # DEBUG
         metrics = {}
 
@@ -150,7 +150,7 @@ class EchoformAgent:
                 )
             else:
                 logger.warning(
-                    logger.debug('resources in system_state is not a dict: {resources}')
+                    logger.debug("resources in system_state is not a dict: {resources}")
                 )  # DEBUG
                 metrics["resource_balance"] = 0.0
         else:
@@ -168,12 +168,16 @@ class EchoformAgent:
                 )
             else:
                 logger.warning(
-                    logger.debug(f"'performance' in system_state is not a dict: {performance}")
+                    logger.debug(
+                        f"'performance' in system_state is not a dict: {performance}"
+                    )
                 )  # DEBUG
                 metrics["performance_score"] = 0.0
         else:
             logger.info(
-                logger.debug("'performance' key not in system_state for _analyze_metrics")
+                logger.debug(
+                    "'performance' key not in system_state for _analyze_metrics"
+                )
             )  # DEBUG
             metrics["performance_score"] = 0.0
 
@@ -202,7 +206,9 @@ class EchoformAgent:
                 metrics["coherence_score"] = self._calculate_coherence_score(coherence)
             else:
                 logger.warning(
-                    logger.debug(f"'coherence' in system_state is not a dict: {coherence}")
+                    logger.debug(
+                        f"'coherence' in system_state is not a dict: {coherence}"
+                    )
                 )  # DEBUG
                 metrics["coherence_score"] = 0.0
         else:

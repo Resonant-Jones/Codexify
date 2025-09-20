@@ -1,14 +1,15 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Any, Dict, List
-
-from guardian.runtime.tools.registry import generate_tools_manifest, ROOTS
-from guardian.server.codexify_api import save_entry, SaveEntryRequest
-from guardian.runtime.tools.invoker import invoke_tool
-from guardian.runtime.tools.policy import require_confirm
 import logging
 import traceback
+from typing import Any, Dict, List
+
 import click
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from guardian.runtime.tools.invoker import invoke_tool
+from guardian.runtime.tools.policy import require_confirm
+from guardian.runtime.tools.registry import ROOTS, generate_tools_manifest
+from guardian.server.codexify_api import SaveEntryRequest, save_entry
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,11 @@ def call(payload: ToolCall):
                 raise HTTPException(status_code=400, detail=f"Invalid arguments: {e}")
             result = save_entry(req)
             if not confirm:
-                return {"ok": True, "result": result, "message": "Preview generated. Call again with confirm:true to save."}
+                return {
+                    "ok": True,
+                    "result": result,
+                    "message": "Preview generated. Call again with confirm:true to save.",
+                }
             return {"ok": True, "result": result}
         require_confirm(payload.name, payload.arguments or {})
         result = invoke_tool(payload.name, payload.arguments or {})
@@ -93,13 +98,17 @@ def call(payload: ToolCall):
                         continue
                     required = bool(getattr(p, "required", False))
                     default = getattr(p, "default", None)
-                    params.append({"name": pname, "required": required, "default": default})
+                    params.append(
+                        {"name": pname, "required": required, "default": default}
+                    )
                 expected = params
         except Exception:
             expected = None
 
         # Log server-side traceback for debugging
-        logger.error("/tools/call error for %s: %s\n%s", payload.name, e, traceback.format_exc())
+        logger.error(
+            "/tools/call error for %s: %s\n%s", payload.name, e, traceback.format_exc()
+        )
 
         detail: Dict[str, Any] = {"error": str(e)}
         if expected is not None:

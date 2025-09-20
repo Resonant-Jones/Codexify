@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import MagicMock, call
+
+import pytest
 
 from guardian.core.orchestrator.agents.ritual_agent import trigger_ritual
 

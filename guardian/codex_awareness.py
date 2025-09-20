@@ -8,12 +8,10 @@ This module serves as the bridge between passive storage and active memory utili
 allowing the system to reflect on and learn from its accumulated knowledge.
 """
 
-import json
 import logging
-from datetime import datetime, UTC
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, Dict, List, Optional
 
 # Configure logging
 logging.basicConfig(
@@ -79,6 +77,7 @@ class CodexAwareness:
     def query_data(self, *args, **kwargs):
         """Test stub: override in real impl; returns list of dicts."""
         return []
+
 
 # Example usage:
 if __name__ == "__main__":

@@ -4,13 +4,12 @@ Handles user authentication, chat, and profile management
 """
 
 import asyncio
-import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import jwt
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -235,7 +234,6 @@ async def update_user_settings(
 
 # Mount static files
 import os
-from fastapi.staticfiles import StaticFiles
 
 frontend_dir = os.path.join(os.path.dirname(__file__), "../../../frontend")
 if os.path.exists(frontend_dir):

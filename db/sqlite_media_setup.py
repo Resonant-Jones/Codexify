@@ -8,7 +8,7 @@ It creates the same schema structure as PostgreSQL but adapted for SQLite.
 
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict
 import logging
 
 logger = logging.getLogger(__name__)

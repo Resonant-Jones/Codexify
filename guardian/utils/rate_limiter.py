@@ -7,7 +7,6 @@ Simple, reliable rate limiting implementation.
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Dict, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

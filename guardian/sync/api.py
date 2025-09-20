@@ -1,4 +1,3 @@
-import asyncio
 import json
 from typing import Any, Dict
 
@@ -38,7 +37,10 @@ async def post_event(event: Dict[str, Any]):
             persona = str(payload.get("persona") or "Default")
             models.upsert_persona(user_id, persona)
         elif ev_type in ("codex.result", "codex.upsert"):
-            rid = str(payload.get("result_id") or payload.get("id") or "").strip() or event_id
+            rid = (
+                str(payload.get("result_id") or payload.get("id") or "").strip()
+                or event_id
+            )
             content = str(payload.get("content") or json.dumps(payload))
             meta = payload.get("meta") or {}
             models.upsert_codex_result(rid, content, meta)
@@ -57,4 +59,3 @@ async def subscribe_events():
             yield f"data: {json.dumps(msg)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
-

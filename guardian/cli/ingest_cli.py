@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -41,7 +40,10 @@ def ingest_obsidian(dir: str):
         title = fm.get("title") or md.stem
         tags = fm.get("tags") or []
         items.append(
-            {"text": parsed["content"], "meta": {"path": str(md), "tags": tags, "title": title}}
+            {
+                "text": parsed["content"],
+                "meta": {"path": str(md), "tags": tags, "title": title},
+            }
         )
     n = store.add_texts(items)
     typer.echo(json.dumps({"ingested": n, "dir": str(root)}, ensure_ascii=False))
@@ -70,4 +72,3 @@ def ingest_conversations(dir: str):
 
 if __name__ == "__main__":
     app()
-

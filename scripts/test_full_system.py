@@ -11,14 +11,13 @@ pytestmark = pytest.mark.asyncio
 
 import asyncio
 import functools
-import json
 import logging
 import sys
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict
 
 
 def timeout(seconds: int) -> Callable:
@@ -38,11 +37,7 @@ def timeout(seconds: int) -> Callable:
     return decorator
 
 
-from guardian.codex_awareness import CodexAwareness, MemoryArtifact
-from guardian.metacognition import MetacognitionEngine
-from guardian.plugin_loader import PluginLoader
 from guardian.system_init import SystemInitializer
-from guardian.threads_structure.thread_manager import ThreadManager
 from .system_check import SystemCheck
 from guardian.logging_config import configure_logging
 

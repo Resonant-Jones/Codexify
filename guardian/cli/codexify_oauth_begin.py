@@ -1,5 +1,6 @@
 import json
 import os
+
 import click
 import requests
 
@@ -20,4 +21,3 @@ def oauth_begin_cmd(base_url: str):
         click.echo(json.dumps(data, indent=2))
     except Exception as e:
         raise click.ClickException(str(e))
-

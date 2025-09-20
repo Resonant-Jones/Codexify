@@ -1,10 +1,12 @@
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
+
 from guardian.core.orchestrator.agents.foresight_agent import (
-    run_foresight,
+    CONTEXT_STRESS,
     STATUS_NUDGE,
     STATUS_OK,
-    CONTEXT_STRESS,
+    run_foresight,
 )
 
 
@@ -14,7 +16,9 @@ def mock_memory_client() -> MagicMock:
     return MagicMock()
 
 
-def test_foresight_stress_returns_nudge_on_high_log_count(mock_memory_client: MagicMock):
+def test_foresight_stress_returns_nudge_on_high_log_count(
+    mock_memory_client: MagicMock,
+):
     """
     Verify a 'nudge' is returned when the memory client finds many stress logs.
     """

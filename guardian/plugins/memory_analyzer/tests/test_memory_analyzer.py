@@ -5,10 +5,11 @@ Test suite for memory analysis functionality.
 """
 
 import json
-import logging
 from pathlib import Path
 from unittest.mock import MagicMock
+
 import pytest
+
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
 from guardian.plugins.memory_analyzer.main import MemoryAnalyzer

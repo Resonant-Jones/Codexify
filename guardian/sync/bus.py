@@ -28,4 +28,3 @@ class EventBus:
 
 
 bus = EventBus()
-

@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import json
 from typing import Any, Dict, List, Tuple
+
 import click
 
 # --- Import your roots ---
@@ -20,11 +22,15 @@ def _to_click(app):
         return method()
     if _typer_get_command is not None:
         return _typer_get_command(app)
-    raise RuntimeError("Unable to convert Typer app to Click command; incompatible Typer version.")
+    raise RuntimeError(
+        "Unable to convert Typer app to Click command; incompatible Typer version."
+    )
+
 
 # Guardian Main (Typer app) at guardian/guardian_main.py
 try:
     from guardian.guardian_main import app as guardian_main_app
+
     gm_click = _to_click(guardian_main_app)
 except Exception:
     gm_click = None
@@ -32,6 +38,7 @@ except Exception:
 # Imprint-Zero (Typer sub-app) at guardian/cli/imprint_zero_cli.py
 try:
     from guardian.cli.imprint_zero_cli import app as imprint_zero_app
+
     iz_click = _to_click(imprint_zero_app)
 except Exception:
     iz_click = None
@@ -70,7 +77,12 @@ def _click_type_to_json(p: click.Parameter) -> Dict[str, Any]:
 
 
 def _command_to_tool_spec(fq_name: str, cmd: click.Command) -> Dict[str, Any]:
-    desc = (cmd.help or cmd.short_help or (getattr(cmd.callback, "__doc__", "") if hasattr(cmd, "callback") else "") or "").strip()
+    desc = (
+        cmd.help
+        or cmd.short_help
+        or (getattr(cmd.callback, "__doc__", "") if hasattr(cmd, "callback") else "")
+        or ""
+    ).strip()
 
     props: Dict[str, Any] = {}
     required: List[str] = []
@@ -92,12 +104,8 @@ def _command_to_tool_spec(fq_name: str, cmd: click.Command) -> Dict[str, Any]:
         "function": {
             "name": fq_name,
             "description": desc if desc else f"Run CLI command '{fq_name}'.",
-            "parameters": {
-                "type": "object",
-                "properties": props,
-                "required": required
-            }
-        }
+            "parameters": {"type": "object", "properties": props, "required": required},
+        },
     }
     return spec
 
@@ -131,46 +139,58 @@ def generate_tools_manifest() -> List[Dict[str, Any]]:
         elif isinstance(root, click.Command):
             tools.append(_command_to_tool_spec(prefix or root.name or "root", root))
     # Append HTTP-backed tool for Codexify save-entry
-    tools.append({
-        "type": "function",
-        "function": {
-            "name": "codexify.save_entry",
-            "description": "Preview and optionally export a single note to Google Drive.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "body": {"type": "string", "default": ""},
-                    "format": {"type": "string", "enum": ["md", "txt", "html"], "default": "md"},
-                    "folder": {"type": "string"},
-                    "folder_url": {"type": "string"},
-                    "return_links": {"type": "boolean", "default": True},
-                    "dry_run": {"type": "boolean", "default": False}
+    tools.append(
+        {
+            "type": "function",
+            "function": {
+                "name": "codexify.save_entry",
+                "description": "Preview and optionally export a single note to Google Drive.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "body": {"type": "string", "default": ""},
+                        "format": {
+                            "type": "string",
+                            "enum": ["md", "txt", "html"],
+                            "default": "md",
+                        },
+                        "folder": {"type": "string"},
+                        "folder_url": {"type": "string"},
+                        "return_links": {"type": "boolean", "default": True},
+                        "dry_run": {"type": "boolean", "default": False},
+                    },
+                    "required": ["title"],
                 },
-                "required": ["title"]
-            }
+            },
         }
-    })
-    tools.append({
-        "type": "function",
-        "function": {
-            "name": "codexify.confirm_and_save",
-            "description": "Preview a note and, if confirm=true, save it to Google Drive.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "body": {"type": "string", "default": ""},
-                    "format": {"type": "string", "enum": ["md", "txt", "html"], "default": "md"},
-                    "folder": {"type": "string"},
-                    "folder_url": {"type": "string"},
-                    "return_links": {"type": "boolean", "default": True},
-                    "confirm": {"type": "boolean", "default": False}
+    )
+    tools.append(
+        {
+            "type": "function",
+            "function": {
+                "name": "codexify.confirm_and_save",
+                "description": "Preview a note and, if confirm=true, save it to Google Drive.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "body": {"type": "string", "default": ""},
+                        "format": {
+                            "type": "string",
+                            "enum": ["md", "txt", "html"],
+                            "default": "md",
+                        },
+                        "folder": {"type": "string"},
+                        "folder_url": {"type": "string"},
+                        "return_links": {"type": "boolean", "default": True},
+                        "confirm": {"type": "boolean", "default": False},
+                    },
+                    "required": ["title"],
                 },
-                "required": ["title"]
-            }
+            },
         }
-    })
+    )
     return tools
 
 

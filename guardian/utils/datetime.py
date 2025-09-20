@@ -20,4 +20,3 @@ def to_iso_z(dt: datetime) -> str:
     if dt.tzinfo is None:
         raise ValueError("Naive datetime passed to to_iso_z()")
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-

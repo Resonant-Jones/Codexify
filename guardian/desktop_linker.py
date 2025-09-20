@@ -20,15 +20,15 @@ In production replace `_LINK_STORE` with a persistent store
 
 from __future__ import annotations
 
-import os
 import base64
+import os
 import time
-from typing import Dict, Optional
+from typing import Dict
 
-from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 # In‑memory store for pending link tokens.
 # In production replace with a persistent store.

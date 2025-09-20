@@ -6,7 +6,6 @@ to markdown.
 import hashlib
 
 from markitdown import MarkItDown
-from openai import OpenAI
 
 from ..model import model
 from .chrome import VectorSearch

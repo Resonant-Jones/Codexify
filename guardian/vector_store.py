@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
-import math
 
 
 @dataclass
@@ -33,10 +33,16 @@ class VectorStore:
     def __init__(self) -> None:
         self._entries: List[VectorEntry] = []
 
-    def add(self, *, text: str, embedding: List[float], metadata: Dict[str, Any]) -> None:
-        self._entries.append(VectorEntry(text=text, embedding=embedding, metadata=metadata))
+    def add(
+        self, *, text: str, embedding: List[float], metadata: Dict[str, Any]
+    ) -> None:
+        self._entries.append(
+            VectorEntry(text=text, embedding=embedding, metadata=metadata)
+        )
 
-    def search(self, query_embedding: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
+    def search(
+        self, query_embedding: List[float], top_k: int = 5
+    ) -> List[Dict[str, Any]]:
         scored: List[Tuple[float, VectorEntry]] = []
         for e in self._entries:
             score = _cosine_similarity(query_embedding, e.embedding)
@@ -44,10 +50,11 @@ class VectorStore:
         scored.sort(key=lambda t: t[0], reverse=True)
         results: List[Dict[str, Any]] = []
         for score, entry in scored[: max(0, top_k)]:
-            results.append({
-                "text": entry.text,
-                "score": score,
-                "metadata": entry.metadata,
-            })
+            results.append(
+                {
+                    "text": entry.text,
+                    "score": score,
+                    "metadata": entry.metadata,
+                }
+            )
         return results
-

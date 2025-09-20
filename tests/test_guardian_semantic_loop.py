@@ -1,8 +1,8 @@
-import asyncio
-from pathlib import Path
 import sys
-from cryptography.fernet import Fernet
+from pathlib import Path
+
 import pytest
+from cryptography.fernet import Fernet
 
 pytestmark = pytest.mark.asyncio
 
@@ -86,7 +86,9 @@ def guardian(vault: MemoryKeyVault, mcp: MCP) -> Guardian:
 
 
 @pytest.mark.asyncio
-async def test_guardian_instruction_classification(guardian: Guardian, ableton_plugin: AbletonPlugin):
+async def test_guardian_instruction_classification(
+    guardian: Guardian, ableton_plugin: AbletonPlugin
+):
     text = "Lower Ableton Track 1 to -6dB"
     category = guardian.classify(text)
     assert category == "instruction"
@@ -97,7 +99,9 @@ async def test_guardian_instruction_classification(guardian: Guardian, ableton_p
 
 
 @pytest.mark.asyncio
-async def test_guardian_data_classification(guardian: Guardian, ableton_plugin: AbletonPlugin, vault: MemoryKeyVault):
+async def test_guardian_data_classification(
+    guardian: Guardian, ableton_plugin: AbletonPlugin, vault: MemoryKeyVault
+):
     text = "My favorite color is silver."
     category = guardian.classify(text)
     assert category == "data"
@@ -109,7 +113,9 @@ async def test_guardian_data_classification(guardian: Guardian, ableton_plugin: 
 
 
 @pytest.mark.asyncio
-async def test_mcp_routing_and_permission(guardian: Guardian, ableton_plugin: AbletonPlugin, mcp: MCP):
+async def test_mcp_routing_and_permission(
+    guardian: Guardian, ableton_plugin: AbletonPlugin, mcp: MCP
+):
     ok_text = "Lower Ableton Track 2 to -3dB"
     result = await guardian.process(ok_text)
     assert result["status"] == "ok"

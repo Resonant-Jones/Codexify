@@ -1,6 +1,6 @@
 import pytest
+
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
-import os
 
 from pydantic import ValidationError
 
@@ -31,9 +31,13 @@ def test_missing_required_env(monkeypatch):
             _ = s.GENAI_API_KEY
 
 
-from guardian.config import (get_active_model, get_backend_capabilities,
-                             get_model_and_host, is_backend_capable,
-                             is_cloud_backend)
+from guardian.config import (
+    get_active_model,
+    get_backend_capabilities,
+    get_model_and_host,
+    is_backend_capable,
+    is_cloud_backend,
+)
 
 
 def test_get_active_model_returns_string():

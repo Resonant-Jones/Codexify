@@ -8,7 +8,6 @@ import argparse
 import logging
 import os
 import time
-from typing import List, Optional
 
 from ..memory.memoryos import MemoryOS
 from ..tts.tts_manager import TTSManager

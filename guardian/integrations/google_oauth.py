@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import os
 from pathlib import Path
 from typing import Optional, Tuple
@@ -29,6 +30,7 @@ def ensure_oauth_credentials() -> str:
     """
     # Lazy imports (optional deps)
     import json
+
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
@@ -46,7 +48,9 @@ def ensure_oauth_credentials() -> str:
             data = {
                 "token": getattr(old, "token", None),
                 "refresh_token": getattr(old, "refresh_token", None),
-                "token_uri": getattr(old, "token_uri", "https://oauth2.googleapis.com/token"),
+                "token_uri": getattr(
+                    old, "token_uri", "https://oauth2.googleapis.com/token"
+                ),
                 "client_id": getattr(old, "client_id", None),
                 "client_secret": getattr(old, "client_secret", None),
                 "scopes": getattr(old, "scopes", SCOPES),
@@ -82,4 +86,3 @@ def ensure_oauth_credentials() -> str:
     # Ensure env is set so downstream libs can see it
     os.environ["GDRIVE_OAUTH_TOKEN"] = str(token_path)
     return str(token_path)
-

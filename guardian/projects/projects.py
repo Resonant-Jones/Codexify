@@ -1,7 +1,8 @@
 import sqlite3
-from typing import List, Dict, Optional
-from guardian.config import get_settings
 from datetime import datetime, timezone
+from typing import Dict, List, Optional
+
+from guardian.config import get_settings
 
 
 def _db_path() -> str:

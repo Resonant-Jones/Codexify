@@ -10,11 +10,9 @@ import json
 import logging
 import sys
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
-from guardian.plugin_loader import plugin_loader
 from guardian.memory.logger import memory_logger
+from guardian.plugin_loader import plugin_loader
 
 # Configure logging
 logging.basicConfig(

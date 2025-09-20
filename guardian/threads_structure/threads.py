@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
 DB_PATH = "guardian.db"
@@ -131,8 +131,6 @@ def get_thread_lineage(thread_id: int) -> List[Dict[str, Any]]:
         lineage.insert(0, parent)
         current = parent
     return lineage
-
-
 
 
 # New function to get the summary field of a thread by ID

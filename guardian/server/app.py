@@ -1,16 +1,17 @@
-import os
 import logging
-from logging.handlers import RotatingFileHandler
-import sys
+import os
 import re
+import sys
+from logging.handlers import RotatingFileHandler
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from guardian.server.tools_api import router as tools_router
-from guardian.server.codexify_api import router as codexify_router
-from guardian.sync.api import router as sync_router
+
 from guardian.retrieve.api import router as retrieve_router
 from guardian.server.codexify_api import oauth_status as codexify_oauth_status
-
+from guardian.server.codexify_api import router as codexify_router
+from guardian.server.tools_api import router as tools_router
+from guardian.sync.api import router as sync_router
 
 app = FastAPI()
 app.include_router(tools_router)
@@ -19,7 +20,8 @@ app.include_router(sync_router)
 app.include_router(retrieve_router)
 
 # --- Safe, readable pattern: mask sensitive basenames; strip dirs ---
-SENSITIVE_BASENAME_RE = re.compile(r"""
+SENSITIVE_BASENAME_RE = re.compile(
+    r"""
     (
         (?P<dir>(?:[A-Za-z]:)?[^\s'\"]*[/\\])?   # optional dir (unix or win)
         (?P<base>(?i:
@@ -30,7 +32,9 @@ SENSITIVE_BASENAME_RE = re.compile(r"""
             [^/\\\s]+?\.(?:pem|p12|pfx)         # private key-ish files
         ))
     )
-""", re.VERBOSE)
+""",
+    re.VERBOSE,
+)
 
 # --- Logging to file (optional via env) ---
 _log_file = os.environ.get("GUARDIAN_LOG_FILE")
@@ -39,42 +43,73 @@ _max_mb = int(os.environ.get("GUARDIAN_LOG_MAX_MB", "5"))
 _backups = int(os.environ.get("GUARDIAN_LOG_BACKUPS", "3"))
 
 # Scrubber toggle and optional extras
-SCRUB_ENABLED = os.getenv("GUARDIAN_SCRUB_LOGS", "1").strip().lower() in ("1", "true", "yes", "on")
-_EXTRA_EXTS = [e.strip().lower() for e in os.getenv("GUARDIAN_SCRUB_EXTRA_EXTS", "").split(",") if e.strip()]
-_EXTRA_NAMES = [n.strip() for n in os.getenv("GUARDIAN_SCRUB_EXTRA_NAMES", "").split(",") if n.strip()]
+SCRUB_ENABLED = os.getenv("GUARDIAN_SCRUB_LOGS", "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+_EXTRA_EXTS = [
+    e.strip().lower()
+    for e in os.getenv("GUARDIAN_SCRUB_EXTRA_EXTS", "").split(",")
+    if e.strip()
+]
+_EXTRA_NAMES = [
+    n.strip()
+    for n in os.getenv("GUARDIAN_SCRUB_EXTRA_NAMES", "").split(",")
+    if n.strip()
+]
 
 # Optional: also scrub plaintext occurrences of "secret" when near cred-like words
-SCRUB_PLAINTEXT_SECRETS = os.getenv("GUARDIAN_SCRUB_PLAINTEXT_SECRETS", "0").strip().lower() in ("1", "true", "yes", "on")
+SCRUB_PLAINTEXT_SECRETS = os.getenv(
+    "GUARDIAN_SCRUB_PLAINTEXT_SECRETS", "0"
+).strip().lower() in ("1", "true", "yes", "on")
 
 # Tunables for plaintext secret masking
 _SECRET_CONTEXT_CHARS = int(os.getenv("GUARDIAN_SCRUB_SECRET_WINDOW", "64"))
 _SECRET_KEYWORDS = [
-    k.strip() for k in os.getenv(
+    k.strip()
+    for k in os.getenv(
         "GUARDIAN_SCRUB_SECRET_KEYWORDS",
         # default set – can be extended via env
-        "token,credential,credentials,password,key,client,api"
-    ).split(",") if k.strip()
+        "token,credential,credentials,password,key,client,api",
+    ).split(",")
+    if k.strip()
 ]
+
 
 def _build_extra_patterns():
     pats = []
     if _EXTRA_EXTS:
         exts = "|".join(re.escape(x) for x in _EXTRA_EXTS)
-        pats.append(re.compile(r"""
+        pats.append(
+            re.compile(
+                r"""
             (
                 (?P<dir>(?:[A-Za-z]:)?[^\s'"]*[/\\])?
                 (?P<base>[^/\\\s]+?\.(?:%s))
             )
-        """ % exts, re.VERBOSE | re.IGNORECASE))
+        """
+                % exts,
+                re.VERBOSE | re.IGNORECASE,
+            )
+        )
     if _EXTRA_NAMES:
         names = "|".join(re.escape(x) for x in _EXTRA_NAMES)
-        pats.append(re.compile(r"""
+        pats.append(
+            re.compile(
+                r"""
             (
                 (?P<dir>(?:[A-Za-z]:)?[^\s'"]*[/\\])?
                 (?P<base>(?:%s))
             )
-        """ % names, re.VERBOSE))
+        """
+                % names,
+                re.VERBOSE,
+            )
+        )
     return pats
+
 
 class ScrubFormatter(logging.Formatter):
     """Mask sensitive token/secret file *paths* to basename + ' (hidden)'."""
@@ -104,13 +139,15 @@ class ScrubFormatter(logging.Formatter):
         s = re.sub(r"(?i)\bclient[_-]?secret\b", "client_secret (hidden)", s)
 
         # 2) Mask 'secret' near cred-like terms to reduce false positives in normal text
-        key_words_re = re.compile(r"(?i)\b(" + "|".join(re.escape(k) for k in _SECRET_KEYWORDS) + r")\b")
+        key_words_re = re.compile(
+            r"(?i)\b(" + "|".join(re.escape(k) for k in _SECRET_KEYWORDS) + r")\b"
+        )
 
         def mask_if_context(m: re.Match) -> str:
             start, end = m.span()
             win = max(0, _SECRET_CONTEXT_CHARS)
-            left = s[max(0, start - win): start]
-            right = s[end: min(len(s), end + win)]
+            left = s[max(0, start - win) : start]
+            right = s[end : min(len(s), end + win)]
             if key_words_re.search(left) or key_words_re.search(right):
                 return m.group(0) + " (hidden)"
             return m.group(0)
@@ -143,11 +180,20 @@ root = logging.getLogger()
 root.setLevel(getattr(logging, _log_level, logging.INFO))
 if _log_file:
     try:
-        fh = RotatingFileHandler(_log_file, maxBytes=_max_mb*1024*1024, backupCount=_backups)
+        fh = RotatingFileHandler(
+            _log_file, maxBytes=_max_mb * 1024 * 1024, backupCount=_backups
+        )
         fh.setLevel(getattr(logging, _log_level, logging.INFO))
-        fh.setFormatter(ScrubFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        fh.setFormatter(
+            ScrubFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
         root.addHandler(fh)
-        root.info("File logging enabled → %s (max %d MB, backups %d)", _log_file, _max_mb, _backups)
+        root.info(
+            "File logging enabled → %s (max %d MB, backups %d)",
+            _log_file,
+            _max_mb,
+            _backups,
+        )
     except Exception:
         # Don’t crash server on log setup failure
         pass
@@ -159,14 +205,17 @@ has_stream = any(isinstance(h, logging.StreamHandler) for h in root_logger.handl
 if not has_stream:
     console = logging.StreamHandler(sys.stdout)
     console.setLevel(root_logger.level)
-    console.setFormatter(ScrubFormatter('%(levelname)s: %(message)s'))
+    console.setFormatter(ScrubFormatter("%(levelname)s: %(message)s"))
     root_logger.addHandler(console)
 else:
     # Convert existing StreamHandlers to use ScrubFormatter (preserve format)
     for h in root_logger.handlers:
         if isinstance(h, logging.StreamHandler):
-            existing_fmt = getattr(getattr(h, 'formatter', None), '_fmt', '%(levelname)s: %(message)s')
+            existing_fmt = getattr(
+                getattr(h, "formatter", None), "_fmt", "%(levelname)s: %(message)s"
+            )
             h.setFormatter(ScrubFormatter(existing_fmt))
+
 
 # Optional tiny health endpoint
 @app.get("/healthz")
@@ -179,11 +228,15 @@ def healthz():
     codexify_info = {
         "auth_mode": status,
         "default_folder_set": bool(os.environ.get("CODEXIFY_DEFAULT_FOLDER")),
-        "share_anyone_default": os.environ.get("CODEXIFY_SHARE_ANYONE", "").strip().lower() in ("1", "true", "yes", "on"),
+        "share_anyone_default": os.environ.get("CODEXIFY_SHARE_ANYONE", "")
+        .strip()
+        .lower()
+        in ("1", "true", "yes", "on"),
         "scrub_logs": SCRUB_ENABLED,
         "scrub_plaintext": SCRUB_PLAINTEXT_SECRETS,
     }
     return {"ok": True, "codexify": codexify_info}
+
 
 # CORS: configurable via GUARDIAN_CORS_ORIGINS (comma-separated) or "*" by default
 _origins_env = os.getenv("GUARDIAN_CORS_ORIGINS", "*").strip()

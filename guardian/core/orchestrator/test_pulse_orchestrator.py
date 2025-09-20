@@ -1,5 +1,6 @@
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from guardian.core.orchestrator.pulse_orchestrator import orchestrate
@@ -17,15 +18,19 @@ def mock_fast_agent(*args, **kwargs):
     return {"status": "success", "message": "I finished on time"}
 
 
-
 # --- Helper decorator for patching common dependencies ---
 def patch_orchestrator_common(test_func):
     """
     Decorator to patch pulse_orchestrator dependencies for orchestrate tests.
     """
-    return patch("guardian.core.orchestrator.pulse_orchestrator.get_memoryos_instance", return_value=None)(
+    return patch(
+        "guardian.core.orchestrator.pulse_orchestrator.get_memoryos_instance",
+        return_value=None,
+    )(
         patch("guardian.core.orchestrator.pulse_orchestrator.settings")(
-            patch("guardian.core.orchestrator.pulse_orchestrator.AGENT_ACTIONS")(test_func)
+            patch("guardian.core.orchestrator.pulse_orchestrator.AGENT_ACTIONS")(
+                test_func
+            )
         )
     )
 
@@ -45,7 +50,7 @@ def test_orchestrate_agent_timeout_and_success(
     mock_agent,
     timeout,
     expected_status,
-    expected_in_message
+    expected_in_message,
 ):
     """
     Verify that the orchestrator handles both timeout and successful completion cases.
@@ -57,4 +62,6 @@ def test_orchestrate_agent_timeout_and_success(
     result = orchestrate(command)
 
     assert result["status"] == expected_status
-    assert expected_in_message in result["message"] or expected_in_message == result.get("message")
+    assert expected_in_message in result[
+        "message"
+    ] or expected_in_message == result.get("message")

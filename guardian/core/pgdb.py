@@ -1,3 +1,12 @@
+"""PgDB module
+
+PostgreSQL implementation of the ``ChatDB`` abstract base class, providing
+database operations for chat threads, messages, memory entries, projects,
+and agent profiles. This module mirrors the SQLite implementation in
+``guardian/core/db.py`` but uses ``psycopg`` to communicate with a
+PostgreSQL database.
+"""
+
 # guardian/core/pgdb.py
 from __future__ import annotations
 
@@ -9,6 +18,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from .chat_db import ChatDB
+
 
 class PgDB(ChatDB):
     def __init__(self, dsn: str):
@@ -163,8 +173,14 @@ class PgDB(ChatDB):
                 row = cur.fetchone()
                 return int(row["total"]) if row else 0
 
-    def update_thread(self, thread_id: int, *, title: str | None = None,
-                      summary: str | None = None, project_id: int | None = None):
+    def update_thread(
+        self,
+        thread_id: int,
+        *,
+        title: str | None = None,
+        summary: str | None = None,
+        project_id: int | None = None,
+    ):
         """Patch fields on a thread and return the updated row."""
         fields: List[str] = []
         params: List[Any] = []
@@ -196,7 +212,9 @@ class PgDB(ChatDB):
         """Hard‑delete a thread and cascade messages."""
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM chat_messages WHERE thread_id = %s", (thread_id,))
+                cur.execute(
+                    "DELETE FROM chat_messages WHERE thread_id = %s", (thread_id,)
+                )
                 cur.execute("DELETE FROM chat_threads WHERE id = %s", (thread_id,))
 
     def create_thread(
@@ -216,7 +234,14 @@ class PgDB(ChatDB):
                     VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING thread_id
                     """,
-                    (parent_thread_id, session_id, summary, created_at, user_id, project_id),
+                    (
+                        parent_thread_id,
+                        session_id,
+                        summary,
+                        created_at,
+                        user_id,
+                        project_id,
+                    ),
                 )
                 row = cur.fetchone()
                 if not row:
@@ -412,7 +437,9 @@ class PgDB(ChatDB):
             raise RuntimeError("Failed to insert chat message")
         return message_id
 
-    def list_messages(self, thread_id: int, *, limit: int | None = None, offset: int | None = None):
+    def list_messages(
+        self, thread_id: int, *, limit: int | None = None, offset: int | None = None
+    ):
         """Return messages for a thread ordered by created_at ASC."""
         limit_val = limit if limit is not None else 50
         offset_val = offset if offset is not None else 0
@@ -563,8 +590,14 @@ class PgDB(ChatDB):
             pinned=False,
         )
 
-    def update_memory(self, entry_id: int, *, content: str | None = None,
-                      tags: str | None = None, pinned: bool | None = None):
+    def update_memory(
+        self,
+        entry_id: int,
+        *,
+        content: str | None = None,
+        tags: str | None = None,
+        pinned: bool | None = None,
+    ):
         fields: List[str] = []
         params: List[Any] = []
         if content is not None:
@@ -652,8 +685,9 @@ class PgDB(ChatDB):
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
 
-    def history_entries(self, *, limit: int = 50, tag: str | None = None,
-                        agent: str | None = None):
+    def history_entries(
+        self, *, limit: int = 50, tag: str | None = None, agent: str | None = None
+    ):
         clauses: List[str] = []
         params: List[Any] = []
         if tag:
@@ -678,7 +712,9 @@ class PgDB(ChatDB):
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
 
-    def write_audit_log(self, event: str, entity: str, entity_id: str, user_id: str) -> None:
+    def write_audit_log(
+        self, event: str, entity: str, entity_id: str, user_id: str
+    ) -> None:
         timestamp = datetime.now(timezone.utc)
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -748,7 +784,9 @@ class PgDB(ChatDB):
             columns.append("summarization_frequency")
             placeholders.append("%s")
             values.append(int(fields["summarization_frequency"]))
-            updates_clause.append("summarization_frequency = EXCLUDED.summarization_frequency")
+            updates_clause.append(
+                "summarization_frequency = EXCLUDED.summarization_frequency"
+            )
         if "last_summarized_at" in fields:
             columns.append("last_summarized_at")
             placeholders.append("%s")

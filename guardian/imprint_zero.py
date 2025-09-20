@@ -9,16 +9,23 @@ Exports: ImprintZero, ImprintZeroAgent, UserManager, settings, get_memoryos_inst
 try:
     from .imprint_zero_onboarding import ImprintZero, ImprintZeroAgent  # type: ignore
 except Exception:
+
     class ImprintZero:  # type: ignore
         ...
 
     class ImprintZeroAgent:  # type: ignore
         ...
 
+
 # Patch points expected by tests
 try:
-    from .imprint_zero_onboarding import UserManager, settings, get_memoryos_instance  # type: ignore
+    from .imprint_zero_onboarding import (  # type: ignore
+        UserManager,
+        get_memoryos_instance,
+        settings,
+    )
 except Exception:
+
     class UserManager:  # type: ignore
         ...
 
@@ -29,6 +36,7 @@ except Exception:
 
     def get_memoryos_instance():  # type: ignore
         return None
+
 
 __all__ = [
     "ImprintZero",

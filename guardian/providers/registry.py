@@ -1,6 +1,7 @@
 """
 Provider registry/factory with soft dependencies.
 """
+
 # SPDX-License-Identifier: MIT
 import os
 from typing import Dict, Optional
@@ -58,4 +59,3 @@ class ProviderRegistry:
             "chat": sorted(self._chat.keys()),
             "embeddings": sorted(self._emb.keys()),
         }
-

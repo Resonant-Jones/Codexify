@@ -4,13 +4,13 @@ Google Cloud TTS Provider
 Implementation of TTSProvider for Google Cloud Text-to-Speech API.
 """
 
+import logging
 import os
 from typing import List, Optional
-import logging
 
 try:
-    from google.cloud import texttospeech
     from google.api_core import exceptions as google_exceptions
+    from google.cloud import texttospeech
 except ImportError:
     raise ImportError(
         "Google Cloud TTS dependencies not installed. "
@@ -18,9 +18,9 @@ except ImportError:
     )
 
 from ..tts_service import (
-    TTSProvider,
     AuthenticationError,
     SynthesisError,
+    TTSProvider,
     VoiceNotFoundError,
 )
 

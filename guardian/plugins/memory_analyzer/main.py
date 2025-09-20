@@ -1,7 +1,6 @@
-from datetime import UTC
-# guardian/plugins/memory_analyzer/main.py
+from datetime import UTC, datetime
 
-from datetime import datetime, UTC
+# guardian/plugins/memory_analyzer/main.py
 
 
 class MemoryAnalyzer:

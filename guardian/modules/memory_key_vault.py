@@ -19,7 +19,6 @@ Usage example::
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Dict
 
 from cryptography.fernet import Fernet

@@ -8,12 +8,12 @@ Provides structured logging for memory events with support for multiple backends
 import json
 import logging
 import sqlite3
-from datetime import datetime, UTC
-from guardian.utils.datetime import to_iso_z
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from guardian.config.system_config import system_config
+from guardian.utils.datetime import to_iso_z
 
 # Configure logging
 logging.basicConfig(

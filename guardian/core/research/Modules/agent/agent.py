@@ -80,7 +80,7 @@ def _extract_response(res):
         return res.strip()
     except Exception:
         print(
-            f"[DEBUG] _extract_response: Raw content is not valid JSON. Trying fallback extraction."
+            "[DEBUG] _extract_response: Raw content is not valid JSON. Trying fallback extraction."
         )
 
     # 5. Fallback: Try to extract JSON objects or arrays from within the string
@@ -116,5 +116,5 @@ def _extract_response(res):
         except json.JSONDecodeError:
             continue
 
-    print(f"[DEBUG] _extract_response: No valid JSON found after all attempts.")
+    print("[DEBUG] _extract_response: No valid JSON found after all attempts.")
     return None

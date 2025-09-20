@@ -4,11 +4,11 @@ Guardian Config Loader
 Loads and manages Guardian configuration from environment and files.
 """
 
-import os
-from pathlib import Path
-from typing import Any, Dict, Optional
-import yaml
 import logging
+import os
+from typing import Any, Dict, Optional
+
+import yaml
 from dotenv import load_dotenv
 
 # Configure logging

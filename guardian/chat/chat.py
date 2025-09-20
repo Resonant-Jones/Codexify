@@ -37,7 +37,7 @@ def init_chat_tables():
             """
             )
             conn.commit()
-    except Error as e:
+    except Error:
         # Basic error handling - could be extended to logging
         pass
 

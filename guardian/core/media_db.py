@@ -1,4 +1,3 @@
-
 """
 guardian.core.media_db (Postgres)
 =================================
@@ -22,8 +21,7 @@ Notes:
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import psycopg
@@ -36,9 +34,13 @@ class MediaDB:
     def __init__(self, db_path: str | None = None):
         # `db_path` kept for API compatibility; if it looks like a DSN, allow it.
         dsn_from_arg = db_path if (db_path and db_path.startswith("postgres")) else None
-        self.dsn = dsn_from_arg or os.getenv("GUARDIAN_DB_URL") or os.getenv("DATABASE_URL")
+        self.dsn = (
+            dsn_from_arg or os.getenv("GUARDIAN_DB_URL") or os.getenv("DATABASE_URL")
+        )
         if not self.dsn:
-            raise RuntimeError("Postgres DSN not configured. Set GUARDIAN_DB_URL or DATABASE_URL.")
+            raise RuntimeError(
+                "Postgres DSN not configured. Set GUARDIAN_DB_URL or DATABASE_URL."
+            )
 
     def _connect(self):
         """Open a new psycopg connection with dict_row row factory."""
@@ -128,7 +130,16 @@ class MediaDB:
                 VALUES
                     (%s, %s, %s, %s, %s, %s, %s, %s, now(), now())
                 """,
-                (image_id, project_id, thread_id, user_id, src_url, filename, filesize, mime_type),
+                (
+                    image_id,
+                    project_id,
+                    thread_id,
+                    user_id,
+                    src_url,
+                    filename,
+                    filesize,
+                    mime_type,
+                ),
             )
         return image_id
 
@@ -255,7 +266,17 @@ class MediaDB:
                 VALUES
                     (%s, %s, %s, %s, %s, %s, %s, %s, %s, now(), now())
                 """,
-                (doc_id, project_id, thread_id, user_id, filename, filesize, mime_type, src_url, parsed_text),
+                (
+                    doc_id,
+                    project_id,
+                    thread_id,
+                    user_id,
+                    filename,
+                    filesize,
+                    mime_type,
+                    src_url,
+                    parsed_text,
+                ),
             )
         return doc_id
 

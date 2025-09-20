@@ -1,4 +1,5 @@
-import importlib, sys
+import importlib
+import sys
 sys.path.append('.')
 mod = importlib.import_module('guardian.imprint_zero')
 print('Has get_memoryos_instance?', hasattr(mod, 'get_memoryos_instance'))

@@ -1,8 +1,7 @@
-import sys
 import os
-from typing import Optional, Literal
+from typing import Literal, Optional
 
-from pydantic import Field, ValidationError, ConfigDict, model_validator
+from pydantic import ConfigDict, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -27,28 +26,44 @@ class Settings(BaseSettings):
 
     # OpenAI
     OPENAI_API_KEY: Optional[str] = Field(None, description="OpenAI API Key")
-    OPENAI_API_ENDPOINT: str = Field("https://api.openai.com/v1", description="OpenAI API Endpoint")
-    OPENAI_MODEL: str = Field("gpt-4", description="OpenAI model name (e.g., gpt-4, gpt-3.5-turbo)")
+    OPENAI_API_ENDPOINT: str = Field(
+        "https://api.openai.com/v1", description="OpenAI API Endpoint"
+    )
+    OPENAI_MODEL: str = Field(
+        "gpt-4", description="OpenAI model name (e.g., gpt-4, gpt-3.5-turbo)"
+    )
 
     # Groq
     GROQ_API_KEY: Optional[str] = Field(None, description="Groq API Key")
-    GROQ_API_ENDPOINT: str = Field("https://api.groq.com/openai/v1", description="Groq API Endpoint")
-    GROQ_MODEL: str = Field("meta-llama/llama-4-scout-17B-16e-instruct", description="Groq Model")
+    GROQ_API_ENDPOINT: str = Field(
+        "https://api.groq.com/openai/v1", description="Groq API Endpoint"
+    )
+    GROQ_MODEL: str = Field(
+        "meta-llama/llama-4-scout-17B-16e-instruct", description="Groq Model"
+    )
     GROQ_VISION_MODEL: str = Field(
         "meta-llama/llama-4-scout-17b-16e-instruct",
         description="Groq Vision model for image input",
     )
 
     # Anthropic
-    ANTHROPIC_API_KEY: Optional[str] = Field(None, description="Anthropic Claude API Key")
-    ANTHROPIC_API_ENDPOINT: str = Field("https://api.anthropic.com/v1", description="Anthropic API Endpoint")
-    ANTHROPIC_MODEL: str = Field("claude-3-opus-20240229", description="Anthropic Claude model name")
+    ANTHROPIC_API_KEY: Optional[str] = Field(
+        None, description="Anthropic Claude API Key"
+    )
+    ANTHROPIC_API_ENDPOINT: str = Field(
+        "https://api.anthropic.com/v1", description="Anthropic API Endpoint"
+    )
+    ANTHROPIC_MODEL: str = Field(
+        "claude-3-opus-20240229", description="Anthropic Claude model name"
+    )
 
     # Backend selector
     AI_BACKEND: Literal["ollama", "openai", "gemini", "groq", "anthropic"] = Field(
         "groq", description="Active AI backend"
     )
-    ENV: str = Field("development", description="Environment: development or production")
+    ENV: str = Field(
+        "development", description="Environment: development or production"
+    )
 
     # Ollama (Local LLM)
     OLLAMA_MODEL: str = Field(
@@ -84,11 +99,15 @@ class Settings(BaseSettings):
             if backend == "gemini":
                 has_any = any(bool(getattr(self, k, None)) for k in required)
                 if not has_any:
-                    raise ValueError("Missing API key for 'gemini': set GENAI_API_KEY or GOOGLE_API_KEY.")
+                    raise ValueError(
+                        "Missing API key for 'gemini': set GENAI_API_KEY or GOOGLE_API_KEY."
+                    )
             else:
                 missing = [k for k in required if not getattr(self, k, None)]
                 if missing:
-                    raise ValueError(f"Missing API key(s) for '{backend}': {', '.join(missing)}")
+                    raise ValueError(
+                        f"Missing API key(s) for '{backend}': {', '.join(missing)}"
+                    )
         return self
 
     model_config = ConfigDict(
@@ -155,10 +174,19 @@ def warn_if_missing_keys(settings: Settings):
         return
     backend = (settings.AI_BACKEND or "").lower()
     if backend == "gemini":
-        if not (getattr(settings, "GENAI_API_KEY", None) or getattr(settings, "GOOGLE_API_KEY", None)):
-            print("⚠️  Warning: Missing Gemini API key (set GENAI_API_KEY or GOOGLE_API_KEY).")
+        if not (
+            getattr(settings, "GENAI_API_KEY", None)
+            or getattr(settings, "GOOGLE_API_KEY", None)
+        ):
+            print(
+                "⚠️  Warning: Missing Gemini API key (set GENAI_API_KEY or GOOGLE_API_KEY)."
+            )
         return
-    key_attr = {"openai": "OPENAI_API_KEY", "groq": "GROQ_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(backend)
+    key_attr = {
+        "openai": "OPENAI_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+    }.get(backend)
     if key_attr and not getattr(settings, key_attr, None):
         print(f"⚠️  Warning: Missing {backend.capitalize()} API key.")
 

@@ -11,7 +11,7 @@ from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from psycopg2 import sql
 import os
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict
 import logging
 
 # Load .env if present so this script respects your local settings

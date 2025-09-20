@@ -1,22 +1,28 @@
 from __future__ import annotations
+
 import io
-from contextlib import redirect_stdout
 import json
 import os
+from contextlib import redirect_stdout
+
 import click
 from textual.app import App, ComposeResult
+
 try:
     # Textual < 1.0 used TextLog; 5.x provides Log
-    from textual.widgets import ListView, ListItem, Label, TextLog as LogWidget
+    from textual.widgets import Label, ListItem, ListView
+    from textual.widgets import TextLog as LogWidget
 except ImportError:  # Textual 5.x
     from textual.widgets import ListView, ListItem, Label, Log as LogWidget
-from textual.widgets import Input
-from textual import on
 
-from guardian.runtime.tools.invoker import invoke_tool, _resolve  # type: ignore
-from guardian.runtime.tools.registry import ROOTS  # for listing
-import os
+
 import requests
+from textual import on
+from textual.widgets import Input
+
+from guardian.runtime.tools.invoker import _resolve, invoke_tool  # type: ignore
+from guardian.runtime.tools.registry import ROOTS  # for listing
+
 
 def list_all_commands():
     names = []
@@ -42,6 +48,7 @@ def list_all_commands():
                 names.append(fq)
     return sorted(names)
 
+
 class DiagApp(App):
     CSS = (
         "Screen { layout: grid; grid-size: 2 2 }\n"
@@ -54,7 +61,7 @@ class DiagApp(App):
 
             self._write_log(f"API base: {base}")
             self._write_log(
-                "Hint: use /save {\"title\":\"Sample\",\"body\":\"Preview only\",\"format\":\"md\",\"dry_run\":true} to preview."
+                'Hint: use /save {"title":"Sample","body":"Preview only","format":"md","dry_run":true} to preview.'
             )
         except Exception:
             pass
@@ -65,7 +72,9 @@ class DiagApp(App):
         self.log_widget = LogWidget()
         yield self.cmds
         yield self.log_widget
-        self.input = Input(placeholder="Enter JSON args and press Enter (or leave blank for defaults)")
+        self.input = Input(
+            placeholder="Enter JSON args and press Enter (or leave blank for defaults)"
+        )
         yield self.input
 
     def _command_params(self, fq_name: str):
@@ -107,9 +116,15 @@ class DiagApp(App):
                                     or type(pt).__name__ == "Path"
                                 ):
                                     p_type = "path"
-                                    extras["exists"] = bool(getattr(pt, "exists", False))
-                                    extras["file_okay"] = bool(getattr(pt, "file_okay", True))
-                                    extras["dir_okay"] = bool(getattr(pt, "dir_okay", True))
+                                    extras["exists"] = bool(
+                                        getattr(pt, "exists", False)
+                                    )
+                                    extras["file_okay"] = bool(
+                                        getattr(pt, "file_okay", True)
+                                    )
+                                    extras["dir_okay"] = bool(
+                                        getattr(pt, "dir_okay", True)
+                                    )
                                 else:
                                     tn = type(pt).__name__.lower()
                                     if "int" in tn:
@@ -160,9 +175,11 @@ class DiagApp(App):
             # Show schema/help
             lines = ["Provide JSON args (name:value). Params:"]
             for p in params:
-                dstr = f" default={p['default']!r}" if p.get("default") is not None else ""
+                dstr = (
+                    f" default={p['default']!r}" if p.get("default") is not None else ""
+                )
                 rq = " (required)" if p.get("required") else ""
-                ptype = p.get('type', 'string')
+                ptype = p.get("type", "string")
                 # Append choices inline when available
                 extra = ""
                 if ptype == "choice" and p.get("choices"):
@@ -207,7 +224,9 @@ class DiagApp(App):
                         detail = r.json().get("detail")
                     except Exception:
                         detail = r.text
-                    self._write_log(f"[error]Save-entry failed ({r.status_code}): {detail}[/error]")
+                    self._write_log(
+                        f"[error]Save-entry failed ({r.status_code}): {detail}[/error]"
+                    )
                     return
                 data = r.json()
                 self._write_log(json.dumps(data, indent=2))
@@ -215,7 +234,9 @@ class DiagApp(App):
                 if files:
                     lines = ["Drive links:"]
                     for f in files:
-                        link = f.get("webViewLink") or f.get("webViewURL") or f.get("link")
+                        link = (
+                            f.get("webViewLink") or f.get("webViewURL") or f.get("link")
+                        )
                         name = f.get("name") or f.get("id")
                         if link:
                             lines.append(f" - {name}: {link}")
@@ -229,7 +250,7 @@ class DiagApp(App):
         fq_name = getattr(self, "pending_cmd", None)
         if not fq_name:
             return
-        
+
         # Standard tool invocation path
         try:
             args = json.loads(text) if text else {}
@@ -244,9 +265,13 @@ class DiagApp(App):
                 if params:
                     lines = ["Expected params:"]
                     for p in params:
-                        dstr = f" default={p['default']!r}" if p.get("default") is not None else ""
+                        dstr = (
+                            f" default={p['default']!r}"
+                            if p.get("default") is not None
+                            else ""
+                        )
                         rq = " (required)" if p.get("required") else ""
-                        ptype = p.get('type', 'string')
+                        ptype = p.get("type", "string")
                         extra = ""
                         if ptype == "choice" and p.get("choices"):
                             opts = "|".join(map(str, p["choices"]))
@@ -272,8 +297,11 @@ class DiagApp(App):
             if isinstance(coerced, dict) and isinstance(coerced.get("folder_url"), str):
                 s = coerced["folder_url"].strip()
                 import re as _re
+
                 if _re.fullmatch(r"[A-Za-z0-9_-]{10,}", s):
-                    coerced["folder_url"] = f"https://drive.google.com/drive/folders/{s}"
+                    coerced["folder_url"] = (
+                        f"https://drive.google.com/drive/folders/{s}"
+                    )
         except Exception:
             pass
         buf = io.StringIO()
@@ -293,9 +321,13 @@ class DiagApp(App):
                 if params:
                     lines = ["Expected params:"]
                     for p in params:
-                        dstr = f" default={p['default']!r}" if p.get("default") is not None else ""
+                        dstr = (
+                            f" default={p['default']!r}"
+                            if p.get("default") is not None
+                            else ""
+                        )
                         rq = " (required)" if p.get("required") else ""
-                        ptype = p.get('type', 'string')
+                        ptype = p.get("type", "string")
                         extra = ""
                         if ptype == "choice" and p.get("choices"):
                             opts = "|".join(map(str, p["choices"]))
@@ -338,7 +370,9 @@ class DiagApp(App):
         return val
 
     @staticmethod
-    def _validate_and_coerce(args: dict, params: list[dict]) -> tuple[bool, dict, list[str]]:
+    def _validate_and_coerce(
+        args: dict, params: list[dict]
+    ) -> tuple[bool, dict, list[str]]:
         errors: list[str] = []
         out: dict = {}
         index = {p["name"]: p for p in params}
@@ -370,9 +404,13 @@ class DiagApp(App):
                         errors.append(f"Param '{k}' path does not exist: {path}")
                     else:
                         if not file_okay and os.path.isfile(path):
-                            errors.append(f"Param '{k}' must be a directory (got a file): {path}")
+                            errors.append(
+                                f"Param '{k}' must be a directory (got a file): {path}"
+                            )
                         if not dir_okay and os.path.isdir(path):
-                            errors.append(f"Param '{k}' must be a file (got a directory): {path}")
+                            errors.append(
+                                f"Param '{k}' must be a file (got a directory): {path}"
+                            )
                 coerced = path
             else:
                 coerced = DiagApp._coerce_value(v, typ)
@@ -390,6 +428,7 @@ class DiagApp(App):
 def main():
     # Entry point for console_scripts launcher (guardian-diag)
     DiagApp().run()
+
 
 if __name__ == "__main__":
     main()

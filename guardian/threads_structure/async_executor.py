@@ -10,8 +10,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from guardian.utils.performance import rate_limited_plugin_runner
 from guardian.config import Config
+from guardian.utils.performance import rate_limited_plugin_runner
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

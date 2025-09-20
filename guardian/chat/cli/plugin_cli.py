@@ -5,15 +5,13 @@ Main CLI entrypoint with plugin system integration.
 """
 
 import logging
-import os
 import sys
-from typing import Optional
 
 import click
 
 from ..config_loader import ConfigLoader
-from ..memory.memoryos import MemoryOS
 from ..memory.codemap import CodemapService
+from ..memory.memoryos import MemoryOS
 from ..plugin_host import PluginHost
 
 # Configure logging

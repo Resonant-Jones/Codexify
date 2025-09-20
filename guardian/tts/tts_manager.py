@@ -5,12 +5,12 @@ Manages TTS providers and provides a unified interface for text-to-speech synthe
 """
 
 import json
-import os
-from typing import Dict, List, Optional, Type
 import logging
+import os
+from typing import Dict, List, Optional
 
-from .tts_service import TTSProvider, TTSError, ProviderNotFoundError
 from .providers import PROVIDERS
+from .tts_service import ProviderNotFoundError, TTSError, TTSProvider
 
 # Configure logging
 logger = logging.getLogger(__name__)

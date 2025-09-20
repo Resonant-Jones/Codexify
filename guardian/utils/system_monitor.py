@@ -7,13 +7,13 @@ Monitors and enforces system resource limits.
 import asyncio
 import logging
 import os
-import psutil
 import time
 from dataclasses import dataclass
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Dict, List, Optional
 
-from guardian.config import Config
+import psutil
+
 from guardian.utils.safe_logger import system_logger
 from guardian.utils.safeguard import throttle
 

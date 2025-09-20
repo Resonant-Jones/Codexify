@@ -1,7 +1,7 @@
 import sqlite3
-from datetime import datetime, timezone
-from guardian.utils.datetime import utc_now, to_iso_z
 from typing import Any, Dict, List, Optional
+
+from guardian.utils.datetime import to_iso_z, utc_now
 
 DB_PATH = "guardian.db"
 

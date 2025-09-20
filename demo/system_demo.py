@@ -7,10 +7,7 @@ Demonstrates full system lifecycle and component integration.
 import asyncio
 import json
 import logging
-import time
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine

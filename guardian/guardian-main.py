@@ -26,7 +26,6 @@ if str(_repo_root) not in sys.path:
 # Now import the canonical Typer app and delegate execution.
 from guardian.guardian_main import app as app
 
-
 if __name__ == "__main__":
     # Run the Typer app when executed directly
     app()
