@@ -94,3 +94,5 @@ guardian/guardian.*.db
 guardian/codemap/codemap.json
 models/moondream1/*.safetensors
 models/**.safetensors
+__DISABLE_SQLITE__
+makefile
