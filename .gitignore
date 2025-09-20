@@ -96,3 +96,4 @@ models/moondream1/*.safetensors
 models/**.safetensors
 __DISABLE_SQLITE__
 makefile
+tmp-clone/
