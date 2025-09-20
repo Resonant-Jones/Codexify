@@ -1,4 +1,3 @@
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -65,8 +64,6 @@ async def test_search_agent_handles_empty_plan(monkeypatch):
         assert result["agent"] == "planner"
         assert result["data"] == []
 
-
-from unittest.mock import AsyncMock, MagicMock, patch
 
 # Additional tests
 import pytest

@@ -101,7 +101,9 @@ def upsert_persona(user_id: str, persona: str) -> None:
         conn.commit()
 
 
-def upsert_codex_result(result_id: str, content: str, meta: Optional[Dict[str, Any]] = None) -> None:
+def upsert_codex_result(
+    result_id: str, content: str, meta: Optional[Dict[str, Any]] = None
+) -> None:
     updated = datetime.now(timezone.utc).isoformat()
     with _conn() as conn:
         c = conn.cursor()
@@ -110,4 +112,3 @@ def upsert_codex_result(result_id: str, content: str, meta: Optional[Dict[str, A
             (result_id, content, json.dumps(meta or {}, ensure_ascii=False), updated),
         )
         conn.commit()
-

@@ -7,7 +7,7 @@ Text-to-Speech plugin for Guardian.
 import logging
 from typing import Any, Dict
 
-from ...plugins.plugin_base import PluginBase, PluginActivationError
+from ...plugins.plugin_base import PluginActivationError, PluginBase
 from ...tts.tts_manager import TTSManager
 
 # Configure logging

@@ -1,14 +1,12 @@
-import os
-import builtins
 import pytest
+
 pytestmark = pytest.mark.settings
 
 from guardian.config.core import (
-    Settings,
-    warn_if_missing_keys,
-    get_settings_no_env,
     get_model_and_host,
+    get_settings_no_env,
     is_cloud_backend,
+    warn_if_missing_keys,
 )
 
 
@@ -23,7 +21,9 @@ def test_dev_defaults_instantiates(monkeypatch):
 
 
 def test_dev_gemini_without_keys_warns(monkeypatch, capsys):
-    s = get_settings_no_env(ENV="development", AI_BACKEND="gemini", GENAI_API_KEY=None, GOOGLE_API_KEY=None)
+    s = get_settings_no_env(
+        ENV="development", AI_BACKEND="gemini", GENAI_API_KEY=None, GOOGLE_API_KEY=None
+    )
     warn_if_missing_keys(s)
     out = capsys.readouterr().out
     assert "missing gemini api key" in out.lower()
@@ -42,7 +42,12 @@ def test_prod_groq_missing_key_raises(monkeypatch):
     ],
 )
 def test_prod_gemini_accepts_either_key(monkeypatch, genai, google):
-    args = {"ENV": "production", "AI_BACKEND": "gemini", "GENAI_API_KEY": None, "GOOGLE_API_KEY": None}
+    args = {
+        "ENV": "production",
+        "AI_BACKEND": "gemini",
+        "GENAI_API_KEY": None,
+        "GOOGLE_API_KEY": None,
+    }
     if genai is not None:
         args["GENAI_API_KEY"] = genai
     if google is not None:

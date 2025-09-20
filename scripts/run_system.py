@@ -7,14 +7,11 @@ Initializes and runs the complete system with monitoring.
 
 import argparse
 import asyncio
-import json
 import logging
 import signal
 import sys
-import time
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from guardian.system_init import SystemInitializer
 from scripts.system_check import SystemCheck

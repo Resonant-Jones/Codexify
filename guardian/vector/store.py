@@ -1,5 +1,4 @@
 import json
-import math
 import os
 import sqlite3
 from pathlib import Path
@@ -42,7 +41,11 @@ class VectorStore:
             for i, e in zip(items, embeds):
                 c.execute(
                     "INSERT INTO vector_items (text, meta, embedding) VALUES (?, ?, ?)",
-                    (i.get("text", ""), json.dumps(i.get("meta", {}), ensure_ascii=False), json.dumps(e)),
+                    (
+                        i.get("text", ""),
+                        json.dumps(i.get("meta", {}), ensure_ascii=False),
+                        json.dumps(e),
+                    ),
                 )
             conn.commit()
         return len(items)
@@ -57,10 +60,14 @@ class VectorStore:
         rows: List[Dict[str, Any]] = []
         with self._conn() as conn:
             c = conn.cursor()
-            for (text, meta, emb_s) in c.execute("SELECT text, meta, embedding FROM vector_items"):
+            for text, meta, emb_s in c.execute(
+                "SELECT text, meta, embedding FROM vector_items"
+            ):
                 emb = json.loads(emb_s)
                 score = float(self._cosine(qv, emb))
-                rows.append({"text": text, "meta": json.loads(meta or "{}"), "score": score})
+                rows.append(
+                    {"text": text, "meta": json.loads(meta or "{}"), "score": score}
+                )
         rows.sort(key=lambda r: r["score"], reverse=True)
         return rows[: max(1, k)]
 
@@ -71,4 +78,3 @@ class VectorStore:
             return {"status": "ok", "backend": self.embedder.backend}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-

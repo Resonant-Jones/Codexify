@@ -1,6 +1,7 @@
-import pytest
-import numpy as np
 from collections import deque
+
+import numpy as np
+import pytest
 
 from memoryos.long_term import LongTermMemory
 

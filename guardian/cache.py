@@ -8,11 +8,10 @@ import functools
 import hashlib
 import json
 import logging
-import os
-import time
 import math
+import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

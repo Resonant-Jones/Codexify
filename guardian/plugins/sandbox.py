@@ -1,9 +1,9 @@
 """Simple plugin sandbox using subprocesses."""
 
 import subprocess
+import sys
 from pathlib import Path
 from typing import List
-import sys
 
 
 def run_plugin(path: Path, args: List[str]) -> subprocess.CompletedProcess:

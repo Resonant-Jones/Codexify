@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any, Dict, Optional
 
 DB_PATH = "guardian.db"
@@ -55,9 +55,9 @@ def create_user(
             )
             conn.commit()
             return cursor.lastrowid
-    except sqlite3.IntegrityError as e:
+    except sqlite3.IntegrityError:
         raise
-    except Exception as e:
+    except Exception:
         raise
 
 

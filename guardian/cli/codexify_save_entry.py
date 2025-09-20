@@ -1,10 +1,11 @@
 import json
 import os
+import subprocess
+import sys
+import webbrowser
+
 import click
 import requests
-import sys
-import subprocess
-import webbrowser
 
 
 def _default_base() -> str:
@@ -24,7 +25,11 @@ def _default_base() -> str:
 )
 @click.option("--folder", help="Google Drive folder ID.")
 @click.option("--folder-url", help="Google Drive folder URL (bare ID accepted).")
-@click.option("--front-matter", "front_matter", help="JSON object to include as YAML front matter (md only).")
+@click.option(
+    "--front-matter",
+    "front_matter",
+    help="JSON object to include as YAML front matter (md only).",
+)
 @click.option("--return-links/--no-return-links", default=True, show_default=True)
 @click.option("--dry-run/--no-dry-run", default=False, show_default=True)
 @click.option(
@@ -40,7 +45,20 @@ def _default_base() -> str:
     show_default=True,
     help="Open the first returned Drive link in a browser.",
 )
-def save_entry_cmd(title, body, fmt, folder, folder_url, front_matter, return_links, dry_run, base_url, open_link, tags, share):
+def save_entry_cmd(
+    title,
+    body,
+    fmt,
+    folder,
+    folder_url,
+    front_matter,
+    return_links,
+    dry_run,
+    base_url,
+    open_link,
+    tags,
+    share,
+):
     """Preview and optionally export a single entry to Google Drive via the API."""
     try:
         payload = {
@@ -54,9 +72,13 @@ def save_entry_cmd(title, body, fmt, folder, folder_url, front_matter, return_li
             # Accept both comma‑separated string and JSON list
             if isinstance(tags, str):
                 try:
-                    tags_parsed = json.loads(tags) if tags.strip().startswith('[') else [t.strip() for t in tags.split(',') if t.strip()]
+                    tags_parsed = (
+                        json.loads(tags)
+                        if tags.strip().startswith("[")
+                        else [t.strip() for t in tags.split(",") if t.strip()]
+                    )
                 except Exception:
-                    tags_parsed = [t.strip() for t in tags.split(',') if t.strip()]
+                    tags_parsed = [t.strip() for t in tags.split(",") if t.strip()]
             else:
                 tags_parsed = tags
             payload["tags"] = tags_parsed

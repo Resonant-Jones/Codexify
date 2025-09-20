@@ -1,6 +1,7 @@
 """
 OpenAI chat and embeddings adapters (SDK >= 1.x)
 """
+
 # SPDX-License-Identifier: MIT
 import os
 from typing import Iterator, List, Optional
@@ -35,7 +36,7 @@ class OpenAIChat(ChatProvider):
             **kw,
         )
         # OpenAI 1.x returns choices[0].message.content
-        return (r.choices[0].message.content or "")
+        return r.choices[0].message.content or ""
 
     def stream(self, prompt: str, model: Optional[str] = None, **kw) -> Iterator[str]:
         model = model or _DEFAULT_CHAT
@@ -65,8 +66,11 @@ class OpenAIEmbeddings(EmbeddingsProvider):
         self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
         self.timeout = float(os.getenv("OPENAI_TIMEOUT", timeout))
 
-    def embed(self, texts: List[str], model: Optional[str] = None, **kw) -> List[List[float]]:
+    def embed(
+        self, texts: List[str], model: Optional[str] = None, **kw
+    ) -> List[List[float]]:
         model = model or _DEFAULT_EMB
-        r = self.client.embeddings.create(model=model, input=texts, timeout=self.timeout, **kw)
+        r = self.client.embeddings.create(
+            model=model, input=texts, timeout=self.timeout, **kw
+        )
         return [d.embedding for d in r.data]
-

@@ -1,19 +1,17 @@
 from datetime import UTC
+
 """
 Pattern Analyzer Plugin Tests
 --------------------------
 Test suite for pattern analysis functionality.
 """
 
-import asyncio
 import json
 import logging
 import unittest
-import pytest
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine

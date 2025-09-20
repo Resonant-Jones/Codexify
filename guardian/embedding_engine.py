@@ -65,7 +65,7 @@ def get_embedding(text: str) -> List[float]:
             response = requests.post(
                 "http://localhost:8000/embed",  # Change this URL if your GPT-OSS embed endpoint differs
                 json={"text": text},
-                timeout=10
+                timeout=10,
             )
             response.raise_for_status()
             result = response.json()

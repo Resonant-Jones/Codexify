@@ -1,6 +1,4 @@
 import datetime
-import json
-import os
 from pathlib import Path
 
 # Placeholder for future Gmail and Google Calendar APIs

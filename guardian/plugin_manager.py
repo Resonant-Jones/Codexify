@@ -9,12 +9,12 @@ import importlib.util
 import json
 import logging
 import sys
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from guardian.config import Config
-from guardian.utils.safeguard import safe_plugin_execution, throttle, rate_limited
+from guardian.utils.safeguard import rate_limited, safe_plugin_execution, throttle
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

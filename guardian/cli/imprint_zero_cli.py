@@ -1,11 +1,13 @@
-from argparse import Namespace, _SubParsersAction
-from guardian.cli.base_command import BaseCommand
 import json
-import typer
-import os
-from guardian.imprint_zero_onboarding import ImprintZero as ImprintZeroCore
+from argparse import Namespace, _SubParsersAction
 from pathlib import Path
+
+import typer
+
 from guardian import imprint_zero as imprint_facade
+from guardian.cli.base_command import BaseCommand
+from guardian.imprint_zero_onboarding import ImprintZero as ImprintZeroCore
+
 
 class ImprintZeroCommand(BaseCommand):
     @staticmethod
@@ -33,7 +35,9 @@ class ImprintZeroCommand(BaseCommand):
     @classmethod
     def register(cls, subparsers: _SubParsersAction) -> None:
         parser = subparsers.add_parser(cls.name(), help=cls.help_text())
-        parser.add_argument("--json-output", "-j", action="store_true", help="Output in JSON format")
+        parser.add_argument(
+            "--json-output", "-j", action="store_true", help="Output in JSON format"
+        )
         parser.set_defaults(func=cls.run)
 
 
@@ -44,10 +48,14 @@ app.add_typer(imprint_zero)
 
 
 @imprint_zero.command("dump-imprint-zero-prompt")
-def dump_imprint_zero_prompt(json_output: bool = typer.Option(False, "--json-output", "-j")):
+def dump_imprint_zero_prompt(
+    json_output: bool = typer.Option(False, "--json-output", "-j")
+):
     """Dump the ImprintZero prompt in text or JSON."""
     # Prefer prompt files from guardian.imprint_zero.settings if provided (for tests)
-    dir_path = getattr(getattr(imprint_facade, "settings", object()), "PROMPT_DIR_PATH", "")
+    dir_path = getattr(
+        getattr(imprint_facade, "settings", object()), "PROMPT_DIR_PATH", ""
+    )
     system_prompt = None
     question_scaffold = None
     if dir_path:
@@ -65,9 +73,16 @@ def dump_imprint_zero_prompt(json_output: bool = typer.Option(False, "--json-out
         return
 
     if json_output:
-        print(json.dumps({
-            "system_prompt": system_prompt,
-            "question_scaffold": question_scaffold,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "system_prompt": system_prompt,
+                    "question_scaffold": question_scaffold,
+                },
+                indent=2,
+            )
+        )
     else:
-        print(f"--- System Prompt ---\n{system_prompt}\n\n--- Question Scaffold ---\n{question_scaffold}")
+        print(
+            f"--- System Prompt ---\n{system_prompt}\n\n--- Question Scaffold ---\n{question_scaffold}"
+        )

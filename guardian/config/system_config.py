@@ -7,7 +7,6 @@ Handles system-wide settings, paths, and operational parameters.
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 

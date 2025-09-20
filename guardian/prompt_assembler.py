@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 
 def assemble_prompt(identity_path, cue_card_path, context_path, current_goal=None):

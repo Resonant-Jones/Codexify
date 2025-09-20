@@ -1,7 +1,9 @@
-from fastapi.testclient import TestClient
-from guardian.guardian_api import app
 import sqlite3
+
+from fastapi.testclient import TestClient
+
 from guardian.config import get_settings
+from guardian.guardian_api import app
 
 client = TestClient(app)
 settings = get_settings()
@@ -21,7 +23,13 @@ def _create_thread_row(title=None, project_id=None, user_id="default"):
 def test_auto_title_on_first_message():
     tid = _create_thread_row(title=None)
     # Post first user message -> auto-title should be set
-    r = client.post(f"/api/chat/{tid}/messages", json={"role": "user", "content": "This is a first message that should become title"})
+    r = client.post(
+        f"/api/chat/{tid}/messages",
+        json={
+            "role": "user",
+            "content": "This is a first message that should become title",
+        },
+    )
     assert r.status_code == 200
     # Fetch thread row
     with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:
@@ -55,7 +63,10 @@ def _create_project_row(name="P1", description="d"):
         c.execute(
             "CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, description TEXT, created_at TEXT)"
         )
-        c.execute("INSERT INTO projects (name, description, created_at) VALUES (?, ?, datetime('now'))", (name, description))
+        c.execute(
+            "INSERT INTO projects (name, description, created_at) VALUES (?, ?, datetime('now'))",
+            (name, description),
+        )
         conn.commit()
         return c.lastrowid
 
@@ -74,4 +85,3 @@ def test_project_patch_and_delete_ejects_threads():
         c.execute("SELECT project_id FROM chat_threads WHERE id = ?", (tid,))
         row = c.fetchone()
     assert row is not None and row[0] is None
-

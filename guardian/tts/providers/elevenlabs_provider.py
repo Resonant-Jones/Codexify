@@ -4,15 +4,16 @@ ElevenLabs TTS Provider
 Implementation of TTSProvider for ElevenLabs API.
 """
 
-import os
-import requests
-from typing import List, Optional
 import logging
+import os
+from typing import List, Optional
+
+import requests
 
 from ..tts_service import (
-    TTSProvider,
     AuthenticationError,
     SynthesisError,
+    TTSProvider,
     VoiceNotFoundError,
 )
 

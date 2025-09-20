@@ -5,13 +5,11 @@ Long-term memory and pattern recognition system.
 Preserves and analyzes system memory artifacts, identifying patterns and relationships.
 """
 
-import json
 import logging
-from datetime import datetime, UTC
-from pathlib import Path
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from guardian.codex_awareness import CodexAwareness, MemoryArtifact
+from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
 
 # Configure logging

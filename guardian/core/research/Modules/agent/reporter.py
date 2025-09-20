@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from ..model import Model
-from ..prompt.reporter import report_plan, report_prompt, report_task
+from ..prompt.reporter import report_plan, report_task
 from .agent import Agent
 
 

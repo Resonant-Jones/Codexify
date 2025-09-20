@@ -1,4 +1,5 @@
 from datetime import UTC
+
 """
 System Diagnostics Plugin
 ------------------------
@@ -7,18 +8,15 @@ and core system communication.
 """
 
 import asyncio
-import json
 import logging
 import threading
-import time
-from datetime import datetime, timedelta, UTC
-from pathlib import Path
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from guardian.codex_awareness import CodexAwareness
+from guardian.logging_config import configure_logging
 from guardian.metacognition import MetacognitionEngine
 from guardian.threads_structure.thread_manager import ThreadManager
-from guardian.logging_config import configure_logging
 
 # Configure logging
 configure_logging()
@@ -129,11 +127,13 @@ class SystemDiagnostics:
                 memory_info = self.diagnostics.thread_manager.get_memory_info()
                 usage = memory_info.get("usage_percent", 0.0)
                 threshold = 80.0
+
                 def _lt(a, b):
                     try:
                         return float(a) < float(b)
                     except (TypeError, ValueError):
                         return False
+
                 status = "healthy" if _lt(usage, threshold) else "warning"
 
                 result = DiagnosticResult(
@@ -178,11 +178,13 @@ class SystemDiagnostics:
                                 dead_threads += 1
 
                 threshold = self.diagnostics.config.get("max_dead_threads", 5)
+
                 def _lt(a, b):
                     try:
                         return float(a) < float(b)
                     except Exception:
                         return False
+
                 status = "healthy" if _lt(dead_threads, threshold) else "warning"
 
                 result = DiagnosticResult(
@@ -258,11 +260,13 @@ class SystemDiagnostics:
                 perf_info = await self.diagnostics._check_performance()
                 response_time = perf_info["avg_response_time"]
                 threshold = self.diagnostics.config.get("max_response_time", 1000)
+
                 def _lt(a, b):
                     try:
                         return float(a) < float(b)
                     except (TypeError, ValueError):
                         return False
+
                 status = "healthy" if _lt(response_time, threshold) else "warning"
 
                 result = DiagnosticResult(
@@ -284,11 +288,13 @@ class SystemDiagnostics:
                 error_info = self.diagnostics._check_errors()
                 error_rate = error_info["error_rate"]
                 threshold = self.diagnostics.config.get("max_error_rate", 0.1)
+
                 def _lt(a, b):
                     try:
                         return float(a) < float(b)
                     except (TypeError, ValueError):
                         return False
+
                 status = "healthy" if _lt(error_rate, threshold) else "warning"
 
                 result = DiagnosticResult(

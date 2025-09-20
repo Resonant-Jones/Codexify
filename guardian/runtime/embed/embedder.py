@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import os
-from typing import List, Dict, Any, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 # Optional deps; import lazily where possible
 try:
@@ -14,6 +15,7 @@ except Exception:
     SentenceTransformer = None  # type: ignore
 
 import numpy as np  # required by FAISS path
+
 try:
     import faiss  # type: ignore
 except Exception:
@@ -52,7 +54,9 @@ class CodexifyEmbedder:
         collection: str = COLLECTION,
     ):
         self.use_openai = use_openai
-        self.model_name = model or (DEFAULT_OPENAI_MODEL if use_openai else DEFAULT_LOCAL_MODEL)
+        self.model_name = model or (
+            DEFAULT_OPENAI_MODEL if use_openai else DEFAULT_LOCAL_MODEL
+        )
         self.store = store.lower()
         self.chroma_path = chroma_path
         self.collection = collection
@@ -62,7 +66,9 @@ class CodexifyEmbedder:
 
         if self.use_openai:
             if OpenAI is None:
-                raise RuntimeError("OpenAI client not installed. `pip install openai>=1.0`")
+                raise RuntimeError(
+                    "OpenAI client not installed. `pip install openai>=1.0`"
+                )
             self._client = OpenAI()
         else:
             if SentenceTransformer is None:
@@ -146,7 +152,11 @@ class CodexifyEmbedder:
             }
         else:
             self._store_faiss(docs, vecs)
-            return {"store": "faiss", "index": "codexify_index.faiss", "count": len(docs)}
+            return {
+                "store": "faiss",
+                "index": "codexify_index.faiss",
+                "count": len(docs),
+            }
 
 
 def embed_file(
@@ -162,7 +172,11 @@ def embed_file(
     with open(path, "r", encoding="utf-8") as f:
         contents = f.read()
     docs = [d.strip() for d in contents.split("\n\n") if d.strip()]
-    use_openai = bool(int(os.getenv("CODEXIFY_USE_OPENAI", "1"))) if use_openai is None else use_openai
+    use_openai = (
+        bool(int(os.getenv("CODEXIFY_USE_OPENAI", "1")))
+        if use_openai is None
+        else use_openai
+    )
     emb = CodexifyEmbedder(
         use_openai=use_openai,
         model=model,
@@ -170,5 +184,6 @@ def embed_file(
         chroma_path=chroma_path,
         collection=collection,
     )
-    return emb.embed_and_index(docs, ids_prefix=os.path.basename(path).replace(".", "_"))
-
+    return emb.embed_and_index(
+        docs, ids_prefix=os.path.basename(path).replace(".", "_")
+    )

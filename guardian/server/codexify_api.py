@@ -1,24 +1,25 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-import os
-import re
-from typing import Optional, List, Dict, Any
-from pathlib import Path
+
 import json
 import logging
+import os
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from guardian.codexify import create_notion_database_from_records
 from guardian.export_engine import (
+    export_records,
     export_to_gdrive,
     import_from_gdrive,
     import_from_icloud,
-    export_records,
 )
-from guardian.codexify import create_notion_database_from_records
-from guardian.integrations.google_oauth import ensure_oauth_credentials
 from guardian.integrations.google_drive import build_drive_service
-from datetime import datetime
-
+from guardian.integrations.google_oauth import ensure_oauth_credentials
 
 router = APIRouter(prefix="/codexify", tags=["codexify"])
 logger = logging.getLogger(__name__)
@@ -82,7 +83,7 @@ def _normalize_folder_id(folder_or_url: Optional[str]) -> Optional[str]:
         return s
     # Tolerate /u/{n}/ variants in the URL
     s = re.sub(r"/u/\d+/", "/", s)
-    m = re.search(_FOLDER_RE, s) if hasattr(re, 'search') else _FOLDER_RE.search(s)
+    m = re.search(_FOLDER_RE, s) if hasattr(re, "search") else _FOLDER_RE.search(s)
     return m.group(1) if m else None
 
 
@@ -170,7 +171,9 @@ def _with_links(result: Any) -> Dict[str, Any]:
     for it in items:
         if isinstance(it, dict):
             _id = it.get("id")
-            _link = it.get("webViewLink") or (_FILE_LINK.format(id=_id) if _id else None)
+            _link = it.get("webViewLink") or (
+                _FILE_LINK.format(id=_id) if _id else None
+            )
             base = {k: v for k, v in it.items() if k not in ("id", "webViewLink")}
             files.append({"id": _id, "webViewLink": _link, **base})
         else:
@@ -185,7 +188,9 @@ def resolve_folder_id(url: str):
     """Utility endpoint: resolve folder/file id from a Google Drive URL."""
     _id = _extract_drive_id(url)
     if not _id:
-        raise HTTPException(status_code=400, detail="Could not parse an id from the provided URL.")
+        raise HTTPException(
+            status_code=400, detail="Could not parse an id from the provided URL."
+        )
     return {"id": _id, "webLink": _FOLDER_LINK.format(id=_id)}
 
 
@@ -211,6 +216,7 @@ def oauth_status():
     if tpath.exists():
         return {"status": "oauth_ready", "credentials": creds, "token": str(tpath)}
     return {"status": "oauth_no_token", "credentials": creds, "token": str(tpath)}
+
 
 @router.post("/oauth-begin")
 def oauth_begin():
@@ -252,6 +258,7 @@ def service_account_info():
         resp["email"] = email
     return resp
 
+
 @router.post("/export-gdrive")
 def export_gdrive(req: GDriveExportRequest):
     try:
@@ -263,7 +270,9 @@ def export_gdrive(req: GDriveExportRequest):
             if default_folder:
                 folder_id = _normalize_folder_id(default_folder) or default_folder
         if getattr(req, "folder_url", None) and not folder_id:
-            raise HTTPException(status_code=400, detail="Invalid folder_url: could not parse an id.")
+            raise HTTPException(
+                status_code=400, detail="Invalid folder_url: could not parse an id."
+            )
         # Dry-run: validate only
         if req.dry_run:
             count = len(req.records or [])
@@ -286,14 +295,19 @@ def export_gdrive(req: GDriveExportRequest):
         # Optional front matter for md batch export: prepend once at top
         if req.format == "md" and req.front_matter:
             import yaml
-            fm = "---\n" + yaml.dump(req.front_matter, sort_keys=False).strip() + "\n---\n\n"
+
+            fm = (
+                "---\n"
+                + yaml.dump(req.front_matter, sort_keys=False).strip()
+                + "\n---\n\n"
+            )
             body = export_records(req.records, req.format)
             content = fm + body
         else:
             content = None
-        share_flag = (
-            req.share_anyone_with_link
-            or (os.environ.get("CODEXIFY_SHARE_ANYONE", "").strip().lower() in ("1", "true", "yes", "on"))
+        share_flag = req.share_anyone_with_link or (
+            os.environ.get("CODEXIFY_SHARE_ANYONE", "").strip().lower()
+            in ("1", "true", "yes", "on")
         )
         try:
             result = export_to_gdrive(
@@ -311,7 +325,11 @@ def export_gdrive(req: GDriveExportRequest):
             # Lightweight server-side logging of exported file URLs
             if not req.dry_run:
                 try:
-                    urls = [f.get("webViewLink") for f in enriched.get("files", []) if f.get("webViewLink")]
+                    urls = [
+                        f.get("webViewLink")
+                        for f in enriched.get("files", [])
+                        if f.get("webViewLink")
+                    ]
                     if urls:
                         logger.info("Exported to Google Drive:\n%s", "\n".join(urls))
                 except Exception:
@@ -321,7 +339,11 @@ def export_gdrive(req: GDriveExportRequest):
         if not req.dry_run:
             try:
                 tmp = _with_links(result)
-                urls = [f.get("webViewLink") for f in tmp.get("files", []) if f.get("webViewLink")]
+                urls = [
+                    f.get("webViewLink")
+                    for f in tmp.get("files", [])
+                    if f.get("webViewLink")
+                ]
                 if urls:
                     logger.info("Exported to Google Drive:\n%s", "\n".join(urls))
             except Exception:
@@ -382,7 +404,12 @@ def save_entry(req: SaveEntryRequest):
     try:
         if req.format == "md" and req.front_matter:
             import yaml
-            fm = "---\n" + yaml.dump(req.front_matter, sort_keys=False).strip() + "\n---\n\n"
+
+            fm = (
+                "---\n"
+                + yaml.dump(req.front_matter, sort_keys=False).strip()
+                + "\n---\n\n"
+            )
             preview = fm + (req.body or "")
         else:
             preview = export_records(records, req.format)
@@ -395,7 +422,9 @@ def save_entry(req: SaveEntryRequest):
         if default_folder:
             folder_id = _normalize_folder_id(default_folder) or default_folder
     if getattr(req, "folder_url", None) and not folder_id:
-        raise HTTPException(status_code=400, detail="Invalid folder_url: could not parse an id.")
+        raise HTTPException(
+            status_code=400, detail="Invalid folder_url: could not parse an id."
+        )
 
     if req.dry_run:
         return {
@@ -415,6 +444,7 @@ def save_entry(req: SaveEntryRequest):
 
     try:
         service = build_drive_service(logger=logger)
+
         # Build a friendly filename: YYYY-MM-DD_<sanitized-title>.<ext>
         def _sanitize(name: str) -> str:
             name = (name or "note").strip()
@@ -440,13 +470,18 @@ def save_entry(req: SaveEntryRequest):
         else:
             filename = f"{date_str}_{slug}.{ext}"
 
-        share_flag = (
-            req.share_anyone_with_link
-            or (os.environ.get("CODEXIFY_SHARE_ANYONE", "").strip().lower() in ("1", "true", "yes", "on"))
+        share_flag = req.share_anyone_with_link or (
+            os.environ.get("CODEXIFY_SHARE_ANYONE", "").strip().lower()
+            in ("1", "true", "yes", "on")
         )
         if req.format == "md" and req.front_matter:
             import yaml
-            fm = "---\n" + yaml.dump(req.front_matter, sort_keys=False).strip() + "\n---\n\n"
+
+            fm = (
+                "---\n"
+                + yaml.dump(req.front_matter, sort_keys=False).strip()
+                + "\n---\n\n"
+            )
             content = fm + (req.body or "")
         else:
             content = None

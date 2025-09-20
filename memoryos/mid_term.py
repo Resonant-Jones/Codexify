@@ -1,7 +1,6 @@
 import heapq
 import json
 from collections import defaultdict
-from datetime import datetime
 
 import faiss
 import numpy as np

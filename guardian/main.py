@@ -1,5 +1,29 @@
+
+FastAPI microservice exposing the Riven companion model.
+
+- `/chat`  POST  : Generate a Riven-styled reply.
+- `/health` GET : Simple uptime check.
+
+The endpoint chooses between Gemini model variants via a `model` query
+parameter.  Keys are defined in `MODEL_ALIASES`.
 """
-guardian.main
+"""guardian.main
+
+FastAPI microservice exposing the Riven companion model.
+
+Provides two primary endpoints:
+- **`/chat`** (POST): Generate a Riven‑styled reply using a selected Gemini model.
+- **`/health`** (GET): Simple uptime check.
+
+The endpoint chooses between Gemini model variants via a `model` query
+parameter. Keys are defined in ``MODEL_ALIASES``. The module also
+exposes a ``DEFAULT_PERSONALITY`` constant that defines the base prompt
+for the Riven persona, and a ``MODEL_ALIASES`` mapping for easy model
+selection.
+
+The implementation uses the ``google.generativeai`` library and logs
+interactions via ``memoryos.logger.log_interaction`` (if available)."""
+
 =============
 
 FastAPI microservice exposing the Riven companion model.
@@ -13,13 +37,16 @@ parameter.  Keys are defined in `MODEL_ALIASES`.
 
 import os
 import traceback
+
 import google.generativeai as genai
 from fastapi import FastAPI, Query
+from pydantic import BaseModel
+
+from guardian.config import Config
+
 # Assuming `log_interaction` is in a `logger.py` inside the `memoryos` package
 # after the restructure. If not, adjust the path accordingly.
 from memoryos.logger import log_interaction
-from pydantic import BaseModel
-from guardian.config import Config
 
 # --------------------------------------------------------------------------- #
 # Configuration

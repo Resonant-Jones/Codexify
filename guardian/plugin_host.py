@@ -12,9 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
 from .plugins.plugin_base import (
-    PluginBase,
-    PluginError,
     PluginActivationError,
+    PluginBase,
     PluginNotFoundError,
     PluginValidationError,
 )

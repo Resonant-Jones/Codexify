@@ -2,30 +2,50 @@
 # Imports
 # =========================
 
+"""guardian_api module
+
+Provides FastAPI routes for the Guardian backend, handling chat, memory,
+and connector APIs. Includes authentication, environment loading, and
+integration with various providers.
+"""
+
+import asyncio
+import json
+import logging
+
 # Standard Library
 import os
-import logging
-import json
-import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import uuid4
-from fastapi import File, UploadFile
-from guardian.routes.codexify_router import router as codexify_router
 
 # Third-Party
 import requests
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, Form
-from starlette.responses import StreamingResponse
-from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+from fastapi import (
+    Body,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
+from starlette.responses import StreamingResponse
+
 # DB adapters
 from guardian.core.chat_db import ChatDB
 from guardian.core.db import GuardianDB
+from guardian.routes.codexify_router import router as codexify_router
+
 try:
     from guardian.core.pgdb import PgDB  # type: ignore
 except Exception as _pg_exc:  # pragma: no cover
@@ -33,16 +53,22 @@ except Exception as _pg_exc:  # pragma: no cover
     _PG_IMPORT_ERROR = _pg_exc
 else:
     _PG_IMPORT_ERROR = None
+from io import BytesIO
+
+import numpy as np
+
 # Vision/captioning imports
 from PIL import Image
-from io import BytesIO
-from transformers import BlipProcessor, BlipForConditionalGeneration
-from transformers import AutoProcessor, AutoModelForVision2Seq
-import numpy as np
+from transformers import (
+    AutoModelForVision2Seq,
+    AutoProcessor,
+    BlipForConditionalGeneration,
+    BlipProcessor,
+)
 
 # Internal
 from guardian.config import get_settings
-from guardian.routes import research, memory, agent, threads
+from guardian.routes import agent, memory, research, threads
 
 # Optional AI Backend
 try:
@@ -58,6 +84,7 @@ except ModuleNotFoundError as e:
     # Fallback: define a stub that signals unavailability
     def get_groq_chat():  # type: ignore
         return None
+
     logging.warning(f"[Codexify ⚠️] Optional groq_client not available: {e}")
 
 # API Key authentication is enforced on all major endpoints (except /ping, /test, /)
@@ -66,6 +93,7 @@ except ModuleNotFoundError as e:
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 # ---- Env loading (backend) -----------------------------------------------
 def _load_env_chain() -> None:
@@ -87,8 +115,9 @@ def _load_env_chain() -> None:
             loaded.append(str(p))
     logger.info(
         "[env] dotenv loaded (in order): %s",
-        " -> ".join(loaded) if loaded else "<none>"
+        " -> ".join(loaded) if loaded else "<none>",
     )
+
 
 _load_env_chain()
 
@@ -120,14 +149,12 @@ GROQ_MODEL_DEFAULT = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
 # Always attempt to load the fast BLIP processor first, then fallback if necessary
 try:
     processor = BlipProcessor.from_pretrained(
-        "Salesforce/blip-image-captioning-base",
-        use_fast=True
+        "Salesforce/blip-image-captioning-base", use_fast=True
     )
 except Exception as e:
     logging.warning(f"Fast BLIP processor unavailable, falling back to slow: {e}")
     processor = BlipProcessor.from_pretrained(
-        "Salesforce/blip-image-captioning-base",
-        use_fast=False
+        "Salesforce/blip-image-captioning-base", use_fast=False
     )
 vision_model = BlipForConditionalGeneration.from_pretrained(
     "Salesforce/blip-image-captioning-base"
@@ -135,8 +162,12 @@ vision_model = BlipForConditionalGeneration.from_pretrained(
 
 # Mondream (symbolic/QA-style) initialization
 # Gate behind env flag to avoid noisy startup if not needed
-from pathlib import Path
-_ENABLE_MONDREAM = os.getenv("GUARDIAN_ENABLE_MONDREAM", "0").lower() in ("1", "true", "yes")
+
+_ENABLE_MONDREAM = os.getenv("GUARDIAN_ENABLE_MONDREAM", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 mondream_processor = None
 mondream_model = None
 if _ENABLE_MONDREAM:
@@ -144,16 +175,15 @@ if _ENABLE_MONDREAM:
     repo_spec = str(mondream_dir) if mondream_dir.exists() else "vikhyatk/mondream1"
     try:
         mondream_processor = AutoProcessor.from_pretrained(
-            repo_spec,
-            trust_remote_code=True
+            repo_spec, trust_remote_code=True
         )
         mondream_model = AutoModelForVision2Seq.from_pretrained(
-            repo_spec,
-            trust_remote_code=True
+            repo_spec, trust_remote_code=True
         )
         logger.info("Mondream model loaded")
     except Exception as e:
         logging.warning(f"Failed to load Mondream model: {e}")
+
 
 # Helper: crop to content for image captioning
 def crop_to_content(pil_img, threshold: int = 10):
@@ -199,6 +229,7 @@ def crop_to_content(pil_img, threshold: int = 10):
     # apply crop
     return pil_img.crop((left, top, right, bottom))
 
+
 # ────────────────────────── DB backend selection ────────────────────────────
 settings = get_settings()
 
@@ -228,12 +259,16 @@ logger.info("📦 DB backend selected: %s", DB_BACKEND)
 
 SQLITE_PATH = effective_sqlite_path if DB_BACKEND == "sqlite" else None
 
+
 # Helper: ensure "Loose Threads" project exists at startup
 def _ensure_loose_threads_project():
     try:
-        chatlog_db.ensure_project("Loose Threads", "Default bucket for unassigned threads")
+        chatlog_db.ensure_project(
+            "Loose Threads", "Default bucket for unassigned threads"
+        )
     except Exception as e:
         logger.warning("[projects] Failed to ensure Loose Threads project: %s", e)
+
 
 _ensure_loose_threads_project()
 
@@ -242,6 +277,7 @@ MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
 EPHEMERAL_MEMORY: list[dict] = []
 try:
     from datetime import timedelta
+
     cutoff = (datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS)).isoformat()
     pruned = chatlog_db.prune_midterm(cutoff)
     if pruned:
@@ -279,17 +315,21 @@ app.add_middleware(
 # In-memory job registry (ok for dev; replace with persistent store for prod)
 JOBS: Dict[str, dict] = {}
 
+
 class ToolRequest(BaseModel):
     name: str
     args: dict = Field(default_factory=dict)
 
+
 class ToolResponse(BaseModel):
     job_id: str
+
 
 class JobStatus(BaseModel):
     job_id: str
     status: str
     result: dict = Field(default_factory=dict)
+
 
 @app.post("/tools/execute", response_model=ToolResponse, tags=["Tools"])
 def tools_execute(body: ToolRequest, api_key: str = Depends(require_api_key)):
@@ -304,9 +344,11 @@ def tools_execute(body: ToolRequest, api_key: str = Depends(require_api_key)):
     logger.info("Tools.execute: %s job_id=%s", body.name, jid)
     return {"job_id": jid}
 
+
 # =========================
 # Connectors (stubbed API for frontend settings)
 # =========================
+
 
 def _connector_status_from_env(connector_id: str) -> str:
     """Heuristic: mark as connected if an env token that looks relevant exists.
@@ -324,8 +366,10 @@ def _connector_status_from_env(connector_id: str) -> str:
             return "connected"
     return "disconnected"
 
+
 def _display_name(connector_id: str) -> str:
     return connector_id.replace("_", " ").title()
+
 
 def _build_connectors() -> List[dict]:
     # Allow operators to declare available connectors via env
@@ -333,16 +377,19 @@ def _build_connectors() -> List[dict]:
     ids = [c.strip() for c in raw.split(",") if c.strip()]
     out: List[dict] = []
     for cid in ids:
-        out.append({
-            "id": cid,
-            "name": _display_name(cid),
-            "status": _connector_status_from_env(cid),
-            "auth": None,
-            "syncInterval": "manual",
-            "scopes": [],
-            "options": [],
-        })
+        out.append(
+            {
+                "id": cid,
+                "name": _display_name(cid),
+                "status": _connector_status_from_env(cid),
+                "auth": None,
+                "syncInterval": "manual",
+                "scopes": [],
+                "options": [],
+            }
+        )
     return out
+
 
 # In-memory list; rebuilt on process start
 CONNECTORS: List[dict] = _build_connectors()
@@ -357,25 +404,60 @@ CONNECTOR_REGISTRY: Dict[str, dict] = {
     "github": {
         "id": "github",
         "name": "GitHub",
-        "capabilities": {"supportsOAuth": True, "supportsApiKey": False, "supportsLocal": False},
+        "capabilities": {
+            "supportsOAuth": True,
+            "supportsApiKey": False,
+            "supportsLocal": False,
+        },
         "requiredFields": [
-            {"key": "client_id", "label": "Client ID", "type": "string", "secret": False},
-            {"key": "client_secret", "label": "Client Secret", "type": "string", "secret": True},
+            {
+                "key": "client_id",
+                "label": "Client ID",
+                "type": "string",
+                "secret": False,
+            },
+            {
+                "key": "client_secret",
+                "label": "Client Secret",
+                "type": "string",
+                "secret": True,
+            },
         ],
         "scopes": ["repo", "read:org"],
-        "options": [{"key": "syncInterval", "label": "Sync every", "type": "select", "options": ["manual", "15m", "1h", "6h"], "value": "1h"}],
+        "options": [
+            {
+                "key": "syncInterval",
+                "label": "Sync every",
+                "type": "select",
+                "options": ["manual", "15m", "1h", "6h"],
+                "value": "1h",
+            }
+        ],
     },
     "google_drive": {
         "id": "google_drive",
         "name": "Google Drive",
-        "capabilities": {"supportsOAuth": False, "supportsApiKey": True, "supportsLocal": False},
+        "capabilities": {
+            "supportsOAuth": False,
+            "supportsApiKey": True,
+            "supportsLocal": False,
+        },
         "requiredFields": [
             {"key": "api_key", "label": "API Key", "type": "string", "secret": True},
         ],
         "scopes": [],
-        "options": [{"key": "syncInterval", "label": "Sync every", "type": "select", "options": ["manual", "15m", "1h", "6h"], "value": "manual"}],
+        "options": [
+            {
+                "key": "syncInterval",
+                "label": "Sync every",
+                "type": "select",
+                "options": ["manual", "15m", "1h", "6h"],
+                "value": "manual",
+            }
+        ],
     },
 }
+
 
 @app.get("/api/connectors", tags=["Connectors"])
 def list_connectors():
@@ -392,15 +474,18 @@ def list_connectors():
             if f.get("secret") and not CONNECTOR_SECRETS.get(cid, {}).get(f["key"]):
                 needs = True
         oc = {**c}
-        oc.update({
-            "capabilities": meta.get("capabilities"),
-            "requiredFields": meta.get("requiredFields"),
-            "scopes": meta.get("scopes", []),
-            "options": meta.get("options", []),
-            "needsAdminSecret": needs,
-        })
+        oc.update(
+            {
+                "capabilities": meta.get("capabilities"),
+                "requiredFields": meta.get("requiredFields"),
+                "scopes": meta.get("scopes", []),
+                "options": meta.get("options", []),
+                "needsAdminSecret": needs,
+            }
+        )
         out.append(oc)
     return out
+
 
 @app.patch("/api/connectors/{connector_id}", tags=["Connectors"])
 def update_connector(connector_id: str, updates: dict = Body(...)):
@@ -411,8 +496,12 @@ def update_connector(connector_id: str, updates: dict = Body(...)):
     allowed = {"status", "auth", "syncInterval", "scopes", "options", "name"}
     unknown = [k for k in updates.keys() if k not in allowed]
     if unknown:
-        logger.warning("[connectors] PATCH unknown fields id=%s fields=%s", connector_id, unknown)
-        raise HTTPException(status_code=400, detail={"error": f"Unknown fields: {', '.join(unknown)}"})
+        logger.warning(
+            "[connectors] PATCH unknown fields id=%s fields=%s", connector_id, unknown
+        )
+        raise HTTPException(
+            status_code=400, detail={"error": f"Unknown fields: {', '.join(unknown)}"}
+        )
 
     for c in CONNECTORS:
         if c.get("id") == connector_id:
@@ -420,10 +509,16 @@ def update_connector(connector_id: str, updates: dict = Body(...)):
             for key in allowed:
                 if key in updates:
                     c[key] = updates[key]
-            logger.info("[connectors] PATCH id=%s status=%s->%s", connector_id, before_status, c.get("status"))
+            logger.info(
+                "[connectors] PATCH id=%s status=%s->%s",
+                connector_id,
+                before_status,
+                c.get("status"),
+            )
             return c
 
     raise HTTPException(status_code=404, detail={"error": "Connector not found"})
+
 
 @app.get("/api/connectors/{connector_id}", tags=["Connectors"])
 def get_connector(connector_id: str):
@@ -433,18 +528,37 @@ def get_connector(connector_id: str):
             cfg = CONNECTOR_CONFIGS.get(connector_id, {})
             needs = False
             for f in meta.get("requiredFields", []):
-                if f.get("secret") and not CONNECTOR_SECRETS.get(connector_id, {}).get(f["key"]):
+                if f.get("secret") and not CONNECTOR_SECRETS.get(connector_id, {}).get(
+                    f["key"]
+                ):
                     needs = True
-            out = {**c, **{
-                "capabilities": meta.get("capabilities"),
-                "requiredFields": meta.get("requiredFields", []),
-                "scopes": meta.get("scopes", []),
-                "options": meta.get("options", []),
-                "needsAdminSecret": needs,
-                "config": {k: ("••••" if any(f.get("key") == k and f.get("secret") for f in meta.get("requiredFields", [])) else v) for k, v in {**cfg, **CONNECTOR_SECRETS.get(connector_id, {})}.items()},
-            }}
+            out = {
+                **c,
+                **{
+                    "capabilities": meta.get("capabilities"),
+                    "requiredFields": meta.get("requiredFields", []),
+                    "scopes": meta.get("scopes", []),
+                    "options": meta.get("options", []),
+                    "needsAdminSecret": needs,
+                    "config": {
+                        k: (
+                            "••••"
+                            if any(
+                                f.get("key") == k and f.get("secret")
+                                for f in meta.get("requiredFields", [])
+                            )
+                            else v
+                        )
+                        for k, v in {
+                            **cfg,
+                            **CONNECTOR_SECRETS.get(connector_id, {}),
+                        }.items()
+                    },
+                },
+            }
             return out
     raise HTTPException(status_code=404, detail={"error": "Connector not found"})
+
 
 @app.post("/api/connectors/{connector_id}/config", tags=["Connectors"])
 def set_connector_config(connector_id: str, body: Dict[str, dict] = Body(...)):
@@ -455,8 +569,13 @@ def set_connector_config(connector_id: str, body: Dict[str, dict] = Body(...)):
     allowed = {f["key"]: f for f in meta.get("requiredFields", [])}
     unknown = [k for k in fields.keys() if k not in allowed]
     if unknown:
-        logger.warning("[connectors] CONFIG unknown keys id=%s fields=%s", connector_id, unknown)
-        return JSONResponse(status_code=400, content={"ok": False, "error": f"Unknown fields: {', '.join(unknown)}"})
+        logger.warning(
+            "[connectors] CONFIG unknown keys id=%s fields=%s", connector_id, unknown
+        )
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": f"Unknown fields: {', '.join(unknown)}"},
+        )
     # Persist split by secret flag
     cfg = CONNECTOR_CONFIGS.setdefault(connector_id, {})
     sec = CONNECTOR_SECRETS.setdefault(connector_id, {})
@@ -465,10 +584,17 @@ def set_connector_config(connector_id: str, body: Dict[str, dict] = Body(...)):
             sec[k] = v
         else:
             cfg[k] = v
-    logger.info("[connectors] CONFIG id=%s updated keys=%s", connector_id, list(fields.keys()))
+    logger.info(
+        "[connectors] CONFIG id=%s updated keys=%s", connector_id, list(fields.keys())
+    )
     # Return masked config
-    masked = {k: ("••••" if allowed[k].get("secret") else v) for k, v in {**cfg, **sec}.items() if k in allowed}
+    masked = {
+        k: ("••••" if allowed[k].get("secret") else v)
+        for k, v in {**cfg, **sec}.items()
+        if k in allowed
+    }
     return {"ok": True, "id": connector_id, "config": masked}
+
 
 @app.post("/api/connectors/github/authorize", tags=["Connectors"])
 def github_authorize(body: Dict[str, str] = Body(...)):
@@ -476,17 +602,30 @@ def github_authorize(body: Dict[str, str] = Body(...)):
     redirect_uri = body.get("redirectUri")
     if not redirect_uri:
         raise HTTPException(status_code=400, detail={"error": "redirectUri required"})
-    client_id = CONNECTOR_CONFIGS.get(cid, {}).get("client_id") or os.getenv("GITHUB_CLIENT_ID")
+    client_id = CONNECTOR_CONFIGS.get(cid, {}).get("client_id") or os.getenv(
+        "GITHUB_CLIENT_ID"
+    )
     if not client_id:
-        raise HTTPException(status_code=400, detail={"error": "Client ID missing; set via config first"})
+        raise HTTPException(
+            status_code=400, detail={"error": "Client ID missing; set via config first"}
+        )
     # PKCE (simplified): generate state and code_verifier; we only return state and authUrl
-    import secrets, hashlib, base64
+    import base64
+    import hashlib
+    import secrets
+
     def b64url(b: bytes) -> str:
         return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
     code_verifier = b64url(secrets.token_bytes(32))
     challenge = b64url(hashlib.sha256(code_verifier.encode()).digest())
     state = b64url(secrets.token_bytes(16))
-    AUTH_TX[state] = {"connector_id": cid, "code_verifier": code_verifier, "redirect_uri": redirect_uri, "ts": datetime.utcnow().isoformat()}
+    AUTH_TX[state] = {
+        "connector_id": cid,
+        "code_verifier": code_verifier,
+        "redirect_uri": redirect_uri,
+        "ts": datetime.utcnow().isoformat(),
+    }
     scope = "repo read:org"
     auth_url = (
         "https://github.com/login/oauth/authorize"
@@ -494,6 +633,7 @@ def github_authorize(body: Dict[str, str] = Body(...)):
     )
     logger.info("[connectors] AUTHORIZE id=github state=%s", state)
     return {"authUrl": auth_url, "state": state}
+
 
 @app.get("/api/connectors/github/callback", tags=["Connectors"])
 def github_callback(code: str = Query(...), state: str = Query(...)):
@@ -510,6 +650,7 @@ def github_callback(code: str = Query(...), state: str = Query(...)):
     # Redirect back to UI
     return {"ok": True, "message": "Authorized"}
 
+
 @app.post("/api/connectors/{connector_id}/test", tags=["Connectors"])
 def connector_test(connector_id: str):
     if connector_id == "github":
@@ -517,18 +658,24 @@ def connector_test(connector_id: str):
         return {"ok": ok, "message": "Connection OK" if ok else "Not connected"}
     return {"ok": True, "message": "Connection OK"}
 
+
 @app.post("/api/connectors/{connector_id}/sync", tags=["Connectors"])
 def connector_sync(connector_id: str):
     jid = str(uuid4())
-    JOBS[jid] = {"status": "done", "result": {"connector": connector_id, "synced": True}}
+    JOBS[jid] = {
+        "status": "done",
+        "result": {"connector": connector_id, "synced": True},
+    }
     logger.info("[connectors] SYNC id=%s job_id=%s", connector_id, jid)
     return {"ok": True, "job_id": jid}
+
 
 @app.get("/health/connectors", tags=["Connectors"])
 def connectors_health():
     total = len(CONNECTORS)
     connected = sum(1 for c in CONNECTORS if c.get("status") == "connected")
     return {"ok": True, "count": total, "connected": connected}
+
 
 @app.get("/jobs/{job_id}", tags=["Tools"])
 def jobs_get(job_id: str):
@@ -543,28 +690,29 @@ def jobs_get(job_id: str):
 # Event System for Real-time Updates
 # =========================
 
+
 # In-memory event system (simple for MVP, can be replaced with Redis later)
 class EventManager:
     def __init__(self):
         self.subscribers = []
-    
+
     def subscribe(self):
         """Subscribe to events - returns a generator for SSE"""
         queue = []
         self.subscribers.append(queue)
         return queue
-    
+
     def unsubscribe(self, queue):
         """Unsubscribe from events"""
         if queue in self.subscribers:
             self.subscribers.remove(queue)
-    
+
     def emit(self, event_type: str, data: dict):
         """Emit an event to all subscribers"""
         event_data = {
             "type": event_type,
             "data": data,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
         # Remove dead subscribers
         dead_subscribers = []
@@ -573,18 +721,17 @@ class EventManager:
                 queue.append(event_data)
             except:
                 dead_subscribers.append(queue)
-        
+
         # Clean up dead subscribers
         for queue in dead_subscribers:
             self.unsubscribe(queue)
+
 
 event_manager = EventManager()
 
 # =========================
 # Chat Threads API
 # =========================
-
-from fastapi import status
 
 
 @app.post("/api/chat/threads", tags=["Chat"])
@@ -593,7 +740,9 @@ def chat_create_thread(body: dict = Body(...)):
     try:
         payload = body or {}
         raw_title = payload.get("title")
-        title = (str(raw_title).strip() if raw_title is not None else "New Chat") or "New Chat"
+        title = (
+            str(raw_title).strip() if raw_title is not None else "New Chat"
+        ) or "New Chat"
         raw_user = payload.get("user_id")
         user_id = str(raw_user) if raw_user not in (None, "") else "default"
         raw_summary = payload.get("summary")
@@ -615,7 +764,9 @@ def chat_create_thread(body: dict = Body(...)):
             # If recent thread exists and has no messages, reuse it
             recent_id = recent_thread.get("id")
             if recent_id and chatlog_db.count_messages(recent_id) == 0:
-                logger.info("Reusing recent empty thread %s for user %s", recent_id, user_id)
+                logger.info(
+                    "Reusing recent empty thread %s for user %s", recent_id, user_id
+                )
                 return {"ok": True, "id": recent_id, "thread": recent_thread}
 
         record = chatlog_db.create_chat_thread(
@@ -624,7 +775,9 @@ def chat_create_thread(body: dict = Body(...)):
             summary=summary,
             project_id=normalized_project,
         )
-        chatlog_db.write_audit_log("create", "chat_thread", str(record["id"]), user_id=user_id)
+        chatlog_db.write_audit_log(
+            "create", "chat_thread", str(record["id"]), user_id=user_id
+        )
         return {"ok": True, "id": record["id"], "thread": record}
     except Exception as exc:
         logger.exception("Failed to create chat thread: %s", exc)
@@ -641,16 +794,20 @@ def chat_list_threads():
         logger.exception("Failed to list chat threads: %s", exc)
         return {"ok": True, "threads": []}
 
+
 # =========================
 # Chat API (persisted messages)
 # =========================
+
 
 @app.post("/api/chat/{thread_id}/messages")
 def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
     role = body.get("role")
     content = body.get("content", "").strip()
     if not role or not content:
-        return JSONResponse(status_code=400, content={"ok": False, "error": "role and content required"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "role and content required"}
+        )
     owner = body.get("user_id") or "default"
     try:
         chatlog_db.ensure_chat_thread(
@@ -665,15 +822,13 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
         raise HTTPException(status_code=500, detail="Failed to persist chat message")
     mid = chatlog_db.create_message(thread_id, role, content)
     chatlog_db.write_audit_log("create", "chat_message", str(mid), user_id=str(owner))
-    
+
     # Emit event for real-time updates
-    event_manager.emit("message.created", {
-        "thread_id": thread_id,
-        "message_id": mid,
-        "role": role,
-        "content": content
-    })
-    
+    event_manager.emit(
+        "message.created",
+        {"thread_id": thread_id, "message_id": mid, "role": role, "content": content},
+    )
+
     return {
         "ok": True,
         "message": {
@@ -684,26 +839,34 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
         },
     }
 
+
 @app.get("/api/chat/{thread_id}/messages")
 def chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
     items = chatlog_db.list_messages(thread_id, limit=limit, offset=offset)
     total = chatlog_db.count_messages(thread_id)
     return {"ok": True, "total": total, "messages": items}
 
+
 @app.delete("/api/chat/{thread_id}/messages/{message_id}")
 def chat_delete_message(thread_id: int, message_id: int):
     chatlog_db.delete_message(thread_id, message_id)
-    chatlog_db.write_audit_log("delete", "chat_message", str(message_id), user_id="default")
+    chatlog_db.write_audit_log(
+        "delete", "chat_message", str(message_id), user_id="default"
+    )
     return {"ok": True}
+
 
 # =========================
 # Thread management
 # =========================
 
+
 @app.patch("/api/chat/threads/{thread_id}", tags=["Chat"])
 def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
     if body is None:
-        return JSONResponse(status_code=400, content={"ok": False, "error": "No fields provided"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "No fields provided"}
+        )
 
     title: Optional[str] = None
     summary: Optional[str] = None
@@ -725,7 +888,9 @@ def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
             normalized_project = None
 
     if title is None and summary is None and project_id is None:
-        return JSONResponse(status_code=400, content={"ok": False, "error": "No valid fields to update"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "No valid fields to update"}
+        )
 
     try:
         existing = chatlog_db.get_chat_thread(thread_id)
@@ -743,13 +908,21 @@ def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
 
         refreshed = chatlog_db.get_chat_thread(thread_id)
         if refreshed:
-            chatlog_db.write_audit_log("update", "chat_thread", str(thread_id), user_id=refreshed.get("user_id", "default"))
+            chatlog_db.write_audit_log(
+                "update",
+                "chat_thread",
+                str(thread_id),
+                user_id=refreshed.get("user_id", "default"),
+            )
         return {"ok": True, "thread": refreshed}
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("Failed to update chat thread %s: %s", thread_id, exc)
-        return JSONResponse(status_code=500, content={"ok": False, "error": "Failed to update thread"})
+        return JSONResponse(
+            status_code=500, content={"ok": False, "error": "Failed to update thread"}
+        )
+
 
 @app.delete("/api/chat/threads/{thread_id}")
 def delete_thread(thread_id: int):
@@ -759,80 +932,124 @@ def delete_thread(thread_id: int):
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
+
 # =========================
 # Memory API (ephemeral, midterm, longterm)
 # =========================
 
+
 def _silo_valid(s: str) -> bool:
     return s in ("ephemeral", "midterm", "longterm")
+
 
 @app.get("/api/memory/{silo}")
 def memory_list(silo: str, limit: int = 50, offset: int = 0):
     if not _silo_valid(silo):
-        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid silo"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "invalid silo"}
+        )
     if silo == "ephemeral":
-        items = EPHEMERAL_MEMORY[offset: offset + limit]
+        items = EPHEMERAL_MEMORY[offset : offset + limit]
         return {"ok": True, "count": len(EPHEMERAL_MEMORY), "entries": items}
     items = chatlog_db.list_memories(silo, limit=limit, offset=offset)
     count = chatlog_db.count_memories(silo)
     return {"ok": True, "count": count, "entries": items}
 
+
 @app.post("/api/memory/{silo}")
 def memory_create(silo: str, body: Dict[str, object] = Body(...)):
     if not _silo_valid(silo):
-        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid silo"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "invalid silo"}
+        )
     content = str(body.get("content", "")).strip()
     tags = ",".join(body.get("tags", []) or [])
     pinned = bool(body.get("pinned", False))
     if not content:
-        return JSONResponse(status_code=400, content={"ok": False, "error": "content required"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "content required"}
+        )
     if silo == "ephemeral":
-        entry = {"id": len(EPHEMERAL_MEMORY) + 1, "user_id": "default", "silo": "ephemeral", "content": content, "tags": tags, "pinned": pinned, "created_at": datetime.utcnow().isoformat(), "updated_at": datetime.utcnow().isoformat()}
+        entry = {
+            "id": len(EPHEMERAL_MEMORY) + 1,
+            "user_id": "default",
+            "silo": "ephemeral",
+            "content": content,
+            "tags": tags,
+            "pinned": pinned,
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
         EPHEMERAL_MEMORY.append(entry)
         return {"ok": True, "entry": entry}
     eid = chatlog_db.add_memory("default", silo, content, tags=tags, pinned=pinned)
     chatlog_db.write_audit_log("create", "memory_entry", str(eid), user_id="default")
     return {"ok": True, "id": eid}
 
+
 @app.patch("/api/memory/{silo}/{entry_id}")
 def memory_update(silo: str, entry_id: int, body: Dict[str, object] = Body(...)):
     if not _silo_valid(silo):
-        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid silo"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "invalid silo"}
+        )
     if silo == "ephemeral":
         for e in EPHEMERAL_MEMORY:
             if e.get("id") == entry_id:
-                if "content" in body: e["content"] = str(body["content"])
-                if "tags" in body: e["tags"] = ",".join(body.get("tags", []) or [])
-                if "pinned" in body: e["pinned"] = bool(body["pinned"])
+                if "content" in body:
+                    e["content"] = str(body["content"])
+                if "tags" in body:
+                    e["tags"] = ",".join(body.get("tags", []) or [])
+                if "pinned" in body:
+                    e["pinned"] = bool(body["pinned"])
                 e["updated_at"] = datetime.utcnow().isoformat()
                 return {"ok": True}
-        return JSONResponse(status_code=404, content={"ok": False, "error": "not found"})
+        return JSONResponse(
+            status_code=404, content={"ok": False, "error": "not found"}
+        )
     chatlog_db.update_memory(
         entry_id,
         content=body.get("content"),
-        tags=",".join(body.get("tags", []) or []) if body.get("tags") is not None else None,
+        tags=(
+            ",".join(body.get("tags", []) or [])
+            if body.get("tags") is not None
+            else None
+        ),
         pinned=body.get("pinned") if body.get("pinned") is not None else None,
     )
-    chatlog_db.write_audit_log("update", "memory_entry", str(entry_id), user_id="default")
+    chatlog_db.write_audit_log(
+        "update", "memory_entry", str(entry_id), user_id="default"
+    )
     return {"ok": True}
+
 
 @app.delete("/api/memory/{silo}/{entry_id}")
 def memory_delete(silo: str, entry_id: int):
     if not _silo_valid(silo):
-        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid silo"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "invalid silo"}
+        )
     if silo == "ephemeral":
-        idx = next((i for i, e in enumerate(EPHEMERAL_MEMORY) if e.get("id") == entry_id), -1)
+        idx = next(
+            (i for i, e in enumerate(EPHEMERAL_MEMORY) if e.get("id") == entry_id), -1
+        )
         if idx >= 0:
             EPHEMERAL_MEMORY.pop(idx)
             return {"ok": True}
-        return JSONResponse(status_code=404, content={"ok": False, "error": "not found"})
+        return JSONResponse(
+            status_code=404, content={"ok": False, "error": "not found"}
+        )
     chatlog_db.delete_memory(entry_id)
-    chatlog_db.write_audit_log("delete", "memory_entry", str(entry_id), user_id="default")
+    chatlog_db.write_audit_log(
+        "delete", "memory_entry", str(entry_id), user_id="default"
+    )
     return {"ok": True}
+
 
 # =========================
 # Health endpoints for chat/memory
 # =========================
+
 
 @app.get("/health/memory")
 def health_memory():
@@ -845,6 +1062,7 @@ def health_memory():
         },
     }
 
+
 @app.get("/health/chat")
 def health_chat():
     try:
@@ -856,9 +1074,11 @@ def health_chat():
         messages = 0
     return {"ok": True, "threads": threads, "messages": messages, "backend": DB_BACKEND}
 
+
 # =========================
 # Projects management
 # =========================
+
 
 @app.patch("/projects/{project_id}")
 def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
@@ -874,6 +1094,7 @@ def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
+
 @app.delete("/projects/{project_id}")
 def delete_project_and_eject(project_id: int):
     # Eject threads from this project first
@@ -885,10 +1106,13 @@ def delete_project_and_eject(project_id: int):
     try:
         deleted = chatlog_db.delete_project(project_id)
         if not deleted:
-            return JSONResponse(status_code=404, content={"ok": False, "error": "Project not found"})
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "Project not found"}
+            )
         return {"ok": True}
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
 
 # =========================
 # Pydantic Models
@@ -942,12 +1166,15 @@ def ping():
 # =========================
 # Diagnostics Endpoints
 # =========================
-@app.get("/authz/debug", tags=["Diag"], summary="Echo masked API key received in header")
+@app.get(
+    "/authz/debug", tags=["Diag"], summary="Echo masked API key received in header"
+)
 def authz_debug(api_key: str = Depends(require_api_key)):
     """Return the masked API key received via X-API-Key, masked for safety."""
     key = api_key or ""
     masked = (key[:4] + "…" + key[-4:]) if len(key) > 8 else key
     return {"received_api_key": masked}
+
 
 # Health endpoint for diagnostics
 @app.get("/healthz", tags=["Diag"], summary="DB health and table existence")
@@ -972,14 +1199,20 @@ def healthz():
 
 
 # Debug config endpoint (development only)
-@app.get("/debug/config", tags=["Diag"], summary="Return masked config for debugging (development only)")
+@app.get(
+    "/debug/config",
+    tags=["Diag"],
+    summary="Return masked config for debugging (development only)",
+)
 def debug_config(api_key: str = Depends(require_api_key)):
     """
     Return a small, masked snapshot of runtime config useful for local debugging.
     This endpoint requires a valid X-API-Key header and is intended for dev use only.
     """
     env = os.getenv("GUARDIAN_ENV", "development")
-    masked_key = (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
+    masked_key = (
+        (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
+    )
     db_target = PG_DSN if DB_BACKEND == "postgres" else SQLITE_PATH
     return {
         "env": env,
@@ -1163,6 +1396,7 @@ def history(
 # Thread Lineage Endpoints
 # =========================
 
+
 class ThreadCreateRequest(BaseModel):
     parent_thread_id: int = None
     session_id: str = None
@@ -1184,7 +1418,10 @@ def list_threads(
         items = chatlog_db.list_threads(user_id=user_id, project_id=project_id)
         return {"threads": items}
     except Exception as exc:
-        if "no such table" in str(exc).lower() or getattr(exc, "pgcode", None) == "42P01":
+        if (
+            "no such table" in str(exc).lower()
+            or getattr(exc, "pgcode", None) == "42P01"
+        ):
             return {"threads": []}
         logger.exception("Thread listing failed")
         raise HTTPException(status_code=500, detail="Thread listing failed")
@@ -1253,9 +1490,17 @@ def create_thread(req: ThreadCreateRequest, api_key: str = Depends(require_api_k
     )
     return {"thread_id": thread_id}
 
+
 # Alias: POST /threads (frontend convenience)
-@app.post("/threads", summary="Create a new thread (alias of /thread)", tags=["Threads"], status_code=201)
-def create_thread_alias(req: ThreadCreateRequest, api_key: str = Depends(require_api_key)):
+@app.post(
+    "/threads",
+    summary="Create a new thread (alias of /thread)",
+    tags=["Threads"],
+    status_code=201,
+)
+def create_thread_alias(
+    req: ThreadCreateRequest, api_key: str = Depends(require_api_key)
+):
     return create_thread(req, api_key)
 
 
@@ -1263,9 +1508,11 @@ def create_thread_alias(req: ThreadCreateRequest, api_key: str = Depends(require
 # Projects Endpoints
 # =========================
 
+
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = ""
+
 
 @app.post("/projects", summary="Create a project", tags=["Projects"], status_code=201)
 def create_project_api(body: ProjectCreate, api_key: str = Depends(require_api_key)):
@@ -1278,8 +1525,11 @@ def create_project_api(body: ProjectCreate, api_key: str = Depends(require_api_k
         # In development include the error message to aid debugging; keep generic in production
         env = os.getenv("GUARDIAN_ENV", "development")
         if env == "development":
-            raise HTTPException(status_code=500, detail=f"Failed to create project: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to create project: {e}"
+            )
         raise HTTPException(status_code=500, detail="Failed to create project")
+
 
 @app.get("/projects", summary="List projects", tags=["Projects"])
 def list_projects_api(api_key: str = Depends(require_api_key)):
@@ -1299,6 +1549,7 @@ def list_projects_api(api_key: str = Depends(require_api_key)):
     except Exception:
         logger.exception("Failed to list projects")
         raise HTTPException(status_code=500, detail="Failed to list projects")
+
 
 @app.delete("/projects/{project_id}", summary="Delete a project", tags=["Projects"])
 def delete_project_api(project_id: int, api_key: str = Depends(require_api_key)):
@@ -1344,10 +1595,12 @@ def gemini_test():
 )
 def unified_chat(
     prompt: str = Form(..., description="The chat prompt"),
-    caption_model: str = Form("blip", description="Vision model to use: blip or mondream"),
+    caption_model: str = Form(
+        "blip", description="Vision model to use: blip or mondream"
+    ),
     model: Optional[str] = Form(None, description="LLM model to use (optional)"),
     files: List[UploadFile] = File([], description="Optional file attachments"),
-    api_key: str = Depends(require_api_key)
+    api_key: str = Depends(require_api_key),
 ):
     """
     Send a chat prompt to the active LLM provider (controlled by GUARDIAN_PROVIDER).
@@ -1374,14 +1627,18 @@ def unified_chat(
                 data = f.file.read()
                 img = Image.open(BytesIO(data)).convert("RGB")
                 img = crop_to_content(img)
-                if caption_model.lower() == "mondream" and mondream_processor and mondream_model:
+                if (
+                    caption_model.lower() == "mondream"
+                    and mondream_processor
+                    and mondream_model
+                ):
                     # Mondream symbolic caption
                     inputs = mondream_processor(images=img, return_tensors="pt")
                     enc = mondream_model.encode_image(**inputs)
                     answer = mondream_model.answer_question(
                         enc,
                         mondream_processor.tokenizer,
-                        "Describe every symbolic element in this image."
+                        "Describe every symbolic element in this image.",
                     )
                     captions.append(answer.strip())
                 else:
@@ -1435,7 +1692,9 @@ def unified_chat(
     }
     payload = {"model": model, "prompt": prompt}
     try:
-        response = requests.post(GEMINI_API_URL, json=payload, headers=headers, timeout=30)
+        response = requests.post(
+            GEMINI_API_URL, json=payload, headers=headers, timeout=30
+        )
         response.raise_for_status()
         data = response.json()
         reply_text = data.get("reply", "")
@@ -1455,14 +1714,21 @@ def unified_chat(
         return GeminiChatResponse(model_used=model or "gemini-1.5", reply=reply_text)
     except requests.HTTPError as http_err:
         logger.error(f"HTTP error contacting Gemini API: {http_err}")
-        raise HTTPException(status_code=getattr(response, "status_code", 502), detail=f"Gemini API error: {http_err}")
+        raise HTTPException(
+            status_code=getattr(response, "status_code", 502),
+            detail=f"Gemini API error: {http_err}",
+        )
     except Exception as e:
         logger.error(f"Error contacting Gemini API: {e}")
-        raise HTTPException(status_code=500, detail=f"Error contacting Gemini API: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error contacting Gemini API: {str(e)}"
+        )
 
 
 # Streaming chat endpoint (SSE)
-@app.get("/chat/stream", summary="Stream chat tokens from active provider", tags=["Chat"])
+@app.get(
+    "/chat/stream", summary="Stream chat tokens from active provider", tags=["Chat"]
+)
 async def stream_chat(
     request: Request,
     prompt: str = Query(..., description="The chat prompt"),
@@ -1495,11 +1761,13 @@ async def stream_chat(
             response = requests.post(
                 GEMINI_API_URL,
                 json={"model": model, "prompt": prompt},
-                headers={"Authorization": f"Bearer {GEMINI_API_KEY}"}, timeout=30
+                headers={"Authorization": f"Bearer {GEMINI_API_KEY}"},
+                timeout=30,
             )
             response.raise_for_status()
             reply = response.json().get("reply", "")
             yield f"data: {reply}\n\n"
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
@@ -1584,12 +1852,14 @@ def research_agent(
 # SSE Endpoint for Real-time Updates
 # =========================
 
+
 @app.get("/api/events", tags=["Events"])
 async def events_stream(request: Request):
     """
     Server-Sent Events endpoint for real-time updates.
     Emits events for message creation, thread updates, etc.
     """
+
     async def event_generator():
         queue = event_manager.subscribe()
         try:
@@ -1598,13 +1868,13 @@ async def events_stream(request: Request):
                 if queue:
                     event = queue.pop(0)
                     yield f"data: {json.dumps(event)}\n\n"
-                
+
                 # Send heartbeat every 15 seconds
                 yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.utcnow().isoformat()})}\n\n"
-                
+
                 # Small delay to prevent busy waiting
                 await asyncio.sleep(0.1)
-                
+
                 # Check if client disconnected
                 if await request.is_disconnected():
                     break
@@ -1612,12 +1882,14 @@ async def events_stream(request: Request):
             pass
         finally:
             event_manager.unsubscribe(queue)
-    
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 # =========================
 # Chat Log v2 Endpoints
 # =========================
+
 
 # /history/v2: Retrieve chat logs from new chat_log table
 @app.get("/history/v2", summary="Retrieve chat log history (v2)", tags=["Memory"])

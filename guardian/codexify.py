@@ -91,7 +91,6 @@ def prompt_for_page_id():
 from dotenv import load_dotenv
 
 load_dotenv()
-import copy
 
 
 def load_field_map(fieldmap_path):
@@ -421,7 +420,6 @@ def codexify_database_cli_wrapper():
     if hasattr(args, "command") and args.command == "import-notion":
         # --- Begin import-notion logic ---
         import sys
-        import time
 
         try:
             # Notion token
@@ -961,12 +959,6 @@ def flatten_notion_blocks(blocks):
     Returns a list of Notion block dicts (API-ready).
     """
     return [b["block"] for b in blocks if "block" in b]
-
-
-import datetime
-
-import jinja2
-import requests
 
 
 def guess_notion_type(value):

@@ -8,7 +8,7 @@ import asyncio
 import functools
 import logging
 import time
-from typing import Any, Callable, Dict, List, TypeVar, Optional, Awaitable
+from typing import Any, Awaitable, Callable, Dict, List, Optional, TypeVar
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

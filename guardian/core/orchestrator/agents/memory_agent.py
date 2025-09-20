@@ -6,6 +6,7 @@ using the injected memory client.
 
 import logging
 from typing import Optional
+
 from memoryos.memoryos import Memoryos
 
 logger = logging.getLogger(__name__)

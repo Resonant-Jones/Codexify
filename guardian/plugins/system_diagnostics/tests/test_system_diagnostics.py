@@ -6,13 +6,14 @@ Test suite for system diagnostics functionality.
 
 import json
 import logging
-import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
-from guardian.plugins.system_diagnostics.main import SystemDiagnostics, DiagnosticResult
+import pytest
+
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
+from guardian.plugins.system_diagnostics.main import DiagnosticResult, SystemDiagnostics
 from guardian.threads_structure.thread_manager import ThreadManager
 
 # Configure logging

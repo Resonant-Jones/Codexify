@@ -1,14 +1,13 @@
-# guardian/core/chat_db.py
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
-
+## ChatDB Abstract Base Class
 class ChatDB(ABC):
     """Common interface that both SQLite and Postgres adapters must implement."""
 
-    # ---- chat threads (chat_threads) -------------------------------------
+    ## ---- chat threads (chat_threads) -------------------------------------
     @abstractmethod
     def create_chat_thread(
         self,
@@ -17,6 +16,17 @@ class ChatDB(ABC):
         summary: str = "",
         project_id: Optional[int] = None,
     ) -> Dict[str, Any]:
+        """Create a new chat thread.
+
+        Args:
+            user_id (str): The ID of the user creating the thread.
+            title (str): The title of the chat thread.
+            summary (str, optional): A brief summary of the thread. Defaults to "".
+            project_id (Optional[int], optional): The ID of the project. Defaults to None.
+
+        Returns:
+            Dict[str, Any]: The newly created chat thread.
+        """
         ...
 
     @abstractmethod
@@ -28,14 +38,42 @@ class ChatDB(ABC):
         summary: str = "",
         project_id: Optional[int] = None,
     ) -> Dict[str, Any]:
+        """Ensure a chat thread exists, creating it if necessary.
+
+        Args:
+            thread_id (int): The ID of the thread.
+            user_id (str): The ID of the user.
+            title (str): The title of the chat thread.
+            summary (str, optional): A brief summary of the thread. Defaults to "".
+            project_id (Optional[int], optional): The ID of the project. Defaults to None.
+
+        Returns:
+            Dict[str, Any]: The chat thread.
+        """
         ...
 
     @abstractmethod
     def get_recent_thread(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get the most recent chat thread for a user.
+
+        Args:
+            user_id (str): The ID of the user.
+
+        Returns:
+            Optional[Dict[str, Any]]: The most recent chat thread, or None if none exist.
+        """
         ...
 
     @abstractmethod
     def get_chat_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        """Get a chat thread by ID.
+
+        Args:
+            thread_id (int): The ID of the thread.
+
+        Returns:
+            Optional[Dict[str, Any]]: The chat thread, or None if not found.
+        """
         ...
 
     @abstractmethod
@@ -47,6 +85,17 @@ class ChatDB(ABC):
         user_id: Optional[str] = None,
         project_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
+        """List chat threads.
+
+        Args:
+            limit (int, optional): The maximum number of threads to return. Defaults to 50.
+            offset (int, optional): The offset from which to start. Defaults to 0.
+            user_id (Optional[str], optional): The ID of the user. Defaults to None.
+            project_id (Optional[int], optional): The ID of the project. Defaults to None.
+
+        Returns:
+            List[Dict[str, Any]]: A list of chat threads.
+        """
         ...
 
     @abstractmethod
@@ -58,21 +107,50 @@ class ChatDB(ABC):
         summary: Optional[str] = None,
         project_id: Optional[int] = None,
     ) -> bool:
+        """Update a chat thread.
+
+        Args:
+            thread_id (int): The ID of the thread.
+            title (Optional[str], optional): The new title. Defaults to None.
+            summary (Optional[str], optional): The new summary. Defaults to None.
+            project_id (Optional[int], optional): The new project ID. Defaults to None.
+
+        Returns:
+            None
+        """
         ...
 
     @abstractmethod
     def delete_thread(self, thread_id: int) -> None:
+        """Delete a chat thread.
+
+        Args:
+            thread_id (int): The ID of the thread.
+
+        Returns:
+            None
+        """
         ...
 
     @abstractmethod
     def count_chat_threads(self) -> int:
+        """Count the total number of chat threads.
+
+        Returns:
+            int: The total number of chat threads.
+        """
         ...
 
     @abstractmethod
     def count_all_messages(self) -> int:
+        """Count all messages across all threads.
+
+        Returns:
+            int: The total number of messages.
+        """
         ...
 
-    # ---- chat messages ----------------------------------------------------
+    ## ---- chat messages ----------------------------------------------------
     @abstractmethod
     def create_message(
         self,
@@ -81,6 +159,17 @@ class ChatDB(ABC):
         content: str,
         created_at: Optional[str] = None,
     ) -> int:
+        """Create a new message in a thread.
+
+        Args:
+            thread_id (int): The ID of the thread.
+            role (str): The role of the message sender.
+            content (str): The content of the message.
+            created_at (Optional[str], optional): The timestamp. Defaults to None.
+
+        Returns:
+            int: The ID of the newly created message.
+        """
         ...
 
     @abstractmethod
@@ -91,17 +180,44 @@ class ChatDB(ABC):
         limit: int = 50,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
+        """List messages in a thread.
+
+        Args:
+            thread_id (int): The ID of the thread.
+            limit (int, optional): The maximum number of messages. Defaults to 50.
+            offset (int, optional): The offset. Defaults to 0.
+
+        Returns:
+            List[Dict[str, Any]]: A list of messages in the thread.
+        """
         ...
 
     @abstractmethod
     def count_messages(self, thread_id: int) -> int:
+        """Count messages in a thread.
+
+        Args:
+            thread_id (int): The ID of the thread.
+
+        Returns:
+            int: The number of messages in the thread.
+        """
         ...
 
     @abstractmethod
     def delete_message(self, thread_id: int, message_id: int) -> None:
+        """Delete a message from a thread.
+
+        Args:
+            thread_id (int): The ID of the thread.
+            message_id (int): The ID of the message.
+
+        Returns:
+            None
+        """
         ...
 
-    # ---- legacy thread lineage (threads table) ---------------------------
+    ## ---- legacy thread lineage (threads table) ---------------------------
     @abstractmethod
     def create_thread(
         self,
@@ -111,10 +227,30 @@ class ChatDB(ABC):
         user_id: str,
         project_id: Optional[str] = None,
     ) -> int:
+        """Create a new thread.
+
+        Args:
+            parent_thread_id (Optional[int], optional): The ID of the parent thread. Defaults to None.
+            session_id (str): The session ID.
+            summary (str): A brief summary of the thread.
+            user_id (str): The ID of the user.
+            project_id (Optional[str], optional): The ID of the project. Defaults to None.
+
+        Returns:
+            int: The ID of the newly created thread.
+        """
         ...
 
     @abstractmethod
     def get_thread(self, thread_id: int) -> Optional[Tuple[Any, ...]]:
+        """Get a thread.
+
+        Args:
+            thread_id (int): The ID of the thread.
+
+        Returns:
+            Optional[Tuple[Any, ...]]: The thread data.
+        """
         ...
 
     @abstractmethod
@@ -124,17 +260,42 @@ class ChatDB(ABC):
         user_id: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        """List threads.
+
+        Args:
+            user_id (Optional[str], optional): The ID of the user. Defaults to None.
+            project_id (Optional[str], optional): The ID of the project. Defaults to None.
+
+        Returns:
+            List[Dict[str, Any]]: A list of threads.
+        """
         ...
 
     @abstractmethod
     def get_child_threads(self, parent_thread_id: int) -> List[Tuple[Any, ...]]:
+        """Get child threads of a parent thread.
+
+        Args:
+            parent_thread_id (int): The ID of the parent thread.
+
+        Returns:
+            List[Tuple[Any, ...]]: A list of child threads.
+        """
         ...
 
     @abstractmethod
     def get_thread_summary(self, thread_id: int) -> Optional[str]:
+        """Get the summary of a thread.
+
+        Args:
+            thread_id (int): The ID of the thread.
+
+        Returns:
+            Optional[str]: The summary of the thread.
+        """
         ...
 
-    # ---- chat history -----------------------------------------------------
+    ## ---- chat history -----------------------------------------------------
     @abstractmethod
     def get_chat_history(
         self,
@@ -143,9 +304,19 @@ class ChatDB(ABC):
         user_id: Optional[str] = None,
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
+        """Get chat history.
+
+        Args:
+            session_id (Optional[str], optional): The session ID. Defaults to None.
+            user_id (Optional[str], optional): The ID of the user. Defaults to None.
+            limit (int, optional): The maximum number of history entries. Defaults to 50.
+
+        Returns:
+            List[Dict[str, Any]]: A list of chat history entries.
+        """
         ...
 
-    # ---- memory -----------------------------------------------------------
+    ## ---- memory -----------------------------------------------------------
     @abstractmethod
     def add_memory(
         self,
@@ -158,6 +329,20 @@ class ChatDB(ABC):
         created_at: Optional[str] = None,
         updated_at: Optional[str] = None,
     ) -> int:
+        """Add a memory entry.
+
+        Args:
+            user_id (str): The ID of the user.
+            silo (str): The silo.
+            content (str): The content of the memory entry.
+            tags (str, optional): Tags for the memory entry. Defaults to "".
+            pinned (bool, optional): Whether the entry is pinned. Defaults to False.
+            created_at (Optional[str], optional): The creation timestamp. Defaults to None.
+            updated_at (Optional[str], optional): The update timestamp. Defaults to None.
+
+        Returns:
+            int: The ID of the memory entry.
+        """
         ...
 
     @abstractmethod
@@ -168,10 +353,28 @@ class ChatDB(ABC):
         limit: int = 50,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
+        """List memory entries.
+
+        Args:
+            silo (str): The silo.
+            limit (int, optional): The maximum number of entries. Defaults to 50.
+            offset (int, optional): The offset. Defaults to 0.
+
+        Returns:
+            List[Dict[str, Any]]: A list of memory entries.
+        """
         ...
 
     @abstractmethod
     def count_memories(self, silo: str) -> int:
+        """Count memory entries in a silo.
+
+        Args:
+            silo (str): The silo.
+
+        Returns:
+            int: The number of memory entries.
+        """
         ...
 
     @abstractmethod
@@ -183,10 +386,29 @@ class ChatDB(ABC):
         tags: Optional[str] = None,
         pinned: Optional[bool] = None,
     ) -> None:
+        """Update a memory entry.
+
+        Args:
+            entry_id (int): The ID of the memory entry.
+            content (Optional[str], optional): The new content. Defaults to None.
+            tags (Optional[str], optional): The new tags. Defaults to None.
+            pinned (Optional[bool], optional): Whether the entry is pinned. Defaults to None.
+
+        Returns:
+            None
+        """
         ...
 
     @abstractmethod
     def delete_memory(self, entry_id: int) -> None:
+        """Delete a memory entry.
+
+        Args:
+            entry_id (int): The ID of the memory entry.
+
+        Returns:
+            None
+        """
         ...
 
     @abstractmethod
@@ -199,14 +421,43 @@ class ChatDB(ABC):
         type_: str,
         parent_id: Optional[int] = None,
     ) -> int:
+        """Insert a memory event.
+
+        Args:
+            content (str): The content of the event.
+            tag (Optional[str], optional): The tag. Defaults to None.
+            agent (str): The agent.
+            type_ (str): The type of event.
+            parent_id (Optional[int], optional): The ID of the parent event. Defaults to None.
+
+        Returns:
+            int: The ID of the event.
+        """
         ...
 
     @abstractmethod
     def prune_midterm(self, older_than_iso: str) -> int:
+        """Prune midterm memories.
+
+        Args:
+            older_than_iso (str): The timestamp.
+
+        Returns:
+            int: The number of pruned memories.
+        """
         ...
 
     @abstractmethod
     def search_memory(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Search memories.
+
+        Args:
+            query (str): The search query.
+            limit (int, optional): The maximum number of results. Defaults to 20.
+
+        Returns:
+            List[Dict[str, Any]]: A list of memory entries matching the query.
+        """
         ...
 
     @abstractmethod
@@ -217,6 +468,16 @@ class ChatDB(ABC):
         tag: Optional[str] = None,
         agent: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        """Get history entries.
+
+        Args:
+            limit (int, optional): The maximum number of entries. Defaults to 50.
+            tag (Optional[str], optional): The tag. Defaults to None.
+            agent (Optional[str], optional): The agent. Defaults to None.
+
+        Returns:
+            List[Dict[str, Any]]: A list of history entries.
+        """
         ...
 
     @abstractmethod
@@ -227,23 +488,65 @@ class ChatDB(ABC):
         entity_id: str,
         user_id: str,
     ) -> None:
+        """Write an audit log.
+
+        Args:
+            event (str): The event.
+            entity (str): The entity.
+            entity_id (str): The ID of the entity.
+            user_id (str): The ID of the user.
+
+        Returns:
+            None
+        """
         ...
 
-    # ---- projects ---------------------------------------------------------
+    ## ---- projects ---------------------------------------------------------
     @abstractmethod
     def create_project(self, name: str, description: str = "") -> int:
+        """Create a project.
+
+        Args:
+            name (str): The name of the project.
+            description (str, optional): The description. Defaults to "".
+
+        Returns:
+            int: The ID of the project.
+        """
         ...
 
     @abstractmethod
     def ensure_project(self, name: str, description: str = "") -> int:
+        """Ensure a project exists.
+
+        Args:
+            name (str): The name of the project.
+            description (str, optional): The description. Defaults to "".
+
+        Returns:
+            int: The ID of the project.
+        """
         ...
 
     @abstractmethod
     def list_projects(self) -> List[Dict[str, Any]]:
+        """List projects.
+
+        Returns:
+            List[Dict[str, Any]]: A list of projects.
+        """
         ...
 
     @abstractmethod
     def delete_project(self, project_id: int) -> bool:
+        """Delete a project.
+
+        Args:
+            project_id (int): The ID of the project.
+
+        Returns:
+            bool: Whether the project was deleted.
+        """
         ...
 
     @abstractmethod
@@ -253,19 +556,54 @@ class ChatDB(ABC):
         name: Optional[str] = None,
         description: Optional[str] = None,
     ) -> None:
+        """Update a project.
+
+        Args:
+            project_id (int): The ID of the project.
+            name (Optional[str], optional): The new name. Defaults to None.
+            description (Optional[str], optional): The new description. Defaults to None.
+
+        Returns:
+            None
+        """
         ...
 
     @abstractmethod
     def eject_threads_from_project(self, project_id: int) -> None:
+        """Eject threads from a project.
+
+        Args:
+            project_id (int): The ID of the project.
+
+        Returns:
+            None
+        """
         ...
 
-    # ---- agent profiles ---------------------------------------------------
+    ## ---- agent profiles ---------------------------------------------------
     @abstractmethod
     def get_agent_profile(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Get an agent profile.
+
+        Args:
+            agent_id (str): The ID of the agent.
+
+        Returns:
+            Optional[Dict[str, Any]]: The agent profile.
+        """
         ...
 
     @abstractmethod
     def upsert_agent_profile(self, agent_id: str, **updates: Any) -> None:
+        """Upsert an agent profile.
+
+        Args:
+            agent_id (str): The ID of the agent.
+            **updates (Any): The updates.
+
+        Returns:
+            None
+        """
         ...
 
     @abstractmethod
@@ -274,9 +612,27 @@ class ChatDB(ABC):
         agent_id: str,
         requested_by: str,
     ) -> Tuple[bool, Optional[str]]:
+        """Check if summarization is allowed.
+
+        Args:
+            agent_id (str): The ID of the agent.
+            requested_by (str): The ID of the requester.
+
+        Returns:
+            Tuple[bool, Optional[str]]: A tuple containing a boolean indicating
+                whether summarization is allowed and an optional reason.
+        """
         ...
 
-    # ---- diagnostics ------------------------------------------------------
+    ## ---- diagnostics ------------------------------------------------------
     @abstractmethod
     def table_exists(self, table_name: str) -> bool:
+        """Check if a table exists.
+
+        Args:
+            table_name (str): The name of the table.
+
+        Returns:
+            bool: Whether the table exists.
+        """
         ...

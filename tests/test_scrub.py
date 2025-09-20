@@ -1,22 +1,32 @@
 # tests/test_scrub.py
 import logging
+
 from guardian.server.app import ScrubFormatter
+
 
 def fmt(msg):
     h = logging.StreamHandler()
-    h.setFormatter(ScrubFormatter('%(message)s'))
-    lg = logging.getLogger('t'); lg.handlers=[]; lg.addHandler(h); lg.setLevel(logging.INFO)
-    return h.format(logging.LogRecord('t', logging.INFO, '', 0, msg, (), None))
+    h.setFormatter(ScrubFormatter("%(message)s"))
+    lg = logging.getLogger("t")
+    lg.handlers = []
+    lg.addHandler(h)
+    lg.setLevel(logging.INFO)
+    return h.format(logging.LogRecord("t", logging.INFO, "", 0, msg, (), None))
+
 
 def test_paths_and_secret_context():
-    out = fmt("cred at /x/y/token.json and client_secret plus API secret near credentials")
+    out = fmt(
+        "cred at /x/y/token.json and client_secret plus API secret near credentials"
+    )
     assert "token.json (hidden)" in out
     assert "client_secret (hidden)" in out
     assert "API secret (hidden) is adjacent" in out or "API secret (hidden) near" in out
 
 
 def test_windows_and_mixed_case_paths():
-    out = fmt(r"cred at C:\\Users\\me\\Downloads\\ToKeN.PiCkLe and /Keys/My.PEM plus CREDENTIALS.json")
+    out = fmt(
+        r"cred at C:\\Users\\me\\Downloads\\ToKeN.PiCkLe and /Keys/My.PEM plus CREDENTIALS.json"
+    )
     # should mask common token/secret basenames, case-insensitive
     assert "token.pickle (hidden)" in out
     assert "my.pem (hidden)" in out

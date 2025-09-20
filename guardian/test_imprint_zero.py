@@ -1,9 +1,9 @@
 import asyncio
 import json
-import unittest
-from unittest.mock import MagicMock, mock_open, patch
 import tempfile
+import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, mock_open, patch
 
 from guardian.imprint_zero_onboarding import ImprintZero
 

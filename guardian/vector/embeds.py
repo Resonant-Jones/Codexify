@@ -45,4 +45,3 @@ class Embedder:
             return out
         # stub
         return [_stub_embed(t, self.dim) for t in texts]
-

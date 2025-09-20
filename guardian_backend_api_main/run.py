@@ -8,8 +8,6 @@ from pathlib import Path
 import uvicorn
 
 from guardian.core.db import GuardianDB
-from guardian.imprint_zero import ImprintZero
-from guardian.user_management import UserManager
 
 
 def init_application():

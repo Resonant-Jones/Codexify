@@ -7,7 +7,7 @@ Thread-safe async rate limiting with event loop safety.
 import asyncio
 import logging
 import time
-from typing import Dict, Optional
+from typing import Dict
 
 from guardian.config import Config
 

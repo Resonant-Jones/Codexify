@@ -14,13 +14,15 @@ This module enables the system to:
 
 import json
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from guardian.codex_awareness import CodexAwareness, MemoryArtifact
 from guardian.self_check import epistemic_self_check
-from guardian.threads_structure.thread_manager import ThreadManager  # We'll create this next
+from guardian.threads_structure.thread_manager import (  # We'll create this next
+    ThreadManager,
+)
 
 # Configure logging
 logging.basicConfig(

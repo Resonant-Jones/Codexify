@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from guardian.cache import lru_cache_safe, memoize_to_disk
-from guardian.config import Config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -113,7 +112,7 @@ class MemoryStore:
             List[Dict[str, Any]]: Matching memories
         """
         placeholders = ",".join("?" * len(tags))
-        query = f"""
+        query = """
             SELECT * FROM memories 
             WHERE tags LIKE ?
             ORDER BY timestamp DESC

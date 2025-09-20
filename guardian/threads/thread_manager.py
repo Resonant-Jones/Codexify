@@ -12,10 +12,10 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta, timezone
-from guardian.utils.datetime import utc_now, to_iso_z
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from datetime import timedelta
+from typing import Any, Dict, List, Optional
+
+from guardian.utils.datetime import to_iso_z, utc_now
 
 # Configure logging
 logging.basicConfig(
@@ -77,9 +77,9 @@ class ThreadManager:
 
     def initialize_agents(self, codex: Any, metacognition: Any) -> None:
         """Initialize agents with required dependencies."""
-        from guardian.agents.vestige import VestigeAgent
         from guardian.agents.axis import AxisAgent
         from guardian.agents.echoform import EchoformAgent
+        from guardian.agents.vestige import VestigeAgent
 
         # Create and register agents
         vestige = VestigeAgent(codex, metacognition)

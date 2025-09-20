@@ -5,12 +5,10 @@ Core decision-making and routing system.
 Provides stable compass for system operations and maintains operational coherence.
 """
 
-import json
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine

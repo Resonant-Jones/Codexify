@@ -1,12 +1,12 @@
 from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
-from typing import Optional
 
-from googleapiclient.discovery import build
-from google.oauth2.service_account import Credentials as SACredentials
 from google.oauth2.credentials import Credentials as OAuthCredentials
+from google.oauth2.service_account import Credentials as SACredentials
+from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
@@ -56,7 +56,8 @@ def build_drive_service(logger=None):
             creds = OAuthCredentials.from_authorized_user_file(str(token_json), SCOPES)
             return build("drive", "v3", credentials=creds, cache_discovery=False)
         raise RuntimeError(
-            "OAuth token not found at %s. Run /codexify/oauth-begin first." % str(token_json)
+            "OAuth token not found at %s. Run /codexify/oauth-begin first."
+            % str(token_json)
         )
 
     # No GOOGLE_APPLICATION_CREDENTIALS => rely on token.json only
@@ -72,4 +73,3 @@ def build_drive_service(logger=None):
         "No Drive credentials. Set GOOGLE_APPLICATION_CREDENTIALS or provide token.json at %s"
         % str(token_json)
     )
-

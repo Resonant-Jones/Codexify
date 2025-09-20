@@ -11,7 +11,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from guardian.utils.performance import batch_flush
 from guardian.config import Config
 
 # Configure logging

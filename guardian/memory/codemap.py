@@ -5,8 +5,8 @@ Provides functionality to load and query the project's codemap.
 """
 
 import json
-import os
 import logging
+import os
 from typing import Dict, List, Optional, Union
 
 # Configure logging
@@ -138,7 +138,6 @@ class CodemapService:
         """
         Initialize the service, optionally loading a custom codemap file.
         """
-        from typing import Optional
 
         if codemap_path:
             try:

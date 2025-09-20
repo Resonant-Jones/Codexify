@@ -11,10 +11,10 @@ Usage:
     history = db.get_history(...)
 """
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-import json
 
 
 class GuardianDB:
@@ -160,9 +160,13 @@ class GuardianDB:
                 if "project_id" not in cols:
                     c.execute("ALTER TABLE chat_threads ADD COLUMN project_id INTEGER")
                 if "created_at" not in cols:
-                    c.execute("ALTER TABLE chat_threads ADD COLUMN created_at TEXT DEFAULT (datetime('now'))")
+                    c.execute(
+                        "ALTER TABLE chat_threads ADD COLUMN created_at TEXT DEFAULT (datetime('now'))"
+                    )
                 if "updated_at" not in cols:
-                    c.execute("ALTER TABLE chat_threads ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))")
+                    c.execute(
+                        "ALTER TABLE chat_threads ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))"
+                    )
             except Exception:
                 pass
             # chat_messages: per-thread chat messages
@@ -178,12 +182,16 @@ class GuardianDB:
                 )
                 """
             )
-            c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_id ON chat_messages(thread_id)")
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_id ON chat_messages(thread_id)"
+            )
             try:
                 c.execute("PRAGMA table_info(chat_messages)")
                 msg_cols = {row[1] for row in c.fetchall()}
                 if "created_at" not in msg_cols:
-                    c.execute("ALTER TABLE chat_messages ADD COLUMN created_at TEXT DEFAULT (datetime('now'))")
+                    c.execute(
+                        "ALTER TABLE chat_messages ADD COLUMN created_at TEXT DEFAULT (datetime('now'))"
+                    )
             except Exception:
                 pass
 
@@ -202,7 +210,9 @@ class GuardianDB:
                 )
                 """
             )
-            c.execute("CREATE INDEX IF NOT EXISTS idx_memory_entries_silo ON memory_entries(silo)")
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memory_entries_silo ON memory_entries(silo)"
+            )
 
             # audit_log: generic audit trail
             c.execute(
@@ -234,9 +244,13 @@ class GuardianDB:
                 c.execute("PRAGMA table_info(agent_profiles)")
                 cols = {row[1] for row in c.fetchall()}
                 if "summarization_frequency" not in cols:
-                    c.execute("ALTER TABLE agent_profiles ADD COLUMN summarization_frequency INTEGER DEFAULT 0")
+                    c.execute(
+                        "ALTER TABLE agent_profiles ADD COLUMN summarization_frequency INTEGER DEFAULT 0"
+                    )
                 if "last_summarized_at" not in cols:
-                    c.execute("ALTER TABLE agent_profiles ADD COLUMN last_summarized_at TEXT")
+                    c.execute(
+                        "ALTER TABLE agent_profiles ADD COLUMN last_summarized_at TEXT"
+                    )
             except Exception:
                 pass
 
@@ -419,7 +433,9 @@ class GuardianDB:
             conn.commit()
             return c.lastrowid
 
-    def list_memories(self, silo: str, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    def list_memories(
+        self, silo: str, limit: int = 50, offset: int = 0
+    ) -> List[Dict[str, Any]]:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute(
@@ -436,7 +452,13 @@ class GuardianDB:
             c.execute("SELECT COUNT(*) FROM memory_entries WHERE silo = ?", (silo,))
             return int(c.fetchone()[0])
 
-    def update_memory(self, entry_id: int, content: Optional[str] = None, tags: Optional[str] = None, pinned: Optional[bool] = None) -> None:
+    def update_memory(
+        self,
+        entry_id: int,
+        content: Optional[str] = None,
+        tags: Optional[str] = None,
+        pinned: Optional[bool] = None,
+    ) -> None:
         fields = []
         params = []
         if content is not None:
@@ -453,7 +475,9 @@ class GuardianDB:
         params.append(entry_id)
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute(f"UPDATE memory_entries SET {', '.join(fields)} WHERE id = ?", params)
+            c.execute(
+                f"UPDATE memory_entries SET {', '.join(fields)} WHERE id = ?", params
+            )
             conn.commit()
 
     def delete_memory(self, entry_id: int) -> None:
@@ -463,7 +487,9 @@ class GuardianDB:
             conn.commit()
 
     # ---- Audit log ----
-    def write_audit_log(self, event: str, entity: str, entity_id: str, user_id: str) -> None:
+    def write_audit_log(
+        self, event: str, entity: str, entity_id: str, user_id: str
+    ) -> None:
         ts = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -477,7 +503,10 @@ class GuardianDB:
     def prune_midterm(self, older_than_iso: str) -> int:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute("DELETE FROM memory_entries WHERE silo = 'midterm' AND updated_at < ?", (older_than_iso,))
+            c.execute(
+                "DELETE FROM memory_entries WHERE silo = 'midterm' AND updated_at < ?",
+                (older_than_iso,),
+            )
             deleted = c.rowcount
             conn.commit()
             return deleted
@@ -621,7 +650,9 @@ class GuardianDB:
         params.append(thread_id)
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute(f"UPDATE chat_threads SET {', '.join(fields)} WHERE id = ?", params)
+            c.execute(
+                f"UPDATE chat_threads SET {', '.join(fields)} WHERE id = ?", params
+            )
             conn.commit()
             return c.rowcount > 0
 
@@ -693,9 +724,7 @@ class GuardianDB:
             select_cols = ["id", "name", "description", "created_at"]
             if "updated_at" in available:
                 select_cols.append("updated_at")
-            c.execute(
-                f"SELECT {', '.join(select_cols)} FROM projects ORDER BY id DESC"
-            )
+            c.execute(f"SELECT {', '.join(select_cols)} FROM projects ORDER BY id DESC")
             rows = c.fetchall()
             cols = [d[0] for d in c.description]
             return [dict(zip(cols, r)) for r in rows]
@@ -707,7 +736,12 @@ class GuardianDB:
             conn.commit()
             return c.rowcount > 0
 
-    def update_project(self, project_id: int, name: Optional[str] = None, description: Optional[str] = None) -> None:
+    def update_project(
+        self,
+        project_id: int,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> None:
         fields = []
         params = []
         if name is not None:
@@ -727,7 +761,10 @@ class GuardianDB:
     def eject_threads_from_project(self, project_id: int) -> None:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute("UPDATE chat_threads SET project_id = NULL WHERE project_id = ?", (project_id,))
+            c.execute(
+                "UPDATE chat_threads SET project_id = NULL WHERE project_id = ?",
+                (project_id,),
+            )
             conn.commit()
 
     def table_exists(self, table_name: str) -> bool:
@@ -878,7 +915,9 @@ class GuardianDB:
         )
 
     # ---- Chat message helpers ----
-    def create_message(self, thread_id: int, role: str, content: str, created_at: Optional[str] = None) -> int:
+    def create_message(
+        self, thread_id: int, role: str, content: str, created_at: Optional[str] = None
+    ) -> int:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             if created_at is not None:
@@ -899,7 +938,9 @@ class GuardianDB:
             conn.commit()
             return msg_id
 
-    def list_messages(self, thread_id: int, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    def list_messages(
+        self, thread_id: int, limit: int = 50, offset: int = 0
+    ) -> List[Dict[str, Any]]:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute(
@@ -913,7 +954,9 @@ class GuardianDB:
     def count_messages(self, thread_id: int) -> int:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM chat_messages WHERE thread_id = ?", (thread_id,))
+            c.execute(
+                "SELECT COUNT(*) FROM chat_messages WHERE thread_id = ?", (thread_id,)
+            )
             return int(c.fetchone()[0])
 
     def get_recent_thread(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -935,7 +978,9 @@ class GuardianDB:
 
             # Check if this thread has any messages
             thread_id = row[0]
-            c.execute("SELECT COUNT(*) FROM chat_messages WHERE thread_id = ?", (thread_id,))
+            c.execute(
+                "SELECT COUNT(*) FROM chat_messages WHERE thread_id = ?", (thread_id,)
+            )
             message_count = int(c.fetchone()[0])
 
             # Only return the thread if it has no messages (empty thread)
@@ -943,11 +988,13 @@ class GuardianDB:
                 return dict(zip(cols, row))
             return None
 
-
     def delete_message(self, thread_id: int, message_id: int) -> None:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute("DELETE FROM chat_messages WHERE id = ? AND thread_id = ?", (message_id, thread_id))
+            c.execute(
+                "DELETE FROM chat_messages WHERE id = ? AND thread_id = ?",
+                (message_id, thread_id),
+            )
             conn.commit()
 
     # ---- Agent profile helpers ----
@@ -955,7 +1002,10 @@ class GuardianDB:
         """Return the stored JSON profile dict for the agent, or None."""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute("SELECT profile_json, summarization_frequency, last_summarized_at FROM agent_profiles WHERE agent_id = ?", (agent_id,))
+            c.execute(
+                "SELECT profile_json, summarization_frequency, last_summarized_at FROM agent_profiles WHERE agent_id = ?",
+                (agent_id,),
+            )
             row = c.fetchone()
             if not row:
                 return None
@@ -998,7 +1048,9 @@ class GuardianDB:
             )
             conn.commit()
 
-    def check_summarization_allowed(self, agent_id: str, requested_by: str) -> Tuple[bool, str]:
+    def check_summarization_allowed(
+        self, agent_id: str, requested_by: str
+    ) -> Tuple[bool, str]:
         """
         Simple throttle check: returns (allowed, msg).  Always allow if frequency = 0.
         """

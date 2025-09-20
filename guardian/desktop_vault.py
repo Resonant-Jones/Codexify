@@ -13,7 +13,6 @@ or any desktop client.
 from __future__ import annotations
 
 import os
-import base64
 from pathlib import Path
 from typing import Optional
 
@@ -61,7 +60,9 @@ class CodexifyDesktopVault:
         with self.vault_path.open("wb") as f:
             f.write(nonce + ciphertext)
 
-    def decrypt(self, passphrase: str, associated_data: Optional[bytes] = None) -> bytes:
+    def decrypt(
+        self, passphrase: str, associated_data: Optional[bytes] = None
+    ) -> bytes:
         """
         Decrypt the vault using ``passphrase``.
         Returns the plaintext bytes.

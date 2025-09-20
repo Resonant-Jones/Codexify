@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
 from typing import Any, List, Optional
+
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 # Local imports – these modules are created in this task
@@ -8,22 +9,26 @@ from guardian.vector_store import VectorStore
 
 router = APIRouter()
 
+
 # ----------------------------------------------------------------------
 # Request models
 # ----------------------------------------------------------------------
 class CodexifyRequest(BaseModel):
     """Payload for the original /codexify endpoint."""
+
     text: str
     tags: Optional[List[str]] = None
 
 
 class EmbedRequest(BaseModel):
     """Payload for the /embed endpoint."""
+
     text: str
 
 
 class SearchRequest(BaseModel):
     """Payload for the /search endpoint."""
+
     query: str
 
 

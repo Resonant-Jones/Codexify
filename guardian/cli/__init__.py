@@ -1,14 +1,15 @@
-from .memoryos_cli import cli
-from .imprint_zero_cli import ImprintZeroCommand as ImprintZero
-from .codexify_oauth_status import oauth_status_cmd
 from .codexify_export_gdrive import export_gdrive_cmd
 from .codexify_oauth_begin import oauth_begin_cmd
+from .codexify_oauth_status import oauth_status_cmd
 from .codexify_save_entry import save_entry_cmd
+from .imprint_zero_cli import ImprintZeroCommand as ImprintZero
+from .memoryos_cli import cli
 
 # Register additional memory-related commands
 try:
     from guardian.cli.memory.embed import embed  # type: ignore
     from guardian.cli.memory.embed_diagnose import embed_diagnose  # type: ignore
+
     cli.add_command(embed)
     cli.add_command(embed_diagnose)
 except Exception:

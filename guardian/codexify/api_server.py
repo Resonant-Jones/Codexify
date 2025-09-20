@@ -1,12 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from guardian.codexify import create_notion_database_from_records
 from guardian.export_engine import (
     export_to_gdrive,
     import_from_gdrive,
     import_from_icloud,
 )
-from guardian.codexify import create_notion_database_from_records
 
 app = FastAPI(title="Codexify API", version="0.1")
 
@@ -38,9 +38,7 @@ class NotionImportRequest(BaseModel):
 @app.post("/guardian/export-gdrive")
 def export_gdrive(req: GDriveExportRequest):
     try:
-        result = export_to_gdrive(
-            req.records, format=req.format, folder_id=req.folder
-        )
+        result = export_to_gdrive(req.records, format=req.format, folder_id=req.folder)
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

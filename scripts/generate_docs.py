@@ -6,14 +6,11 @@ Generates comprehensive system documentation from codebase.
 """
 
 import ast
-import inspect
 import json
 import logging
-import os
-import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List
 from guardian.logging_config import configure_logging
 
 # Configure logging

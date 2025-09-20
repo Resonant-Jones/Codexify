@@ -1,6 +1,7 @@
 """
 Groq chat adapter.
 """
+
 # SPDX-License-Identifier: MIT
 import os
 from typing import Iterator, Optional
@@ -33,7 +34,7 @@ class GroqChat(ChatProvider):
             timeout=self.timeout,
             **kw,
         )
-        return (r.choices[0].message.content or "")
+        return r.choices[0].message.content or ""
 
     def stream(self, prompt: str, model: Optional[str] = None, **kw) -> Iterator[str]:
         model = model or _DEFAULT
@@ -57,4 +58,3 @@ class GroqChat(ChatProvider):
                         yield text
             except Exception:
                 continue
-

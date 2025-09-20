@@ -1,12 +1,12 @@
 import json
 import os
-from pathlib import Path
-from typing import List, Dict, Any
-import click
-import requests
-import sys
 import subprocess
 import webbrowser
+from pathlib import Path
+from typing import Any, Dict, List
+
+import click
+import requests
 
 
 def _default_base() -> str:
@@ -49,7 +49,11 @@ def _load_records_from_file(path: Path) -> List[Dict[str, Any]]:
 )
 @click.option("--folder", help="Google Drive folder ID.")
 @click.option("--folder-url", help="Google Drive folder URL.")
-@click.option("--front-matter", "front_matter", help="JSON object to include as YAML front matter (md only). Applies to batch header.")
+@click.option(
+    "--front-matter",
+    "front_matter",
+    help="JSON object to include as YAML front matter (md only). Applies to batch header.",
+)
 @click.option(
     "--share/--no-share",
     default=False,
@@ -93,13 +97,16 @@ def export_gdrive_cmd(
             if file_path.strip() == "-":
                 # Read NDJSON or JSON array from stdin
                 import sys
+
                 text = sys.stdin.read()
                 try:
                     data = json.loads(text)
                     if isinstance(data, list):
                         records = data
                     else:
-                        raise ValueError("Top-level JSON must be an array when using stdin.")
+                        raise ValueError(
+                            "Top-level JSON must be an array when using stdin."
+                        )
                 except Exception:
                     # Fallback to NDJSON parsing
                     records = []
@@ -113,11 +120,19 @@ def export_gdrive_cmd(
                 if not p.exists():
                     try:
                         p.parent.mkdir(parents=True, exist_ok=True)
-                        p.write_text('[\n  {"title": "Example Title", "body": "Your text here"}\n]\n', encoding="utf-8")
-                        click.echo(f"Created template file at {p}. Edit it and rerun.", err=True)
+                        p.write_text(
+                            '[\n  {"title": "Example Title", "body": "Your text here"}\n]\n',
+                            encoding="utf-8",
+                        )
+                        click.echo(
+                            f"Created template file at {p}. Edit it and rerun.",
+                            err=True,
+                        )
                         return
                     except Exception as e:
-                        raise click.ClickException(f"Failed to create template at {p}: {e}")
+                        raise click.ClickException(
+                            f"Failed to create template at {p}: {e}"
+                        )
                 records = _load_records_from_file(p)
         else:
             records: List[Dict[str, Any]] = []

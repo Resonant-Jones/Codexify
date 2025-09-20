@@ -7,7 +7,7 @@ import re
 import secrets
 import string
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ..model import Model
 from ..prompt import summary_prompt
@@ -75,7 +75,7 @@ class Summary(object):
                 self.result.append(response_obj)
 
             except:
-                print(f"Failed to parse or validate JSON summary")
+                print("Failed to parse or validate JSON summary")
 
         return self.result
 

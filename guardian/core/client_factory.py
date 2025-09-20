@@ -1,11 +1,11 @@
 # guardian/core/client_factory.py
 from functools import lru_cache
 
-from .config import settings
-from memoryos.memoryos import Memoryos
-
 # Import embedders
 from memoryos.embedders.local_embedder import LocalEmbedder
+from memoryos.memoryos import Memoryos
+
+from .config import settings
 
 # from MemoryOS_main.embedders.openai_embedder import OpenAIEmbedder # Example
 # from MemoryOS_main.embedders.groq_embedder import GroqEmbedder # Example

@@ -8,12 +8,12 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from guardian.config.core import Config
-from guardian.utils.safeguard import throttle, debounce
+from guardian.utils.safeguard import debounce, throttle
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -8,6 +8,7 @@ translates her will into agentic action.
 
 import json
 
+
 def _get_effective_timeout():
     try:
         # Use module-level settings so tests can patch it
@@ -17,13 +18,14 @@ def _get_effective_timeout():
     # prefer settings.AGENT_TIMEOUT_SECONDS if present; else env; else 2.0
     if _s is not None:
         try:
-            val = getattr(_s, 'AGENT_TIMEOUT_SECONDS', None)
+            val = getattr(_s, "AGENT_TIMEOUT_SECONDS", None)
             if val is not None:
                 return float(val)
         except Exception:
             pass
     import os
-    env = os.getenv('FORESIGHT_TIMEOUT')
+
+    env = os.getenv("FORESIGHT_TIMEOUT")
     if env and env.strip():
         try:
             return float(env)
@@ -31,7 +33,9 @@ def _get_effective_timeout():
             pass
     return 2.0
 
+
 import logging
+
 logger = logging.getLogger(__name__)
 import asyncio
 import os
@@ -41,27 +45,27 @@ from functools import lru_cache
 
 try:
     from pebble import ProcessPool  # type: ignore
+
     _HAVE_PEBBLE = True
 except Exception:  # ImportError or runtime issues
     from concurrent.futures import ProcessPoolExecutor as ProcessPool  # type: ignore
+
     _HAVE_PEBBLE = False
 
-from guardian.core.config import settings
+import logging
+
+# --- Load environment variables from .env if present ---
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
+
 from guardian.core.client_factory import get_memoryos_instance
+from guardian.core.config import settings
 from guardian.core.orchestrator.agents.foresight_agent import run_foresight
 from guardian.core.orchestrator.agents.health_agent import get_health_summary
 from guardian.core.orchestrator.agents.memory_agent import fetch_memory
 from guardian.core.orchestrator.agents.ritual_agent import trigger_ritual
-
-from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
-from fastapi.responses import JSONResponse, StreamingResponse
-import uuid
-
-# --- Load environment variables from .env if present ---
-from dotenv import load_dotenv
-import os
-import logging
 
 logger = logging.getLogger(__name__)
 # Load environment variables from .env file
@@ -69,7 +73,6 @@ load_dotenv()
 logger.info("🔑 GOOGLE_API_KEY: %s", os.getenv("GOOGLE_API_KEY"))
 logger.info("🔑 GEMINI_API_KEY: %s", os.getenv("GEMINI_API_KEY"))
 logger.info("🔑 OPENAI_API_KEY: %s", os.getenv("OPENAI_API_KEY"))
-
 
 
 app = FastAPI()
@@ -153,7 +156,9 @@ def orchestrate(command: dict):
             # In pytest, avoid spawning a separate process so monkeypatches apply
             # Determine effective timeout (allow FORESIGHT_TIMEOUT override for foresight runs)
             effective_timeout = (
-                _get_effective_timeout() if action == "run_foresight" else settings.AGENT_TIMEOUT_SECONDS
+                _get_effective_timeout()
+                if action == "run_foresight"
+                else settings.AGENT_TIMEOUT_SECONDS
             )
 
             if os.getenv("PYTEST_CURRENT_TEST"):
@@ -172,10 +177,11 @@ def orchestrate(command: dict):
                                 round(jitter, 2),
                             )
                             import time as _t
+
                             _t.sleep(jitter)
-                            result = ex.submit(_execute_agent_task, agent_function, params).result(
-                                timeout=effective_timeout
-                            )
+                            result = ex.submit(
+                                _execute_agent_task, agent_function, params
+                            ).result(timeout=effective_timeout)
                         else:
                             raise
             elif _HAVE_PEBBLE:
@@ -196,6 +202,7 @@ def orchestrate(command: dict):
                                 round(jitter, 2),
                             )
                             import time as _t
+
                             _t.sleep(jitter)
                             future = pool.schedule(
                                 function=_execute_agent_task,
@@ -222,10 +229,11 @@ def orchestrate(command: dict):
                                 round(jitter, 2),
                             )
                             import time as _t
+
                             _t.sleep(jitter)
-                            result = ex.submit(_execute_agent_task, agent_function, params).result(
-                                timeout=effective_timeout
-                            )
+                            result = ex.submit(
+                                _execute_agent_task, agent_function, params
+                            ).result(timeout=effective_timeout)
                         else:
                             raise
 
@@ -268,10 +276,11 @@ async def orchestrate_streaming(command: dict):
         chunk_command = {"action": action, "params": chunk_params}
 
         result = orchestrate(chunk_command)
-        yield json.dumps({"chunk": idx+1, "result": result}) + "\n"
+        yield json.dumps({"chunk": idx + 1, "result": result}) + "\n"
 
         # Optional delay to simulate processing time and keep spinner alive
         await asyncio.sleep(0.1)
+
 
 # TODO: Consider better chunking logic on the client-side or pre-processing large instructions.
 
@@ -282,8 +291,7 @@ async def orchestrate_endpoint(command: OrchestrateCommand, request: Request):
     # Detect streaming requests via 'stream' param
     if command_dict.get("params", {}).get("stream", False):
         return StreamingResponse(
-            orchestrate_streaming(command_dict),
-            media_type="application/json"
+            orchestrate_streaming(command_dict), media_type="application/json"
         )
     else:
         response = orchestrate(command_dict)

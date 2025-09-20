@@ -5,7 +5,7 @@ health data, and optionally calendar events or behavior patterns.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from memoryos.memoryos import Memoryos
 
@@ -39,7 +39,7 @@ def _handle_stress_foresight(
         }
     return {
         "status": STATUS_OK,
-        "message": f"Stress levels appear stable over the past two weeks. No action needed right now.",
+        "message": "Stress levels appear stable over the past two weeks. No action needed right now.",
     }
 
 

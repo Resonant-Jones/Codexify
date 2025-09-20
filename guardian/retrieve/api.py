@@ -19,4 +19,3 @@ def retrieve(body: Dict[str, Any]):
     k = int(body.get("k") or 5)
     matches = _store.search(q, k=k) if q else []
     return {"matches": matches}
-

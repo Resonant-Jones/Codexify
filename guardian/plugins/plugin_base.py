@@ -5,7 +5,7 @@ Defines the base contract that all Guardian plugins must implement.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 class PluginBase(ABC):

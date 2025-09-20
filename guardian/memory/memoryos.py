@@ -6,10 +6,10 @@ Core memory management system that integrates various memory services.
 
 import logging
 import time
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Union
 from uuid import uuid4
 
-from .codemap import load_codemap, query_codemap, format_results
+from .codemap import format_results, load_codemap, query_codemap
 from .conversation import Conversation, ConversationManager
 
 # Configure logging

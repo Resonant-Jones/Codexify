@@ -9,9 +9,8 @@ import logging
 import signal
 import sys
 import threading
-from datetime import datetime, UTC
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any, Dict
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.config.system_config import system_config

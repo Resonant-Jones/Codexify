@@ -1,5 +1,8 @@
+import os
+import socket
+
 import pytest
-import os, socket
+
 
 def _internet():
     try:
@@ -8,10 +11,12 @@ def _internet():
     except OSError:
         return False
 
+
 pytestmark = pytest.mark.skipif(
     not _internet() or not os.getenv("ALLOW_NET_TESTS"),
-    reason="Network tests are disabled by config or no internet."
+    reason="Network tests are disabled by config or no internet.",
 )
+
 
 def pytest_collection_modifyitems(config, items):
     config.addinivalue_line(
