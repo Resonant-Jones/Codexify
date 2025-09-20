@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import api from "@/lib/api";
 
 export type ChatMessage = { id: number; thread_id: number; role: string; content: string; created_at: string };
@@ -9,12 +9,21 @@ export function useChat() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const activeThreadRef = useRef<number | null>(null);
 
   const loadMessages = useCallback(async (threadId: number, limit = 50, offset = 0, append = false) => {
+    activeThreadRef.current = threadId;
     setLoading(true);
     setError(null);
+    if (!append || offset === 0) {
+      setMessages([]);
+      setHasMore(true);
+    }
     try {
       const res = await api.get(`/api/chat/${threadId}/messages`, { params: { limit, offset } });
+      if (activeThreadRef.current !== threadId) {
+        return;
+      }
       if (res?.data?.ok && Array.isArray(res.data.messages)) {
         const page = res.data.messages as ChatMessage[];
         const tot = res.data.total ?? page.length;

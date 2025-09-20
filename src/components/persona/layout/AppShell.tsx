@@ -1,7 +1,7 @@
  // @ts-nocheck
 import React, { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { X, ChevronLeft, ChevronRight, Menu } from "lucide-react";
+import { X, Menu } from "lucide-react";
 import ReactiveGlassCard from "@/components/surface/ReactiveGlassCard";
 import { GuardianAPI } from "@/lib/guardianApi";
 import api from "@/lib/api";
@@ -943,9 +943,10 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
   const handleNewChat = React.useCallback(async () => {
     try {
       const res = await api.post("/api/chat/threads", { title: "New Chat", user_id: userName || "default" });
-      const created = res?.data?.thread;
-      if (!created) return null;
-      const mapped = mapThreadRecord({ ...created, lastMessage: "" });
+      const payload = res?.data?.thread ?? {};
+      const id = res?.data?.id ?? payload?.id;
+      if (id == null) return null;
+      const mapped = mapThreadRecord({ id, title: payload?.title ?? "New Chat", lastMessage: "" });
       if (!mapped) return null;
       setThreads((prev) => [mapped, ...prev]);
       setActiveId(mapped.id);
@@ -1024,11 +1025,6 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
       messages: [],
     };
   }, [threads, activeId, userName, guardianName]);
-
-  const handleHideSidebar = React.useCallback(() => {
-    setIsSidebarVisible(false);
-    setIsMobileSidebarOpen(false);
-  }, []);
 
   const handleNewChatImmediate = () => {
     void handleNewChat();
@@ -1200,7 +1196,7 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
         {/* Unified sidebar toggle */}
         <button
           type="button"
-          className="absolute top-4 left-4 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-white/80 p-1 shadow transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-neutral-700/30 dark:bg-neutral-800/80"
+          className="absolute top-4 left-4 z-50 flex h-10 w-10 items-center justify-center p-1 transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
           style={{ outlineColor: "var(--accent-weak)" }}
           aria-label={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
           aria-pressed={isSidebarOpen}
@@ -1223,14 +1219,6 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
             isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <button
-            className="absolute top-2 right-2 h-8 w-8 flex items-center justify-center rounded-full border text-xl hover:opacity-90"
-            style={{ borderColor: "var(--panel-border)", color: "var(--muted)", background: "var(--panel-bg)" }}
-            aria-label="Close sidebar"
-            onClick={() => setIsMobileSidebarOpen(false)}
-          >
-            <X size={20} />
-          </button>
           <Sidebar
             threads={threads}
             activeId={activeId}
@@ -1239,40 +1227,30 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
           />
         </aside>
 
-        {/* Desktop sidebar, shown only if isSidebarVisible */}
-        {isSidebarVisible && (
-          <div className={`hidden lg:flex h-full min-h-0 w-[360px] max-w-[360px] min-w-[280px]`}>
-              <div className="h-full rounded-[var(--radius)] flex-1 min-h-0" style={{ padding: "var(--board-edge)" }}>
-                  <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}>
-                      <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))", padding: "var(--rim)" }}>
-                          <div className="relative rounded-[var(--radius)] h-full min-h-0">
-                              <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                                  <RefractiveGlassCard wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} />
-                              </div>
-                              <div className="min-h-0 h-full rounded-[var(--radius)] overflow-hidden flex flex-col" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
-                                  <button
-                                    className="absolute top-2 right-2 h-8 w-8 flex items-center justify-center rounded-full border text-xl hover:opacity-90"
-                                    style={{ borderColor: "var(--panel-border)", color: "var(--muted)", background: "var(--panel-bg)" }}
-                                    aria-label="Close sidebar"
-                                    onClick={() => setIsSidebarVisible(false)}
-                                  >
-                                    <X size={20} />
-                                  </button>
-                                  <div className="min-h-0 flex-1 overflow-auto h-full">
-                                      <Sidebar
-                                          threads={threads}
-                                          activeId={activeId}
-                                          onSelect={setActiveId}
-                                          onNewChat={handleNewChatImmediate}
-                                      />
-                                  </div>
-                              </div>
-                          </div>
-                      </div>
-                  </div>
-              </div>
-          </div>
-        )}
+        {/* Desktop sidebar - always rendered but hidden via transforms for better cross-browser compatibility */}
+        <div className={`hidden lg:flex h-full min-h-0 w-[360px] max-w-[360px] min-w-[280px] transform transition-all duration-300 ease-in-out ${isSidebarVisible ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0 pointer-events-none'}`}>
+            <div className="h-full rounded-[var(--radius)] flex-1 min-h-0" style={{ padding: "var(--board-edge)" }}>
+                <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "1px solid var(--panel-bezel)" }}>
+                    <div className="rounded-[var(--radius)] h-full min-h-0" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))", padding: "var(--rim)" }}>
+                        <div className="relative rounded-[var(--radius)] h-full min-h-0">
+                            <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
+                                <RefractiveGlassCard wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} />
+                            </div>
+                            <div className="min-h-0 h-full rounded-[var(--radius)] overflow-hidden flex flex-col" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)" }}>
+                                <div className="min-h-0 flex-1 overflow-auto h-full">
+                                    <Sidebar
+                                        threads={threads}
+                                        activeId={activeId}
+                                        onSelect={setActiveId}
+                                        onNewChat={handleNewChatImmediate}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div className="relative flex flex-col flex-1 h-full min-h-0">
           {/* Always render GuardianChat, passing a valid activeThread */}
           <div
@@ -1284,8 +1262,6 @@ function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillCon
               prefill={prefill}
               onPrefillConsumed={onPrefillConsumed}
               onWorkspaceToggle={onWorkspaceToggle}
-              isSidebarVisible={isSidebarVisible}
-              onHideSidebar={handleHideSidebar}
               activeThread={activeThread}
               onSendMessage={handleSendMessage}
               onNewChat={handleNewChatImmediate}

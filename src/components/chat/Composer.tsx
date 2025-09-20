@@ -80,8 +80,17 @@ export function Composer({
 // Refs & local state: textarea ref, value and sending flag
 {
   const ref = useRef<HTMLTextAreaElement | null>(null);
-  const [value, setValue] = useState("");
+  const storageKey = typeof threadId === "number" ? `cfy.composer.${threadId}` : null;
+  const [value, setValue] = useState(() => {
+    if (typeof window === "undefined" || !storageKey) return "";
+    try {
+      return sessionStorage.getItem(storageKey) ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [sending, setSending] = useState(false);
+  const prevKeyRef = useRef<string | null>(storageKey);
 
   // Auto-resize helper: expand textarea to fit content but cap at ~40vh
   const autoResize = useCallback(() => {
@@ -105,6 +114,40 @@ export function Composer({
     }
   }, [prefill]);
 
+  // When the active thread changes, hydrate from sessionStorage
+  useEffect(() => {
+    if (storageKey === prevKeyRef.current) return;
+    prevKeyRef.current = storageKey;
+    if (typeof window === "undefined") {
+      if (!storageKey) setValue("");
+      return;
+    }
+    if (!storageKey) {
+      setValue("");
+      return;
+    }
+    try {
+      const cached = sessionStorage.getItem(storageKey) ?? "";
+      setValue(cached);
+    } catch {
+      setValue("");
+    }
+  }, [storageKey]);
+
+  // Persist drafts per-thread in sessionStorage
+  useEffect(() => {
+    if (!storageKey || typeof window === "undefined") return;
+    try {
+      if (value && value.trim()) {
+        sessionStorage.setItem(storageKey, value);
+      } else {
+        sessionStorage.removeItem(storageKey);
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [storageKey, value]);
+
 // Recompute textarea size when the value changes
   useEffect(() => {
     autoResize();
@@ -117,11 +160,14 @@ export function Composer({
     if (!v) return;
     setSending(true);
     onSend(v);
-    if (typeof threadId === "number") {
-      api.post(`/api/chat/${threadId}/messages`, { role: "user", content: v })
-        .catch((err) => console.error("Failed to persist message", err));
-    }
     setValue("");
+    if (storageKey && typeof window !== "undefined") {
+      try {
+        sessionStorage.removeItem(storageKey);
+      } catch {
+        // ignore storage errors
+      }
+    }
     setTimeout(() => setSending(false), 200);
   }
 

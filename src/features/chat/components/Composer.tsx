@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send } from "lucide-react";
 
-export function Composer({ onSend, prefill, onPrefillConsumed }: { onSend: (t: string) => void; prefill?: string; onPrefillConsumed?: () => void }) {
+export function Composer({ onSend, prefill, onPrefillConsumed, threadId }: { onSend: (t: string) => void; prefill?: string; onPrefillConsumed?: () => void; threadId?: number }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
@@ -53,4 +53,3 @@ export function Composer({ onSend, prefill, onPrefillConsumed }: { onSend: (t: s
 }
 
 export default Composer;
-

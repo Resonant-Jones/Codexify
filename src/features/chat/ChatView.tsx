@@ -5,16 +5,26 @@ import ChatBubble from "@/features/chat/components/ChatBubble";
 export function ChatView({ threadId, guardianName }: { threadId: number; guardianName?: string }) {
   const { messages, loadMessages, loading, error, hasMore } = useChat();
   const containerRef = useRef<HTMLDivElement>(null);
+  const initialScrollRef = useRef(true);
 
   useEffect(() => {
+    initialScrollRef.current = true;
     loadMessages(threadId, 50, 0, false);
+  }, [threadId, loadMessages]);
+
+  useEffect(() => {
     const el = containerRef.current;
-    if (el) {
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (initialScrollRef.current || nearBottom) {
       requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
+        if (containerRef.current) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        }
       });
+      initialScrollRef.current = false;
     }
-  }, [threadId]);
+  }, [messages]);
 
   const onScroll = async () => {
     const el = containerRef.current;
