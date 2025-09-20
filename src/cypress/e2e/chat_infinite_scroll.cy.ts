@@ -1,23 +1,24 @@
 describe("Chat infinite scroll", () => {
   beforeEach(() => {
-    const apiKey = Cypress.env("GUARDIAN_API_KEY") || "001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e";
+    const apiKey = Cypress.env("GUARDIAN_API_KEY") || "changeme";
 
     cy.request({
       method: "POST",
-      url: "http://localhost:8000/api/chat/threads",
+      url: "http://localhost:5175/api/chat/threads",
       headers: { "X-API-Key": apiKey },
       body: { title: "Cypress Test" },
     }).then((response) => {
       expect(response.status).to.eq(200);
-      const threadId = response.body?.thread?.id;
+      const threadId = response.body?.id;
       expect(threadId, "thread id").to.exist;
 
       cy.wrap(threadId).as("threadId");
 
-      Cypress._.times(60, (i) => {
+      // Seed ~80 messages as requested
+      Cypress._.times(80, (i) => {
         cy.request({
           method: "POST",
-          url: `http://localhost:8000/api/chat/${threadId}/messages`,
+          url: `http://localhost:5175/api/chat/${threadId}/messages`,
           headers: { "X-API-Key": apiKey },
           body: { role: "user", content: `hello world ${i + 1}` },
         });

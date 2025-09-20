@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Search, Plus, ChevronDown } from "lucide-react";
+import { Search, Plus, ChevronDown, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import PreviewTile from "@/components/ui/PreviewTile";
@@ -48,6 +48,9 @@ type Props = {
   projects?: Project[];
   creatingThread?: boolean;
   onDeleteThread?: (threadId: string) => void;
+
+  // Added optional collapse handler
+  onToggleCollapse?: () => void;
 };
 
 export default function Sidebar({
@@ -60,12 +63,23 @@ export default function Sidebar({
   projects = [],
   creatingThread,
   onDeleteThread,
+  onToggleCollapse,
 }: Props) {
   // Persisted tab state: keeps user context across refreshes. Key: cfy.sidebarTab
   const [tab, setTab] = React.useState<"threads"|"projects">(() =>
     (typeof window === "undefined" ? "threads" : ((localStorage.getItem("cfy.sidebarTab") as any) || "threads"))
   );
   const [q, setQ] = React.useState("");
+
+  // Local collapse state fallback if no handler passed
+  const [collapsed, setCollapsed] = React.useState(false);
+  const handleToggleCollapse = () => {
+    if (onToggleCollapse) {
+      onToggleCollapse();
+    } else {
+      setCollapsed(!collapsed);
+    }
+  };
 
   // Persist selection: write to localStorage (wrapped in try/catch for SSR safety)
   React.useEffect(() => {
@@ -107,52 +121,54 @@ export default function Sidebar({
         height: "var(--card-height)"
       }}
     >
-      {/* Segmented tabs — accessible + sliding indicator */}
+      <div className="flex items-center gap-2">
+        {/* Segmented tabs — accessible + sliding indicator */}
       <div
         role="tablist"
         aria-label="Sidebar tabs"
-        className="relative inline-grid grid-cols-2 gap-1 rounded-xl border p-1"
-        style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)" }}
+        className="relative inline-grid grid-cols-2 gap-1 rounded-xl border p-2 max-w-full flex-shrink-0" // added overflow protection
+        style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)", minWidth: "240px" }} // increased minWidth for more horizontal space
       >
-        {/* sliding indicator */}
-        <div
-          aria-hidden="true"
-          className="absolute top-1 left-1 h-[calc(100%-0.5rem)] w-[calc(50%-0.5rem)] rounded-lg transition-transform duration-200"
-          style={{
-            background: "var(--chip-bg)",
-            transform: tab === "threads" ? "translateX(0%)" : "translateX(100%)",
-          }}
-        />
+          {/* sliding indicator */}
+          <div
+            aria-hidden="true"
+            className="absolute top-1 left-1 h-[calc(100%-0.5rem)] w-[calc(50%-0.5rem)] rounded-lg transition-transform duration-200 flex-grow"
+            style={{
+              background: "var(--chip-bg)",
+              transform: tab === "threads" ? "translateX(0%)" : "translateX(100%)",
+            }}
+          />
 
-        <button
-          role="tab"
-          aria-selected={tab === "threads"}
-          tabIndex={tab === "threads" ? 0 : -1}
-          onClick={() => setTab("threads")}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowRight" || e.key === "ArrowDown") setTab("projects");
-            if (e.key === "ArrowLeft" || e.key === "ArrowUp") setTab("threads");
-          }}
-          className={`relative z-10 rounded-lg py-1.5 text-sm ${tab === "threads" ? "font-semibold" : "opacity-80"}`}
-          style={tab === "threads" ? { color: "var(--text)" } : undefined}
-        >
-          Threads
-        </button>
+          <button
+            role="tab"
+            aria-selected={tab === "threads"}
+            tabIndex={tab === "threads" ? 0 : -1}
+            onClick={() => setTab("threads")}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowDown") setTab("projects");
+              if (e.key === "ArrowLeft" || e.key === "ArrowUp") setTab("threads");
+            }}
+            className={`relative z-10 rounded-lg py-1.5 text-sm flex-grow ${tab === "threads" ? "font-semibold" : "opacity-80"}`} // added flex-grow
+            style={tab === "threads" ? { color: "var(--text)" } : undefined}
+          >
+            Threads
+          </button>
 
-        <button
-          role="tab"
-          aria-selected={tab === "projects"}
-          tabIndex={tab === "projects" ? 0 : -1}
-          onClick={() => setTab("projects")}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowRight" || e.key === "ArrowDown") setTab("projects");
-            if (e.key === "ArrowLeft" || e.key === "ArrowUp") setTab("threads");
-          }}
-          className={`relative z-10 rounded-lg py-1.5 text-sm ${tab === "projects" ? "font-semibold" : "opacity-80"}`}
-          style={tab === "projects" ? { color: "var(--text)" } : undefined}
-        >
-          Projects
-        </button>
+          <button
+            role="tab"
+            aria-selected={tab === "projects"}
+            tabIndex={tab === "projects" ? 0 : -1}
+            onClick={() => setTab("projects")}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowDown") setTab("projects");
+              if (e.key === "ArrowLeft" || e.key === "ArrowUp") setTab("threads");
+            }}
+            className={`relative z-10 rounded-lg py-1.5 text-sm flex-grow ${tab === "projects" ? "font-semibold" : "opacity-80"}`} // added flex-grow
+            style={tab === "projects" ? { color: "var(--text)" } : undefined}
+          >
+            Projects
+          </button>
+        </div>
       </div>
 
       {/* Search */}

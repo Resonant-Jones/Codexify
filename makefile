@@ -1,6 +1,6 @@
 # Threadspace Makefile
 
-.PHONY: all install dev-install test clean lint format check docs build
+.PHONY: all install dev-install test clean lint format check docs build db-bootstrap db-verify
 
 # Python executable
 PYTHON := python3
@@ -89,6 +89,12 @@ build: clean
 # Upload to PyPI
 upload: build
 	twine upload dist/*
+
+db-bootstrap:
+	bash scripts/pg_bootstrap.sh
+
+db-verify:
+	bash scripts/pg_verify.sh
 
 # Run the system
 run:

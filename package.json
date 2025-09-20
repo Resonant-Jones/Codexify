@@ -14,7 +14,9 @@
     "typecheck": "npm --prefix src run typecheck",
     "test": "npm --prefix src run test",
     "test:watch": "npm --prefix src run test:watch",
-    "cypress": "cypress open"
+    "cypress": "cypress open",
+    "db:bootstrap": "bash scripts/pg_bootstrap.sh",
+    "db:verify": "bash scripts/pg_verify.sh"
   },
   "repository": {
     "type": "git",
