@@ -1,0 +1,62 @@
+version: "3.8"
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-guardian}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-guardian}
+      POSTGRES_DB: ${POSTGRES_DB:-guardian}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # map container 5432 -> host 5433 so host tools can reach the DB at 127.0.0.1:5433
+    ports:
+      - "5433:5432"
+
+  backend:
+    build:
+      # use repo root as the build context so Dockerfile can COPY backend/ paths
+      context: .
+      dockerfile: backend/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # default DATABASE_URL if not provided; prefer explicit DATABASE_URL in .env or shell
+      DATABASE_URL: ${DATABASE_URL:-postgresql://guardian:guardian@db:5432/guardian}
+      GUARDIAN_API_KEY: ${GUARDIAN_API_KEY:-changeme}
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend/
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  # optional: run Cypress from inside compose (useful for CI)
+  cypress:
+    image: cypress/included:12.0.0
+    depends_on:
+      - backend
+      - frontend
+    environment:
+      CYPRESS_baseUrl: "http://frontend:3000"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["npx cypress run --spec 'cypress/e2e/**'"]
+    # mount project for spec files if needed
+    volumes:
+      - ./cypress:/e2e
+
+volumes:
+  db-data:
