@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from guardian.codexify import create_notion_database_from_records
+from guardian import codexify as codexify_mod
 from guardian.export_engine import (
     export_to_gdrive,
     import_from_gdrive,
@@ -9,6 +9,9 @@ from guardian.export_engine import (
 )
 
 app = FastAPI(title="Codexify API", version="0.1")
+
+# Re-export into module namespace for tests to monkeypatch easily
+create_notion_database_from_records = codexify_mod.create_notion_database_from_records
 
 
 class GDriveExportRequest(BaseModel):

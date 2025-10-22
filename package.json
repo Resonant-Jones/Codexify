@@ -1,46 +1,22 @@
 {
-  "name": "guardian-backend_v2",
-  "version": "1.0.0",
-  "description": "A next-generation AI operating system designed to host recursive, persistent AI agents with self-awareness and dynamic capabilities.",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs",
-    "test": "tests"
-  },
+  "name": "guardian-monorepo",
+  "private": true,
   "scripts": {
-    "dev": "npm --prefix src run dev",
-    "build": "npm --prefix src run build",
-    "preview": "npm --prefix src run preview",
-    "typecheck": "npm --prefix src run typecheck",
-    "test": "npm --prefix src run test",
-    "test:watch": "npm --prefix src run test:watch",
-    "cypress": "cypress open",
-    "db:bootstrap": "bash scripts/pg_bootstrap.sh",
-    "db:verify": "bash scripts/pg_verify.sh"
+    "lint": "pnpm --dir frontend/src lint",
+    "build": "pnpm --dir frontend/src build",
+    "test": "pnpm --dir frontend/src test",
+    "format": "pnpm --dir frontend/src format",
+    "format:check": "pnpm --dir frontend/src format:check"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Resonant-Jones/guardian-backend.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/Resonant-Jones/guardian-backend/issues"
-  },
-  "homepage": "https://github.com/Resonant-Jones/guardian-backend#readme",
   "devDependencies": {
-    "@google/gemini-cli": "^0.1.11",
-    "@tailwindcss/vite": "^4.1.12",
-    "@tauri-apps/cli": "^2.8.1",
-    "cypress": "^15.2.0",
-    "supabase": "^2.40.7",
-    "tailwindcss": "^4.1.12",
-    "vite-plugin-pwa": "^1.0.3"
+    "@tailwindcss/postcss": "^4.1.14",
+    "@tailwindcss/vite": "^4.1.14",
+    "autoprefixer": "^10.4.21",
+    "tailwindcss": "^4.1.14"
   },
   "dependencies": {
-    "axios": "^1.12.2",
-    "lucide-react": "^0.540.0",
-    "typescript": "^5.9.2"
+    "dompurify": "^3.3.0",
+    "event-source-polyfill": "^1.0.31",
+    "monaco-editor": "^0.53.0"
   }
 }

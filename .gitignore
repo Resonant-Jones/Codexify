@@ -43,6 +43,10 @@ guardian-token.md
 node_modules
 build/
 dist/
+
+# TypeScript build info caches
+frontend/src/node_modules/.tmp/
+frontend/src/tsconfig.tsbuildinfo
 *.egg-info/
 
 # Sourcegraph local deployment

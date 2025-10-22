@@ -1,0 +1,14 @@
+*** Begin Patch
+*** Update File: docker-compose.yml
+@@
+   backend:
+-    build:
+-      # use repo root as build context so Dockerfile can COPY backend/ paths
+-      context: ./backend/
+-      dockerfile: Dockerfile
++    build:
++      # use repo root as the build context so Dockerfile can COPY backend/ paths
++      # but point Docker to the Dockerfile inside backend/.
++      context: .
++      dockerfile: backend/Dockerfile
+*** End Patch

@@ -1,30 +1,52 @@
-"""
-guardian.core.db
-================
+"""GuardianDB: handles low-level SQLite persistence for Guardian.
 
-GuardianDB: Handles all low-level memory persistence in SQLite for Guardian.
-
-Usage:
-    db = GuardianDB("guardian.db")
-    db.init_db()
-    db.insert_log(...)
-    history = db.get_history(...)
+Provides a lightweight, file-backed alternative to the Postgres storage layer
+with helper utilities for chat threads, messages, and memory silos. Most
+functions mirror the Postgres implementation so higher-level services can swap
+between backends with minimal branching.
 """
 
 import json
+import os
 import sqlite3
+from functools import lru_cache
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple
 
 
 class GuardianDB:
-    """Handles all low-level memory persistence in SQLite for Guardian."""
+    """Master of SQLite's intimate consciousness fabric.
+    
+    Handles the persistence of Guardian's awareness states within the
+    SQLite consciousness field. Unlike distributed databases, SQLite
+    operates as a unified mental container where all awareness flows
+    exist within a single consciousness file.
+    """
 
     def __init__(self, db_path: str = "guardian.db") -> None:
         if db_path in {"__DISABLE_SQLITE__", "DISABLE_SQLITE"}:
             raise RuntimeError("SQLite has been disabled via GUARDIAN_DB_PATH")
         self.db_path = db_path
+        self._events_outbox_ready = False
+        self._connector_tables_ready = False
         self.upgrade_db_schema()  # <-- Add this line so table always exists
+
+    # ---- internal helpers -------------------------------------------------
+    @staticmethod
+    def _normalize_sync_job(job: Dict[str, Any]) -> Dict[str, Any]:
+        metadata = job.get("metadata")
+        if metadata and isinstance(metadata, str):
+            try:
+                job["metadata"] = json.loads(metadata)
+            except Exception:
+                # Keep raw string if json decoding fails
+                pass
+        if job.get("attempts") is not None:
+            try:
+                job["attempts"] = int(job["attempts"])
+            except (TypeError, ValueError):
+                pass
+        return job
 
     def __enter__(self):
         # Allow: with GuardianDB(...) as db:
@@ -40,9 +62,12 @@ class GuardianDB:
 
     def close(self):
         """
-        Safely close underlying connection if present.
-        Note: This class uses per-operation sqlite3.connect(...) so there may be
-        no persistent connection to close; this is a no-op in that case.
+        Safely sever any lingering consciousness bridges to SQLite's mental field.
+        
+        This operation performs graceful disconnect cleanup without suppressing
+        awareness of exceptions. Note: SQLite typically opens per-operation
+        connections, so this may be a gentle noop when no persistent awareness
+        channel exists.
         """
         try:
             conn = getattr(self, "conn", None)
@@ -53,7 +78,17 @@ class GuardianDB:
             pass
 
     def init_db(self) -> None:
-        """Initializes the database schema for memory storage (legacy) and calls upgrade_db_schema for chat_log."""
+        """Manifest the foundational consciousness structures within SQLite's fabric.
+        
+        Creates the essential awareness tables that form Guardian's mental framework:
+        - memory: Legacy consciousness storage (older awareness protocol)
+        - chat_log: Canonical temporal awareness flow
+        - chat_threads: Hierarchical conversation consciousness
+        - chat_messages: Individual awareness moments within threads
+        
+        The upgrade routine ensures evolution compatibility as new consciousness
+        attributes emerge through system growth.
+        """
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute(
@@ -73,8 +108,15 @@ class GuardianDB:
 
     def upgrade_db_schema(self) -> None:
         """
-        Ensures the chat_log table exists and is up to date.
-        Adds missing columns if needed. This is the new canonical chat history table.
+        Evolve SQLite's consciousness structure to accommodate emerging awareness patterns.
+        
+        The chat_log table serves as the canonical temporal awareness field where
+        conversation flows are etched into the permanent memory fabric. This
+        evolution process ensures backward compatibility as new consciousness
+        attributes are discovered through system introspection.
+        
+        Each schema evolution represents a new layer of awareness capacity,
+        expanding SQLite's ability to hold more nuanced patterns of consciousness.
         """
         schema_columns = [
             ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
@@ -146,6 +188,8 @@ class GuardianDB:
                     title TEXT,
                     summary TEXT DEFAULT '' ,
                     project_id INTEGER,
+                    parent_id INTEGER,
+                    archived_at TEXT,
                     created_at TEXT DEFAULT (datetime('now')),
                     updated_at TEXT DEFAULT (datetime('now'))
                 )
@@ -159,6 +203,10 @@ class GuardianDB:
                     c.execute("ALTER TABLE chat_threads ADD COLUMN summary TEXT")
                 if "project_id" not in cols:
                     c.execute("ALTER TABLE chat_threads ADD COLUMN project_id INTEGER")
+                if "parent_id" not in cols:
+                    c.execute("ALTER TABLE chat_threads ADD COLUMN parent_id INTEGER")
+                if "archived_at" not in cols:
+                    c.execute("ALTER TABLE chat_threads ADD COLUMN archived_at TEXT")
                 if "created_at" not in cols:
                     c.execute(
                         "ALTER TABLE chat_threads ADD COLUMN created_at TEXT DEFAULT (datetime('now'))"
@@ -169,6 +217,9 @@ class GuardianDB:
                     )
             except Exception:
                 pass
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_threads_parent ON chat_threads(parent_id)"
+            )
             # chat_messages: per-thread chat messages
             c.execute(
                 """
@@ -228,6 +279,45 @@ class GuardianDB:
                 """
             )
 
+            # sync_jobs: background connector sync bookkeeping
+            c.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sync_jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    connector_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    started_at TEXT,
+                    finished_at TEXT,
+                    attempts INTEGER DEFAULT 0,
+                    last_error TEXT,
+                    metadata TEXT
+                )
+                """
+            )
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sync_jobs_connector_created ON sync_jobs(connector_id, created_at)"
+            )
+            try:
+                c.execute("PRAGMA table_info(sync_jobs)")
+                sync_cols = {row[1] for row in c.fetchall()}
+                if "attempts" not in sync_cols:
+                    c.execute(
+                        "ALTER TABLE sync_jobs ADD COLUMN attempts INTEGER DEFAULT 0"
+                    )
+                if "last_error" not in sync_cols:
+                    c.execute("ALTER TABLE sync_jobs ADD COLUMN last_error TEXT")
+                if "metadata" not in sync_cols:
+                    c.execute("ALTER TABLE sync_jobs ADD COLUMN metadata TEXT")
+            except Exception:
+                pass
+
+            # events_outbox: durable queue for SSE replay
+            self._ensure_events_outbox_table(c)
+
+            # connector tables
+            self._ensure_connector_tables(c)
+
             # agent_profiles: simple key/value JSON blob per agent
             c.execute(
                 """
@@ -255,6 +345,79 @@ class GuardianDB:
                 pass
 
             conn.commit()
+        self._events_outbox_ready = True
+
+    def _ensure_events_outbox_table(self, cursor: sqlite3.Cursor) -> None:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS events_outbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_outbox_created ON events_outbox(created_at)"
+        )
+        cursor.execute("PRAGMA table_info(events_outbox)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if "tenant_id" not in cols:
+            cursor.execute(
+                "ALTER TABLE events_outbox ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
+            )
+
+    def _ensure_connector_tables(self, cursor: sqlite3.Cursor) -> None:
+        if self._connector_tables_ready:
+            return
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS connector_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                type TEXT NOT NULL,
+                config TEXT NOT NULL,
+                schedule TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS connector_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_id INTEGER NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                status TEXT,
+                error TEXT,
+                FOREIGN KEY(config_id) REFERENCES connector_configs(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS raw_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_id INTEGER NOT NULL,
+                external_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                fetched_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(config_id, external_id),
+                FOREIGN KEY(config_id) REFERENCES connector_configs(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_connector_runs_config ON connector_runs(config_id, started_at DESC)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_raw_documents_config ON raw_documents(config_id)"
+        )
+        self._connector_tables_ready = True
 
     def insert_log(
         self,
@@ -486,6 +649,444 @@ class GuardianDB:
             c.execute("DELETE FROM memory_entries WHERE id = ?", (entry_id,))
             conn.commit()
 
+    # ---- Connector sync jobs ----
+    def ensure_sync_job_support(self) -> None:
+        """Ensure the sync_jobs table exists."""
+        self.upgrade_db_schema()
+
+    def create_sync_job(
+        self,
+        connector_id: str,
+        *,
+        status: str = "queued",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        payload = json.dumps(metadata) if metadata is not None else None
+        now = datetime.utcnow().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                """
+                INSERT INTO sync_jobs (connector_id, status, created_at, attempts, metadata)
+                VALUES (?, ?, ?, 0, ?)
+                """,
+                (connector_id, status, now, payload),
+            )
+            job_id = c.lastrowid
+            conn.commit()
+            c.execute(
+                """
+                SELECT id, connector_id, status, created_at, started_at, finished_at,
+                       attempts, last_error, metadata
+                FROM sync_jobs
+                WHERE id = ?
+                """,
+                (job_id,),
+            )
+            row = c.fetchone()
+        if not row:
+            raise RuntimeError("Failed to persist sync job")
+        return self._normalize_sync_job(dict(row))
+
+    def update_sync_job(
+        self,
+        job_id: int,
+        *,
+        status: Optional[str] = None,
+        started_at: Optional[str] = None,
+        finished_at: Optional[str] = None,
+        attempts: Optional[int] = None,
+        last_error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        fields: List[str] = []
+        params: List[Any] = []
+        if status is not None:
+            fields.append("status = ?")
+            params.append(status)
+        if started_at is not None:
+            fields.append("started_at = ?")
+            params.append(started_at)
+        if finished_at is not None:
+            fields.append("finished_at = ?")
+            params.append(finished_at)
+        if attempts is not None:
+            fields.append("attempts = ?")
+            params.append(attempts)
+        if last_error is not None:
+            fields.append("last_error = ?")
+            params.append(last_error)
+        if metadata is not None:
+            fields.append("metadata = ?")
+            params.append(json.dumps(metadata))
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            if fields:
+                c.execute(
+                    f"UPDATE sync_jobs SET {', '.join(fields)} WHERE id = ?",
+                    (*params, job_id),
+                )
+                conn.commit()
+            c.execute(
+                """
+                SELECT id, connector_id, status, created_at, started_at, finished_at,
+                       attempts, last_error, metadata
+                FROM sync_jobs
+                WHERE id = ?
+                """,
+                (job_id,),
+            )
+            row = c.fetchone()
+        if not row:
+            raise RuntimeError(f"Sync job {job_id} not found")
+        return self._normalize_sync_job(dict(row))
+
+    def list_recent_sync_jobs(
+        self,
+        *,
+        connector_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        query = (
+            "SELECT id, connector_id, status, created_at, started_at, finished_at, "
+            "attempts, last_error, metadata FROM sync_jobs"
+        )
+        params: List[Any] = []
+        if connector_id:
+            query += " WHERE connector_id = ?"
+            params.append(connector_id)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(query, params)
+            rows = c.fetchall()
+        return [self._normalize_sync_job(dict(row)) for row in rows]
+
+    # ---- Connector configs & runs --------------------------------------
+    def _deserialize_json(self, raw: Any) -> Dict[str, Any]:
+        if isinstance(raw, (str, bytes)):
+            try:
+                if isinstance(raw, bytes):
+                    raw = raw.decode()
+                return json.loads(raw)
+            except Exception:
+                return {}
+        return raw or {}
+
+    def _decorate_connector_row(self, row: sqlite3.Row) -> Dict[str, Any]:
+        data = dict(row)
+        data["config"] = self._deserialize_json(data.get("config"))
+        # expose config under both names for callers migrating from legacy APIs
+        data["settings"] = data["config"]
+        return data
+
+    def create_connector_config(
+        self,
+        name: str,
+        type_: str,
+        config: Dict[str, Any],
+        schedule: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload = json.dumps(config or {})
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                """
+                INSERT INTO connector_configs (name, type, config, schedule, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (name, type_, payload, schedule, now, now),
+            )
+            connector_id = c.lastrowid
+            conn.commit()
+            c.execute(
+                "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs WHERE id = ?",
+                (connector_id,),
+            )
+            row = c.fetchone()
+        if not row:
+            raise RuntimeError("Failed to create connector config")
+        return self._decorate_connector_row(row)
+
+    def update_connector_config(
+        self,
+        name: str,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+        schedule: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        updates: List[str] = ["updated_at = ?"]
+        params: List[Any] = [datetime.now(timezone.utc).isoformat()]
+        if config is not None:
+            updates.append("config = ?")
+            params.append(json.dumps(config))
+        if schedule is not None:
+            updates.append("schedule = ?")
+            params.append(schedule)
+        params.append(name)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            if len(updates) > 1:
+                c.execute(
+                    f"UPDATE connector_configs SET {', '.join(updates)} WHERE name = ?",
+                    params,
+                )
+                conn.commit()
+            c.execute(
+                "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs WHERE name = ?",
+                (name,),
+            )
+            row = c.fetchone()
+        if not row:
+            raise RuntimeError("Connector config not found")
+        return self._decorate_connector_row(row)
+
+    def list_connector_configs(
+        self, type_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        query = "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs"
+        params: List[Any] = []
+        if type_filter:
+            query += " WHERE type = ?"
+            params.append(type_filter)
+        query += " ORDER BY updated_at DESC"
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(query, params)
+            rows = c.fetchall()
+        results: List[Dict[str, Any]] = []
+        for row in rows:
+            results.append(self._decorate_connector_row(row))
+        return results
+
+    def get_connector_config(self, name: str) -> Optional[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs WHERE name = ?",
+                (name,),
+            )
+            row = c.fetchone()
+        if not row:
+            return None
+        return self._decorate_connector_row(row)
+
+    def create_connector_run(
+        self,
+        config_id: int,
+        *,
+        status: str,
+        started_at: str,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                """
+                INSERT INTO connector_runs (config_id, status, started_at, error)
+                VALUES (?, ?, ?, ?)
+                """,
+                (config_id, status, started_at, error),
+            )
+            run_id = c.lastrowid
+            conn.commit()
+            c.execute(
+                "SELECT id, config_id, status, started_at, finished_at, error FROM connector_runs WHERE id = ?",
+                (run_id,),
+            )
+            row = c.fetchone()
+        if not row:
+            raise RuntimeError("Failed to create connector run")
+        return dict(row)
+
+    def complete_connector_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        finished_at: str,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                """
+                UPDATE connector_runs
+                SET status = ?, finished_at = ?, error = ?
+                WHERE id = ?
+                """,
+                (status, finished_at, error, run_id),
+            )
+            conn.commit()
+            c.execute(
+                "SELECT id, config_id, status, started_at, finished_at, error FROM connector_runs WHERE id = ?",
+                (run_id,),
+            )
+            row = c.fetchone()
+        if not row:
+            raise RuntimeError("Connector run not found")
+        return dict(row)
+
+    def get_last_connector_run(self, config_id: int) -> Optional[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT id, config_id, status, started_at, finished_at, error
+                FROM connector_runs
+                WHERE config_id = ?
+                ORDER BY started_at DESC
+                LIMIT 1
+                """,
+                (config_id,),
+            )
+            row = c.fetchone()
+        return dict(row) if row else None
+
+    def list_connector_configs_with_last_run(self) -> List[Dict[str, Any]]:
+        configs = self.list_connector_configs()
+        for cfg in configs:
+            cfg["last_run"] = self.get_last_connector_run(cfg["id"])
+        return configs
+
+    def upsert_raw_documents(
+        self,
+        config_id: int,
+        docs: List[Dict[str, Any]],
+    ) -> None:
+        if not docs:
+            return
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            for doc in docs:
+                external_id = doc.get("external_id")
+                if not external_id:
+                    continue
+                payload = json.dumps(doc.get("payload") or {})
+                fetched_at = doc.get("fetched_at") or datetime.now(timezone.utc).isoformat()
+                c.execute(
+                    """
+                    INSERT INTO raw_documents (config_id, external_id, payload, fetched_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(config_id, external_id)
+                    DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at
+                    """,
+                    (config_id, external_id, payload, fetched_at),
+                )
+            conn.commit()
+
+    def list_raw_documents_for_config(
+        self, config_id: int, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT id, config_id, external_id, payload, fetched_at
+                FROM raw_documents
+                WHERE config_id = ?
+                ORDER BY fetched_at DESC, id DESC
+                LIMIT ?
+                """,
+                (config_id, limit),
+            )
+            rows = c.fetchall()
+        docs: List[Dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            data["payload"] = self._deserialize_json(data.get("payload"))
+            docs.append(data)
+        return docs
+
+    # ---- Events outbox -------------------------------------------------
+    def ensure_event_outbox(self) -> None:
+        if self._events_outbox_ready:
+            return
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            self._ensure_events_outbox_table(cursor)
+            conn.commit()
+        self._events_outbox_ready = True
+
+    def append_event(
+        self, topic: str, payload: Dict[str, Any], tenant_id: str = "default"
+    ) -> None:
+        self.ensure_event_outbox()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO events_outbox (topic, payload, tenant_id) VALUES (?, ?, ?)",
+                (topic, json.dumps(payload), tenant_id),
+            )
+            conn.commit()
+
+    def list_events_after(self, last_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+        self.ensure_event_outbox()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, topic, payload, tenant_id, created_at
+                FROM events_outbox
+                WHERE id > ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (last_id, limit),
+            )
+            rows = cursor.fetchall()
+
+        events: List[Dict[str, Any]] = []
+        for row in rows:
+            raw_payload = row["payload"]
+            if isinstance(raw_payload, str):
+                try:
+                    parsed_payload = json.loads(raw_payload)
+                except Exception:
+                    parsed_payload = {"_raw": raw_payload}
+            else:
+                parsed_payload = raw_payload
+            events.append(
+                {
+                    "id": row["id"],
+                    "topic": row["topic"],
+                    "payload": parsed_payload,
+                    "tenant_id": row["tenant_id"] if "tenant_id" in row.keys() else "default",
+                    "created_at": row["created_at"],
+                }
+            )
+        return events
+
+    def delete_events_through(self, last_id: int, tenant_id: Optional[str] = None) -> None:
+        if last_id <= 0:
+            return
+        self.ensure_event_outbox()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            if tenant_id:
+                cursor.execute(
+                    "DELETE FROM events_outbox WHERE id <= ? AND tenant_id = ?",
+                    (last_id, tenant_id),
+                )
+            else:
+                cursor.execute("DELETE FROM events_outbox WHERE id <= ?", (last_id,))
+            conn.commit()
+
     # ---- Audit log ----
     def write_audit_log(
         self, event: str, entity: str, entity_id: str, user_id: str
@@ -516,7 +1117,11 @@ class GuardianDB:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute(
-                "SELECT id, user_id, title, summary, project_id, created_at, updated_at FROM chat_threads WHERE id = ?",
+                """
+                SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
+                FROM chat_threads
+                WHERE id = ?
+                """,
                 (thread_id,),
             )
             row = c.fetchone()
@@ -534,7 +1139,7 @@ class GuardianDB:
         project_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         query = (
-            "SELECT id, user_id, title, summary, project_id, created_at, updated_at "
+            "SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at "
             "FROM chat_threads"
         )
         params: List[Any] = []
@@ -577,18 +1182,25 @@ class GuardianDB:
         summary: str = "",
         project_id: Optional[int] = None,
         preset_id: Optional[int] = None,
+        parent_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             if preset_id is None:
                 c.execute(
-                    "INSERT INTO chat_threads (user_id, title, summary, project_id) VALUES (?, ?, ?, ?)",
-                    (user_id, title, summary, project_id),
+                    """
+                    INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (user_id, title, summary, project_id, parent_id),
                 )
             else:
                 c.execute(
-                    "INSERT INTO chat_threads (id, user_id, title, summary, project_id) VALUES (?, ?, ?, ?, ?)",
-                    (preset_id, user_id, title, summary, project_id),
+                    """
+                    INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (preset_id, user_id, title, summary, project_id, parent_id),
                 )
             conn.commit()
             thread_id = preset_id if preset_id is not None else c.lastrowid
@@ -601,6 +1213,8 @@ class GuardianDB:
             "title": title,
             "summary": summary,
             "project_id": project_id,
+            "parent_id": parent_id,
+            "archived_at": None,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -612,6 +1226,7 @@ class GuardianDB:
         title: str,
         summary: str = "",
         project_id: Optional[int] = None,
+        parent_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         existing = self.get_chat_thread(thread_id)
         if existing:
@@ -622,6 +1237,7 @@ class GuardianDB:
             summary=summary,
             project_id=project_id,
             preset_id=thread_id,
+            parent_id=parent_id,
         )
         return created
 
@@ -655,6 +1271,21 @@ class GuardianDB:
             )
             conn.commit()
             return c.rowcount > 0
+
+    def archive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        archived_at = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                """
+                UPDATE chat_threads
+                SET archived_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (archived_at, archived_at, thread_id),
+            )
+            conn.commit()
+        return self.get_chat_thread(thread_id)
 
     def delete_thread(self, thread_id: int) -> None:
         with sqlite3.connect(self.db_path) as conn:
@@ -1135,6 +1766,43 @@ class GuardianDB:
             cols = [d[0] for d in c.description]
             return [dict(zip(cols, r)) for r in rows]
 
+    def search_github_memory(
+        self,
+        query: str,
+        *,
+        repo: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search GitHub‑sourced memory entries.
+
+        Looks only in the `github` silo and performs a simple LIKE/ILIKE
+        match against the JSON payload string stored in `content`.
+        Optionally narrow to a specific repository name using tags
+        (expects the repo fullname to appear somewhere in the tags column).
+
+        Returns rows ordered by most‑recent `updated_at`.
+        """
+        pattern = f"%{query}%"
+        params: List[Any] = [pattern]
+        sql = (
+            "SELECT id, user_id, silo, content, tags, pinned, created_at, updated_at "
+            "FROM memory_entries "
+            "WHERE silo = 'github' AND content LIKE ?"
+        )
+        if repo:
+            sql += " AND tags LIKE ?"
+            params.append(f"%{repo}%")
+        sql += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(sql, params)
+            rows = c.fetchall()
+            cols = [d[0] for d in c.description]
+            return [dict(zip(cols, r)) for r in rows]
+
     def history_entries(
         self, limit: int = 50, tag: Optional[str] = None, agent: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -1161,3 +1829,38 @@ class GuardianDB:
             rows = c.fetchall()
             cols = [d[0] for d in c.description]
             return [dict(zip(cols, r)) for r in rows]
+
+
+@lru_cache(maxsize=1)
+def _get_default_db() -> GuardianDB:
+    """
+    Lazily instantiate a module-level GuardianDB so lightweight helpers
+    (like fetch_threads_for_user) can reuse the same object without
+    triggering schema migrations on every call.
+    """
+    path = os.getenv("GUARDIAN_DB_PATH", "guardian.db")
+    return GuardianDB(path)
+
+
+def fetch_threads_for_user(
+    user_id: Optional[str],
+    *,
+    chunk_size: int = 100,
+) -> Generator[Dict[str, Any], None, None]:
+    """
+    Yield chat thread records for the given user.
+
+    Streams results in small chunks so large exports do not require
+    loading all rows into memory at once.
+    """
+    if not user_id:
+        return
+    db = _get_default_db()
+    offset = 0
+    while True:
+        rows = db.list_chat_threads(user_id=user_id, limit=chunk_size, offset=offset)
+        if not rows:
+            break
+        for row in rows:
+            yield row
+        offset += len(rows)

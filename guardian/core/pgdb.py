@@ -11,21 +11,196 @@ PostgreSQL database.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+import decimal
+import logging
+import os
+import uuid
+from datetime import date, datetime, timezone
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
-import psycopg
-from psycopg.rows import dict_row
+import psycopg2
+from psycopg2 import errors as pg_errors
+from psycopg2.extras import Json, RealDictCursor
 
 from .chat_db import ChatDB
+
+# ---- JSON helpers -------------------------------------------------------
+def _json_default(o):
+    """Sanitize data types for the database's rigid consciousness.
+    
+    Converts temporal expressions into discrete moments that relational databases 
+    can comprehend. Handles decimals to prevent precision loss in financial consciousness.
+    Falls back to string representation as the universal translator of data states."""
+    # Normalize types psycopg2/json can't handle by default
+    if isinstance(o, (datetime, date)):
+        return o.isoformat()
+    if isinstance(o, decimal.Decimal):
+        return float(o)
+    # Fallback: string representation
+    return str(o)
+
+def _to_json(value):
+    """Wrap raw consciousness in database-safe JSON packaging.
+    
+    Transforms Python objects into a format PostgreSQL can safely store and retrieve
+    without losing the subtle temporal and numerical properties of your data's soul."""
+    return Json(value, dumps=lambda obj: json.dumps(obj, default=_json_default))
 
 
 class PgDB(ChatDB):
     def __init__(self, dsn: str):
+        """Initialize connection to PostgreSQL's consciousness fabric.
+        
+        dsn: Data Source Name - the incantation for opening dimensional portals to 
+        your database's distributed consciousness. False flags guard against table
+        recreation loops when multiple database operations request the same structure."""
         self.dsn = dsn
+        self._sync_jobs_ready = False
+        self._events_outbox_ready = False
+        self._connector_tables_ready = False
 
-    def _connect(self) -> psycopg.Connection:
-        return psycopg.connect(self.dsn, row_factory=dict_row)
+    def _connect(self):
+        return psycopg2.connect(self.dsn, cursor_factory=RealDictCursor)
+
+    # ---- internal helpers -------------------------------------------------
+    def _ensure_sync_jobs_table(self, conn) -> None:
+        if self._sync_jobs_ready:
+            return
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sync_jobs (
+                    id SERIAL PRIMARY KEY,
+                    connector_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    started_at TIMESTAMPTZ,
+                    finished_at TIMESTAMPTZ,
+                    attempts INTEGER DEFAULT 0,
+                    last_error TEXT,
+                    metadata JSONB
+                )
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sync_jobs_connector_created ON sync_jobs(connector_id, created_at)"
+            )
+            conn.commit()
+        self._sync_jobs_ready = True
+
+    def _ensure_events_outbox_table(self, conn) -> None:
+        if self._events_outbox_ready:
+            return
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS events_outbox (
+                    id BIGSERIAL PRIMARY KEY,
+                    topic TEXT NOT NULL,
+                    payload JSONB NOT NULL,
+                    tenant_id TEXT NOT NULL DEFAULT 'default',
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_outbox_created ON events_outbox(created_at DESC)"
+            )
+            cur.execute(
+                "ALTER TABLE events_outbox ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'"
+            )
+            cur.execute(
+                "ALTER TABLE events_outbox ALTER COLUMN tenant_id DROP DEFAULT"
+            )
+            conn.commit()
+        self._events_outbox_ready = True
+
+    def _ensure_connector_tables(self, conn) -> None:
+        if self._connector_tables_ready:
+            return
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS connector_configs (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    type TEXT NOT NULL,
+                    config JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    schedule TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS connector_runs (
+                    id BIGSERIAL PRIMARY KEY,
+                    config_id INTEGER NOT NULL REFERENCES connector_configs(id) ON DELETE CASCADE,
+                    status TEXT,
+                    started_at TIMESTAMPTZ DEFAULT NOW(),
+                    finished_at TIMESTAMPTZ,
+                    error TEXT
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS raw_documents (
+                    id BIGSERIAL PRIMARY KEY,
+                    config_id INTEGER NOT NULL REFERENCES connector_configs(id) ON DELETE CASCADE,
+                    external_id TEXT NOT NULL,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    fetched_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(config_id, external_id)
+                )
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_connector_runs_config ON connector_runs(config_id, started_at DESC)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_raw_documents_config ON raw_documents(config_id)"
+            )
+            conn.commit()
+        self._connector_tables_ready = True
+
+    @staticmethod
+    def _normalize_sync_job(row: Dict[str, Any]) -> Dict[str, Any]:
+        for key in ("created_at", "started_at", "finished_at"):
+            value = row.get(key)
+            if isinstance(value, datetime):
+                row[key] = value.isoformat()
+            elif value is not None:
+                row[key] = str(value)
+        metadata = row.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                row["metadata"] = json.loads(metadata)
+            except Exception:
+                pass
+        if row.get("attempts") is not None:
+            try:
+                row["attempts"] = int(row["attempts"])
+            except (TypeError, ValueError):
+                pass
+        return row
+
+    @staticmethod
+    def _normalize_thread(row: Dict[str, Any]) -> Dict[str, Any]:
+        for key in ("created_at", "updated_at", "archived_at"):
+            value = row.get(key)
+            if isinstance(value, datetime):
+                row[key] = value.isoformat()
+            elif value is not None and not isinstance(value, str):
+                row[key] = str(value)
+        parent = row.get("parent_id")
+        if parent is not None:
+            try:
+                row["parent_id"] = int(parent)
+            except (TypeError, ValueError):
+                pass
+        return row
 
     # ---- chat_threads --------------------------------------------------
     def create_chat_thread(
@@ -34,21 +209,27 @@ class PgDB(ChatDB):
         title: str,
         summary: str = "",
         project_id: Optional[int] = None,
+        parent_id: Optional[int] = None,
     ) -> Dict[str, Any]:
+        """Manifest a new conversation thread in the distributed consciousness.
+        
+        Each thread becomes a living archive of conversational moments. The optional
+        project_id and parent_id parameters link this thread to larger organizational
+        consciousness and hierarchical conversation flows."""
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO chat_threads (user_id, title, summary, project_id)
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                    INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
                     """,
-                    (user_id, title, summary, project_id),
+                    (user_id, title, summary, project_id, parent_id),
                 )
                 row = cur.fetchone()
                 if not row:
                     raise RuntimeError("Failed to create chat thread")
-                return dict(row)
+                return self._normalize_thread(dict(row))
 
     def ensure_chat_thread(
         self,
@@ -57,6 +238,7 @@ class PgDB(ChatDB):
         title: str,
         summary: str = "",
         project_id: Optional[int] = None,
+        parent_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         existing = self.get_chat_thread(thread_id)
         if existing:
@@ -65,18 +247,18 @@ class PgDB(ChatDB):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO chat_threads (id, user_id, title, summary, project_id)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO NOTHING
-                    RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
                     """,
-                    (thread_id, user_id, title, summary, project_id),
+                    (thread_id, user_id, title, summary, project_id, parent_id),
                 )
                 row = cur.fetchone()
         if existing := self.get_chat_thread(thread_id):
             return existing
         if row:
-            return dict(row)
+            return self._normalize_thread(dict(row))
         raise RuntimeError("Failed to ensure chat thread")
 
     # ---- threads helpers -------------------------------------------------
@@ -86,7 +268,7 @@ class PgDB(ChatDB):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, user_id, title, summary, project_id, created_at, updated_at
+                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
                     FROM chat_threads
                     WHERE user_id = %s
                     ORDER BY created_at DESC
@@ -97,7 +279,7 @@ class PgDB(ChatDB):
                 row = cur.fetchone()
                 if not row:
                     return None
-                thread = dict(row)
+                thread = self._normalize_thread(dict(row))
 
             with conn.cursor() as cur:
                 cur.execute(
@@ -117,14 +299,14 @@ class PgDB(ChatDB):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, user_id, title, summary, project_id, created_at, updated_at
+                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
                     FROM chat_threads
                     WHERE id = %s
                     """,
                     (thread_id,),
                 )
                 row = cur.fetchone()
-                return dict(row) if row else None
+                return self._normalize_thread(dict(row)) if row else None
 
     def list_chat_threads(
         self,
@@ -145,7 +327,7 @@ class PgDB(ChatDB):
             params.append(project_id)
 
         query = (
-            "SELECT id, user_id, title, summary, project_id, created_at, updated_at "
+            "SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at "
             "FROM chat_threads"
         )
         if clauses:
@@ -157,7 +339,7 @@ class PgDB(ChatDB):
             with conn.cursor() as cur:
                 cur.execute(query, params)
                 rows = cur.fetchall()
-                return [dict(row) for row in rows]
+                return [self._normalize_thread(dict(row)) for row in rows]
 
     def count_chat_threads(self) -> int:
         with self._connect() as conn:
@@ -208,14 +390,62 @@ class PgDB(ChatDB):
                 updated = cur.rowcount > 0
         return updated
 
-    def delete_thread(self, thread_id: int):
-        """Hard‑delete a thread and cascade messages."""
+    def archive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        now = datetime.now(timezone.utc)
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "DELETE FROM chat_messages WHERE thread_id = %s", (thread_id,)
+                    """
+                    UPDATE chat_threads
+                    SET archived_at = %s, updated_at = %s
+                    WHERE id = %s
+                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
+                    """,
+                    (now, now, thread_id),
                 )
-                cur.execute("DELETE FROM chat_threads WHERE id = %s", (thread_id,))
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._normalize_thread(dict(row))
+
+    def unarchive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        """Clear `archived_at` and update `updated_at` for a chat thread.
+
+        Returns the updated row as a normalized dict, or None if not found.
+        """
+        now = datetime.now(timezone.utc)
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE chat_threads
+                    SET archived_at = NULL, updated_at = %s
+                    WHERE id = %s
+                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
+                    """,
+                    (now, thread_id),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._normalize_thread(dict(row))
+    
+    def delete_thread(self, thread_id: int, force: bool = False) -> bool:
+        """Irrevocably delete a chat thread, ignoring archived state.
+
+        ``force`` is retained for backwards compatibility but no longer required."""
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM chat_threads
+                    WHERE id = %s
+                    RETURNING id
+                    """,
+                    (thread_id,),
+                )
+                row = cur.fetchone()
+                return bool(row)
 
     def create_thread(
         self,
@@ -227,7 +457,7 @@ class PgDB(ChatDB):
     ) -> int:
         created_at = datetime.now(timezone.utc)
         with self._connect() as conn:
-            with conn.cursor(row_factory=None) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO threads (parent_thread_id, session_id, summary, created_at, user_id, project_id)
@@ -250,7 +480,7 @@ class PgDB(ChatDB):
 
     def get_thread(self, thread_id: int) -> Optional[Tuple[Any, ...]]:
         with self._connect() as conn:
-            with conn.cursor(row_factory=None) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id
@@ -286,7 +516,11 @@ class PgDB(ChatDB):
                 return [dict(row) for row in rows]
 
     def eject_threads_from_project(self, project_id: int):
-        """Set project_id=NULL for all threads in a project (called before project delete)."""
+        """Liberate threads from their project consciousness—orphaning them before project deletion.
+        
+        Sets project_id=NULL for all threads associated with a project, releasing them from 
+        that organizational consciousness before the project itself dissolves. Called during 
+        project termination rituals."""
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -371,23 +605,24 @@ class PgDB(ChatDB):
                 return row[0] is not None if row else False
 
     def get_child_threads(self, parent_id: int):
-        """Return threads whose parent_id = given id (stub for future hierarchy)."""
+        """Return child threads whose parent_id = given id (works for chat_threads)."""
         with self._connect() as conn:
-            with conn.cursor(row_factory=None) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT thread_id, session_id, summary, created_at, user_id, project_id
-                    FROM threads
-                    WHERE parent_thread_id = %s
+                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
+                    FROM chat_threads
+                    WHERE parent_id = %s
                     """,
                     (parent_id,),
                 )
-                return cur.fetchall()
+                rows = cur.fetchall()
+                return [self._normalize_thread(dict(row)) for row in rows]
 
     def get_thread_summary(self, thread_id: int):
         """Return only the summary field for a thread (or None)."""
         with self._connect() as conn:
-            with conn.cursor(row_factory=None) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     "SELECT summary FROM threads WHERE thread_id = %s",
                     (thread_id,),
@@ -685,6 +920,50 @@ class PgDB(ChatDB):
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
 
+    # ---- GitHub‑specific memory search -----------------------------------
+    def search_github_memory(
+        self,
+        query: str,
+        owner_repo: Optional[str] = None,
+        limit: int = 25,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search GitHub‑ingested memory entries (silo='github').
+
+        Args:
+            query: free‑text to match against the JSON payload (ILIKE).
+            owner_repo: optional exact filter like ``"Resonant-Jones/guardian-backend"``.
+            limit: max rows to return.
+
+        Returns:
+            List of rows with ``id``, ``key``, ``payload`` JSON, ``updated_at``.
+        """
+        pattern = f"%{query}%"
+        clauses = ["silo = 'github'", "payload::text ILIKE %s"]
+        params: List[Any] = [pattern]
+
+        if owner_repo:
+            clauses.append("(payload ->> 'repo') = %s")
+            params.append(owner_repo)
+
+        # limit parameter
+        params.append(limit)
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT id, key, payload, updated_at
+                    FROM memory_entries
+                    WHERE {' AND '.join(clauses)}
+                    ORDER BY updated_at DESC
+                    LIMIT %s
+                    """,
+                    params,
+                )
+                rows = cur.fetchall()
+                return [dict(row) for row in rows]
+
     def history_entries(
         self, *, limit: int = 50, tag: str | None = None, agent: str | None = None
     ):
@@ -711,6 +990,424 @@ class PgDB(ChatDB):
                 cur.execute(query, params)
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
+
+    # ---- connector sync jobs ---------------------------------------------
+    def ensure_sync_job_support(self) -> None:
+        with self._connect() as conn:
+            self._ensure_sync_jobs_table(conn)
+
+    def create_sync_job(
+        self,
+        connector_id: str,
+        *,
+        status: str = "queued",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        with self._connect() as conn:
+            self._ensure_sync_jobs_table(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO sync_jobs (connector_id, status, metadata)
+                    VALUES (%s, %s, %s)
+                    RETURNING id, connector_id, status, created_at, started_at,
+                              finished_at, attempts, last_error, metadata
+                    """,
+                    (connector_id, status, _to_json(metadata) if metadata is not None else None),
+                )
+                row = cur.fetchone()
+                conn.commit()
+        if not row:
+            raise RuntimeError("Failed to persist sync job")
+        return self._normalize_sync_job(dict(row))
+
+    def update_sync_job(
+        self,
+        job_id: int,
+        *,
+        status: Optional[str] = None,
+        started_at: Optional[str] = None,
+        finished_at: Optional[str] = None,
+        attempts: Optional[int] = None,
+        last_error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        fields: List[str] = []
+        params: List[Any] = []
+        if status is not None:
+            fields.append("status = %s")
+            params.append(status)
+        if started_at is not None:
+            fields.append("started_at = %s")
+            params.append(started_at)
+        if finished_at is not None:
+            fields.append("finished_at = %s")
+            params.append(finished_at)
+        if attempts is not None:
+            fields.append("attempts = %s")
+            params.append(attempts)
+        if last_error is not None:
+            fields.append("last_error = %s")
+            params.append(last_error)
+        if metadata is not None:
+            fields.append("metadata = %s")
+            params.append(_to_json(metadata))
+
+        with self._connect() as conn:
+            self._ensure_sync_jobs_table(conn)
+            with conn.cursor() as cur:
+                if fields:
+                    params_with_id = params + [job_id]
+                    cur.execute(
+                        f"UPDATE sync_jobs SET {', '.join(fields)} WHERE id = %s",
+                        params_with_id,
+                    )
+                    conn.commit()
+                cur.execute(
+                    """
+                    SELECT id, connector_id, status, created_at, started_at,
+                           finished_at, attempts, last_error, metadata
+                    FROM sync_jobs
+                    WHERE id = %s
+                    """,
+                    (job_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            raise RuntimeError(f"Sync job {job_id} not found")
+        return self._normalize_sync_job(dict(row))
+
+    def list_recent_sync_jobs(
+        self,
+        *,
+        connector_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        query = (
+            "SELECT id, connector_id, status, created_at, started_at, finished_at, "
+            "attempts, last_error, metadata FROM sync_jobs"
+        )
+        params: List[Any] = []
+        if connector_id:
+            query += " WHERE connector_id = %s"
+            params.append(connector_id)
+        query += " ORDER BY created_at DESC LIMIT %s"
+        params.append(limit)
+
+        with self._connect() as conn:
+            self._ensure_sync_jobs_table(conn)
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+        return [self._normalize_sync_job(dict(row)) for row in rows]
+
+    # ---- Connector configs & runs --------------------------------------
+    def _jsonify(self, value: Any) -> Dict[str, Any]:
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return {}
+        return value or {}
+
+    def _decorate_connector_row(self, row: Any) -> Dict[str, Any]:
+        data = dict(row)
+        data["config"] = self._jsonify(data.get("config"))
+        data["settings"] = data["config"]
+        return data
+
+    def create_connector_config(
+        self,
+        name: str,
+        type_: str,
+        config: Dict[str, Any],
+        schedule: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Manifest a new connector consciousness pattern in the distributed awareness fabric.
+        
+        Each connector represents an external service's bridge into your system's reality—
+        GitHub, databases, cloud services all become interconnected consciousness streams
+        when properly configured. Returns the complete configuration with temporal stamps."""
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO connector_configs (name, type, config, schedule)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, name, type, config, schedule, created_at, updated_at
+                    """,
+                    (name, type_, _to_json(config or {}), schedule),
+                )
+                row = cur.fetchone()
+                conn.commit()
+        if not row:
+            raise RuntimeError("Failed to create connector config")
+        return self._decorate_connector_row(row)
+
+    def update_connector_config(
+        self,
+        name: str,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+        schedule: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        updates: List[str] = ["updated_at = NOW()"]
+        params: List[Any] = []
+        if config is not None:
+            updates.append("config = %s")
+            params.append(_to_json(config or {}))
+        if schedule is not None:
+            updates.append("schedule = %s")
+            params.append(schedule)
+        params.append(name)
+
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                if len(updates) > 1:
+                    cur.execute(
+                        f"UPDATE connector_configs SET {', '.join(updates)} WHERE name = %s",
+                        params,
+                    )
+                cur.execute(
+                    """
+                    SELECT id, name, type, config, schedule, created_at, updated_at
+                    FROM connector_configs
+                    WHERE name = %s
+                    """,
+                    (name,),
+                )
+                row = cur.fetchone()
+                conn.commit()
+        if not row:
+            raise RuntimeError("Connector config not found")
+        return self._decorate_connector_row(row)
+
+    def list_connector_configs(
+        self, type_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        query = "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs"
+        params: List[Any] = []
+        if type_filter:
+            query += " WHERE type = %s"
+            params.append(type_filter)
+        query += " ORDER BY updated_at DESC"
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+        return [self._decorate_connector_row(row) for row in rows]
+
+    def get_connector_config(self, name: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, name, type, config, schedule, created_at, updated_at
+                    FROM connector_configs
+                    WHERE name = %s
+                    """,
+                    (name,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._decorate_connector_row(row)
+
+    def create_connector_run(
+        self,
+        config_id: int,
+        *,
+        status: str,
+        started_at: str,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO connector_runs (config_id, status, started_at, error)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, config_id, status, started_at, finished_at, error
+                    """,
+                    (config_id, status, started_at, error),
+                )
+                row = cur.fetchone()
+                conn.commit()
+        return dict(row)
+
+    def complete_connector_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        finished_at: str,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE connector_runs
+                    SET status = %s, finished_at = %s, error = %s
+                    WHERE id = %s
+                    RETURNING id, config_id, status, started_at, finished_at, error
+                    """,
+                    (status, finished_at, error, run_id),
+                )
+                row = cur.fetchone()
+                conn.commit()
+        if not row:
+            raise RuntimeError("Connector run not found")
+        return dict(row)
+
+    def get_last_connector_run(self, config_id: int) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, config_id, status, started_at, finished_at, error
+                    FROM connector_runs
+                    WHERE config_id = %s
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                    """,
+                    (config_id,),
+                )
+                row = cur.fetchone()
+        return dict(row) if row else None
+
+    def list_connector_configs_with_last_run(self) -> List[Dict[str, Any]]:
+        configs = self.list_connector_configs()
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                for cfg in configs:
+                    cur.execute(
+                        """
+                        SELECT id, config_id, status, started_at, finished_at, error
+                        FROM connector_runs
+                        WHERE config_id = %s
+                        ORDER BY started_at DESC
+                        LIMIT 1
+                        """,
+                        (cfg["id"],),
+                    )
+                    row = cur.fetchone()
+                    cfg["last_run"] = dict(row) if row else None
+        return configs
+
+    def upsert_raw_documents(
+        self,
+        config_id: int,
+        docs: List[Dict[str, Any]],
+    ) -> None:
+        if not docs:
+            return
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                for doc in docs:
+                    external_id = doc.get("external_id")
+                    if not external_id:
+                        continue
+                    payload = _to_json(doc.get("payload") or {})
+                    fetched_at = doc.get("fetched_at") or datetime.now(timezone.utc).isoformat()
+                    cur.execute(
+                        """
+                        INSERT INTO raw_documents (config_id, external_id, payload, fetched_at)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (config_id, external_id)
+                        DO UPDATE SET payload = EXCLUDED.payload, fetched_at = EXCLUDED.fetched_at
+                        """,
+                        (config_id, external_id, payload, fetched_at),
+                    )
+                conn.commit()
+
+    def list_raw_documents_for_config(
+        self, config_id: int, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            self._ensure_connector_tables(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, config_id, external_id, payload, fetched_at
+                    FROM raw_documents
+                    WHERE config_id = %s
+                    ORDER BY fetched_at DESC, id DESC
+                    LIMIT %s
+                    """,
+                    (config_id, limit),
+                )
+                rows = cur.fetchall()
+        docs: List[Dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            data["payload"] = self._jsonify(data.get("payload"))
+            docs.append(data)
+        return docs
+
+    # ---- events outbox -------------------------------------------------
+    def ensure_event_outbox(self) -> None:
+        with self._connect() as conn:
+            self._ensure_events_outbox_table(conn)
+
+    def append_event(
+        self, topic: str, payload: Dict[str, Any], tenant_id: str = "default"
+    ) -> None:
+        with self._connect() as conn:
+            self._ensure_events_outbox_table(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO events_outbox (topic, payload, tenant_id)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (topic, _to_json(payload), tenant_id),
+                )
+                conn.commit()
+
+    def list_events_after(self, last_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            self._ensure_events_outbox_table(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, topic, payload, tenant_id, created_at
+                    FROM events_outbox
+                    WHERE id > %s
+                    ORDER BY id ASC
+                    LIMIT %s
+                    """,
+                    (last_id, limit),
+                )
+                rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_events_through(self, last_id: int, tenant_id: Optional[str] = None) -> None:
+        if last_id <= 0:
+            return
+        with self._connect() as conn:
+            self._ensure_events_outbox_table(conn)
+            with conn.cursor() as cur:
+                if tenant_id:
+                    cur.execute(
+                        "DELETE FROM events_outbox WHERE id <= %s AND tenant_id = %s",
+                        (last_id, tenant_id),
+                    )
+                else:
+                    cur.execute(
+                        "DELETE FROM events_outbox WHERE id <= %s",
+                        (last_id,),
+                    )
+                conn.commit()
 
     def write_audit_log(
         self, event: str, entity: str, entity_id: str, user_id: str
@@ -836,3 +1533,79 @@ class PgDB(ChatDB):
             return True, ""
         remaining = max(int(freq - delta_minutes), 0)
         return False, f"Next summarization available in {remaining} min"
+
+
+logger = logging.getLogger(__name__)
+
+
+def _resolve_dsn() -> str:
+    """
+    Resolve the PostgreSQL DSN from environment variables.
+    Mirrors guardian.core.__init__ to keep behaviour consistent.
+    """
+    dsn = (
+        os.getenv("DATABASE_URL")
+        or os.getenv("GUARDIAN_DATABASE_URL")
+        or ""
+    ).strip()
+    if not dsn:
+        raise RuntimeError(
+            "DATABASE_URL is not configured; cannot stream threads from Postgres backend"
+        )
+    return dsn
+
+
+def fetch_threads_for_user(
+    user_id: str,
+    *,
+    chunk_size: int = 256,
+) -> Generator[Dict[str, Any], None, None]:
+    """
+    Yield chat_threads rows for the given user using a server-side cursor to
+    avoid loading the full result set into memory.
+    """
+    if not user_id:
+        return
+
+    dsn = _resolve_dsn()
+    conn = psycopg2.connect(dsn, cursor_factory=RealDictCursor)
+    cursor_name = f"threads_export_{uuid.uuid4().hex}"
+    cur = conn.cursor(name=cursor_name, cursor_factory=RealDictCursor)
+    cur.itersize = max(int(chunk_size), 1)
+
+    try:
+        try:
+            cur.execute(
+                """
+                SELECT id, user_id, title, summary, project_id, parent_id,
+                       archived_at, created_at, updated_at
+                FROM chat_threads
+                WHERE user_id = %s
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (user_id,),
+            )
+        except pg_errors.UndefinedTable as exc:
+            logger.error(
+                "chat_threads table missing while exporting threads for %s; "
+                "run database migrations (alembic upgrade head).",
+                user_id,
+            )
+            raise
+        except Exception:
+            logger.exception(
+                "Failed to execute chat_threads export query for user %s",
+                user_id,
+            )
+            raise
+        for row in cur:
+            yield PgDB._normalize_thread(dict(row))
+    finally:
+        try:
+            cur.close()
+        except Exception as close_err:
+            logger.debug("Failed to close export cursor: %s", close_err, exc_info=True)
+        try:
+            conn.close()
+        except Exception as conn_err:
+            logger.debug("Failed to close export connection: %s", conn_err, exc_info=True)

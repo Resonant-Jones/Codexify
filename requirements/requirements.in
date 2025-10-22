@@ -8,6 +8,7 @@ jinja2
 requests
 typer
 rich
+python-multipart
 # Optional dependencies
 # Uncomment the following lines if you need these features
 aiohttp
@@ -15,6 +16,7 @@ sqlalchemy
 selenium
 beautifulsoup4
 chromadb
+pgvector
 litellm
 pytest-asyncio
 anyio

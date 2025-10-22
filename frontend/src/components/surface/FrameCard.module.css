@@ -1,0 +1,17 @@
+// FrameCard.tsx
+import styles from "./FrameCard.module.css";
+
+/* Tokens pulled from :root or AppShell: --card-radius, --bezel, --gutter, etc. */
+.fcRoot {
+  border-radius: var(--card-radius);
+  isolation: isolate;
+}
+
+.fcBezel,
+.fcLiquid,
+.fcInner {
+  border-radius: inherit;
+}
+
+/* …paste the rest of your style rules, replacing .fc-root with .fcRoot,
+   .fc-bezel with .fcBezel, etc. … */

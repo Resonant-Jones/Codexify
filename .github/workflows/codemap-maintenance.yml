@@ -1,5 +1,7 @@
 name: Codemap maintenance
 
+# NOTE: All cron times are UTC. Adjust if you expect output at a specific local time.
+
 on:
   schedule:
     - cron: '23 3 * * *'   # nightly UTC
@@ -12,6 +14,7 @@ concurrency:
 
 jobs:
   maintain:
+    id: maintain
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,6 +38,7 @@ jobs:
       - name: Generate new codemap snapshot
         shell: bash
         run: |
+          set -euo pipefail
           ts=$(date -u +%Y%m%d-%H%M%S)
           export CODEMAP_PATH="artifacts/codemap/codemap-$ts.json"
           make codemap
@@ -51,11 +55,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: codemap-${{ github.run_id }}
+          # The codemap artifacts are created by 'make codemap' and are kept in artifacts/codemap/.
           path: artifacts/codemap/*.json
           if-no-files-found: ignore
           retention-days: 14
 
   weekly-clean:
+    id: weekly-clean
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

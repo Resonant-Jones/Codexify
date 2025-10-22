@@ -441,7 +441,7 @@ pycodestyle==2.14.0
     # via flake8
 pycparser==2.22
     # via cffi
-pydantic==2.11.7
+pydantic==2.11.5
     # via
     #   -r requirements/requirements.in
     #   chromadb
@@ -450,6 +450,7 @@ pydantic==2.11.7
     #   google-generativeai
     #   litellm
     #   openai
+pydantic-settings>=2.0
 pydantic-core==2.33.2
     # via pydantic
 pyee==13.0.0
@@ -502,6 +503,8 @@ python-dotenv==1.1.1
     #   litellm
     #   magika
     #   uvicorn
+python-multipart==0.0.9
+    # via -r requirements/requirements.in
 python-jose[cryptography]==3.5.0
     # via -r requirements/requirements.in
 pytz==2025.2
@@ -673,3 +676,7 @@ zipp==3.23.0
     # via importlib-metadata
 # Soft dependency for Groq provider
 groq
+transformers>=4.40
+psycopg2-binary>=2.9.9
+alembic>=1.13
+sentence-transformers>=5.1.1,<6.0

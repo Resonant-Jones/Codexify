@@ -1,0 +1,42 @@
+# Docker ignore for repo root
+# node modules and build artifacts
+node_modules
+frontend/node_modules
+
+# build outputs
+dist
+frontend/dist
+
+# IDE / editor
+.vscode
+.idea
+.DS_Store
+
+# logs
+*.log
+npm-debug.log
+yarn-error.log
+yarn-debug.log*
+
+# vite cache
+.vite
+src/.vite
+
+# environment + secrets
+.env
+.env.local
+
+# git
+.git
+
+# python cache
+__pycache__/
+*.pyc
+
+# python virtualenvs
+.venv
+venv
+
+# test/cache
+.cache
+.pytest_cache

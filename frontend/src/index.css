@@ -1,0 +1,328 @@
+/* Tailwind base layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #000;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+:root {
+  --radius: 19px;
+  --card-radius: 19px;
+  --tile-radius: 19px;
+  --card-pad: 10px;
+  --board-edge: 8px;
+  --shell-gap: 16px;
+  --gutter: 16px;
+  --workspace-w: 320px;
+  --panel-bg: color-mix(in oklab, #0b0f16 65%, transparent);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-bezel: rgba(255, 255, 255, 0.12);
+  --chip-bg: rgba(255, 255, 255, 0.04);
+  --text: #f9fafb;
+  --muted: rgba(249, 250, 251, 0.72);
+  --accent: rgba(56, 189, 248, 0.85);
+  --accent-weak: rgba(56, 189, 248, 0.35);
+  --accent-strong: rgba(14, 165, 233, 0.95);
+}
+
+/* ----------------------------------------------
+   Custom utilities
+---------------------------------------------- */
+@layer components {
+
+/* Frosted glass rim around cards */
+/* Pill-shaped navigation shell as a single glass pane */
+.glass-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pill-gap, 0.65rem);
+  padding: 0.35rem;
+  border-radius: var(--tile-radius, 19px);
+  border: 1.5px solid color-mix(in oklab, var(--panel-border) 70%, transparent);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 18px 36px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(8px) saturate(160%);
+  isolation: isolate;
+}
+
+.icon-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  border-radius: var(--tile-radius, 19px);
+  background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 42%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--panel-border) 85%, transparent);
+  color: inherit;
+  transition: transform .15s ease, background .22s ease, box-shadow .22s ease, color .22s ease;
+}
+.icon-inline:hover {
+  background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 56%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--panel-border) 95%, transparent);
+}
+.icon-inline:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent-strong) 75%, transparent);
+  outline-offset: 2px;
+}
+.icon-inline:active {
+  transform: translateY(1px);
+}
+.icon-inline:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.embedded-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--tile-radius, 19px);
+  border: 1.5px solid color-mix(in oklab, var(--panel-border) 72%, transparent);
+  background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 60%, transparent);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  transition: transform .15s ease, background .22s ease, border-color .22s ease;
+}
+.embedded-btn:hover {
+  background: color-mix(in oklab, var(--panel-sheet, #1f1f1f) 72%, transparent);
+}
+.embedded-btn:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent-strong) 75%, transparent);
+  outline-offset: 2px;
+}
+.embedded-btn:active {
+  transform: translateY(1px);
+}
+.embedded-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.thread-preview .fc-inner > div {
+  justify-content: center;
+  gap: 0.4rem;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.thread-preview .thread-title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.thread-preview .thread-snippet {
+  opacity: 0.7;
+}
+
+.project-tile {
+  position: relative;
+  border-radius: var(--card-radius);
+  border: 1.5px solid color-mix(in oklab, var(--panel-border) 80%, transparent);
+  background: color-mix(in oklab, rgba(12, 19, 32, 0.78) 60%, transparent);
+  box-shadow:
+    0 18px 34px rgba(6, 9, 16, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 1rem;
+  min-height: 140px;
+  color: var(--text);
+  transition: transform .18s ease, box-shadow .22s ease, border-color .22s ease;
+}
+
+.project-tile:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 22px 40px rgba(6, 9, 16, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.project-tile__icon {
+  font-size: 1.85rem;
+  line-height: 1;
+}
+
+.project-tile__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.project-tile--active {
+  border-color: color-mix(in oklab, var(--accent-strong) 70%, transparent);
+  box-shadow:
+    0 26px 48px color-mix(in oklab, var(--accent-strong) 24%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.thread-preview .thread-title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.thread-preview .thread-snippet {
+  opacity: 0.7;
+}
+
+/* Integrated tabs that live *inside* the same glass pane */
+.pill-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--tile-radius, 19px);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: 500 var(--pill-font)/1.05 -apple-system, BlinkMacSystemFont, "SF Pro",
+        "San Francisco", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  cursor: pointer;
+  user-select: none;
+  transition: color .18s ease, background .22s ease, box-shadow .22s ease, transform .12s ease;
+}
+
+.pill-tab:hover {
+  color: var(--text);
+}
+.pill-tab:active {
+  transform: translateY(1px);
+}
+.pill-tab:focus-visible {
+  outline: 2px solid var(--accent-weak);
+  outline-offset: 2px;
+}
+
+/* Active state: accent-backed pill */
+.pill-tab[data-state="active"] {
+  color: var(--pill-active-text, var(--text));
+  border-color: color-mix(in oklab, var(--accent-strong) 40%, transparent);
+  background: color-mix(in oklab, var(--accent-strong) 86%, transparent);
+  box-shadow:
+    0 12px 24px color-mix(in oklab, var(--accent-strong) 32%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+/* Brand badge – black pill */
+.brand-tab {
+  font: 600 calc(var(--pill-font) * 1.15)/1 -apple-system, BlinkMacSystemFont, "SF Pro",
+        "San Francisco", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.24);
+  background: linear-gradient(180deg, rgba(0,0,0,.90), rgba(0,0,0,.75));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12),
+              inset 0 -8px 14px rgba(0,0,0,.55);
+}
+
+/* Dark mode tuning */
+.dark .glass-pill {
+  border-color: color-mix(in oklab, var(--panel-border) 82%, transparent);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.48));
+}
+.dark .pill-tab[data-state="active"] {
+  background: color-mix(in oklab, var(--accent-strong) 70%, rgba(15,23,42,0.4));
+  box-shadow:
+    0 12px 24px color-mix(in oklab, var(--accent-strong) 28%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.22);
+}
+
+/* Perfect square color swatches */
+.color-swatch {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: var(--tile-radius, 19px);
+  border: 1px solid color-mix(in oklab, var(--panel-border) 75%, transparent);
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+}
+.color-swatch::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.color-swatch::-webkit-color-swatch {
+  border: none;
+  border-radius: inherit;
+}
+.color-swatch::-moz-focus-inner {
+  border: 0;
+  padding: 0;
+}
+.color-swatch::-moz-color-swatch {
+  border: none;
+  border-radius: inherit;
+}
+
+/* Rounded range sliders */
+.settings-slider {
+  width: 100%;
+  accent-color: var(--accent-strong);
+  cursor: pointer;
+}
+.settings-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--panel-border) 65%, transparent);
+}
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 2px solid rgba(255,255,255,0.55);
+  background: var(--accent-strong);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
+  margin-top: -6px;
+}
+.settings-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--panel-border) 65%, transparent);
+}
+.settings-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 2px solid rgba(255,255,255,0.55);
+  background: var(--accent-strong);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
+}
+}
+
+/* Top shell layout helper */
+.cap-width {
+  max-width: min(100%, 1024px);
+}
+
+/* Dashboard Layout helpers */
+.dashboard-doc-tile {
+  width: 125px !important;
+  height: 125px;
+}
+
+/* ─────────────────────────────────────────
+   Pill Dock (Glass Navigation) – unified styling
+   Uses Apple system font for a native feel
+────────────────────────────────────────── */
+:root {
+  --pill-h: 48px;        /* pill height */
+  --pill-px: 16px;       /* horizontal padding for tabs */
+  --pill-gap: 10px;      /* gap between segments */
+  --pill-font: 15px;     /* font size for tabs + brand */
+}

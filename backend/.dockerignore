@@ -1,0 +1,17 @@
+**
+!Dockerfile
+!.dockerignore
+!requirements.txt
+!../guardian/**
+!../migrations/**
+!../backend/**
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.venv/
+.env
+.env.*
+dist/
+build/

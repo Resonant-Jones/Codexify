@@ -1,0 +1,73 @@
+{
+  "name": "guardian-backend_v2",
+  "version": "1.0.0",
+  "description": "A next-generation AI operating system designed to host recursive, persistent AI agents with self-awareness and dynamic capabilities.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "dev": "pnpm --dir src dev",
+    "build": "pnpm --dir src build",
+    "preview": "pnpm --dir src preview",
+    "typecheck": "pnpm --dir src typecheck",
+    "lint": "pnpm --dir src lint",
+    "test": "pnpm --dir src test",
+    "test:watch": "pnpm --dir src test:watch",
+    "format": "pnpm --dir src format",
+    "format:check": "pnpm --dir src format:check",
+    "cypress": "pnpm --dir src cypress",
+    "cypress:run": "pnpm --dir src cypress:run",
+    "db:bootstrap": "bash scripts/pg_bootstrap.sh",
+    "db:verify": "bash scripts/pg_verify.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Resonant-Jones/guardian-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Resonant-Jones/guardian-backend/issues"
+  },
+  "homepage": "https://github.com/Resonant-Jones/guardian-backend#readme",
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@google/gemini-cli": "^0.1.11",
+    "@tailwindcss/cli": "^4.1.14",
+    "@tailwindcss/vite": "^4.1.12",
+    "@tauri-apps/cli": "^2.8.1",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/lodash-es": "^4.17.12",
+    "autoprefixer": "^10.4.21",
+    "cypress": "^15.2.0",
+    "eslint": "^9.32.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "jsdom": "^26.1.0",
+    "postcss": "^8.5.6",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.39.0",
+    "vite": "^7.1.0",
+    "vite-plugin-pwa": "^1.0.3",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@radix-ui/react-visually-hidden": "^1.2.3",
+    "@tauri-apps/api": "^2.7.0",
+    "axios": "^1.12.2",
+    "clsx": "^2.1.1",
+    "event-source-polyfill": "^1.0.27",
+    "framer-motion": "^12.23.12",
+    "lodash-es": "^4.17.21",
+    "lucide-react": "^0.541.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tailwindcss": "^4.1.11"
+  }
+}

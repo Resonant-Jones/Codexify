@@ -14,7 +14,10 @@ import yaml
 from jinja2 import Template
 
 # For Notion export markdown -> blocks
-from .codexify import flatten_notion_blocks, markdown_to_notion_blocks
+# Avoid package/module name collision by importing the module directly
+from guardian import codexify as codexify_mod
+flatten_notion_blocks = codexify_mod.flatten_notion_blocks
+markdown_to_notion_blocks = codexify_mod.markdown_to_notion_blocks
 
 logging.basicConfig(level=logging.INFO)
 logging.debug("NOTION_API_KEY loaded")

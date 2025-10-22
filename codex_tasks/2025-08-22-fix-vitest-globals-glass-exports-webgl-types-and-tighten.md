@@ -48,15 +48,15 @@ export default defineConfig({
 Replace the entire contents of src/components/surface/ReactiveGlassCard.tsx with:
 
 // Surface adapter: ensure both default and named exports exist
-export { default as ReactiveGlassCard } from "@/components/ui/RefractiveGlassCard";
-export { default } from "@/components/ui/RefractiveGlassCard";
+export { default as ReactiveGlassCard } from "@/components/surface/FrameCard";
+export { default } from "@/components/surface/FrameCard";
 
 Update imports in AppShell:
 
 Edit src/components/persona/layout/AppShell.tsx:
  • Find any import of the glass card like:
- • import ReactiveGlassCard from "@/components/ui/RefractiveGlassCard"; or
- • import { ReactiveGlassCard } from "@/components/ui/RefractiveGlassCard";
+ • import ReactiveGlassCard from "@/components/surface/FrameCard"; or
+ • import { ReactiveGlassCard } from "@/components/surface/FrameCard";
  • Replace with:
 
 import ReactiveGlassCard from "@/components/surface/ReactiveGlassCard";
@@ -67,16 +67,16 @@ import ReactiveGlassCard from "@/components/surface/ReactiveGlassCard";
 
 4) Quiet TypeScript’s “possibly null” WebGL errors
 
-Edit src/components/ui/RefractiveGlassCard.tsx:
+Edit src/components/surface/FrameCard.tsx:
 
 A) Ensure it has a default export.
- • If it’s export function RefractiveGlassCard(...), change to:
+ • If it’s export function FrameCard(...), change to:
 
-export default function RefractiveGlassCard(props: Props) {
+export default function FrameCard(props: Props) {
 
- • If it’s const RefractiveGlassCard = (...) => {}, make sure the bottom has:
+ • If it’s const FrameCard = (...) => {}, make sure the bottom has:
 
-export default RefractiveGlassCard;
+export default FrameCard;
 
 B) Change compileShader to accept a non-null gl:
  • Find the helper that begins with function compileShader( and replace it with:
