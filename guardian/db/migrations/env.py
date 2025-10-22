@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
-from pathlib import Path
 from logging.config import fileConfig
 
 from alembic import context
@@ -13,12 +11,6 @@ from sqlalchemy.engine import Connection
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
-
-# Ensure project root (/app) is importable (works in container & local)
-HERE = Path(__file__).resolve()
-REPO_ROOT = HERE.parents[2]  # /app
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 # Import Base from guardian.db.models per project conventions
 from guardian.db.models import Base
