@@ -4,6 +4,7 @@ Test bootstrap: seed env and harmonize imports.
 
 import sys
 import os
+from pathlib import Path
 
 # Ensure legacy `memoryos.*` imports resolve to in-repo `guardian.memoryos.*`
 try:
@@ -11,6 +12,11 @@ try:
     sys.modules.setdefault("memoryos", _gm)
 except Exception:
     pass
+
+# Ensure the repository root takes precedence over any installed packages
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 """
 pytest bootstrap (quiet by default)
