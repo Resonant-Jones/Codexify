@@ -12,7 +12,10 @@ import pytest
 from dotenv import load_dotenv
 
 # Import the correct FastAPI app for tests
-from neo4j import GraphDatabase
+try:
+    from neo4j import GraphDatabase  # type: ignore
+except Exception:
+    GraphDatabase = None  # type: ignore
 import socket
 from urllib.parse import urlparse
 import os
@@ -297,6 +300,8 @@ def neo4j_driver():
         host_url = bolt
         auth = (env_user, env_pass)
 
+    if GraphDatabase is None:
+        pytest.skip("neo4j driver not installed; set it up to run graph tests")
     driver = GraphDatabase.driver(host_url, auth=auth)
     try:
         yield driver

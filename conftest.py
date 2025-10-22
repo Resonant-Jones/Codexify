@@ -1,11 +1,22 @@
 """
+Test bootstrap: seed env and harmonize imports.
+"""
+
+import sys
+import os
+
+# Ensure legacy `memoryos.*` imports resolve to in-repo `guardian.memoryos.*`
+try:
+    import guardian.memoryos as _gm
+    sys.modules.setdefault("memoryos", _gm)
+except Exception:
+    pass
+
+"""
 pytest bootstrap (quiet by default)
 - Seeds dummy env so import-time Settings() validation can't crash collection.
 - To debug loading order, run with: PYTEST_VERBOSE_BOOT=1 pytest -s
 """
-
-import os
-import sys
 
 # ---- Quiet banner (opt-in) ----
 if os.getenv("PYTEST_VERBOSE_BOOT") == "1":

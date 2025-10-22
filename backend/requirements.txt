@@ -490,6 +490,8 @@ pytest-cov==6.2.1
     # via -r requirements/requirements.in
 pytest-mock==3.14.1
     # via -r requirements/requirements.in
+neo4j==5.26.0
+    # via guardian graph tests and db helpers
 python-dateutil==2.9.0.post0
     # via
     #   ghp-import
@@ -677,6 +679,11 @@ zipp==3.23.0
 # Soft dependency for Groq provider
 groq
 transformers>=4.40
+
 psycopg2-binary>=2.9.9
 alembic>=1.13
 sentence-transformers>=5.1.1,<6.0
+
+# Graph database and ORM dependencies
+neo4j==5.26.0
+neomodel==5.3.2
