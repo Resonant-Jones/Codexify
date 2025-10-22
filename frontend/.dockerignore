@@ -1,0 +1,16 @@
+# Ignore everything by default
+**
+
+# Allow Dockerfile and this ignore file
+!Dockerfile
+!.dockerignore
+
+# Allow the app itself
+!src/
+src/node_modules/
+src/.next/
+src/dist/
+src/.vite/
+src/.cache/
+src/.turbo/
+src/.DS_Store

@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import LayeredCard from "@/components/ui/LayeredCard";
-import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
+import FrameCard from "@/components/surface/FrameCard";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { CardContent } from "@/components/ui/card";
 import { DocumentTile, ext } from "./DocumentTile";
@@ -11,7 +11,7 @@ export function DashboardView({ extColors, gallery, onImagePrompt }: { extColors
   const recentDocs = ["Covenant.pdf", "Roadmap.md", "Vision.txt"];
   const colorFor = (name: string) => extColors[ext(name)] || "#6366f1";
   return (
-    <RefractiveGlassCard wallpaperUrl={wallpaperUrl} className="rounded-2xl h-full" style={{ border: 0 }}>
+    <FrameCard liquidBezel shimmer tone="base"wallpaperUrl={wallpaperUrl} className="rounded-2xl h-full" style={{ border: 0 }}>
       <div className="grid h-full grid-cols-1 gap-4 p-4 lg:grid-cols-2">
       <LayeredCard bevel="chunky" glass className="rounded-2xl h-full">
         <CardContent className="p-[3px] h-full">
@@ -85,7 +85,7 @@ export function DashboardView({ extColors, gallery, onImagePrompt }: { extColors
         </CardContent>
       </LayeredCard>
       </div>
-    </RefractiveGlassCard>
+    </surface/FrameCard>
   );
 }
 

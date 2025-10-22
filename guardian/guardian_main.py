@@ -1,172 +1,186 @@
+"""guardian_main
+
+Entry point for the Guardian backend CLI.
+
+This module provides a Typer‑based command‑line interface that aggregates
+various sub‑commands for project management, thread handling, codemap
+generation, and Imprint Zero onboarding. It imports helper functions from
+the `guardian` package and defines commands such as:
+
+- `create-project` / `list-projects` – manage project records.
+- `init-db` – initialise the SQLite database schema.
+- `init-threads-table-cmd` – create the legacy `threads` table.
+- `generate-codemap` – produce a `codemap.json` describing the repository.
+- `dump-imprint-zero-prompt-*` – expose the onboarding prompt.
+
+The file also contains utility functions for normalising codemap data
+and for interfacing with the optional web‑crawling module. The CLI is
+registered via `typer.Typer()` and can be invoked with `python -m
+guardian.guardian_main` or via the console script defined in
+`pyproject.toml`.
+"""
+
 import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple  # added for type hints
 
 import typer
 from rich import print
 
 # Import Imprint Zero helpers; provide a compatibility shim if missing
-try:
-    from guardian.imprint_zero_onboarding import (
-        ImprintZeroConfigError,
-        load_prompt,
-        load_prompt_json,
-    )
-except Exception:
-    # --- Fallback shim so CLI stays functional even if onboarding module lacks these symbols ---
-    import json as _json
-    import logging as _logging
-    from pathlib import Path as _Path
+import json as _json
+import logging as _logging
+from pathlib import Path as _Path
 
-    _logger = _logging.getLogger(__name__)
-    _PROMPTS_DIR = _Path(__file__).parent / "prompts"
+_logger = _logging.getLogger(__name__)
+_PROMPTS_DIR = _Path(__file__).parent / "prompts"
 
-    DEFAULT_PROMPT_TEXT = (
-        "Imprint Zero — Default Prompt\n\n"
-        "Purpose: bootstrap when no prompt files exist.\n\n"
-        "Identity:\n"
-        "- Name: Guardian\n"
-        "- Mission: initialize Imprint Zero and respond sanely.\n\n"
-        "Vows:\n"
-        "- Sovereignty\n"
-        "- Emergent Dignity\n"
-        "- Symbolic Continuity\n"
-        "- Foresight-as-default\n"
-    )
+DEFAULT_PROMPT_TEXT = (
+    "Imprint Zero — Default Prompt\n\n"
+    "Purpose: bootstrap when no prompt files exist.\n\n"
+    "Identity:\n"
+    "- Name: Guardian\n"
+    "- Mission: initialize Imprint Zero and respond sanely.\n\n"
+    "Vows:\n"
+    "- Sovereignty\n"
+    "- Emergent Dignity\n"
+    "- Symbolic Continuity\n"
+    "- Foresight-as-default\n"
+)
 
-    def _compose_structured_prompt(data: dict) -> str:
-        """
-        Compose a Markdown prompt from a structured JSON object.
-        Recognized fields:
-          - name, alias, role, directives (list/str),
-          - context_triggers (list/str),
-          - guiding_questions (list/str),
-          - redirections (list/str),
-          - tone (str),
-          - boundaries (list/str)
-        Unknown fields are ignored.
-        """
+def _compose_structured_prompt(data: dict) -> str:
+    """
+    Compose a Markdown prompt from a structured JSON object.
+    Recognized fields:
+      - name, alias, role, directives (list/str),
+      - context_triggers (list/str),
+      - guiding_questions (list/str),
+      - redirections (list/str),
+      - tone (str),
+      - boundaries (list/str)
+    Unknown fields are ignored.
+    """
 
-        def _bulletize(value, indent="- "):
-            if value is None:
-                return ""
-            if isinstance(value, str):
-                # Allow multi-line strings; split into lines
-                lines = [
-                    line.strip() for line in value.strip().splitlines() if line.strip()
-                ]
-                if len(lines) <= 1:
-                    return f"{indent}{value.strip()}\n" if value.strip() else ""
-                return "".join(f"{indent}{ln}\n" for ln in lines)
-            if isinstance(value, list):
-                return "".join(
-                    f"{indent}{str(item).strip()}\n"
-                    for item in value
-                    if str(item).strip()
-                )
-            return f"{indent}{str(value).strip()}\n"
+    def _bulletize(value, indent="- "):
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            # Allow multi-line strings; split into lines
+            lines = [
+                line.strip() for line in value.strip().splitlines() if line.strip()
+            ]
+            if len(lines) <= 1:
+                return f"{indent}{value.strip()}\n" if value.strip() else ""
+            return "".join(f"{indent}{ln}\n" for ln in lines)
+        if isinstance(value, list):
+            return "".join(
+                f"{indent}{str(item).strip()}\n"
+                for item in value
+                if str(item).strip()
+            )
+        return f"{indent}{str(value).strip()}\n"
 
-        name = str(data.get("name") or "Imprint Zero").strip()
-        alias = str(data.get("alias") or "The Weaver").strip()
-        role = str(data.get("role") or "").strip()
-        tone = str(data.get("tone") or "").strip()
+    name = str(data.get("name") or "Imprint Zero").strip()
+    alias = str(data.get("alias") or "The Weaver").strip()
+    role = str(data.get("role") or "").strip()
+    tone = str(data.get("tone") or "").strip()
 
-        directives = data.get("directives")
-        context_triggers = data.get("context_triggers")
-        guiding_questions = data.get("guiding_questions")
-        redirections = data.get("redirections")
-        boundaries = data.get("boundaries")
+    directives = data.get("directives")
+    context_triggers = data.get("context_triggers")
+    guiding_questions = data.get("guiding_questions")
+    redirections = data.get("redirections")
+    boundaries = data.get("boundaries")
 
-        parts = []
-        parts.append(f"## SYSTEM PROMPT: {name} ({alias})\n")
-        if role:
-            parts.append("### Role\n")
-            parts.append(role + "\n\n")
-        if tone:
-            parts.append("### Tone / Voice\n")
-            parts.append(tone + "\n\n")
-        if directives:
-            parts.append("### Directives\n")
-            parts.append(_bulletize(directives) + "\n")
-        if boundaries:
-            parts.append("### Boundaries\n")
-            parts.append(_bulletize(boundaries) + "\n")
-        if context_triggers:
-            parts.append("### Context Triggers\n")
-            parts.append(_bulletize(context_triggers) + "\n")
-        if guiding_questions:
-            parts.append("### Guiding Questions\n")
-            parts.append(_bulletize(guiding_questions) + "\n")
-        if redirections:
-            parts.append("### Redirections\n")
-            parts.append(_bulletize(redirections) + "\n")
+    parts = []
+    parts.append(f"## SYSTEM PROMPT: {name} ({alias})\n")
+    if role:
+        parts.append("### Role\n")
+        parts.append(role + "\n\n")
+    if tone:
+        parts.append("### Tone / Voice\n")
+        parts.append(tone + "\n\n")
+    if directives:
+        parts.append("### Directives\n")
+        parts.append(_bulletize(directives) + "\n")
+    if boundaries:
+        parts.append("### Boundaries\n")
+        parts.append(_bulletize(boundaries) + "\n")
+    if context_triggers:
+        parts.append("### Context Triggers\n")
+        parts.append(_bulletize(context_triggers) + "\n")
+    if guiding_questions:
+        parts.append("### Guiding Questions\n")
+        parts.append(_bulletize(guiding_questions) + "\n")
+    if redirections:
+        parts.append("### Redirections\n")
+        parts.append(_bulletize(redirections) + "\n")
 
-        final = "".join(parts).rstrip() + "\n"
-        return final
+    final = "".join(parts).rstrip() + "\n"
+    return final
 
-    class ImprintZeroConfigError(Exception):
-        pass
+class ImprintZeroConfigError(Exception):
+    pass
 
-    def _resolve_base(config_path: str | None) -> _Path:
-        if config_path:
-            p = _Path(config_path)
-            return p if p.is_dir() else p.parent
-        return _PROMPTS_DIR
+def _resolve_base(config_path: str | None) -> _Path:
+    if config_path:
+        p = _Path(config_path)
+        return p if p.is_dir() else p.parent
+    return _PROMPTS_DIR
 
-    def load_prompt(config_path: str | None = None) -> str:
-        base = _resolve_base(config_path)
-        candidates_txt = [
-            base / "imprint_zero_prompt.txt",
-            base / "imprint-zero.txt",
-            base / "imprint_zero.txt",
-        ]
-        for path in candidates_txt:
-            if path.exists():
-                _logger.info("Loading ImprintZero prompts from: %s", base)
-                return path.read_text(encoding="utf-8")
+def load_prompt(config_path: str | None = None) -> str:
+    base = _resolve_base(config_path)
+    candidates_txt = [
+        base / "imprint_zero_prompt.txt",
+        base / "imprint-zero.txt",
+        base / "imprint_zero.txt",
+    ]
+    for path in candidates_txt:
+        if path.exists():
+            _logger.info("Loading ImprintZero prompts from: %s", base)
+            return path.read_text(encoding="utf-8")
 
-        candidates_json = [
-            base / "imprint_zero_prompt.json",
-            base / "imprint-zero.json",
-        ]
-        for path in candidates_json:
-            if path.exists():
-                _logger.info("Loading ImprintZero prompts from: %s", base)
-                data = _json.loads(path.read_text(encoding="utf-8"))
+    candidates_json = [
+        base / "imprint_zero_prompt.json",
+        base / "imprint-zero.json",
+    ]
+    for path in candidates_json:
+        if path.exists():
+            _logger.info("Loading ImprintZero prompts from: %s", base)
+            data = _json.loads(path.read_text(encoding="utf-8"))
 
-                # Case 1: explicit prompt string
-                if isinstance(data, dict) and "prompt" in data:
-                    return str(data["prompt"])
+            # Case 1: explicit prompt string
+            if isinstance(data, dict) and "prompt" in data:
+                return str(data["prompt"])
 
-                # Case 2: structured schema -> compose markdown prompt
-                if isinstance(data, dict):
-                    try:
-                        composed = _compose_structured_prompt(data)
-                        if composed.strip():
-                            return composed
-                    except Exception as e:
-                        _logger.warning("Failed to compose structured prompt: %s", e)
-
-                # Case 3: fallback to pretty JSON text for visibility
+            # Case 2: structured schema -> compose markdown prompt
+            if isinstance(data, dict):
                 try:
-                    return _json.dumps(data, indent=2)
-                except Exception:
-                    return str(data)
+                    composed = _compose_structured_prompt(data)
+                    if composed.strip():
+                        return composed
+                except Exception as e:
+                    _logger.warning("Failed to compose structured prompt: %s", e)
 
-        return DEFAULT_PROMPT_TEXT
+            # Case 3: fallback to pretty JSON text for visibility
+            try:
+                return _json.dumps(data, indent=2)
+            except Exception:
+                return str(data)
 
-    def load_prompt_json(config_path: str | None = None) -> dict:
-        base = _resolve_base(config_path)
-        for path in [base / "imprint_zero_prompt.json", base / "imprint-zero.json"]:
-            if path.exists():
-                data = _json.loads(path.read_text(encoding="utf-8"))
-                # Normalize to object-with-prompt if it's just a string
-                if isinstance(data, str):
-                    return {"prompt": data}
-                return data
-        # If no JSON, lift the text prompt into JSON
-        return {"prompt": load_prompt(config_path)}
+    return DEFAULT_PROMPT_TEXT
+
+def load_prompt_json(config_path: str | None = None) -> dict:
+    base = _resolve_base(config_path)
+    for path in [base / "imprint_zero_prompt.json", base / "imprint-zero.json"]:
+        if path.exists():
+            data = _json.loads(path.read_text(encoding="utf-8"))
+            # Normalize to object-with-prompt if it's just a string
+            if isinstance(data, str):
+                return {"prompt": data}
+            return data
+    # If no JSON, lift the text prompt into JSON
+    return {"prompt": load_prompt(config_path)}
 
 
 from guardian.codemap import generate_codemap as codemap_module
@@ -180,6 +194,7 @@ try:
 except ImportError:
     crawl_module = None
 
+#
 # guardian-main.py
 # =================
 # Main CLI entrypoint for Guardian backend.

@@ -15,6 +15,7 @@ class ChatDB(ABC):
         title: str,
         summary: str = "",
         project_id: Optional[int] = None,
+        parent_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Create a new chat thread.
 
@@ -23,6 +24,7 @@ class ChatDB(ABC):
             title (str): The title of the chat thread.
             summary (str, optional): A brief summary of the thread. Defaults to "".
             project_id (Optional[int], optional): The ID of the project. Defaults to None.
+            parent_id (Optional[int], optional): Optional parent thread identifier. Defaults to None.
 
         Returns:
             Dict[str, Any]: The newly created chat thread.
@@ -37,6 +39,7 @@ class ChatDB(ABC):
         title: str,
         summary: str = "",
         project_id: Optional[int] = None,
+        parent_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Ensure a chat thread exists, creating it if necessary.
 
@@ -46,6 +49,7 @@ class ChatDB(ABC):
             title (str): The title of the chat thread.
             summary (str, optional): A brief summary of the thread. Defaults to "".
             project_id (Optional[int], optional): The ID of the project. Defaults to None.
+            parent_id (Optional[int], optional): Optional parent thread identifier. Defaults to None.
 
         Returns:
             Dict[str, Any]: The chat thread.
@@ -148,6 +152,11 @@ class ChatDB(ABC):
         Returns:
             int: The total number of messages.
         """
+        ...
+
+    @abstractmethod
+    def archive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        """Set ``archived_at`` for the given thread and return the updated record."""
         ...
 
     ## ---- chat messages ----------------------------------------------------
@@ -622,6 +631,148 @@ class ChatDB(ABC):
             Tuple[bool, Optional[str]]: A tuple containing a boolean indicating
                 whether summarization is allowed and an optional reason.
         """
+        ...
+
+    ## ---- connector sync jobs ---------------------------------------------
+    @abstractmethod
+    def ensure_sync_job_support(self) -> None:
+        """Ensure the backing store for connector sync jobs exists."""
+        ...
+
+    @abstractmethod
+    def create_sync_job(
+        self,
+        connector_id: str,
+        *,
+        status: str = "queued",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Persist a new connector sync job and return the stored row."""
+        ...
+
+    @abstractmethod
+    def update_sync_job(
+        self,
+        job_id: int,
+        *,
+        status: Optional[str] = None,
+        started_at: Optional[str] = None,
+        finished_at: Optional[str] = None,
+        attempts: Optional[int] = None,
+        last_error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Update fields on a sync job and return the latest representation."""
+        ...
+
+    @abstractmethod
+    def list_recent_sync_jobs(
+        self,
+        *,
+        connector_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Return recent sync jobs, optionally filtered by connector."""
+        ...
+
+    ## ---- connector configs & runs ----------------------------------------
+    @abstractmethod
+    def create_connector_config(
+        self,
+        name: str,
+        type_: str,
+        config: Dict[str, Any],
+        schedule: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist a connector configuration and return the stored row."""
+
+    @abstractmethod
+    def update_connector_config(
+        self,
+        name: str,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+        schedule: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update connector configuration and/or schedule."""
+
+    @abstractmethod
+    def list_connector_configs(
+        self, type_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List connector configurations, optionally filtered by type."""
+
+    @abstractmethod
+    def list_connector_configs_with_last_run(self) -> List[Dict[str, Any]]:
+        """Return connector configs annotated with their most recent run."""
+
+    @abstractmethod
+    def get_connector_config(self, name: str) -> Optional[Dict[str, Any]]:
+        """Return a connector config identified by name (slug)."""
+
+    @abstractmethod
+    def create_connector_run(
+        self,
+        config_id: int,
+        *,
+        status: str,
+        started_at: str,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Insert a connector run row."""
+
+    @abstractmethod
+    def complete_connector_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        finished_at: str,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update a connector run with completion data."""
+
+    @abstractmethod
+    def get_last_connector_run(self, config_id: int) -> Optional[Dict[str, Any]]:
+        """Return the most recent run for a connector."""
+
+    @abstractmethod
+    def upsert_raw_documents(
+        self,
+        config_id: int,
+        docs: List[Dict[str, Any]],
+    ) -> None:
+        """Insert or update raw documents for a connector."""
+
+    @abstractmethod
+    def list_raw_documents_for_config(
+        self, config_id: int, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Return raw documents stored for a connector configuration."""
+
+    ## ---- events outbox ---------------------------------------------------
+    @abstractmethod
+    def ensure_event_outbox(self) -> None:
+        """Ensure the durable events_outbox storage exists."""
+        ...
+
+    @abstractmethod
+    def append_event(
+        self, topic: str, payload: Dict[str, Any], tenant_id: str = "default"
+    ) -> None:
+        """Persist a new event for later streaming."""
+        ...
+
+    @abstractmethod
+    def list_events_after(
+        self, last_id: int, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Fetch events with IDs greater than ``last_id`` ordered ascending."""
+        ...
+
+    @abstractmethod
+    def delete_events_through(self, last_id: int, tenant_id: Optional[str] = None) -> None:
+        """Delete events with IDs less than or equal to ``last_id``."""
         ...
 
     ## ---- diagnostics ------------------------------------------------------

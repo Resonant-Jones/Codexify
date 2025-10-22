@@ -38,9 +38,9 @@ setMemoryTags: React.Dispatch<React.SetStateAction<string[]>>;
 setMemoryTags(prev => Array.from(new Set([...prev, t])));
 setMemoryTags(prev => prev.filter(x => x !== t));
 
- 3. Harden WebGL types & null guards in RefractiveGlassCard
+ 3. Harden WebGL types & null guards in FrameCard
 
- • File: components/ui/RefractiveGlassCard.tsx
+ • File: components/surface/FrameCard.tsx
  • Ensure you gate all GL calls behind a non-null gl. Do this pattern once, then use gl safely:
 
 const gl = canvas.getContext("webgl") as WebGLRenderingContext | null;

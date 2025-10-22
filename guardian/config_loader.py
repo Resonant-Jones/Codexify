@@ -85,6 +85,10 @@ class ConfigLoader:
         if creds_path := os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
             self.config["tts"]["providers"]["google"]["credentials_path"] = creds_path
 
+        # Neo4j Database URL
+        if bolt_url := os.getenv("BOLT_URL"):
+            self.config.setdefault("database", {})["url"] = bolt_url
+
     def _deep_update(self, base: Dict, update: Dict) -> None:
         """
         Recursively update a dictionary.

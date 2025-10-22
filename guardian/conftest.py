@@ -1,8 +1,23 @@
+# Ensure package-relative import works when running pytest from the repo root
+from pathlib import Path
+import sys
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# Avoid importing the FastAPI app at import-time to keep non-API tests light
 import os
-import socket
-
+from urllib.parse import urlparse
 import pytest
+from dotenv import load_dotenv
 
+# Import the correct FastAPI app for tests
+from neo4j import GraphDatabase
+import socket
+from urllib.parse import urlparse
+import os
+# Load environment variables for pytest
+load_dotenv()
 # Hint to config loader that we're in a test context and dummy fallbacks are allowed
 os.environ.setdefault("GUARDIAN_ALLOW_DUMMY_SETTINGS", "1")
 
@@ -147,20 +162,39 @@ def pytest_collection_modifyitems(config, items):
         "markers", "skip(reason): mark test to be skipped with a reason"
     )
 
-    allow_net = bool(os.getenv("ALLOW_NET_TESTS")) and _internet()
-    if allow_net:
-        return
+    # Robustly interpret ALLOW_NET_TESTS env var (accept "1", "true", "yes")
+    env_val = os.getenv("ALLOW_NET_TESTS", "").strip().lower()
+    opt_in_net = env_val in ("1", "true", "yes")
 
-    net_skip = pytest.mark.skip(
-        reason="requires network (set ALLOW_NET_TESTS=1 to enable)"
-    )
+    # Only probe external connectivity if the user explicitly opted in.
+    allow_net = opt_in_net and _internet()
+
+    # Always detect whether any graph tests were collected so seeding can be decided later.
+    need_graph_seed = False
     for item in items:
-        # If the test opts-in to network via marker, skip when not allowed
-        if item.get_closest_marker("net"):
-            item.add_marker(net_skip)
         # Path-based heuristic for known network-heavy tests
         if "export_notion" in str(item.fspath):
-            item.add_marker(net_skip)
+            # will be skipped only if allow_net is False (handled below)
+            pass
+        # Detect graph tests by path
+        if "/tests/graph/" in str(item.fspath).replace("\\", "/"):
+            need_graph_seed = True
+
+    # Store decision on config object for session fixtures to read
+    setattr(config, "_need_neo4j_seed", need_graph_seed)
+
+    # If network access is NOT allowed, add skip markers where appropriate.
+    if not allow_net:
+        net_skip = pytest.mark.skip(
+            reason="requires network (set ALLOW_NET_TESTS=1 or true to enable)"
+        )
+        for item in items:
+            # If the test opts-in to network via marker, skip when not allowed
+            if item.get_closest_marker("net"):
+                item.add_marker(net_skip)
+            # Path-based heuristic for known network-heavy tests
+            if "export_notion" in str(item.fspath):
+                item.add_marker(net_skip)
 
 
 # Ensure .env is loaded for all tests
@@ -193,6 +227,86 @@ def _seed_dummy_env_for_settings():
     print("✅ conftest.py(fixtures): seeded keys for Settings")
 
 
+# --- Session-scoped Neo4j seed for deterministic graph tests ---------------
+@pytest.fixture(scope="session", autouse=True)
+def seed_neo4j_graph(request):
+    """Seed a minimal Message->User graph if Neo4j is reachable.
+
+    Uses guardian.db.neo.get_session() which reads env (NEO4J_BOLT_URL/BOLT_URL,
+    NEO4J_USER/NEO4J_PASS). Best-effort: failures are logged but do not fail
+    the session to keep non-graph tests running without Neo4j.
+    """
+    # Only seed when graph tests are present
+    if not getattr(request.config, "_need_neo4j_seed", False):
+        return
+
+    try:
+        from guardian.db.neo import get_session  # type: ignore
+    except Exception as e:  # pragma: no cover
+        print(f"⚠️ seed_neo4j_graph: neo4j helper unavailable: {e}")
+        return
+
+    try:
+        with get_session() as s:
+            # quick ping
+            s.run("RETURN 1 AS ok").single()
+            # constraints + deterministic seed
+            s.run(
+                "CREATE CONSTRAINT user_uid IF NOT EXISTS FOR (u:UserNode) REQUIRE u.uid IS UNIQUE"
+            )
+            s.run(
+                "CREATE CONSTRAINT message_id IF NOT EXISTS FOR (m:MessageNode) REQUIRE m.message_id IS UNIQUE"
+            )
+            s.run(
+                """
+                MERGE (m:MessageNode {message_id:'seed-msg-1'})
+                  ON CREATE SET m.content='hello seed'
+                MERGE (u:UserNode {uid:'seed-uid-1'})
+                  ON CREATE SET u.name='seed-user-1'
+                MERGE (m)-[:SENT_BY]->(u)
+                """
+            )
+            print("✅ Neo4j seed applied (Message->User SENT_BY)")
+    except Exception as e:
+        print(f"⚠️ seed_neo4j_graph: skipping (Neo4j not reachable): {e}")
+
+
+@pytest.fixture(scope="module")
+def neo4j_driver():
+    """Provide a neo4j GraphDatabase driver for tests.
+
+    This helper is tolerant of BOLT URLs that embed credentials (e.g.
+    bolt://user:pass@host:7687). The neo4j Python driver does not accept
+    username in the URI, so we strip credentials from the URL and pass them
+    via the auth tuple instead.
+    """
+    bolt = os.getenv("BOLT_URL") or os.getenv("NEO4J_BOLT_URL") or os.getenv("NEO4J_URI") or "bolt://localhost:7687"
+    parsed = urlparse(bolt)
+
+    # Default creds from env if not embedded in URL
+    env_user = os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME") or "neo4j"
+    env_pass = os.getenv("NEO4J_PASS") or os.getenv("NEO4J_PASSWORD") or ""
+
+    # If URL contains credentials, extract and rebuild host-only URL
+    if parsed.username:
+        user = parsed.username
+        pwd = parsed.password or env_pass
+        host_url = f"{parsed.scheme}://{parsed.hostname}:{parsed.port or 7687}"
+        auth = (user, pwd)
+    else:
+        host_url = bolt
+        auth = (env_user, env_pass)
+
+    driver = GraphDatabase.driver(host_url, auth=auth)
+    try:
+        yield driver
+    finally:
+        try:
+            driver.close()
+        except Exception:
+            pass
+
+
 class DummyClient:
     def chat_completion(self, *, model, messages, temperature=0.7, max_tokens=1500):
         return "ok"
@@ -223,6 +337,20 @@ def _force_dummy_llm(monkeypatch, dummy_client):
         if hasattr(mem, "_build_llm_client_from_env"):
             monkeypatch.setattr(
                 mem, "_build_llm_client_from_env", lambda: dummy_client, raising=False
+            )
+    except Exception:
+        pass
+
+    # Ensure the shared builder used by the backend returns a dummy client
+    try:
+        import memoryos.utils as mem_utils
+
+        if hasattr(mem_utils, "build_llm_client"):
+            monkeypatch.setattr(
+                mem_utils,
+                "build_llm_client",
+                lambda *args, **kwargs: dummy_client,
+                raising=False,
             )
     except Exception:
         pass

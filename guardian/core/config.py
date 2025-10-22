@@ -16,12 +16,32 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field(
         default="groq", description="The LLM provider to use ('groq', 'openai')."
     )
+    LLM_MODEL: str = Field(
+        default="gpt-4o-mini",
+        description="Model identifier to pass to the selected LLM provider.",
+    )
     EMBEDDER_PROVIDER: str = Field(
         default="local",
-        description="The embedding provider to use ('local', 'openai', 'groq').",
+        description="The embedding provider to use ('local', 'openai').",
+    )
+    EMBEDDING_MODEL: str = Field(
+        default="text-embedding-3-small",
+        description="The embedding model to use (e.g., 'text-embedding-3-small', 'text-embedding-3-large').",
+    )
+    LOCAL_EMBEDDER_MODEL: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="The local embedding model to use (e.g., 'all-MiniLM-L6-v2', 'all-mpnet-base-v2').",
     )
     GROQ_API_KEY: str | None = Field(default=None, description="API key for Groq.")
+    GROQ_BASE_URL: str | None = Field(
+        default=None,
+        description="Optional override for the Groq-compatible OpenAI base URL.",
+    )
     OPENAI_API_KEY: str | None = Field(default=None, description="API key for OpenAI.")
+    OPENAI_BASE_URL: str | None = Field(
+        default=None,
+        description="Optional override for the OpenAI API base URL.",
+    )
     DATA_STORAGE_PATH: str = Field(
         default="./data", description="Path for MemoryOS data storage."
     )

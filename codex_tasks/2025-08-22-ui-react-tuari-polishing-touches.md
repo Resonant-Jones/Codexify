@@ -2,7 +2,7 @@
 
 # 1A.  Add a robust CSS-only glass fallback that kicks in whenever the
 
-# <RefractiveGlassCard> sets .glass-surface but shader init fails
+# <FrameCard> sets .glass-surface but shader init fails
 
 /*-----------------------------------------------
    GLASS SURFACE  (WebGL succeeds = shader canvas)
@@ -70,7 +70,7 @@ body {
 
 # is handled by this wrapper
 
-# PATCH 3 ───────────── ──  src/components/ui/RefractiveGlassCard.tsx
+# PATCH 3 ───────────── ──  src/components/surface/FrameCard.tsx
 
 # 3A.  If shader fails (setFailed(true)), add class 'fallback' so
 

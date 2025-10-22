@@ -12,7 +12,7 @@ This guarantees:
 **Key Changes:**  
 ✅ `Settings` class defines `LLM_PROVIDER`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `DATA_STORAGE_PATH`  
 ✅ `client_factory.py` uses the singleton `settings` to choose provider & keys  
-✅ `Memoryos` now accepts generic `llm_api_key` & `llm_base_url` (future-proof for more providers)  
+✅ `Memoryos` now accepts an injected LLM client (or builds one via settings)  
 ✅ Agents get the singleton instance injected (`get_memoryos_instance()`) — *never* recreate it locally  
 ✅ Orchestrator routes `memory_client` to each agent function: they no longer own initialization  
 ✅ `.env` file is all you need to flip providers — no code changes, no risky commits with hardcoded keys.

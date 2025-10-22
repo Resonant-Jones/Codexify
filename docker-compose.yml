@@ -1,62 +1,81 @@
-version: "3.8"
+# Usage:
+#   docker compose build --no-cache
+#   docker compose up --build
+
 services:
+  neo4j:
+    image: neo4j:5
+    container_name: neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/guardian
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "guardian", "RETURN 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
   db:
     image: postgres:15
-    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-guardian}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-guardian}
-      POSTGRES_DB: ${POSTGRES_DB:-guardian}
+      POSTGRES_USER: guardian
+      POSTGRES_PASSWORD: guardian
+      POSTGRES_DB: guardian
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    # map container 5432 -> host 5433 so host tools can reach the DB at 127.0.0.1:5433
+      test: ["CMD-SHELL", "pg_isready -U guardian -d guardian"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
     ports:
-      - "5433:5432"
+      - "${PG_PORT:-5432}:5432"
 
   backend:
     build:
-      # use repo root as the build context so Dockerfile can COPY backend/ paths
       context: .
       dockerfile: backend/Dockerfile
+    environment:
+      PORT: 8888
+      DATABASE_URL: "postgresql://guardian:guardian@db:5432/guardian"
+      NEO4J_BOLT_URL: "bolt://neo4j:guardian@neo4j:7687"
+      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-changeme}"
+      ENABLE_CONNECTOR_WORKER: "false"
     depends_on:
       db:
         condition: service_healthy
-    environment:
-      # default DATABASE_URL if not provided; prefer explicit DATABASE_URL in .env or shell
-      DATABASE_URL: ${DATABASE_URL:-postgresql://guardian:guardian@db:5432/guardian}
-      GUARDIAN_API_KEY: ${GUARDIAN_API_KEY:-changeme}
-    volumes:
-      - ./backend:/app
+      neo4j:
+        condition: service_healthy
     ports:
-      - "8000:8000"
-    restart: unless-stopped
+      - "${BACKEND_PORT:-8888}:8888"
 
   frontend:
     build:
-      context: ./frontend/
+      context: ./frontend
       dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-
-  # optional: run Cypress from inside compose (useful for CI)
-  cypress:
-    image: cypress/included:12.0.0
+      args:
+        NODE_IMAGE: node:20-alpine
+    environment:
+      VITE_DEV_PORT: "${FRONTEND_PORT:-5173}"
+      VITE_USE_PROXY: "true"
+      VITE_PROXY_TARGET: "http://backend:8888"
+      VITE_BACKEND_URL: "http://backend:8888"
+      VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-local-guardian-ui}"
+      CHOKIDAR_USEPOLLING: "1"
+      WATCHPACK_POLLING: "true"
+    command: sh -lc "pnpm --dir src dev -- --host 0.0.0.0 --port ${VITE_DEV_PORT:-5173}"
     depends_on:
       - backend
-      - frontend
-    environment:
-      CYPRESS_baseUrl: "http://frontend:3000"
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["npx cypress run --spec 'cypress/e2e/**'"]
-    # mount project for spec files if needed
-    volumes:
-      - ./cypress:/e2e
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    # Optional for live coding: mount just the app folder
+    # volumes:
+    #   - ./frontend/src:/app/src
 
 volumes:
-  db-data:
+  pg_data:
+
+  neo4j_data:

@@ -3,10 +3,24 @@ name: Python tests
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   tests:
     runs-on: ubuntu-latest
+    env:
+      # Dummy/test API keys and flags for CI runs; do not use real credentials!
+      GUARDIAN_ALLOW_DUMMY_SETTINGS: "1"
+      GENAI_API_KEY: "dummy"
+      NOTION_API_KEY: "dummy"
+      ANTHROPIC_API_KEY: "dummy"
+      OPENAI_API_KEY: "dummy"
+      GEMINI_API_KEY: "dummy"
+      GOOGLE_API_KEY: "dummy"
+      PYTEST_VERBOSE_BOOT: "1"
+      FORESIGHT_TIMEOUT: "2"
+      # If a 3rd-party pytest plugin causes noise:
+      # PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
     defaults:
       run:
         shell: bash
@@ -38,15 +52,6 @@ jobs:
           # pip install ruff==0.5.7
 
       - name: Env for tests (dummy + gate)
-        env:
-          GUARDIAN_ALLOW_DUMMY_SETTINGS: "1"
-          GENAI_API_KEY: "dummy"
-          NOTION_API_KEY: "dummy"
-          ANTHROPIC_API_KEY: "dummy"
-          OPENAI_API_KEY: "dummy"
-          GEMINI_API_KEY: "dummy"
-          GOOGLE_API_KEY: "dummy"
-          PYTEST_VERBOSE_BOOT: "1"
         run: |
           python - <<'PY'
           import os
@@ -56,16 +61,5 @@ jobs:
           PY
 
       - name: Run tests
-        env:
-          GUARDIAN_ALLOW_DUMMY_SETTINGS: "1"
-          OPENAI_API_KEY: "dummy"
-          GENAI_API_KEY: "dummy"
-          NOTION_API_KEY: "dummy"
-          ANTHROPIC_API_KEY: "dummy"
-          GEMINI_API_KEY: "dummy"
-          GOOGLE_API_KEY: "dummy"
-          FORESIGHT_TIMEOUT: "2"
-          # If a 3rd-party pytest plugin causes noise:
-          # PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           pytest -q -s

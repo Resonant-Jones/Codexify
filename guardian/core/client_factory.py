@@ -3,12 +3,11 @@ from functools import lru_cache
 
 # Import embedders
 from memoryos.embedders.local_embedder import LocalEmbedder
+from memoryos.embedders.openai_embedder import OpenAIEmbedder
 from memoryos.memoryos import Memoryos
+from memoryos.utils import DEFAULT_GROQ_BASE_URL, build_llm_client
 
 from .config import settings
-
-# from MemoryOS_main.embedders.openai_embedder import OpenAIEmbedder # Example
-# from MemoryOS_main.embedders.groq_embedder import GroqEmbedder # Example
 
 
 @lru_cache(maxsize=1)
@@ -19,27 +18,31 @@ def get_memoryos_instance() -> Memoryos:
     including the LLM provider and the embedder.
     """
     # --- LLM Client Configuration ---
-    llm_api_key = None
-    llm_base_url = None
-    if settings.LLM_PROVIDER == "groq":
-        llm_api_key = settings.GROQ_API_KEY
-        llm_base_url = "https://api.groq.com/openai/v1"
-        if not llm_api_key:
+    provider = settings.LLM_PROVIDER.lower().strip()
+    if provider == "groq":
+        api_key = settings.GROQ_API_KEY
+        base_url = settings.GROQ_BASE_URL or DEFAULT_GROQ_BASE_URL
+        if not api_key:
             raise ValueError("LLM_PROVIDER is 'groq' but GROQ_API_KEY is not set.")
-    elif settings.LLM_PROVIDER == "openai":
-        llm_api_key = settings.OPENAI_API_KEY
-        if not llm_api_key:
+    elif provider == "openai":
+        api_key = settings.OPENAI_API_KEY
+        base_url = settings.OPENAI_BASE_URL
+        if not api_key:
             raise ValueError("LLM_PROVIDER is 'openai' but OPENAI_API_KEY is not set.")
     else:
         raise ValueError(f"Unsupported LLM_PROVIDER: {settings.LLM_PROVIDER}")
+
+    llm_client = build_llm_client(provider, api_key=api_key, base_url=base_url)
 
     # --- Embedder Configuration ---
     embedder = None
     if settings.EMBEDDER_PROVIDER == "local":
         embedder = LocalEmbedder()
-    # Add other embedders here
-    # elif settings.EMBEDDER_PROVIDER == "openai":
-    #     ...
+    elif settings.EMBEDDER_PROVIDER == "openai":
+        embedder = OpenAIEmbedder(
+            api_key=settings.OPENAI_API_KEY,
+            model=getattr(settings, "EMBEDDING_MODEL", "text-embedding-3-small")
+        )
     else:
         raise ValueError(f"Unsupported EMBEDDER_PROVIDER: {settings.EMBEDDER_PROVIDER}")
 
@@ -48,6 +51,6 @@ def get_memoryos_instance() -> Memoryos:
         user_id="default_user",
         data_storage_path=settings.DATA_STORAGE_PATH,
         embedder=embedder,
-        llm_api_key=llm_api_key,
-        llm_base_url=llm_base_url,
+        llm_client=llm_client,
+        llm_model=settings.LLM_MODEL,
     )

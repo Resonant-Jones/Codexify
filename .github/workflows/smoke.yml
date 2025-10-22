@@ -1,0 +1,30 @@
+# .github/workflows/smoke.yml
+name: nightly-smoke
+on:
+  schedule: [{cron: "0 3 * * *"}]   # 03:00 UTC nightly
+  workflow_dispatch:                # allow manual re-runs
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25             # short fail-fast
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable BuildKit & Compose v2
+        run: |
+          echo "DOCKER_BUILDKIT=1" >> $GITHUB_ENV
+          docker compose version
+      - name: Build & start stack
+        run: |
+          docker compose --profile ci up -d --build
+      - name: Probes
+        run: |
+          curl -f http://localhost:8888/healthz
+          curl -f http://localhost:5173           # vite splash page
+          curl -f -H "X-API-Key: ${{ secrets.CI_GUARDIAN_KEY }}" \
+               http://localhost:8888/events || true # expect 200/SSE
+      - name: Save backend logs if failed
+        if: failure()
+        run: docker compose logs backend
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

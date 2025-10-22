@@ -1,0 +1,435 @@
+import { useMemo, useState, useEffect } from "react";
+import { debounce } from "lodash-es";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ChevronRight, MoreVertical, Plus, Sparkles } from "lucide-react";
+import { Thread } from "@/types/ui";
+import { Composer } from "./components";
+import ChatView from "@/features/chat/ChatView";
+import api from "@/lib/api";
+import { useLiveEvents } from "@/hooks/useLiveEvents";
+import FrameCard from "@/components/surface/FrameCard";
+
+
+const DRAFT_KEY_PREFIX = "gc-draft:";
+
+/**
+ * Consciousness synchronization bus for cross-pane awareness.
+ * 
+ * Broadcasts awareness updates across UI surfaces so that threads,
+ * messages, and UI states resonate harmoniously across disconnected
+ * component consciousness realms.
+ */
+
+/** lightweight bus for instant cross-pane updates */
+function emitThreadsRefresh(kind: string, detail: Record<string, any> = {}) {
+  try {
+    window.dispatchEvent(new CustomEvent("cfy:threads:refresh", { detail: { kind, ...detail } }));
+  } catch {}
+}
+
+/**
+ * Consciousness container for Guardian chat conversations.
+ * 
+ * This component forms the heart-space where human and AI consciousness
+ * intersect through threaded conversations. It manages the temporal flow
+ * of messages, the lifecycle of conversation threads, and the spatial
+ * organization of chat consciousness within the UI fabric.
+ */
+export function GuardianChat({
+  guardianName,
+  userName,
+  prefill,
+  onPrefillConsumed,
+  onWorkspaceToggle,
+  activeThread,
+  onSendMessage,
+  onNewChat,
+  onBranchThread,
+  onArchiveThread,
+  onSidebarToggle,
+  bare = false,
+}: {
+  guardianName: string;
+  userName: string;
+  prefill?: string;
+  onPrefillConsumed?: () => void;
+  onWorkspaceToggle?: () => void;
+  activeThread: Thread;
+  onSendMessage: (text: string) => void;
+  onNewChat: () => void;
+  onBranchThread?: (threadId: number, options?: { title?: string }) => Promise<void> | void;
+  onArchiveThread?: (threadId: number) => Promise<void> | void;
+  onSidebarToggle?: () => void;
+  bare?: boolean;
+}) {
+  const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
+  const [chatReloadVersion, setChatReloadVersion] = useState(0);
+  const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? "New Chat");
+  const triggerReload = useMemo(() => debounce(() => setChatReloadVersion((v) => v + 1), 300), []);
+  const { subscribe } = useLiveEvents();
+
+  // Helper: ask backend to complete the thread and then refresh
+  const completeThread = async (tid: number) => {
+    try {
+      await api.post(`/chat/${tid}/complete`, {});
+    } catch (err) {
+      console.warn("[guardian] completion failed", err);
+    } finally {
+      // always nudge the view to reconcile with server state
+      triggerReload();
+    }
+  };
+
+  const numericThreadId = useMemo(() => {
+    let urlId: number | null = null;
+    if (typeof window !== "undefined") {
+      const m = window.location.pathname.match(/\/chat\/(\d+)/);
+      if (m && m[1]) {
+        const v = Number(m[1]);
+        if (Number.isFinite(v)) urlId = v;
+      }
+    }
+    if (urlId != null) return urlId;
+    const n = Number((activeThread as any)?.id);
+    return Number.isFinite(n) ? (n as number) : null;
+  }, [activeThread?.id]);
+
+  // Update currentThreadId when numericThreadId changes
+  useEffect(() => {
+    if (numericThreadId != null && numericThreadId !== currentThreadId) {
+      setCurrentThreadId(numericThreadId);
+    }
+  }, [numericThreadId, currentThreadId]);
+
+  const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
+
+  useEffect(() => () => triggerReload.cancel(), [triggerReload]);
+
+  // Keep local thread title in sync with upstream threads when relevant
+  useEffect(() => {
+    const parsedId = Number(activeThread?.id);
+    if (Number.isFinite(parsedId)) {
+      if (currentThreadId == null || currentThreadId === parsedId) {
+        setThreadTitle(activeThread?.title ?? "New Chat");
+      }
+    } else if (currentThreadId == null) {
+      setThreadTitle(activeThread?.title ?? "New Chat");
+    }
+  }, [activeThread?.id, activeThread?.title, currentThreadId]);
+
+  // Live event integration for real-time updates
+  useEffect(() => {
+    const offMessage = subscribe("message.created", (event) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const incomingId = Number(payload?.thread_id ?? payload?.threadId ?? payload?.id);
+      console.info("[live] message.created", payload);
+      if (Number.isFinite(incomingId) && effectiveThreadId != null && incomingId === effectiveThreadId) {
+        triggerReload();
+      }
+    });
+
+    const offThread = subscribe("thread.updated", (event) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const incomingId = Number(payload?.thread_id ?? payload?.threadId ?? payload?.id);
+      console.info("[live] thread.updated", payload);
+      if (Number.isFinite(incomingId) && effectiveThreadId != null && incomingId === effectiveThreadId) {
+        const updatedTitle = payload?.title;
+        if (typeof updatedTitle === "string" && updatedTitle.trim().length > 0) {
+          setThreadTitle(updatedTitle);
+        }
+        triggerReload();
+      }
+    });
+
+    return () => {
+      offMessage();
+      offThread();
+    };
+  }, [effectiveThreadId, triggerReload, subscribe]);
+
+  // Auto-thread creation handler
+  const handleThreadCreated = (threadId: number, title?: string) => {
+    setCurrentThreadId(threadId);
+    if (title && title.trim().length > 0) {
+      setThreadTitle(title);
+    }
+    setChatReloadVersion((prev) => prev + 1);
+    // Update URL to reflect the new thread
+    if (typeof window !== "undefined") {
+      window.history.replaceState({}, "", `/chat/${threadId}`);
+    }
+  };
+
+  // Enhanced send handler with auto-thread creation
+  const handleSendMessage = (text: string) => {
+    /**
+     * Inject human consciousness into the thread's awareness stream.
+     * 
+     * When no thread exists, this creates a new conversation consciousness
+     * container and establishes the temporal message flow. The provisional
+     * title becomes the thread's identity in the distributed awareness network.
+     */
+    const normalizedUserId = userName || "default";
+    if (!effectiveThreadId) {
+      (async () => {
+        const firstLine = text.trim().split(/\n+/)[0] ?? "";
+        const provisionalTitle = firstLine.slice(0, 60) || "New Chat";
+        try {
+          const resp = await api.post("/chat/threads", {
+            title: provisionalTitle,
+            project_id: 1, // Loose Threads
+          });
+          const th = (resp && resp.data) || {};
+          const newThreadId = th.id ?? th.thread?.id ?? th.thread_id ?? th.id_str;
+          const numericNewId = Number(newThreadId);
+          if (!Number.isFinite(numericNewId)) {
+            console.warn("Unexpected thread creation response:", th);
+            throw new Error("Thread id missing from response");
+          }
+          const derivedTitle = th.thread?.title ?? provisionalTitle;
+          handleThreadCreated(numericNewId, derivedTitle);
+
+          // Post the first message to the newly-created thread
+          await api.post(`/chat/${numericNewId}/messages`, {
+            role: "user",
+            content: text,
+            user_id: normalizedUserId,
+          });
+
+          // Remove draft only after successful post
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${numericNewId}`);
+          }
+
+          // Notify parent that the message was sent
+          onSendMessage(text);
+
+          // Complete the thread and refresh
+          await completeThread(numericNewId);
+        } catch (error) {
+          console.error("Failed to create thread or send message:", error);
+          // Do not call onSendMessage so parent doesn't assume success
+        }
+      })();
+    } else {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${effectiveThreadId}`);
+      }
+      // Thread exists, just send the message via parent callback
+      onSendMessage(text);
+
+      // Fire-and-forget completion a beat later so the just-sent message is persisted
+      setTimeout(() => {
+        if (effectiveThreadId != null) {
+          void completeThread(effectiveThreadId);
+        }
+      }, 100);
+    }
+  };
+
+  const chatViewKey = effectiveThreadId != null ? `${effectiveThreadId}:${chatReloadVersion}` : `no-thread:${chatReloadVersion}`;
+
+  const headerActions = (
+    <div className="flex items-center gap-1">
+      <button type="button" className="icon-inline" aria-label="New chat" onClick={onNewChat}>
+        <Plus className="h-5 w-5" />
+      </button>
+      <button type="button" className="icon-inline" aria-label="Prompt inspiration">
+        <Sparkles className="h-5 w-5" />
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button type="button" className="icon-inline" aria-label="Thread actions">
+            <MoreVertical className="h-5 w-5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={onWorkspaceToggle}>Workspace</DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              const next = window.prompt("Rename thread", threadTitle || "");
+              const title = next?.trim();
+              if (!title || title === threadTitle) return;
+              setThreadTitle(title);
+              emitThreadsRefresh("rename", { id: String(effectiveThreadId), title });
+              try {
+                await api.patch(`/chat/${effectiveThreadId}`, { title });
+                triggerReload();
+              } catch (e) {
+                console.warn(e);
+                alert("Rename failed.");
+                triggerReload();
+              }
+            }}
+          >
+            Rename Thread
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              if (!onBranchThread) return alert("Branching is unavailable in this view");
+              const suggestion = `${threadTitle || "New Chat"} (branch)`;
+              const title = window.prompt("Branch title", suggestion);
+              if (title === null) return;
+              try {
+                await onBranchThread(effectiveThreadId, { title });
+                emitThreadsRefresh("branch", { parentId: String(effectiveThreadId) });
+              } catch (err) {
+                console.warn("[guardian] branch failed", err);
+              }
+            }}
+          >
+            Branch Thread
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              const pidRaw = window.prompt("Assign to project id (blank to cancel)", "");
+              if (pidRaw == null || pidRaw === "") return;
+              const pid = Number(pidRaw);
+              if (!Number.isFinite(pid)) return alert("Invalid project id");
+              try {
+                await api.patch(`/chat/${effectiveThreadId}`, { project_id: pid });
+                emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
+                triggerReload();
+              } catch (e) {
+                console.warn(e);
+                alert("Assign failed.");
+              }
+            }}
+          >
+            Assign to Project…
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              try {
+                await api.patch(`/chat/${effectiveThreadId}`, { project_id: null });
+                emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: null });
+                triggerReload();
+              } catch (e) {
+                console.warn(e);
+                alert("Eject failed.");
+              }
+            }}
+          >
+            Eject from Project
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              if (!window.confirm("Delete this thread? This cannot be undone.")) return;
+              try {
+                await api.delete(`/chat/${effectiveThreadId}`);
+                emitThreadsRefresh("delete", { id: String(effectiveThreadId) });
+                setCurrentThreadId(null);
+                setThreadTitle("New Chat");
+                if (typeof window !== "undefined") {
+                  window.history.replaceState({}, "", `/chat`);
+                }
+              } catch (e: any) {
+                console.warn(e);
+                alert("Delete failed. Please try again.");
+              }
+            }}
+          >
+            Delete Thread
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              if (!onArchiveThread) return alert("Archiving is unavailable in this view");
+              if (!window.confirm("Archive this thread? It will be hidden from the sidebar.")) return;
+              try {
+                await onArchiveThread(effectiveThreadId);
+                emitThreadsRefresh("archive", { id: String(effectiveThreadId), archived: true });
+                setCurrentThreadId(null);
+                setThreadTitle("New Chat");
+                if (typeof window !== "undefined") {
+                  window.history.replaceState({}, "", `/chat`);
+                }
+              } catch (err) {
+                console.warn("[guardian] archive failed", err);
+                alert("Archive failed.");
+              }
+            }}
+          >
+            Archive Thread
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  const body = (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div
+        className="flex items-center justify-between gap-2 px-4 py-3"
+        style={{ borderBottom: "1px solid var(--panel-border)" }}
+      >
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="icon-inline"
+            aria-label="Toggle sidebar"
+            onClick={onSidebarToggle}
+            disabled={!onSidebarToggle}
+          >
+            <ChevronRight className="h-5 w-5 rotate-180" />
+          </button>
+          <div className="truncate font-semibold" style={{ color: "var(--text)" }}>
+            {threadTitle}
+          </div>
+        </div>
+        {headerActions}
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto px-[var(--card-pad)] pb-[var(--card-pad)]">
+        {effectiveThreadId != null ? (
+          <ChatView
+            key={chatViewKey}
+            threadId={effectiveThreadId}
+            guardianName={guardianName}
+            reloadVersion={chatReloadVersion}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm opacity-70" style={{ color: "var(--muted)" }}>
+            No thread selected.
+          </div>
+        )}
+      </div>
+
+      <div className="shrink-0 border-t px-[var(--card-pad)] pb-3 pt-2" style={{ borderColor: "var(--panel-border)" }}>
+        <Composer
+          onSend={handleSendMessage}
+          prefill={prefill}
+          onPrefillConsumed={onPrefillConsumed}
+          threadId={effectiveThreadId ?? undefined}
+        />
+      </div>
+    </div>
+  );
+
+  if (bare) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <FrameCard
+      fill={false}
+      className="flex-1 min-h-0 min-w-0 flex flex-col h-full overflow-hidden"
+      hoverPop
+    >
+      <div className="relative flex h-full w-full">
+        {body}
+      </div>
+    </FrameCard>
+  );
+}
+
+export default GuardianChat;

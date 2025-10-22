@@ -4,27 +4,46 @@
 
 """guardian_api module
 
-Provides FastAPI routes for the Guardian backend, handling chat, memory,
-and connector APIs. Includes authentication, environment loading, and
-integration with various providers.
+High‑level FastAPI entry point for the Guardian backend.
+
+This module wires together all major API routes, including:
+
+- **Chat** – creation, listing, and streaming of chat threads and messages.
+- **Memory** – CRUD operations for short‑term, mid‑term, and long‑term memory entries.
+- **Connectors** – management of external service connectors (GitHub, Google Drive, etc.).
+- **Tools & Jobs** – a minimal tool‑execution dispatcher and job status endpoint.
+- **Health & Diagnostics** – endpoints for service health checks, configuration debugging, and system status.
+
+It also sets up CORS middleware, loads environment variables, configures logging,
+and provides API‑key authentication for all protected routes.
+
+The implementation relies on the `guardian.core` database adapters, the
+`guardian.config` loader, and optional AI back‑ends (Gemini, Groq, etc.).
 """
 
 import asyncio
 import json
 import logging
+import datetime
 
 # Standard Library
 import os
-from datetime import datetime
+from contextlib import suppress
+from threading import Lock
+from datetime import datetime, date, time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 # Third-Party
 import requests
+import psycopg2, psycopg2.extras
 from dotenv import load_dotenv
 from fastapi import (
     Body,
+    APIRouter,
+    Cookie,
     Depends,
     FastAPI,
     File,
@@ -38,21 +57,46 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, ConfigDict
 from starlette.responses import StreamingResponse
 
 # DB adapters
+from guardian.core import event_bus
 from guardian.core.chat_db import ChatDB
 from guardian.core.db import GuardianDB
+from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.routes.codexify_router import router as codexify_router
+from guardian.routes.api_exports import router as exports_router
+
+from guardian.connectors.github import sync_repo
+
+# Optional Neo4j driver session provider
+try:
+    # Prefer local db.neo module; falls back to unavailable if not present
+    from db.neo import get_session as get_neo_session  # type: ignore
+    from db.neo import UserNode, MessageNode, ThreadNode
+    NEO4J_AVAILABLE = True
+except Exception as e:  # pragma: no cover
+    logging.warning(f"[Codexify ⚠️] Neo4j driver not available: {e}")
+    get_neo_session = None  # type: ignore
+    NEO4J_AVAILABLE = False
+
+# --- RAG modules import (for /upload-chat) ---
+try:
+    from backend.rag.enhanced_rag import EnhancedRAG
+    from backend.rag.embedder import Embedder
+    from backend.rag.parser import parse_chat_history
+except Exception as e:
+    logging.warning(f"[RAG] Failed to import RAG modules: {e}")
 
 try:
     from guardian.core.pgdb import PgDB  # type: ignore
 except Exception as _pg_exc:  # pragma: no cover
     PgDB = None  # type: ignore
-    _PG_IMPORT_ERROR = _pg_exc
+    _pg_import_error = _pg_exc
 else:
-    _PG_IMPORT_ERROR = None
+    _pg_import_error = None
+_PG_IMPORT_ERROR = _pg_import_error
 from io import BytesIO
 
 import numpy as np
@@ -69,23 +113,24 @@ from transformers import (
 # Internal
 from guardian.config import get_settings
 from guardian.routes import agent, memory, research, threads
+from guardian.core.auth import issue_session_token, verify_session_token, require_auth
 
 # Optional AI Backend
+chat_with_ai: Optional[Callable[[List[Dict[str, str]]], str]] = None  # placeholder for optional AI backend
 try:
-    from guardian.core.ai_router import chat_with_ai
+    from guardian.core.ai_router import chat_with_ai as _chat_with_ai
+    chat_with_ai = _chat_with_ai
 except ModuleNotFoundError as e:
-    chat_with_ai = None
     logging.warning(f"[Codexify ⚠️] Optional chat_with_ai module not available: {e}")
 
 # Optional Groq provider
 try:
     from guardian.providers.groq_client import get_groq_chat  # lazy Groq client factory
 except ModuleNotFoundError as e:
-    # Fallback: define a stub that signals unavailability
-    def get_groq_chat():  # type: ignore
-        return None
-
     logging.warning(f"[Codexify ⚠️] Optional groq_client not available: {e}")
+
+    def get_groq_chat() -> Any:  # type: ignore
+        return None
 
 # API Key authentication is enforced on all major endpoints (except /ping, /test, /)
 # Pass `X-API-Key` header with your requests.
@@ -97,9 +142,9 @@ logger = logging.getLogger(__name__)
 
 # ---- Env loading (backend) -----------------------------------------------
 def _load_env_chain() -> None:
-    """Load .env files in backend-friendly order without clobbering OS env.
-    Order: .env -> .env.backend.<mode> -> .env.local
-    The later files win when a key is not already in the environment.
+    """
+    Load .env files in priority order: base → mode-specific → local
+    Each layer can override previous ones, but actual environment vars always win.
     """
     cwd = Path(__file__).resolve().parents[1]
     base = cwd / ".env"
@@ -129,9 +174,13 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def require_api_key(api_key: str = Depends(api_key_header)):
+    """
+    Validate API key authentication.
+    Returns the API key if valid, raises 401 if invalid or missing.
+    Does not log the provided key to avoid leaking secrets.
+    """
     if api_key != API_KEY:
-        # Do not log the provided key to avoid leaking secrets.
-        logger.warning("Unauthorized attempt with API key")
+        logger.warning("Unauthorized API key attempt")
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
     return api_key
 
@@ -141,24 +190,160 @@ GEMINI_API_URL = os.getenv("GEMINI_API_URL", "https://api.gemini.ai/v1/chat")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "your_gemini_api_key_here")
 
 # Provider selection and Groq config
-GUARDIAN_PROVIDER = os.getenv("GUARDIAN_PROVIDER", "gemini").lower()
+GUARDIAN_PROVIDER = os.getenv("GUARDIAN_PROVIDER", "groq").lower()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL_DEFAULT = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
+GROQ_MODEL_DEFAULT = os.getenv("GROQ_MODEL", "moonshotai/kimi-k2-instruct-0905")
+GROQ_FALLBACK_MODEL = (os.getenv("GROQ_FALLBACK_MODEL") or "").strip() or None
+
+# Back/forward-compatible aliases so both legacy and new env names work
+CHAT_PROVIDER = (os.getenv("GUARDIAN_CHAT_PROVIDER") or GUARDIAN_PROVIDER).lower()
+DEFAULT_MODEL = os.getenv("GUARDIAN_DEFAULT_MODEL") or GROQ_MODEL_DEFAULT
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
+
+# Minimal Groq completion helper for chat API (robust, fallback support)
+def _groq_complete(messages: List[Dict[str, str]], model: Optional[str] = None) -> str:
+    """
+    Call Groq's OpenAI-compatible /chat/completions and return assistant text.
+    - Handles multiple possible response shapes (message.content as str or list, choice.text).
+    - Detects provider-style error strings that sometimes appear inside a 200 payload.
+    - Optionally retries once with GROQ_FALLBACK_MODEL if the first attempt yields empty/invalid text.
+    """
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+
+    def _extract_text(data: Dict[str, Any]) -> str:
+        try:
+            choices = data.get("choices") or []
+            if not choices:
+                return ""
+            ch0 = choices[0] or {}
+            # OpenAI-style: choices[0].message.content
+            msg = ch0.get("message")
+            if isinstance(msg, dict):
+                content = msg.get("content")
+                if isinstance(content, str):
+                    return content.strip()
+                # Some providers return a list of parts
+                if isinstance(content, list):
+                    parts: List[str] = []
+                    for p in content:
+                        if isinstance(p, str):
+                            parts.append(p)
+                        elif isinstance(p, dict):
+                            v = p.get("text") or p.get("content")
+                            if isinstance(v, str):
+                                parts.append(v)
+                    if parts:
+                        return "".join(parts).strip()
+            # Fallbacks sometimes used by wrappers
+            for k in ("text", "content"):
+                v = ch0.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+        except Exception:
+            pass
+        return ""
+
+    def _looks_like_provider_error(text: str) -> bool:
+        t = text.strip().lower()
+        if not t:
+            return True
+        # Heuristic: upstream error echoed as "..., message='Not Found', url='https://api.siliconflow.cn/v1/chat/completions'"
+        if "not found" in t and "completions" in t:
+            return True
+        if t.startswith("error:") or "invalid model" in t or "unknown model" in t:
+            return True
+        return False
+
+    url = f"{GROQ_BASE_URL}/chat/completions"
+    primary_model = (model or DEFAULT_MODEL) or "moonshotai/kimi-k2-instruct-0905"
+    candidates: List[str] = [primary_model]
+    if GROQ_FALLBACK_MODEL and GROQ_FALLBACK_MODEL != primary_model:
+        candidates.append(GROQ_FALLBACK_MODEL)
+
+    last_error_detail: Optional[str] = None
+
+    for use_model in candidates:
+        try:
+            resp = requests.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": use_model, "messages": messages},
+                timeout=60,
+            )
+        except Exception as e:
+            last_error_detail = f"request failed: {e.__class__.__name__}"
+            continue
+
+        if resp.status_code != 200:
+            # try to keep error concise and non-secret
+            try:
+                err = resp.json()
+            except Exception:
+                err = (resp.text or "")[:200]
+            last_error_detail = f"HTTP {resp.status_code}: {str(err)[:150]}"
+            continue
+
+        try:
+            data = resp.json()
+        except Exception as e:
+            last_error_detail = f"bad json: {e.__class__.__name__}"
+            continue
+
+        text = _extract_text(data)
+        # Some upstreams incorrectly stuff errors into a 200 'content' field; detect and reject
+        if _looks_like_provider_error(text):
+            last_error_detail = f"invalid-content shape for model '{use_model}': {text[:120]}"
+            continue
+
+        if text:
+            return text
+
+        last_error_detail = f"empty-content for model '{use_model}'"
+
+    # If we made it here, both primary (and fallback if any) failed
+    raise HTTPException(
+        status_code=502,
+        detail=f"Groq completion failed: {last_error_detail or 'unknown error'}",
+    )
+
+# Feature flag: enable/disable BLIP vision model
+ENABLE_BLIP_MODEL = os.getenv("ENABLE_BLIP_MODEL", "true").lower() in ("1", "true", "yes")
+
+ENABLE_OUTBOX = os.getenv("ENABLE_OUTBOX", "1").lower() in ("1", "true", "yes")
+_ENABLE_SSE_FILTER_RAW = os.getenv("ENABLE_SSE_FILTER", "0")
+ENABLE_SSE_FILTER = bool(os.getenv("ENABLE_SSE_FILTER", "0"))
+ENABLE_SSE_FILTER = _ENABLE_SSE_FILTER_RAW.lower() in ("1", "true", "yes")
+OUTBOX_POLL_INTERVAL = float(os.getenv("OUTBOX_POLL_INTERVAL", "1.0"))
+OUTBOX_BATCH_SIZE = int(os.getenv("OUTBOX_BATCH_SIZE", "100"))
 
 # Vision model for image captioning
-# Always attempt to load the fast BLIP processor first, then fallback if necessary
-try:
-    processor = BlipProcessor.from_pretrained(
-        "Salesforce/blip-image-captioning-base", use_fast=True
-    )
-except Exception as e:
-    logging.warning(f"Fast BLIP processor unavailable, falling back to slow: {e}")
-    processor = BlipProcessor.from_pretrained(
-        "Salesforce/blip-image-captioning-base", use_fast=False
-    )
-vision_model = BlipForConditionalGeneration.from_pretrained(
-    "Salesforce/blip-image-captioning-base"
-)
+processor = None
+vision_model = None
+if ENABLE_BLIP_MODEL:
+    try:
+        processor = BlipProcessor.from_pretrained(
+            "Salesforce/blip-image-captioning-base", use_fast=True
+        )
+    except Exception as e:
+        logging.warning(f"Fast BLIP processor unavailable, falling back to slow: {e}")
+        processor = BlipProcessor.from_pretrained(
+            "Salesforce/blip-image-captioning-base", use_fast=False
+        )
+    try:
+        vision_model = BlipForConditionalGeneration.from_pretrained(
+            "Salesforce/blip-image-captioning-base"
+        )
+    except Exception as e:
+        logging.error(f"BLIP vision model failed to load: {e}")
+        processor = None
+        vision_model = None
+    logging.info("BLIP model loaded: ENABLE_BLIP_MODEL=%s", ENABLE_BLIP_MODEL)
+else:
+    logging.info("BLIP model loading skipped: ENABLE_BLIP_MODEL=%s", ENABLE_BLIP_MODEL)
 
 # Mondream (symbolic/QA-style) initialization
 # Gate behind env flag to avoid noisy startup if not needed
@@ -168,8 +353,8 @@ _ENABLE_MONDREAM = os.getenv("GUARDIAN_ENABLE_MONDREAM", "0").lower() in (
     "true",
     "yes",
 )
-mondream_processor = None
-mondream_model = None
+mondream_processor: Any = None
+mondream_model: Any = None
 if _ENABLE_MONDREAM:
     mondream_dir = Path(__file__).resolve().parents[1] / "models" / "mondream1"
     repo_spec = str(mondream_dir) if mondream_dir.exists() else "vikhyatk/mondream1"
@@ -186,7 +371,7 @@ if _ENABLE_MONDREAM:
 
 
 # Helper: crop to content for image captioning
-def crop_to_content(pil_img, threshold: int = 10):
+def crop_to_content(pil_img: Image.Image, threshold: int = 10) -> Image.Image:
     """
     Trim away black borders only by scanning edges, leaving interior black content intact.
     """
@@ -230,10 +415,39 @@ def crop_to_content(pil_img, threshold: int = 10):
     return pil_img.crop((left, top, right, bottom))
 
 
+
+def _mask_dsn(dsn: str) -> str:
+    try:
+        parsed = urlparse(dsn)
+        netloc = parsed.netloc
+        if "@" in netloc:
+            creds, hostinfo = netloc.split("@", 1)
+            if ":" in creds:
+                user = creds.split(":", 1)[0]
+                creds = f"{user}:***"
+            netloc = f"{creds}@{hostinfo}"
+        return urlunparse(parsed._replace(netloc=netloc))
+    except Exception:
+        return dsn
+
+# Helper: recursively convert datetimes/times to ISO strings for JSON/DB
+def _jsonify(obj: Any) -> Any:
+    """Recursively convert datetimes and times into ISO strings so JSON/DB can accept them.
+    Leaves other types untouched.
+    """
+    if isinstance(obj, (datetime, date, time)):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _jsonify(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [ _jsonify(v) for v in obj ]
+    return obj
+
+
 # ────────────────────────── DB backend selection ────────────────────────────
 settings = get_settings()
 
-PG_DSN = os.getenv("GUARDIAN_DB_URL") or os.getenv("DATABASE_URL")
+PG_DSN = os.getenv("DATABASE_URL", DEFAULT_PG_DSN)
 DB_PATH = os.getenv("GUARDIAN_DB_PATH")  # may be "__DISABLE_SQLITE__"
 chatlog_db: ChatDB
 effective_sqlite_path: Optional[str] = None
@@ -245,6 +459,7 @@ if PG_DSN:
         ) from _PG_IMPORT_ERROR
     chatlog_db = PgDB(PG_DSN)  # type: ignore[arg-type]
     DB_BACKEND = "postgres"
+    logger.info("[db] Using PostgreSQL DSN: %s", _mask_dsn(PG_DSN))
 else:
     if DB_PATH == "__DISABLE_SQLITE__":
         raise RuntimeError(
@@ -253,8 +468,16 @@ else:
     effective_sqlite_path = DB_PATH or str(Path("guardian.db"))
     chatlog_db = GuardianDB(effective_sqlite_path)
     DB_BACKEND = "sqlite"
+    logger.info("[db] Using SQLite path: %s", effective_sqlite_path)
 
 logger.info("📦 DB backend selected: %s", DB_BACKEND)
+# Configure durable outbox storage when enabled
+if ENABLE_OUTBOX:
+    try:
+        event_bus.configure_event_store(chatlog_db)
+        logger.info("[outbox] durable event outbox enabled")
+    except Exception:
+        logger.exception("[outbox] failed to configure durable event outbox; falling back to in-memory hub")
 # ─────────────────────────────────────────────────────────────────────────────
 
 SQLITE_PATH = effective_sqlite_path if DB_BACKEND == "sqlite" else None
@@ -272,21 +495,67 @@ def _ensure_loose_threads_project():
 
 _ensure_loose_threads_project()
 
+try:
+    chatlog_db.ensure_sync_job_support()
+except Exception as e:
+    logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
+
 # ---- Memory retention and ephemeral silo
 MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
-EPHEMERAL_MEMORY: list[dict] = []
+EPHEMERAL_MEMORY: List[Dict[str, Any]] = []
 try:
     from datetime import timedelta
 
-    cutoff = (datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS)).isoformat()
+    # Use timezone-aware UTC timestamps to avoid deprecation warnings
+    cutoff = (datetime.now(datetime.UTC) - timedelta(days=MEMORY_RETENTION_DAYS)).isoformat()
     pruned = chatlog_db.prune_midterm(cutoff)
     if pruned:
         logger.info("[memory] pruned %d expired midterm entries", pruned)
 except Exception as _e:
     logger.debug("[memory] prune skipped: %s", _e)
 
-# Initialize FastAPI app
-app = FastAPI(title="Guardian Codex API")
+logger.info("[startup] ENABLE_BLIP_MODEL=%s", ENABLE_BLIP_MODEL)
+logger.info("[startup] chat provider=%s model=%s fallback=%s base=%s", CHAT_PROVIDER, DEFAULT_MODEL, GROQ_FALLBACK_MODEL, GROQ_BASE_URL)
+
+# Initialize FastAPI app with lifespan (replaces deprecated on_event handlers)
+
+async def app_lifespan(app: FastAPI):
+    global _CONNECTOR_WORKER_STOP, _CONNECTOR_WORKER_TASK
+    # Startup: optionally launch connector worker
+    if ENABLE_CONNECTOR_WORKER:
+        try:
+            # Validate DB tables exist before launching worker
+            chatlog_db.list_connector_configs()
+            stop_event = asyncio.Event()
+            _CONNECTOR_WORKER_STOP = stop_event
+            _CONNECTOR_WORKER_TASK = asyncio.create_task(_connector_worker(stop_event))
+        except Exception as exc:
+            logger.error("[connectors] unable to initialise connector tables: %s", exc)
+    yield
+    # Shutdown: stop worker if running
+    if _CONNECTOR_WORKER_STOP is not None:
+        _CONNECTOR_WORKER_STOP.set()
+    if _CONNECTOR_WORKER_TASK is not None:
+        _CONNECTOR_WORKER_TASK.cancel()
+        with suppress(asyncio.CancelledError):
+            await _CONNECTOR_WORKER_TASK
+    _CONNECTOR_WORKER_STOP = None
+    _CONNECTOR_WORKER_TASK = None
+
+
+app = FastAPI(title="Guardian Codex API", lifespan=app_lifespan)
+
+# Neo4j health endpoint (appears only when driver import succeeded)
+if NEO4J_AVAILABLE and get_neo_session:
+    from fastapi import Depends
+    @app.get("/health/neo4j", tags=["Health"])
+    async def neo4j_health(session=Depends(get_neo_session)):
+        try:
+            await session.run("RETURN 1 AS ok")
+            return {"ok": True}
+        except Exception as exc:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=500, detail=str(exc))
 
 # Include routers for modular endpoints
 app.include_router(threads.router, prefix="/threads")
@@ -294,6 +563,31 @@ app.include_router(research.router, prefix="/research")
 app.include_router(memory.router, prefix="/memory")
 app.include_router(agent.router, prefix="/agent")
 app.include_router(codexify_router)
+# --- API Routers ---
+app.include_router(exports_router)
+
+# Meta / Self-Check endpoint for quick diagnostics (no auth by design, like /healthz)
+meta_router = APIRouter(prefix="/meta", tags=["Meta"])
+
+
+@meta_router.get("/selfcheck")
+async def meta_selfcheck():
+    result = epistemic_self_check(
+        intent="runtime_status",
+        available_functions=["base_operation", "query_processing"],
+        context={"system": "guardian_api"},
+    )
+    try:
+        log_dir = Path(__file__).resolve().parent / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with (log_dir / "selfcheck.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(result) + "\n")
+    except Exception as _e:
+        logger.debug("[meta] failed to write selfcheck log: %s", _e)
+    return result
+
+
+app.include_router(meta_router)
 # CORS middleware for local/frontend use
 # Configure allowed origins via environment variable for production safety.
 # GUARDIAN_ALLOWED_ORIGINS can be a comma-separated list of origins.
@@ -309,11 +603,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# =========================
+# Upload Chat for RAG Embedding
+# =========================
+from fastapi import UploadFile, File
+from fastapi.responses import JSONResponse
+
+@app.post("/upload-chat")
+async def upload_chat(file: UploadFile = File(...)):
+    content = await file.read()
+    try:
+        text_blocks = parse_chat_history(content.decode("utf-8"))
+        embedder = Embedder()
+        results = embedder.embed_documents(text_blocks)
+        return JSONResponse({"embedded": len(results)})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 # =========================
 # Tools & Jobs (minimal scaffold)
 # =========================
 # In-memory job registry (ok for dev; replace with persistent store for prod)
-JOBS: Dict[str, dict] = {}
+JOBS: Dict[str, Dict[str, Any]] = {}
 
 
 class ToolRequest(BaseModel):
@@ -329,6 +641,34 @@ class JobStatus(BaseModel):
     job_id: str
     status: str
     result: dict = Field(default_factory=dict)
+
+
+class ThreadDTO(BaseModel):
+    id: int
+    user_id: str
+    title: str
+    summary: str = ""
+    project_id: Optional[int] = None
+    parent_id: Optional[int] = None
+    archived_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    # Pydantic v2: replace deprecated orm_mode with from_attributes
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ThreadUpdate(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    project_id: Optional[int] = None
+    archived: Optional[bool] = None
+
+
+class ThreadBranchRequest(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    project_id: Optional[int] = None
 
 
 @app.post("/tools/execute", response_model=ToolResponse, tags=["Tools"])
@@ -371,370 +711,465 @@ def _display_name(connector_id: str) -> str:
     return connector_id.replace("_", " ").title()
 
 
-def _build_connectors() -> List[dict]:
-    # Allow operators to declare available connectors via env
-    raw = os.getenv("GUARDIAN_CONNECTORS", "google_drive,github")
-    ids = [c.strip() for c in raw.split(",") if c.strip()]
-    out: List[dict] = []
-    for cid in ids:
-        out.append(
-            {
-                "id": cid,
-                "name": _display_name(cid),
-                "status": _connector_status_from_env(cid),
-                "auth": None,
-                "syncInterval": "manual",
-                "scopes": [],
-                "options": [],
-            }
-        )
-    return out
+
+def _read_sync_interval(default: str = "300") -> int:
+    raw = os.getenv("CONNECTOR_SYNC_INTERVAL")
+    if raw is None:
+        raw = os.getenv("GUARDIAN_CONNECTOR_SYNC_INTERVAL", default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(30, value)
 
 
-# In-memory list; rebuilt on process start
-CONNECTORS: List[dict] = _build_connectors()
-
-# In-memory config and secrets (replace with DB in production)
-CONNECTOR_CONFIGS: Dict[str, dict] = {}
-CONNECTOR_SECRETS: Dict[str, dict] = {}
-AUTH_TX: Dict[str, dict] = {}
-
-# Registry metadata for richer UI
-CONNECTOR_REGISTRY: Dict[str, dict] = {
+CONNECTOR_REGISTRY: Dict[str, Dict[str, Any]] = {
     "github": {
         "id": "github",
         "name": "GitHub",
-        "capabilities": {
-            "supportsOAuth": True,
-            "supportsApiKey": False,
-            "supportsLocal": False,
-        },
-        "requiredFields": [
-            {
-                "key": "client_id",
-                "label": "Client ID",
-                "type": "string",
-                "secret": False,
-            },
-            {
-                "key": "client_secret",
-                "label": "Client Secret",
-                "type": "string",
-                "secret": True,
-            },
-        ],
-        "scopes": ["repo", "read:org"],
-        "options": [
-            {
-                "key": "syncInterval",
-                "label": "Sync every",
-                "type": "select",
-                "options": ["manual", "15m", "1h", "6h"],
-                "value": "1h",
-            }
-        ],
-    },
-    "google_drive": {
-        "id": "google_drive",
-        "name": "Google Drive",
         "capabilities": {
             "supportsOAuth": False,
             "supportsApiKey": True,
             "supportsLocal": False,
         },
         "requiredFields": [
-            {"key": "api_key", "label": "API Key", "type": "string", "secret": True},
+            {"key": "owner", "label": "Owner", "type": "string"},
+            {"key": "repo", "label": "Repository", "type": "string"},
         ],
-        "scopes": [],
-        "options": [
-            {
-                "key": "syncInterval",
-                "label": "Sync every",
-                "type": "select",
-                "options": ["manual", "15m", "1h", "6h"],
-                "value": "manual",
-            }
-        ],
-    },
+        "scopes": ["repo", "read:org"],
+        "options": [],
+    }
 }
+
+ENABLE_CONNECTOR_WORKER = os.getenv("ENABLE_CONNECTOR_WORKER", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+CONNECTOR_SYNC_INTERVAL = _read_sync_interval()
+
+_CONNECTOR_WORKER_STOP: Optional[asyncio.Event] = None
+_CONNECTOR_WORKER_TASK: Optional[asyncio.Task] = None
+
+
+class ConnectorCreate(BaseModel):
+    name: str
+    type: str
+    settings: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ConnectorUpdate(BaseModel):
+    settings: Optional[Dict[str, Any]] = None
+
+
+class ConnectorConfigFields(BaseModel):
+    fields: Dict[str, Any]
+
+
+def _required_settings_for_type(type_: str) -> List[str]:
+    if type_ == "github":
+        return ["owner", "repo"]
+    return []
+
+
+def _serialize_connector_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    settings = cfg.get("settings") or {}
+    meta = CONNECTOR_REGISTRY.get(cfg.get("type", ""), {})
+    last_run = cfg.get("last_run")
+    status = "disconnected"
+    last_sync_at = None
+    error_message = None
+    if last_run:
+        status_map = {
+            "succeeded": "connected",
+            "running": "running",
+            "failed": "error",
+        }
+        status = status_map.get(last_run.get("status"), "error")
+        last_sync_at = last_run.get("finished_at") or last_run.get("started_at")
+        error_message = last_run.get("error")
+    return {
+        "id": cfg.get("name"),
+        "configId": cfg.get("id"),
+        "name": cfg.get("name"),
+        "type": cfg.get("type"),
+        "settings": settings,
+        "status": status,
+        "lastRun": last_run,
+        "lastSyncAt": last_sync_at,
+        "errorMessage": error_message,
+        "auth": None,
+        "syncInterval": settings.get("syncInterval", "manual"),
+        "scopes": meta.get("scopes", []),
+        "options": meta.get("options", []),
+        "capabilities": meta.get("capabilities"),
+        "requiredFields": meta.get("requiredFields"),
+        "needsAdminSecret": False,
+    }
+
+
+def _get_connector_by_name(name: str) -> Dict[str, Any]:
+    cfg = chatlog_db.get_connector_config(name)
+    if not cfg:
+        raise HTTPException(status_code=404, detail={"error": "Connector not found"})
+    last_run = chatlog_db.get_last_connector_run(cfg["id"])
+    cfg["last_run"] = last_run
+    return cfg
+
+
+def _validate_connector_settings(type_: str, settings: Dict[str, Any]) -> None:
+    required = _required_settings_for_type(type_)
+    missing = [key for key in required if not settings.get(key)]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": f"Missing required settings: {', '.join(missing)}"},
+        )
+
+
+def _emit_connector_event(config: Dict[str, Any], run: Dict[str, Any]) -> None:
+    payload = {
+        "connector": config.get("name"),
+        "connector_id": config.get("id"),
+        "type": config.get("type"),
+        "run_id": run.get("id"),
+        "status": run.get("status"),
+        "started_at": run.get("started_at"),
+        "finished_at": run.get("finished_at"),
+        "document_count": run.get("document_count"),
+        "error": run.get("error"),
+    }
+    # Ensure datetimes (or other non-JSON types) are serialized safely before storing
+    event_bus.emit_event("connector.sync", _jsonify(payload))
 
 
 @app.get("/api/connectors", tags=["Connectors"])
 def list_connectors():
-    """Return connectors enriched with metadata and config flags."""
-    logger.info("[connectors] GET /api/connectors count=%d", len(CONNECTORS))
-    out = []
-    for c in CONNECTORS:
-        cid = c.get("id")
-        meta = CONNECTOR_REGISTRY.get(cid, {"requiredFields": [], "capabilities": {}})
-        cfg = CONNECTOR_CONFIGS.get(cid, {})
-        # Determine needsAdminSecret: any required secret missing
-        needs = False
-        for f in meta.get("requiredFields", []):
-            if f.get("secret") and not CONNECTOR_SECRETS.get(cid, {}).get(f["key"]):
-                needs = True
-        oc = {**c}
-        oc.update(
-            {
-                "capabilities": meta.get("capabilities"),
-                "requiredFields": meta.get("requiredFields"),
-                "scopes": meta.get("scopes", []),
-                "options": meta.get("options", []),
-                "needsAdminSecret": needs,
-            }
-        )
-        out.append(oc)
-    return out
+    configs = chatlog_db.list_connector_configs_with_last_run()
+    return [_serialize_connector_config(cfg) for cfg in configs]
 
 
-@app.patch("/api/connectors/{connector_id}", tags=["Connectors"])
-def update_connector(connector_id: str, updates: dict = Body(...)):
-    """Apply shallow updates to a connector in the in-memory stub.
-    - Accept only known fields; reject unknown with 400.
-    - Always return the updated connector object.
-    """
-    allowed = {"status", "auth", "syncInterval", "scopes", "options", "name"}
-    unknown = [k for k in updates.keys() if k not in allowed]
-    if unknown:
-        logger.warning(
-            "[connectors] PATCH unknown fields id=%s fields=%s", connector_id, unknown
-        )
-        raise HTTPException(
-            status_code=400, detail={"error": f"Unknown fields: {', '.join(unknown)}"}
-        )
-
-    for c in CONNECTORS:
-        if c.get("id") == connector_id:
-            before_status = c.get("status")
-            for key in allowed:
-                if key in updates:
-                    c[key] = updates[key]
-            logger.info(
-                "[connectors] PATCH id=%s status=%s->%s",
-                connector_id,
-                before_status,
-                c.get("status"),
-            )
-            return c
-
-    raise HTTPException(status_code=404, detail={"error": "Connector not found"})
+@app.post("/api/connectors", tags=["Connectors"])
+def create_connector(cfg: ConnectorCreate):
+    cfg_type = cfg.type.lower()
+    if cfg_type not in CONNECTOR_REGISTRY:
+        raise HTTPException(status_code=400, detail={"error": "Unsupported connector type"})
+    if chatlog_db.get_connector_config(cfg.name):
+        raise HTTPException(status_code=400, detail={"error": "Connector name already exists"})
+    _validate_connector_settings(cfg_type, cfg.settings)
+    stored = chatlog_db.create_connector_config(cfg.name, cfg_type, cfg.settings)
+    stored["last_run"] = None
+    return _serialize_connector_config(stored)
 
 
-@app.get("/api/connectors/{connector_id}", tags=["Connectors"])
-def get_connector(connector_id: str):
-    for c in CONNECTORS:
-        if c.get("id") == connector_id:
-            meta = CONNECTOR_REGISTRY.get(connector_id, {})
-            cfg = CONNECTOR_CONFIGS.get(connector_id, {})
-            needs = False
-            for f in meta.get("requiredFields", []):
-                if f.get("secret") and not CONNECTOR_SECRETS.get(connector_id, {}).get(
-                    f["key"]
-                ):
-                    needs = True
-            out = {
-                **c,
-                **{
-                    "capabilities": meta.get("capabilities"),
-                    "requiredFields": meta.get("requiredFields", []),
-                    "scopes": meta.get("scopes", []),
-                    "options": meta.get("options", []),
-                    "needsAdminSecret": needs,
-                    "config": {
-                        k: (
-                            "••••"
-                            if any(
-                                f.get("key") == k and f.get("secret")
-                                for f in meta.get("requiredFields", [])
-                            )
-                            else v
-                        )
-                        for k, v in {
-                            **cfg,
-                            **CONNECTOR_SECRETS.get(connector_id, {}),
-                        }.items()
-                    },
-                },
-            }
-            return out
-    raise HTTPException(status_code=404, detail={"error": "Connector not found"})
+@app.get("/api/connectors/{connector_name}", tags=["Connectors"])
+def get_connector(connector_name: str):
+    cfg = _get_connector_by_name(connector_name)
+    return _serialize_connector_config(cfg)
 
 
-@app.post("/api/connectors/{connector_id}/config", tags=["Connectors"])
-def set_connector_config(connector_id: str, body: Dict[str, dict] = Body(...)):
-    meta = CONNECTOR_REGISTRY.get(connector_id)
-    if not meta:
-        raise HTTPException(status_code=404, detail={"error": "Connector not found"})
-    fields = body.get("fields", {})
-    allowed = {f["key"]: f for f in meta.get("requiredFields", [])}
-    unknown = [k for k in fields.keys() if k not in allowed]
-    if unknown:
-        logger.warning(
-            "[connectors] CONFIG unknown keys id=%s fields=%s", connector_id, unknown
-        )
-        return JSONResponse(
-            status_code=400,
-            content={"ok": False, "error": f"Unknown fields: {', '.join(unknown)}"},
-        )
-    # Persist split by secret flag
-    cfg = CONNECTOR_CONFIGS.setdefault(connector_id, {})
-    sec = CONNECTOR_SECRETS.setdefault(connector_id, {})
-    for k, v in fields.items():
-        if allowed[k].get("secret"):
-            sec[k] = v
-        else:
-            cfg[k] = v
-    logger.info(
-        "[connectors] CONFIG id=%s updated keys=%s", connector_id, list(fields.keys())
+@app.patch("/api/connectors/{connector_name}", tags=["Connectors"])
+def patch_connector(connector_name: str, update: ConnectorUpdate):
+    cfg = _get_connector_by_name(connector_name)
+    if update.settings is not None:
+        merged = {**(cfg.get("settings") or {}), **update.settings}
+        _validate_connector_settings(cfg["type"], merged)
+        cfg = chatlog_db.update_connector_config(connector_name, config=merged)
+        cfg["last_run"] = chatlog_db.get_last_connector_run(cfg["id"])
+    return _serialize_connector_config(cfg)
+
+
+@app.post("/api/connectors/{connector_name}/config", tags=["Connectors"])
+def update_connector_fields(connector_name: str, payload: ConnectorConfigFields):
+    cfg = _get_connector_by_name(connector_name)
+    merged = {**(cfg.get("settings") or {}), **payload.fields}
+    _validate_connector_settings(cfg["type"], merged)
+    cfg = chatlog_db.update_connector_config(connector_name, config=merged)
+    cfg["last_run"] = chatlog_db.get_last_connector_run(cfg["id"])
+    return _serialize_connector_config(cfg)
+
+
+@app.post("/api/connectors/{connector_name}/test", tags=["Connectors"])
+def connector_test(connector_name: str) -> Dict[str, str]:
+    _get_connector_by_name(connector_name)
+    return {"ok": "True", "message": "Connection not validated in offline mode"}
+
+
+@app.post("/api/connectors/{connector_name}/sync", tags=["Connectors"])
+async def connector_sync(connector_name: str):
+    cfg = _get_connector_by_name(connector_name)
+    await _schedule_github_sync(cfg)
+    return {"ok": True}
+
+
+@app.post("/api/connectors/{connector_name}/authorize", tags=["Connectors"])
+def connector_authorize_not_supported(connector_name: str):
+    raise HTTPException(
+        status_code=400,
+        detail={"error": "OAuth authorization is not supported for this connector"},
     )
-    # Return masked config
-    masked = {
-        k: ("••••" if allowed[k].get("secret") else v)
-        for k, v in {**cfg, **sec}.items()
-        if k in allowed
+
+
+@app.get("/api/connectors/{connector_name}/status", tags=["Connectors"])
+def connector_status(connector_name: str) -> Dict[str, Any]:
+    cfg = _get_connector_by_name(connector_name)
+    serialized = _serialize_connector_config(cfg)
+    return {
+        "ok": True,
+        "connector": serialized,
+        "status": serialized.get("status"),
+        "latest_run": serialized.get("lastRun"),
     }
-    return {"ok": True, "id": connector_id, "config": masked}
-
-
-@app.post("/api/connectors/github/authorize", tags=["Connectors"])
-def github_authorize(body: Dict[str, str] = Body(...)):
-    cid = "github"
-    redirect_uri = body.get("redirectUri")
-    if not redirect_uri:
-        raise HTTPException(status_code=400, detail={"error": "redirectUri required"})
-    client_id = CONNECTOR_CONFIGS.get(cid, {}).get("client_id") or os.getenv(
-        "GITHUB_CLIENT_ID"
-    )
-    if not client_id:
-        raise HTTPException(
-            status_code=400, detail={"error": "Client ID missing; set via config first"}
-        )
-    # PKCE (simplified): generate state and code_verifier; we only return state and authUrl
-    import base64
-    import hashlib
-    import secrets
-
-    def b64url(b: bytes) -> str:
-        return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
-
-    code_verifier = b64url(secrets.token_bytes(32))
-    challenge = b64url(hashlib.sha256(code_verifier.encode()).digest())
-    state = b64url(secrets.token_bytes(16))
-    AUTH_TX[state] = {
-        "connector_id": cid,
-        "code_verifier": code_verifier,
-        "redirect_uri": redirect_uri,
-        "ts": datetime.utcnow().isoformat(),
-    }
-    scope = "repo read:org"
-    auth_url = (
-        "https://github.com/login/oauth/authorize"
-        f"?client_id={client_id}&redirect_uri={redirect_uri}&scope={scope}&state={state}&code_challenge={challenge}&code_challenge_method=S256"
-    )
-    logger.info("[connectors] AUTHORIZE id=github state=%s", state)
-    return {"authUrl": auth_url, "state": state}
-
-
-@app.get("/api/connectors/github/callback", tags=["Connectors"])
-def github_callback(code: str = Query(...), state: str = Query(...)):
-    tx = AUTH_TX.pop(state, None)
-    if not tx:
-        raise HTTPException(status_code=400, detail={"error": "Invalid state"})
-    # In production: exchange code for tokens at GitHub; here we simulate success
-    CONNECTOR_SECRETS.setdefault("github", {})["access_token"] = "gho_simulated"
-    # Mark status connected
-    for c in CONNECTORS:
-        if c["id"] == "github":
-            c["status"] = "connected"
-    logger.info("[connectors] CALLBACK id=github state=%s ok", state)
-    # Redirect back to UI
-    return {"ok": True, "message": "Authorized"}
-
-
-@app.post("/api/connectors/{connector_id}/test", tags=["Connectors"])
-def connector_test(connector_id: str):
-    if connector_id == "github":
-        ok = bool(CONNECTOR_SECRETS.get("github", {}).get("access_token"))
-        return {"ok": ok, "message": "Connection OK" if ok else "Not connected"}
-    return {"ok": True, "message": "Connection OK"}
-
-
-@app.post("/api/connectors/{connector_id}/sync", tags=["Connectors"])
-def connector_sync(connector_id: str):
-    jid = str(uuid4())
-    JOBS[jid] = {
-        "status": "done",
-        "result": {"connector": connector_id, "synced": True},
-    }
-    logger.info("[connectors] SYNC id=%s job_id=%s", connector_id, jid)
-    return {"ok": True, "job_id": jid}
 
 
 @app.get("/health/connectors", tags=["Connectors"])
-def connectors_health():
-    total = len(CONNECTORS)
-    connected = sum(1 for c in CONNECTORS if c.get("status") == "connected")
-    return {"ok": True, "count": total, "connected": connected}
+def connectors_health() -> Dict[str, object]:
+    connectors = chatlog_db.list_connector_configs_with_last_run()
+    total = len(connectors)
+    healthy = 0
+    for cfg in connectors:
+        run = cfg.get("last_run")
+        if run and run.get("status") == "succeeded":
+            healthy += 1
+    return {"ok": "True", "count": total, "connected": healthy}
 
 
-@app.get("/jobs/{job_id}", tags=["Tools"])
-def jobs_get(job_id: str):
-    job = JOBS.get(job_id, {})
-    status = job.get("status", "unknown")
-    progress = 100 if status == "done" else 0
-    last_error = job.get("error") if status == "error" else None
-    return {"status": status, "progress": progress, "last_error": last_error}
+async def _schedule_github_sync(config: Dict[str, Any]) -> None:
+    if config.get("type") != "github":
+        logger.info("[connectors] sync skipped for unsupported type %s", config.get("type"))
+        return
+    loop = asyncio.get_running_loop()
+    loop.create_task(_run_github_sync(config))
 
 
-# =========================
-# Event System for Real-time Updates
-# =========================
+async def _run_github_sync(config: Dict[str, Any]) -> None:
+    settings = config.get("settings") or {}
+    # Explicitly cast settings to Dict[str, Any]
+    if not isinstance(settings, dict):
+        settings = dict(settings)
+    owner = str(settings.get("owner") or "")
+    repo = str(settings.get("repo") or "")
+    if not owner or not repo:
+        logger.error("[connectors] missing owner/repo for %s", str(config.get("name")))
+        return
+    token = os.getenv("GITHUB_TOKEN")
+    loop = asyncio.get_running_loop()
+    started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    run = await _run_db(
+        chatlog_db.create_connector_run,
+        config["id"],
+        status="running",
+        started_at=started_at,
+    )
+    run["document_count"] = 0
+    _emit_connector_event(config, run)
+    try:
+        # Explicitly typecast owner/repo to str for run_in_executor
+        docs = await loop.run_in_executor(None, sync_repo, owner, repo, token)
+        await _run_db(chatlog_db.upsert_raw_documents, config["id"], docs)
+        logger.info(
+            "[connectors] github sync stored %d docs for %s/%s",
+            len(docs),
+            str(owner),
+            str(repo),
+        )
+        finished = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        run = await _run_db(
+            chatlog_db.complete_connector_run,
+            run["id"],
+            status="succeeded",
+            finished_at=finished,
+            error=None,
+        )
+        run["document_count"] = len(docs)
+        _emit_connector_event(config, run)
+    except Exception as exc:  # pragma: no cover - network failure logging
+        logger.exception(
+            "[connectors] github sync failed for %s/%s: %s", str(owner), str(repo), exc
+        )
+        finished = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        run = await _run_db(
+            chatlog_db.complete_connector_run,
+            run["id"],
+            status="failed",
+            finished_at=finished,
+            error=str(exc),
+        )
+        run["document_count"] = 0
+        _emit_connector_event(config, run)
 
 
-# In-memory event system (simple for MVP, can be replaced with Redis later)
-class EventManager:
-    def __init__(self):
-        self.subscribers = []
+# --- One-shot ingest of GitHub raw_documents into memory_entries ---
 
-    def subscribe(self):
-        """Subscribe to events - returns a generator for SSE"""
-        queue = []
-        self.subscribers.append(queue)
-        return queue
+def _ingest_github_for_config(connector_name: str) -> dict:
+    """Transform raw_documents for the given connector into memory_entries.
+    Dedups on (silo,key) so re-running is safe. Emits a durable outbox event.
+    """
+    dsn = os.environ.get("DATABASE_URL") or PG_DSN
+    if not dsn:
+        raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
 
-    def unsubscribe(self, queue):
-        """Unsubscribe from events"""
-        if queue in self.subscribers:
-            self.subscribers.remove(queue)
+    conn = psycopg2.connect(dsn)
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # Keep any single query from hanging forever
+    try:
+        cur.execute("SET LOCAL statement_timeout = 15000")  # 15s
+    except Exception:
+        pass
+    logger.info("[ingest] begin github ingest name=%s", connector_name)
 
-    def emit(self, event_type: str, data: dict):
-        """Emit an event to all subscribers"""
-        event_data = {
-            "type": event_type,
-            "data": data,
-            "timestamp": datetime.utcnow().isoformat(),
+    # Resolve the connector and its owner/repo
+    cur.execute(
+        """
+        SELECT id, config->>'owner' AS owner, config->>'repo' AS repo
+          FROM connector_configs
+         WHERE name = %s
+        """,
+        (connector_name,),
+    )
+    cfg = cur.fetchone()
+    if not cfg:
+        conn.rollback(); conn.close()
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    # Fetch raw docs for the connector
+    cur.execute(
+        """
+        SELECT id, external_id, payload::text AS payload
+          FROM raw_documents
+         WHERE config_id = %s
+         ORDER BY id
+        """,
+        (cfg["id"],),
+    )
+    rows = cur.fetchall()
+
+    inserted = 0
+    for r in rows:
+        try:
+            payload = json.loads(r["payload"]) if isinstance(r["payload"], str) else (r["payload"] or {})
+        except Exception:
+            # Skip malformed rows but continue ingesting others
+            continue
+        # Heuristic type classification
+        typ = "issue"
+        if isinstance(payload, dict):
+            if payload.get("pull_request") is not None:
+                typ = "pr"
+            elif payload.get("sha"):
+                typ = "commit"
+
+        key = f"gh:{cfg['owner']}/{cfg['repo']}:{typ}:{r['external_id']}"
+        doc = {
+            "type": typ,
+            "repo": f"{cfg['owner']}/{cfg['repo']}",
+            "external_id": r["external_id"],
+            "title": (payload or {}).get("title"),
+            "body": (payload or {}).get("body"),
+            "url": (payload or {}).get("html_url"),
+            "state": (payload or {}).get("state"),
+            "number": (payload or {}).get("number"),
+            "author": ((payload or {}).get("user") or {}).get("login"),
+            "labels": [lbl.get("name") for lbl in (payload or {}).get("labels", []) if isinstance(lbl, dict)],
+            "created_at": (payload or {}).get("created_at"),
+            "updated_at": (payload or {}).get("updated_at"),
         }
-        # Remove dead subscribers
-        dead_subscribers = []
-        for queue in self.subscribers:
+
+        cur.execute(
+            """
+            INSERT INTO memory_entries (silo, key, payload)
+            SELECT %s, %s, %s::json
+            WHERE NOT EXISTS (
+              SELECT 1 FROM memory_entries WHERE silo=%s AND key=%s
+            )
+            """,
+            ("github", key, json.dumps(doc), "github", key),
+        )
+        inserted += cur.rowcount
+
+    # Telemetry counts
+    cur.execute("SELECT COUNT(*) AS n FROM raw_documents WHERE config_id=%s", (cfg["id"],))
+    raw_total = int(cur.fetchone()["n"])
+    cur.execute("SELECT COUNT(*) AS n FROM memory_entries WHERE silo='github'")
+    mem_total = int(cur.fetchone()["n"])
+
+    conn.commit()
+    conn.close()
+
+    # Durable event for SSE (emit after commit so readers can see the rows)
+    event_bus.emit_event(
+        "memory.ingest",
+        {"source": "github", "connector": connector_name, "inserted": inserted}
+    )
+    logger.info(
+        "[ingest] completed github ingest name=%s inserted=%s raw_total=%s mem_total=%s",
+        connector_name, inserted, raw_total, mem_total
+    )
+    return {"inserted": inserted, "raw_total": raw_total, "mem_total": mem_total}
+
+
+@app.post("/api/connectors/{name}/ingest", tags=["Connectors"])
+def api_ingest_connector(name: str, api_key: str = Depends(require_api_key)):
+    """One-shot transform of GitHub raw_documents -> memory_entries for this connector.
+    Returns insert count and totals; also emits a `memory.ingest` SSE event via the durable outbox.
+    """
+    try:
+        logger.info("[ingest] API request received for connector=%s", name)
+        result = _ingest_github_for_config(name)
+        logger.info("[ingest] API ingest done for connector=%s -> %s", name, result)
+        return {"ok": True, **result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _connector_worker(stop_event: asyncio.Event) -> None:
+    logger.info(
+        "[connectors] worker started interval=%ss (enabled=%s)",
+        CONNECTOR_SYNC_INTERVAL,
+        ENABLE_CONNECTOR_WORKER,
+    )
+    try:
+        while not stop_event.is_set():
+            configs = await _run_db(chatlog_db.list_connector_configs, "github")
+            if not configs:
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=CONNECTOR_SYNC_INTERVAL)
+                except asyncio.TimeoutError:
+                    continue
+                else:
+                    break
+            for cfg in configs:
+                if stop_event.is_set():
+                    break
+                await _run_github_sync(cfg)
             try:
-                queue.append(event_data)
-            except:
-                dead_subscribers.append(queue)
+                await asyncio.wait_for(stop_event.wait(), timeout=CONNECTOR_SYNC_INTERVAL)
+            except asyncio.TimeoutError:
+                continue
+    except asyncio.CancelledError:  # pragma: no cover
+        logger.debug("[connectors] worker cancelled")
+        raise
+    finally:
+        logger.info("[connectors] worker stopped")
 
-        # Clean up dead subscribers
-        for queue in dead_subscribers:
-            self.unsubscribe(queue)
+
+# on_event startup/shutdown migrated to lifespan above
 
 
-event_manager = EventManager()
+async def _run_db(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+
 
 # =========================
 # Chat Threads API
 # =========================
 
 
-@app.post("/api/chat/threads", tags=["Chat"])
+@app.post("/chat/threads", tags=["Chat"])
 def chat_create_thread(body: dict = Body(...)):
     """Create a chat thread and return identifier metadata."""
     try:
@@ -784,7 +1219,7 @@ def chat_create_thread(body: dict = Body(...)):
         raise HTTPException(status_code=500, detail="Failed to create chat thread")
 
 
-@app.get("/api/chat/threads", tags=["Chat"])
+@app.get("/chat/threads", tags=["Chat"])
 def chat_list_threads():
     """Return the list of persisted chat threads."""
     try:
@@ -800,7 +1235,7 @@ def chat_list_threads():
 # =========================
 
 
-@app.post("/api/chat/{thread_id}/messages")
+@app.post("/chat/{thread_id}/messages")
 def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
     role = body.get("role")
     content = body.get("content", "").strip()
@@ -824,10 +1259,46 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
     chatlog_db.write_audit_log("create", "chat_message", str(mid), user_id=str(owner))
 
     # Emit event for real-time updates
-    event_manager.emit(
+    event_bus.emit_event(
         "message.created",
-        {"thread_id": thread_id, "message_id": mid, "role": role, "content": content},
+        {
+            "thread_id": thread_id,
+            "message_id": mid,
+            "role": role,
+            "content": content,
+        },
     )
+
+    # --- Neo4j sync ---
+    try:
+        # Import here in case not already
+        from datetime import datetime
+        import uuid
+        # Use string IDs for Neo4j
+        message_id = str(mid)
+        thread_id_str = str(thread_id)
+        user_id_str = str(owner)
+        message_text = content
+
+        neo_user = UserNode.nodes.get_or_none(user_id=user_id_str)
+        if not neo_user:
+            neo_user = UserNode(user_id=user_id_str, name=user_id_str).save()
+
+        neo_thread = ThreadNode.nodes.get_or_none(thread_id=thread_id_str)
+        if not neo_thread:
+            neo_thread = ThreadNode(thread_id=thread_id_str).save()
+
+        neo_msg = MessageNode(
+            message_id=message_id,
+            content=message_text,
+            created_at=datetime.utcnow()
+        ).save()
+
+        neo_msg.user.connect(neo_user)
+        neo_msg.thread.connect(neo_thread)
+
+    except Exception as e:
+        print(f"[Neo4j Sync Error] {e}")
 
     return {
         "ok": True,
@@ -840,14 +1311,64 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
     }
 
 
-@app.get("/api/chat/{thread_id}/messages")
+@app.get("/chat/{thread_id}/messages")
 def chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
     items = chatlog_db.list_messages(thread_id, limit=limit, offset=offset)
     total = chatlog_db.count_messages(thread_id)
     return {"ok": True, "total": total, "messages": items}
 
 
-@app.delete("/api/chat/{thread_id}/messages/{message_id}")
+# Generate an assistant reply for the given thread using the configured provider and persist it
+@app.post("/chat/{thread_id}/complete", tags=["Chat"])
+def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_factory=dict)):
+    """
+    Generate an assistant reply for the given thread using the configured provider
+    and persist it as a new message (role='assistant'). Emits message.created.
+    Optional body:
+      - model: override model name
+      - max_context: how many recent messages to include (default 50)
+    """
+    try:
+        limit = int(body.get("max_context") or 50)
+        items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
+
+        # Shape OpenAI-style messages; drop empty or literal "null" content
+        context: List[Dict[str, str]] = []
+        for m in items:
+            role = str(m.get("role") or "").strip()
+            content = m.get("content")
+            if isinstance(content, str) and content.strip() and content.strip().lower() != "null":
+                context.append({"role": role, "content": content})
+
+        if not context:
+            raise HTTPException(status_code=400, detail="Thread has no usable context")
+
+        if CHAT_PROVIDER != "groq":
+            raise HTTPException(status_code=500, detail=f"Unsupported provider: {CHAT_PROVIDER}")
+
+        model = body.get("model") or DEFAULT_MODEL
+        assistant_text = _groq_complete(context, model=model)
+
+        mid = chatlog_db.create_message(thread_id, "assistant", assistant_text)
+        try:
+            chatlog_db.write_audit_log("create", "chat_message", str(mid), user_id="bot")
+        except Exception:
+            pass
+
+        try:
+            event_bus.emit_event("message.created", {"thread_id": thread_id, "message_id": mid, "role": "assistant"})
+        except Exception:
+            logger.debug("[live] emit message.created failed", exc_info=True)
+
+        return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text}}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("complete failed: %s", exc)
+        raise HTTPException(status_code=500, detail="completion_failed")
+
+
+@app.delete("/chat/{thread_id}/messages/{message_id}")
 def chat_delete_message(thread_id: int, message_id: int):
     chatlog_db.delete_message(thread_id, message_id)
     chatlog_db.write_audit_log(
@@ -861,60 +1382,196 @@ def chat_delete_message(thread_id: int, message_id: int):
 # =========================
 
 
-@app.patch("/api/chat/threads/{thread_id}", tags=["Chat"])
-def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
-    if body is None:
-        return JSONResponse(
-            status_code=400, content={"ok": False, "error": "No fields provided"}
+def _normalize_thread_title(raw: Optional[str]) -> Optional[str]:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or "New Chat"
+
+
+def _normalize_thread_summary(raw: Optional[str]) -> Optional[str]:
+    if raw is None:
+        return None
+    return str(raw).strip()
+
+
+def _apply_thread_update(thread_id: int, update: ThreadUpdate) -> Dict[str, Any]:
+    payload = update.dict(exclude_unset=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    updated_field_keys = [key for key in ("title", "summary", "project_id") if key in payload]
+    existing = chatlog_db.get_chat_thread(thread_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    title_value = _normalize_thread_title(payload.get("title")) if "title" in payload else None
+    summary_value = _normalize_thread_summary(payload.get("summary")) if "summary" in payload else None
+    project_present = "project_id" in payload
+    project_value = payload.get("project_id") if project_present else None
+    archived_present = "archived" in payload
+    archived_requested = payload.get("archived") if archived_present else None
+
+    has_field_updates = any(
+        field is not None for field in (
+            title_value if "title" in payload else None,
+            summary_value if "summary" in payload else None,
+            project_value if project_present else None,
         )
+    ) or project_present and payload.get("project_id") is None
 
-    title: Optional[str] = None
-    summary: Optional[str] = None
+    if not has_field_updates and not archived_present:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
 
-    if "title" in body:
-        raw_title = body.get("title")
-        title = (str(raw_title).strip() if raw_title is not None else "") or "New Chat"
-
-    if "summary" in body:
-        raw_summary = body.get("summary")
-        summary = str(raw_summary).strip() if raw_summary is not None else ""
-
-    project_id = body.get("project_id") if "project_id" in body else None
-    normalized_project: Optional[int] = None
-    if project_id is not None:
-        try:
-            normalized_project = int(project_id)
-        except (TypeError, ValueError):
-            normalized_project = None
-
-    if title is None and summary is None and project_id is None:
-        return JSONResponse(
-            status_code=400, content={"ok": False, "error": "No valid fields to update"}
-        )
-
-    try:
-        existing = chatlog_db.get_chat_thread(thread_id)
-        if not existing:
-            raise HTTPException(status_code=404, detail="Thread not found")
-
+    if has_field_updates:
         updated = chatlog_db.update_thread(
             thread_id,
-            title=title,
-            project_id=normalized_project if project_id is not None else None,
-            summary=summary,
+            title=title_value if "title" in payload else None,
+            summary=(summary_value if "summary" in payload else None),
+            project_id=project_value if project_present else None,
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Thread not found")
 
-        refreshed = chatlog_db.get_chat_thread(thread_id)
-        if refreshed:
-            chatlog_db.write_audit_log(
-                "update",
-                "chat_thread",
-                str(thread_id),
-                user_id=refreshed.get("user_id", "default"),
-            )
+    refreshed = chatlog_db.get_chat_thread(thread_id)
+    if not refreshed:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    if has_field_updates:
+        chatlog_db.write_audit_log(
+            "update",
+            "chat_thread",
+            str(thread_id),
+            user_id=refreshed.get("user_id", "default"),
+        )
+        event_bus.emit_event(
+            "thread.updated",
+            {
+                "thread": refreshed,
+                "changes": {key: payload.get(key) for key in updated_field_keys},
+            },
+        )
+        logger.info(
+            "[threads] updated thread_id=%s fields=%s",
+            thread_id,
+            updated_field_keys or list(payload.keys()),
+        )
+
+    if archived_requested is True:
+        # Archive if not already archived
+        if not refreshed.get("archived_at"):
+            archived = chatlog_db.archive_thread(thread_id)
+            if archived:
+                refreshed = archived
+                event_bus.emit_event("thread.archived", {"thread": archived})
+                logger.info("[threads] archived thread_id=%s", thread_id)
+                chatlog_db.write_audit_log(
+                    "archive",
+                    "chat_thread",
+                    str(thread_id),
+                    user_id=archived.get("user_id", "default"),
+                )
+        else:
+            logger.debug("Thread %s already archived", thread_id)
+    elif archived_requested is False:
+        # Unarchive if currently archived
+        if refreshed.get("archived_at"):
+            unarchived = chatlog_db.unarchive_thread(thread_id)
+            if unarchived:
+                refreshed = unarchived
+                event_bus.emit_event("thread.unarchived", {"thread": unarchived})
+                logger.info("[threads] unarchived thread_id=%s", thread_id)
+                chatlog_db.write_audit_log(
+                    "unarchive",
+                    "chat_thread",
+                    str(thread_id),
+                    user_id=unarchived.get("user_id", "default"),
+                )
+        else:
+            logger.debug("Thread %s already unarchived", thread_id)
+
+    return refreshed
+
+
+@app.post("/chat/{thread_id}/branch", response_model=ThreadDTO, tags=["Chat"])
+def branch_thread(
+    thread_id: int,
+    body: Optional[ThreadBranchRequest] = Body(default=None),
+    api_key: str = Depends(require_api_key),
+):
+    payload = body or ThreadBranchRequest()
+    parent = chatlog_db.get_chat_thread(thread_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    title = _normalize_thread_title(payload.title)
+    if title is None:
+        base_title = parent.get("title") or "New Chat"
+        title = f"{base_title} (branch)"
+
+    summary = _normalize_thread_summary(payload.summary)
+    if summary is None:
+        summary = parent.get("summary") or ""
+
+    project_id: Optional[int]
+    if payload.project_id is not None:
+        project_id = payload.project_id
+    else:
+        project_id = parent.get("project_id")
+        try:
+            project_id = int(project_id) if project_id is not None else None
+        except (TypeError, ValueError):
+            project_id = None
+
+    child = chatlog_db.create_chat_thread(
+        user_id=parent.get("user_id", "default"),
+        title=title,
+        summary=summary,
+        project_id=project_id,
+        parent_id=parent["id"],
+    )
+
+    chatlog_db.write_audit_log(
+        "create",
+        "chat_thread",
+        str(child["id"]),
+        user_id=child.get("user_id", "default"),
+    )
+
+    event_bus.emit_event(
+        "thread.branch",
+        {
+            "parent": {
+                "id": parent.get("id"),
+                "title": parent.get("title"),
+                "archived_at": parent.get("archived_at"),
+                "project_id": parent.get("project_id"),
+            },
+            "child": child,
+        },
+    )
+
+    return child
+
+
+@app.patch("/chat/{thread_id}", response_model=ThreadDTO, tags=["Chat"])
+def update_thread(thread_id: int, payload: ThreadUpdate, api_key: str = Depends(require_api_key)):
+    updated = _apply_thread_update(thread_id, payload)
+    return updated
+
+
+@app.patch("/chat/threads/{thread_id}", tags=["Chat"])
+def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
+    try:
+        update = ThreadUpdate(**(body or {}))
+        refreshed = _apply_thread_update(thread_id, update)
         return {"ok": True, "thread": refreshed}
+    except ValidationError as err:
+        logger.warning("Invalid payload for thread update: %s", err)
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "Invalid payload"},
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -924,15 +1581,21 @@ def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
         )
 
 
-@app.delete("/api/chat/threads/{thread_id}")
-def delete_thread(thread_id: int):
+@app.delete("/chat/{thread_id}")
+def delete_thread(thread_id: int, force: bool = Query(False)):
+    """Hard delete a thread regardless of archived state."""
+    deleted = chatlog_db.delete_thread(thread_id, force=force)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Thread not found or not deletable (archive first or set force=true)"
+        )
     try:
-        chatlog_db.delete_thread(thread_id)
-        return {"ok": True}
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
-
-
+        event_bus.emit_event("thread.deleted", {"thread_id": thread_id})
+    except Exception:
+        pass
+    logger.info("[threads] deleted thread_id=%s", thread_id)
+    return {"ok": True}
 # =========================
 # Memory API (ephemeral, midterm, longterm)
 # =========================
@@ -1175,6 +1838,35 @@ def authz_debug(api_key: str = Depends(require_api_key)):
     masked = (key[:4] + "…" + key[-4:]) if len(key) > 8 else key
     return {"received_api_key": masked}
 
+# --- Session token minting ---------------------------------------------------
+class SessionRequest(BaseModel):
+    ttl_seconds: int | None = None
+
+@app.post("/auth/session", tags=["Auth"], summary="Exchange API key for a short-lived session token")
+def create_session(body: SessionRequest, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+    expected = os.getenv("GUARDIAN_API_KEY") or ""
+    if not (x_api_key and secrets.compare_digest(x_api_key, expected)):
+        raise HTTPException(status_code=401, detail="API key required to mint session")
+    token, exp = issue_session_token(subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600)
+    return {"token": token, "expires": exp}
+
+from fastapi import Response
+
+@app.post("/auth/session/cookie", tags=["Auth"], summary="Mint a session token and set it as an HttpOnly cookie")
+def create_session_cookie(
+    response: Response,
+    body: SessionRequest,
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+):
+    expected = os.getenv("GUARDIAN_API_KEY") or ""
+    if not (x_api_key and secrets.compare_digest(x_api_key, expected)):
+        raise HTTPException(status_code=401, detail="API key required to mint session")
+    token, exp = issue_session_token(subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600)
+    max_age = (body.ttl_seconds or 24 * 3600)
+    # NOTE: set secure=True when serving over HTTPS
+    response.set_cookie("gc_session", token, max_age=max_age, httponly=True, samesite="Lax", secure=False)
+    return {"ok": True, "expires": exp}
+
 
 # Health endpoint for diagnostics
 @app.get("/healthz", tags=["Diag"], summary="DB health and table existence")
@@ -1279,6 +1971,7 @@ def summarize_entry(entry: SummaryEntry, api_key: str = Depends(require_api_key)
     return {"result": "Summary stored!", "timestamp": timestamp}
 
 
+
 @app.get("/search", summary="Search memory entries", tags=["Memory"])
 def search(
     query: str = Query(..., description="Search query string"),
@@ -1313,6 +2006,55 @@ def search(
         logger.error(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail="Search operation failed")
     return results
+
+
+# --- GitHub-specific memory search endpoint ---
+@app.get(
+    "/api/github/search",
+    summary="Search GitHub memory (github silo)",
+    tags=["Memory"],
+)
+def github_memory_search(
+    query: str = Query(
+        ...,
+        description="Search query string (full‑text over GitHub issues/PRs)",
+    ),
+    repo: Optional[str] = Query(
+        None,
+        description="Optional owner/repo filter (e.g. Resonant-Jones/guardian-backend)",
+    ),
+    limit: int = Query(
+        20, ge=1, le=100, description="Maximum number of results to return"
+    ),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    Search the GitHub documents that were ingested into the `memory_entries`
+    table (silo='github'). Supports an optional `repo` filter.
+    """
+    try:
+        rows = chatlog_db.search_github_memory(query, repo=repo, limit=limit)
+        results = []
+        for r in rows:
+            payload = r.get("payload") or {}
+            results.append(
+                {
+                    "id": r["id"],
+                    "key": r["key"],
+                    "repo": payload.get("repo"),
+                    "type": payload.get("type"),
+                    "title": payload.get("title"),
+                    "url": payload.get("url"),
+                    "state": payload.get("state"),
+                    "created_at": payload.get("created_at"),
+                }
+            )
+        return {"ok": True, "count": len(results), "results": results}
+    except Exception as exc:
+        logger.error("GitHub memory search failed: %s", exc)
+        raise HTTPException(
+            status_code=500, detail="GitHub memory search failed"
+        )
 
 
 @app.get(
@@ -1454,12 +2196,15 @@ def get_child_threads(thread_id: int, api_key: str = Depends(require_api_key)):
     rows = chatlog_db.get_child_threads(thread_id)
     results = [
         {
-            "thread_id": row[0],
-            "session_id": row[1],
-            "summary": row[2],
-            "created_at": row[3],
-            "user_id": row[4],
-            "project_id": row[5],
+            "thread_id": row.get("id"),
+            "user_id": row.get("user_id"),
+            "title": row.get("title"),
+            "summary": row.get("summary"),
+            "project_id": row.get("project_id"),
+            "parent_id": row.get("parent_id"),
+            "archived_at": row.get("archived_at"),
+            "created_at": row.get("created_at"),
+            "updated_at": row.get("updated_at"),
         }
         for row in rows
     ]
@@ -1522,6 +2267,7 @@ def create_project_api(body: ProjectCreate, api_key: str = Depends(require_api_k
     except Exception as e:
         # Log full exception for backend diagnostics
         logger.exception("Failed to create project")
+
         # In development include the error message to aid debugging; keep generic in production
         env = os.getenv("GUARDIAN_ENV", "development")
         if env == "development":
@@ -1643,10 +2389,13 @@ def unified_chat(
                     captions.append(answer.strip())
                 else:
                     # BLIP general caption
-                    inputs = processor(images=img, return_tensors="pt")
-                    outputs = vision_model.generate(**inputs)
-                    caption = processor.decode(outputs[0], skip_special_tokens=True)
-                    captions.append(caption)
+                    if processor and vision_model:
+                        inputs = processor(images=img, return_tensors="pt")
+                        outputs = vision_model.generate(**inputs)
+                        caption = processor.decode(outputs[0], skip_special_tokens=True)
+                        captions.append(caption)
+                    else:
+                        captions.append("BLIP image captioning is disabled on this server.")
         if captions:
             prompt = (
                 "Here’s what I see in your image:\n"
@@ -1854,36 +2603,156 @@ def research_agent(
 
 
 @app.get("/api/events", tags=["Events"])
-async def events_stream(request: Request):
-    """
-    Server-Sent Events endpoint for real-time updates.
-    Emits events for message creation, thread updates, etc.
-    """
+@app.get("/events", include_in_schema=False)
+async def events_stream(request: Request, _auth: str = Depends(require_auth)):
+    """Stream server-sent events to connected clients."""
 
-    async def event_generator():
-        queue = event_manager.subscribe()
+    query_last_id = request.query_params.get("last_id")
+    last_event_id_header = request.headers.get("last-event-id")
+    if query_last_id is not None:
+        last_event_id_header = query_last_id
+
+    last_seen_id = 0
+    if last_event_id_header:
         try:
+            last_seen_id = int(last_event_id_header)
+        except ValueError:
+            logger.debug(
+                "Invalid Last-Event-ID value received: %s",
+                last_event_id_header,
+            )
+            last_seen_id = 0
+
+    tenant = request.query_params.get("tenant")
+
+    use_outbox = ENABLE_OUTBOX and event_bus.is_persistent_enabled()
+    if use_outbox:
+        logger.info("[outbox] SSE client connected last_id=%s", last_seen_id)
+    elif last_event_id_header:
+        logger.info(
+            "SSE client reconnected to in-memory hub with Last-Event-ID=%s",
+            last_event_id_header,
+        )
+    else:
+        logger.info("SSE client connected to /api/events (in-memory hub)")
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        queue: Optional[asyncio.Queue] = None
+        heartbeat_interval = 15.0
+        loop = asyncio.get_running_loop()
+        next_heartbeat = loop.time() + heartbeat_interval
+        last_outbox_id = last_seen_id
+        last_delivered_id = last_seen_id
+        last_cleaned_id = last_seen_id
+        inmem_event_id = last_seen_id
+
+        if not use_outbox or event_bus.is_persistent_enabled():
+            queue = event_bus.subscribe_in_memory()
+
+        try:
+            # Hint clients to retry quickly on disconnects.
+            yield "retry: 3000\n\n"
+
             while True:
-                # Check for new events
-                if queue:
-                    event = queue.pop(0)
-                    yield f"data: {json.dumps(event)}\n\n"
+                if use_outbox:
+                    events = await _run_db(
+                        event_bus.fetch_events_after, last_outbox_id, OUTBOX_BATCH_SIZE
+                    )
+                    if events:
+                        cursor_before_batch = last_outbox_id
+                        logger.info(
+                            "[outbox] replaying %d events after last_id=%s",
+                            len(events),
+                            cursor_before_batch,
+                        )
+                        delivered_in_batch = False
+                        for event in events:
+                            event_id = int(event.get("id") or 0)
+                            last_outbox_id = max(last_outbox_id, event_id)
+                            event_tenant = (event.get("tenant_id") or "default")
+                            if ENABLE_SSE_FILTER and tenant and event_tenant != tenant:
+                                continue
+                            last_delivered_id = max(last_delivered_id, event_id)
+                            delivered_in_batch = True
+                            topic = event.get("topic") or "event"
+                            payload = event.get("payload") or {}
+                            data = json.dumps(payload, default=str)
+                            yield f"id: {event_id}\nevent: {topic}\ndata: {data}\n\n"
+                        if delivered_in_batch:
+                            next_heartbeat = loop.time() + heartbeat_interval
+                            if last_delivered_id > last_cleaned_id:
+                                delete_tenant = (
+                                    tenant if (ENABLE_SSE_FILTER and tenant) else None
+                                )
+                                await _run_db(
+                                    event_bus.delete_events_through,
+                                    last_delivered_id,
+                                    delete_tenant,
+                                )
+                                last_cleaned_id = last_delivered_id
+                                logger.info(
+                                    "[outbox] deleted events through id=%s",
+                                    last_delivered_id,
+                                )
+                            if await request.is_disconnected():
+                                logger.info("SSE client disconnected from /api/events")
+                                break
+                            continue
+                    if queue is not None:
+                        try:
+                            await asyncio.wait_for(
+                                queue.get(), timeout=OUTBOX_POLL_INTERVAL
+                            )
+                            continue
+                        except asyncio.TimeoutError:
+                            pass
+                    await asyncio.sleep(min(OUTBOX_POLL_INTERVAL, heartbeat_interval))
+                else:
+                    try:
+                        message = await asyncio.wait_for(
+                            queue.get(), timeout=heartbeat_interval
+                        )
+                    except asyncio.TimeoutError:
+                        message = None
+                    if message is not None:
+                        message_tenant = "default"
+                        if isinstance(message, dict):
+                            message_tenant = message.get("tenant_id") or "default"
+                        if ENABLE_SSE_FILTER and tenant and message_tenant != tenant:
+                            continue
+                        inmem_event_id += 1
+                        topic = (
+                            message.get("type") if isinstance(message, dict) else None
+                        ) or "event"
+                        data_payload = (
+                            message.get("data") if isinstance(message, dict) else {}
+                        ) or {}
+                        data = json.dumps(data_payload, default=str)
+                        yield f"id: {inmem_event_id}\nevent: {topic}\ndata: {data}\n\n"
+                        next_heartbeat = loop.time() + heartbeat_interval
+                        if await request.is_disconnected():
+                            logger.info("SSE client disconnected from /api/events")
+                            break
+                        continue
 
-                # Send heartbeat every 15 seconds
-                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.utcnow().isoformat()})}\n\n"
+                now = loop.time()
+                if now >= next_heartbeat:
+                    yield "event: ping\ndata: {}\n\n"
+                    next_heartbeat = now + heartbeat_interval
 
-                # Small delay to prevent busy waiting
-                await asyncio.sleep(0.1)
-
-                # Check if client disconnected
                 if await request.is_disconnected():
+                    logger.info("SSE client disconnected from /api/events")
                     break
-        except asyncio.CancelledError:
-            pass
         finally:
-            event_manager.unsubscribe(queue)
+            if queue is not None:
+                event_bus.unsubscribe_in_memory(queue)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
 
 
 # =========================
@@ -1948,5 +2817,64 @@ def summarize_chat_log(
 
     if not chat_with_ai:
         raise HTTPException(status_code=503, detail="LLM backend is not available.")
-    summary = chat_with_ai(summary_prompt)
+    summary: str = chat_with_ai(summary_prompt)
     return {"summary": summary}
+
+
+@app.get("/diag/github/ping", tags=["Connectors"], summary="Check GitHub API from backend")
+def diag_github_ping(owner: str = Query(...), repo: str = Query(...)):
+    # Trim whitespace/newlines from token and try both accepted auth schemes.
+    token = (os.getenv("GITHUB_TOKEN") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="GITHUB_TOKEN not set in backend environment")
+
+    url = f"https://api.github.com/repos/{owner}/{repo}/issues"
+    common_headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    params = {"per_page": 1}
+
+    last_resp = None
+    last_json = None
+    for scheme in ("Bearer", "token"):
+        try:
+            headers = {**common_headers, "Authorization": f"{scheme} {token}"}
+            resp = requests.get(url, headers=headers, params=params, timeout=15)
+            last_resp = resp
+            ct = resp.headers.get("content-type", "")
+            if ct.startswith("application/json"):
+                try:
+                    last_json = resp.json()
+                except Exception:
+                    last_json = None
+
+            # If not unauthorized, report immediately with the scheme that worked (or other status)
+            if resp.status_code != 401:
+                sample = None
+                if isinstance(last_json, list) and last_json:
+                    item = last_json[0]
+                    sample = {k: item.get(k) for k in ("id", "number", "title", "state")}
+                return {
+                    "status": resp.status_code,
+                    "ok": resp.ok,
+                    "auth_scheme": scheme,
+                    "rate_limit": resp.headers.get("x-ratelimit-remaining"),
+                    "error": (last_json.get("message") if isinstance(last_json, dict) else None),
+                    "sample": sample,
+                }
+            # else, try the next scheme
+        except Exception as e:
+            # Network/other failure
+            raise HTTPException(status_code=502, detail=f"GitHub ping failed: {e}")
+
+    # If we got here, both schemes returned 401 – surface the GitHub error message to help debugging.
+    err_msg = (last_json.get("message") if isinstance(last_json, dict) else None) or "Unauthorized (check token/scopes)"
+    return {
+        "status": (last_resp.status_code if last_resp is not None else 0),
+        "ok": False,
+        "auth_scheme": "Bearer/token",
+        "rate_limit": (last_resp.headers.get("x-ratelimit-remaining") if last_resp is not None else None),
+        "error": err_msg,
+        "sample": None,
+    }

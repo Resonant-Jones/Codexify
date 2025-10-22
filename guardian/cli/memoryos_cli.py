@@ -1,24 +1,13 @@
 import json
-import os
 
 import click
 
-from memoryos.embedders.local_embedder import LocalEmbedder
-from memoryos.memoryos import Memoryos
+from guardian.core.client_factory import get_memoryos_instance
 
 
 def get_memory_instance():
-    user_id = "default"
-    openai_api_key = os.getenv("OPENAI_API_KEY", "sk-...")  # Replace as needed
-    data_storage_path = "./data"
-    embedder = LocalEmbedder()
-    memory = Memoryos(
-        user_id=user_id,
-        llm_api_key=openai_api_key,
-        data_storage_path=data_storage_path,
-        embedder=embedder,
-    )
-    return memory
+    """Share the same MemoryOS factory used by the backend application."""
+    return get_memoryos_instance()
 
 
 @click.group()

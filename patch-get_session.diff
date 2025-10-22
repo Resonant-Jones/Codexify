@@ -1,0 +1,88 @@
+*** Begin Patch
+*** Add File: guardian/db/neo.py
++from __future__ import annotations
++
++import os
++from contextlib import contextmanager
++from typing import Iterator, Optional
++
++from neo4j import GraphDatabase, Session as Neo4jSession
++
++
++def _resolve_bolt_url_and_creds() -> tuple[str, str, str]:
++    """
++    Resolve bolt URL and credentials from environment variables with reasonable fallbacks.
++    Returns: (bolt_url_without_embedded_creds, username, password)
++    """
++    # URL keys (support multiple names)
++    url = os.getenv("NEO4J_BOLT_URL") or os.getenv("BOLT_URL")
++    if not url:
++        raise RuntimeError("Neo4j BOLT URL not set. Set NEO4J_BOLT_URL or BOLT_URL in env.")
++
++    # credential keys
++    user = (
++        os.getenv("NEO4J_USER")
++        or os.getenv("NEO4J_USERNAME")
++        or os.getenv("NEO4J_USER_NAME")
++        or "neo4j"
++    )
++    password = (
++        os.getenv("NEO4J_PASS")
++        or os.getenv("NEO4J_PASSWORD")
++        or os.getenv("NEO4J_PW")
++        or "guardian"
++    )
++
++    # If URL contains embedded credentials like bolt://user:pass@host:7687, strip them.
++    # The neo4j driver does not accept username in the URI when auth is passed separately.
++    # Basic parse by looking for '://' then an '@' in the authority part.
++    try:
++        scheme, rest = url.split("://", 1)
++    except ValueError:
++        # Unexpected format; return as-is and rely on driver to fail with helpful message.
++        return url, user, password
++
++    if "@" in rest:
++        # drop the userinfo part before '@'
++        host_part = rest.split("@", 1)[1]
++        cleaned = f"{scheme}://{host_part}"
++    else:
++        cleaned = url
++
++    return cleaned, user, password
++
++
++@contextmanager
++def get_session() -> Iterator[Neo4jSession]:
++    """
++    Context manager that yields a neo4j.Driver session.
++
++    Usage:
++        with get_session() as session:
++            session.run("RETURN 1")
++
++    The function will:
++      - Resolve BOLT URL + credentials from env
++      - Use GraphDatabase.driver(..., auth=(user,pass))
++      - yield a session and ensure driver+session close on exit
++    """
++    bolt_url, user, password = _resolve_bolt_url_and_creds()
++
++    # Create driver and session; ensure proper cleanup.
++    driver = GraphDatabase.driver(bolt_url, auth=(user, password))
++    session: Optional[Neo4jSession] = None
++    try:
++        session = driver.session()
++        yield session
++    finally:
++        try:
++            if session is not None:
++                session.close()
++        finally:
++            try:
++                driver.close()
++            except Exception:
++                # be tolerant on shutdown
++                pass
++
+*** End Patch
