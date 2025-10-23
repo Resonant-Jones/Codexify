@@ -483,9 +483,7 @@ def _bootstrap_postgres_schema_if_needed():
     try:
         if DB_BACKEND != "postgres":
             return
-        # PgDB implements table_exists and _connect()
-        if hasattr(chatlog_db, "table_exists") and chatlog_db.table_exists("chat_threads"):
-            return
+        # Proceed unconditionally; DDL is idempotent and some table_exists helpers may vary
         logger.info("[bootstrap] Initializing Postgres core tables (projects, users, chat_threads, chat_messages)")
         statements = [
             """
