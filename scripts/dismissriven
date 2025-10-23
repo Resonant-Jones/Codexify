@@ -1,3 +1,0 @@
-#!/bin/bash
-echo "🌑 Dismissing Riven..."
-pkill -f uvicorn

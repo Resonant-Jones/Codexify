@@ -1,4 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+// Dynamically import ForceGraph2D for client-side rendering
+const ForceGraph2D = dynamic(
+  () =>
+    import("react-force-graph").then((mod) => mod.ForceGraph2D),
+  { ssr: false }
+);
 import { Button } from "@/components/ui/button";
 import FrameCard from "@/components/surface/FrameCard";
 import { Input } from "@/components/ui/input";
@@ -37,6 +44,46 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
   const [uRole, setURole] = useState(role);
   const [prompt, setPrompt] = useState(systemPrompt);
   const [memo, setMemo] = useState(notes);
+
+  // ——— Exocognitive Tuner State ———
+  const [kTop, setKTop] = useState(4);
+  const [wCos, setWCos] = useState(0.6);
+  const [wRec, setWRec] = useState(0.25);
+  const [wInt, setWInt] = useState(0.15);
+
+  type WMNode = { id: string; type: "turn" | "doc" | "project" | "thread" | "note"; title: string; tags: string[]; recencyDays: number; cosine: number; interactions: number };
+  const wmSample: WMNode[] = [
+    { id: "t001", type: "turn", title: "Exocognition vs context windows", tags: ["codexify","retrieval","context"], recencyDays: 1, cosine: 0.88, interactions: 5 },
+    { id: "d042", type: "doc", title: "Guardian Ethics Layer (PCXEP-002)", tags: ["guardian","ethics","protocol"], recencyDays: 12, cosine: 0.76, interactions: 9 },
+    { id: "p007", type: "project", title: "UI polish (PreviewTile, bevel)", tags: ["ui","tiles","tailwind"], recencyDays: 30, cosine: 0.52, interactions: 12 },
+    { id: "th011", type: "thread", title: "Builder’s Testament copy", tags: ["mythos","marketing"], recencyDays: 2, cosine: 0.61, interactions: 6 },
+    { id: "d099", type: "doc", title: "Neo4j graph schema draft", tags: ["neo4j","graph","persona"], recencyDays: 5, cosine: 0.81, interactions: 4 },
+    { id: "t055", type: "turn", title: "Glasses fit (Flexon B2000)", tags: ["life","glasses"], recencyDays: 0, cosine: 0.12, interactions: 2 },
+  ];
+  function wmScore(n: WMNode) {
+    const rec = 1 - Math.min(n.recencyDays / 60, 1); // fade over ~2 months
+    const inter = Math.min(n.interactions / 12, 1);
+    return Number((n.cosine * wCos + rec * wRec + inter * wInt).toFixed(4));
+  }
+  const wmRanked = wmSample
+    .map((n) => ({ ...n, score: wmScore(n) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, kTop);
+
+  // ——— Lightweight Constellation (no proprietary graph data) ———
+  const constellationNodes = wmSample.map((n, i) => {
+    const angle = (i / wmSample.length) * Math.PI * 2;
+    const r = 110 + (i % 3) * 30;
+    return { id: n.id, label: n.title, type: n.type, x: 160 + r * Math.cos(angle), y: 140 + r * Math.sin(angle), tags: n.tags };
+  });
+  const constellationLinks: Array<{ a: string; b: string }> = [];
+  for (let i = 0; i < wmSample.length; i++) {
+    for (let j = i + 1; j < wmSample.length; j++) {
+      const shared = wmSample[i].tags.some((t) => wmSample[j].tags.includes(t));
+      if (shared) constellationLinks.push({ a: wmSample[i].id, b: wmSample[j].id });
+    }
+  }
+
   useEffect(() => setName(guardianName), [guardianName]);
   useEffect(() => setUName(userName), [userName]);
   useEffect(() => setURole(role), [role]);
@@ -82,7 +129,8 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
   // Sliders remain interactive at all times; theme toggle sets defaults in AppShell
 
   return (
-    <div className="flex h-full w-full items-center justify-center p-6" style={{ color: "var(--text)" }}>
+    <div className="flex h-full w-full items-start justify-center p-6" style={{ color: "var(--text)" }}>
+      <div className="grid w-full max-w-[1600px] grid-cols-1 lg:grid-cols-[580px_minmax(0,1fr)] gap-6 items-start">
       <FrameCard
         refractiveFallback
         shimmerMode="subtle"
@@ -278,10 +326,162 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
               </div>
             )}
           </div>
-        </CardContent>
+        </div>
       </FrameCard>
+
+        {/* ————————— New FrameCard: Exocognitive Systems ————————— */}
+        <FrameCard
+          refractiveFallback
+          shimmerMode="subtle"
+          className="flex h-[990px] w-full max-w-full flex-col overflow-hidden p-6"
+        >
+          <div className="flex items-center justify-between pb-4">
+            <div>
+              <div className="text-base tracking-wide uppercase opacity-70">Exocognitive Systems</div>
+              <div className="text-sm opacity-60">Working Memory Selection • Knowledge Graph Constellation</div>
+            </div>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Working Memory Tuner */}
+            <div className="space-y-4">
+              <div className="text-xs tracking-wide uppercase text-gray-400">Working Memory Selection</div>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <div className="text-xs opacity-80">Top‑K Chunks: {kTop}</div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={6}
+                    value={kTop}
+                    onChange={(e) => setKTop(Number(e.target.value))}
+                    className="settings-slider"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs opacity-80">Weight • Cosine ({wCos.toFixed(2)})</div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(wCos * 100)}
+                    onChange={(e) => setWCos(Number(e.target.value) / 100)}
+                    className="settings-slider"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs opacity-80">Weight • Recency ({wRec.toFixed(2)})</div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(wRec * 100)}
+                    onChange={(e) => setWRec(Number(e.target.value) / 100)}
+                    className="settings-slider"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs opacity-80">Weight • Interactions ({wInt.toFixed(2)})</div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(wInt * 100)}
+                    onChange={(e) => setWInt(Number(e.target.value) / 100)}
+                    className="settings-slider"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-2">
+                <div className="text-xs tracking-wide uppercase text-gray-400">Selected (Top‑{kTop})</div>
+                <div className="grid grid-cols-1 gap-2 pr-1 overflow-y-auto max-h-64">
+                  {wmRanked.map((n) => (
+                    <div key={n.id} className="rounded-[var(--tile-radius,19px)] border border-white/10 bg-white/5 px-3 py-2">
+                      <div className="text-sm font-medium opacity-90">{n.title}</div>
+                      <div className="text-[10px] opacity-70">{n.type.toUpperCase()} • score {n.score}</div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {n.tags.map((t) => (
+                          <span key={t} className="rounded-full bg-white/10 px-2 py-[2px] text-[10px] opacity-80">{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Knowledge Graph Constellation (non‑proprietary placeholder) */}
+            <div className="space-y-2">
+              <div className="text-xs tracking-wide uppercase text-gray-400">Knowledge Graph Constellation</div>
+              <KnowledgeGraphConstellation />
+              <div className="text-[11px] opacity-60">Visual only — uses Codexify graph API. Wire to Neo4j later.</div>
+            </div>
+          </div>
+        </FrameCard>
+
+      </div>
     </div>
   );
 }
 
 export default SettingsView;
+
+// ——— KnowledgeGraphConstellation Component ———
+function KnowledgeGraphConstellation() {
+  const [graphData, setGraphData] = useState<{ nodes: any[]; links: any[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch("/api/graph?scope=codexify")
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch graph data");
+        return res.json();
+      })
+      .then((data) => {
+        setGraphData(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message || "Error");
+        setLoading(false);
+      });
+  }, []);
+
+  return (
+    <div className="relative rounded-[var(--tile-radius,19px)] border border-white/10 bg-white/5 p-3" style={{ minHeight: 330 }}>
+      {loading && (
+        <div className="flex items-center justify-center h-[320px] opacity-70 text-xs">Loading graph…</div>
+      )}
+      {error && (
+        <div className="flex items-center justify-center h-[320px] text-red-400 text-xs">{error}</div>
+      )}
+      {graphData && (
+        <div className="w-full h-[320px]">
+          <ForceGraph2D
+            graphData={graphData}
+            width={undefined}
+            height={320}
+            backgroundColor="rgba(0,0,0,0)"
+            nodeLabel="label"
+            nodeAutoColorBy="type"
+            linkColor={() => "rgba(255,255,255,0.13)"}
+            linkDirectionalParticles={0}
+            nodeCanvasObjectMode={() => "after"}
+            nodeCanvasObject={(node: any, ctx, globalScale) => {
+              const label = node.label || node.id;
+              const fontSize = 10 / globalScale;
+              ctx.font = `${fontSize}px sans-serif`;
+              ctx.fillStyle = "rgba(255,255,255,0.85)";
+              ctx.fillText(label, node.x + 8, node.y + 4);
+            }}
+          />
+        </div>
+      )}
+      <div className="pointer-events-none absolute inset-0 rounded-[var(--tile-radius,19px)] ring-1 ring-white/10" />
+    </div>
+  );
+}

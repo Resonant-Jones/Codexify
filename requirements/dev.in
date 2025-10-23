@@ -1,0 +1,12 @@
+pytest
+pytest-asyncio
+black
+isort
+ruff
+flake8
+mypy-extensions
+vulture
+pre-commit
+build
+setuptools
+wheel

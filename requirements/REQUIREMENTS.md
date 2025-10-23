@@ -1,17 +1,17 @@
 ## 🗂️ Dependency Management
 
-We use [pip-tools](https://github.com/jazzband/pip-tools) for reliable dependency pinning.
+Codexify now uses a tiered dependency structure with clearly defined `.in` files for different functional areas, ensuring modular and maintainable dependency management.
 
 | File | Purpose |
 |------|---------|
-| `requirements.in` | Base production dependencies |
-| `requirements.txt` | Pinned production lock file (compiled) |
-| `dev-requirements.in` | Developer tools |
-| `dev-requirements.txt` | Pinned dev tools lock file |
-| `test-requirements.in` | Test tools (pytest, lint, coverage) |
-| `test-requirements.txt` | Pinned test tools lock file |
-| `docs-requirements.in` | Documentation build dependencies |
-| `docs-requirements.txt` | Pinned docs lock file |
+| `requirements/base.in` | Core production dependencies |
+| `requirements/ai.in` | AI-related dependencies |
+| `requirements/websearch.in` | Web search integration dependencies |
+| `requirements/dev.in` | Developer tools and utilities |
+| `requirements/automation.in` | Automation and CI/CD dependencies |
+| `requirements/all.in` | Aggregate of all dependencies for full installs |
+
+> **Note:** Older flat requirement files such as `requirements.in`, `dev-requirements.in`, and others have been moved to `requirements/deprecated/` for reference.
 
 ---
 
@@ -25,35 +25,33 @@ We use [pip-tools](https://github.com/jazzband/pip-tools) for reliable dependenc
    pip install pip-tools
    ```
 
-2. **Compile each `.in` file** to its `.txt` lock file:
-
-   ```bash
-   # Base
-   pip-compile requirements.in
-
-   # Dev
-   pip-compile dev-requirements.in
-
-   # Tests
-   pip-compile test-requirements.in
-
-   # Docs
-   pip-compile docs-requirements.in
-   ```
-
-3. **Install from the pinned lock files:**
-
-   ```bash
-   pip install -r requirements.txt
-   pip install -r dev-requirements.txt
-   pip install -r test-requirements.txt
-   pip install -r docs-requirements.txt
-   ```
-
-4. **Optional:** If you use a `/requirements` folder instead, adjust the paths:
+2. **Compile each `.in` file** in the `requirements/` directory to its corresponding `.txt` lock file:
 
    ```bash
    pip-compile requirements/base.in
+   pip-compile requirements/ai.in
+   pip-compile requirements/websearch.in
    pip-compile requirements/dev.in
-   # ...
+   pip-compile requirements/automation.in
    ```
+
+3. **Compile the aggregate `all.txt` lock file** to install all dependencies at once:
+
+   ```bash
+   pip-compile --output-file=requirements/all.txt requirements/all.in
+   ```
+
+4. **Install from the pinned lock files:**
+
+   ```bash
+   pip install -r requirements/base.txt
+   pip install -r requirements/ai.txt
+   pip install -r requirements/websearch.txt
+   pip install -r requirements/dev.txt
+   pip install -r requirements/automation.txt
+   pip install -r requirements/all.txt  # For full environment setup
+   ```
+
+5. **Optional:** If you prefer a different folder structure, adjust the paths accordingly when running `pip-compile`.
+
+This modular approach helps keep Codexify’s dependencies organized and scalable as the project grows.

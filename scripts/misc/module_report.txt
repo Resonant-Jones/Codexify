@@ -1,0 +1,26 @@
+# Module classification report for scripts/
+# file -> category/
+__init__.py -> misc/
+autopush.sh -> maintenance/
+dev-key.sh -> dev/
+dev_check.py -> maintenance/
+fix_dependencies.sh -> maintenance/
+generate_docs.py -> build/
+imprint_zero_flow.py -> maintenance/
+init_env.sh -> maintenance/
+kimi_synth_loop.py -> dev/
+maintenance/organize_scripts.py -> misc/
+manage-dependencies.py -> maintenance/
+orchestrate_debug.py -> dev/
+pg_bootstrap.sh -> maintenance/
+pg_verify.sh -> maintenance/
+run_system.py -> maintenance/
+run_test.sh -> dev/
+run_tests.sh -> dev/
+setup-envs.sh -> maintenance/
+setup.py -> maintenance/
+system_check.py -> maintenance/
+test_companion_flow.sh -> maintenance/
+test_full_system.py -> maintenance/
+test_imprint.sh -> maintenance/
+tmp_test_import.py -> maintenance/

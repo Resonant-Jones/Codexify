@@ -1,0 +1,29 @@
+# Core Framework
+fastapi
+uvicorn
+aiofiles
+aiosqlite
+sqlalchemy
+alembic
+psycopg-binary
+python-dotenv
+pydantic-settings
+structlog
+redis
+
+# Core Utils
+requests
+tenacity
+humanfriendly
+python-slugify
+orjson
+PyYAML
+
+# Security & Sanitation
+bleach
+defusedxml
+
+# Guardian Core
+click
+colorama
+typer

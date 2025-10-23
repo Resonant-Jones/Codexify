@@ -1,0 +1,17 @@
+# Web Clients & HTTP
+httpx
+aiohttp
+duckduckgo_search
+beautifulsoup4
+soupsieve
+fake-useragent
+fake-http-header
+Crawl4AI
+
+# Optional Browser / Playwright stack
+playwright
+tf-playwright-stealth
+
+# Sanitization
+bleach
+defusedxml
