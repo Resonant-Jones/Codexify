@@ -486,23 +486,57 @@ def _bootstrap_postgres_schema_if_needed():
         # PgDB implements table_exists and _connect()
         if hasattr(chatlog_db, "table_exists") and chatlog_db.table_exists("chat_threads"):
             return
-        sql_path = Path(__file__).resolve().parents[1] / "sql" / "complete_schema.sql"
-        if not sql_path.exists():
-            logger.warning("[bootstrap] complete_schema.sql not found at %s", sql_path)
-            return
-        logger.info("[bootstrap] Initializing Postgres schema from %s", sql_path)
-        sql_text = sql_path.read_text(encoding="utf-8")
-        # Naive split on semicolons; execute non-empty statements
-        # Safe here because the file contains simple DDL without procedural blocks.
-        statements = [s.strip() for s in sql_text.split(";")]
+        logger.info("[bootstrap] Initializing Postgres core tables (projects, users, chat_threads, chat_messages)")
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS projects (
+              id SERIAL PRIMARY KEY,
+              name TEXT NOT NULL UNIQUE,
+              description TEXT DEFAULT '',
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS users (
+              id TEXT PRIMARY KEY,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS chat_threads (
+              id SERIAL PRIMARY KEY,
+              user_id TEXT NOT NULL,
+              title TEXT NOT NULL,
+              summary TEXT NOT NULL DEFAULT '',
+              project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+              parent_id INTEGER,
+              archived_at TIMESTAMPTZ DEFAULT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+              id SERIAL PRIMARY KEY,
+              thread_id  INTEGER NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+              role       TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
+              content    TEXT NOT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_chat_threads_updated_at ON chat_threads(updated_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_chat_messages_thread_created ON chat_messages(thread_id, created_at)",
+            "INSERT INTO projects (id, name, description) VALUES (1, 'Loose Threads', 'Default bucket for unassigned threads') ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO users (id) VALUES ('default') ON CONFLICT (id) DO NOTHING",
+        ]
         conn = chatlog_db._connect()  # type: ignore[attr-defined]
         try:
             with conn:
                 with conn.cursor() as cur:
                     for stmt in statements:
                         if not stmt:
-                            continue
-                        if stmt.startswith("--"):
                             continue
                         cur.execute(stmt)
             logger.info("[bootstrap] Postgres schema initialized")
