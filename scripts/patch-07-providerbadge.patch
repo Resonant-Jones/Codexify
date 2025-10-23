@@ -1,6 +1,0 @@
-*** Begin Patch
-*** Update File: src/components/ProviderBadge.tsx
-@@
--export { ConnectorBar };
-+
-*** End Patch

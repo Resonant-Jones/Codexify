@@ -1,3 +1,9 @@
+# Graph database and ORM dependencies
+# NOTE: neomodel 5.3.2 requires neo4j ~= 5.19.0; do not bump neo4j beyond 5.19.x without checking neomodel compatibility.
+neomodel==5.3.2
+neo4j==5.19.0
+
+
 # Ensure package-relative import works when running pytest from the repo root
 from pathlib import Path
 import sys
@@ -12,10 +18,6 @@ import pytest
 from dotenv import load_dotenv
 
 # Import the correct FastAPI app for tests
-try:
-    from neo4j import GraphDatabase  # type: ignore
-except Exception:
-    GraphDatabase = None  # type: ignore
 import socket
 from urllib.parse import urlparse
 import os
@@ -283,6 +285,12 @@ def neo4j_driver():
     username in the URI, so we strip credentials from the URL and pass them
     via the auth tuple instead.
     """
+    try:
+        from neo4j import GraphDatabase
+    except ImportError:
+        pytest.skip("Neo4j driver not installed; skipping graph tests.")
+        return
+
     bolt = os.getenv("BOLT_URL") or os.getenv("NEO4J_BOLT_URL") or os.getenv("NEO4J_URI") or "bolt://localhost:7687"
     parsed = urlparse(bolt)
 
@@ -300,8 +308,6 @@ def neo4j_driver():
         host_url = bolt
         auth = (env_user, env_pass)
 
-    if GraphDatabase is None:
-        pytest.skip("neo4j driver not installed; set it up to run graph tests")
     driver = GraphDatabase.driver(host_url, auth=auth)
     try:
         yield driver

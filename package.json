@@ -17,6 +17,7 @@
   "dependencies": {
     "dompurify": "^3.3.0",
     "event-source-polyfill": "^1.0.31",
-    "monaco-editor": "^0.53.0"
+    "monaco-editor": "^0.53.0",
+    "react-force-graph": "^1.48.1"
   }
 }

@@ -1090,13 +1090,15 @@ export default function AppShell({}: PropsWithChildren) {
                 flexDirection: "column",
               } as React.CSSProperties}
             >
-              <GuardianChatWithSidebar
-                guardianName={guardianName}
-                userName={userName}
-                prefill={prefill}
-                onPrefillConsumed={() => setPrefill(undefined)}
-                onWorkspaceToggle={() => setWorkspaceOpen(!workspaceOpen)}
-              />
+              <ErrorBoundary>
+                <GuardianChatWithSidebar
+                  guardianName={guardianName}
+                  userName={userName}
+                  prefill={prefill}
+                  onPrefillConsumed={() => setPrefill(undefined)}
+                  onWorkspaceToggle={() => setWorkspaceOpen(!workspaceOpen)}
+                />
+              </ErrorBoundary>
             </div>
           )}
           {view === "dashboard" && (

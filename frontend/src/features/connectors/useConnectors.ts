@@ -56,7 +56,14 @@ export function useConnectors() {
   const fetchConnectors = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await api.get<Connector[]>("/connectors");
+      // Prefer /api/connectors if backend is namespaced; fall back to /connectors
+      let res: any;
+      try {
+        res = await api.get<Connector[]>("/api/connectors");
+      } catch (e: any) {
+        // Gracefully handle 404 or mismatch by falling back
+        res = await api.get<Connector[]>("/connectors");
+      }
       if ((import.meta as any)?.env?.DEV) {
         // eslint-disable-next-line no-console
         console.log("Connectors response:", res.data);
@@ -70,12 +77,19 @@ export function useConnectors() {
       }
       setError(null);
     } catch (err: any) {
-      console.error("Failed to fetch connectors", err);
-      setError("Failed to fetch connectors");
-      setConnectors([]);
-    } finally {
-      setLoading(false);
-    }
+      // Swallow 404 as "no connectors yet" instead of erroring the UI
+      const status = err?.response?.status;
+      if (status === 404) {
+        setConnectors([]);
+        setError(null);
+      } else {
+        console.error("Failed to fetch connectors", err);
+        setError("Failed to fetch connectors");
+        setConnectors([]);
+      }
+      } finally {
+        setLoading(false);
+      }
   }, []);
 
   async function updateConnector(id: string, data: Partial<Connector>) {

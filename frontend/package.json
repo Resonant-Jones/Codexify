@@ -68,6 +68,7 @@
     "lucide-react": "^0.541.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-force-graph": "^1.48.1",
     "tailwindcss": "^4.1.11"
   }
 }

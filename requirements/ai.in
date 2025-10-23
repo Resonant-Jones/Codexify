@@ -1,0 +1,30 @@
+# Vector Stores & GraphDB
+chromadb
+faiss-cpu
+neo4j
+neomodel
+
+# Embeddings & LLM Layers
+sentence-transformers
+transformers
+langchain
+langchain-core
+langsmith
+langchain-text-splitters
+
+# Inference Adapters
+openai
+groq
+mlx
+mlx-lm
+mlx-vlm
+torch
+torchvision
+onnxruntime
+
+# Evaluation & Math
+scikit-learn
+scipy
+numpy
+pandas
+sympy

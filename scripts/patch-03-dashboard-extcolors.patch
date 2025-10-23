@@ -1,7 +1,0 @@
-*** Begin Patch
-*** Update File: src/components/dashboard/DashboardView.tsx
-@@
--  const colorFor = (name: string) => extColors[ext(name)] || "#6366f1";
-+  const colorFor = (name: string) =>
-+    extColors[ext(name) as keyof typeof extColors] || "#6366f1";
-*** End Patch

@@ -174,7 +174,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const handleArchiveThread = React.useCallback(
     async (threadId: number) => {
       try {
-        await api.patch(`/api/chat/${threadId}`, { archived: true });
+        await api.patch(`/chat/${threadId}`, { archived: true });
         const idStr = String(threadId);
         setThreads((prev) => {
           const filtered = prev.filter((t) => t.id !== idStr);
@@ -197,13 +197,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     [loadThreads]
   );
 
-
-  // Ensure at least one thread exists and is active, always.
-  React.useEffect(() => {
-    if (!threadId && !loading) {
-      createThread(); // or whatever your function is called
-    }
-  }, [threadId, loading]); // <-- be careful to include a static dependency array
 
   // Guarantee at least one thread exists and is active (on mount or when threads/activeId changes)
   React.useEffect(() => {

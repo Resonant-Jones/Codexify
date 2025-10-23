@@ -1,9 +1,0 @@
-*** Begin Patch
-*** Update File: src/features/chat/GuardianChat.tsx
-@@
--                  <FrameCard liquidBezel shimmer tone="base"wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} intensity={0} />
-+                  <FrameCard liquidBezel shimmer tone="base"wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} />
-@@
--                  <FrameCard liquidBezel shimmer tone="base"wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} intensity={0} />
-+                  <FrameCard liquidBezel shimmer tone="base"wallpaperUrl={wallpaperUrl} className="w-full h-full rounded-[var(--radius)]" style={{ background: "transparent", border: "none" }} intensity={0.008} />
-*** End Patch
