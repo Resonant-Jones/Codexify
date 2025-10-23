@@ -471,6 +471,50 @@ else:
     logger.info("[db] Using SQLite path: %s", effective_sqlite_path)
 
 logger.info("📦 DB backend selected: %s", DB_BACKEND)
+
+# --- Bootstrap Postgres schema when missing (development convenience) ---
+def _bootstrap_postgres_schema_if_needed():
+    """Create core tables in Postgres if missing.
+
+    This is a pragmatic bootstrap for dev environments where Alembic migrations
+    have not been applied yet. It checks for the presence of the chat_threads
+    table and, if absent, executes the SQL in sql/complete_schema.sql.
+    """
+    try:
+        if DB_BACKEND != "postgres":
+            return
+        # PgDB implements table_exists and _connect()
+        if hasattr(chatlog_db, "table_exists") and chatlog_db.table_exists("chat_threads"):
+            return
+        sql_path = Path(__file__).resolve().parents[1] / "sql" / "complete_schema.sql"
+        if not sql_path.exists():
+            logger.warning("[bootstrap] complete_schema.sql not found at %s", sql_path)
+            return
+        logger.info("[bootstrap] Initializing Postgres schema from %s", sql_path)
+        sql_text = sql_path.read_text(encoding="utf-8")
+        # Naive split on semicolons; execute non-empty statements
+        # Safe here because the file contains simple DDL without procedural blocks.
+        statements = [s.strip() for s in sql_text.split(";")]
+        conn = chatlog_db._connect()  # type: ignore[attr-defined]
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    for stmt in statements:
+                        if not stmt:
+                            continue
+                        if stmt.startswith("--"):
+                            continue
+                        cur.execute(stmt)
+            logger.info("[bootstrap] Postgres schema initialized")
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    except Exception:
+        logger.exception("[bootstrap] Failed to initialize Postgres schema")
+
+_bootstrap_postgres_schema_if_needed()
 # Configure durable outbox storage when enabled
 if ENABLE_OUTBOX:
     try:
