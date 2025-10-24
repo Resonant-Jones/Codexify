@@ -32,4 +32,4 @@ export type ExtColors = {
   jpeg: string;
 };
 
-export type GalleryItem = { src: string; prompt: string };
+export type GalleryItem = { src: string; prompt: string; mock?: boolean };

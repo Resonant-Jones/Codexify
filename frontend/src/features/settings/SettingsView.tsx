@@ -100,7 +100,11 @@ export function SettingsView({
     rd.onload = () => {
       const url = String(rd.result || "");
       setWallpaper(url);
-      if (typeof window !== "undefined") localStorage.setItem("cfy.wallpaper", url);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("cfy.wallpaper", url);
+        // Mark that the user has uploaded a file at least once
+        localStorage.setItem("cfy.hasUserUpload", "true");
+      }
       setUploading(false);
     };
     rd.onerror = () => setUploading(false);

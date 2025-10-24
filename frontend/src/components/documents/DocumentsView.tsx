@@ -4,10 +4,11 @@ import FrameCard from "@/components/surface/FrameCard";
 import { ExtColors } from "@/types/ui";
 
 interface DocumentsViewProps {
-  documents: Array<{ name: string; ext: keyof ExtColors }>;
+  documents: Array<{ name: string; ext: keyof ExtColors; mock?: boolean }>;
   extColors: ExtColors;
   onDocumentClick?: (name: string, ext: string) => void;
   onOpenInThread?: (name: string, ext: string) => void;
+  onDeleteDocument?: (name: string, ext: string) => void;
   defaultBehavior?: "workspace" | "thread";
 }
 
@@ -16,6 +17,7 @@ export default function DocumentsView({
   extColors, 
   onDocumentClick,
   onOpenInThread,
+  onDeleteDocument,
   defaultBehavior = "workspace",
 }: DocumentsViewProps) {
   const [behavior, setBehavior] = useState<"workspace" | "thread">(defaultBehavior);
@@ -63,11 +65,28 @@ export default function DocumentsView({
           <div className="min-h-0 flex-1 overflow-auto">
             <div className="grid auto-rows-[minmax(112px,auto)] grid-cols-[repeat(auto-fit,minmax(132px,1fr))] gap-4 justify-items-center pb-1">
               {docItems.map((d) => (
-                <DocumentPreviewTile
-                  key={`${d.name}.${d.ext}`}
-                  file={{ name: `${d.name}.${d.ext}` }}
-                  onClick={() => handleDocumentClick(d.name, d.ext)}
-                />
+                <div key={`${d.name}.${d.ext}`} className="relative">
+                  <DocumentPreviewTile
+                    file={{ name: `${d.name}.${d.ext}` }}
+                    onClick={() => handleDocumentClick(d.name, d.ext)}
+                  />
+                  {onDeleteDocument && (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border"
+                      style={{ background: "rgba(0,0,0,0.4)", color: "#fff", borderColor: "rgba(255,255,255,0.3)" }}
+                      onClick={(e) => { e.stopPropagation(); onDeleteDocument(d.name, d.ext); }}
+                      title="Delete document"
+                    >
+                      Delete
+                    </button>
+                  )}
+                  {d.mock && (
+                    <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
+                      Mock
+                    </span>
+                  )}
+                </div>
               ))}
             </div>
           </div>
