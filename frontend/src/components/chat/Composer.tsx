@@ -26,7 +26,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send } from "lucide-react";
+import { Send, Sparkles } from "lucide-react";
 import { ModelProvider } from "@/Providers/ModelProvider";
 import api from "@/lib/api";
 
@@ -217,7 +217,29 @@ export function Composer({
         }}
       />
 
-      <div data-send-wrap className="shrink-0 m-0">
+      <div data-send-wrap className="shrink-0 m-0 flex gap-2">
+      {/* Open Prompt Library Button: visually prominent, similar styling to Send button */}
+        <Button
+          type="button"
+          size="icon"
+          aria-label="Open Prompt Library"
+          title="Prompt Library"
+          onClick={() => window.dispatchEvent(new CustomEvent("cfy:workspace:togglePromptLibrary", { detail: { source: "composer" } }))}
+          className="relative grid h-11 w-11 place-items-center rounded-2xl border focus:outline-none m-0"
+          style={{
+            background:
+              "radial-gradient(120% 120% at 30% 12%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.38) 10%, rgba(255,255,255,0.0) 36%), " +
+              `linear-gradient(180deg, ${accentStrong} 0%, color-mix(in srgb, ${accentStrong} 85%, black 15%) 100%)`,
+            color: "#fff",
+            borderColor: "color-mix(in srgb, var(--accent-strong) 70%, white 30%)",
+            boxShadow:
+              "inset 0 1px rgba(255,255,255,0.35), inset 0 -8px 12px rgba(0,0,0,0.28), 0 8px 18px color-mix(in srgb, var(--accent-strong) 55%, black 45%)",
+            outlineColor: "var(--accent-weak)",
+          }}
+        >
+          <Sparkles className="h-5 w-5" />
+        </Button>
+
       {/* Send Button: visually prominent, shows disabled state while sending */}
         <Button
           type="button"
