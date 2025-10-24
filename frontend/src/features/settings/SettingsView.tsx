@@ -34,6 +34,8 @@ export function SettingsView({
   setExtColors,
   dashboardThreadRows,
   setDashboardThreadRows,
+  showLegacyThreads,
+  setShowLegacyThreads,
 }: {
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
@@ -60,6 +62,8 @@ export function SettingsView({
   setExtColors: (m: ExtColors) => void;
   dashboardThreadRows: number;
   setDashboardThreadRows: (n: number) => void;
+  showLegacyThreads: boolean;
+  setShowLegacyThreads: (b: boolean) => void;
 }) {
   const [tab, setTab] = useState<"appearance" | "system" | "connectors">("appearance");
   const [name, setName] = useState(guardianName);
@@ -270,6 +274,24 @@ export function SettingsView({
                 <div className="w-[300px] max-w-full mx-auto">
                   <Input type="range" min={0} max={1} step={0.01} value={fade} onChange={(e) => setFade(Number(e.target.value))} />
                 </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-base font-semibold">Labs</div>
+              <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
+                <label className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">Show Legacy Threads</div>
+                    <div className="text-xs opacity-70">Enable browsing legacy chat trees via a modal.</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!showLegacyThreads}
+                    onChange={(e) => setShowLegacyThreads(e.target.checked)}
+                    aria-label="Show Legacy Threads"
+                  />
+                </label>
               </div>
             </div>
           </div>

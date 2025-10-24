@@ -8,6 +8,7 @@ import PreviewTile from "@/components/ui/PreviewTile";
 import type { Project, ThreadAction } from "@/types/your-types-file";
 
 import api from "@/lib/api";
+import { useLegacyThreads } from "@/contexts/LegacyThreadsContext";
 
 // Thread endpoint helper: prefer /chat/:id, fall back to /chat/threads/:id for older builds
 async function threadApi(
@@ -253,6 +254,7 @@ export default function Sidebar({
   const [tab, setTab] = React.useState<"threads"|"projects">(() =>
     (typeof window === "undefined" ? "threads" : ((localStorage.getItem("cfy.sidebarTab") as any) || "threads"))
   );
+  const { enabled: legacyEnabled, open: openLegacy } = useLegacyThreads();
   const [q, setQ] = React.useState("");
 
   // Local mirror of threads so we can optimistically reflect cross-view updates
@@ -738,6 +740,16 @@ export default function Sidebar({
                   Projects
                 </button>
               </div>
+              {legacyEnabled && (
+                <button
+                  type="button"
+                  className="pill-tab text-xs ml-2"
+                  onClick={openLegacy}
+                  title="Browse legacy conversation trees"
+                >
+                  Legacy
+                </button>
+              )}
             </div>
           )}
         </div>
