@@ -142,6 +142,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text, tags: ['prompt'], metadata: { source } }),
       });
+      // Also append to local prompt cache for prompt library UI
+      try {
+        const key = 'cfy.prompts';
+        const raw = localStorage.getItem(key);
+        const arr = raw ? JSON.parse(raw) : [];
+        const next = [{ text, ts: Date.now() }, ...Array.isArray(arr) ? arr : []].slice(0, 200);
+        localStorage.setItem(key, JSON.stringify(next));
+      } catch {}
     } catch (err) {
       console.warn('[prompt] embed failed', err);
     }
@@ -654,6 +662,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             surfaceStyle={chatSurfaceStyle}
             disabled={chatDisabled}
           >
+            <PromptLibraryPortal />
             <GuardianChat
               guardianName={guardianName}
               userName={userName}
@@ -669,6 +678,54 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
               bare
             />
           </PanelShell>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Inline Prompt Library popover mounted within chat panel
+function PromptLibraryPortal() {
+  const [open, setOpen] = React.useState(false);
+  const [items, setItems] = React.useState<Array<{ text: string; ts?: number }>>([]);
+
+  React.useEffect(() => {
+    const onToggle = () => {
+      try {
+        const raw = localStorage.getItem('cfy.prompts');
+        const arr = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(arr)) setItems(arr);
+      } catch {}
+      setOpen(true);
+    };
+    window.addEventListener('cfy:workspace:togglePromptLibrary', onToggle);
+    return () => window.removeEventListener('cfy:workspace:togglePromptLibrary', onToggle);
+  }, []);
+
+  if (!open) return null;
+  return (
+    <div className="absolute inset-0 z-[120] pointer-events-none" aria-hidden={!open}>
+      <div className="absolute bottom-20 right-6 w-[min(520px,96vw)] max-h-[50vh] overflow-hidden rounded-2xl border pointer-events-auto"
+           style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)", boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
+        <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: "var(--panel-border)" }}>
+          <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>Prompt Library</div>
+          <button type="button" className="icon-inline" aria-label="Close" onClick={() => setOpen(false)}>×</button>
+        </div>
+        <div className="max-h-[40vh] overflow-auto divide-y" style={{ borderColor: "var(--panel-border)" }}>
+          {items.length === 0 ? (
+            <div className="px-3 py-2 text-xs opacity-70" style={{ color: "var(--muted)" }}>No prompts yet. Send some prompts to build your library.</div>
+          ) : (
+            items.map((it, idx) => (
+              <div key={idx} className="px-3 py-2 text-sm hover:bg-white/5 cursor-pointer select-text" title="Double‑click to use"
+                   onDoubleClick={() => {
+                     try { window.dispatchEvent(new CustomEvent('cfy:composer:prefill', { detail: { text: it.text } })); } catch {}
+                     setOpen(false);
+                   }}>
+                <div className="truncate" style={{ color: "var(--text)" }}>{it.text}</div>
+                {it.ts && <div className="text-[10px] opacity-60" style={{ color: "var(--muted)" }}>{new Date(it.ts).toLocaleString()}</div>}
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

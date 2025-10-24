@@ -62,6 +62,18 @@ export function GuardianChat({
   onSidebarToggle?: () => void;
   bare?: boolean;
 }) {
+  const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
+  // Listen for external prefill requests (e.g., Prompt Library selection)
+  useEffect(() => {
+    const onPrefill = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (typeof text === "string" && text.trim()) {
+        setExternalPrefill(text);
+      }
+    };
+    window.addEventListener("cfy:composer:prefill", onPrefill as EventListener);
+    return () => window.removeEventListener("cfy:composer:prefill", onPrefill as EventListener);
+  }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? "New Chat");
@@ -403,8 +415,11 @@ export function GuardianChat({
       <div className="shrink-0 border-t px-[var(--card-pad)] pb-3 pt-2" style={{ borderColor: "var(--panel-border)" }}>
         <Composer
           onSend={handleSendMessage}
-          prefill={prefill}
-          onPrefillConsumed={onPrefillConsumed}
+          prefill={externalPrefill ?? prefill}
+          onPrefillConsumed={() => {
+            setExternalPrefill(undefined);
+            onPrefillConsumed?.();
+          }}
           threadId={effectiveThreadId ?? undefined}
         />
       </div>
