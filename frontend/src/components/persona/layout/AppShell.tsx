@@ -693,6 +693,17 @@ export default function AppShell({}: PropsWithChildren) {
     return () => window.removeEventListener("cfy:documents:add", onAdd as EventListener);
   }, []);
 
+  // Hook gallery add from chat/uploader
+  useEffect(() => {
+    const onAdd = (e: Event) => {
+      const items = (e as CustomEvent).detail?.items || [];
+      if (!Array.isArray(items) || items.length === 0) return;
+      setGallery((prev) => [...items, ...prev]);
+    };
+    window.addEventListener("cfy:gallery:add", onAdd as EventListener);
+    return () => window.removeEventListener("cfy:gallery:add", onAdd as EventListener);
+  }, []);
+
   // Gallery uploader
   const galleryUploader = useUploader({
     onImages: (items) => setGallery((prev) => [...items, ...prev]),

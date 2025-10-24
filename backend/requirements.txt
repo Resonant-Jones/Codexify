@@ -317,7 +317,7 @@ mypy-extensions==1.1.0
     # via
     #   -r requirements/dev.in
     #   black
-neo4j==5.28.2
+neo4j==5.22.0
     # via
     #   -r requirements/ai.in
     #   neomodel
@@ -449,7 +449,7 @@ protobuf==6.33.0
     #   opentelemetry-proto
 psutil==7.1.1
     # via crawl4ai
-psycopg-binary==2.9.9
+psycopg2-binary==2.9.9
     # via -r requirements/base.in
 pyarrow==21.0.0
     # via datasets
@@ -516,6 +516,7 @@ python-dotenv==1.1.1
     #   litellm
     #   pydantic-settings
     #   uvicorn
+python-multipart==0.0.9    
 python-slugify==8.0.4
     # via -r requirements/base.in
 pytokens==0.2.0
