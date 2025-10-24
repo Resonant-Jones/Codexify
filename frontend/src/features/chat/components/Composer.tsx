@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send } from "lucide-react";
+import { Send, Paperclip } from "lucide-react";
+import useUploader from "@/hooks/useUploader";
 
 export function Composer({
   onSend,
@@ -20,6 +21,26 @@ export function Composer({
   const [value, setValue] = useState("");
   const [internalSending, setInternalSending] = useState(false);
   const effectiveSending = isSending ?? internalSending;
+
+  const uploader = useUploader({
+    tag: "chat",
+    onImages: (items) => {
+      try { window.dispatchEvent(new CustomEvent("cfy:gallery:add", { detail: { items } })); } catch {}
+      try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: `Added ${items.length} image${items.length===1?"":"s"} to Gallery` } })); } catch {}
+    },
+    onDocuments: (items) => {
+      try { window.dispatchEvent(new CustomEvent("cfy:documents:add", { detail: { items } })); } catch {}
+      try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: `Added ${items.length} document${items.length===1?"":"s"}` } })); } catch {}
+    },
+    onAnyUpload: () => { try { localStorage.setItem("cfy.hasUserUpload", "true"); } catch {} },
+  });
+
+  function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = e.clipboardData?.files;
+    if (files && files.length > 0) {
+      uploader.handleFiles(files);
+    }
+  }
   useEffect(() => {
     if (prefill && prefill !== value) {
       setValue(prefill);
@@ -39,12 +60,28 @@ export function Composer({
     }
   }
   return (
-    <div className="flex items-center gap-2 rounded-2xl border p-2 shadow-sm" style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}>
+    <div
+      className="flex items-center gap-2 rounded-2xl border p-2 shadow-sm"
+      style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}
+      onDrop={uploader.onDrop}
+      onDragOver={uploader.onDragOver}
+    >
+      <button
+        type="button"
+        aria-label="Attach files"
+        title="Attach files"
+        onClick={uploader.pick}
+        className="grid place-items-center h-10 w-10 rounded-xl border"
+        style={{ borderColor: "var(--panel-border)" }}
+      >
+        <Paperclip className="h-4 w-4" />
+      </button>
       <Textarea
         ref={ref}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="Write a message…"
+        onPaste={onPaste}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !effectiveSending) {
             e.preventDefault();

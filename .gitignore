@@ -101,3 +101,6 @@ models/**.safetensors
 __DISABLE_SQLITE__
 makefile
 tmp-clone/
+
+# Personal chat history exports
+chatgpt_migrations/conversations.json

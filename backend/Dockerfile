@@ -102,13 +102,11 @@ PORT=${PORT:-8000}
 # best-effort DB wait
 python /app/wait_for_db.py || true
 
-# best-effort migrations (only if a migrations folder exists)
-if command -v alembic >/dev/null 2>&1 \
-  && [ -f /app/backend/alembic.ini ] \
-  && [ -d /app/backend/migrations ]; then
+# best-effort migrations (honor script_location in alembic.ini)
+if command -v alembic >/dev/null 2>&1 && [ -f /app/backend/alembic.ini ]; then
   alembic -c /app/backend/alembic.ini upgrade head || true
 else
-  echo "[migrate] Skipping Alembic (no migrations folder)"
+  echo "[migrate] Skipping Alembic (no alembic.ini)"
 fi
 
 # launch API
