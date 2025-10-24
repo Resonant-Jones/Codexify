@@ -21,9 +21,14 @@ class CodexifyRequest(BaseModel):
 
 
 class EmbedRequest(BaseModel):
-    """Payload for the /embed endpoint."""
+    """Payload for the /embed endpoint.
+
+    Optionally accepts tags/metadata which are stored alongside the text.
+    """
 
     text: str
+    tags: Optional[List[str]] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class SearchRequest(BaseModel):
@@ -64,9 +69,14 @@ async def embed_endpoint(payload: EmbedRequest) -> dict[str, Any]:
     """
     try:
         embedding = get_embedding(payload.text)
-        # Store the embedding together with the original text as metadata
-        vector_store.add(text=payload.text, embedding=embedding, metadata={})
-        return {"embedding": embedding, "message": "Embedding stored successfully"}
+        # Compose metadata: merge provided metadata with tags
+        md: dict[str, Any] = {}
+        if payload.metadata:
+            md.update(payload.metadata)
+        if payload.tags:
+            md["tags"] = list(payload.tags)
+        vector_store.add(text=payload.text, embedding=embedding, metadata=md)
+        return {"embedding": embedding, "message": "Embedding stored successfully", "metadata": md}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
