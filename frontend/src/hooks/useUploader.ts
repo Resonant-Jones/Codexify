@@ -43,6 +43,10 @@ export function useUploader({
       rd.readAsText(file);
     });
 
+    // Collect ingestion payloads for optional backend POST
+    type IngestItem = { filename: string; mimeType: string; fileBytes: string; source?: string; tags?: string[] };
+    const ingestItems: IngestItem[] = [];
+
     for (const f of arr) {
       const ext = extOf(f.name);
       if (!ext) continue;
@@ -50,6 +54,9 @@ export function useUploader({
         if (IMAGE_EXT.has(ext)) {
           const data = await readAsDataUrl(f);
           imgs.push({ src: data, prompt: f.name });
+          // data URL looks like data:mime;base64,XXXX
+          const base64 = (data.split(",")[1] || "");
+          ingestItems.push({ filename: f.name, mimeType: f.type || "image/*", fileBytes: base64, source: tag || "upload", tags: [] });
         } else if (DOC_EXT.has(ext)) {
           // For text-like files, read content and optionally request embeddings
           let preview = f.name;
@@ -60,6 +67,9 @@ export function useUploader({
             } catch {}
           }
           docs.push({ name: f.name.replace(/\.[^.]+$/, ""), ext: ext.replace(".", ""), source: tag });
+          const data = await readAsDataUrl(f);
+          const base64 = (data.split(",")[1] || "");
+          ingestItems.push({ filename: f.name, mimeType: f.type || "application/octet-stream", fileBytes: base64, source: tag || "upload", tags: [] });
           // Best-effort embedding call; ignore failures.
           try {
             const body = { texts: [preview] } as any;
@@ -71,6 +81,29 @@ export function useUploader({
 
     if (imgs.length) onImages(imgs);
     if (docs.length) onDocuments(docs);
+    // Emit debug hook with full payloads
+    try { window.dispatchEvent(new CustomEvent("cfy:documents:upload", { detail: { items: ingestItems } })); } catch {}
+
+    // Optional ingestion POST if enabled and endpoint configured
+    try {
+      const enabled = (typeof window !== "undefined") && localStorage.getItem("cfy.ingest.enabled") === "true";
+      const endpoint = (import.meta as any).env?.VITE_INGESTION_ENDPOINT as string | undefined;
+      if (enabled && endpoint && ingestItems.length) {
+        for (const it of ingestItems) {
+          try {
+            const resp = await fetch(endpoint, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ ...it }),
+            });
+            if (!resp.ok) throw new Error(String(resp.status));
+            try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: `Ingested ${it.filename}` } })); } catch {}
+          } catch (err) {
+            try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: `Ingestion failed: ${it.filename}` } })); } catch {}
+          }
+        }
+      }
+    } catch {}
     try {
       localStorage.setItem("cfy.hasUserUpload", "true");
     } catch {}
@@ -99,4 +132,3 @@ export function useUploader({
 }
 
 export default useUploader;
-

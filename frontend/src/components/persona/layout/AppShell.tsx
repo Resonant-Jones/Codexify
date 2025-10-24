@@ -632,6 +632,17 @@ export default function AppShell({}: PropsWithChildren) {
     }
   }, [gallery]);
 
+  // Ingestion API toggle (Labs)
+  const [ingestionEnabled, setIngestionEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("cfy.ingest.enabled") === "true";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cfy.ingest.enabled", String(ingestionEnabled));
+    }
+  }, [ingestionEnabled]);
+
   // Clear mocks when any user upload occurs (e.g., wallpaper) or flag set
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -706,6 +717,7 @@ export default function AppShell({}: PropsWithChildren) {
 
   // Gallery uploader
   const galleryUploader = useUploader({
+    tag: "upload",
     onImages: (items) => setGallery((prev) => [...items, ...prev]),
     onDocuments: (items) => setDocuments((prev) => [...items, ...prev]),
     onAnyUpload: () => {},
@@ -1396,6 +1408,8 @@ export default function AppShell({}: PropsWithChildren) {
                                   setDashboardThreadRows={setDashboardThreadRows}
                                   showLegacyThreads={showLegacyThreads}
                                   setShowLegacyThreads={setShowLegacyThreads}
+                                  ingestionEnabled={ingestionEnabled}
+                                  setIngestionEnabled={setIngestionEnabled}
                                 />
                               </ErrorBoundary>
                             </div>
