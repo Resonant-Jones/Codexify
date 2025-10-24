@@ -741,6 +741,80 @@ export default function AppShell({}: PropsWithChildren) {
   const [activeDoc, setActiveDoc] = useState<string | null>(null);
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
+  const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
+
+  // Lightweight local vision captioner: analyze colors and aspect ratio
+  async function localDescribeImage(src: string): Promise<string> {
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const w = img.width, h = img.height;
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return resolve("An image.");
+          const max = 160;
+          const scale = Math.min(1, max / Math.max(w, h));
+          canvas.width = Math.max(1, Math.floor(w * scale));
+          canvas.height = Math.max(1, Math.floor(h * scale));
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          let r = 0, g = 0, b = 0;
+          const step = 4 * Math.max(1, Math.floor((canvas.width * canvas.height) / 4000));
+          let count = 0;
+          for (let i = 0; i < data.length; i += step) {
+            r += data[i]; g += data[i + 1]; b += data[i + 2]; count++;
+          }
+          r = Math.round(r / Math.max(1, count));
+          g = Math.round(g / Math.max(1, count));
+          b = Math.round(b / Math.max(1, count));
+          const aspect = (w >= h ? `${(w / h).toFixed(2)}:1` : `1:${(h / w).toFixed(2)}`);
+          const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+          resolve(`A ${w}×${h} image (aspect ${aspect}) with dominant color ${hex}. Describe key elements and style succinctly.`);
+        };
+        img.onerror = () => resolve("An image (unable to analyze). Describe its content.");
+        img.src = src;
+      } catch {
+        resolve("An image. Describe its content.");
+      }
+    });
+  }
+
+  async function generatePromptForImage(src: string) {
+    setVisionBusySrc(src);
+    const endpoint = (import.meta as any).env?.VITE_VISION_ENDPOINT as string | undefined;
+    let prompt: string | null = null;
+    let mode: "remote" | "local" = "local";
+    try {
+      if (endpoint) {
+        mode = "remote";
+        let payload: any = {};
+        if (src.startsWith("data:")) {
+          payload.imageBase64 = src.split(",")[1] || "";
+        } else {
+          payload.url = src;
+        }
+        const r = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+        if (r.ok) {
+          const j = await r.json().catch(() => ({}));
+          const t = j.prompt || j.caption || j.text || null;
+          if (t && typeof t === "string") prompt = t;
+        }
+      }
+    } catch {
+      // fall through to local
+    }
+    if (!prompt) {
+      mode = "local";
+      prompt = await localDescribeImage(src);
+    }
+    // Prefill Guardian chat with image-derived tag
+    setPrefill(`[image-derived][${mode}] ${prompt}`);
+    setView("guardian");
+    try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Image prompt generated" } })); } catch {}
+    setVisionBusySrc(null);
+  }
   // Helper to open a document and reveal the workspace
   const openDocInPlace = (name: string, ext: string) => {
     setActiveDoc(`${name}.${ext}`);
@@ -1203,6 +1277,11 @@ export default function AppShell({}: PropsWithChildren) {
                                   onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: g.src }); }}
                                 >
                                   <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
+                                  {visionBusySrc === g.src && (
+                                    <div className="absolute inset-0 grid place-items-center bg-black/40">
+                                      <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
+                                    </div>
+                                  )}
                                   {/* Context menu is handled at container-level via onContextMenu on parent wrapper below */}
                                   {g.mock && (
                                     <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
@@ -1508,6 +1587,7 @@ export default function AppShell({}: PropsWithChildren) {
           y={galleryMenu.y}
           onClose={() => setGalleryMenu(null)}
           items={[
+            ...(galleryMenu.src ? [{ label: "Generate Prompt", onClick: () => generatePromptForImage(galleryMenu.src!) }] : []),
             ...(galleryMenu.src ? [{ label: "Delete", onClick: () => {
               const src = galleryMenu.src!;
               const removed = gallery.find((g) => g.src === src);
