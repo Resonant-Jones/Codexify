@@ -113,6 +113,40 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     }
   }, [mapThreadRecord, userName, guardianName]);
 
+  // Heuristic prompt detector
+  function isLikelyPrompt(text: string): boolean {
+    if (!text) return false;
+    const v = text.trim();
+    if (!v) return false;
+    const head = v.slice(0, 48).toLowerCase();
+    if (v.startsWith("/") || /^generate\b/i.test(v)) return true;
+    if (v.startsWith("[image-derived]")) return true;
+    const patterns = [
+      "a photo of",
+      "cinematic lighting",
+      "bokeh",
+      "portrait of",
+      "octane render",
+      "ultra-detailed",
+      "dslr",
+      "35mm",
+      "highly detailed",
+    ];
+    return patterns.some((p) => head.includes(p));
+  }
+
+  async function embedPrompt(text: string, source: string) {
+    try {
+      await fetch('/embed', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, tags: ['prompt'], metadata: { source } }),
+      });
+    } catch (err) {
+      console.warn('[prompt] embed failed', err);
+    }
+  }
+
   // ----- Thread loader (hoisted early to avoid TDZ) -----
   const loadThreads = React.useCallback(async () => {
     try {
@@ -272,7 +306,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           const newTitle = trimmed.length > 0 ? trimmed + (text.trim().split(/\s+/).length > 6 ? "…" : "") : "New Chat";
           await api.patch(`/chat/threads/${numericThreadId}`, { title: newTitle });
         }
-        await api.post(`/chat/${numericThreadId}/messages`, { role: "user", content: text });
+        await api.post(`/chat/${numericThreadId}/messages`, { role: "user", content: text, metadata: isLikelyPrompt(text) ? { type: 'prompt' } : undefined });
+        if (isLikelyPrompt(text)) {
+          void embedPrompt(text, 'chat');
+        }
         try {
           await api.post("/neo/graph-message", {
             role: "user",
@@ -281,6 +318,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             userName,
             guardianName,
             source: "chat",
+            tags: isLikelyPrompt(text) ? ["prompt"] : [],
           });
         } catch (err) {
           console.warn("[guardian] failed to graph user message", err);
