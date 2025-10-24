@@ -26,6 +26,7 @@ export default function DocumentsView({
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [menu, setMenu] = useState<{x:number;y:number;doc?:{name:string;ext:string}}|null>(null);
   const uploader = useUploader({
+    tag: "upload",
     onImages: () => {},
     onDocuments: (items) => {
       // Let the parent wire in the state update via onDeleteDocument? Not ideal.

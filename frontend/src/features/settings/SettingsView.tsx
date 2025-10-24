@@ -36,6 +36,8 @@ export function SettingsView({
   setDashboardThreadRows,
   showLegacyThreads,
   setShowLegacyThreads,
+  ingestionEnabled,
+  setIngestionEnabled,
 }: {
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
@@ -64,6 +66,8 @@ export function SettingsView({
   setDashboardThreadRows: (n: number) => void;
   showLegacyThreads: boolean;
   setShowLegacyThreads: (b: boolean) => void;
+  ingestionEnabled: boolean;
+  setIngestionEnabled: (b: boolean) => void;
 }) {
   const [tab, setTab] = useState<"appearance" | "system" | "connectors">("appearance");
   const [name, setName] = useState(guardianName);
@@ -294,6 +298,18 @@ export function SettingsView({
                     checked={!!showLegacyThreads}
                     onChange={(e) => setShowLegacyThreads(e.target.checked)}
                     aria-label="Show Legacy Threads"
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">Enable Ingestion API</div>
+                    <div className="text-xs opacity-70">When enabled, uploads POST to the backend endpoint (env VITE_INGESTION_ENDPOINT).</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!ingestionEnabled}
+                    onChange={(e) => setIngestionEnabled(e.target.checked)}
+                    aria-label="Enable Ingestion API"
                   />
                 </label>
               </div>
