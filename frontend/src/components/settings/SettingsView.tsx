@@ -1,11 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-// Dynamically import ForceGraph2D for client-side rendering
-const ForceGraph2D = dynamic(
-  () =>
-    import("react-force-graph").then((mod) => mod.ForceGraph2D),
-  { ssr: false }
-);
+import React, { useEffect, useRef, useState, lazy, Suspense } from "react";
+const ForceGraph2D = lazy(() => import("react-force-graph").then(m => ({ default: m.ForceGraph2D })));
 import { Button } from "@/components/ui/button";
 import FrameCard from "@/components/surface/FrameCard";
 import { Input } from "@/components/ui/input";
@@ -432,8 +426,10 @@ function KnowledgeGraphConstellation() {
   const [graphData, setGraphData] = useState<{ nodes: any[]; links: any[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
+    setIsClient(typeof window !== "undefined");
     setLoading(true);
     setError(null);
     fetch("/api/graph?scope=codexify")
@@ -453,32 +449,37 @@ function KnowledgeGraphConstellation() {
 
   return (
     <div className="relative rounded-[var(--tile-radius,19px)] border border-white/10 bg-white/5 p-3" style={{ minHeight: 330 }}>
-      {loading && (
+      {!isClient && (
+        <div className="flex items-center justify-center h-[320px] opacity-70 text-xs">Preparing constellation…</div>
+      )}
+      {isClient && loading && (
         <div className="flex items-center justify-center h-[320px] opacity-70 text-xs">Loading graph…</div>
       )}
-      {error && (
+      {isClient && error && (
         <div className="flex items-center justify-center h-[320px] text-red-400 text-xs">{error}</div>
       )}
-      {graphData && (
+      {isClient && graphData && (
         <div className="w-full h-[320px]">
-          <ForceGraph2D
-            graphData={graphData}
-            width={undefined}
-            height={320}
-            backgroundColor="rgba(0,0,0,0)"
-            nodeLabel="label"
-            nodeAutoColorBy="type"
-            linkColor={() => "rgba(255,255,255,0.13)"}
-            linkDirectionalParticles={0}
-            nodeCanvasObjectMode={() => "after"}
-            nodeCanvasObject={(node: any, ctx, globalScale) => {
-              const label = node.label || node.id;
-              const fontSize = 10 / globalScale;
-              ctx.font = `${fontSize}px sans-serif`;
-              ctx.fillStyle = "rgba(255,255,255,0.85)";
-              ctx.fillText(label, node.x + 8, node.y + 4);
-            }}
-          />
+          <Suspense fallback={<div className="p-4 text-xs opacity-70">Mounting canvas…</div>}>
+            <ForceGraph2D
+              graphData={graphData}
+              width={undefined}
+              height={320}
+              backgroundColor="rgba(0,0,0,0)"
+              nodeLabel="label"
+              nodeAutoColorBy="type"
+              linkColor={() => "rgba(255,255,255,0.13)"}
+              linkDirectionalParticles={0}
+              nodeCanvasObjectMode={() => "after"}
+              nodeCanvasObject={(node: any, ctx, globalScale) => {
+                const label = node.label || node.id;
+                const fontSize = 10 / globalScale;
+                ctx.font = `${fontSize}px sans-serif`;
+                ctx.fillStyle = "rgba(255,255,255,0.85)";
+                ctx.fillText(label, node.x + 8, node.y + 4);
+              }}
+            />
+          </Suspense>
         </div>
       )}
       <div className="pointer-events-none absolute inset-0 rounded-[var(--tile-radius,19px)] ring-1 ring-white/10" />

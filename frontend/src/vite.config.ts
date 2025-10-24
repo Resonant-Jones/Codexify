@@ -79,15 +79,13 @@ export default defineConfig({
     host: true,
     strictPort: false,
     proxy: {
+      // SSE: proxy to backend without rewriting path; backend supports /api/events
       '/api/events': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        // keep the SSE request alive through the proxy
         proxyTimeout: 0,
         timeout: 0,
-        // /api/events -> /events on backend
-        rewrite: (path) => path.replace(/^\/api(\/)?/, '/'),
         headers: {
           'X-API-Key': API_KEY,
           'accept': 'text/event-stream',
@@ -103,6 +101,41 @@ export default defineConfig({
           });
         }
       },
+
+      // Compatibility bridges: map some legacy '/api/*' routes to unprefixed backend paths
+      // Chat
+      '^/api/chat(?=/|$)': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'X-API-Key': API_KEY },
+        rewrite: (p) => p.replace(/^\/api\/chat/, '/chat'),
+      },
+      // Threads alias (/api/threads -> /threads, /api/thread -> /thread)
+      '^/api/threads(?=/|$)': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'X-API-Key': API_KEY },
+        rewrite: (p) => p.replace(/^\/api\//, '/'),
+      },
+      '^/api/thread(?=/|$)': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'X-API-Key': API_KEY },
+        rewrite: (p) => p.replace(/^\/api\//, '/'),
+      },
+      // Projects
+      '^/api/projects(?=/|$)': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'X-API-Key': API_KEY },
+        rewrite: (p) => p.replace(/^\/api\//, '/'),
+      },
+
+      // General API: pass-through /api/* exactly as-is (no rewrite)
       '^/api(?=/|$)': {
         target: PROXY_TARGET,
         changeOrigin: true,
@@ -110,8 +143,6 @@ export default defineConfig({
         headers: {
           'X-API-Key': API_KEY,
         },
-        // Strip the /api prefix so backend receives routes at root
-        rewrite: (path) => path.replace(/^\/api(\/)?/, '/'),
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {
             try { proxyReq.setHeader('X-API-Key', API_KEY); } catch {}
