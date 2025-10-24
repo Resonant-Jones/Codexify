@@ -60,6 +60,11 @@ from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field, ValidationError, ConfigDict
 from starlette.responses import StreamingResponse
 
+# Import for Neo4j graph endpoint
+from fastapi import APIRouter, HTTPException
+from neo4j import GraphDatabase
+import os
+
 # DB adapters
 from guardian.core import event_bus
 from guardian.core.chat_db import ChatDB
@@ -472,20 +477,14 @@ else:
 
 logger.info("📦 DB backend selected: %s", DB_BACKEND)
 
-# --- Bootstrap Postgres schema when missing (development convenience) ---
-def _bootstrap_postgres_schema_if_needed():
-    """Create core tables in Postgres if missing.
-
-    This is a pragmatic bootstrap for dev environments where Alembic migrations
-    have not been applied yet. It checks for the presence of the chat_threads
-    table and, if absent, executes the SQL in sql/complete_schema.sql.
-    """
+# --- Bootstrap core Postgres tables in dev when migrations haven't run ---
+def _bootstrap_postgres_core():
+    if DB_BACKEND != "postgres":
+        return
     try:
-        if DB_BACKEND != "postgres":
-            return
-        # Proceed unconditionally; DDL is idempotent and some table_exists helpers may vary
-        logger.info("[bootstrap] Initializing Postgres core tables (projects, users, chat_threads, chat_messages)")
+        logger.info("[bootstrap] ensuring core Postgres tables exist")
         statements = [
+            # projects
             """
             CREATE TABLE IF NOT EXISTS projects (
               id SERIAL PRIMARY KEY,
@@ -495,6 +494,7 @@ def _bootstrap_postgres_schema_if_needed():
               updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
             """,
+            # users
             """
             CREATE TABLE IF NOT EXISTS users (
               id TEXT PRIMARY KEY,
@@ -502,6 +502,7 @@ def _bootstrap_postgres_schema_if_needed():
               updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
             """,
+            # chat_threads
             """
             CREATE TABLE IF NOT EXISTS chat_threads (
               id SERIAL PRIMARY KEY,
@@ -515,6 +516,7 @@ def _bootstrap_postgres_schema_if_needed():
               updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
             """,
+            # chat_messages
             """
             CREATE TABLE IF NOT EXISTS chat_messages (
               id SERIAL PRIMARY KEY,
@@ -524,6 +526,18 @@ def _bootstrap_postgres_schema_if_needed():
               created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
             """,
+            # audit log (used by write_audit_log)
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+              id SERIAL PRIMARY KEY,
+              event TEXT NOT NULL,
+              entity TEXT NOT NULL,
+              entity_id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              timestamp TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """,
+            # helpful indexes and seeds
             "CREATE INDEX IF NOT EXISTS ix_chat_threads_updated_at ON chat_threads(updated_at DESC)",
             "CREATE INDEX IF NOT EXISTS ix_chat_messages_thread_created ON chat_messages(thread_id, created_at)",
             "INSERT INTO projects (id, name, description) VALUES (1, 'Loose Threads', 'Default bucket for unassigned threads') ON CONFLICT (id) DO NOTHING",
@@ -534,19 +548,18 @@ def _bootstrap_postgres_schema_if_needed():
             with conn:
                 with conn.cursor() as cur:
                     for stmt in statements:
-                        if not stmt:
-                            continue
                         cur.execute(stmt)
-            logger.info("[bootstrap] Postgres schema initialized")
         finally:
             try:
                 conn.close()
             except Exception:
                 pass
+        logger.info("[bootstrap] core Postgres tables ensured")
     except Exception:
-        logger.exception("[bootstrap] Failed to initialize Postgres schema")
+        logger.exception("[bootstrap] failed to initialize core Postgres tables")
 
-_bootstrap_postgres_schema_if_needed()
+_bootstrap_postgres_core()
+
 # Configure durable outbox storage when enabled
 if ENABLE_OUTBOX:
     try:
@@ -632,6 +645,39 @@ if NEO4J_AVAILABLE and get_neo_session:
         except Exception as exc:
             from fastapi import HTTPException
             raise HTTPException(status_code=500, detail=str(exc))
+
+# =========================
+# Neo4j Graph Endpoint
+# =========================
+@app.get('/graph', summary='Return graph data from Neo4j', tags=['Graph'])
+def get_graph(scope: str = 'codexify'):
+    uri = os.getenv('NEO4J_URI', 'bolt://neo4j:7687')
+    user = os.getenv('NEO4J_USER', 'neo4j')
+    password = os.getenv('NEO4J_PASSWORD', 'test')
+
+    try:
+        driver = GraphDatabase.driver(uri, auth=(user, password))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to connect to Neo4j: {e}')
+
+    nodes, links = [], []
+    try:
+        with driver.session() as session:
+            result = session.run('MATCH (a)-[r]->(b) RETURN a, r, b LIMIT 250')
+            for record in result:
+                a, r, b = record['a'], record['r'], record['b']
+                nodes.extend([
+                    {"id": a.element_id, "label": a.get('name', list(a.labels)[0] if a.labels else 'Node'), "type": list(a.labels)[0] if a.labels else 'node'},
+                    {"id": b.element_id, "label": b.get('name', list(b.labels)[0] if b.labels else 'Node'), "type": list(b.labels)[0] if b.labels else 'node'}
+                ])
+                links.append({"source": a.element_id, "target": b.element_id, "label": r.type})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Graph query failed: {e}')
+    finally:
+        driver.close()
+
+    unique_nodes = list({n['id']: n for n in nodes}.values())
+    return {"nodes": unique_nodes, "links": links}
 
 # Include routers for modular endpoints
 app.include_router(threads.router, prefix="/threads")
