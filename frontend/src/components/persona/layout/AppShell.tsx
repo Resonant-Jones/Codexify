@@ -351,24 +351,33 @@ export default function AppShell({}: PropsWithChildren) {
      - `activeDoc`: Which document is open in the workspace.
      - `openDocInPlace`: Helper to open a doc and reveal the workspace pane.
      ───────────────────────────────────────────────────────────────────────────── */
-  type DocItem = { name: string; ext: keyof ExtColors };
-  const [documents] = useState<DocItem[]>(() => {
+  type DocItem = { name: string; ext: keyof ExtColors; mock?: boolean };
+  const [documents, setDocuments] = useState<DocItem[]>(() => {
     const def: DocItem[] = [
-      { name: "Covenant", ext: "pdf" },
-      { name: "Roadmap", ext: "md" },
-      { name: "Vision", ext: "txt" },
-      { name: "Design", ext: "sketch" },
+      { name: "Covenant", ext: "pdf", mock: true },
+      { name: "Roadmap", ext: "md", mock: true },
+      { name: "Vision", ext: "txt", mock: true },
+      { name: "Design", ext: "sketch", mock: true },
     ];
     if (typeof window === "undefined") return def;
     try {
       const raw = localStorage.getItem("cfy.documents");
-      if (!raw) return def;
+      if (!raw) {
+        // Seed defaults on first run
+        localStorage.setItem("cfy.documents", JSON.stringify(def));
+        return def;
+      }
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : def;
+      return Array.isArray(parsed) ? parsed : def;
     } catch {
       return def;
     }
   });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cfy.documents", JSON.stringify(documents));
+    }
+  }, [documents]);
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   // Utility: parse a number from unknown input, fall back & clamp to [0,1]
   function safeNumber(val: unknown, fallback: number): number {
@@ -597,16 +606,61 @@ export default function AppShell({}: PropsWithChildren) {
     }
   });
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.extColors", JSON.stringify(extColors)); }, [extColors]);
-  const [gallery] = useState<GalleryItem[]>(() => {
+  const [gallery, setGallery] = useState<GalleryItem[]>(() => {
     const def: GalleryItem[] = [
-      { src: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop", prompt: "vibrant color gradient, smooth texture, abstract art, minimalist, 4k" },
-      { src: "https://images.unsplash.com/photo-1557682250-33bd709cbe85?q=80&w=600&auto=format&fit=crop", prompt: "dramatic light, deep shadows, cinematic, moody, purple and blue tones" },
-      { src: "https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?q=80&w=600&auto=format&fit=crop", prompt: "ethereal smoke, liquid metal, iridescent, holographic, studio lighting, 8k" },
-      { src: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=600&auto=format&fit=crop", prompt: "soft gradient, warm horizon fade, subtle grain, minimal" },
+      { src: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop", prompt: "vibrant color gradient, smooth texture, abstract art, minimalist, 4k", mock: true },
+      { src: "https://images.unsplash.com/photo-1557682250-33bd709cbe85?q=80&w=600&auto=format&fit=crop", prompt: "dramatic light, deep shadows, cinematic, moody, purple and blue tones", mock: true },
+      { src: "https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?q=80&w=600&auto=format&fit=crop", prompt: "ethereal smoke, liquid metal, iridescent, holographic, studio lighting, 8k", mock: true },
+      { src: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=600&auto=format&fit=crop", prompt: "soft gradient, warm horizon fade, subtle grain, minimal", mock: true },
     ];
     if (typeof window === "undefined") return def;
-    try { const raw = localStorage.getItem("cfy.gallery"); return raw ? JSON.parse(raw) : def; } catch { return def; }
+    try {
+      const raw = localStorage.getItem("cfy.gallery");
+      if (!raw) {
+        localStorage.setItem("cfy.gallery", JSON.stringify(def));
+        return def;
+      }
+      return JSON.parse(raw);
+    } catch { return def; }
   });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cfy.gallery", JSON.stringify(gallery));
+    }
+  }, [gallery]);
+
+  // Clear mocks when any user upload occurs (e.g., wallpaper) or flag set
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hasUpload = !!localStorage.getItem("cfy.hasUserUpload");
+    if (hasUpload || !!wallpaper) {
+      const filteredGallery = gallery.filter((g) => !g.mock);
+      if (filteredGallery.length !== gallery.length) setGallery(filteredGallery);
+      const filteredDocs = documents.filter((d) => !d.mock);
+      if (filteredDocs.length !== documents.length) setDocuments(filteredDocs);
+    }
+  }, [wallpaper]);
+
+  // Listen for upload flag updates from other tabs
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "cfy.hasUserUpload" && e.newValue) {
+        const filteredGallery = gallery.filter((g) => !g.mock);
+        if (filteredGallery.length !== gallery.length) setGallery(filteredGallery);
+        const filteredDocs = documents.filter((d) => !d.mock);
+        if (filteredDocs.length !== documents.length) setDocuments(filteredDocs);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [gallery, documents]);
+
+  const deleteDocument = useCallback((name: string, ext: string) => {
+    setDocuments((prev) => prev.filter((d) => !(d.name === name && d.ext === (ext as any))));
+  }, []);
+  const deleteGalleryItem = useCallback((src: string) => {
+    setGallery((prev) => prev.filter((g) => g.src !== src));
+  }, []);
   // Labs: optional feature flags
   const [showLegacyThreads, setShowLegacyThreads] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -955,6 +1009,7 @@ export default function AppShell({}: PropsWithChildren) {
                               extColors={extColors}
                               onDocumentClick={openDocInPlace}
                               onOpenInThread={openDocInThread}
+                              onDeleteDocument={deleteDocument}
                             />
                           </div>
                         </div>
@@ -1081,8 +1136,22 @@ export default function AppShell({}: PropsWithChildren) {
                             <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Gallery</div>
                             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--gutter)]">
                               {gallery.map((g, i) => (
-                                <div key={i} className="aspect-square rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))", borderRadius: "var(--card-radius)" }}>
+                                <div key={g.src || i} className="relative aspect-square rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))", borderRadius: "var(--card-radius)" }}>
                                   <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
+                                  <button
+                                    type="button"
+                                    className="absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border"
+                                    style={{ background: "rgba(0,0,0,0.45)", color: "#fff", borderColor: "rgba(255,255,255,0.3)" }}
+                                    onClick={() => deleteGalleryItem(g.src)}
+                                    title="Delete image"
+                                  >
+                                    Delete
+                                  </button>
+                                  {g.mock && (
+                                    <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
+                                      Mock
+                                    </span>
+                                  )}
                                 </div>
                               ))}
                             </div>
