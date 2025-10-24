@@ -43,6 +43,8 @@ import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
+import { LegacyThreadsModal } from "@/components/modals/LegacyThreadsModal";
+import { LegacyThreadsProvider } from "@/contexts/LegacyThreadsContext";
 /* ──────────────────────────────────────────────────────────────────────────
    TUNING PRIMER (safe knobs)
    - Per-VIEW overrides: add CSS vars on the wrapper just after `{view === "…"`:
@@ -605,6 +607,21 @@ export default function AppShell({}: PropsWithChildren) {
     if (typeof window === "undefined") return def;
     try { const raw = localStorage.getItem("cfy.gallery"); return raw ? JSON.parse(raw) : def; } catch { return def; }
   });
+  // Labs: optional feature flags
+  const [showLegacyThreads, setShowLegacyThreads] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("cfy.showLegacyThreads") === "true";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cfy.showLegacyThreads", String(showLegacyThreads));
+    }
+  }, [showLegacyThreads]);
+
+  // Legacy modal state
+  const [legacyOpen, setLegacyOpen] = useState(false);
+  const openLegacy = useCallback(() => setLegacyOpen(true), []);
+  const closeLegacy = useCallback(() => setLegacyOpen(false), []);
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
   const [activeDoc, setActiveDoc] = useState<string | null>(null);
   // Helper to open a document and reveal the workspace
@@ -727,6 +744,7 @@ export default function AppShell({}: PropsWithChildren) {
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
+    <LegacyThreadsProvider value={{ enabled: showLegacyThreads, isOpen: legacyOpen, open: openLegacy, close: closeLegacy }}>
     <>
       {/* 
         --bezel: Visual margin between the refractive glass and the opaque content surface.
@@ -1252,6 +1270,8 @@ export default function AppShell({}: PropsWithChildren) {
                                   setExtColors={setExtColors}
                                   dashboardThreadRows={dashboardThreadRows}
                                   setDashboardThreadRows={setDashboardThreadRows}
+                                  showLegacyThreads={showLegacyThreads}
+                                  setShowLegacyThreads={setShowLegacyThreads}
                                 />
                               </ErrorBoundary>
                             </div>
@@ -1343,7 +1363,32 @@ export default function AppShell({}: PropsWithChildren) {
           </form>
         </div>
       )}
+      {legacyOpen && (
+        <div
+          className="fixed inset-0 z-[1200] flex items-center justify-center px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Legacy Threads"
+        >
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeLegacy} />
+          <div className="relative z-[1201] w-[min(920px,95vw)] max-h-[85vh] overflow-hidden rounded-2xl border shadow-xl"
+               style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}>
+            <LegacyThreadsModal
+              onClose={closeLegacy}
+              onFork={(threadId?: string) => {
+                try {
+                  window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { kind: "success", message: "Forked legacy thread" } }));
+                } catch {}
+                setView("guardian");
+                setPrefill(`Fork legacy thread ${threadId ?? ""} into a new conversation.`);
+                closeLegacy();
+              }}
+            />
+          </div>
+        </div>
+      )}
       </div>
     </>
+    </LegacyThreadsProvider>
   );
 }
