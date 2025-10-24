@@ -24,6 +24,8 @@ aiosqlite==0.21.0
     #   crawl4ai
 alembic==1.17.0
     # via -r requirements/base.in
+psycopg2-binary==2.9.11
+    # Postgres driver for backend (required by PgDB)
 alphashape==1.3.1
     # via crawl4ai
 annotated-types==0.7.0
@@ -302,19 +304,7 @@ mccabe==0.7.0
     # via flake8
 mdurl==0.1.2
     # via markdown-it-py
-mlx==0.29.3
-    # via
-    #   -r requirements/ai.in
-    #   mlx-lm
-    #   mlx-vlm
-mlx-lm==0.28.3
-    # via
-    #   -r requirements/ai.in
-    #   mlx-vlm
-mlx-metal==0.29.3
-    # via mlx
-mlx-vlm==0.3.4
-    # via -r requirements/ai.in
+    
 mmh3==5.2.0
     # via chromadb
 mpmath==1.3.0
