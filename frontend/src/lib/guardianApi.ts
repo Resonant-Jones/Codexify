@@ -1,4 +1,4 @@
-import { GUARDIAN_API_BASE, GUARDIAN_API_KEY, USE_PROVIDER_API } from "./env";
+import { GUARDIAN_API_BASE, GUARDIAN_API_KEY, USE_PROVIDER_API, ENV } from "./env";
 import { getPreferredProvider } from "./providerPref";
 import { combineBaseAndPath } from "./urlJoin";
 
@@ -15,7 +15,16 @@ const headers = () => ({
   ...(GUARDIAN_API_KEY ? { "X-API-Key": GUARDIAN_API_KEY } : {}),
 });
 
-const base = (path: string) => combineBaseAndPath(GUARDIAN_API_BASE, path);
+// Build a base that works in both dev (Vite) and prod.
+// - If GUARDIAN_API_BASE is an absolute URL, use it directly.
+// - If it's empty or "/", fall back to ENV.apiBase (defaults to "/api" for Vite proxy).
+// - Otherwise, use GUARDIAN_API_BASE as-is.
+const base = (path: string) => {
+  const b = GUARDIAN_API_BASE || "/";
+  const isAbs = /^https?:\/\//i.test(b);
+  const chosen = isAbs ? b : (b === "/" ? (ENV.apiBase || "/api") : b);
+  return combineBaseAndPath(chosen, path);
+};
 
 // If a provider wasn't explicitly set, default to the persisted preference.
 const withDefaultProvider = <T extends { provider?: string }>(body: T): T & { provider?: string } => {

@@ -45,6 +45,9 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { LegacyThreadsModal } from "@/components/modals/LegacyThreadsModal";
 import { LegacyThreadsProvider } from "@/contexts/LegacyThreadsContext";
+import ToastPortal from "@/components/ui/ToastPortal";
+import useUploader from "@/hooks/useUploader";
+import ContextMenu from "@/components/ui/ContextMenu";
 /* ──────────────────────────────────────────────────────────────────────────
    TUNING PRIMER (safe knobs)
    - Per-VIEW overrides: add CSS vars on the wrapper just after `{view === "…"`:
@@ -661,6 +664,41 @@ export default function AppShell({}: PropsWithChildren) {
   const deleteGalleryItem = useCallback((src: string) => {
     setGallery((prev) => prev.filter((g) => g.src !== src));
   }, []);
+
+  // Provide delete undo for documents
+  useEffect(() => {
+    const onDel = (e: Event) => {
+      const d = (e as CustomEvent).detail || {};
+      const name = d.name; const ext = d.ext;
+      const removed = documents.find((x) => x.name === name && x.ext === ext);
+      if (!removed) return;
+      try {
+        window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Document deleted", actionLabel: "Undo", onAction: () => {
+          setDocuments((prev) => [removed, ...prev]);
+        }}}));
+      } catch {}
+    };
+    window.addEventListener("cfy:documents:delete", onDel as EventListener);
+    return () => window.removeEventListener("cfy:documents:delete", onDel as EventListener);
+  }, [documents]);
+
+  // Hook documents add from DocumentsView uploader
+  useEffect(() => {
+    const onAdd = (e: Event) => {
+      const items = (e as CustomEvent).detail?.items || [];
+      if (!Array.isArray(items) || items.length === 0) return;
+      setDocuments((prev) => [...items, ...prev]);
+    };
+    window.addEventListener("cfy:documents:add", onAdd as EventListener);
+    return () => window.removeEventListener("cfy:documents:add", onAdd as EventListener);
+  }, []);
+
+  // Gallery uploader
+  const galleryUploader = useUploader({
+    onImages: (items) => setGallery((prev) => [...items, ...prev]),
+    onDocuments: (items) => setDocuments((prev) => [...items, ...prev]),
+    onAnyUpload: () => {},
+  });
   // Labs: optional feature flags
   const [showLegacyThreads, setShowLegacyThreads] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -678,6 +716,8 @@ export default function AppShell({}: PropsWithChildren) {
   const closeLegacy = useCallback(() => setLegacyOpen(false), []);
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
   const [activeDoc, setActiveDoc] = useState<string | null>(null);
+  const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
+  const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   // Helper to open a document and reveal the workspace
   const openDocInPlace = (name: string, ext: string) => {
     setActiveDoc(`${name}.${ext}`);
@@ -1134,19 +1174,13 @@ export default function AppShell({}: PropsWithChildren) {
                         <div className="min-h-0 h-full overflow-hidden rounded-[var(--radius)]" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))", borderRadius: "var(--card-radius)" }}>
                           <div className="p-[var(--card-pad)] min-h-0 h-full overflow-auto">
                             <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Gallery</div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--gutter)]">
-                              {gallery.map((g, i) => (
-                                <div key={g.src || i} className="relative aspect-square rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))", borderRadius: "var(--card-radius)" }}>
+                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--gutter)]" onDrop={galleryUploader.onDrop} onDragOver={galleryUploader.onDragOver}>
+                              {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => (
+                                <div key={g.src || i} className="relative aspect-square rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))", borderRadius: "var(--card-radius)" }}
+                                  onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: g.src }); }}
+                                >
                                   <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
-                                  <button
-                                    type="button"
-                                    className="absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border"
-                                    style={{ background: "rgba(0,0,0,0.45)", color: "#fff", borderColor: "rgba(255,255,255,0.3)" }}
-                                    onClick={() => deleteGalleryItem(g.src)}
-                                    title="Delete image"
-                                  >
-                                    Delete
-                                  </button>
+                                  {/* Context menu is handled at container-level via onContextMenu on parent wrapper below */}
                                   {g.mock && (
                                     <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
                                       Mock
@@ -1154,6 +1188,16 @@ export default function AppShell({}: PropsWithChildren) {
                                   )}
                                 </div>
                               ))}
+                            </div>
+                            <div className="flex items-center justify-between gap-2 pt-3 text-xs opacity-80">
+                              <div>Drag & drop images or documents here, or</div>
+                              <button type="button" className="underline" onClick={galleryUploader.pick}>Choose files</button>
+                              <div className="ml-auto flex items-center gap-2">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input type="checkbox" checked={hideMocks} onChange={(e) => { setHideMocks(e.target.checked); try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {} }} />
+                                  Hide Mock Items
+                                </label>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1431,6 +1475,27 @@ export default function AppShell({}: PropsWithChildren) {
             </div>
           </form>
         </div>
+      )}
+      <ToastPortal />
+      {galleryMenu && (
+        <ContextMenu
+          x={galleryMenu.x}
+          y={galleryMenu.y}
+          onClose={() => setGalleryMenu(null)}
+          items={[
+            ...(galleryMenu.src ? [{ label: "Delete", onClick: () => {
+              const src = galleryMenu.src!;
+              const removed = gallery.find((g) => g.src === src);
+              deleteGalleryItem(src);
+              try {
+                window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Image deleted", actionLabel: "Undo", onAction: () => {
+                  if (removed) setGallery((prev) => [removed, ...prev]);
+                }}}));
+              } catch {}
+            }}] : []),
+            { label: hideMocks ? "Show Mock Items" : "Hide Mock Items", onClick: () => { const v = !hideMocks; setHideMocks(v); try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {} } },
+          ]}
+        />
       )}
       {legacyOpen && (
         <div

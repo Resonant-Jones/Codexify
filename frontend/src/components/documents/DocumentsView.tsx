@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
 import DocumentPreviewTile from "@/components/ui/DocumentPreviewTile";
+import ContextMenu from "@/components/ui/ContextMenu";
+import useUploader from "@/hooks/useUploader";
 import FrameCard from "@/components/surface/FrameCard";
 import { ExtColors } from "@/types/ui";
 
@@ -21,6 +23,17 @@ export default function DocumentsView({
   defaultBehavior = "workspace",
 }: DocumentsViewProps) {
   const [behavior, setBehavior] = useState<"workspace" | "thread">(defaultBehavior);
+  const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
+  const [menu, setMenu] = useState<{x:number;y:number;doc?:{name:string;ext:string}}|null>(null);
+  const uploader = useUploader({
+    onImages: () => {},
+    onDocuments: (items) => {
+      // Let the parent wire in the state update via onDeleteDocument? Not ideal.
+      // We dispatch a custom event so AppShell can listen and update.
+      try { window.dispatchEvent(new CustomEvent("cfy:documents:add", { detail: { items } })); } catch {}
+    },
+    onAnyUpload: () => { try { localStorage.setItem("cfy.hasUserUpload", "true"); } catch {} },
+  });
 
   const handleDocumentClick = (name: string, ext: string) => {
     if (behavior === "thread" && onOpenInThread) {
@@ -30,7 +43,7 @@ export default function DocumentsView({
     onDocumentClick?.(name, ext);
   };
 
-  const docItems = useMemo(() => documents ?? [], [documents]);
+  const docItems = useMemo(() => (hideMocks ? (documents ?? []).filter(d => !d.mock) : (documents ?? [])), [documents, hideMocks]);
   const pills = [
     { key: "workspace" as const, label: "Open in Workspace" },
     { key: "thread" as const, label: "Open in Thread" },
@@ -62,25 +75,21 @@ export default function DocumentsView({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="min-h-0 flex-1 overflow-auto" onDrop={uploader.onDrop} onDragOver={uploader.onDragOver}>
             <div className="grid auto-rows-[minmax(112px,auto)] grid-cols-[repeat(auto-fit,minmax(132px,1fr))] gap-4 justify-items-center pb-1">
               {docItems.map((d) => (
-                <div key={`${d.name}.${d.ext}`} className="relative">
+                <div
+                  key={`${d.name}.${d.ext}`}
+                  className="relative"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, doc: { name: d.name, ext: d.ext } });
+                  }}
+                >
                   <DocumentPreviewTile
                     file={{ name: `${d.name}.${d.ext}` }}
                     onClick={() => handleDocumentClick(d.name, d.ext)}
                   />
-                  {onDeleteDocument && (
-                    <button
-                      type="button"
-                      className="absolute right-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border"
-                      style={{ background: "rgba(0,0,0,0.4)", color: "#fff", borderColor: "rgba(255,255,255,0.3)" }}
-                      onClick={(e) => { e.stopPropagation(); onDeleteDocument(d.name, d.ext); }}
-                      title="Delete document"
-                    >
-                      Delete
-                    </button>
-                  )}
                   {d.mock && (
                     <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
                       Mock
@@ -90,6 +99,35 @@ export default function DocumentsView({
               ))}
             </div>
           </div>
+
+          <div className="flex items-center justify-between gap-2 pt-3 text-xs opacity-80">
+            <div>Drag & drop files here, or</div>
+            <button type="button" className="underline" onClick={uploader.pick}>Choose files</button>
+            <div className="ml-auto flex items-center gap-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={hideMocks} onChange={(e) => { setHideMocks(e.target.checked); try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {} }} />
+                Hide Mock Items
+              </label>
+            </div>
+          </div>
+
+          {menu && (
+            <ContextMenu
+              x={menu.x}
+              y={menu.y}
+              onClose={() => setMenu(null)}
+              items={[
+                ...(menu.doc && onDeleteDocument ? [{ label: "Delete", onClick: () => {
+                  const key = `${menu.doc!.name}.${menu.doc!.ext}`;
+                  // Emit a request that parent should delete AND provide undo
+                  const ev = new CustomEvent("cfy:documents:delete", { detail: { name: menu.doc!.name, ext: menu.doc!.ext } });
+                  try { window.dispatchEvent(ev); } catch {}
+                  onDeleteDocument(menu.doc!.name, menu.doc!.ext);
+                }}] : []),
+                { label: hideMocks ? "Show Mock Items" : "Hide Mock Items", onClick: () => { const v = !hideMocks; setHideMocks(v); try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {} } },
+              ]}
+            />
+          )}
 
           {behavior === "thread" && !onOpenInThread && (
             <div className="text-xs opacity-70">
