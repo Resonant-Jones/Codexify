@@ -1,3 +1,23 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:74b84c060ad38c6ae98f4db8fdafc24ced6b2a60f9d8c198e9606f5f8064c9dd
-size 637
+{
+  "name": "guardian-monorepo",
+  "private": true,
+  "scripts": {
+    "lint": "pnpm --dir frontend/src lint",
+    "build": "pnpm --dir frontend/src build",
+    "test": "pnpm --dir frontend/src test",
+    "format": "pnpm --dir frontend/src format",
+    "format:check": "pnpm --dir frontend/src format:check"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.14",
+    "@tailwindcss/vite": "^4.1.14",
+    "autoprefixer": "^10.4.21",
+    "tailwindcss": "^4.1.14"
+  },
+  "dependencies": {
+    "dompurify": "^3.3.0",
+    "event-source-polyfill": "^1.0.31",
+    "monaco-editor": "^0.53.0",
+    "react-force-graph": "^1.48.1"
+  }
+}
