@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   maintain:
-    id: maintain
+    # id: maintain
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -61,7 +61,7 @@ jobs:
           retention-days: 14
 
   weekly-clean:
-    id: weekly-clean
+    # id: weekly-clean
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
