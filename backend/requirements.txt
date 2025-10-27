@@ -317,12 +317,12 @@ mypy-extensions==1.1.0
     # via
     #   -r requirements/dev.in
     #   black
-neo4j==5.22.0
+
     # via
     #   -r requirements/ai.in
     #   neomodel
 neomodel==5.5.3
-    # via -r requirements/ai.in
+neo4j==5.28.2    # via -r requirements/ai.in
 networkx==3.5
     # via
     #   alphashape

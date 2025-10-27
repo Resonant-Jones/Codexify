@@ -65,10 +65,14 @@ export default function WorkspacePane({
   bare = false,
   activeDoc,
   onOpenInThread,
+  showPrompts = false,
+  onPromptSelect,
 }: {
   bare?: boolean;
   activeDoc?: string | null;
   onOpenInThread?: (doc: string) => void;
+  showPrompts?: boolean;
+  onPromptSelect?: (prompt: string) => void;
 }) {
   const { projectId } = useContext(ProjectContext);
 
@@ -95,6 +99,15 @@ export default function WorkspacePane({
 
   const currentDoc = activeDoc ?? null;
   const headerTitle = currentDoc ? `Workspace · ${currentDoc}` : "Workspace";
+
+  const samplePrompts = [
+    "Cyberpunk Alleyway",
+    "Studio portrait of a cat",
+    "Underwater cityscape",
+    "Futuristic flying car",
+    "Ancient forest temple",
+    "Space station interior",
+  ];
 
   const content = (
     <div className="flex h-full min-h-0 flex-col p-4" style={{ color: ink }}>
@@ -131,23 +144,47 @@ export default function WorkspacePane({
         )}
       </div>
 
-      <div className="pt-4">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide opacity-70">
-          Docs
+      {showPrompts ? (
+        <div className="pt-4">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide opacity-70">
+            Prompts
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {samplePrompts.map((prompt) => (
+              <PreviewTile
+                key={prompt}
+                tone="panel"
+                className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0"
+                onClick={() => onPromptSelect && onPromptSelect(prompt)}
+              >
+                <div className="min-h-[112px]">
+                  <div className="rounded-[10px] aspect-[4/3]" style={{ background: "var(--panel-bg)" }} />
+                  <div className="mt-2 text-sm font-medium truncate">{prompt}</div>
+                  <div className="text-xs opacity-70 truncate">&nbsp;</div>
+                </div>
+              </PreviewTile>
+            ))}
+          </div>
         </div>
-        {/* Documents */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {docs.map((d) => (
-            <PreviewTile key={d} tone="panel" className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0">
-              <div className="min-h-[112px]">
-                <div className="rounded-[10px] aspect-[4/3]" style={{ background: "var(--panel-bg)" }} />
-                <div className="mt-2 text-sm font-medium truncate">{d}</div>
-                <div className="text-xs opacity-70 truncate">&nbsp;</div>
-              </div>
-            </PreviewTile>
-          ))}
+      ) : (
+        <div className="pt-4">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide opacity-70">
+            Docs
+          </div>
+          {/* Documents */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {docs.map((d) => (
+              <PreviewTile key={d} tone="panel" className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0">
+                <div className="min-h-[112px]">
+                  <div className="rounded-[10px] aspect-[4/3]" style={{ background: "var(--panel-bg)" }} />
+                  <div className="mt-2 text-sm font-medium truncate">{d}</div>
+                  <div className="text-xs opacity-70 truncate">&nbsp;</div>
+                </div>
+              </PreviewTile>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex-1" />
     </div>
