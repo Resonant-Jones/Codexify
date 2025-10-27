@@ -129,6 +129,7 @@ def upgrade() -> None:
                existing_nullable=False)
     # These legacy indexes were previously created by runtime DDL in code, not Alembic.
     # On fresh Alembic-managed databases they may not exist, so drop them conditionally.
+    # Conditional drop added to handle fresh Alembic environments (no legacy runtime DDL).
     op.execute("DROP INDEX IF EXISTS idx_events_outbox_created")
     op.execute("DROP INDEX IF EXISTS idx_sync_jobs_connector_created")
     # ### end Alembic commands ###

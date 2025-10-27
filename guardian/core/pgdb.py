@@ -64,105 +64,94 @@ class PgDB(ChatDB):
 
     # ---- internal helpers -------------------------------------------------
     def _ensure_sync_jobs_table(self, conn) -> None:
+        """Verify sync_jobs schema; DDL lives in Alembic revision ac973209add4."""
         if self._sync_jobs_ready:
             return
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS sync_jobs (
-                    id SERIAL PRIMARY KEY,
-                    connector_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT NOW(),
-                    started_at TIMESTAMPTZ,
-                    finished_at TIMESTAMPTZ,
-                    attempts INTEGER DEFAULT 0,
-                    last_error TEXT,
-                    metadata JSONB
+            cur.execute("SELECT to_regclass(%s) AS relname", ("public.sync_jobs",))
+            result = cur.fetchone() or {}
+            table_exists = result.get("relname") is not None
+            if not table_exists:
+                raise RuntimeError(
+                    "sync_jobs table missing. Apply Alembic revision ac973209add4 before using PgDB."
                 )
-                """
-            )
+
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_sync_jobs_connector_created ON sync_jobs(connector_id, created_at)"
+                "SELECT to_regclass(%s) AS relname", ("public.ix_sync_jobs_connector_created",)
             )
-            conn.commit()
+            result = cur.fetchone() or {}
+            index_exists = result.get("relname") is not None
+            if not index_exists:
+                logging.warning(
+                    "Index ix_sync_jobs_connector_created missing; expected from Alembic revision ac973209add4."
+                )
+
         self._sync_jobs_ready = True
 
     def _ensure_events_outbox_table(self, conn) -> None:
+        """Verify events_outbox schema; DDL managed in Alembic revision ac973209add4."""
         if self._events_outbox_ready:
             return
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS events_outbox (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic TEXT NOT NULL,
-                    payload JSONB NOT NULL,
-                    tenant_id TEXT NOT NULL DEFAULT 'default',
-                    created_at TIMESTAMPTZ DEFAULT NOW()
+            cur.execute("SELECT to_regclass(%s) AS relname", ("public.events_outbox",))
+            result = cur.fetchone() or {}
+            table_exists = result.get("relname") is not None
+            if not table_exists:
+                raise RuntimeError(
+                    "events_outbox table missing. Apply Alembic revision ac973209add4 before using PgDB."
                 )
+
+            cur.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'events_outbox'
                 """
             )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_events_outbox_created ON events_outbox(created_at DESC)"
-            )
-            cur.execute(
-                "ALTER TABLE events_outbox ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'"
-            )
-            cur.execute(
-                "ALTER TABLE events_outbox ALTER COLUMN tenant_id DROP DEFAULT"
-            )
-            conn.commit()
+            columns = {row["column_name"] for row in cur.fetchall()}
+            required_columns = {"id", "topic", "payload", "status", "tenant_id", "created_at"}
+            missing_columns = required_columns - columns
+            if missing_columns:
+                raise RuntimeError(
+                    f"events_outbox columns missing {sorted(missing_columns)}; ensure Alembic revision ac973209add4 is applied."
+                )
+
         self._events_outbox_ready = True
 
     def _ensure_connector_tables(self, conn) -> None:
+        """Verify connector_* schema; DDL owned by Alembic revision ac973209add4."""
         if self._connector_tables_ready:
             return
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS connector_configs (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    type TEXT NOT NULL,
-                    config JSONB NOT NULL DEFAULT '{}'::jsonb,
-                    schedule TEXT,
-                    created_at TIMESTAMPTZ DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ DEFAULT NOW()
+            required_tables = (
+                "connector_configs",
+                "connector_runs",
+                "raw_documents",
+            )
+            missing_tables = []
+            for table in required_tables:
+                cur.execute("SELECT to_regclass(%s) AS relname", (f"public.{table}",))
+                result = cur.fetchone() or {}
+                if result.get("relname") is None:
+                    missing_tables.append(table)
+            if missing_tables:
+                missing_tables = sorted(missing_tables)
+                raise RuntimeError(
+                    f"Missing connector tables {missing_tables}. Apply Alembic revision ac973209add4."
                 )
-                """
+
+            expected_indexes = (
+                "public.ix_connector_runs_config_started",
+                "public.ix_raw_documents_config_external",
             )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS connector_runs (
-                    id BIGSERIAL PRIMARY KEY,
-                    config_id INTEGER NOT NULL REFERENCES connector_configs(id) ON DELETE CASCADE,
-                    status TEXT,
-                    started_at TIMESTAMPTZ DEFAULT NOW(),
-                    finished_at TIMESTAMPTZ,
-                    error TEXT
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS raw_documents (
-                    id BIGSERIAL PRIMARY KEY,
-                    config_id INTEGER NOT NULL REFERENCES connector_configs(id) ON DELETE CASCADE,
-                    external_id TEXT NOT NULL,
-                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-                    fetched_at TIMESTAMPTZ DEFAULT NOW(),
-                    UNIQUE(config_id, external_id)
-                )
-                """
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_connector_runs_config ON connector_runs(config_id, started_at DESC)"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_raw_documents_config ON raw_documents(config_id)"
-            )
-            conn.commit()
+            for index in expected_indexes:
+                cur.execute("SELECT to_regclass(%s) AS relname", (index,))
+                result = cur.fetchone() or {}
+                if result.get("relname") is None:
+                    logging.warning(
+                        "Index %s missing; expected from Alembic revision ac973209add4.", index.split(".")[-1]
+                    )
+
         self._connector_tables_ready = True
 
     @staticmethod
