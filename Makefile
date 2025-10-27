@@ -179,6 +179,10 @@ requirements-test.txt:
 	@echo "pytest-cov>=4.1.0"      >> $@
 	@echo "pytest-asyncio>=0.21.0" >> $@
 
+# Clean codemap snapshots
+codemap-clean:
+	@ls -1t artifacts/codemap/*.json 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+
 # Initialize pre-commit configuration
 .pre-commit-config.yaml:
 	@echo "repos:"                        >  $@
