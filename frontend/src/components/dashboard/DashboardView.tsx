@@ -4,6 +4,8 @@ import FrameCard from "@/components/surface/FrameCard";
 import { Button } from "@/components/ui/button";
 import { ExtColors, GalleryItem } from "@/types/ui";
 import api from "@/lib/api";
+import { ImageGenModal } from "@/components/modals/ImageGenModal";
+import { ImagePlus } from "lucide-react";
 
 type DashboardViewProps = {
   extColors: ExtColors;
@@ -29,6 +31,8 @@ export default function DashboardView({
   const [pinnedThreads, setPinnedThreads] = React.useState<
     { id: string; title: string; lastMessage?: string; archivedAt?: string | null }[]
   >([]);
+  const [showImgGen, setShowImgGen] = React.useState(false);
+  const [recentDocs, setRecentDocs] = React.useState<string[]>([]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -55,6 +59,26 @@ export default function DashboardView({
     };
   }, []);
 
+  // Load recent documents from API (PCX_UI_QUIKWINS_002)
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get("/api/media/documents", { params: { limit: 4 } });
+        const docs = res?.data || [];
+        const names = docs.map((d: any) => d.filename || d.name || "Untitled");
+        if (!cancelled) setRecentDocs(names);
+      } catch (e) {
+        console.warn("[dashboard] failed to load documents", e);
+        // Fall back to empty array (no mock data)
+        if (!cancelled) setRecentDocs([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const openThread = (id: string) => {
     if (typeof window !== "undefined") {
       const url = `/chat/${id}`;
@@ -67,8 +91,6 @@ export default function DashboardView({
     }
   };
 
-  // Demo lists (replace with real data when wired)
-  const recentDocs = ["Covenant.pdf", "Roadmap.md", "Vision.txt", "Design.sketch"];
   const rows = Math.max(1, Number.isFinite(threadGridRows) ? threadGridRows : 2);
   const threadColumns = 2;
   const threadLimit = threadColumns * rows;
@@ -175,9 +197,15 @@ export default function DashboardView({
             <div className="flex h-full min-h-0 flex-col p-5 gap-4">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-lg font-semibold tracking-tight">Gallery</h2>
-                <Button type="button" variant="ghost" size="sm" onClick={onNavigateGallery}>
-                  See All
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowImgGen(true)}>
+                    <ImagePlus className="h-4 w-4 mr-1" />
+                    Generate
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={onNavigateGallery}>
+                    See All
+                  </Button>
+                </div>
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)]">
@@ -198,6 +226,7 @@ export default function DashboardView({
           </FrameCard>
         </div>
       </div>
+      <ImageGenModal open={showImgGen} onOpenChange={setShowImgGen} />
     </section>
   );
 }
