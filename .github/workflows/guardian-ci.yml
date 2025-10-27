@@ -7,7 +7,43 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  schema-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Validate Alembic migrations
+        run: |
+          pytest tests/test_migrations.py -v || exit 1
+
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-validate-logs
+          path: ./tests
+
   frontend-quality:
     runs-on: ubuntu-latest
     steps:
@@ -39,7 +75,7 @@ jobs:
 
   build-and-test:
     runs-on: ubuntu-latest
-    needs: frontend-quality
+    needs: schema-validate
     env:
       # Dummy API keys for CI: do NOT use real secrets! These let tests pass pydantic validation.
       # Dummy keys so pydantic Settings validation passes during test collection
@@ -64,6 +100,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            pyproject.toml
 
       - name: Show Python info
         run: |
@@ -101,3 +142,38 @@ jobs:
           "
           # run pytest; -q + --maxfail keeps logs readable
           python -m pytest -q --maxfail=1 --disable-warnings -k "not cli"
+
+  schema-contract-validation:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    env:
+      PYTEST_VERBOSE_BOOT: "1"
+      GUARDIAN_ALLOW_DUMMY_SETTINGS: "1"
+      DATABASE_URL: "postgresql://guardian:guardian@db:5432/guardian"
+      TEST_DATABASE_URL: "postgresql://guardian:guardian@db:5432/test_guardian"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Compose
+        run: |
+          docker compose down -v || true
+          docker compose build backend
+
+      - name: Start Database
+        run: |
+          docker compose up -d db
+          sleep 10
+
+      - name: Run Schema Contract Test
+        run: |
+          docker compose up -d backend
+          docker compose exec backend bash -c "export TEST_DATABASE_URL=\$DATABASE_URL && pytest tests/test_migrations.py -v"
+
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-contract-logs
+          path: ./tests

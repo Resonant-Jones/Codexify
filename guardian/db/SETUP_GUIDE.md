@@ -149,21 +149,38 @@ except Exception as e:
 
 ### Test Media Operations
 ```python
-from guardian.core.media_db import get_media_db
+from guardian.core.db import GuardianDB
+from guardian.db.models import UploadedImage
+import uuid
 
-# This will use PostgreSQL if configured properly
-media_db = get_media_db()
+# Initialize database connection
+db = GuardianDB("postgresql://guardian_app:password@localhost:5432/guardian")
 
-# Test creating a generated image
-image_id = media_db.create_generated_image(
-    project_id="your_project_id",
-    thread_id="your_thread_id", 
-    user_id="your_user_id",
-    src_url="https://example.com/image.png",
-    prompt="A beautiful sunset over mountains",
-    model="dall-e-3"
+# Test creating an uploaded image using ORM
+image_id = str(uuid.uuid4())
+with db.get_session() as session:
+    image = UploadedImage(
+        id=image_id,
+        project_id=1,
+        thread_id=1,
+        user_id="test_user",
+        src_url="/media/images/test.jpg",
+        filename="test.jpg",
+        filesize=1024,
+        mime_type="image/jpeg"
+    )
+    session.add(image)
+    session.commit()
+    print(f"✅ Created image: {image_id}")
+
+# Or use the REST API
+import requests
+response = requests.post(
+    "http://localhost:8888/api/media/upload/image",
+    files={"file": open("test.jpg", "rb")},
+    data={"project_id": 1, "thread_id": 1}
 )
-print(f"Created image: {image_id}")
+print(f"✅ API response: {response.json()}")
 ```
 
 ## 🔧 Troubleshooting
