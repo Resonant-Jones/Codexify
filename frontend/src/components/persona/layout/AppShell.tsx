@@ -31,7 +31,6 @@ import { Input } from "@/components/ui/input";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
-import ProviderSwitchFAB from "@/components/ProviderSwitchFAB";
 import WorkspacePane from "@/features/workspace/WorkspacePane";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
@@ -48,6 +47,11 @@ import { LegacyThreadsProvider } from "@/contexts/LegacyThreadsContext";
 import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
 import ContextMenu from "@/components/ui/ContextMenu";
+import { ImageGenModal } from "@/components/modals/ImageGenModal";
+
+// TEMPORARY: inject static design tokens until full migration is done.
+import { injectCssVars } from "@/theme";
+injectCssVars();
 /* ──────────────────────────────────────────────────────────────────────────
    TUNING PRIMER (safe knobs)
    - Per-VIEW overrides: add CSS vars on the wrapper just after `{view === "…"`:
@@ -167,6 +171,20 @@ function writeSessionOverride(v: Resolved | null) {
    background visuals, modular design tokens, and view routing.
    ───────────────────────────────────────────────────────────────────────────── */
 export default function AppShell({}: PropsWithChildren) {
+  // Surface continuation summaries as toasts (PCX_CONTINUE_002)
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      try {
+        const ce = e as CustomEvent;
+        const summary = ce?.detail?.summary ?? ce?.detail?.stateSummary ?? "";
+        window.dispatchEvent(new CustomEvent("cfy:toast", {
+          detail: { message: summary, title: "🧭 New Child Thread", duration: 12000 }
+        }));
+      } catch {}
+    };
+    window.addEventListener("cfy:continuationToast", handler as any);
+    return () => window.removeEventListener("cfy:continuationToast", handler as any);
+  }, []);
   /* ─────────────────────────────────────────────────────────────────────────────
      🧠 Theme Mode Logic
      - `mode`: The user's chosen theme mode (light, dark, or system)
@@ -742,6 +760,8 @@ export default function AppShell({}: PropsWithChildren) {
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
+  const [showImgGenGallery, setShowImgGenGallery] = useState(false);
+  const [showImgGenDashboard, setShowImgGenDashboard] = useState(false);
 
   // Lightweight local vision captioner: analyze colors and aspect ratio
   async function localDescribeImage(src: string): Promise<string> {
@@ -1238,6 +1258,7 @@ export default function AppShell({}: PropsWithChildren) {
             </div>
           )}
           {view === "gallery" && (
+            <>
             <div className="isolate" style={{ "--radius": "var(--card-radius)", "--frame": "1px", "--bezel": "var(--bezel, 6px)", "--rim": "1px", "--gutter": "6px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)", borderRadius: "var(--card-radius)", padding: "var(--bezel, 6px)" } as React.CSSProperties}>
               <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
                 <div
@@ -1294,6 +1315,7 @@ export default function AppShell({}: PropsWithChildren) {
                             <div className="flex items-center justify-between gap-2 pt-3 text-xs opacity-80">
                               <div>Drag & drop images or documents here, or</div>
                               <button type="button" className="underline" onClick={galleryUploader.pick}>Choose files</button>
+                              <button type="button" className="underline ml-2" onClick={() => setShowImgGenGallery(true)}>Generate Image</button>
                               <div className="ml-auto flex items-center gap-2">
                                 <label className="flex items-center gap-2 cursor-pointer">
                                   <input type="checkbox" checked={hideMocks} onChange={(e) => { setHideMocks(e.target.checked); try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {} }} />
@@ -1309,6 +1331,8 @@ export default function AppShell({}: PropsWithChildren) {
                 </div>
               </div>
             </div>
+            <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
+            </>
           )}
           {view === "guardian" && (
             <div
