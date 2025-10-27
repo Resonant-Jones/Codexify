@@ -3,8 +3,18 @@ name: Frontend Quality
 on:
   push:
     branches: ["main"]
+    paths:
+      - 'frontend/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/frontend-quality.yml'
   pull_request:
     branches: ["main"]
+    paths:
+      - 'frontend/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/frontend-quality.yml'
 
 jobs:
   lint-build-test:
@@ -25,3 +35,9 @@ jobs:
         run: pnpm run build
       - name: Test
         run: pnpm run test
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-quality-logs
+          path: frontend

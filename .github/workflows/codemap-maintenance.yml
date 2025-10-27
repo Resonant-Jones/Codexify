@@ -7,13 +7,55 @@ on:
     - cron: '23 3 * * *'   # nightly UTC
     - cron: '15 4 * * 0'   # weekly Sunday UTC
   workflow_dispatch: {}
+  push:
+    branches: ["main"]
+    paths:
+      - 'guardian/core/**'
+      - 'guardian/db/**'
+      - 'scripts/codemap/**'
+      - '.github/workflows/codemap-maintenance.yml'
+  pull_request:
+    branches: ["main"]
+    paths:
+      - 'guardian/core/**'
+      - 'guardian/db/**'
+      - 'scripts/codemap/**'
+      - '.github/workflows/codemap-maintenance.yml'
 
 concurrency:
   group: codemap-maintenance
   cancel-in-progress: true
 
 jobs:
+  schema-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Validate Alembic migrations
+        run: |
+          pytest tests/test_migrations.py -v || exit 1
+
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codemap-schema-logs
+          path: ./tests
+
   maintain:
+    needs: schema-validate
     # id: maintain
     runs-on: ubuntu-latest
     steps:
@@ -50,6 +92,13 @@ jobs:
           bytes=$(wc -c <"$f")
           echo "Codemap size: $bytes bytes"
           [ "$bytes" -le 52428800 ] || { echo "Codemap too large"; exit 1; }
+
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codemap-maintenance-logs
+          path: artifacts/codemap/
 
       - name: Upload codemap artifacts
         uses: actions/upload-artifact@v4

@@ -1,4 +1,16 @@
 """
+⚠️ DEPRECATED: Archived on 2025-10-27
+==================================================
+This module has been superseded by:
+- ORM models in guardian/db/models.py
+- Alembic revision 9373693cc12e_add_media_and_tts_tables.py
+- Storage abstraction in guardian/core/storage.py
+- REST API in guardian/routes/media.py
+
+DO NOT import from this module in runtime code.
+Preserved for historical reference only.
+==================================================
+
 guardian.core.media_db (Postgres)
 =================================
 

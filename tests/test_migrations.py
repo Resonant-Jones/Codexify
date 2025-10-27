@@ -60,6 +60,11 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
     cfg_path.write_text(Path("backend/alembic.ini").read_text())
     cfg = Config(str(cfg_path))
     cfg.set_main_option("sqlalchemy.url", temp_url)
+    cfg.set_main_option("script_location", "guardian/db/migrations")
+    # Ensure Alembic can find scripts even when ini is copied to tmp
+    repo_root = Path(__file__).resolve().parents[1]
+    migrations_dir = repo_root / "guardian" / "db" / "migrations"
+    cfg.set_main_option("script_location", str(migrations_dir))
     monkeypatch.setenv("DATABASE_URL", temp_url)
 
     engine = None
@@ -84,11 +89,22 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
         if engine is not None:
             engine.dispose()
 
-        with psycopg2.connect(admin_url) as cleanup_conn:
-            cleanup_conn.autocommit = True
+        # Use separate autocommit connections for cleanup
+        cleanup_conn = psycopg2.connect(admin_url)
+        cleanup_conn.autocommit = True
+        try:
             with cleanup_conn.cursor() as cur:
                 cur.execute(
                     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s",
                     (db_name,),
                 )
-                cur.execute(f"DROP DATABASE IF EXISTS {db_name}")
+            # Open a one-off autocommit connection for DROP DATABASE
+            drop_conn = psycopg2.connect(admin_url)
+            drop_conn.autocommit = True
+            try:
+                with drop_conn.cursor() as cur:
+                    cur.execute(f"DROP DATABASE IF EXISTS {db_name}")
+            finally:
+                drop_conn.close()
+        finally:
+            cleanup_conn.close()
