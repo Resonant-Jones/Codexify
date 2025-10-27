@@ -12,16 +12,18 @@ Schema is defined in guardian/db/models.py and managed via Alembic.
 """
 
 import json
+import logging
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import create_engine, text, func
+from sqlalchemy import create_engine, text, func, inspect
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
 
 # Import ORM models
 from guardian.db.models import (
+    Base,
     Project,
     EventOutbox,
     MemoryEntry,
@@ -33,6 +35,27 @@ from guardian.db.models import (
     SyncJob,
     AuditLog,
 )
+
+
+logger = logging.getLogger(__name__)
+EXPECTED_TABLES = set(Base.metadata.tables.keys()) | {"alembic_version"}
+
+
+def verify_schema_consistency(engine) -> None:
+    """Validate that runtime schema matches Alembic-managed metadata."""
+    insp = inspect(engine)
+    logger.info("Verifying schema consistency...")
+    existing_tables = set(insp.get_table_names())
+
+    missing = sorted(EXPECTED_TABLES - existing_tables)
+    if missing:
+        raise RuntimeError(
+            f"Expected database tables missing: {missing}. Apply latest Alembic migrations."
+        )
+
+    unexpected = sorted(existing_tables - EXPECTED_TABLES)
+    if unexpected:
+        logger.warning("Untracked schema objects detected: %s", unexpected)
 
 
 class GuardianDB:
@@ -69,6 +92,8 @@ class GuardianDB:
             autocommit=False,
             autoflush=False,
         )
+
+        verify_schema_consistency(self.engine)
 
         # Legacy flags (no-ops now, kept for compatibility)
         self._events_outbox_ready = True
