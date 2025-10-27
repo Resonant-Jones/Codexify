@@ -73,6 +73,7 @@ exclude = '''
   | dist
   | guardian\.egg-info
   | migrations
+  | archive
   | .*_pb2\.py
 )
 '''
@@ -86,7 +87,8 @@ skip = [
   "build",
   "dist",
   "guardian.egg-info",
-  "migrations"
+  "migrations",
+  "archive"
 ]
 
 [tool.flake8]

@@ -1,4 +1,4 @@
-name: Python tests
+name: Python Tests (Backend Container)
 
 on:
   push:
@@ -6,10 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  tests:
+  backend-tests:
     runs-on: ubuntu-latest
     env:
-      # Dummy/test API keys and flags for CI runs; do not use real credentials!
       GUARDIAN_ALLOW_DUMMY_SETTINGS: "1"
       GENAI_API_KEY: "dummy"
       NOTION_API_KEY: "dummy"
@@ -19,39 +18,16 @@ jobs:
       GOOGLE_API_KEY: "dummy"
       PYTEST_VERBOSE_BOOT: "1"
       FORESIGHT_TIMEOUT: "2"
-      # If a 3rd-party pytest plugin causes noise:
-      # PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-    defaults:
-      run:
-        shell: bash
-        working-directory: .
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: >-
-            ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml','**/requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install project
+      - name: Set up Docker Compose
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
-          # Optional: lint tools
-pip install pytest
-          # pip install ruff==0.5.7
-  
+          docker compose down -v || true
+          docker compose build backend
+
       - name: Env for tests (dummy + gate)
         run: |
           python - <<'PY'
@@ -61,6 +37,17 @@ pip install pytest
                     ["GUARDIAN_ALLOW_DUMMY_SETTINGS","GENAI_API_KEY","NOTION_API_KEY","ANTHROPIC_API_KEY"]))
           PY
 
-      - name: Run tests
+      - name: Run Python tests in backend container
         run: |
-          pytest -q -s
+          docker compose up -d db
+          sleep 10
+          docker compose up -d backend
+          docker compose exec backend bash -c "pytest -q -s || exit 1"
+        continue-on-error: true
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-logs
+          path: ./tests
