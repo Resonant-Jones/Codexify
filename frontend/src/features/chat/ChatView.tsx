@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useChat } from "@/features/chat/useChat";
 import ChatBubble from "@/features/chat/components/ChatBubble";
+import ContextMenu from "@/components/ui/ContextMenu";
 
 export function ChatView({
   threadId,
@@ -49,6 +50,31 @@ export function ChatView({
     }
   };
 
+  // Context menu: Save to Prompt Library
+  const [menu, setMenu] = useState<{ x: number; y: number; text: string } | null>(null);
+  function savePrompt(text: string) {
+    const title = window.prompt("Optional title", "");
+    const category = window.prompt("Optional category", "");
+    const tagsRaw = window.prompt("Optional tags (comma-separated)", "");
+    const pin = window.confirm("Pin this prompt to top?");
+    const item = {
+      text,
+      ts: Date.now(),
+      source: "manual",
+      title: title || undefined,
+      category: category || undefined,
+      tags: (tagsRaw || "").split(",").map((t) => t.trim()).filter(Boolean),
+      pinned: pin || false,
+    };
+    try {
+      const raw = localStorage.getItem("cfy.prompts");
+      const arr = raw ? JSON.parse(raw) : [];
+      const next = [item, ...(Array.isArray(arr) ? arr : [])];
+      localStorage.setItem("cfy.prompts", JSON.stringify(next));
+      window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Saved to Prompt Library" } }));
+    } catch {}
+  }
+
   return (
     <div
       ref={containerRef}
@@ -58,8 +84,17 @@ export function ChatView({
     >
       <div className="space-y-3">
         {messages.map((m, index) => (
-          <div data-testid="chat-message" key={m.id ?? `${m.role}-${m.created_at ?? index}`}
-            className="max-w-full">
+          <div
+            data-testid="chat-message"
+            key={m.id ?? `${m.role}-${m.created_at ?? index}`}
+            className="max-w-full"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              const content = String(m.content ?? "");
+              if (!content.trim()) return;
+              setMenu({ x: e.clientX, y: e.clientY, text: content });
+            }}
+          >
             <ChatBubble
               message={{
                 id: String(m.id ?? `${m.role}-${m.created_at ?? index}`),
@@ -82,6 +117,16 @@ export function ChatView({
         {error && <div className="text-xs text-red-500" data-testid="chat-error">{error}</div>}
         <div aria-hidden className="h-[96px] shrink-0" />
       </div>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: "Save to Prompt Library", onClick: () => savePrompt(menu.text) },
+          ]}
+        />
+      )}
     </div>
   );
 }

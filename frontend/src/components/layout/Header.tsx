@@ -1,5 +1,6 @@
 import React from "react";
 import { useLiveEvents } from "../../hooks/useLiveEvents";
+import { SparklesIcon } from "@heroicons/react/24/solid";
 
 export const Header: React.FC = () => {
   const { connected } = useLiveEvents();
@@ -45,6 +46,17 @@ export const Header: React.FC = () => {
           </div>
           <button className="btn" onClick={toggleTheme} aria-label="Toggle theme">
             Toggle Theme
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("cfy:workspace:toggleWorkspacePanel")
+              )
+            }
+            aria-label="Toggle Workspace"
+          >
+            <SparklesIcon className="h-5 w-5 text-yellow-400" />
           </button>
         </div>
       </div>

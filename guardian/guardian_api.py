@@ -28,6 +28,7 @@ import datetime
 
 # Standard Library
 import os
+import secrets
 from contextlib import suppress
 from threading import Lock
 from datetime import datetime, date, time
@@ -36,7 +37,6 @@ from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
-# Third-Party
 import requests
 import psycopg2, psycopg2.extras
 from dotenv import load_dotenv
@@ -57,8 +57,28 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError, ConfigDict
 from starlette.responses import StreamingResponse
+
+# Configure logging EARLY (before any logger.* calls)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Additional imports for default project creation
+# Optional SQLAlchemy ProgrammingError import (may be unused)
+try:
+    from sqlalchemy.exc import ProgrammingError  # type: ignore
+except Exception:  # pragma: no cover
+    ProgrammingError = Exception  # type: ignore
+
+# Import ORM models from canonical location
+try:
+    from guardian.db.models import Project
+    logger.info("[imports] Using guardian.db.models.Project")
+except ImportError as e:
+    logger.warning("[imports] Could not import Project model: %s", e)
+    Project = None  # type: ignore
 
 # Import for Neo4j graph endpoint
 from fastapi import APIRouter, HTTPException
@@ -72,6 +92,7 @@ from guardian.core.db import GuardianDB
 from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.routes.codexify_router import router as codexify_router
 from guardian.routes.api_exports import router as exports_router
+from guardian.routes.media import router as media_router
 
 from guardian.connectors.github import sync_repo
 
@@ -139,11 +160,6 @@ except ModuleNotFoundError as e:
 
 # API Key authentication is enforced on all major endpoints (except /ping, /test, /)
 # Pass `X-API-Key` header with your requests.
-
-# Configure basic logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 
 # ---- Env loading (backend) -----------------------------------------------
 def _load_env_chain() -> None:
@@ -604,6 +620,17 @@ app.include_router(agent.router, prefix="/agent")
 app.include_router(codexify_router)
 # --- API Routers ---
 app.include_router(exports_router)
+app.include_router(media_router, prefix="/api/media", tags=["media"])
+
+# Mount static files for media storage
+# Serves uploaded files from /app/media at /media URL path
+try:
+    media_storage_path = os.getenv('STORAGE_BASE_PATH', '/app/media')
+    Path(media_storage_path).mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=media_storage_path), name="media")
+    logger.info(f"[media] Static file serving enabled at /media -> {media_storage_path}")
+except Exception as e:
+    logger.warning(f"[media] Could not mount static files at {media_storage_path}: {e}")
 
 # Meta / Self-Check endpoint for quick diagnostics (no auth by design, like /healthz)
 meta_router = APIRouter(prefix="/meta", tags=["Meta"])
@@ -2296,624 +2323,3 @@ def create_thread_alias(
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = ""
-
-
-@app.post("/projects", summary="Create a project", tags=["Projects"], status_code=201)
-def create_project_api(body: ProjectCreate, api_key: str = Depends(require_api_key)):
-    try:
-        pid = chatlog_db.create_project(body.name, body.description or "")
-        return {"project_id": pid}
-    except Exception as e:
-        # Log full exception for backend diagnostics
-        logger.exception("Failed to create project")
-
-        # In development include the error message to aid debugging; keep generic in production
-        env = os.getenv("GUARDIAN_ENV", "development")
-        if env == "development":
-            raise HTTPException(
-                status_code=500, detail=f"Failed to create project: {e}"
-            )
-        raise HTTPException(status_code=500, detail="Failed to create project")
-
-
-@app.get("/projects", summary="List projects", tags=["Projects"])
-def list_projects_api(api_key: str = Depends(require_api_key)):
-    try:
-        rows = chatlog_db.list_projects()
-        results = [
-            {
-                "id": r.get("id"),
-                "name": r.get("name"),
-                "description": (r.get("description") or ""),
-                "created_at": r.get("created_at"),
-                "updated_at": r.get("updated_at"),
-            }
-            for r in (rows or [])
-        ]
-        return {"projects": results}
-    except Exception:
-        logger.exception("Failed to list projects")
-        raise HTTPException(status_code=500, detail="Failed to list projects")
-
-
-@app.delete("/projects/{project_id}", summary="Delete a project", tags=["Projects"])
-def delete_project_api(project_id: int, api_key: str = Depends(require_api_key)):
-    try:
-        ok = chatlog_db.delete_project(project_id)
-    except Exception:
-        logger.exception("Failed to delete project %s", project_id)
-        raise HTTPException(status_code=500, detail="Failed to delete project")
-    if not ok:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return {"deleted": True}
-
-
-# =========================
-# Gemini Proxy Endpoints
-# =========================
-
-
-@app.get("/", summary="Gemini proxy status", tags=["Gemini Proxy"])
-def gemini_status():
-    """
-    Check the status of the Gemini proxy service.
-    """
-    logger.debug("Gemini status check requested")
-    return {"status": "Gemini proxy is running"}
-
-
-@app.get("/test", summary="Gemini proxy test endpoint", tags=["Gemini Proxy"])
-def gemini_test():
-    """
-    Simple test endpoint for the Gemini proxy.
-    """
-    logger.debug("Gemini test endpoint called")
-    return {"ping": "pong"}
-
-
-# Unified chat endpoint supporting Gemini and Groq
-@app.post(
-    "/chat",
-    response_model=GeminiChatResponse,
-    summary="Send chat prompt to active provider (Gemini or Groq)",
-    tags=["Chat"],
-)
-def unified_chat(
-    prompt: str = Form(..., description="The chat prompt"),
-    caption_model: str = Form(
-        "blip", description="Vision model to use: blip or mondream"
-    ),
-    model: Optional[str] = Form(None, description="LLM model to use (optional)"),
-    files: List[UploadFile] = File([], description="Optional file attachments"),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    Send a chat prompt to the active LLM provider (controlled by GUARDIAN_PROVIDER).
-    Logs the prompt/response to memory. Provider options: 'gemini' (default), 'groq'.
-    """
-    # Log incoming prompt (best-effort; don't fail chat if logging fails)
-    try:
-        chatlog_db.insert_memory_event(
-            content=f"User prompt: {prompt}",
-            tag=GUARDIAN_PROVIDER,
-            agent="user",
-            type_="log",
-            parent_id=None,
-        )
-    except Exception as e:
-        logger.debug(f"Prompt log failed (non-fatal): {e}")
-
-    # Handle image attachments (real captioning)
-    if files:
-        captions = []
-        for f in files:
-            if f.content_type.startswith("image/"):
-                # Read+crop
-                data = f.file.read()
-                img = Image.open(BytesIO(data)).convert("RGB")
-                img = crop_to_content(img)
-                if (
-                    caption_model.lower() == "mondream"
-                    and mondream_processor
-                    and mondream_model
-                ):
-                    # Mondream symbolic caption
-                    inputs = mondream_processor(images=img, return_tensors="pt")
-                    enc = mondream_model.encode_image(**inputs)
-                    answer = mondream_model.answer_question(
-                        enc,
-                        mondream_processor.tokenizer,
-                        "Describe every symbolic element in this image.",
-                    )
-                    captions.append(answer.strip())
-                else:
-                    # BLIP general caption
-                    if processor and vision_model:
-                        inputs = processor(images=img, return_tensors="pt")
-                        outputs = vision_model.generate(**inputs)
-                        caption = processor.decode(outputs[0], skip_special_tokens=True)
-                        captions.append(caption)
-                    else:
-                        captions.append("BLIP image captioning is disabled on this server.")
-        if captions:
-            prompt = (
-                "Here’s what I see in your image:\n"
-                + "\n".join(f"- {c}" for c in captions)
-                + "\n\n"
-                + prompt
-            )
-
-    provider = GUARDIAN_PROVIDER
-
-    # GROQ branch
-    if provider == "groq":
-        gc = get_groq_chat()
-        if not gc:
-            raise HTTPException(status_code=503, detail="Groq provider not available")
-        # Normalize model name: drop any prefix before ':'
-        raw_model = model or GROQ_MODEL_DEFAULT
-        real_model = raw_model.split(":", 1)[-1]
-        try:
-            reply_text = gc(prompt, model=real_model)
-        except Exception as e:
-            logger.error(f"Error contacting Groq API: {e}")
-            raise HTTPException(status_code=502, detail=f"Groq API error: {e}")
-
-        # Log AI reply (best-effort)
-        try:
-            chatlog_db.insert_memory_event(
-                content=f"AI reply: {reply_text}",
-                tag="groq",
-                agent="ai",
-                type_="log",
-                parent_id=None,
-            )
-        except Exception as e:
-            logger.debug(f"Reply log failed (non-fatal): {e}")
-
-        return GeminiChatResponse(model_used=f"groq:{real_model}", reply=reply_text)
-
-    # GEMINI branch (default)
-    headers = {
-        "Authorization": f"Bearer {GEMINI_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {"model": model, "prompt": prompt}
-    try:
-        response = requests.post(
-            GEMINI_API_URL, json=payload, headers=headers, timeout=30
-        )
-        response.raise_for_status()
-        data = response.json()
-        reply_text = data.get("reply", "")
-
-        try:
-            chatlog_db.insert_memory_event(
-                content=f"AI reply: {reply_text}",
-                tag="gemini",
-                agent="ai",
-                type_="log",
-                parent_id=None,
-            )
-        except Exception as e:
-            logger.debug(f"Reply log failed (non-fatal): {e}")
-
-        logger.info("Chat interaction logged successfully")
-        return GeminiChatResponse(model_used=model or "gemini-1.5", reply=reply_text)
-    except requests.HTTPError as http_err:
-        logger.error(f"HTTP error contacting Gemini API: {http_err}")
-        raise HTTPException(
-            status_code=getattr(response, "status_code", 502),
-            detail=f"Gemini API error: {http_err}",
-        )
-    except Exception as e:
-        logger.error(f"Error contacting Gemini API: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error contacting Gemini API: {str(e)}"
-        )
-
-
-# Streaming chat endpoint (SSE)
-@app.get(
-    "/chat/stream", summary="Stream chat tokens from active provider", tags=["Chat"]
-)
-async def stream_chat(
-    request: Request,
-    prompt: str = Query(..., description="The chat prompt"),
-    provider: Optional[str] = Query(None, description="Provider to use"),
-    model: Optional[str] = Query(None, description="Model to use (optional)"),
-):
-    """
-    Stream chat responses token-by-token via SSE.
-    """
-    # use provided provider or fall back to env default
-    provider = (provider or GUARDIAN_PROVIDER).lower()
-
-    # Validate availability BEFORE starting the stream to avoid response-started errors
-    gc = get_groq_chat() if provider == "groq" else None
-    if provider == "groq" and not gc:
-        raise HTTPException(status_code=503, detail="Groq provider not available")
-
-    # Normalize model name for streaming
-    raw_model = model or GROQ_MODEL_DEFAULT
-    real_model = raw_model.split(":", 1)[-1]
-
-    async def event_generator():
-        if provider == "groq":
-            for token in gc.stream(prompt, real_model):  # type: ignore[union-attr]
-                yield f"data: {token}\n\n"
-                if await request.is_disconnected():
-                    break
-        else:
-            # Fallback: synchronous Gemini response as single-chunk SSE
-            response = requests.post(
-                GEMINI_API_URL,
-                json={"model": model, "prompt": prompt},
-                headers={"Authorization": f"Bearer {GEMINI_API_KEY}"},
-                timeout=30,
-            )
-            response.raise_for_status()
-            reply = response.json().get("reply", "")
-            yield f"data: {reply}\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-@app.get("/whoami", summary="Get agent profile and identity", tags=["Agent"])
-def whoami(
-    agent_id: str = Header(..., description="Agent or User ID"),
-    api_key: str = Depends(require_api_key),
-):
-    profile = chatlog_db.get_agent_profile(agent_id)
-    if not profile:
-        raise HTTPException(status_code=404, detail="Agent profile not found.")
-    return profile
-
-
-@app.post("/profile", summary="Update agent profile fields", tags=["Agent"])
-def update_profile(
-    agent_id: str = Header(..., description="Agent or User ID"),
-    updates: dict = Body(...),
-    api_key: str = Depends(require_api_key),
-):
-    if not updates:
-        raise HTTPException(status_code=400, detail="No updates provided.")
-    chatlog_db.upsert_agent_profile(agent_id, **updates)
-    return {"message": "Profile updated."}
-
-
-@app.post(
-    "/profile/frequency",
-    summary="Set/toggle agent summarization frequency",
-    tags=["Agent"],
-)
-def set_frequency(
-    agent_id: str = Header(..., description="Agent or User ID"),
-    frequency: str = Body(..., embed=True),
-    api_key: str = Depends(require_api_key),
-):
-    if frequency not in ["daily", "weekly", "monthly"]:
-        raise HTTPException(status_code=400, detail="Invalid frequency.")
-    chatlog_db.upsert_agent_profile(agent_id, summarization_frequency=frequency)
-    return {"message": f"Frequency set to {frequency}."}
-
-
-@app.get(
-    "/summarization/check",
-    summary="Check if summarization is allowed for agent",
-    tags=["Agent"],
-)
-def summarization_check(
-    agent_id: str = Query(...),
-    requested_by: str = Query("ai"),
-    api_key: str = Depends(require_api_key),
-):
-    allowed, msg = chatlog_db.check_summarization_allowed(agent_id, requested_by)
-    return {"allowed": allowed, "message": msg}
-
-
-@app.post(
-    "/research", summary="Run research agent (web/codex/hybrid)", tags=["Research"]
-)
-def research_agent(
-    query: str = Body(..., embed=True, description="What do you want to research?"),
-    mode: str = Body("web", embed=True, description="'web', 'codex', or 'hybrid'"),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    Run the research agent (web, codex, or hybrid mode) and return a markdown research report.
-    """
-    import asyncio
-
-    from guardian.core.research.Modules.agent import Agent, Planner
-    from guardian.core.research.Modules.main import generate_report, read_config
-
-    config = read_config()
-    planner = Planner(**config.get("planner", {}))
-    agents = [Agent(**a) for a in config.get("agents", [])]
-
-    report = asyncio.run(generate_report(query, planner, agents))
-    return {"mode": mode, "report": report}
-
-
-# =========================
-# SSE Endpoint for Real-time Updates
-# =========================
-
-
-@app.get("/api/events", tags=["Events"])
-@app.get("/events", include_in_schema=False)
-async def events_stream(request: Request, _auth: str = Depends(require_auth)):
-    """Stream server-sent events to connected clients."""
-
-    query_last_id = request.query_params.get("last_id")
-    last_event_id_header = request.headers.get("last-event-id")
-    if query_last_id is not None:
-        last_event_id_header = query_last_id
-
-    last_seen_id = 0
-    if last_event_id_header:
-        try:
-            last_seen_id = int(last_event_id_header)
-        except ValueError:
-            logger.debug(
-                "Invalid Last-Event-ID value received: %s",
-                last_event_id_header,
-            )
-            last_seen_id = 0
-
-    tenant = request.query_params.get("tenant")
-
-    use_outbox = ENABLE_OUTBOX and event_bus.is_persistent_enabled()
-    if use_outbox:
-        logger.info("[outbox] SSE client connected last_id=%s", last_seen_id)
-    elif last_event_id_header:
-        logger.info(
-            "SSE client reconnected to in-memory hub with Last-Event-ID=%s",
-            last_event_id_header,
-        )
-    else:
-        logger.info("SSE client connected to /api/events (in-memory hub)")
-
-    async def event_stream() -> AsyncGenerator[str, None]:
-        queue: Optional[asyncio.Queue] = None
-        heartbeat_interval = 15.0
-        loop = asyncio.get_running_loop()
-        next_heartbeat = loop.time() + heartbeat_interval
-        last_outbox_id = last_seen_id
-        last_delivered_id = last_seen_id
-        last_cleaned_id = last_seen_id
-        inmem_event_id = last_seen_id
-
-        if not use_outbox or event_bus.is_persistent_enabled():
-            queue = event_bus.subscribe_in_memory()
-
-        try:
-            # Hint clients to retry quickly on disconnects.
-            yield "retry: 3000\n\n"
-
-            while True:
-                if use_outbox:
-                    events = await _run_db(
-                        event_bus.fetch_events_after, last_outbox_id, OUTBOX_BATCH_SIZE
-                    )
-                    if events:
-                        cursor_before_batch = last_outbox_id
-                        logger.info(
-                            "[outbox] replaying %d events after last_id=%s",
-                            len(events),
-                            cursor_before_batch,
-                        )
-                        delivered_in_batch = False
-                        for event in events:
-                            event_id = int(event.get("id") or 0)
-                            last_outbox_id = max(last_outbox_id, event_id)
-                            event_tenant = (event.get("tenant_id") or "default")
-                            if ENABLE_SSE_FILTER and tenant and event_tenant != tenant:
-                                continue
-                            last_delivered_id = max(last_delivered_id, event_id)
-                            delivered_in_batch = True
-                            topic = event.get("topic") or "event"
-                            payload = event.get("payload") or {}
-                            data = json.dumps(payload, default=str)
-                            yield f"id: {event_id}\nevent: {topic}\ndata: {data}\n\n"
-                        if delivered_in_batch:
-                            next_heartbeat = loop.time() + heartbeat_interval
-                            if last_delivered_id > last_cleaned_id:
-                                delete_tenant = (
-                                    tenant if (ENABLE_SSE_FILTER and tenant) else None
-                                )
-                                await _run_db(
-                                    event_bus.delete_events_through,
-                                    last_delivered_id,
-                                    delete_tenant,
-                                )
-                                last_cleaned_id = last_delivered_id
-                                logger.info(
-                                    "[outbox] deleted events through id=%s",
-                                    last_delivered_id,
-                                )
-                            if await request.is_disconnected():
-                                logger.info("SSE client disconnected from /api/events")
-                                break
-                            continue
-                    if queue is not None:
-                        try:
-                            await asyncio.wait_for(
-                                queue.get(), timeout=OUTBOX_POLL_INTERVAL
-                            )
-                            continue
-                        except asyncio.TimeoutError:
-                            pass
-                    await asyncio.sleep(min(OUTBOX_POLL_INTERVAL, heartbeat_interval))
-                else:
-                    try:
-                        message = await asyncio.wait_for(
-                            queue.get(), timeout=heartbeat_interval
-                        )
-                    except asyncio.TimeoutError:
-                        message = None
-                    if message is not None:
-                        message_tenant = "default"
-                        if isinstance(message, dict):
-                            message_tenant = message.get("tenant_id") or "default"
-                        if ENABLE_SSE_FILTER and tenant and message_tenant != tenant:
-                            continue
-                        inmem_event_id += 1
-                        topic = (
-                            message.get("type") if isinstance(message, dict) else None
-                        ) or "event"
-                        data_payload = (
-                            message.get("data") if isinstance(message, dict) else {}
-                        ) or {}
-                        data = json.dumps(data_payload, default=str)
-                        yield f"id: {inmem_event_id}\nevent: {topic}\ndata: {data}\n\n"
-                        next_heartbeat = loop.time() + heartbeat_interval
-                        if await request.is_disconnected():
-                            logger.info("SSE client disconnected from /api/events")
-                            break
-                        continue
-
-                now = loop.time()
-                if now >= next_heartbeat:
-                    yield "event: ping\ndata: {}\n\n"
-                    next_heartbeat = now + heartbeat_interval
-
-                if await request.is_disconnected():
-                    logger.info("SSE client disconnected from /api/events")
-                    break
-        finally:
-            if queue is not None:
-                event_bus.unsubscribe_in_memory(queue)
-
-    headers = {
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "X-Accel-Buffering": "no",
-    }
-    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
-
-
-# =========================
-# Chat Log v2 Endpoints
-# =========================
-
-
-# /history/v2: Retrieve chat logs from new chat_log table
-@app.get("/history/v2", summary="Retrieve chat log history (v2)", tags=["Memory"])
-def chat_log_history(
-    session_id: str = Query(..., description="Session ID to fetch"),
-    user_id: str = Query("default", description="User ID"),
-    limit: int = Query(20, ge=1, le=200, description="Number of messages"),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    Returns latest chat logs for a session/user, from the new chat_log table.
-    """
-    history = chatlog_db.get_chat_history(
-        session_id=session_id,
-        user_id=user_id,
-        limit=limit,
-    )
-    # `history` is already a list of dicts with the proper keys; return as-is
-    return {"history": history}
-
-
-# /summarize/v2: Summarize recent chat logs using active LLM
-@app.post("/summarize/v2", summary="Summarize chat log history (v2)", tags=["Memory"])
-def summarize_chat_log(
-    session_id: str = Query(..., description="Session ID to summarize"),
-    user_id: str = Query("default", description="User ID"),
-    limit: int = Query(20, ge=1, le=200, description="How many messages to summarize"),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    Summarizes chat history for a session/user using the currently active LLM backend.
-    """
-    history = chatlog_db.get_chat_history(
-        session_id=session_id,
-        user_id=user_id,
-        limit=limit,
-    )
-    if not history:
-        return {"summary": "No chat history found for this session."}
-
-    # Compose LLM-ready message format (chronological)
-    messages = []
-    for row in reversed(history):
-        # row is a dict with keys: id, timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra
-        if row.get("role") == "user" and row.get("message"):
-            messages.append({"role": "user", "content": row["message"]})
-        elif row.get("role") == "assistant" and row.get("response"):
-            messages.append({"role": "assistant", "content": row["response"]})
-
-    summary_prompt = [
-        {
-            "role": "system",
-            "content": "Summarize this conversation for future recall. Capture all key facts, emotional beats, and decisions. Be specific.",
-        }
-    ] + messages
-
-    if not chat_with_ai:
-        raise HTTPException(status_code=503, detail="LLM backend is not available.")
-    summary: str = chat_with_ai(summary_prompt)
-    return {"summary": summary}
-
-
-@app.get("/diag/github/ping", tags=["Connectors"], summary="Check GitHub API from backend")
-def diag_github_ping(owner: str = Query(...), repo: str = Query(...)):
-    # Trim whitespace/newlines from token and try both accepted auth schemes.
-    token = (os.getenv("GITHUB_TOKEN") or "").strip()
-    if not token:
-        raise HTTPException(status_code=400, detail="GITHUB_TOKEN not set in backend environment")
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/issues"
-    common_headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    params = {"per_page": 1}
-
-    last_resp = None
-    last_json = None
-    for scheme in ("Bearer", "token"):
-        try:
-            headers = {**common_headers, "Authorization": f"{scheme} {token}"}
-            resp = requests.get(url, headers=headers, params=params, timeout=15)
-            last_resp = resp
-            ct = resp.headers.get("content-type", "")
-            if ct.startswith("application/json"):
-                try:
-                    last_json = resp.json()
-                except Exception:
-                    last_json = None
-
-            # If not unauthorized, report immediately with the scheme that worked (or other status)
-            if resp.status_code != 401:
-                sample = None
-                if isinstance(last_json, list) and last_json:
-                    item = last_json[0]
-                    sample = {k: item.get(k) for k in ("id", "number", "title", "state")}
-                return {
-                    "status": resp.status_code,
-                    "ok": resp.ok,
-                    "auth_scheme": scheme,
-                    "rate_limit": resp.headers.get("x-ratelimit-remaining"),
-                    "error": (last_json.get("message") if isinstance(last_json, dict) else None),
-                    "sample": sample,
-                }
-            # else, try the next scheme
-        except Exception as e:
-            # Network/other failure
-            raise HTTPException(status_code=502, detail=f"GitHub ping failed: {e}")
-
-    # If we got here, both schemes returned 401 – surface the GitHub error message to help debugging.
-    err_msg = (last_json.get("message") if isinstance(last_json, dict) else None) or "Unauthorized (check token/scopes)"
-    return {
-        "status": (last_resp.status_code if last_resp is not None else 0),
-        "ok": False,
-        "auth_scheme": "Bearer/token",
-        "rate_limit": (last_resp.headers.get("x-ratelimit-remaining") if last_resp is not None else None),
-        "error": err_msg,
-        "sample": None,
-    }

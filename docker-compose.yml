@@ -1,81 +1,136 @@
-# Usage:
-#   docker compose build --no-cache
-#   docker compose up --build
+name: codexify
 
 services:
-  neo4j:
-    image: neo4j:5
-    environment:
-      - NEO4J_AUTH=neo4j/guardian
-    ports:
-      - "7474:7474"
-      - "7687:7687"
-    volumes:
-      - neo4j_data:/data
-    healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "guardian", "RETURN 1"]
-      interval: 5s
-      timeout: 10s
-      retries: 10
   db:
     image: postgres:15
     environment:
       POSTGRES_USER: guardian
       POSTGRES_PASSWORD: guardian
       POSTGRES_DB: guardian
-    volumes:
-      - pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U guardian -d guardian"]
-      interval: 3s
-      timeout: 3s
+      interval: 5s
+      timeout: 5s
       retries: 20
-    ports:
-      - "${PG_PORT:-5432}:5432"
+    ports: ["5432:5432"]
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  neo4j:
+    image: neo4j:5
+    environment:
+      NEO4J_AUTH: neo4j/guardian
+      NEO4J_server_default__listen__address: 0.0.0.0
+    ports: ["7474:7474", "7687:7687"]
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -a bolt://localhost:7687 -u neo4j -p guardian 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  graph-init:
+    image: neo4j:5
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["sh", "-lc"]
+    command: |
+      echo "
+      CREATE CONSTRAINT user_id_unique     IF NOT EXISTS FOR (u:User)    REQUIRE u.id IS UNIQUE;
+      CREATE CONSTRAINT project_id_unique  IF NOT EXISTS FOR (p:Project) REQUIRE p.id IS UNIQUE;
+      CREATE CONSTRAINT thread_id_unique   IF NOT EXISTS FOR (t:Thread)  REQUIRE t.id IS UNIQUE;
+      CREATE CONSTRAINT message_id_unique  IF NOT EXISTS FOR (m:Message) REQUIRE m.id IS UNIQUE;
+      CREATE INDEX project_name_idx IF NOT EXISTS FOR (p:Project) ON (p.name);
+      CREATE INDEX person_name_idx  IF NOT EXISTS FOR (p:Person)  ON (p.name);
+      MERGE (me:User {id:'me'}) ON CREATE SET me.name = 'Resonant Jones';
+      MERGE (p:Project {id:'proj-loose-threads'}) ON CREATE SET p.name = 'Loose Threads', p.createdAt = datetime();
+      MERGE (me)-[:OWNS]->(p);
+      " | cypher-shell -a bolt://neo4j:7687 -u neo4j -p guardian
+
+  migrator:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    entrypoint: []            # ensure our command runs; ignore any image ENTRYPOINT
+    environment:
+      DATABASE_URL: postgresql://guardian:guardian@db:5432/guardian
+      ENABLE_BLIP_MODEL: "false"   # keep migrations light (no model loading)
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    command: >
+      sh -lc '
+        set -e
+        ln -sf /app/guardian /app/codexify
+        echo "[Migrator] Running Alembic migrations..."
+        alembic --raiseerr -c backend/alembic.ini upgrade head
+        echo "[Migrator] Running seed script..."
+        python backend/scripts/seed_defaults.py
+        echo "[Migrator] Seed script completed."
+        echo "[Migrator] Done."
+      '
+    volumes:
+      - .:/app
 
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    working_dir: /app
+    entrypoint: []            # ensure uvicorn runs directly; ignore image ENTRYPOINT
     environment:
-      PORT: 8888
-      DATABASE_URL: "postgresql://guardian:guardian@db:5432/guardian"
-      NEO4J_BOLT_URL: "bolt://neo4j:guardian@neo4j:7687"
-      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-changeme}"
+      DATABASE_URL: postgresql://guardian:guardian@db:5432/guardian
+      PORT: "8888"
+      NEO4J_BOLT_URL: bolt://neo4j:guardian@neo4j:7687
+      GUARDIAN_API_KEY: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e
       ENABLE_CONNECTOR_WORKER: "false"
-    command: uvicorn codexify.guardian_api:app --host 0.0.0.0 --port 8888
     depends_on:
       db:
         condition: service_healthy
-      neo4j:
-        condition: service_healthy
-    ports:
-      - "${BACKEND_PORT:-8888}:8888"
+      codexify-init:
+        condition: service_completed_successfully
+    command: >
+      sh -lc 'ln -sf /app/guardian /app/codexify &&
+              uvicorn codexify.guardian_api:app --host 0.0.0.0 --port 8888'
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; urllib.request.urlopen('http://localhost:8888/ping', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
+    ports: ["8888:8888"]
+    restart: unless-stopped
+    volumes:
+      - .:/app
 
   frontend:
+  
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        NODE_IMAGE: node:20-alpine
-    environment:
-      VITE_DEV_PORT: "${FRONTEND_PORT:-5173}"
-      VITE_USE_PROXY: "true"
-      VITE_PROXY_TARGET: "http://backend:8888"
-      VITE_BACKEND_URL: "http://backend:8888"
-      VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-local-guardian-ui}"
-      CHOKIDAR_USEPOLLING: "1"
-      WATCHPACK_POLLING: "true"
-    command: sh -lc "pnpm --dir src dev -- --host 0.0.0.0 --port ${VITE_DEV_PORT:-5173}"
     depends_on:
-      - backend
-    ports:
-      - "${FRONTEND_PORT:-5173}:5173"
-    # Optional for live coding: mount just the app folder
-    # volumes:
-    #   - ./frontend/src:/app/src
+      backend:
+        condition: service_healthy
+    ports: ["5173:5173"]
+    volumes:
+      - ./frontend:/app
+
+  codexify-init:
+    image: alpine:latest
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      graph-init:
+        condition: service_completed_successfully
+    command: >
+      sh -c 'echo "[Codexify-Init] ✅ Migration and Graph setup verified."'
+    restart: "no"
 
 volumes:
   pg_data:
-
   neo4j_data:

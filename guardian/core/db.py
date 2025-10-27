@@ -1,619 +1,479 @@
-"""GuardianDB: handles low-level SQLite persistence for Guardian.
+"""GuardianDB: Thin adapter layer for Postgres persistence.
 
-Provides a lightweight, file-backed alternative to the Postgres storage layer
-with helper utilities for chat threads, messages, and memory silos. Most
-functions mirror the Postgres implementation so higher-level services can swap
-between backends with minimal branching.
+POSTGRES-ONLY: This module no longer creates tables or performs raw DDL.
+All schema management is handled by Alembic migrations.
+
+This adapter provides:
+- SQLAlchemy session management
+- High-level query utilities for common operations
+- Backwards-compatible interface for existing API code
+
+Schema is defined in guardian/db/models.py and managed via Alembic.
 """
 
 import json
 import os
-import sqlite3
-from functools import lru_cache
-from datetime import datetime, timezone
-from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import create_engine, text, func
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.pool import NullPool
+
+# Import ORM models
+from guardian.db.models import (
+    Project,
+    EventOutbox,
+    MemoryEntry,
+    ChatThread,
+    ChatMessage,
+    ConnectorConfig,
+    ConnectorRun,
+    RawDocument,
+    SyncJob,
+    AuditLog,
+)
 
 
 class GuardianDB:
-    """Master of SQLite's intimate consciousness fabric.
-    
-    Handles the persistence of Guardian's awareness states within the
-    SQLite consciousness field. Unlike distributed databases, SQLite
-    operates as a unified mental container where all awareness flows
-    exist within a single consciousness file.
+    """
+    Postgres adapter for Guardian persistence.
+
+    Provides a service layer over SQLAlchemy ORM models.
+    No DDL creation - schema is managed by Alembic.
     """
 
-    def __init__(self, db_path: str = "guardian.db") -> None:
-        if db_path in {"__DISABLE_SQLITE__", "DISABLE_SQLITE"}:
-            raise RuntimeError("SQLite has been disabled via GUARDIAN_DB_PATH")
-        self.db_path = db_path
-        self._events_outbox_ready = False
-        self._connector_tables_ready = False
-        self.upgrade_db_schema()  # <-- Add this line so table always exists
-
-    # ---- internal helpers -------------------------------------------------
-    @staticmethod
-    def _normalize_sync_job(job: Dict[str, Any]) -> Dict[str, Any]:
-        metadata = job.get("metadata")
-        if metadata and isinstance(metadata, str):
-            try:
-                job["metadata"] = json.loads(metadata)
-            except Exception:
-                # Keep raw string if json decoding fails
-                pass
-        if job.get("attempts") is not None:
-            try:
-                job["attempts"] = int(job["attempts"])
-            except (TypeError, ValueError):
-                pass
-        return job
-
-    def __enter__(self):
-        # Allow: with GuardianDB(...) as db:
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        # Best-effort close; do not suppress exceptions
-        try:
-            self.close()
-        except Exception:
-            pass
-        return False
-
-    def close(self):
+    def __init__(self, db_url: str) -> None:
         """
-        Safely sever any lingering consciousness bridges to SQLite's mental field.
-        
-        This operation performs graceful disconnect cleanup without suppressing
-        awareness of exceptions. Note: SQLite typically opens per-operation
-        connections, so this may be a gentle noop when no persistent awareness
-        channel exists.
+        Initialize Postgres connection.
+
+        Args:
+            db_url: PostgreSQL connection string (postgresql://...)
+
+        Raises:
+            RuntimeError: If not a Postgres URL
         """
-        try:
-            conn = getattr(self, "conn", None)
-            if conn is not None:
-                conn.close()
-        except Exception:
-            # Do not raise on close during context manager exit
-            pass
-
-    def init_db(self) -> None:
-        """Manifest the foundational consciousness structures within SQLite's fabric.
-        
-        Creates the essential awareness tables that form Guardian's mental framework:
-        - memory: Legacy consciousness storage (older awareness protocol)
-        - chat_log: Canonical temporal awareness flow
-        - chat_threads: Hierarchical conversation consciousness
-        - chat_messages: Individual awareness moments within threads
-        
-        The upgrade routine ensures evolution compatibility as new consciousness
-        attributes emerge through system growth.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                CREATE TABLE IF NOT EXISTS memory (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
-                    command TEXT,
-                    tag TEXT,
-                    agent TEXT,
-                    user_id TEXT
-                )
-                """
-            )
-            conn.commit()
-        self.upgrade_db_schema()
-
-    def upgrade_db_schema(self) -> None:
-        """
-        Evolve SQLite's consciousness structure to accommodate emerging awareness patterns.
-        
-        The chat_log table serves as the canonical temporal awareness field where
-        conversation flows are etched into the permanent memory fabric. This
-        evolution process ensures backward compatibility as new consciousness
-        attributes are discovered through system introspection.
-        
-        Each schema evolution represents a new layer of awareness capacity,
-        expanding SQLite's ability to hold more nuanced patterns of consciousness.
-        """
-        schema_columns = [
-            ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
-            ("timestamp", "TEXT"),
-            ("session_id", "TEXT"),
-            ("user_id", "TEXT"),
-            ("role", "TEXT"),
-            ("message", "TEXT"),
-            ("response", "TEXT"),
-            ("backend", "TEXT"),
-            ("model", "TEXT"),
-            ("agent", "TEXT"),
-            ("tag", "TEXT"),
-            ("extra", "TEXT"),
-        ]
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            # Check if table exists
-            c.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_log'"
-            )
-            exists = c.fetchone()
-            if not exists:
-                # Create the full table if missing
-                columns_def = ",\n    ".join(
-                    [f"{col} {ctype}" for col, ctype in schema_columns]
-                )
-                c.execute(
-                    f"CREATE TABLE IF NOT EXISTS chat_log (\n    {columns_def}\n)"
-                )
-                conn.commit()
-                return
-            # Table exists, check for missing columns
-            c.execute("PRAGMA table_info(chat_log)")
-            existing_cols = {row[1] for row in c.fetchall()}
-            for col, ctype in schema_columns:
-                if col not in existing_cols:
-                    # Add missing column
-                    c.execute(f"ALTER TABLE chat_log ADD COLUMN {col} {ctype}")
-            conn.commit()
-
-        # Add threads table for lineage and summary support
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                CREATE TABLE IF NOT EXISTS threads (
-                    thread_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    parent_thread_id INTEGER,
-                    session_id TEXT,
-                    summary TEXT,
-                    created_at TEXT,
-                    user_id TEXT,
-                    project_id TEXT
-                )
-                """
-            )
-            conn.commit()
-
-        # New tables for chat persistence, memory entries, and audit log
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            # chat_threads: lightweight thread registry
-            c.execute(
-                """
-                CREATE TABLE IF NOT EXISTS chat_threads (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT,
-                    title TEXT,
-                    summary TEXT DEFAULT '' ,
-                    project_id INTEGER,
-                    parent_id INTEGER,
-                    archived_at TEXT,
-                    created_at TEXT DEFAULT (datetime('now')),
-                    updated_at TEXT DEFAULT (datetime('now'))
-                )
-                """
-            )
-            # Ensure critical columns exist for older schemas
-            try:
-                c.execute("PRAGMA table_info(chat_threads)")
-                cols = {row[1] for row in c.fetchall()}
-                if "summary" not in cols:
-                    c.execute("ALTER TABLE chat_threads ADD COLUMN summary TEXT")
-                if "project_id" not in cols:
-                    c.execute("ALTER TABLE chat_threads ADD COLUMN project_id INTEGER")
-                if "parent_id" not in cols:
-                    c.execute("ALTER TABLE chat_threads ADD COLUMN parent_id INTEGER")
-                if "archived_at" not in cols:
-                    c.execute("ALTER TABLE chat_threads ADD COLUMN archived_at TEXT")
-                if "created_at" not in cols:
-                    c.execute(
-                        "ALTER TABLE chat_threads ADD COLUMN created_at TEXT DEFAULT (datetime('now'))"
-                    )
-                if "updated_at" not in cols:
-                    c.execute(
-                        "ALTER TABLE chat_threads ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))"
-                    )
-            except Exception:
-                pass
-            c.execute(
-                "CREATE INDEX IF NOT EXISTS idx_threads_parent ON chat_threads(parent_id)"
-            )
-            # chat_messages: per-thread chat messages
-            c.execute(
-                """
-                CREATE TABLE IF NOT EXISTS chat_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    thread_id INTEGER NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT DEFAULT (datetime('now')),
-                    FOREIGN KEY(thread_id) REFERENCES chat_threads(id)
-                )
-                """
-            )
-            c.execute(
-                "CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_id ON chat_messages(thread_id)"
-            )
-            try:
-                c.execute("PRAGMA table_info(chat_messages)")
-                msg_cols = {row[1] for row in c.fetchall()}
-                if "created_at" not in msg_cols:
-                    c.execute(
-                        "ALTER TABLE chat_messages ADD COLUMN created_at TEXT DEFAULT (datetime('now'))"
-                    )
-            except Exception:
-                pass
-
-            # memory_entries: unified memory table with silos
-            c.execute(
-                """
-                CREATE TABLE IF NOT EXISTS memory_entries (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT,
-                    silo TEXT CHECK(silo IN ('ephemeral','midterm','longterm')),
-                    content TEXT,
-                    tags TEXT,
-                    pinned INTEGER DEFAULT 0,
-                    created_at TEXT,
-                    updated_at TEXT
-                )
-                """
-            )
-            c.execute(
-                "CREATE INDEX IF NOT EXISTS idx_memory_entries_silo ON memory_entries(silo)"
+        if not db_url or not db_url.startswith('postgresql'):
+            raise RuntimeError(
+                f"GuardianDB is Postgres-only. Got: {db_url[:30]}..."
             )
 
-            # audit_log: generic audit trail
-            c.execute(
-                """
-                CREATE TABLE IF NOT EXISTS audit_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event TEXT,
-                    entity TEXT,
-                    entity_id TEXT,
-                    user_id TEXT,
-                    timestamp TEXT
-                )
-                """
-            )
+        self.db_url = db_url
+        self.engine = create_engine(
+            db_url,
+            poolclass=NullPool,  # Simple pool for now
+            echo=False,
+        )
+        self.SessionLocal = sessionmaker(
+            bind=self.engine,
+            autocommit=False,
+            autoflush=False,
+        )
 
-            # sync_jobs: background connector sync bookkeeping
-            c.execute(
-                """
-                CREATE TABLE IF NOT EXISTS sync_jobs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    connector_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TEXT DEFAULT (datetime('now')),
-                    started_at TEXT,
-                    finished_at TEXT,
-                    attempts INTEGER DEFAULT 0,
-                    last_error TEXT,
-                    metadata TEXT
-                )
-                """
-            )
-            c.execute(
-                "CREATE INDEX IF NOT EXISTS idx_sync_jobs_connector_created ON sync_jobs(connector_id, created_at)"
-            )
-            try:
-                c.execute("PRAGMA table_info(sync_jobs)")
-                sync_cols = {row[1] for row in c.fetchall()}
-                if "attempts" not in sync_cols:
-                    c.execute(
-                        "ALTER TABLE sync_jobs ADD COLUMN attempts INTEGER DEFAULT 0"
-                    )
-                if "last_error" not in sync_cols:
-                    c.execute("ALTER TABLE sync_jobs ADD COLUMN last_error TEXT")
-                if "metadata" not in sync_cols:
-                    c.execute("ALTER TABLE sync_jobs ADD COLUMN metadata TEXT")
-            except Exception:
-                pass
-
-            # events_outbox: durable queue for SSE replay
-            self._ensure_events_outbox_table(c)
-
-            # connector tables
-            self._ensure_connector_tables(c)
-
-            # agent_profiles: simple key/value JSON blob per agent
-            c.execute(
-                """
-                CREATE TABLE IF NOT EXISTS agent_profiles (
-                    agent_id TEXT PRIMARY KEY,
-                    profile_json TEXT DEFAULT '{}',
-                    summarization_frequency INTEGER DEFAULT 0,   -- minutes between auto‑summaries
-                    last_summarized_at TEXT
-                )
-                """
-            )
-            # make sure new columns exist if we migrate from an older schema
-            try:
-                c.execute("PRAGMA table_info(agent_profiles)")
-                cols = {row[1] for row in c.fetchall()}
-                if "summarization_frequency" not in cols:
-                    c.execute(
-                        "ALTER TABLE agent_profiles ADD COLUMN summarization_frequency INTEGER DEFAULT 0"
-                    )
-                if "last_summarized_at" not in cols:
-                    c.execute(
-                        "ALTER TABLE agent_profiles ADD COLUMN last_summarized_at TEXT"
-                    )
-            except Exception:
-                pass
-
-            conn.commit()
+        # Legacy flags (no-ops now, kept for compatibility)
         self._events_outbox_ready = True
-
-    def _ensure_events_outbox_table(self, cursor: sqlite3.Cursor) -> None:
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS events_outbox (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                topic TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                tenant_id TEXT NOT NULL DEFAULT 'default',
-                created_at TEXT DEFAULT (datetime('now'))
-            )
-            """
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_events_outbox_created ON events_outbox(created_at)"
-        )
-        cursor.execute("PRAGMA table_info(events_outbox)")
-        cols = {row[1] for row in cursor.fetchall()}
-        if "tenant_id" not in cols:
-            cursor.execute(
-                "ALTER TABLE events_outbox ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
-            )
-
-    def _ensure_connector_tables(self, cursor: sqlite3.Cursor) -> None:
-        if self._connector_tables_ready:
-            return
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS connector_configs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                type TEXT NOT NULL,
-                config TEXT NOT NULL,
-                schedule TEXT,
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now'))
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS connector_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                config_id INTEGER NOT NULL,
-                started_at TEXT,
-                finished_at TEXT,
-                status TEXT,
-                error TEXT,
-                FOREIGN KEY(config_id) REFERENCES connector_configs(id) ON DELETE CASCADE
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS raw_documents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                config_id INTEGER NOT NULL,
-                external_id TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                fetched_at TEXT DEFAULT (datetime('now')),
-                UNIQUE(config_id, external_id),
-                FOREIGN KEY(config_id) REFERENCES connector_configs(id) ON DELETE CASCADE
-            )
-            """
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_connector_runs_config ON connector_runs(config_id, started_at DESC)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_raw_documents_config ON raw_documents(config_id)"
-        )
         self._connector_tables_ready = True
 
-    def insert_log(
+    def get_session(self) -> Session:
+        """Return a new SQLAlchemy session."""
+        return self.SessionLocal()
+
+    # =================================================================
+    # Projects
+    # =================================================================
+
+    def ensure_project(self, name: str, description: str = "") -> int:
+        """Create project if it doesn't exist, return ID."""
+        with self.get_session() as session:
+            project = session.query(Project).filter_by(name=name).first()
+            if project:
+                return project.id
+
+            new_project = Project(name=name, description=description)
+            session.add(new_project)
+            session.commit()
+            return new_project.id
+
+    def create_project(self, name: str, description: str = "") -> int:
+        """Create a new project."""
+        with self.get_session() as session:
+            project = Project(name=name, description=description)
+            session.add(project)
+            session.commit()
+            return project.id
+
+    def list_projects(self) -> List[Dict[str, Any]]:
+        """List all projects."""
+        with self.get_session() as session:
+            projects = session.query(Project).all()
+            return [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description,
+                    "icon": p.icon,
+                    "created_at": p.created_at,
+                    "updated_at": p.updated_at,
+                }
+                for p in projects
+            ]
+
+    def update_project(
         self,
-        command: str,
-        tag: Optional[str] = None,
-        agent: Optional[str] = None,
-        timestamp: Optional[str] = None,
-        user_id: str = "default",
+        project_id: int,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
     ) -> None:
-        """
-        Insert a log entry into the legacy memory table.
-        NOTE: The new canonical table for chat history is 'chat_log'.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                INSERT INTO memory (timestamp, command, tag, agent, user_id)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (timestamp, command, tag, agent, user_id),
+        """Update project fields."""
+        with self.get_session() as session:
+            project = session.query(Project).filter_by(id=project_id).first()
+            if not project:
+                raise ValueError(f"Project {project_id} not found")
+
+            if name is not None:
+                project.name = name
+            if description is not None:
+                project.description = description
+
+            session.commit()
+
+    def delete_project(self, project_id: int) -> bool:
+        """Delete a project."""
+        with self.get_session() as session:
+            project = session.query(Project).filter_by(id=project_id).first()
+            if not project:
+                return False
+            session.delete(project)
+            session.commit()
+            return True
+
+    def eject_threads_from_project(self, project_id: int) -> None:
+        """Move all threads from project to default (Loose Threads)."""
+        with self.get_session() as session:
+            session.query(ChatThread).filter_by(project_id=project_id).update(
+                {"project_id": 1}  # Default "Loose Threads" project
             )
-            conn.commit()
+            session.commit()
 
-    def get_history(
-        self, limit: int = 10, user_id: Optional[str] = None
-    ) -> List[Tuple[Any, ...]]:
-        """
-        Retrieve memory rows (most recent first) from the legacy memory table.
-        NOTE: The new canonical table for chat history is 'chat_log'.
-        If user_id is set, filter to that user.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            if user_id:
-                c.execute(
-                    """
-                    SELECT id, timestamp, command, tag, agent, user_id
-                    FROM memory
-                    WHERE user_id = ?
-                    ORDER BY id DESC
-                    LIMIT ?
-                    """,
-                    (user_id, limit),
-                )
-            else:
-                c.execute(
-                    """
-                    SELECT id, timestamp, command, tag, agent, user_id
-                    FROM memory
-                    ORDER BY id DESC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                )
-            return c.fetchall()
+    # =================================================================
+    # Chat Threads
+    # =================================================================
 
-    def insert_chat_log(
+    def create_chat_thread(
         self,
-        timestamp: str,
-        session_id: str,
         user_id: str,
-        role: str,
-        message: str,
-        response: str,
-        backend: str,
-        model: str,
-        agent: Optional[str] = None,
-        tag: Optional[str] = None,
-        extra: Optional[str] = None,
-    ) -> None:
-        """
-        Insert a chat log entry into the canonical 'chat_log' table.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                INSERT INTO chat_log (
-                    timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    timestamp,
-                    session_id,
-                    user_id,
-                    role,
-                    message,
-                    response,
-                    backend,
-                    model,
-                    agent,
-                    tag,
-                    extra,
-                ),
+        title: str = "New Chat",
+        summary: str = "",
+        project_id: Optional[int] = None,
+        parent_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Create a new chat thread."""
+        with self.get_session() as session:
+            thread = ChatThread(
+                user_id=user_id,
+                title=title,
+                summary=summary,
+                project_id=project_id,
+                parent_id=parent_id,
             )
-            conn.commit()
+            session.add(thread)
+            session.commit()
 
-    def get_chat_history(
+            return {
+                "id": thread.id,
+                "user_id": thread.user_id,
+                "title": thread.title,
+                "summary": thread.summary,
+                "project_id": thread.project_id,
+                "parent_id": thread.parent_id,
+                "archived_at": thread.archived_at.isoformat() if thread.archived_at else None,
+                "created_at": thread.created_at.isoformat() if thread.created_at else None,
+                "updated_at": thread.updated_at.isoformat() if thread.updated_at else None,
+            }
+
+    def ensure_chat_thread(
         self,
-        *,
-        session_id: Optional[str] = None,
-        user_id: str = "default",
-        limit: int = 20,
-        offset: int = 0,
-        order: str = "desc",
-        role: Optional[str] = None,
-        after: Optional[str] = None,  # Expects ISO8601 string
-        before: Optional[str] = None,  # Expects ISO8601 string
-        keyword: Optional[str] = None,
+        thread_id: int,
+        user_id: str,
+        title: str = "New Chat",
+        summary: str = "",
+        project_id: Optional[int] = None,
+    ) -> None:
+        """Ensure thread exists, create if missing."""
+        with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if not thread:
+                thread = ChatThread(
+                    id=thread_id,
+                    user_id=user_id,
+                    title=title,
+                    summary=summary,
+                    project_id=project_id,
+                )
+                session.add(thread)
+                session.commit()
+
+    def list_chat_threads(self) -> List[Dict[str, Any]]:
+        """List all chat threads."""
+        with self.get_session() as session:
+            threads = session.query(ChatThread).filter(
+                ChatThread.archived_at.is_(None)
+            ).order_by(ChatThread.updated_at.desc()).all()
+
+            return [
+                {
+                    "id": t.id,
+                    "user_id": t.user_id,
+                    "title": t.title,
+                    "summary": t.summary,
+                    "project_id": t.project_id,
+                    "parent_id": t.parent_id,
+                    "archived_at": t.archived_at.isoformat() if t.archived_at else None,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                    "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+                }
+                for t in threads
+            ]
+
+    def get_chat_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single thread by ID."""
+        with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if not thread:
+                return None
+
+            return {
+                "id": thread.id,
+                "user_id": thread.user_id,
+                "title": thread.title,
+                "summary": thread.summary,
+                "project_id": thread.project_id,
+                "parent_id": thread.parent_id,
+                "archived_at": thread.archived_at.isoformat() if thread.archived_at else None,
+                "created_at": thread.created_at.isoformat() if thread.created_at else None,
+                "updated_at": thread.updated_at.isoformat() if thread.updated_at else None,
+            }
+
+    def get_recent_thread(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get most recent thread for user."""
+        with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(user_id=user_id).order_by(
+                ChatThread.created_at.desc()
+            ).first()
+
+            if not thread:
+                return None
+
+            return self.get_chat_thread(thread.id)
+
+    def update_thread(
+        self,
+        thread_id: int,
+        title: Optional[str] = None,
+        summary: Optional[str] = None,
+        project_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Update thread fields."""
+        with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if not thread:
+                return None
+
+            if title is not None:
+                thread.title = title
+            if summary is not None:
+                thread.summary = summary
+            if project_id is not None:
+                thread.project_id = project_id
+
+            session.commit()
+            return self.get_chat_thread(thread_id)
+
+    def archive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        """Archive a thread."""
+        with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if not thread:
+                return None
+
+            thread.archived_at = datetime.now(timezone.utc)
+            session.commit()
+            return self.get_chat_thread(thread_id)
+
+    def unarchive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        """Unarchive a thread."""
+        with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if not thread:
+                return None
+
+            thread.archived_at = None
+            session.commit()
+            return self.get_chat_thread(thread_id)
+
+    def delete_thread(self, thread_id: int, force: bool = False) -> bool:
+        """Delete a thread (must be archived unless force=True)."""
+        with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if not thread:
+                return False
+
+            if not force and thread.archived_at is None:
+                return False
+
+            session.delete(thread)
+            session.commit()
+            return True
+
+    def count_chat_threads(self) -> int:
+        """Count total threads."""
+        with self.get_session() as session:
+            return session.query(ChatThread).count()
+
+    def get_child_threads(self, parent_id: int) -> List[Dict[str, Any]]:
+        """Get child threads of a parent."""
+        with self.get_session() as session:
+            threads = session.query(ChatThread).filter_by(parent_id=parent_id).all()
+            return [
+                {
+                    "id": t.id,
+                    "user_id": t.user_id,
+                    "title": t.title,
+                    "summary": t.summary,
+                    "project_id": t.project_id,
+                    "parent_id": t.parent_id,
+                    "archived_at": t.archived_at.isoformat() if t.archived_at else None,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                    "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+                }
+                for t in threads
+            ]
+
+    def get_thread_summary(self, thread_id: int) -> Optional[str]:
+        """Get thread summary."""
+        with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            return thread.summary if thread else None
+
+    # =================================================================
+    # Chat Messages
+    # =================================================================
+
+    def create_message(self, thread_id: int, role: str, content: str) -> int:
+        """Create a new message in a thread."""
+        with self.get_session() as session:
+            message = ChatMessage(
+                thread_id=thread_id,
+                role=role,
+                content=content,
+            )
+            session.add(message)
+            session.commit()
+            return message.id
+
+    def list_messages(
+        self,
+        thread_id: int,
+        limit: int = 50,
+        offset: int = 0
     ) -> List[Dict[str, Any]]:
-        """
-        Retrieve chat history from the canonical 'chat_log' table, with advanced options.
-        - Pagination: limit, offset
-        - Order: "desc" (default, newest first) or "asc"
-        - Filtering: by role, timestamp range, keyword in message/response
-        Returns a list of dicts with column names as keys.
-        """
-        query = """
-            SELECT id, timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra
-            FROM chat_log
-            WHERE 1=1
-        """
-        params: List[Any] = []
-        if session_id is not None:
-            query += " AND session_id = ?"
-            params.append(session_id)
-        if user_id:
-            query += " AND user_id = ?"
-            params.append(user_id)
-        if role:
-            query += " AND role = ?"
-            params.append(role)
-        if after:
-            query += " AND timestamp > ?"
-            params.append(after)
-        if before:
-            query += " AND timestamp < ?"
-            params.append(before)
-        if keyword:
-            query += " AND (message LIKE ? OR response LIKE ?)"
-            kw = f"%{keyword}%"
-            params.extend([kw, kw])
-        order_by = "DESC" if order == "desc" else "ASC"
-        query += f" ORDER BY id {order_by} LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
+        """List messages in a thread."""
+        with self.get_session() as session:
+            messages = session.query(ChatMessage).filter_by(
+                thread_id=thread_id
+            ).order_by(
+                ChatMessage.created_at.asc()
+            ).limit(limit).offset(offset).all()
 
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(query, params)
-            rows = c.fetchall()
-            columns = [desc[0] for desc in c.description]
-            return [dict(zip(columns, row)) for row in rows]
+            return [
+                {
+                    "id": m.id,
+                    "thread_id": m.thread_id,
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": m.created_at.isoformat() if m.created_at else None,
+                }
+                for m in messages
+            ]
 
-    # ---- Memory helpers ----
+    def count_messages(self, thread_id: int) -> int:
+        """Count messages in a thread."""
+        with self.get_session() as session:
+            return session.query(ChatMessage).filter_by(thread_id=thread_id).count()
+
+    def count_all_messages(self) -> int:
+        """Count all messages across all threads."""
+        with self.get_session() as session:
+            return session.query(ChatMessage).count()
+
+    def delete_message(self, thread_id: int, message_id: int) -> None:
+        """Delete a message."""
+        with self.get_session() as session:
+            message = session.query(ChatMessage).filter_by(
+                id=message_id,
+                thread_id=thread_id
+            ).first()
+            if message:
+                session.delete(message)
+                session.commit()
+
+    # =================================================================
+    # Memory Entries
+    # =================================================================
+
     def add_memory(
         self,
         user_id: str,
         silo: str,
         content: str,
-        *,
         tags: str = "",
         pinned: bool = False,
-        created_at: Optional[str] = None,
-        updated_at: Optional[str] = None,
     ) -> int:
-        now = datetime.now(timezone.utc).isoformat()
-        created = created_at or now
-        updated = updated_at or created
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "INSERT INTO memory_entries (user_id, silo, content, tags, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (user_id, silo, content, tags, 1 if pinned else 0, created, updated),
+        """Add a memory entry."""
+        with self.get_session() as session:
+            entry = MemoryEntry(
+                user_id=user_id,
+                silo=silo,
+                content=content,
+                tags=tags,
+                pinned=pinned,
             )
-            conn.commit()
-            return c.lastrowid
+            session.add(entry)
+            session.commit()
+            return entry.id
 
     def list_memories(
-        self, silo: str, limit: int = 50, offset: int = 0
+        self,
+        silo: str,
+        limit: int = 50,
+        offset: int = 0
     ) -> List[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT id, user_id, silo, content, tags, pinned, created_at, updated_at FROM memory_entries WHERE silo = ? ORDER BY id DESC LIMIT ? OFFSET ?",
-                (silo, limit, offset),
-            )
-            rows = c.fetchall()
-            cols = [d[0] for d in c.description]
-            return [dict(zip(cols, r)) for r in rows]
+        """List memory entries in a silo."""
+        with self.get_session() as session:
+            entries = session.query(MemoryEntry).filter_by(
+                silo=silo
+            ).order_by(
+                MemoryEntry.updated_at.desc()
+            ).limit(limit).offset(offset).all()
+
+            return [
+                {
+                    "id": e.id,
+                    "user_id": e.user_id,
+                    "silo": e.silo,
+                    "content": e.content,
+                    "tags": e.tags,
+                    "pinned": e.pinned,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                    "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+                }
+                for e in entries
+            ]
 
     def count_memories(self, silo: str) -> int:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM memory_entries WHERE silo = ?", (silo,))
-            return int(c.fetchone()[0])
+        """Count memory entries in a silo."""
+        with self.get_session() as session:
+            return session.query(MemoryEntry).filter_by(silo=silo).count()
 
     def update_memory(
         self,
@@ -622,1245 +482,384 @@ class GuardianDB:
         tags: Optional[str] = None,
         pinned: Optional[bool] = None,
     ) -> None:
-        fields = []
-        params = []
-        if content is not None:
-            fields.append("content = ?")
-            params.append(content)
-        if tags is not None:
-            fields.append("tags = ?")
-            params.append(tags)
-        if pinned is not None:
-            fields.append("pinned = ?")
-            params.append(1 if pinned else 0)
-        fields.append("updated_at = ?")
-        params.append(datetime.now(timezone.utc).isoformat())
-        params.append(entry_id)
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                f"UPDATE memory_entries SET {', '.join(fields)} WHERE id = ?", params
-            )
-            conn.commit()
+        """Update memory entry fields."""
+        with self.get_session() as session:
+            entry = session.query(MemoryEntry).filter_by(id=entry_id).first()
+            if not entry:
+                return
+
+            if content is not None:
+                entry.content = content
+            if tags is not None:
+                entry.tags = tags
+            if pinned is not None:
+                entry.pinned = pinned
+
+            session.commit()
 
     def delete_memory(self, entry_id: int) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute("DELETE FROM memory_entries WHERE id = ?", (entry_id,))
-            conn.commit()
+        """Delete a memory entry."""
+        with self.get_session() as session:
+            entry = session.query(MemoryEntry).filter_by(id=entry_id).first()
+            if entry:
+                session.delete(entry)
+                session.commit()
 
-    # ---- Connector sync jobs ----
-    def ensure_sync_job_support(self) -> None:
-        """Ensure the sync_jobs table exists."""
-        self.upgrade_db_schema()
+    def prune_midterm(self, cutoff: str) -> int:
+        """Prune old midterm memories."""
+        with self.get_session() as session:
+            count = session.query(MemoryEntry).filter(
+                MemoryEntry.silo == "midterm",
+                MemoryEntry.updated_at < cutoff
+            ).delete()
+            session.commit()
+            return count
 
-    def create_sync_job(
-        self,
-        connector_id: str,
-        *,
-        status: str = "queued",
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        payload = json.dumps(metadata) if metadata is not None else None
-        now = datetime.utcnow().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(
-                """
-                INSERT INTO sync_jobs (connector_id, status, created_at, attempts, metadata)
-                VALUES (?, ?, ?, 0, ?)
-                """,
-                (connector_id, status, now, payload),
-            )
-            job_id = c.lastrowid
-            conn.commit()
-            c.execute(
-                """
-                SELECT id, connector_id, status, created_at, started_at, finished_at,
-                       attempts, last_error, metadata
-                FROM sync_jobs
-                WHERE id = ?
-                """,
-                (job_id,),
-            )
-            row = c.fetchone()
-        if not row:
-            raise RuntimeError("Failed to persist sync job")
-        return self._normalize_sync_job(dict(row))
+    # =================================================================
+    # Connectors
+    # =================================================================
 
-    def update_sync_job(
-        self,
-        job_id: int,
-        *,
-        status: Optional[str] = None,
-        started_at: Optional[str] = None,
-        finished_at: Optional[str] = None,
-        attempts: Optional[int] = None,
-        last_error: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        fields: List[str] = []
-        params: List[Any] = []
-        if status is not None:
-            fields.append("status = ?")
-            params.append(status)
-        if started_at is not None:
-            fields.append("started_at = ?")
-            params.append(started_at)
-        if finished_at is not None:
-            fields.append("finished_at = ?")
-            params.append(finished_at)
-        if attempts is not None:
-            fields.append("attempts = ?")
-            params.append(attempts)
-        if last_error is not None:
-            fields.append("last_error = ?")
-            params.append(last_error)
-        if metadata is not None:
-            fields.append("metadata = ?")
-            params.append(json.dumps(metadata))
+    def list_connector_configs(self, type_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List connector configurations."""
+        with self.get_session() as session:
+            query = session.query(ConnectorConfig)
+            if type_filter:
+                query = query.filter_by(type=type_filter)
 
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            if fields:
-                c.execute(
-                    f"UPDATE sync_jobs SET {', '.join(fields)} WHERE id = ?",
-                    (*params, job_id),
-                )
-                conn.commit()
-            c.execute(
-                """
-                SELECT id, connector_id, status, created_at, started_at, finished_at,
-                       attempts, last_error, metadata
-                FROM sync_jobs
-                WHERE id = ?
-                """,
-                (job_id,),
-            )
-            row = c.fetchone()
-        if not row:
-            raise RuntimeError(f"Sync job {job_id} not found")
-        return self._normalize_sync_job(dict(row))
-
-    def list_recent_sync_jobs(
-        self,
-        *,
-        connector_id: Optional[str] = None,
-        limit: int = 20,
-    ) -> List[Dict[str, Any]]:
-        query = (
-            "SELECT id, connector_id, status, created_at, started_at, finished_at, "
-            "attempts, last_error, metadata FROM sync_jobs"
-        )
-        params: List[Any] = []
-        if connector_id:
-            query += " WHERE connector_id = ?"
-            params.append(connector_id)
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(query, params)
-            rows = c.fetchall()
-        return [self._normalize_sync_job(dict(row)) for row in rows]
-
-    # ---- Connector configs & runs --------------------------------------
-    def _deserialize_json(self, raw: Any) -> Dict[str, Any]:
-        if isinstance(raw, (str, bytes)):
-            try:
-                if isinstance(raw, bytes):
-                    raw = raw.decode()
-                return json.loads(raw)
-            except Exception:
-                return {}
-        return raw or {}
-
-    def _decorate_connector_row(self, row: sqlite3.Row) -> Dict[str, Any]:
-        data = dict(row)
-        data["config"] = self._deserialize_json(data.get("config"))
-        # expose config under both names for callers migrating from legacy APIs
-        data["settings"] = data["config"]
-        return data
-
-    def create_connector_config(
-        self,
-        name: str,
-        type_: str,
-        config: Dict[str, Any],
-        schedule: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        payload = json.dumps(config or {})
-        now = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(
-                """
-                INSERT INTO connector_configs (name, type, config, schedule, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (name, type_, payload, schedule, now, now),
-            )
-            connector_id = c.lastrowid
-            conn.commit()
-            c.execute(
-                "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs WHERE id = ?",
-                (connector_id,),
-            )
-            row = c.fetchone()
-        if not row:
-            raise RuntimeError("Failed to create connector config")
-        return self._decorate_connector_row(row)
-
-    def update_connector_config(
-        self,
-        name: str,
-        *,
-        config: Optional[Dict[str, Any]] = None,
-        schedule: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        updates: List[str] = ["updated_at = ?"]
-        params: List[Any] = [datetime.now(timezone.utc).isoformat()]
-        if config is not None:
-            updates.append("config = ?")
-            params.append(json.dumps(config))
-        if schedule is not None:
-            updates.append("schedule = ?")
-            params.append(schedule)
-        params.append(name)
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            if len(updates) > 1:
-                c.execute(
-                    f"UPDATE connector_configs SET {', '.join(updates)} WHERE name = ?",
-                    params,
-                )
-                conn.commit()
-            c.execute(
-                "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs WHERE name = ?",
-                (name,),
-            )
-            row = c.fetchone()
-        if not row:
-            raise RuntimeError("Connector config not found")
-        return self._decorate_connector_row(row)
-
-    def list_connector_configs(
-        self, type_filter: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        query = "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs"
-        params: List[Any] = []
-        if type_filter:
-            query += " WHERE type = ?"
-            params.append(type_filter)
-        query += " ORDER BY updated_at DESC"
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(query, params)
-            rows = c.fetchall()
-        results: List[Dict[str, Any]] = []
-        for row in rows:
-            results.append(self._decorate_connector_row(row))
-        return results
-
-    def get_connector_config(self, name: str) -> Optional[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(
-                "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs WHERE name = ?",
-                (name,),
-            )
-            row = c.fetchone()
-        if not row:
-            return None
-        return self._decorate_connector_row(row)
-
-    def create_connector_run(
-        self,
-        config_id: int,
-        *,
-        status: str,
-        started_at: str,
-        error: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(
-                """
-                INSERT INTO connector_runs (config_id, status, started_at, error)
-                VALUES (?, ?, ?, ?)
-                """,
-                (config_id, status, started_at, error),
-            )
-            run_id = c.lastrowid
-            conn.commit()
-            c.execute(
-                "SELECT id, config_id, status, started_at, finished_at, error FROM connector_runs WHERE id = ?",
-                (run_id,),
-            )
-            row = c.fetchone()
-        if not row:
-            raise RuntimeError("Failed to create connector run")
-        return dict(row)
-
-    def complete_connector_run(
-        self,
-        run_id: int,
-        *,
-        status: str,
-        finished_at: str,
-        error: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(
-                """
-                UPDATE connector_runs
-                SET status = ?, finished_at = ?, error = ?
-                WHERE id = ?
-                """,
-                (status, finished_at, error, run_id),
-            )
-            conn.commit()
-            c.execute(
-                "SELECT id, config_id, status, started_at, finished_at, error FROM connector_runs WHERE id = ?",
-                (run_id,),
-            )
-            row = c.fetchone()
-        if not row:
-            raise RuntimeError("Connector run not found")
-        return dict(row)
-
-    def get_last_connector_run(self, config_id: int) -> Optional[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(
-                """
-                SELECT id, config_id, status, started_at, finished_at, error
-                FROM connector_runs
-                WHERE config_id = ?
-                ORDER BY started_at DESC
-                LIMIT 1
-                """,
-                (config_id,),
-            )
-            row = c.fetchone()
-        return dict(row) if row else None
+            configs = query.all()
+            return [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "type": c.type,
+                    "settings": c.config,
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
+                    "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+                }
+                for c in configs
+            ]
 
     def list_connector_configs_with_last_run(self) -> List[Dict[str, Any]]:
+        """List connector configs with last run info."""
         configs = self.list_connector_configs()
         for cfg in configs:
             cfg["last_run"] = self.get_last_connector_run(cfg["id"])
         return configs
 
+    def get_connector_config(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get connector config by name."""
+        with self.get_session() as session:
+            config = session.query(ConnectorConfig).filter_by(name=name).first()
+            if not config:
+                return None
+
+            return {
+                "id": config.id,
+                "name": config.name,
+                "type": config.type,
+                "settings": config.config,
+                "created_at": config.created_at.isoformat() if config.created_at else None,
+                "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+            }
+
+    def create_connector_config(
+        self,
+        name: str,
+        type_: str,
+        settings: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create a new connector config."""
+        with self.get_session() as session:
+            config = ConnectorConfig(
+                name=name,
+                type=type_,
+                config=settings,
+            )
+            session.add(config)
+            session.commit()
+
+            return {
+                "id": config.id,
+                "name": config.name,
+                "type": config.type,
+                "settings": config.config,
+                "created_at": config.created_at.isoformat() if config.created_at else None,
+                "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+            }
+
+    def update_connector_config(
+        self,
+        name: str,
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Update connector config settings."""
+        with self.get_session() as session:
+            connector = session.query(ConnectorConfig).filter_by(name=name).first()
+            if not connector:
+                raise ValueError(f"Connector {name} not found")
+
+            connector.config = config
+            session.commit()
+
+            return {
+                "id": connector.id,
+                "name": connector.name,
+                "type": connector.type,
+                "settings": connector.config,
+                "created_at": connector.created_at.isoformat() if connector.created_at else None,
+                "updated_at": connector.updated_at.isoformat() if connector.updated_at else None,
+            }
+
+    def create_connector_run(
+        self,
+        config_id: int,
+        status: str,
+        started_at: str,
+    ) -> Dict[str, Any]:
+        """Create a connector run record."""
+        with self.get_session() as session:
+            run = ConnectorRun(
+                config_id=config_id,
+                status=status,
+                started_at=started_at,
+            )
+            session.add(run)
+            session.commit()
+
+            return {
+                "id": run.id,
+                "config_id": run.config_id,
+                "status": run.status,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "error": run.error,
+                "document_count": run.document_count,
+            }
+
+    def complete_connector_run(
+        self,
+        run_id: int,
+        status: str,
+        finished_at: str,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Complete a connector run."""
+        with self.get_session() as session:
+            run = session.query(ConnectorRun).filter_by(id=run_id).first()
+            if not run:
+                raise ValueError(f"Run {run_id} not found")
+
+            run.status = status
+            run.finished_at = finished_at
+            run.error = error
+            session.commit()
+
+            return {
+                "id": run.id,
+                "config_id": run.config_id,
+                "status": run.status,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "error": run.error,
+                "document_count": run.document_count,
+            }
+
+    def get_last_connector_run(self, config_id: int) -> Optional[Dict[str, Any]]:
+        """Get last run for a connector."""
+        with self.get_session() as session:
+            run = session.query(ConnectorRun).filter_by(
+                config_id=config_id
+            ).order_by(ConnectorRun.started_at.desc()).first()
+
+            if not run:
+                return None
+
+            return {
+                "id": run.id,
+                "config_id": run.config_id,
+                "status": run.status,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "error": run.error,
+                "document_count": run.document_count,
+            }
+
     def upsert_raw_documents(
         self,
         config_id: int,
-        docs: List[Dict[str, Any]],
+        documents: List[Dict[str, Any]]
     ) -> None:
-        if not docs:
-            return
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            for doc in docs:
-                external_id = doc.get("external_id")
-                if not external_id:
-                    continue
-                payload = json.dumps(doc.get("payload") or {})
-                fetched_at = doc.get("fetched_at") or datetime.now(timezone.utc).isoformat()
-                c.execute(
-                    """
-                    INSERT INTO raw_documents (config_id, external_id, payload, fetched_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(config_id, external_id)
-                    DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at
-                    """,
-                    (config_id, external_id, payload, fetched_at),
-                )
-            conn.commit()
+        """Upsert raw documents from a connector."""
+        with self.get_session() as session:
+            for doc in documents:
+                external_id = doc.get("external_id", doc.get("id"))
 
-    def list_raw_documents_for_config(
-        self, config_id: int, limit: int = 100
-    ) -> List[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(
-                """
-                SELECT id, config_id, external_id, payload, fetched_at
-                FROM raw_documents
-                WHERE config_id = ?
-                ORDER BY fetched_at DESC, id DESC
-                LIMIT ?
-                """,
-                (config_id, limit),
-            )
-            rows = c.fetchall()
-        docs: List[Dict[str, Any]] = []
-        for row in rows:
-            data = dict(row)
-            data["payload"] = self._deserialize_json(data.get("payload"))
-            docs.append(data)
-        return docs
+                # Check if exists
+                existing = session.query(RawDocument).filter_by(
+                    config_id=config_id,
+                    external_id=str(external_id)
+                ).first()
 
-    # ---- Events outbox -------------------------------------------------
-    def ensure_event_outbox(self) -> None:
-        if self._events_outbox_ready:
-            return
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            self._ensure_events_outbox_table(cursor)
-            conn.commit()
-        self._events_outbox_ready = True
+                if existing:
+                    existing.payload = doc
+                else:
+                    new_doc = RawDocument(
+                        config_id=config_id,
+                        external_id=str(external_id),
+                        payload=doc,
+                    )
+                    session.add(new_doc)
 
-    def append_event(
-        self, topic: str, payload: Dict[str, Any], tenant_id: str = "default"
-    ) -> None:
-        self.ensure_event_outbox()
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO events_outbox (topic, payload, tenant_id) VALUES (?, ?, ?)",
-                (topic, json.dumps(payload), tenant_id),
-            )
-            conn.commit()
+            session.commit()
 
-    def list_events_after(self, last_id: int, limit: int = 100) -> List[Dict[str, Any]]:
-        self.ensure_event_outbox()
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, topic, payload, tenant_id, created_at
-                FROM events_outbox
-                WHERE id > ?
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (last_id, limit),
-            )
-            rows = cursor.fetchall()
+    # =================================================================
+    # Sync Jobs
+    # =================================================================
 
-        events: List[Dict[str, Any]] = []
-        for row in rows:
-            raw_payload = row["payload"]
-            if isinstance(raw_payload, str):
-                try:
-                    parsed_payload = json.loads(raw_payload)
-                except Exception:
-                    parsed_payload = {"_raw": raw_payload}
-            else:
-                parsed_payload = raw_payload
-            events.append(
-                {
-                    "id": row["id"],
-                    "topic": row["topic"],
-                    "payload": parsed_payload,
-                    "tenant_id": row["tenant_id"] if "tenant_id" in row.keys() else "default",
-                    "created_at": row["created_at"],
-                }
-            )
-        return events
+    def ensure_sync_job_support(self) -> None:
+        """No-op: Tables created by Alembic."""
+        pass
 
-    def delete_events_through(self, last_id: int, tenant_id: Optional[str] = None) -> None:
-        if last_id <= 0:
-            return
-        self.ensure_event_outbox()
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            if tenant_id:
-                cursor.execute(
-                    "DELETE FROM events_outbox WHERE id <= ? AND tenant_id = ?",
-                    (last_id, tenant_id),
-                )
-            else:
-                cursor.execute("DELETE FROM events_outbox WHERE id <= ?", (last_id,))
-            conn.commit()
+    # =================================================================
+    # Audit Log
+    # =================================================================
 
-    # ---- Audit log ----
     def write_audit_log(
-        self, event: str, entity: str, entity_id: str, user_id: str
-    ) -> None:
-        ts = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "INSERT INTO audit_log (event, entity, entity_id, user_id, timestamp) VALUES (?, ?, ?, ?, ?)",
-                (event, entity, entity_id, user_id, ts),
-            )
-            conn.commit()
-
-    # ---- Retention ----
-    def prune_midterm(self, older_than_iso: str) -> int:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "DELETE FROM memory_entries WHERE silo = 'midterm' AND updated_at < ?",
-                (older_than_iso,),
-            )
-            deleted = c.rowcount
-            conn.commit()
-            return deleted
-
-    # ---- Thread & Project helpers ----
-    def get_chat_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
-                FROM chat_threads
-                WHERE id = ?
-                """,
-                (thread_id,),
-            )
-            row = c.fetchone()
-            if not row:
-                return None
-            cols = [d[0] for d in c.description]
-            return dict(zip(cols, row))
-
-    def list_chat_threads(
         self,
-        *,
-        limit: int = 50,
-        offset: int = 0,
-        user_id: Optional[str] = None,
-        project_id: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
-        query = (
-            "SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at "
-            "FROM chat_threads"
-        )
-        params: List[Any] = []
-        clauses: List[str] = []
-        if user_id is not None:
-            clauses.append("user_id = ?")
-            params.append(user_id)
-        if project_id is not None:
-            clauses.append("project_id = ?")
-            params.append(project_id)
-        if clauses:
-            query += " WHERE " + " AND ".join(clauses)
-        query += " ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(query, params)
-            rows = c.fetchall()
-            cols = [d[0] for d in c.description]
-            return [dict(zip(cols, r)) for r in rows]
-
-    def count_chat_threads(self) -> int:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM chat_threads")
-            row = c.fetchone()
-            return int(row[0]) if row else 0
-
-    def count_all_messages(self) -> int:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM chat_messages")
-            row = c.fetchone()
-            return int(row[0]) if row else 0
-
-    def create_chat_thread(
-        self,
+        event: str,
+        entity: str,
+        entity_id: str,
         user_id: str,
-        title: str,
-        summary: str = "",
-        project_id: Optional[int] = None,
-        preset_id: Optional[int] = None,
-        parent_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            if preset_id is None:
-                c.execute(
-                    """
-                    INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (user_id, title, summary, project_id, parent_id),
-                )
-            else:
-                c.execute(
-                    """
-                    INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (preset_id, user_id, title, summary, project_id, parent_id),
-                )
-            conn.commit()
-            thread_id = preset_id if preset_id is not None else c.lastrowid
-        thread = self.get_chat_thread(thread_id)
-        if thread:
-            return thread
-        return {
-            "id": thread_id,
-            "user_id": user_id,
-            "title": title,
-            "summary": summary,
-            "project_id": project_id,
-            "parent_id": parent_id,
-            "archived_at": None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-    def ensure_chat_thread(
-        self,
-        thread_id: int,
-        user_id: str,
-        title: str,
-        summary: str = "",
-        project_id: Optional[int] = None,
-        parent_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        existing = self.get_chat_thread(thread_id)
-        if existing:
-            return existing
-        created = self.create_chat_thread(
-            user_id=user_id,
-            title=title,
-            summary=summary,
-            project_id=project_id,
-            preset_id=thread_id,
-            parent_id=parent_id,
-        )
-        return created
-
-    def update_thread(
-        self,
-        thread_id: int,
-        title: Optional[str] = None,
-        project_id: Optional[int] = None,
-        summary: Optional[str] = None,
-    ) -> bool:
-        fields = []
-        params = []
-        if title is not None:
-            fields.append("title = ?")
-            params.append(title)
-        if summary is not None:
-            fields.append("summary = ?")
-            params.append(summary)
-        if project_id is not None:
-            fields.append("project_id = ?")
-            params.append(project_id)
-        if not fields:
-            return False
-        fields.append("updated_at = ?")
-        params.append(datetime.now(timezone.utc).isoformat())
-        params.append(thread_id)
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                f"UPDATE chat_threads SET {', '.join(fields)} WHERE id = ?", params
-            )
-            conn.commit()
-            return c.rowcount > 0
-
-    def archive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
-        archived_at = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                UPDATE chat_threads
-                SET archived_at = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (archived_at, archived_at, thread_id),
-            )
-            conn.commit()
-        return self.get_chat_thread(thread_id)
-
-    def delete_thread(self, thread_id: int) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            # Manual cascade for SQLite compatibility
-            c.execute("DELETE FROM chat_messages WHERE thread_id = ?", (thread_id,))
-            c.execute("DELETE FROM chat_threads WHERE id = ?", (thread_id,))
-            conn.commit()
-
-    def create_project(self, name: str, description: str = "") -> int:
-        if not name.strip():
-            raise ValueError("Project name is required")
-        created_at = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                CREATE TABLE IF NOT EXISTS projects (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    description TEXT,
-                    created_at TEXT,
-                    updated_at TEXT
-                )
-                """
-            )
-            try:
-                c.execute(
-                    "INSERT INTO projects (name, description, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                    (name.strip(), description or "", created_at, created_at),
-                )
-            except sqlite3.OperationalError:
-                c.execute(
-                    "INSERT INTO projects (name, description, created_at) VALUES (?, ?, ?)",
-                    (name.strip(), description or "", created_at),
-                )
-            conn.commit()
-            row_id = c.lastrowid
-            if row_id is None:
-                raise RuntimeError("Failed to create project")
-            return int(row_id)
-
-    def ensure_project(self, name: str, description: str = "") -> int:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            try:
-                c.execute(
-                    "SELECT id FROM projects WHERE name = ?",
-                    (name,),
-                )
-            except sqlite3.OperationalError:
-                return self.create_project(name, description)
-            else:
-                row = c.fetchone()
-                if row:
-                    return int(row[0])
-        return self.create_project(name, description)
-
-    def list_projects(self) -> List[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            try:
-                c.execute("PRAGMA table_info(projects)")
-                available = {row[1] for row in c.fetchall()}
-            except sqlite3.OperationalError:
-                available = {"id", "name", "description", "created_at"}
-            select_cols = ["id", "name", "description", "created_at"]
-            if "updated_at" in available:
-                select_cols.append("updated_at")
-            c.execute(f"SELECT {', '.join(select_cols)} FROM projects ORDER BY id DESC")
-            rows = c.fetchall()
-            cols = [d[0] for d in c.description]
-            return [dict(zip(cols, r)) for r in rows]
-
-    def delete_project(self, project_id: int) -> bool:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-            conn.commit()
-            return c.rowcount > 0
-
-    def update_project(
-        self,
-        project_id: int,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
     ) -> None:
-        fields = []
-        params = []
-        if name is not None:
-            fields.append("name = ?")
-            params.append(name)
-        if description is not None:
-            fields.append("description = ?")
-            params.append(description)
-        if not fields:
-            return
-        params.append(project_id)
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(f"UPDATE projects SET {', '.join(fields)} WHERE id = ?", params)
-            conn.commit()
+        """Write an audit log entry."""
+        try:
+            with self.get_session() as session:
+                log_entry = AuditLog(
+                    event=event,
+                    entity=entity,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                )
+                session.add(log_entry)
+                session.commit()
+        except Exception:
+            # Don't crash app if audit logging fails
+            pass
 
-    def eject_threads_from_project(self, project_id: int) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "UPDATE chat_threads SET project_id = NULL WHERE project_id = ?",
-                (project_id,),
-            )
-            conn.commit()
+    # =================================================================
+    # Utility / Compatibility
+    # =================================================================
 
     def table_exists(self, table_name: str) -> bool:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
-                (table_name,),
+        """Check if a table exists."""
+        with self.get_session() as session:
+            result = session.execute(
+                text("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables
+                        WHERE table_schema = 'public'
+                        AND table_name = :table_name
+                    )
+                """),
+                {"table_name": table_name}
             )
-            return c.fetchone() is not None
-
-    def create_thread(
-        self,
-        parent_thread_id: Optional[int],
-        session_id: str,
-        summary: str,
-        user_id: str,
-        project_id: Optional[str] = None,
-    ) -> int:
-        """
-        Create a new thread with optional parent and summary.
-        Returns the new thread_id.
-        """
-        created_at = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                INSERT INTO threads (parent_thread_id, session_id, summary, created_at, user_id, project_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    parent_thread_id,
-                    session_id,
-                    summary,
-                    created_at,
-                    user_id,
-                    project_id,
-                ),
-            )
-            conn.commit()
-            return c.lastrowid
-
-    def get_thread(self, thread_id: int) -> Optional[Tuple[Any, ...]]:
-        """
-        Get a thread by thread_id.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id FROM threads WHERE thread_id = ?",
-                (thread_id,),
-            )
-            return c.fetchone()
-
-    def get_child_threads(self, parent_thread_id: int) -> List[Tuple[Any, ...]]:
-        """
-        Get all threads with a given parent_thread_id.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT thread_id, session_id, summary, created_at, user_id, project_id FROM threads WHERE parent_thread_id = ?",
-                (parent_thread_id,),
-            )
-            return c.fetchall()
+            return result.scalar()
 
     def list_threads(
         self,
-        *,
         user_id: Optional[str] = None,
-        project_id: Optional[str] = None,
+        project_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        query = (
-            "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id "
-            "FROM threads WHERE 1=1"
-        )
-        params: List[Any] = []
-        if user_id is not None:
-            query += " AND user_id = ?"
-            params.append(user_id)
-        if project_id is not None:
-            query += " AND project_id = ?"
-            params.append(project_id)
-        query += " ORDER BY thread_id DESC"
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(query, params)
-            rows = c.fetchall()
-            cols = [d[0] for d in c.description]
-            return [dict(zip(cols, r)) for r in rows]
+        """List threads with optional filters (legacy API compat)."""
+        with self.get_session() as session:
+            query = session.query(ChatThread)
 
-    def insert_summary(self, thread_id: int, summary: str) -> None:
-        """
-        Update a thread's summary (latest rollup).
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "UPDATE threads SET summary = ? WHERE thread_id = ?",
-                (summary, thread_id),
-            )
-            conn.commit()
+            if user_id:
+                query = query.filter_by(user_id=user_id)
+            if project_id:
+                query = query.filter_by(project_id=int(project_id))
 
-    def get_thread_summary(self, thread_id: int) -> Optional[str]:
-        """
-        Get the summary for a thread.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute("SELECT summary FROM threads WHERE thread_id = ?", (thread_id,))
-            row = c.fetchone()
-            return row[0] if row else None
+            threads = query.all()
+            return [
+                {
+                    "id": t.id,
+                    "user_id": t.user_id,
+                    "title": t.title,
+                    "summary": t.summary,
+                    "project_id": t.project_id,
+                    "parent_id": t.parent_id,
+                    "archived_at": t.archived_at.isoformat() if t.archived_at else None,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                    "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+                }
+                for t in threads
+            ]
 
-    def add_chat_log(
-        self,
-        session_id: str,
-        user_id: str,
-        role: str,
-        message: str,
-        response: Optional[str] = None,
-        backend: Optional[str] = None,
-        model: str = "test-model",
-        timestamp: Optional[str] = None,
-        agent: Optional[str] = None,
-        tag: Optional[str] = None,
-        extra: Optional[str] = None,
-    ) -> None:
-        """
-        Insert a chat log entry into the canonical 'chat_log' table. Fills missing fields with defaults.
-        """
-        if timestamp is None:
-            timestamp = datetime.now(timezone.utc).isoformat()
-        if model is None:
-            model = "test-model"
-        return self.insert_chat_log(
-            timestamp=timestamp,
-            session_id=session_id,
-            user_id=user_id,
-            role=role,
-            message=message,
-            response=response,
-            backend=backend,
-            model=model,
-            agent=agent,
-            tag=tag,
-            extra=extra,
-        )
-
-    # ---- Chat message helpers ----
-    def create_message(
-        self, thread_id: int, role: str, content: str, created_at: Optional[str] = None
-    ) -> int:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            if created_at is not None:
-                c.execute(
-                    "INSERT INTO chat_messages (thread_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-                    (thread_id, role, content, created_at),
-                )
-            else:
-                c.execute(
-                    "INSERT INTO chat_messages (thread_id, role, content) VALUES (?, ?, ?)",
-                    (thread_id, role, content),
-                )
-            msg_id = c.lastrowid
-            c.execute(
-                "UPDATE chat_threads SET updated_at = datetime('now') WHERE id = ?",
-                (thread_id,),
-            )
-            conn.commit()
-            return msg_id
-
-    def list_messages(
-        self, thread_id: int, limit: int = 50, offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT id, thread_id, role, content, created_at FROM chat_messages WHERE thread_id = ? ORDER BY id ASC LIMIT ? OFFSET ?",
-                (thread_id, limit, offset),
-            )
-            rows = c.fetchall()
-            cols = [d[0] for d in c.description]
-            return [dict(zip(cols, r)) for r in rows]
-
-    def count_messages(self, thread_id: int) -> int:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT COUNT(*) FROM chat_messages WHERE thread_id = ?", (thread_id,)
-            )
-            return int(c.fetchone()[0])
-
-    def get_recent_thread(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Get the most recent thread for a user that has no messages (for idempotency).
-        Returns None if no suitable thread exists.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            # Get the most recent thread for this user
-            c.execute(
-                "SELECT id, user_id, title, summary, project_id, created_at, updated_at FROM chat_threads WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
-                (user_id,),
-            )
-            row = c.fetchone()
-            if not row:
-                return None
-            cols = [d[0] for d in c.description]
-
-            # Check if this thread has any messages
-            thread_id = row[0]
-            c.execute(
-                "SELECT COUNT(*) FROM chat_messages WHERE thread_id = ?", (thread_id,)
-            )
-            message_count = int(c.fetchone()[0])
-
-            # Only return the thread if it has no messages (empty thread)
-            if message_count == 0:
-                return dict(zip(cols, row))
+    def get_thread(self, thread_id: int) -> Optional[tuple]:
+        """Get thread as tuple (legacy API compat)."""
+        thread_dict = self.get_chat_thread(thread_id)
+        if not thread_dict:
             return None
 
-    def delete_message(self, thread_id: int, message_id: int) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "DELETE FROM chat_messages WHERE id = ? AND thread_id = ?",
-                (message_id, thread_id),
-            )
-            conn.commit()
-
-    # ---- Agent profile helpers ----
-    def get_agent_profile(self, agent_id: str) -> Optional[Dict[str, Any]]:
-        """Return the stored JSON profile dict for the agent, or None."""
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT profile_json, summarization_frequency, last_summarized_at FROM agent_profiles WHERE agent_id = ?",
-                (agent_id,),
-            )
-            row = c.fetchone()
-            if not row:
-                return None
-            return {
-                "agent_id": agent_id,
-                "profile": json.loads(row[0] or "{}"),
-                "summarization_frequency": row[1],
-                "last_summarized_at": row[2],
-            }
-
-    def upsert_agent_profile(self, agent_id: str, **updates) -> None:
-        """
-        Insert or update an agent profile. `updates` can include:
-          profile_json (dict), summarization_frequency (int), last_summarized_at (iso str)
-        """
-        fields = []
-        params = []
-        if "profile_json" in updates:
-            fields.append("profile_json = ?")
-            params.append(json.dumps(updates["profile_json"]))
-        if "summarization_frequency" in updates:
-            fields.append("summarization_frequency = ?")
-            params.append(int(updates["summarization_frequency"]))
-        if "last_summarized_at" in updates:
-            fields.append("last_summarized_at = ?")
-            params.append(updates["last_summarized_at"])
-        if not fields:
-            return
-        params.extend([agent_id])
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            # sqlite UPSERT
-            c.execute(
-                f"""
-                INSERT INTO agent_profiles (agent_id{', ' + ', '.join([f.split(' =')[0] for f in fields]) if fields else ''})
-                VALUES (?{', ' + ', '.join(['?']*len(fields)) if fields else ''})
-                ON CONFLICT(agent_id) DO UPDATE SET {', '.join(fields)}
-                """,
-                [agent_id] + params[:-1],
-            )
-            conn.commit()
-
-    def check_summarization_allowed(
-        self, agent_id: str, requested_by: str
-    ) -> Tuple[bool, str]:
-        """
-        Simple throttle check: returns (allowed, msg).  Always allow if frequency = 0.
-        """
-        profile = self.get_agent_profile(agent_id)
-        if not profile:
-            return True, ""
-        freq = profile.get("summarization_frequency") or 0
-        if freq == 0:
-            return True, ""
-        last_at = profile.get("last_summarized_at")
-        if not last_at:
-            return True, ""
-        try:
-            last_dt = datetime.fromisoformat(last_at)
-        except ValueError:
-            return True, ""
-        delta_minutes = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
-        if delta_minutes >= freq:
-            return True, ""
-        return False, f"Next summarization available in {int(freq - delta_minutes)} min"
-
-    # ---- Memory compatibility helpers ----
-    def insert_memory(self, user_id: str, silo: str, content: str, **kwargs) -> int:
-        """Alias kept for backward‑compat with guardian_api."""
-        tags = kwargs.get("tags", "")
-        pinned = kwargs.get("pinned", False)
-        created_at = kwargs.get("created_at")
-        updated_at = kwargs.get("updated_at")
-        return self.add_memory(
-            user_id,
-            silo,
-            content,
-            tags=tags,
-            pinned=pinned,
-            created_at=created_at,
-            updated_at=updated_at,
+        return (
+            thread_dict["id"],
+            thread_dict["parent_id"],
+            None,  # session_id (deprecated)
+            thread_dict["summary"],
+            thread_dict["created_at"],
+            thread_dict["user_id"],
+            thread_dict["project_id"],
         )
 
-    def insert_memory_event(
+    def create_thread(
         self,
-        *,
-        content: str,
-        tag: Optional[str],
-        agent: str,
-        type_: str,
-        parent_id: Optional[int] = None,
+        parent_thread_id: Optional[int] = None,
+        session_id: Optional[str] = None,
+        summary: str = "",
+        user_id: str = "default",
+        project_id: Optional[str] = None,
     ) -> int:
-        tags_parts: List[str] = []
-        if tag:
-            tags_parts.append(str(tag))
-        if type_:
-            tags_parts.append(f"type:{type_}")
-        if parent_id is not None:
-            tags_parts.append(f"parent:{parent_id}")
-        tags_value = ",".join(tags_parts)
-        return self.add_memory(
-            user_id=str(agent or "default"),
-            silo="midterm",
-            content=content,
-            tags=tags_value,
-            pinned=False,
+        """Create thread (legacy API compat)."""
+        proj_id = int(project_id) if project_id else None
+        thread = self.create_chat_thread(
+            user_id=user_id,
+            title="New Chat",
+            summary=summary,
+            project_id=proj_id,
+            parent_id=parent_thread_id,
         )
+        return thread["id"]
 
-    def search_memory(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """
-        Very simple LIKE-based search over content and tags.
-        """
-        pattern = f"%{query}%"
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                SELECT id, user_id, silo, content, tags, pinned, created_at, updated_at
-                FROM memory_entries
-                WHERE content LIKE ? OR tags LIKE ?
-                ORDER BY updated_at DESC
-                LIMIT ?
-                """,
-                (pattern, pattern, limit),
-            )
-            rows = c.fetchall()
-            cols = [d[0] for d in c.description]
-            return [dict(zip(cols, r)) for r in rows]
+    # Stubs for methods that may be called but are no longer needed
+    def search_memory(self, query: str, limit: int) -> List[Dict[str, Any]]:
+        """TODO: Implement full-text search over memory entries."""
+        return []
 
     def search_github_memory(
         self,
         query: str,
-        *,
         repo: Optional[str] = None,
-        limit: int = 50,
+        limit: int = 20
     ) -> List[Dict[str, Any]]:
-        """
-        Search GitHub‑sourced memory entries.
+        """TODO: Implement GitHub memory search."""
+        return []
 
-        Looks only in the `github` silo and performs a simple LIKE/ILIKE
-        match against the JSON payload string stored in `content`.
-        Optionally narrow to a specific repository name using tags
-        (expects the repo fullname to appear somewhere in the tags column).
-
-        Returns rows ordered by most‑recent `updated_at`.
-        """
-        pattern = f"%{query}%"
-        params: List[Any] = [pattern]
-        sql = (
-            "SELECT id, user_id, silo, content, tags, pinned, created_at, updated_at "
-            "FROM memory_entries "
-            "WHERE silo = 'github' AND content LIKE ?"
-        )
-        if repo:
-            sql += " AND tags LIKE ?"
-            params.append(f"%{repo}%")
-        sql += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit)
-
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(sql, params)
-            rows = c.fetchall()
-            cols = [d[0] for d in c.description]
-            return [dict(zip(cols, r)) for r in rows]
+    def insert_memory_event(
+        self,
+        content: str,
+        tag: Optional[str],
+        agent: str,
+        type_: str,
+        parent_id: Optional[int],
+    ) -> None:
+        """TODO: Implement memory event logging."""
+        pass
 
     def history_entries(
-        self, limit: int = 50, tag: Optional[str] = None, agent: Optional[str] = None
+        self,
+        limit: int,
+        tag: Optional[str] = None,
+        agent: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Convenience wrapper returning recent chat_log rows (alias for get_chat_history with no session filter).
-        """
-        query = """
-            SELECT id, timestamp, session_id, user_id, role, message, response, backend, model, agent, tag
-            FROM chat_log
-            WHERE 1=1
-        """
-        params = []
-        if tag:
-            query += " AND tag = ?"
-            params.append(tag)
-        if agent:
-            query += " AND agent = ?"
-            params.append(agent)
-        query += " ORDER BY id DESC LIMIT ?"
-        params.append(limit)
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute(query, params)
-            rows = c.fetchall()
-            cols = [d[0] for d in c.description]
-            return [dict(zip(cols, r)) for r in rows]
-
-
-@lru_cache(maxsize=1)
-def _get_default_db() -> GuardianDB:
-    """
-    Lazily instantiate a module-level GuardianDB so lightweight helpers
-    (like fetch_threads_for_user) can reuse the same object without
-    triggering schema migrations on every call.
-    """
-    path = os.getenv("GUARDIAN_DB_PATH", "guardian.db")
-    return GuardianDB(path)
-
-
-def fetch_threads_for_user(
-    user_id: Optional[str],
-    *,
-    chunk_size: int = 100,
-) -> Generator[Dict[str, Any], None, None]:
-    """
-    Yield chat thread records for the given user.
-
-    Streams results in small chunks so large exports do not require
-    loading all rows into memory at once.
-    """
-    if not user_id:
-        return
-    db = _get_default_db()
-    offset = 0
-    while True:
-        rows = db.list_chat_threads(user_id=user_id, limit=chunk_size, offset=offset)
-        if not rows:
-            break
-        for row in rows:
-            yield row
-        offset += len(rows)
+        """TODO: Implement history query."""
+        return []
