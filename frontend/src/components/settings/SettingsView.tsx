@@ -23,11 +23,17 @@ type SettingsProps = {
   wallpaper: string | null; setWallpaper: (u: string | null) => void;
   wallpaperBlur: number; setWallpaperBlur: (px: number) => void;
   extColors: ExtColors; setExtColors: (m: ExtColors) => void;
+  ingestionEnabled: boolean;
+  setIngestionEnabled: (enabled: boolean) => void;
 };
 
 type SettingsTab = "appearance" | "system";
 
-export function SettingsView({ mode, setMode, guardianName, setGuardianName, userName, setUserName, role, setRole, notes, setNotes, baseColor, setBaseColor, depth, setDepth, fade, setFade, resolved, systemPrompt, setSystemPrompt, wallpaper, setWallpaper, wallpaperBlur, setWallpaperBlur, extColors, setExtColors }: SettingsProps) {
+export function SettingsView({ mode, setMode, guardianName, setGuardianName, userName, setUserName, role, setRole, notes, setNotes, baseColor, setBaseColor, depth, setDepth, fade, setFade, resolved, systemPrompt, setSystemPrompt, wallpaper, setWallpaper, wallpaperBlur, setWallpaperBlur, extColors, setExtColors, ingestionEnabled, setIngestionEnabled }: SettingsProps) {
+  // ——— Ingestion Endpoint Override State ———
+  const [ingestEndpointOverride, setIngestEndpointOverride] = useState(() =>
+    typeof window !== "undefined" ? localStorage.getItem("cfy.ingest.endpoint.override") || "" : ""
+  );
   const [tab, setTab] = useState<SettingsTab>("appearance");
   const tabs: Array<{ key: SettingsTab; label: string }> = [
     { key: "appearance", label: "Appearance" },
@@ -486,3 +492,43 @@ function KnowledgeGraphConstellation() {
     </div>
   );
 }
+                {/* ——— Labs: Ingestion API toggle/override ——— */}
+                <div className="space-y-2">
+                  <div className="text-xs tracking-wide uppercase text-gray-400">Labs</div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="ingestion-api-toggle"
+                      checked={ingestionEnabled}
+                      onChange={e => setIngestionEnabled(e.target.checked)}
+                      className="accent-primary"
+                    />
+                    <label htmlFor="ingestion-api-toggle" className="text-xs opacity-80 cursor-pointer select-none">
+                      Enable Ingestion API
+                    </label>
+                  </div>
+                  {ingestionEnabled && (
+                    <div className="space-y-2 pt-2">
+                      <div className="text-xs opacity-70">Custom Ingestion Endpoint</div>
+                      <Input
+                        value={ingestEndpointOverride}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setIngestEndpointOverride(val);
+                          if (typeof window !== "undefined") localStorage.setItem("cfy.ingest.endpoint.override", val);
+                        }}
+                        placeholder="/api/ingest"
+                        className="h-8 rounded-[var(--tile-radius,19px)] px-3 text-xs w-full"
+                      />
+                    </div>
+                  )}
+                  {ingestionEnabled && (
+                    <div className="space-y-2 pt-2">
+                      <div className="text-xs opacity-70">Ingestion Tags</div>
+                      <div className="text-xs opacity-60">
+                        Files uploaded may be auto-tagged with their source or context (e.g. "chat", "upload", "project").
+                        This metadata enables better embeddings and graph enrichment.
+                      </div>
+                    </div>
+                  )}
+                </div>

@@ -25,11 +25,20 @@ type PanelShellProps = React.PropsWithChildren<{
 export default function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillConsumed, onWorkspaceToggle }) {
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
+  const [showWorkspacePanel, setShowWorkspacePanel] = React.useState(false);
   const bp = useBreakpoint();
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const { subscribe } = useLiveEvents();
   const { wallpaperUrl } = useWallpaperUrl();
+  // Workspace panel toggle event listener
+  React.useEffect(() => {
+    const onToggleWorkspace = () => {
+      setShowWorkspacePanel(prev => !prev);
+    };
+    window.addEventListener('cfy:workspace:toggleWorkspacePanel', onToggleWorkspace);
+    return () => window.removeEventListener('cfy:workspace:toggleWorkspacePanel', onToggleWorkspace);
+  }, []);
 
   const isDesktopLayout = bp === "lg" || bp === "xl" || bp === "2xl";
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
@@ -663,6 +672,20 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             disabled={chatDisabled}
           >
             <PromptLibraryPortal />
+            {showWorkspacePanel && (
+              <div className="absolute inset-0 z-[110] pointer-events-auto">
+                <div className="absolute right-0 top-0 h-full w-[min(420px,90vw)] bg-black/50 backdrop-blur-md border-l border-white/10 shadow-2xl overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+                    <div className="text-sm font-semibold text-white">Workspace</div>
+                    <button onClick={() => setShowWorkspacePanel(false)} className="text-white/70 hover:text-white">×</button>
+                  </div>
+                  <div className="p-4 text-white text-xs overflow-auto h-[calc(100%-42px)]">
+                    <p>Workspace tools coming soon…</p>
+                    <p>Prompt Library, Notes, File Viewer, Context Inspector, etc.</p>
+                  </div>
+                </div>
+              </div>
+            )}
             <GuardianChat
               guardianName={guardianName}
               userName={userName}
@@ -687,7 +710,8 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 // Inline Prompt Library popover mounted within chat panel
 function PromptLibraryPortal() {
   const [open, setOpen] = React.useState(false);
-  const [items, setItems] = React.useState<Array<{ text: string; ts?: number }>>([]);
+  const [items, setItems] = React.useState<Array<{ text: string; ts?: number; title?: string; category?: string; tags?: string[]; pinned?: boolean }>>([]);
+  const [query, setQuery] = React.useState("");
 
   React.useEffect(() => {
     const onToggle = () => {
@@ -702,30 +726,136 @@ function PromptLibraryPortal() {
     return () => window.removeEventListener('cfy:workspace:togglePromptLibrary', onToggle);
   }, []);
 
+  function persist(next: typeof items) {
+    setItems(next);
+    try { localStorage.setItem('cfy.prompts', JSON.stringify(next)); } catch {}
+  }
+
+  function togglePin(idx: number) {
+    const next = items.slice();
+    next[idx] = { ...next[idx], pinned: !next[idx]?.pinned };
+    persist(next);
+  }
+
+  function editItem(idx: number) {
+    const cur = items[idx];
+    const title = window.prompt('Title', cur.title || '') ?? cur.title;
+    const category = window.prompt('Category', cur.category || '') ?? cur.category;
+    const tagsRaw = window.prompt('Tags (comma-separated)', (cur.tags || []).join(', ')) ?? (cur.tags || []).join(',');
+    const text = window.prompt('Prompt text', cur.text) ?? cur.text;
+    const next = items.slice();
+    next[idx] = { ...cur, title: title || undefined, category: category || undefined, tags: (tagsRaw || '').split(',').map(s => s.trim()).filter(Boolean), text };
+    persist(next);
+  }
+
+  function removeItem(idx: number) {
+    const next = items.slice();
+    next.splice(idx, 1);
+    persist(next);
+  }
+
+  function exportJSON() {
+    try {
+      const txt = JSON.stringify(items, null, 2);
+      navigator.clipboard?.writeText(txt);
+      window.dispatchEvent(new CustomEvent('cfy:toast', { detail: { message: 'Prompt library copied to clipboard' } }));
+    } catch {}
+  }
+
+  async function importJSON() {
+    const txt = window.prompt('Paste prompt library JSON');
+    if (!txt) return;
+    try {
+      const arr = JSON.parse(txt);
+      if (Array.isArray(arr)) persist(arr);
+    } catch {
+      alert('Invalid JSON');
+    }
+  }
+
   if (!open) return null;
+  const filtered = items.filter(it => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    const hay = [it.text, it.title, it.category, ...(it.tags || [])].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+  const pinned = filtered.filter(i => i.pinned);
+  const unpinned = filtered.filter(i => !i.pinned);
+  const categories = Array.from(new Set(unpinned.map(i => i.category).filter(Boolean))) as string[];
   return (
     <div className="absolute inset-0 z-[120] pointer-events-none" aria-hidden={!open}>
       <div className="absolute bottom-20 right-6 w-[min(520px,96vw)] max-h-[50vh] overflow-hidden rounded-2xl border pointer-events-auto"
            style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)", boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
-        <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: "var(--panel-border)" }}>
+        <div className="flex items-center justify-between gap-2 px-3 py-2 border-b" style={{ borderColor: "var(--panel-border)" }}>
           <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>Prompt Library</div>
-          <button type="button" className="icon-inline" aria-label="Close" onClick={() => setOpen(false)}>×</button>
+          <div className="flex items-center gap-2">
+            <input
+              type="search"
+              placeholder="Search prompts…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-7 rounded-md px-2 text-xs border"
+              style={{ background: "transparent", color: "var(--text)", borderColor: "var(--panel-border)" }}
+            />
+            <button type="button" className="text-xs underline" onClick={exportJSON}>Export</button>
+            <button type="button" className="text-xs underline" onClick={importJSON}>Import</button>
+            <button type="button" className="icon-inline" aria-label="Close" onClick={() => setOpen(false)}>×</button>
+          </div>
         </div>
-        <div className="max-h-[40vh] overflow-auto divide-y" style={{ borderColor: "var(--panel-border)" }}>
-          {items.length === 0 ? (
+        <div className="max-h-[40vh] overflow-auto" style={{ borderColor: "var(--panel-border)" }}>
+          {filtered.length === 0 ? (
             <div className="px-3 py-2 text-xs opacity-70" style={{ color: "var(--muted)" }}>No prompts yet. Send some prompts to build your library.</div>
           ) : (
-            items.map((it, idx) => (
-              <div key={idx} className="px-3 py-2 text-sm hover:bg-white/5 cursor-pointer select-text" title="Double‑click to use"
-                   onDoubleClick={() => {
-                     try { window.dispatchEvent(new CustomEvent('cfy:composer:prefill', { detail: { text: it.text } })); } catch {}
-                     setOpen(false);
-                   }}>
-                <div className="truncate" style={{ color: "var(--text)" }}>{it.text}</div>
-                {it.ts && <div className="text-[10px] opacity-60" style={{ color: "var(--muted)" }}>{new Date(it.ts).toLocaleString()}</div>}
-              </div>
-            ))
+            <div className="divide-y" style={{ borderColor: "var(--panel-border)" }}>
+              {pinned.length > 0 && (
+                <div>
+                  <div className="px-3 py-1 text-[11px] uppercase opacity-70" style={{ color: "var(--muted)" }}>Pinned</div>
+                  {pinned.map((it, idx) => (
+                    <PromptRow key={`pinned-${idx}`} it={it} idx={idx} onUse={(t) => { window.dispatchEvent(new CustomEvent('cfy:composer:prefill', { detail: { text: t } })); setOpen(false); }} onPin={togglePin} onEdit={editItem} onRemove={removeItem} />
+                  ))}
+                </div>
+              )}
+              {categories.length > 0 && categories.map((cat) => (
+                <div key={cat || 'uncat'}>
+                  <div className="px-3 py-1 text-[11px] uppercase opacity-70" style={{ color: "var(--muted)" }}>{cat || 'Uncategorized'}</div>
+                  {unpinned.filter(i => (i.category || '') === cat).map((it, idx) => (
+                    <PromptRow key={`${cat}-${idx}`} it={it} idx={items.indexOf(it)} onUse={(t) => { window.dispatchEvent(new CustomEvent('cfy:composer:prefill', { detail: { text: t } })); setOpen(false); }} onPin={togglePin} onEdit={editItem} onRemove={removeItem} />
+                  ))}
+                </div>
+              ))}
+              {categories.length === 0 && unpinned.length > 0 && (
+                <div>
+                  {unpinned.map((it, idx) => (
+                    <PromptRow key={`plain-${idx}`} it={it} idx={items.indexOf(it)} onUse={(t) => { window.dispatchEvent(new CustomEvent('cfy:composer:prefill', { detail: { text: t } })); setOpen(false); }} onPin={togglePin} onEdit={editItem} onRemove={removeItem} />
+                  ))}
+                </div>
+              )}
+            </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PromptRow({ it, idx, onUse, onPin, onEdit, onRemove }: { it: { text: string; ts?: number; title?: string; category?: string; tags?: string[]; pinned?: boolean }; idx: number; onUse: (t: string) => void; onPin: (idx: number) => void; onEdit: (idx: number) => void; onRemove: (idx: number) => void; }) {
+  return (
+    <div className="px-3 py-2 text-sm hover:bg-white/5 select-text">
+      <div className="flex items-start gap-2">
+        <button type="button" className="text-xs underline shrink-0" onClick={() => onPin(idx)}>{it.pinned ? 'Unpin' : 'Pin'}</button>
+        <div className="flex-1 cursor-pointer" title="Double‑click to use" onDoubleClick={() => onUse(it.text)}>
+          {it.title && <div className="font-semibold truncate" style={{ color: "var(--text)" }}>{it.title}</div>}
+          <div className="truncate" style={{ color: "var(--text)" }}>{it.text}</div>
+          <div className="text-[10px] opacity-60 flex items-center gap-2" style={{ color: "var(--muted)" }}>
+            {it.category && <span>#{it.category}</span>}
+            {(it.tags && it.tags.length > 0) && <span>{it.tags.map(t => `#${t}`).join(' ')}</span>}
+            {it.ts && <span>{new Date(it.ts).toLocaleString()}</span>}
+          </div>
+        </div>
+        <div className="shrink-0 flex items-center gap-2">
+          <button type="button" className="text-xs underline" onClick={() => onEdit(idx)}>Edit</button>
+          <button type="button" className="text-xs underline" onClick={() => onRemove(idx)}>Remove</button>
         </div>
       </div>
     </div>

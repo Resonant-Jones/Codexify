@@ -79,8 +79,18 @@ export function useUploader({
       } catch {}
     }
 
-    if (imgs.length) onImages(imgs);
-    if (docs.length) onDocuments(docs);
+    let imgSuccess = 0;
+    let docSuccess = 0;
+    let totalFailed = 0;
+
+    if (imgs.length) {
+      onImages(imgs);
+      imgSuccess = imgs.length;
+    }
+    if (docs.length) {
+      onDocuments(docs);
+      docSuccess = docs.length;
+    }
     // Emit debug hook with full payloads
     try { window.dispatchEvent(new CustomEvent("cfy:documents:upload", { detail: { items: ingestItems } })); } catch {}
 
@@ -88,22 +98,38 @@ export function useUploader({
     try {
       const enabled = (typeof window !== "undefined") && localStorage.getItem("cfy.ingest.enabled") === "true";
       const endpoint = (import.meta as any).env?.VITE_INGESTION_ENDPOINT as string | undefined;
-      if (enabled && endpoint && ingestItems.length) {
+      const runtimeOverride = localStorage.getItem("cfy.ingest.endpoint.override");
+      const effectiveEndpoint = runtimeOverride || endpoint;
+      if (enabled && effectiveEndpoint && ingestItems.length) {
         for (const it of ingestItems) {
           try {
-            const resp = await fetch(endpoint, {
+            const resp = await fetch(effectiveEndpoint, {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ ...it }),
             });
             if (!resp.ok) throw new Error(String(resp.status));
-            try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: `Ingested ${it.filename}` } })); } catch {}
           } catch (err) {
-            try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: `Ingestion failed: ${it.filename}` } })); } catch {}
+            totalFailed++;
           }
         }
       }
     } catch {}
+    try {
+      let summary = [];
+      if (docSuccess) summary.push(`${docSuccess} document${docSuccess > 1 ? "s" : ""}`);
+      if (imgSuccess) summary.push(`${imgSuccess} image${imgSuccess > 1 ? "s" : ""}`);
+
+      window.dispatchEvent(new CustomEvent("cfy:toast", {
+        detail: {
+          message: summary.length
+            ? `Uploaded ${summary.join(" and ")} successfully.`
+            : `All ${totalFailed} uploads failed.`,
+          type: summary.length ? "success" : "error"
+        }
+      }));
+    } catch {}
+
     try {
       localStorage.setItem("cfy.hasUserUpload", "true");
     } catch {}

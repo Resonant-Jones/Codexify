@@ -1,15 +1,22 @@
-FROM python:3.11-slim
+FROM python:3.11.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
-
+ENV PYTHONPATH="/app:${PYTHONPATH}"
 # System deps for typical Python builds (psycopg2, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc libpq-dev curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    python3-dev \
+    build-essential \
+    && apt-get clean
 
 # Install Python deps (support multiple repo layouts)
 # Copy potential requirement sources into the image
@@ -88,38 +95,9 @@ dst.write_bytes(raw)
 dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 PY
 
-# Create / normalize the launcher script (always synthesize a clean script in the image)
-RUN python - <<'PY'
-from pathlib import Path
-import stat
+ENV PYTHONPATH=/app \
+    PORT=8888
 
-dst = Path("/app/run-server.sh")
-dst.write_text("""#!/bin/sh
-set -eu
-export PYTHONPATH=${PYTHONPATH:-/app}
-PORT=${PORT:-8000}
+EXPOSE 8888
 
-# best-effort DB wait
-python /app/wait_for_db.py || true
-
-# best-effort migrations (honor script_location in alembic.ini)
-if command -v alembic >/dev/null 2>&1 && [ -f /app/backend/alembic.ini ]; then
-  alembic -c /app/backend/alembic.ini upgrade head || true
-else
-  echo "[migrate] Skipping Alembic (no alembic.ini)"
-fi
-
-# launch API
-exec uvicorn codexify.guardian_api:app --host 0.0.0.0 --port "${PORT}"
-""", encoding="utf-8")
-raw = dst.read_bytes()
-if raw.startswith(b"\xef\xbb\xbf"):  # UTF-8 BOM
-    raw = raw[3:]
-raw = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-dst.write_bytes(raw)
-dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-PY
-
-ENV PYTHONPATH=/app
-EXPOSE 8000
-ENTRYPOINT ["/app/run-server.sh"]
+ENTRYPOINT ["/bin/sh","-lc","[ -e /app/codexify ] || ln -s /app/guardian /app/codexify; if [ ! -f /app/wait_for_db.py ]; then cat > /app/wait_for_db.py <<'PY'\n#!/usr/bin/env python3\nimport os, time, sys\ntry:\n    import psycopg2\nexcept Exception:\n    print('psycopg2 unavailable; skipping active DB wait', file=sys.stderr)\n    sys.exit(0)\ndsn = os.environ.get('DATABASE_URL')\nif not dsn:\n    print('DATABASE_URL not set; skipping DB wait', file=sys.stderr)\n    sys.exit(0)\nfor i in range(90):\n    try:\n        psycopg2.connect(dsn).close()\n        print('Postgres is up')\n        break\n    except Exception as e:\n        print('Waiting for Postgres...', e, file=sys.stderr)\n        time.sleep(2)\nPY\nchmod +x /app/wait_for_db.py; fi; python /app/wait_for_db.py || true; if [ ! -f /app/backend/alembic.ini ]; then printf '%s\n' '[alembic]' 'script_location = backend/migrations' > /app/backend/alembic.ini; fi; if command -v alembic >/dev/null 2>&1 && [ -f /app/backend/alembic.ini ]; then alembic -c /app/backend/alembic.ini upgrade head || true; else echo '[migrate] Skipping Alembic (no alembic.ini)'; fi; exec uvicorn codexify.guardian_api:app --host 0.0.0.0 --port ${PORT}"]

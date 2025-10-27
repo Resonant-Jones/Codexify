@@ -1,0 +1,76 @@
+name: Schema Drift Detection
+
+on:
+  pull_request:
+    paths:
+      - 'guardian/db/models.py'
+      - 'guardian/core/db.py'
+      - 'guardian/db/migrations/versions/*.py'
+  push:
+    branches: [main]
+    paths:
+      - 'guardian/db/models.py'
+      - 'guardian/core/db.py'
+
+jobs:
+  detect-schema-drift:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: guardian
+          POSTGRES_PASSWORD: guardian
+          POSTGRES_DB: guardian
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install sqlalchemy alembic psycopg2-binary
+
+      - name: Run Alembic migrations
+        env:
+          DATABASE_URL: postgresql://guardian:guardian@localhost:5432/guardian
+        run: |
+          cd backend
+          alembic upgrade head
+
+      - name: Introspect Alembic schema
+        env:
+          DATABASE_URL: postgresql://guardian:guardian@localhost:5432/guardian
+        run: |
+          python scripts/introspect_schema.py alembic > /tmp/alembic_schema.json
+
+      - name: Create GuardianDB schema
+        env:
+          DATABASE_URL: postgresql://guardian:guardian@localhost:5432/guardian_raw
+        run: |
+          # Create second database for GuardianDB
+          PGPASSWORD=guardian psql -h localhost -U guardian -d guardian -c "CREATE DATABASE guardian_raw;"
+          python scripts/apply_guardiandb_schema.py
+          python scripts/introspect_schema.py guardiandb > /tmp/guardiandb_schema.json
+
+      - name: Compare schemas
+        run: |
+          python scripts/compare_schemas.py /tmp/alembic_schema.json /tmp/guardiandb_schema.json
+
+      - name: Upload drift report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-drift-report
+          path: schema_drift_report.md

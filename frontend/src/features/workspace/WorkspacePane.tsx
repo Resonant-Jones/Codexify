@@ -51,7 +51,7 @@ export default function WorkspacePane() {
       refractiveFallback
       shimmerMode="subtle"
       className="flex-1 overflow-auto"
-      style={{ display: "flex", flexDirection: "column" }}
+      style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}
     >
       <div style={{ padding: 12, borderBottom: "1px solid var(--panel-border)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
