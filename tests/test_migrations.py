@@ -1,0 +1,94 @@
+"""Alembic migration smoke tests."""
+
+from __future__ import annotations
+
+import os
+import uuid
+from pathlib import Path
+from urllib.parse import urlparse, urlunparse
+
+import pytest
+
+try:
+    import psycopg2  # type: ignore
+except ImportError:  # pragma: no cover
+    psycopg2 = None
+
+from sqlalchemy import create_engine, inspect
+
+from guardian.db.models import Base
+
+
+def _build_database_url(base_url: str, database_name: str) -> str:
+    parsed = urlparse(base_url)
+    return urlunparse(parsed._replace(path=f"/{database_name}"))
+
+
+def _admin_database_url(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    return urlunparse(parsed._replace(path="/postgres"))
+
+
+@pytest.mark.integration
+def test_migrations_apply_cleanly(tmp_path, monkeypatch):
+    if psycopg2 is None:
+        pytest.skip("psycopg2 not installed")
+
+    base_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not base_url:
+        pytest.skip("TEST_DATABASE_URL or DATABASE_URL environment variable required")
+
+    admin_url = _admin_database_url(base_url)
+    db_name = f"codexify_migrate_{uuid.uuid4().hex[:12]}"
+    temp_url = _build_database_url(base_url, db_name)
+
+    admin_conn = psycopg2.connect(admin_url)
+    admin_conn.autocommit = True
+    try:
+        with admin_conn.cursor() as cur:
+            cur.execute(f"CREATE DATABASE {db_name}")
+    except psycopg2.Error as exc:  # pragma: no cover - environment specific
+        admin_conn.close()
+        pytest.skip(f"Unable to create test database: {exc.pgcode}")
+    finally:
+        admin_conn.close()
+
+    from alembic.config import Config
+    from alembic import command
+
+    cfg_path = tmp_path / "alembic.ini"
+    cfg_path.write_text(Path("backend/alembic.ini").read_text())
+    cfg = Config(str(cfg_path))
+    cfg.set_main_option("sqlalchemy.url", temp_url)
+    monkeypatch.setenv("DATABASE_URL", temp_url)
+
+    engine = None
+    try:
+        command.upgrade(cfg, "head")
+
+        engine = create_engine(temp_url)
+        inspector = inspect(engine)
+        expected_tables = set(Base.metadata.tables.keys()) | {"alembic_version"}
+        existing_tables = set(inspector.get_table_names())
+
+        missing = sorted(expected_tables - existing_tables)
+        if missing:
+            pytest.fail(f"Missing tables after migration: {missing}")
+
+        unexpected = sorted(existing_tables - expected_tables)
+        if unexpected:
+            pytest.fail(f"Unexpected tables present: {unexpected}")
+
+        print("✅ Alembic/ORM schema contract validated.")
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+        with psycopg2.connect(admin_url) as cleanup_conn:
+            cleanup_conn.autocommit = True
+            with cleanup_conn.cursor() as cur:
+                cur.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s",
+                    (db_name,),
+                )
+                cur.execute(f"DROP DATABASE IF EXISTS {db_name}")
