@@ -1,9 +1,3 @@
-# Graph database and ORM dependencies
-# NOTE: neomodel 5.3.2 requires neo4j ~= 5.19.0; do not bump neo4j beyond 5.19.x without checking neomodel compatibility.
-neomodel==5.3.2
-neo4j==5.19.0
-
-
 # Ensure package-relative import works when running pytest from the repo root
 from pathlib import Path
 import sys
