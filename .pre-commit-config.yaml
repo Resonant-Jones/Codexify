@@ -74,7 +74,7 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-        stages: [push]
+        stages: [pre-push]
 
     -   id: system-check
         name: System Health Check
@@ -82,13 +82,13 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-        stages: [push]
+        stages: [pre-push]
 
 # Custom settings
 default_language_version:
     python: python3.13
 
-default_stages: [commit, push]
+default_stages: [pre-commit, pre-push]
 
 ci:
     autofix_commit_msg: 'style: auto fixes from pre-commit hooks'
