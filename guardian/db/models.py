@@ -348,6 +348,26 @@ class TTSOutput(Base):
 
 
 # =========================
+# Document Linkage
+# =========================
+
+class ThreadDocument(Base):
+    """Link chat threads to documents (autosave notes, attached files, etc.)."""
+    __tablename__ = "thread_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    thread_id: Mapped[int] = mapped_column(Integer, ForeignKey('chat_threads.id', ondelete='CASCADE'), nullable=False)
+    document_id: Mapped[str] = mapped_column(String(36), nullable=False)  # UUID of GeneratedDocument or UploadedDocument
+    relation: Mapped[str] = mapped_column(String(64), server_default='autosave', nullable=False)  # 'autosave', 'attached', 'reference'
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("relation IN ('autosave', 'attached', 'reference')", name='thread_documents_relation_check'),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
 # Indexes
 # =========================
 
@@ -406,3 +426,8 @@ Index("ix_tts_outputs_project", TTSOutput.project_id)
 Index("ix_tts_outputs_thread", TTSOutput.thread_id)
 Index("ix_tts_outputs_provider", TTSOutput.provider)
 Index("ix_tts_outputs_created", TTSOutput.created_at.desc())
+
+# Thread document indexes
+Index("ix_thread_documents_thread_id", ThreadDocument.thread_id)
+Index("ix_thread_documents_thread_relation", ThreadDocument.thread_id, ThreadDocument.relation)
+Index("ix_thread_documents_document_id", ThreadDocument.document_id)
