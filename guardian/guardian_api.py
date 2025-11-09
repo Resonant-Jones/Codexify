@@ -140,6 +140,10 @@ from transformers import (
 from guardian.config import get_settings
 from guardian.routes import agent, memory, research, threads
 from guardian.core.auth import issue_session_token, verify_session_token, require_auth
+from guardian.context.broker import ContextBroker
+from guardian.vector.store import VectorStore
+from guardian.memory.query_memory import memory_store as _memory_store
+from guardian.sensors.state import Sensors
 
 # Optional AI Backend
 chat_with_ai: Optional[Callable[[List[Dict[str, str]]], str]] = None  # placeholder for optional AI backend
@@ -222,7 +226,12 @@ DEFAULT_MODEL = os.getenv("GUARDIAN_DEFAULT_MODEL") or GROQ_MODEL_DEFAULT
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
 
 # Minimal Groq completion helper for chat API (robust, fallback support)
-def _groq_complete(messages: List[Dict[str, str]], model: Optional[str] = None) -> str:
+def _groq_complete(
+    messages: List[Dict[str, str]],
+    model: Optional[str] = None,
+    *,
+    context: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Call Groq's OpenAI-compatible /chat/completions and return assistant text.
     - Handles multiple possible response shapes (message.content as str or list, choice.text).
@@ -492,6 +501,10 @@ else:
     logger.info("[db] Using SQLite path: %s", effective_sqlite_path)
 
 logger.info("📦 DB backend selected: %s", DB_BACKEND)
+
+# Initialize shared ContextBroker dependencies (vector store + sensors)
+_vector_store = VectorStore()
+_sensors = Sensors(chatlog_db)
 
 # Configure durable outbox storage when enabled
 if ENABLE_OUTBOX:
@@ -1386,7 +1399,7 @@ def chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
 
 # Generate an assistant reply for the given thread using the configured provider and persist it
 @app.post("/chat/{thread_id}/complete", tags=["Chat"])
-def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_factory=dict)):
+async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_factory=dict)):
     """
     Generate an assistant reply for the given thread using the configured provider
     and persist it as a new message (role='assistant'). Emits message.created.
@@ -1412,8 +1425,26 @@ def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_factory=di
         if CHAT_PROVIDER != "groq":
             raise HTTPException(status_code=500, detail=f"Unsupported provider: {CHAT_PROVIDER}")
 
+        # Build ContextBroker bundle using latest user message as query
+        latest_message = ""
+        for m in reversed(items):
+            if str(m.get("role") or "").strip() == "user":
+                lm = str(m.get("content") or "").strip()
+                if lm:
+                    latest_message = lm
+                    break
+
+        depth = str(body.get("depth") or "normal").strip().lower()
+        bundle: Optional[Dict[str, Any]] = None
+        try:
+            broker = ContextBroker(chatlog_db, _vector_store, _memory_store, _sensors)
+            bundle = await broker.assemble(thread_id, query=latest_message, depth=depth)
+        except Exception as e:
+            logger.warning("[context] broker assemble failed (depth=%s): %s", depth, e)
+            bundle = None
+
         model = body.get("model") or DEFAULT_MODEL
-        assistant_text = _groq_complete(context, model=model)
+        assistant_text = _groq_complete(context, model=model, context=bundle)
 
         mid = chatlog_db.create_message(thread_id, "assistant", assistant_text)
         try:
