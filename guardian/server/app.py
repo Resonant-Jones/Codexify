@@ -11,6 +11,10 @@ from guardian.retrieve.api import router as retrieve_router
 from guardian.server.codexify_api import oauth_status as codexify_oauth_status
 from guardian.server.codexify_api import router as codexify_router
 from guardian.server.tools_api import router as tools_router
+from guardian.routes.documents import router as documents_router
+from guardian.routes.workspace import router as workspace_router
+from guardian.core.db import GuardianDB
+from guardian.routes.documents import configure_db as configure_documents_db
 from guardian.sync.api import router as sync_router
 
 app = FastAPI()
@@ -18,6 +22,17 @@ app.include_router(tools_router)
 app.include_router(codexify_router)
 app.include_router(sync_router)
 app.include_router(retrieve_router)
+app.include_router(documents_router)
+app.include_router(workspace_router)
+
+# Configure documents DB (SQLite path by default)
+try:
+    _db_path = os.getenv("GUARDIAN_DB_PATH") or os.path.join(os.getcwd(), "guardian.db")
+    _doc_db = GuardianDB(_db_path)
+    configure_documents_db(_doc_db)
+except Exception:
+    # Non-fatal for app startup; autosave endpoints will error if used
+    pass
 
 # --- Safe, readable pattern: mask sensitive basenames; strip dirs ---
 SENSITIVE_BASENAME_RE = re.compile(
