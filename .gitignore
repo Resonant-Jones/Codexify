@@ -104,3 +104,4 @@ tmp-clone/
 
 # Personal chat history exports
 chatgpt_migrations/conversations.json
+.pnpm-store/
