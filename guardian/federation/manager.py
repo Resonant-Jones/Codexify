@@ -291,6 +291,45 @@ class FederationManager:
 
         return forwarded_count
 
+    async def forward_graph_update(
+        self, update_payload: Dict[str, Any]
+    ) -> int:
+        """Forward a graph update to all active relays.
+
+        Used to broadcast awareness graph updates across federated nodes via
+        active relay channels.
+
+        Args:
+            update_payload: Graph update payload (should include nodes and edges)
+
+        Returns:
+            Number of relays the update was forwarded to
+        """
+        forwarded_count = 0
+
+        for relay in list(self.active_relays.values()):
+            if relay.is_expired():
+                continue
+
+            # Forward graph updates to all active relays (not document-specific)
+            message = {"type": "graph_update", "payload": update_payload}
+
+            for ws, side in [
+                (relay.source_ws, "source"),
+                (relay.target_ws, "target"),
+            ]:
+                if ws and hasattr(ws, "send_json"):
+                    try:
+                        await ws.send_json(message)
+                        forwarded_count += 1
+                        logger.debug(f"Forwarded graph update to {side} of relay {relay.relay_id}")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to forward graph update to {side} of relay {relay.relay_id}: {e}"
+                        )
+
+        return forwarded_count
+
 
 # Global federation manager instance
 manager = FederationManager()
