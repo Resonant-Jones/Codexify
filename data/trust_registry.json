@@ -1,0 +1,31 @@
+{
+  "records": {
+    "peer-1": {
+      "node_id": "peer-1",
+      "trust_score": 0.0004679093771450673,
+      "reputation": {
+        "uptime": 1.0,
+        "auth_success": 0.8200000000000001,
+        "diff_accuracy": 1.0,
+        "latency": 1.0,
+        "violations": 30.0
+      },
+      "last_updated": "2025-11-10T04:38:48.602331+00:00",
+      "created_at": "2025-11-10T04:33:48.501072+00:00"
+    },
+    "untrusted-peer": {
+      "node_id": "untrusted-peer",
+      "trust_score": 0.5,
+      "reputation": {
+        "uptime": 1.0,
+        "auth_success": 1.0,
+        "diff_accuracy": 1.0,
+        "latency": 1.0,
+        "violations": 20.0
+      },
+      "last_updated": "2025-11-10T04:38:48.605564+00:00",
+      "created_at": "2025-11-10T04:38:08.715280+00:00"
+    }
+  },
+  "updated_at": "2025-11-10T04:38:48.605594+00:00"
+}

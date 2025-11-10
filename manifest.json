@@ -1,13 +1,65 @@
 {
   "mcp_version": "1.2",
   "server_name": "CodexifyFS",
+  "generated_at": "2025-11-10T03:01:05.504191+00:00",
   "tools": [
-    "guardian/tools/context/assemble.py"
+    {
+      "path": "guardian/tools/context/assemble.py",
+      "name": "assemble",
+      "ext": ".py",
+      "size": 31,
+      "modified": "2025-11-09T21:06:26.893985+00:00",
+      "category": "context",
+      "sha256": "bc61c2b2dc5de90821914ec7d6e705a001c1c8c15c452a9ddb04f970d348da95",
+      "provenance": {
+        "path": "guardian/tools/context/assemble.py",
+        "hash": "bc61c2b2dc5de90821914ec7d6e705a001c1c8c15c452a9ddb04f970d348da95",
+        "verified": true,
+        "signature_file": "guardian/tools/context/assemble.py.asc",
+        "signer": "Resonant Jones (CodexifyFS signing key) <jones@resonantconstructs.ai>\" [ultimate]",
+        "verified_at": "2025-11-10T03:01:05.503373+00:00",
+        "method": "gpg"
+      }
+    }
   ],
   "skills": [
-    "guardian/skills/summarize.py"
+    {
+      "path": "guardian/skills/summarize.py",
+      "name": "summarize",
+      "ext": ".py",
+      "size": 15,
+      "modified": "2025-11-09T21:06:26.894310+00:00",
+      "category": "skills",
+      "sha256": "f074f4f6c1b245f9afc5eddf01995c66142144d6bab0eaf5f357b49418317f63",
+      "provenance": {
+        "path": "guardian/skills/summarize.py",
+        "hash": "f074f4f6c1b245f9afc5eddf01995c66142144d6bab0eaf5f357b49418317f63",
+        "verified": false,
+        "signature_file": null,
+        "signer": null,
+        "verified_at": null,
+        "method": null
+      }
+    }
   ],
   "sandbox": [
-    "guardian/sandbox/run.py"
+    {
+      "path": "guardian/sandbox/run.py",
+      "name": "run",
+      "ext": ".py",
+      "size": 21,
+      "modified": "2025-11-09T21:06:26.894530+00:00",
+      "category": "sandbox",
+      "sha256": "b34fcb10cbcb49742f4b48d23d1ac09f460c8f3b8d38e90e8d5a97365a43a3d6",
+      "provenance": {
+        "path": "guardian/sandbox/run.py",
+        "hash": "b34fcb10cbcb49742f4b48d23d1ac09f460c8f3b8d38e90e8d5a97365a43a3d6",
+        "verified": false,
+        "signature_file": null,
+        "signer": null,
+        "verified_at": null,
+        "method": null
+      }
+    }
   ]
 }
