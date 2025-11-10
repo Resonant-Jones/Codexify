@@ -45,6 +45,7 @@ class ContextBroker:
         n_messages: int = 6,
         k_semantic: int = 4,
         k_memory: int = 5,
+        federated: bool = False,
     ) -> Dict[str, Any]:
         """Assemble a context bundle for the given thread and query.
 
@@ -55,6 +56,7 @@ class ContextBroker:
             n_messages: Number of recent messages to fetch
             k_semantic: Number of semantic results to fetch
             k_memory: Number of memory results to fetch
+            federated: If True, include federated context from peer nodes
 
         Returns:
             Dict with keys depending on depth:
@@ -62,6 +64,7 @@ class ContextBroker:
             - "semantic": Semantic search results (all depths)
             - "memory": Memory search results (deep, diagnostic)
             - "sensors": System sensor snapshot (diagnostic only)
+            - "federated": Federated search results (if federated=True)
         """
         # Normalize depth
         depth = str(depth or "normal").strip().lower()
@@ -114,6 +117,15 @@ class ContextBroker:
                 logger.warning(f"Failed to snapshot sensors: {e}")
                 context["sensors"] = {}
 
+        # Include federated context if requested
+        if federated:
+            try:
+                federated_results = await self._search_federated(query, k_semantic)
+                context["federated"] = federated_results
+            except Exception as e:
+                logger.warning(f"Failed to fetch federated context: {e}")
+                context["federated"] = []
+
         return context
 
     async def _fetch_messages(self, thread_id: int, n: int) -> List[Dict[str, Any]]:
@@ -155,3 +167,28 @@ class ContextBroker:
                 return await result
             return result if isinstance(result, dict) else {}
         return {}
+
+    async def _search_federated(self, query: str, k: int) -> List[Dict[str, Any]]:
+        """Search for context from federated peer nodes.
+
+        This method calls the federated context search API if available.
+
+        Args:
+            query: Query string
+            k: Number of results to fetch
+
+        Returns:
+            List of federated search results
+        """
+        try:
+            # Try to import and call the federation context API
+            from guardian.routes.federation_context import _search_peers
+
+            results = await _search_peers(query, k)
+            return results if isinstance(results, list) else []
+        except ImportError:
+            logger.debug("Federation context module not available")
+            return []
+        except Exception as e:
+            logger.warning(f"Error searching federated peers: {e}")
+            return []
