@@ -2,6 +2,7 @@ import React from "react";
 import AppShell from "./components/persona/layout/AppShell";
 import { TopBar } from "./components/TopBar";
 import EventsConsole from "./pages/EventsConsole";
+import { SharePage } from "./pages/SharePage";
 
 /**
  * App entry with a gated UI Playground ("Tune Rack").
@@ -24,6 +25,17 @@ function isTuneRoute() {
 function isEventsRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/dev/events");
+}
+
+function isShareRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/share/");
+}
+
+function getShareToken() {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/share\/(.+)$/);
+  return match ? match[1] : null;
 }
 
 function DevTuneGate() {
@@ -89,6 +101,12 @@ export default function App() {
         </main>
       </div>
     );
+  }
+  if (isShareRoute()) {
+    const token = getShareToken();
+    if (token) {
+      return <SharePage token={token} />;
+    }
   }
   return <AppShell />;
 }
