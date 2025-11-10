@@ -27,6 +27,8 @@ from guardian.federation.manifest import (
 from guardian.federation.manager import manager
 from guardian.federation.diff_engine import DiffEntry, DiffEngine
 from guardian.federation.diff_store import get_diff_store
+from guardian.federation.graph_model import GraphNode, GraphEdge, GraphSnapshot
+from guardian.federation.graph_store import get_graph_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/federation", tags=["federation"])
@@ -574,4 +576,154 @@ async def pull_diffs(
 
     except Exception as e:
         logger.error(f"Error pulling diffs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────
+# GRAPH SYNCHRONIZATION ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────
+
+
+class GraphUpdateRequest(BaseModel):
+    """Request body for pushing graph updates from a peer node."""
+
+    nodes: List[Dict[str, Any]] = Field(default_factory=list, description="List of nodes to upsert")
+    edges: List[Dict[str, Any]] = Field(default_factory=list, description="List of edges to add/update")
+    signature: Optional[str] = Field(None, description="Optional signature from source node")
+
+
+class GraphSnapshotResponse(BaseModel):
+    """Response containing graph snapshot."""
+
+    nodes: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Map of node_id to node data")
+    edges: List[Dict[str, Any]] = Field(default_factory=list, description="List of edges")
+    timestamp: str = Field(..., description="Snapshot timestamp in ISO format")
+
+
+@router.post("/graph/update")
+async def update_graph(body: GraphUpdateRequest) -> Dict[str, Any]:
+    """Accept and apply graph updates from a peer node.
+
+    Validates the update, merges nodes and edges into local graph,
+    and forwards to other active relays.
+
+    Args:
+        body: GraphUpdateRequest with nodes and edges
+
+    Returns:
+        Confirmation with update count
+    """
+    try:
+        node_id, private_key, public_key, relay_endpoint = _get_config()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        store = get_graph_store()
+
+        nodes_updated = 0
+        edges_updated = 0
+
+        # Process nodes
+        for node_data in body.nodes:
+            try:
+                node = GraphNode(**node_data)
+                store.upsert_node(node)
+                nodes_updated += 1
+            except Exception as e:
+                logger.error(f"Failed to upsert node: {e}")
+                continue
+
+        # Process edges
+        for edge_data in body.edges:
+            try:
+                edge = GraphEdge(**edge_data)
+                store.add_edge(edge)
+                edges_updated += 1
+            except Exception as e:
+                logger.error(f"Failed to add edge: {e}")
+                continue
+
+        # Forward update to active relays
+        forwarded_count = await manager.forward_graph_update(
+            {
+                "nodes": body.nodes,
+                "edges": body.edges,
+            }
+        )
+
+        # Emit event
+        event_bus.emit_event(
+            topic="federation.graph.updated",
+            payload={
+                "nodes_updated": nodes_updated,
+                "edges_updated": edges_updated,
+                "forwarded_to": forwarded_count,
+            },
+        )
+
+        logger.info(
+            f"Applied graph update: {nodes_updated} nodes, {edges_updated} edges"
+        )
+
+        return {
+            "status": "updated",
+            "nodes_updated": nodes_updated,
+            "edges_updated": edges_updated,
+            "forwarded_to": forwarded_count,
+        }
+
+    except Exception as e:
+        logger.error(f"Error processing graph update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/graph/snapshot", response_model=GraphSnapshotResponse)
+async def get_graph_snapshot() -> Dict[str, Any]:
+    """Get a snapshot of the local awareness graph for sync.
+
+    Returns the entire graph state for bootstrap or resync with peer nodes.
+
+    Returns:
+        GraphSnapshotResponse with all nodes and edges
+    """
+    try:
+        store = get_graph_store()
+        snapshot = store.export_snapshot()
+
+        # Convert nodes dict to serializable format
+        nodes_dict = {
+            node_id: node.model_dump(mode="json")
+            for node_id, node in snapshot.nodes.items()
+        }
+
+        # Convert edges list
+        edges_list = [edge.model_dump(mode="json") for edge in snapshot.edges]
+
+        logger.info(f"Exported graph snapshot with {len(nodes_dict)} nodes")
+
+        return {
+            "nodes": nodes_dict,
+            "edges": edges_list,
+            "timestamp": snapshot.timestamp.isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Error exporting graph snapshot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/graph/stats")
+async def get_graph_statistics() -> Dict[str, Any]:
+    """Get statistics about the local awareness graph.
+
+    Returns:
+        Graph statistics including node/edge counts and types
+    """
+    try:
+        store = get_graph_store()
+        stats = store.get_statistics()
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting graph statistics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
