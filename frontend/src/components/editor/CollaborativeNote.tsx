@@ -5,6 +5,19 @@ type PresenceUser = {
   color: string;
 };
 
+type AuditLogEntry = {
+  id: number;
+  user_id: string | null;
+  action: string;
+  payload: Record<string, any> | null;
+  timestamp: string;
+};
+
+type UserPermissions = {
+  can_edit: boolean;
+  can_comment: boolean;
+};
+
 const USER_COLORS = [
   "#FF6B6B", // Red
   "#4ECDC4", // Teal
@@ -19,6 +32,7 @@ export type CollaborativeNoteProps = {
   userId?: string;
   initialContent?: string;
   onContentChange?: (content: string) => void;
+  authToken?: string;
 };
 
 export function CollaborativeNote({
@@ -27,13 +41,19 @@ export function CollaborativeNote({
   userId = "anonymous",
   initialContent = "",
   onContentChange,
+  authToken,
 }: CollaborativeNoteProps) {
   const [content, setContent] = useState(initialContent);
   const [activeUsers, setActiveUsers] = useState<PresenceUser[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [lastAutosave, setLastAutosave] = useState<Date | null>(null);
+  const [permissions, setPermissions] = useState<UserPermissions | null>(null);
+  const [auditHistory, setAuditHistory] = useState<AuditLogEntry[]>([]);
+  const [showAuditTrail, setShowAuditTrail] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
   const ws = useRef<WebSocket>();
   const autosaveTimer = useRef<NodeJS.Timeout>();
+  const auditRefreshTimer = useRef<NodeJS.Timeout>();
   const userColorMap = useRef<Map<string, string>>(new Map());
 
   // Assign stable colors to users
@@ -44,6 +64,24 @@ export function CollaborativeNote({
     }
     return userColorMap.current.get(uid)!;
   };
+
+  // Fetch audit trail from API
+  const fetchAuditTrail = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `/api/collab/${documentId}/audit?limit=100`,
+        {
+          headers: authToken ? { "Authorization": `Bearer ${authToken}` } : {},
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setAuditHistory(data.entries);
+      }
+    } catch (error) {
+      console.error("Failed to fetch audit trail:", error);
+    }
+  }, [documentId, authToken]);
 
   // Handle incoming remote changes
   const applyRemoteChange = useCallback((message: any) => {
@@ -56,7 +94,7 @@ export function CollaborativeNote({
         }
       }
     } else if (message.type === "presence.join") {
-      setActiveUsers((prevUsers) => {
+      setActiveUsers((prevUsers: any) => {
         const newUsers = message.active_users.map((uid: string) => ({
           user_id: uid,
           color: getUserColor(uid),
@@ -64,7 +102,7 @@ export function CollaborativeNote({
         return newUsers;
       });
     } else if (message.type === "presence.leave") {
-      setActiveUsers((prevUsers) => {
+      setActiveUsers((prevUsers: any) => {
         const newUsers = message.active_users.map((uid: string) => ({
           user_id: uid,
           color: getUserColor(uid),
@@ -89,7 +127,12 @@ export function CollaborativeNote({
 
     const apiBase = getApiBase();
     const wsProtocol = apiBase.startsWith("https") ? "wss" : "ws";
-    const wsUrl = `${wsProtocol}://${apiBase.replace(/^https?:\/\//, "")}/api/collab/ws/${documentId}`;
+    let wsUrl = `${wsProtocol}://${apiBase.replace(/^https?:\/\//, "")}/api/collab/ws/${documentId}`;
+
+    // Add token to query if provided
+    if (authToken) {
+      wsUrl += `?token=${encodeURIComponent(authToken)}`;
+    }
 
     try {
       ws.current = new WebSocket(wsUrl);
@@ -97,18 +140,21 @@ export function CollaborativeNote({
       ws.current.onopen = () => {
         console.log(`Connected to collaborative session for document ${documentId}`);
         setIsConnected(true);
+        setAccessDenied(false);
 
-        // Send initial presence
+        // Send initial handshake with user_id and token
         ws.current?.send(
           JSON.stringify({
-            type: "presence",
             user_id: userId,
-            action: "join",
+            token: authToken,
           })
         );
+
+        // Fetch initial audit trail
+        fetchAuditTrail();
       };
 
-      ws.current.onmessage = (event) => {
+      ws.current.onmessage = (event: any) => {
         try {
           const message = JSON.parse(event.data);
           applyRemoteChange(message);
@@ -117,33 +163,29 @@ export function CollaborativeNote({
         }
       };
 
-      ws.current.onerror = (error) => {
+      ws.current.onerror = (error: any) => {
         console.error("WebSocket error:", error);
         setIsConnected(false);
       };
 
-      ws.current.onclose = () => {
+      ws.current.onclose = (event: any) => {
         console.log("Disconnected from collaborative session");
         setIsConnected(false);
+
+        // Check if closed due to policy violation (access denied)
+        if (event.code === 1008) {
+          setAccessDenied(true);
+        }
       };
 
       return () => {
-        if (ws.current?.readyState === WebSocket.OPEN) {
-          ws.current.send(
-            JSON.stringify({
-              type: "presence",
-              user_id: userId,
-              action: "leave",
-            })
-          );
-        }
         ws.current?.close();
       };
     } catch (error) {
       console.error("Failed to connect WebSocket:", error);
       setIsConnected(false);
     }
-  }, [documentId, userId, applyRemoteChange]);
+  }, [documentId, userId, authToken, applyRemoteChange, fetchAuditTrail]);
 
   // Auto-save every 15 seconds
   useEffect(() => {
@@ -177,10 +219,11 @@ export function CollaborativeNote({
   const handleChange = (value: string) => {
     setContent(value);
 
-    // Send to other clients
-    if (ws.current?.readyState === WebSocket.OPEN) {
+    // Send to other clients (only if we have edit permission)
+    if (ws.current?.readyState === WebSocket.OPEN && permissions?.can_edit !== false) {
       ws.current.send(
         JSON.stringify({
+          type: "update",
           content: value,
           user_id: userId,
           timestamp: new Date().toISOString(),
@@ -192,6 +235,44 @@ export function CollaborativeNote({
       onContentChange(value);
     }
   };
+
+  // Handle permission updates from WebSocket
+  const handlePermissionsUpdate = useCallback((perms: UserPermissions) => {
+    setPermissions(perms);
+  }, []);
+
+  // Show access denied message
+  if (accessDenied) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100%",
+          backgroundColor: "#fff",
+          borderRadius: 8,
+          padding: "32px",
+          textAlign: "center",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 24,
+            fontWeight: 700,
+            color: "#ef4444",
+            marginBottom: "12px",
+          }}
+        >
+          Access Denied
+        </div>
+        <div style={{ fontSize: 14, color: "rgba(0,0,0,.6)" }}>
+          You do not have permission to access this document.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -214,7 +295,7 @@ export function CollaborativeNote({
           alignItems: "center",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {/* Connection status */}
           <div
             style={{
@@ -228,13 +309,31 @@ export function CollaborativeNote({
           <span style={{ fontSize: 13, fontWeight: 600 }}>
             {isConnected ? "Live Editing" : "Offline"}
           </span>
+
+          {/* Permission lock indicator */}
+          {!permissions?.can_edit && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "4px 8px",
+                backgroundColor: "#fef3c7",
+                borderRadius: 4,
+              }}
+              title="Read-only mode"
+            >
+              <span style={{ fontSize: 12 }}>🔒</span>
+              <span style={{ fontSize: 11, fontWeight: 500 }}>Read-only</span>
+            </div>
+          )}
         </div>
 
         {/* Presence indicators */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {activeUsers.length > 0 && (
             <div style={{ display: "flex", gap: 4 }}>
-              {activeUsers.map((user) => (
+              {activeUsers.map((user: PresenceUser) => (
                 <div
                   key={user.user_id}
                   style={{
@@ -270,14 +369,81 @@ export function CollaborativeNote({
               Saved {Math.round((Date.now() - lastAutosave.getTime()) / 1000)}s ago
             </span>
           )}
+
+          {/* View History button */}
+          <button
+            onClick={() => setShowAuditTrail(!showAuditTrail)}
+            style={{
+              padding: "4px 12px",
+              fontSize: 12,
+              fontWeight: 500,
+              backgroundColor: showAuditTrail ? "#dbeafe" : "#f3f4f6",
+              border: "1px solid #e5e7eb",
+              borderRadius: 4,
+              cursor: "pointer",
+              color: showAuditTrail ? "#1e40af" : "rgba(0,0,0,.6)",
+            }}
+          >
+            View History
+          </button>
         </div>
       </div>
+
+      {/* Audit trail panel */}
+      {showAuditTrail && (
+        <div
+          style={{
+            maxHeight: "200px",
+            overflowY: "auto",
+            borderBottom: "1px solid rgba(0,0,0,.08)",
+            backgroundColor: "#f9fafb",
+            padding: "12px 16px",
+            fontSize: 12,
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: "8px" }}>
+            Activity ({auditHistory.length})
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {auditHistory.length === 0 ? (
+              <div style={{ color: "rgba(0,0,0,.4)" }}>No activity yet</div>
+            ) : (
+              auditHistory.map((entry: AuditLogEntry) => (
+                <div
+                  key={entry.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    color: "rgba(0,0,0,.7)",
+                    paddingBottom: "6px",
+                    borderBottom: "1px solid rgba(0,0,0,.05)",
+                  }}
+                >
+                  <span>
+                    <strong>{entry.user_id || "system"}</strong> {entry.action}
+                  </span>
+                  <span style={{ color: "rgba(0,0,0,.4)" }}>
+                    {entry.timestamp
+                      ? new Date(entry.timestamp).toLocaleTimeString()
+                      : ""}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Editor area */}
       <textarea
         value={content}
-        onChange={(e) => handleChange(e.target.value)}
-        placeholder="Start typing... (auto-saves every 15s)"
+        onChange={(e: any) => handleChange(e.target.value)}
+        disabled={!permissions?.can_edit}
+        placeholder={
+          permissions?.can_edit
+            ? "Start typing... (auto-saves every 15s)"
+            : "Read-only mode - you do not have edit permissions"
+        }
         style={{
           flex: 1,
           padding: "16px",
@@ -287,7 +453,9 @@ export function CollaborativeNote({
           lineHeight: 1.6,
           resize: "none",
           outline: "none",
-          color: "rgba(0,0,0,.9)",
+          color: permissions?.can_edit ? "rgba(0,0,0,.9)" : "rgba(0,0,0,.5)",
+          backgroundColor: permissions?.can_edit ? "#fff" : "#f9fafb",
+          cursor: permissions?.can_edit ? "text" : "not-allowed",
         }}
       />
     </div>

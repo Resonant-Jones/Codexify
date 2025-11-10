@@ -445,70 +445,43 @@ class SharedLink(Base):
 
 
 # =========================
-# Indexes
+# Collaboration Permissions & Audit
 # =========================
 
-# Chat indexes
-Index("ix_chat_messages_thread_id", ChatMessage.thread_id)
-Index("ix_chat_messages_thread_created", ChatMessage.thread_id, ChatMessage.created_at)
-Index("ix_chat_threads_parent_id", ChatThread.parent_id)
-Index("ix_chat_threads_project_id", ChatThread.project_id)
-Index("ix_chat_threads_user_id", ChatThread.user_id)
-Index("ix_chat_threads_updated", ChatThread.updated_at.desc())
+class CollaborationPermission(Base):
+    """Per-document permissions for collaborative editing."""
+    __tablename__ = "collaboration_permissions"
 
-# Memory indexes
-Index("ix_memory_entries_silo", MemoryEntry.silo)
-Index("ix_memory_entries_silo_updated", MemoryEntry.silo, MemoryEntry.updated_at)
-Index("ix_memory_entries_user_silo", MemoryEntry.user_id, MemoryEntry.silo)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    document_id: Mapped[str] = mapped_column(String(36), nullable=False)  # UUID of GeneratedDocument
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    can_edit: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    can_comment: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False)
+    granted_by: Mapped[str] = mapped_column(String(255), nullable=False)  # User ID who granted access
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
 
-# Connector indexes
-Index("ix_connector_runs_config_started", ConnectorRun.config_id, ConnectorRun.started_at.desc())
-Index("ix_raw_documents_config_external", RawDocument.config_id, RawDocument.external_id, unique=True)
-Index("ix_sync_jobs_connector_created", SyncJob.connector_id, SyncJob.created_at)
+    __table_args__ = (
+        Index("ix_collab_perms_doc_user", "document_id", "user_id", unique=True),
+        Index("ix_collab_perms_document", "document_id"),
+        Index("ix_collab_perms_user", "user_id"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
 
-# Audit indexes
-Index("ix_audit_log_timestamp", AuditLog.timestamp.desc())
-Index("ix_audit_log_entity", AuditLog.entity, AuditLog.entity_id)
 
-# Event outbox indexes
-Index("ix_events_outbox_tenant_id", EventOutbox.tenant_id)
-Index("ix_events_outbox_status_created", EventOutbox.status, EventOutbox.created_at)
+class CollaborationAuditLog(Base):
+    """Audit trail for all collaboration session events."""
+    __tablename__ = "collaboration_audit_log"
 
-# Legacy indexes
-Index("ix_messages_thread_id_timestamp", Message.thread_id, Message.timestamp)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    document_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[Optional[str]] = mapped_column(String(255))
+    action: Mapped[str] = mapped_column(String(64), nullable=False)  # 'presence.join', 'presence.leave', 'update', 'permission.granted', 'permission.revoked'
+    payload: Mapped[Optional[dict]] = mapped_column(JSONB)  # Action-specific data (e.g., content hash, permission details)
+    timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
 
-# Media indexes
-Index("ix_generated_images_project", GeneratedImage.project_id)
-Index("ix_generated_images_thread", GeneratedImage.thread_id)
-Index("ix_generated_images_user", GeneratedImage.user_id)
-Index("ix_generated_images_created", GeneratedImage.created_at.desc())
-
-Index("ix_uploaded_images_project", UploadedImage.project_id)
-Index("ix_uploaded_images_thread", UploadedImage.thread_id)
-Index("ix_uploaded_images_user", UploadedImage.user_id)
-Index("ix_uploaded_images_mime", UploadedImage.mime_type)
-Index("ix_uploaded_images_created", UploadedImage.created_at.desc())
-
-Index("ix_generated_documents_project", GeneratedDocument.project_id)
-Index("ix_generated_documents_thread", GeneratedDocument.thread_id)
-Index("ix_generated_documents_format", GeneratedDocument.format)
-Index("ix_generated_documents_created", GeneratedDocument.created_at.desc())
-
-Index("ix_uploaded_documents_project", UploadedDocument.project_id)
-Index("ix_uploaded_documents_thread", UploadedDocument.thread_id)
-Index("ix_uploaded_documents_mime", UploadedDocument.mime_type)
-Index("ix_uploaded_documents_created", UploadedDocument.created_at.desc())
-
-Index("ix_tts_outputs_project", TTSOutput.project_id)
-Index("ix_tts_outputs_thread", TTSOutput.thread_id)
-Index("ix_tts_outputs_provider", TTSOutput.provider)
-Index("ix_tts_outputs_created", TTSOutput.created_at.desc())
-
-# Thread document indexes
-Index("ix_thread_documents_thread_id", ThreadDocument.thread_id)
-Index("ix_thread_documents_thread_relation", ThreadDocument.thread_id, ThreadDocument.relation)
-Index("ix_thread_documents_document_id", ThreadDocument.document_id)
-
-# Shared link indexes
-Index("ix_shared_links_token", SharedLink.token)
-Index("ix_shared_links_target", SharedLink.target_type, SharedLink.target_id)
+    __table_args__ = (
+        Index("ix_collab_audit_doc", "document_id"),
+        Index("ix_collab_audit_doc_timestamp", "document_id", "timestamp"),
+        Index("ix_collab_audit_user", "user_id"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
