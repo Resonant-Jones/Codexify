@@ -427,7 +427,88 @@ Index("ix_tts_outputs_thread", TTSOutput.thread_id)
 Index("ix_tts_outputs_provider", TTSOutput.provider)
 Index("ix_tts_outputs_created", TTSOutput.created_at.desc())
 
+class SharedLink(Base):
+    """Secure shareable links for threads and documents with optional expiry."""
+    __tablename__ = "shared_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False)  # 'thread' or 'document'
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False)  # ID of thread or document
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)  # URL-safe secure token
+    expires_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))  # Optional expiry
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("target_type IN ('thread', 'document')", name='shared_links_target_type_check'),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Indexes
+# =========================
+
+# Chat indexes
+Index("ix_chat_messages_thread_id", ChatMessage.thread_id)
+Index("ix_chat_messages_thread_created", ChatMessage.thread_id, ChatMessage.created_at)
+Index("ix_chat_threads_parent_id", ChatThread.parent_id)
+Index("ix_chat_threads_project_id", ChatThread.project_id)
+Index("ix_chat_threads_user_id", ChatThread.user_id)
+Index("ix_chat_threads_updated", ChatThread.updated_at.desc())
+
+# Memory indexes
+Index("ix_memory_entries_silo", MemoryEntry.silo)
+Index("ix_memory_entries_silo_updated", MemoryEntry.silo, MemoryEntry.updated_at)
+Index("ix_memory_entries_user_silo", MemoryEntry.user_id, MemoryEntry.silo)
+
+# Connector indexes
+Index("ix_connector_runs_config_started", ConnectorRun.config_id, ConnectorRun.started_at.desc())
+Index("ix_raw_documents_config_external", RawDocument.config_id, RawDocument.external_id, unique=True)
+Index("ix_sync_jobs_connector_created", SyncJob.connector_id, SyncJob.created_at)
+
+# Audit indexes
+Index("ix_audit_log_timestamp", AuditLog.timestamp.desc())
+Index("ix_audit_log_entity", AuditLog.entity, AuditLog.entity_id)
+
+# Event outbox indexes
+Index("ix_events_outbox_tenant_id", EventOutbox.tenant_id)
+Index("ix_events_outbox_status_created", EventOutbox.status, EventOutbox.created_at)
+
+# Legacy indexes
+Index("ix_messages_thread_id_timestamp", Message.thread_id, Message.timestamp)
+
+# Media indexes
+Index("ix_generated_images_project", GeneratedImage.project_id)
+Index("ix_generated_images_thread", GeneratedImage.thread_id)
+Index("ix_generated_images_user", GeneratedImage.user_id)
+Index("ix_generated_images_created", GeneratedImage.created_at.desc())
+
+Index("ix_uploaded_images_project", UploadedImage.project_id)
+Index("ix_uploaded_images_thread", UploadedImage.thread_id)
+Index("ix_uploaded_images_user", UploadedImage.user_id)
+Index("ix_uploaded_images_mime", UploadedImage.mime_type)
+Index("ix_uploaded_images_created", UploadedImage.created_at.desc())
+
+Index("ix_generated_documents_project", GeneratedDocument.project_id)
+Index("ix_generated_documents_thread", GeneratedDocument.thread_id)
+Index("ix_generated_documents_format", GeneratedDocument.format)
+Index("ix_generated_documents_created", GeneratedDocument.created_at.desc())
+
+Index("ix_uploaded_documents_project", UploadedDocument.project_id)
+Index("ix_uploaded_documents_thread", UploadedDocument.thread_id)
+Index("ix_uploaded_documents_mime", UploadedDocument.mime_type)
+Index("ix_uploaded_documents_created", UploadedDocument.created_at.desc())
+
+Index("ix_tts_outputs_project", TTSOutput.project_id)
+Index("ix_tts_outputs_thread", TTSOutput.thread_id)
+Index("ix_tts_outputs_provider", TTSOutput.provider)
+Index("ix_tts_outputs_created", TTSOutput.created_at.desc())
+
 # Thread document indexes
 Index("ix_thread_documents_thread_id", ThreadDocument.thread_id)
 Index("ix_thread_documents_thread_relation", ThreadDocument.thread_id, ThreadDocument.relation)
 Index("ix_thread_documents_document_id", ThreadDocument.document_id)
+
+# Shared link indexes
+Index("ix_shared_links_token", SharedLink.token)
+Index("ix_shared_links_target", SharedLink.target_type, SharedLink.target_id)
