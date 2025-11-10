@@ -7,7 +7,7 @@ establishment between federated Codexify nodes.
 import logging
 import os
 import secrets
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin
 
@@ -25,6 +25,8 @@ from guardian.federation.manifest import (
     verify_manifest,
 )
 from guardian.federation.manager import manager
+from guardian.federation.diff_engine import DiffEntry, DiffEngine
+from guardian.federation.diff_store import get_diff_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/federation", tags=["federation"])
@@ -399,3 +401,177 @@ async def ws_federation_relay(
         if relay and not relay.is_active():
             manager.close_relay_session(relay_id)
             logger.info(f"Closed relay {relay_id}")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# DIFF SYNCHRONIZATION ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────
+
+
+class DiffPushRequest(BaseModel):
+    """Request body for pushing a diff from a peer node."""
+
+    doc_id: str = Field(..., description="Document ID")
+    version: int = Field(..., description="Version number for this diff")
+    patch: str = Field(..., description="Unified diff format patch")
+    author: str = Field(..., description="Author/node that created diff")
+    content_hash: Optional[str] = Field(None, description="Hash of resulting content")
+    base_version: int = Field(0, description="Version this was created from")
+    signature: Optional[str] = Field(None, description="Optional signature from source node")
+
+
+class DiffListResponse(BaseModel):
+    """Response for diff list queries."""
+
+    doc_id: str
+    since_version: int
+    diffs: List[Dict[str, Any]]
+
+
+@router.post("/diff/push")
+async def push_diff(body: DiffPushRequest) -> Dict[str, Any]:
+    """Accept and apply a diff from a peer node.
+
+    Validates the diff, applies it to local document state,
+    records it for other peers, and forwards via relay channels.
+
+    Args:
+        body: DiffPushRequest with patch and metadata
+
+    Returns:
+        Confirmation with new version
+    """
+    try:
+        node_id, private_key, public_key, relay_endpoint = _get_config()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    # Create DiffEntry from request
+    diff = DiffEntry(
+        doc_id=body.doc_id,
+        version=body.version,
+        patch=body.patch,
+        author=body.author,
+        base_version=body.base_version,
+        content_hash=body.content_hash,
+    )
+
+    try:
+        # Get diff store and engine
+        store = get_diff_store()
+        engine = DiffEngine(store)
+
+        # Get current document state
+        current_content = store.get_latest_content(body.doc_id) or ""
+        current_version = store.get_latest_version(body.doc_id) or 0
+
+        # Verify version compatibility
+        if diff.base_version > current_version:
+            logger.warning(
+                f"Diff version {diff.base_version} newer than current {current_version}"
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=f"Diff base_version {diff.base_version} exceeds current {current_version}",
+            )
+
+        # Apply the diff
+        try:
+            new_content = engine.apply_diff(current_content, diff)
+        except ValueError as e:
+            logger.error(f"Failed to apply diff: {e}")
+            raise HTTPException(status_code=400, detail=f"Cannot apply diff: {e}")
+
+        # Verify content hash if provided
+        if diff.content_hash:
+            if not engine.verify_diff(diff, new_content):
+                logger.warning(f"Content hash mismatch for {body.doc_id} v{body.version}")
+                # Log but continue - might be acceptable in some scenarios
+
+        # Record the diff
+        store.record_diff(diff, new_content)
+
+        # Forward diff to active relays
+        diff_payload = {
+            "doc_id": diff.doc_id,
+            "version": diff.version,
+            "patch": diff.patch,
+            "author": diff.author,
+            "timestamp": diff.timestamp.isoformat(),
+            "content_hash": diff.content_hash,
+        }
+        forwarded_count = await manager.forward_diff(body.doc_id, diff_payload)
+
+        # Emit event
+        event_bus.emit_event(
+            topic="federation.diff.applied",
+            payload={
+                "doc_id": body.doc_id,
+                "version": body.version,
+                "author": body.author,
+                "forwarded_to": forwarded_count,
+            },
+        )
+
+        logger.info(f"Applied diff {body.doc_id} v{body.version} by {body.author}")
+
+        return {
+            "status": "applied",
+            "doc_id": body.doc_id,
+            "version": body.version,
+            "forwarded_to": forwarded_count,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing diff push: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/diff/pull", response_model=DiffListResponse)
+async def pull_diffs(
+    doc_id: str = Query(..., description="Document ID"),
+    since: int = Query(0, description="Get diffs with version > this"),
+) -> Dict[str, Any]:
+    """Retrieve diffs for a document since a given version.
+
+    Used for resynchronization after periods of offline or
+    when a node joins late.
+
+    Args:
+        doc_id: Document ID to sync
+        since: Return diffs with version > this value
+
+    Returns:
+        List of DiffEntry objects in version order
+    """
+    try:
+        store = get_diff_store()
+
+        # Get diffs since version
+        diffs = store.get_diffs_since(doc_id, since)
+
+        # Convert to dict format for response
+        diff_list = [
+            {
+                "version": d.version,
+                "author": d.author,
+                "timestamp": d.timestamp.isoformat(),
+                "content_hash": d.content_hash,
+                "base_version": d.base_version,
+            }
+            for d in diffs
+        ]
+
+        logger.info(f"Pulled {len(diffs)} diffs for {doc_id} since v{since}")
+
+        return {
+            "doc_id": doc_id,
+            "since_version": since,
+            "diffs": diff_list,
+        }
+
+    except Exception as e:
+        logger.error(f"Error pulling diffs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

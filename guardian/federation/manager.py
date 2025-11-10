@@ -247,6 +247,50 @@ class FederationManager:
             if not relay.is_expired()
         )
 
+    async def forward_diff(
+        self, doc_id: str, diff_payload: Dict[str, Any]
+    ) -> int:
+        """Forward a diff to all active relays for a document.
+
+        Used to broadcast document diffs across federated nodes via
+        active relay channels.
+
+        Args:
+            doc_id: Document ID
+            diff_payload: Diff payload to forward (should include version, patch, etc.)
+
+        Returns:
+            Number of relays the diff was forwarded to
+        """
+        forwarded_count = 0
+
+        for relay in list(self.active_relays.values()):
+            if relay.is_expired():
+                continue
+
+            # Only forward to relays for this document
+            if relay.document_id != doc_id:
+                continue
+
+            # Forward to both source and target
+            message = {"type": "diff", "payload": diff_payload}
+
+            for ws, side in [
+                (relay.source_ws, "source"),
+                (relay.target_ws, "target"),
+            ]:
+                if ws and hasattr(ws, "send_json"):
+                    try:
+                        await ws.send_json(message)
+                        forwarded_count += 1
+                        logger.debug(f"Forwarded diff to {side} of relay {relay.relay_id}")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to forward diff to {side} of relay {relay.relay_id}: {e}"
+                        )
+
+        return forwarded_count
+
 
 # Global federation manager instance
 manager = FederationManager()
