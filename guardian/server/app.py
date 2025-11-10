@@ -4,8 +4,18 @@ import re
 import sys
 from logging.handlers import RotatingFileHandler
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+try:
+    from fastapi_security_headers import add_security_headers
+    SECURITY_HEADERS_AVAILABLE = True
+except ImportError:
+    SECURITY_HEADERS_AVAILABLE = False
 
 from guardian.retrieve.api import router as retrieve_router
 from guardian.server.codexify_api import oauth_status as codexify_oauth_status
@@ -17,7 +27,48 @@ from guardian.core.db import GuardianDB
 from guardian.routes.documents import configure_db as configure_documents_db
 from guardian.sync.api import router as sync_router
 
+# --- Rate Limiting Configuration ---
+_rate_limits_env = os.getenv("GUARDIAN_RATE_LIMITS", "100/minute").strip()
+_enable_rate_limiting = os.getenv("GUARDIAN_ENABLE_RATE_LIMITING", "1").strip().lower() in (
+    "1", "true", "yes", "on"
+)
+
+# Parse rate limits (supports comma-separated limits like "100/minute,1000/hour")
+_default_limits = [limit.strip() for limit in _rate_limits_env.split(",") if limit.strip()]
+
+# Initialize limiter with IP-based key function
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=_default_limits if _enable_rate_limiting else [],
+    storage_uri="memory://",  # In-memory storage (upgrade to Redis for production scale)
+    enabled=_enable_rate_limiting,
+)
+
+# Create logger for rate limiting (will be configured later in the file)
+_rate_limit_logger = logging.getLogger(__name__)
+
 app = FastAPI()
+app.state.limiter = limiter
+
+
+# Add custom rate limit exception handler
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    _rate_limit_logger.warning(
+        "[rate-limiting] Limit exceeded for IP=%s path=%s",
+        get_remote_address(request),
+        request.url.path
+    )
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "Rate limit exceeded",
+            "detail": "Too many requests. Please try again later.",
+            "retry_after": getattr(exc, "retry_after", 60)
+        }
+    )
+
+
 app.include_router(tools_router)
 app.include_router(codexify_router)
 app.include_router(sync_router)
@@ -249,6 +300,8 @@ def healthz():
         in ("1", "true", "yes", "on"),
         "scrub_logs": SCRUB_ENABLED,
         "scrub_plaintext": SCRUB_PLAINTEXT_SECRETS,
+        "rate_limiting": _enable_rate_limiting,
+        "security_headers": _enable_security_headers and SECURITY_HEADERS_AVAILABLE,
     }
     return {"ok": True, "codexify": codexify_info}
 
@@ -291,6 +344,38 @@ app.add_middleware(
     allow_credentials=_allow_credentials,
     allow_methods=_methods,
     allow_headers=_headers,
+)
+
+# --- Security Headers Configuration ---
+_enable_security_headers = os.getenv("GUARDIAN_ENABLE_SECURITY_HEADERS", "1").strip().lower() in (
+    "1", "true", "yes", "on"
+)
+
+if _enable_security_headers and SECURITY_HEADERS_AVAILABLE:
+    # Custom CSP policy (adjust based on your frontend requirements)
+    _csp_policy = os.getenv(
+        "GUARDIAN_CSP_POLICY",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;"
+    )
+
+    app.add_middleware(
+        add_security_headers,
+        csp=_csp_policy,
+        hsts=True,  # Strict-Transport-Security
+        referrer="strict-origin-when-cross-origin",
+        permissions="geolocation=(), microphone=(), camera=()",
+    )
+    root_logger.info("[security-headers] Middleware enabled (CSP: %s...)", _csp_policy[:50])
+elif _enable_security_headers and not SECURITY_HEADERS_AVAILABLE:
+    root_logger.warning("[security-headers] Enabled but fastapi-security-headers not installed")
+else:
+    root_logger.info("[security-headers] Middleware DISABLED")
+
+# Log rate limiting status
+root_logger.info(
+    "[rate-limiting] %s (limits: %s)",
+    "ENABLED" if _enable_rate_limiting else "DISABLED",
+    ", ".join(_default_limits) if _enable_rate_limiting else "none"
 )
 
 
