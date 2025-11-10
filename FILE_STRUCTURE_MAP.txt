@@ -1,0 +1,314 @@
+GUARDIAN CODEBASE - FILE STRUCTURE MAP
+======================================
+
+BACKEND - COLLABORATION & REALTIME
+==================================
+
+1. WebSocket & Collaboration Manager
+   /guardian/realtime/collaboration.py (202 lines)
+   ├── CollaborationManager class
+   │   ├── __init__(): Initialize active connections and presence maps
+   │   ├── connect(doc_id, ws, user_id): Register WebSocket connection
+   │   ├── disconnect(doc_id, ws, user_id): Remove WebSocket connection
+   │   ├── broadcast(doc_id, message): Send to all connected clients
+   │   ├── get_active_sessions(): Return session count
+   │   └── get_session_user_count(doc_id): Return user count for session
+   ├── @router.websocket("/ws/{document_id}"): WebSocket endpoint
+   └── Message types: presence.join, presence.leave, update
+
+2. API Routes - Documents & Autosave
+   /guardian/routes/documents.py (264 lines)
+   ├── POST /api/documents/autosave
+   │   ├── Request: AutosaveRequest(thread_id, content)
+   │   ├── Response: AutosaveResponse(ok, document_id, relation)
+   │   ├── Logic: Create/update GeneratedDocument, ThreadDocument link
+   │   └── Event: document.autosave
+   └── GET /api/threads/{thread_id}/documents
+       ├── Fetch ThreadDocument links
+       ├── Retrieve GeneratedDocument details
+       └── Return ordered list of documents
+
+3. API Routes - Share Links
+   /guardian/routes/share.py (315 lines)
+   ├── POST /api/share
+   │   ├── Request: CreateShareRequest(target_type, target_id, expires_in_days)
+   │   ├── Response: CreateShareResponse(ok, token, url, expires_at)
+   │   ├── Logic: Generate token, create SharedLink, optionally set expiry
+   │   └── Event: share.created
+   └── GET /api/share/{token}
+       ├── Fetch SharedLink by token
+       ├── Validate expiry
+       ├── Fetch content (thread or document)
+       ├── Event: share.accessed
+       └── Return read-only content
+
+4. API Routes - Workspace
+   /guardian/routes/workspace.py (91 lines)
+   ├── GET /api/workspace/{thread_id}
+   │   ├── Fetch thread metadata
+   │   ├── Collect linked documents via ThreadDocument
+   │   ├── Fetch workspace diagnostics
+   │   └── Return: {thread, documents, diagnostics}
+   └── _collect_thread_documents(thread_id): Helper function
+
+DATABASE - ORM MODELS
+=====================
+
+/guardian/db/models.py (514 lines)
+
+Core Models:
+├── ChatThread
+│   ├── id (PK), user_id, title, summary
+│   ├── project_id (FK), parent_id (FK, self-ref)
+│   ├── archived_at, created_at, updated_at
+│   └── Relationships: messages, parent, children
+│
+├── ChatMessage
+│   ├── id (BigInteger, PK), thread_id (FK, CASCADE)
+│   ├── role, content, created_at
+│   └── Relationship: thread
+│
+├── GeneratedDocument (UUID, PK)
+│   ├── project_id (FK), thread_id (FK), user_id
+│   ├── title, content, format, model
+│   ├── created_at, updated_at, deleted_at (soft delete)
+│   └── Relationships: project, thread
+│
+├── UploadedDocument (UUID, PK)
+│   ├── project_id (FK), thread_id (FK), user_id
+│   ├── filename, filesize, mime_type, src_url
+│   ├── parsed_text (for FTS), deleted_at
+│   └── Relationships: project, thread
+│
+├── ThreadDocument
+│   ├── id (PK), thread_id (FK, CASCADE)
+│   ├── document_id (UUID, FK), relation (autosave/attached/reference)
+│   ├── created_at
+│   └── Indexes: thread_id, (thread_id, relation), document_id
+│
+├── SharedLink (UUID, PK)
+│   ├── target_type (thread/document), target_id
+│   ├── token (unique, 64 chars), expires_at (nullable)
+│   ├── created_at
+│   └── Indexes: token, (target_type, target_id)
+│
+├── Project
+│   ├── id (PK), name (unique), description, icon
+│   └── created_at, updated_at
+│
+├── EventOutbox (BigInteger, PK)
+│   ├── topic, payload (JSONB), status
+│   ├── tenant_id, created_at
+│   └── Indexes: tenant_id, (status, created_at)
+│
+├── AuditLog (BigInteger, PK)
+│   ├── event, entity, entity_id, user_id, timestamp
+│   └── Indexes: timestamp DESC, (entity, entity_id)
+│
+└── Legacy/Other
+    ├── UploadedImage, GeneratedImage
+    ├── MemoryEntry
+    ├── ConnectorConfig, ConnectorRun, RawDocument
+    ├── SyncJob, TTSOutput
+    └── Message (deprecated, use ChatMessage)
+
+AUTHENTICATION & AUTHORIZATION
+===============================
+
+/guardian/core/auth.py (100+ lines)
+
+├── AuthenticatedUser (dataclass)
+│   ├── id: str
+│   └── kind: str
+│
+├── Session Token Functions
+│   ├── issue_session_token(subject, ttl_seconds)
+│   │   └── Returns: (token, expires_at_epoch)
+│   ├── verify_session_token(token)
+│   │   └── Returns: (valid, subject)
+│   └── extract_auth_identity(x_api_key, authorization, gc_session)
+│       └── Returns: user_id or None
+│
+└── Auth Methods
+    ├── X-API-Key header
+    ├── Authorization: Bearer {token}
+    └── gc_session cookie
+
+/guardian/core/user_manager.py
+├── UserManager class
+└── Central user management
+
+EVENT SYSTEM
+============
+
+/guardian/core/event_bus.py (136 lines)
+
+Durable Event Bus:
+├── configure_event_store(store: ChatDB)
+├── configure_fallback_emitter(emitter)
+├── emit_event(topic, payload, tenant_id)
+│   ├── Persists to PostgreSQL events_outbox
+│   ├── In-memory fanout to subscribers
+│   └── Fallback to fallback emitter if no store
+├── subscribe_in_memory() -> asyncio.Queue
+├── unsubscribe_in_memory(queue)
+├── fetch_events_after(last_id, limit)
+├── delete_events_through(last_id, tenant_id)
+└── is_persistent_enabled() -> bool
+
+Event Topics:
+├── collab.update: On client WebSocket update
+├── document.autosave: On document autosave
+├── share.created: On share link creation
+└── share.accessed: On share link retrieval
+
+/guardian/sync/bus.py (31 lines)
+
+Alternative EventBus:
+├── EventBus class (simple in-memory)
+│   ├── __init__()
+│   ├── async publish(message)
+│   ├── async subscribe() -> AsyncIterator
+│   └── _subscribers: List[asyncio.Queue]
+└── bus = EventBus() (global instance)
+
+FRONTEND - REACT COMPONENTS
+===========================
+
+1. Collaborative Note Editor
+   /frontend/src/components/editor/CollaborativeNote.tsx (296 lines)
+   
+   Props:
+   ├── documentId: string
+   ├── threadId: number
+   ├── userId?: string
+   ├── initialContent?: string
+   └── onContentChange?: (content) => void
+   
+   Features:
+   ├── WebSocket to /api/collab/ws/{documentId}
+   ├── Real-time content sync
+   ├── Presence indicators (colored avatars)
+   ├── Connection status (green/red dot)
+   ├── Autosave every 15 seconds
+   ├── Last autosave timestamp
+   └── Color assignment (5-color rotation)
+   
+   Hooks:
+   ├── useState(content, activeUsers, isConnected, lastAutosave)
+   ├── useRef(ws, autosaveTimer, userColorMap)
+   └── useEffect(WebSocket init, autosave timer)
+   
+   Message Types:
+   ├── Send: {content, user_id, timestamp}
+   └── Receive: {type, payload/active_users}
+
+2. Share Button
+   /frontend/src/components/ShareButton.tsx (113 lines)
+   
+   Props:
+   ├── targetType: "thread" | "document"
+   └── targetId: number
+   
+   Features:
+   ├── POST to /api/share
+   ├── Generate share token
+   ├── Copy to clipboard
+   ├── Toast notification
+   ├── Loading state
+   └── Error handling
+
+3. Share Page (Read-Only)
+   /frontend/src/pages/SharePage.tsx (100+ lines)
+   
+   Props:
+   └── token: string
+   
+   Features:
+   ├── GET /api/share/{token}
+   ├── Load shared content
+   ├── Handle loading/error states
+   ├── Display thread or document
+   └── Read-only rendering
+   
+   Content Types:
+   ├── ThreadContent: {id, title, summary, messages, timestamps}
+   └── DocumentContent: {id, title/filename, content, format, metadata}
+
+TESTS
+=====
+
+1. Realtime WebSocket Tests
+   /tests/realtime/test_collaboration_ws.py (80+ lines)
+   
+   Test Cases:
+   ├── test_connect_single_client
+   ├── test_connect_multiple_clients_same_doc
+   ├── test_disconnect_removes_client
+   ├── test_broadcast_to_all_clients
+   └── test_event_emission
+
+2. Autosave Route Tests
+   /tests/routes/test_documents_autosave.py (80+ lines)
+   
+   Test Cases:
+   ├── test_autosave_success
+   ├── test_autosave_updates_existing
+   ├── test_validation_errors
+   ├── test_thread_not_found
+   └── test_event_emission
+
+3. Share Link Route Tests
+   /tests/routes/test_share_links.py (100+ lines)
+   
+   Test Cases:
+   ├── test_create_thread_share_success
+   ├── test_create_thread_share_with_expiry
+   ├── test_create_document_share
+   ├── test_retrieve_shared_thread
+   ├── test_retrieve_shared_document
+   ├── test_invalid_target_type
+   ├── test_target_not_found
+   ├── test_share_link_expired
+   └── test_event_emission
+
+4. Thread-Document Linkage Tests
+   /tests/routes/test_thread_documents.py (15+ lines)
+
+5. Workspace Tests
+   /tests/routes/test_workspace.py (2+ lines)
+
+DATABASE INDEXES
+================
+
+Chat Queries:
+├── ix_chat_messages_thread_id
+├── ix_chat_messages_thread_created
+├── ix_chat_threads_parent_id
+├── ix_chat_threads_project_id
+├── ix_chat_threads_user_id
+└── ix_chat_threads_updated (DESC)
+
+Media Queries:
+├── ix_generated_images_project
+├── ix_generated_images_thread
+├── ix_generated_images_user
+├── ix_generated_images_created
+├── ix_uploaded_images_* (5 indexes)
+├── ix_generated_documents_* (4 indexes)
+├── ix_uploaded_documents_* (3 indexes)
+└── ix_tts_outputs_* (4 indexes)
+
+Audit & Events:
+├── ix_audit_log_timestamp (DESC)
+├── ix_audit_log_entity
+├── ix_events_outbox_tenant_id
+└── ix_events_outbox_status_created
+
+Collaboration:
+├── ix_thread_documents_thread_id
+├── ix_thread_documents_thread_relation
+├── ix_thread_documents_document_id
+├── ix_shared_links_token
+└── ix_shared_links_target (target_type, target_id)
+

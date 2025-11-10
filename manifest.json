@@ -1,0 +1,13 @@
+{
+  "mcp_version": "1.2",
+  "server_name": "CodexifyFS",
+  "tools": [
+    "guardian/tools/context/assemble.py"
+  ],
+  "skills": [
+    "guardian/skills/summarize.py"
+  ],
+  "sandbox": [
+    "guardian/sandbox/run.py"
+  ]
+}
