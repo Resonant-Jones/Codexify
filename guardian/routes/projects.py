@@ -1,0 +1,102 @@
+"""
+Projects Routes
+~~~~~~~~~~~~~~~
+
+Project creation and management endpoints.
+Includes default "Loose Threads" project initialization.
+"""
+
+import logging
+from typing import Dict, Optional
+from fastapi import APIRouter, Body, Depends
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
+
+# Import shared context
+try:
+    from guardian.guardian_api import chatlog_db, require_api_key
+except ImportError:
+    chatlog_db = None
+    require_api_key = lambda x: x
+
+
+# Helper: ensure "Loose Threads" project exists at startup
+def _ensure_loose_threads_project():
+    """
+    Ensure the default 'Loose Threads' project exists for unassigned threads.
+    This function is called at startup to create the project if it doesn't exist.
+    """
+    try:
+        chatlog_db.ensure_project(
+            "Loose Threads", "Default bucket for unassigned threads"
+        )
+        logger.info("[projects] Ensured Loose Threads project exists")
+    except Exception as e:
+        logger.warning("[projects] Failed to ensure Loose Threads project: %s", e)
+
+
+# Initialize Loose Threads project on module import
+_ensure_loose_threads_project()
+
+
+class ProjectCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+
+
+router = APIRouter(prefix="/projects", tags=["Projects"])
+
+
+@router.patch("/{project_id}")
+def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
+    """
+    Update an existing project's name or description.
+
+    Args:
+        project_id: Project ID to update
+        body: Updated fields (name, description)
+
+    Returns:
+        Success status
+    """
+    name = body.get("name")
+    description = body.get("description")
+    try:
+        chatlog_db.update_project(
+            project_id,
+            name=name if name is not None else None,
+            description=description if description is not None else None,
+        )
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@router.delete("/{project_id}")
+def delete_project_and_eject(project_id: int):
+    """
+    Delete a project and eject all threads back to the default project.
+
+    Args:
+        project_id: Project ID to delete
+
+    Returns:
+        Success status
+    """
+    # Eject threads from this project first
+    try:
+        chatlog_db.eject_threads_from_project(project_id)
+    except Exception as e:
+        logger.warning("eject threads failed: %s", e)
+    # Delete project row
+    try:
+        deleted = chatlog_db.delete_project(project_id)
+        if not deleted:
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "Project not found"}
+            )
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
