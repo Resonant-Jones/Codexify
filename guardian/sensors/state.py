@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 class Sensors:
     """Lightweight sensor snapshot provider (no psutil dependency)."""
 
-    def __init__(self, chatlog_db=None):
+    def __init__(self, chatlog_db=None, collab_manager=None):
         self.chatlog = chatlog_db
+        self.collab_manager = collab_manager
 
     def _cpu_percent(self) -> float:
         try:
@@ -38,6 +39,19 @@ class Sensors:
         except Exception:
             return []
 
+    def _collab_active_sessions(self) -> int:
+        """Get the number of active collaboration sessions.
+
+        Returns:
+            Number of documents with active WebSocket connections
+        """
+        try:
+            if self.collab_manager is None:
+                return 0
+            return self.collab_manager.get_active_sessions()
+        except Exception:
+            return 0
+
     def snapshot(self) -> Dict[str, Any]:
         try:
             threads_open = threading.active_count()
@@ -49,6 +63,7 @@ class Sensors:
             "memory": self._mem_percent(),
             "connectors": self._connectors(),
             "threads_open": threads_open,
+            "collab_active_sessions": self._collab_active_sessions(),
             "last_event": None,
         }
 

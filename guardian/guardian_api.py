@@ -139,6 +139,7 @@ from transformers import (
 # Internal
 from guardian.config import get_settings
 from guardian.routes import agent, memory, research, threads, documents, share
+from guardian.realtime import collaboration
 from guardian.core.auth import issue_session_token, verify_session_token, require_auth
 from guardian.context.broker import ContextBroker
 from guardian.vector.store import VectorStore
@@ -634,6 +635,7 @@ app.include_router(codexify_router)
 # --- API Routers ---
 app.include_router(documents.router)
 app.include_router(share.router)
+app.include_router(collaboration.router)
 app.include_router(exports_router)
 app.include_router(media_router, prefix="/api/media", tags=["media"])
 
