@@ -13,6 +13,8 @@ import logging
 import os
 import psycopg2
 import psycopg2.extras
+import random
+import time
 from typing import Any, Callable, Dict, List, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -104,8 +106,60 @@ ENABLE_CONNECTOR_WORKER = os.getenv("ENABLE_CONNECTOR_WORKER", "0").lower() in (
 )
 CONNECTOR_SYNC_INTERVAL = _read_sync_interval()
 
+# Exponential backoff configuration
+BACKOFF_INITIAL_DELAY = 1.0  # Start with 1 second
+BACKOFF_MAX_DELAY = 300.0  # Max 5 minutes
+BACKOFF_MULTIPLIER = 2.0  # Double each time
+BACKOFF_JITTER_RANGE = (0.8, 1.2)  # ±20% jitter
+MAX_CONSECUTIVE_FAILURES = 10  # Max retries before extended backoff
+
 _CONNECTOR_WORKER_STOP: Optional[asyncio.Event] = None
 _CONNECTOR_WORKER_TASK: Optional[asyncio.Task] = None
+
+# Monitoring counters
+_CONNECTOR_WORKER_STATS = {
+    "poll_cycles": 0,
+    "empty_config_cycles": 0,
+    "db_errors": 0,
+    "retries": 0,
+    "skipped_cycles": 0,
+}
+
+
+def _calculate_backoff_delay(
+    attempt: int,
+    base_delay: float = BACKOFF_INITIAL_DELAY,
+    max_delay: float = BACKOFF_MAX_DELAY,
+    multiplier: float = BACKOFF_MULTIPLIER,
+    jitter_range: tuple = BACKOFF_JITTER_RANGE,
+) -> float:
+    """
+    Calculate exponential backoff delay with jitter.
+
+    Args:
+        attempt: Current attempt number (0-indexed)
+        base_delay: Initial delay in seconds
+        max_delay: Maximum delay cap in seconds
+        multiplier: Exponential backoff multiplier
+        jitter_range: Tuple of (min_factor, max_factor) for jitter
+
+    Returns:
+        Delay in seconds with jitter applied
+    """
+    # Calculate exponential delay: base * (multiplier ^ attempt)
+    delay = base_delay * (multiplier ** attempt)
+
+    # Cap at max_delay
+    delay = min(delay, max_delay)
+
+    # Apply random jitter to prevent thundering herd
+    jitter_factor = random.uniform(jitter_range[0], jitter_range[1])
+    return delay * jitter_factor
+
+
+def get_connector_worker_stats() -> Dict[str, int]:
+    """Get current worker monitoring statistics."""
+    return dict(_CONNECTOR_WORKER_STATS)
 
 
 class ConnectorCreate(BaseModel):
@@ -374,34 +428,117 @@ def _ingest_github_for_config(connector_name: str) -> dict:
 
 
 async def _connector_worker(stop_event: asyncio.Event) -> None:
+    """
+    Background worker that polls for connector configs and runs syncs.
+
+    Implements exponential backoff with jitter on DB failures and adaptive polling.
+    Tracks monitoring metrics for observability.
+    """
     logger.info(
         "[connectors] worker started interval=%ss (enabled=%s)",
         CONNECTOR_SYNC_INTERVAL,
         ENABLE_CONNECTOR_WORKER,
     )
+
+    consecutive_failures = 0
+    current_backoff_delay = BACKOFF_INITIAL_DELAY
+
     try:
         while not stop_event.is_set():
-            configs = await _run_db(chatlog_db.list_connector_configs, "github")
-            if not configs:
+            _CONNECTOR_WORKER_STATS["poll_cycles"] += 1
+
+            try:
+                # Attempt to fetch connector configs with DB access
+                configs = await _run_db(chatlog_db.list_connector_configs, "github")
+
+                # Reset backoff on successful DB access
+                if consecutive_failures > 0:
+                    logger.info(
+                        "[connectors] DB access recovered after %d failures",
+                        consecutive_failures
+                    )
+                    consecutive_failures = 0
+                    current_backoff_delay = BACKOFF_INITIAL_DELAY
+
+                # Handle empty configs case
+                if not configs:
+                    _CONNECTOR_WORKER_STATS["empty_config_cycles"] += 1
+                    logger.debug("[connectors] no github configs found, sleeping")
+                    try:
+                        await asyncio.wait_for(
+                            stop_event.wait(),
+                            timeout=CONNECTOR_SYNC_INTERVAL
+                        )
+                    except asyncio.TimeoutError:
+                        continue
+                    else:
+                        break  # Stop event was set
+
+                # Process all configs
+                for cfg in configs:
+                    if stop_event.is_set():
+                        break
+                    await _run_github_sync(cfg)
+
+                # Normal polling interval with small jitter
+                jitter_factor = random.uniform(0.95, 1.05)
+                wait_time = CONNECTOR_SYNC_INTERVAL * jitter_factor
+
                 try:
-                    await asyncio.wait_for(stop_event.wait(), timeout=CONNECTOR_SYNC_INTERVAL)
+                    await asyncio.wait_for(stop_event.wait(), timeout=wait_time)
                 except asyncio.TimeoutError:
                     continue
                 else:
-                    break
-            for cfg in configs:
-                if stop_event.is_set():
-                    break
-                await _run_github_sync(cfg)
-            try:
-                await asyncio.wait_for(stop_event.wait(), timeout=CONNECTOR_SYNC_INTERVAL)
-            except asyncio.TimeoutError:
-                continue
+                    break  # Stop event was set
+
+            except Exception as db_error:
+                # DB access failed - apply exponential backoff
+                consecutive_failures += 1
+                _CONNECTOR_WORKER_STATS["db_errors"] += 1
+                _CONNECTOR_WORKER_STATS["retries"] += 1
+
+                # Calculate backoff delay with jitter
+                current_backoff_delay = _calculate_backoff_delay(
+                    attempt=min(consecutive_failures - 1, MAX_CONSECUTIVE_FAILURES)
+                )
+
+                logger.warning(
+                    "[connectors] DB error (attempt %d/%d): %s. Retrying in %.1fs",
+                    consecutive_failures,
+                    MAX_CONSECUTIVE_FAILURES + 1,
+                    str(db_error),
+                    current_backoff_delay,
+                )
+
+                # Check if we've exceeded max failures
+                if consecutive_failures > MAX_CONSECUTIVE_FAILURES:
+                    logger.error(
+                        "[connectors] exceeded %d consecutive failures, "
+                        "entering extended backoff mode (delay=%.1fs)",
+                        MAX_CONSECUTIVE_FAILURES,
+                        current_backoff_delay,
+                    )
+                    _CONNECTOR_WORKER_STATS["skipped_cycles"] += 1
+
+                # Wait with backoff before retry
+                try:
+                    await asyncio.wait_for(
+                        stop_event.wait(),
+                        timeout=current_backoff_delay
+                    )
+                except asyncio.TimeoutError:
+                    continue  # Retry after backoff
+                else:
+                    break  # Stop event was set
+
     except asyncio.CancelledError:  # pragma: no cover
         logger.debug("[connectors] worker cancelled")
         raise
     finally:
-        logger.info("[connectors] worker stopped")
+        logger.info(
+            "[connectors] worker stopped (stats: %s)",
+            _CONNECTOR_WORKER_STATS
+        )
 
 
 async def _run_db(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -528,3 +665,23 @@ def connectors_health() -> Dict[str, object]:
         if run and run.get("status") == "succeeded":
             healthy += 1
     return {"ok": "True", "count": total, "connected": healthy}
+
+
+@router.get("/worker/stats", tags=["Monitoring"])
+def connector_worker_stats() -> Dict[str, Any]:
+    """
+    Get monitoring statistics for the connector background worker.
+
+    Returns metrics including:
+    - poll_cycles: Total number of polling cycles
+    - empty_config_cycles: Cycles where no configs were found
+    - db_errors: Database connection/query failures
+    - retries: Number of retry attempts after failures
+    - skipped_cycles: Cycles skipped due to extended backoff
+    """
+    return {
+        "ok": True,
+        "worker_enabled": ENABLE_CONNECTOR_WORKER,
+        "sync_interval": CONNECTOR_SYNC_INTERVAL,
+        "stats": get_connector_worker_stats(),
+    }
