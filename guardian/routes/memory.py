@@ -10,7 +10,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Body, Depends, Query, HTTPException
+from fastapi import APIRouter, Body, Depends, Query, HTTPException, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -22,6 +22,32 @@ try:
 except ImportError:
     chatlog_db = None
     require_api_key = lambda x: x
+
+
+# User context dependency for extracting user ID from request headers
+def get_current_user(
+    api_key: str = Depends(require_api_key),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+) -> str:
+    """
+    Extract and validate user ID from request headers.
+
+    Args:
+        api_key: Validated API key (ensures authentication)
+        x_user_id: Optional user ID from X-User-Id header
+
+    Returns:
+        User ID string
+
+    Raises:
+        HTTPException: If user ID is not provided
+    """
+    if not x_user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="X-User-Id header is required for authentication"
+        )
+    return x_user_id
 
 # Memory retention configuration
 MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
@@ -46,38 +72,52 @@ router = APIRouter(prefix="/api/memory", tags=["Memory"])
 
 
 @router.get("/{silo}")
-def memory_list(silo: str, limit: int = 50, offset: int = 0):
+def memory_list(
+    silo: str,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: str = Depends(get_current_user),
+):
     """
-    List memory entries from the specified silo.
+    List memory entries from the specified silo for the authenticated user.
 
     Args:
         silo: Memory silo (ephemeral, midterm, longterm)
         limit: Maximum number of entries to return
         offset: Starting offset for pagination
+        current_user: Authenticated user ID (injected)
 
     Returns:
-        Memory entries and total count
+        Memory entries and total count for the authenticated user
     """
     if not _silo_valid(silo):
         return JSONResponse(
             status_code=400, content={"ok": False, "error": "invalid silo"}
         )
     if silo == "ephemeral":
-        items = EPHEMERAL_MEMORY[offset : offset + limit]
-        return {"ok": True, "count": len(EPHEMERAL_MEMORY), "entries": items}
-    items = chatlog_db.list_memories(silo, limit=limit, offset=offset)
-    count = chatlog_db.count_memories(silo)
+        # Filter ephemeral memory by user_id
+        user_items = [e for e in EPHEMERAL_MEMORY if e.get("user_id") == current_user]
+        items = user_items[offset : offset + limit]
+        return {"ok": True, "count": len(user_items), "entries": items}
+    # Filter database memories by user_id
+    items = chatlog_db.list_memories(silo, user_id=current_user, limit=limit, offset=offset)
+    count = chatlog_db.count_memories(silo, user_id=current_user)
     return {"ok": True, "count": count, "entries": items}
 
 
 @router.post("/{silo}")
-def memory_create(silo: str, body: Dict[str, object] = Body(...)):
+def memory_create(
+    silo: str,
+    body: Dict[str, object] = Body(...),
+    current_user: str = Depends(get_current_user),
+):
     """
-    Create a new memory entry in the specified silo.
+    Create a new memory entry in the specified silo for the authenticated user.
 
     Args:
         silo: Memory silo (ephemeral, midterm, longterm)
         body: Memory entry data with content, tags, and pinned flag
+        current_user: Authenticated user ID (injected)
 
     Returns:
         Created entry ID or full entry for ephemeral
@@ -96,7 +136,7 @@ def memory_create(silo: str, body: Dict[str, object] = Body(...)):
     if silo == "ephemeral":
         entry = {
             "id": len(EPHEMERAL_MEMORY) + 1,
-            "user_id": "default",
+            "user_id": current_user,
             "silo": "ephemeral",
             "content": content,
             "tags": tags,
@@ -106,20 +146,26 @@ def memory_create(silo: str, body: Dict[str, object] = Body(...)):
         }
         EPHEMERAL_MEMORY.append(entry)
         return {"ok": True, "entry": entry}
-    eid = chatlog_db.add_memory("default", silo, content, tags=tags, pinned=pinned)
-    chatlog_db.write_audit_log("create", "memory_entry", str(eid), user_id="default")
+    eid = chatlog_db.add_memory(current_user, silo, content, tags=tags, pinned=pinned)
+    chatlog_db.write_audit_log("create", "memory_entry", str(eid), user_id=current_user)
     return {"ok": True, "id": eid}
 
 
 @router.patch("/{silo}/{entry_id}")
-def memory_update(silo: str, entry_id: int, body: Dict[str, object] = Body(...)):
+def memory_update(
+    silo: str,
+    entry_id: int,
+    body: Dict[str, object] = Body(...),
+    current_user: str = Depends(get_current_user),
+):
     """
-    Update an existing memory entry.
+    Update an existing memory entry for the authenticated user.
 
     Args:
         silo: Memory silo
         entry_id: Entry ID to update
         body: Updated fields (content, tags, pinned)
+        current_user: Authenticated user ID (injected)
 
     Returns:
         Success status
@@ -130,7 +176,7 @@ def memory_update(silo: str, entry_id: int, body: Dict[str, object] = Body(...))
         )
     if silo == "ephemeral":
         for e in EPHEMERAL_MEMORY:
-            if e.get("id") == entry_id:
+            if e.get("id") == entry_id and e.get("user_id") == current_user:
                 if "content" in body:
                     e["content"] = str(body["content"])
                 if "tags" in body:
@@ -139,6 +185,12 @@ def memory_update(silo: str, entry_id: int, body: Dict[str, object] = Body(...))
                     e["pinned"] = bool(body["pinned"])
                 e["updated_at"] = datetime.utcnow().isoformat()
                 return {"ok": True}
+        return JSONResponse(
+            status_code=404, content={"ok": False, "error": "not found"}
+        )
+    # Verify ownership before updating
+    existing = chatlog_db.get_memory(entry_id)
+    if not existing or existing.get("user_id") != current_user:
         return JSONResponse(
             status_code=404, content={"ok": False, "error": "not found"}
         )
@@ -153,19 +205,24 @@ def memory_update(silo: str, entry_id: int, body: Dict[str, object] = Body(...))
         pinned=body.get("pinned") if body.get("pinned") is not None else None,
     )
     chatlog_db.write_audit_log(
-        "update", "memory_entry", str(entry_id), user_id="default"
+        "update", "memory_entry", str(entry_id), user_id=current_user
     )
     return {"ok": True}
 
 
 @router.delete("/{silo}/{entry_id}")
-def memory_delete(silo: str, entry_id: int):
+def memory_delete(
+    silo: str,
+    entry_id: int,
+    current_user: str = Depends(get_current_user),
+):
     """
-    Delete a memory entry.
+    Delete a memory entry for the authenticated user.
 
     Args:
         silo: Memory silo
         entry_id: Entry ID to delete
+        current_user: Authenticated user ID (injected)
 
     Returns:
         Success status
@@ -176,7 +233,12 @@ def memory_delete(silo: str, entry_id: int):
         )
     if silo == "ephemeral":
         idx = next(
-            (i for i, e in enumerate(EPHEMERAL_MEMORY) if e.get("id") == entry_id), -1
+            (
+                i
+                for i, e in enumerate(EPHEMERAL_MEMORY)
+                if e.get("id") == entry_id and e.get("user_id") == current_user
+            ),
+            -1,
         )
         if idx >= 0:
             EPHEMERAL_MEMORY.pop(idx)
@@ -184,9 +246,15 @@ def memory_delete(silo: str, entry_id: int):
         return JSONResponse(
             status_code=404, content={"ok": False, "error": "not found"}
         )
+    # Verify ownership before deleting
+    existing = chatlog_db.get_memory(entry_id)
+    if not existing or existing.get("user_id") != current_user:
+        return JSONResponse(
+            status_code=404, content={"ok": False, "error": "not found"}
+        )
     chatlog_db.delete_memory(entry_id)
     chatlog_db.write_audit_log(
-        "delete", "memory_entry", str(entry_id), user_id="default"
+        "delete", "memory_entry", str(entry_id), user_id=current_user
     )
     return {"ok": True}
 
@@ -194,14 +262,26 @@ def memory_delete(silo: str, entry_id: int):
 # Additional memory endpoints
 
 @router.get("/health/memory", tags=["Health"])
-def health_memory():
-    """Get health status of all memory silos."""
+def health_memory(current_user: str = Depends(get_current_user)):
+    """
+    Get health status of memory silos for the authenticated user.
+
+    Args:
+        current_user: Authenticated user ID (injected)
+
+    Returns:
+        Count of memory entries per silo for the authenticated user
+    """
+    # Filter ephemeral memory by user
+    user_ephemeral_count = len(
+        [e for e in EPHEMERAL_MEMORY if e.get("user_id") == current_user]
+    )
     return {
         "ok": True,
         "silos": {
-            "ephemeral": len(EPHEMERAL_MEMORY),
-            "midterm": chatlog_db.count_memories("midterm"),
-            "longterm": chatlog_db.count_memories("longterm"),
+            "ephemeral": user_ephemeral_count,
+            "midterm": chatlog_db.count_memories("midterm", user_id=current_user),
+            "longterm": chatlog_db.count_memories("longterm", user_id=current_user),
         },
     }
 
@@ -223,14 +303,25 @@ def github_memory_search(
     limit: int = Query(
         20, ge=1, le=100, description="Maximum number of results to return"
     ),
-    api_key: str = Depends(require_api_key),
+    current_user: str = Depends(get_current_user),
 ):
     """
     Search the GitHub documents that were ingested into the `memory_entries`
-    table (silo='github'). Supports an optional `repo` filter.
+    table (silo='github') for the authenticated user. Supports an optional `repo` filter.
+
+    Args:
+        query: Search query string
+        repo: Optional repository filter
+        limit: Maximum number of results
+        current_user: Authenticated user ID (injected)
+
+    Returns:
+        GitHub memory search results
     """
     try:
-        rows = chatlog_db.search_github_memory(query, repo=repo, limit=limit)
+        rows = chatlog_db.search_github_memory(
+            query, repo=repo, limit=limit, user_id=current_user
+        )
         results = []
         for r in rows:
             payload = r.get("payload") or {}
@@ -262,20 +353,21 @@ search_router = APIRouter(tags=["Memory"])
 def search(
     query: str = Query(..., description="Search query string"),
     limit: int = Query(10, ge=1, le=100),
-    api_key: str = Depends(require_api_key),
+    current_user: str = Depends(get_current_user),
 ):
     """
-    Search the Guardian memory entries matching the query string.
+    Search the Guardian memory entries matching the query string for the authenticated user.
 
     Args:
         query: The search query
         limit: Maximum number of results to return
+        current_user: Authenticated user ID (injected)
 
     Returns:
-        List of matching memory entries
+        List of matching memory entries for the authenticated user
     """
     try:
-        rows = chatlog_db.search_memory(query, limit)
+        rows = chatlog_db.search_memory(query, limit, user_id=current_user)
         results = [
             {
                 "timestamp": r["timestamp"],
@@ -308,10 +400,10 @@ def history(
         None,
         description="Filter entries up to this date (inclusive), format YYYY-MM-DD",
     ),
-    api_key: str = Depends(require_api_key),
+    current_user: str = Depends(get_current_user),
 ):
     """
-    Retrieve history entries from Guardian memory with optional filtering by tag, agent, and date range.
+    Retrieve history entries from Guardian memory for the authenticated user with optional filtering.
 
     Args:
         limit: Maximum number of entries to return
@@ -319,9 +411,10 @@ def history(
         agent: Filter entries by agent
         start_date: Filter entries from this date (inclusive)
         end_date: Filter entries up to this date (inclusive)
+        current_user: Authenticated user ID (injected)
 
     Returns:
-        List of filtered history entries
+        List of filtered history entries for the authenticated user
     """
     # Validate date formats
     start_dt = None
@@ -338,7 +431,9 @@ def history(
         )
 
     try:
-        rows = chatlog_db.history_entries(limit=limit, tag=tag, agent=agent)
+        rows = chatlog_db.history_entries(
+            limit=limit, tag=tag, agent=agent, user_id=current_user
+        )
         filtered_rows = []
         for r in rows:
             entry_dt = datetime.fromisoformat(r["timestamp"])
@@ -387,12 +482,13 @@ log_router = APIRouter(tags=["Memory"])
 
 
 @log_router.post("/log", summary="Log a command entry")
-def log_entry(entry: LogEntry, api_key: str = Depends(require_api_key)):
+def log_entry(entry: LogEntry, current_user: str = Depends(get_current_user)):
     """
-    Log a command entry into the Guardian memory database.
+    Log a command entry into the Guardian memory database for the authenticated user.
 
     Args:
         entry: The log entry data
+        current_user: Authenticated user ID (injected)
 
     Returns:
         Confirmation message with timestamp
@@ -405,6 +501,7 @@ def log_entry(entry: LogEntry, api_key: str = Depends(require_api_key)):
             agent=entry.agent or "system",
             type_="log",
             parent_id=None,
+            user_id=current_user,
         )
         logger.info(f"Log entry stored: {entry.command}")
     except Exception as e:
@@ -414,12 +511,13 @@ def log_entry(entry: LogEntry, api_key: str = Depends(require_api_key)):
 
 
 @log_router.post("/summarize", summary="Store a summary entry")
-def summarize_entry(entry: SummaryEntry, api_key: str = Depends(require_api_key)):
+def summarize_entry(entry: SummaryEntry, current_user: str = Depends(get_current_user)):
     """
-    Store a summary related to a parent entry in the Guardian memory database.
+    Store a summary related to a parent entry in the Guardian memory database for the authenticated user.
 
     Args:
         entry: The summary entry data
+        current_user: Authenticated user ID (injected)
 
     Returns:
         Confirmation message with timestamp
@@ -432,6 +530,7 @@ def summarize_entry(entry: SummaryEntry, api_key: str = Depends(require_api_key)
             agent=entry.agent or "system",
             type_="summary",
             parent_id=entry.parent_id,
+            user_id=current_user,
         )
         logger.info(f"Summary entry stored for parent_id {entry.parent_id}")
     except Exception as e:
