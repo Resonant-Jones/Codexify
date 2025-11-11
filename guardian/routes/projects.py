@@ -23,22 +23,23 @@ except ImportError:
 
 
 # Helper: ensure "Loose Threads" project exists at startup
-def _ensure_loose_threads_project():
+def ensure_loose_threads_project():
     """
     Ensure the default 'Loose Threads' project exists for unassigned threads.
-    This function is called at startup to create the project if it doesn't exist.
+    This function should be called during application startup, not at import time.
+
+    Returns:
+        bool: True if successful, False otherwise
     """
     try:
         chatlog_db.ensure_project(
             "Loose Threads", "Default bucket for unassigned threads"
         )
         logger.info("[projects] Ensured Loose Threads project exists")
+        return True
     except Exception as e:
         logger.warning("[projects] Failed to ensure Loose Threads project: %s", e)
-
-
-# Initialize Loose Threads project on module import
-_ensure_loose_threads_project()
+        return False
 
 
 class ProjectCreate(BaseModel):
