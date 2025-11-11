@@ -557,6 +557,14 @@ logger.info("[startup] chat provider=%s model=%s fallback=%s base=%s", CHAT_PROV
 
 async def app_lifespan(app: FastAPI):
     global _CONNECTOR_WORKER_STOP, _CONNECTOR_WORKER_TASK
+
+    # Startup: ensure default "Loose Threads" project exists
+    try:
+        from guardian.routes.projects import ensure_loose_threads_project
+        ensure_loose_threads_project()
+    except Exception as exc:
+        logger.error("[startup] Failed to initialize Loose Threads project: %s", exc)
+
     # Startup: optionally launch connector worker
     if ENABLE_CONNECTOR_WORKER:
         try:
