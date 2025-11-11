@@ -471,13 +471,26 @@ class GuardianDB:
         self,
         silo: str,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """List memory entries in a silo."""
+        """
+        List memory entries in a silo, optionally filtered by user_id.
+
+        Args:
+            silo: Memory silo to query
+            limit: Maximum number of entries to return
+            offset: Number of entries to skip
+            user_id: Optional user ID to filter by
+
+        Returns:
+            List of memory entries
+        """
         with self.get_session() as session:
-            entries = session.query(MemoryEntry).filter_by(
-                silo=silo
-            ).order_by(
+            query = session.query(MemoryEntry).filter_by(silo=silo)
+            if user_id:
+                query = query.filter_by(user_id=user_id)
+            entries = query.order_by(
                 MemoryEntry.updated_at.desc()
             ).limit(limit).offset(offset).all()
 
@@ -495,10 +508,47 @@ class GuardianDB:
                 for e in entries
             ]
 
-    def count_memories(self, silo: str) -> int:
-        """Count memory entries in a silo."""
+    def count_memories(self, silo: str, user_id: Optional[str] = None) -> int:
+        """
+        Count memory entries in a silo, optionally filtered by user_id.
+
+        Args:
+            silo: Memory silo to query
+            user_id: Optional user ID to filter by
+
+        Returns:
+            Count of memory entries
+        """
         with self.get_session() as session:
-            return session.query(MemoryEntry).filter_by(silo=silo).count()
+            query = session.query(MemoryEntry).filter_by(silo=silo)
+            if user_id:
+                query = query.filter_by(user_id=user_id)
+            return query.count()
+
+    def get_memory(self, entry_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get a single memory entry by ID.
+
+        Args:
+            entry_id: Memory entry ID
+
+        Returns:
+            Memory entry dictionary or None if not found
+        """
+        with self.get_session() as session:
+            entry = session.query(MemoryEntry).filter_by(id=entry_id).first()
+            if not entry:
+                return None
+            return {
+                "id": entry.id,
+                "user_id": entry.user_id,
+                "silo": entry.silo,
+                "content": entry.content,
+                "tags": entry.tags,
+                "pinned": entry.pinned,
+                "created_at": entry.created_at.isoformat() if entry.created_at else None,
+                "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
+            }
 
     def update_memory(
         self,
@@ -856,7 +906,12 @@ class GuardianDB:
         return thread["id"]
 
     # Stubs for methods that may be called but are no longer needed
-    def search_memory(self, query: str, limit: int) -> List[Dict[str, Any]]:
+    def search_memory(
+        self,
+        query: str,
+        limit: int,
+        user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """TODO: Implement full-text search over memory entries."""
         return []
 
@@ -864,7 +919,8 @@ class GuardianDB:
         self,
         query: str,
         repo: Optional[str] = None,
-        limit: int = 20
+        limit: int = 20,
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """TODO: Implement GitHub memory search."""
         return []
@@ -876,6 +932,7 @@ class GuardianDB:
         agent: str,
         type_: str,
         parent_id: Optional[int],
+        user_id: Optional[str] = None,
     ) -> None:
         """TODO: Implement memory event logging."""
         pass
@@ -884,7 +941,8 @@ class GuardianDB:
         self,
         limit: int,
         tag: Optional[str] = None,
-        agent: Optional[str] = None
+        agent: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """TODO: Implement history query."""
         return []
