@@ -638,7 +638,7 @@ def get_graph(scope: str = 'codexify'):
 app.include_router(health.router)
 app.include_router(threads.router, prefix="/threads")
 app.include_router(research.router, prefix="/research")
-app.include_router(memory.router, prefix="/memory")
+app.include_router(memory.router)  # memory.router already has prefix="/api/memory"
 app.include_router(agent.router, prefix="/agent")
 app.include_router(codexify_router)
 # --- API Routers ---
@@ -1707,136 +1707,6 @@ def delete_thread(thread_id: int, force: bool = Query(False)):
         pass
     logger.info("[threads] deleted thread_id=%s", thread_id)
     return {"ok": True}
-# =========================
-# Memory API (ephemeral, midterm, longterm)
-# =========================
-
-
-def _silo_valid(s: str) -> bool:
-    return s in ("ephemeral", "midterm", "longterm")
-
-
-@app.get("/api/memory/{silo}")
-def memory_list(silo: str, limit: int = 50, offset: int = 0):
-    if not _silo_valid(silo):
-        return JSONResponse(
-            status_code=400, content={"ok": False, "error": "invalid silo"}
-        )
-    if silo == "ephemeral":
-        items = EPHEMERAL_MEMORY[offset : offset + limit]
-        return {"ok": True, "count": len(EPHEMERAL_MEMORY), "entries": items}
-    items = chatlog_db.list_memories(silo, limit=limit, offset=offset)
-    count = chatlog_db.count_memories(silo)
-    return {"ok": True, "count": count, "entries": items}
-
-
-@app.post("/api/memory/{silo}")
-def memory_create(silo: str, body: Dict[str, object] = Body(...)):
-    if not _silo_valid(silo):
-        return JSONResponse(
-            status_code=400, content={"ok": False, "error": "invalid silo"}
-        )
-    content = str(body.get("content", "")).strip()
-    tags = ",".join(body.get("tags", []) or [])
-    pinned = bool(body.get("pinned", False))
-    if not content:
-        return JSONResponse(
-            status_code=400, content={"ok": False, "error": "content required"}
-        )
-    if silo == "ephemeral":
-        entry = {
-            "id": len(EPHEMERAL_MEMORY) + 1,
-            "user_id": "default",
-            "silo": "ephemeral",
-            "content": content,
-            "tags": tags,
-            "pinned": pinned,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        EPHEMERAL_MEMORY.append(entry)
-        return {"ok": True, "entry": entry}
-    eid = chatlog_db.add_memory("default", silo, content, tags=tags, pinned=pinned)
-    chatlog_db.write_audit_log("create", "memory_entry", str(eid), user_id="default")
-    return {"ok": True, "id": eid}
-
-
-@app.patch("/api/memory/{silo}/{entry_id}")
-def memory_update(silo: str, entry_id: int, body: Dict[str, object] = Body(...)):
-    if not _silo_valid(silo):
-        return JSONResponse(
-            status_code=400, content={"ok": False, "error": "invalid silo"}
-        )
-    if silo == "ephemeral":
-        for e in EPHEMERAL_MEMORY:
-            if e.get("id") == entry_id:
-                if "content" in body:
-                    e["content"] = str(body["content"])
-                if "tags" in body:
-                    e["tags"] = ",".join(body.get("tags", []) or [])
-                if "pinned" in body:
-                    e["pinned"] = bool(body["pinned"])
-                e["updated_at"] = datetime.utcnow().isoformat()
-                return {"ok": True}
-        return JSONResponse(
-            status_code=404, content={"ok": False, "error": "not found"}
-        )
-    chatlog_db.update_memory(
-        entry_id,
-        content=body.get("content"),
-        tags=(
-            ",".join(body.get("tags", []) or [])
-            if body.get("tags") is not None
-            else None
-        ),
-        pinned=body.get("pinned") if body.get("pinned") is not None else None,
-    )
-    chatlog_db.write_audit_log(
-        "update", "memory_entry", str(entry_id), user_id="default"
-    )
-    return {"ok": True}
-
-
-@app.delete("/api/memory/{silo}/{entry_id}")
-def memory_delete(silo: str, entry_id: int):
-    if not _silo_valid(silo):
-        return JSONResponse(
-            status_code=400, content={"ok": False, "error": "invalid silo"}
-        )
-    if silo == "ephemeral":
-        idx = next(
-            (i for i, e in enumerate(EPHEMERAL_MEMORY) if e.get("id") == entry_id), -1
-        )
-        if idx >= 0:
-            EPHEMERAL_MEMORY.pop(idx)
-            return {"ok": True}
-        return JSONResponse(
-            status_code=404, content={"ok": False, "error": "not found"}
-        )
-    chatlog_db.delete_memory(entry_id)
-    chatlog_db.write_audit_log(
-        "delete", "memory_entry", str(entry_id), user_id="default"
-    )
-    return {"ok": True}
-
-
-# =========================
-# Health endpoints for memory
-# =========================
-
-
-@app.get("/health/memory")
-def health_memory():
-    return {
-        "ok": True,
-        "silos": {
-            "ephemeral": len(EPHEMERAL_MEMORY),
-            "midterm": chatlog_db.count_memories("midterm"),
-            "longterm": chatlog_db.count_memories("longterm"),
-        },
-    }
-
-
 # =========================
 # Projects management
 # =========================
