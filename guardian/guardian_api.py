@@ -138,7 +138,7 @@ from transformers import (
 
 # Internal
 from guardian.config import get_settings
-from guardian.routes import agent, memory, research, threads, documents, share, federation
+from guardian.routes import agent, memory, research, threads, documents, share, federation, health
 from guardian.realtime import collaboration
 from guardian.core.auth import issue_session_token, verify_session_token, require_auth
 from guardian.context.broker import ContextBroker
@@ -627,6 +627,7 @@ def get_graph(scope: str = 'codexify'):
     return {"nodes": unique_nodes, "links": links}
 
 # Include routers for modular endpoints
+app.include_router(health.router)
 app.include_router(threads.router, prefix="/threads")
 app.include_router(research.router, prefix="/research")
 app.include_router(memory.router, prefix="/memory")
@@ -1812,7 +1813,7 @@ def memory_delete(silo: str, entry_id: int):
 
 
 # =========================
-# Health endpoints for chat/memory
+# Health endpoints for memory
 # =========================
 
 
@@ -1826,18 +1827,6 @@ def health_memory():
             "longterm": chatlog_db.count_memories("longterm"),
         },
     }
-
-
-@app.get("/health/chat")
-def health_chat():
-    try:
-        threads = chatlog_db.count_chat_threads()
-        messages = chatlog_db.count_all_messages()
-    except Exception as _e:
-        logger.warning("[health/chat] check failed: %s", _e)
-        threads = 0
-        messages = 0
-    return {"ok": True, "threads": threads, "messages": messages, "backend": DB_BACKEND}
 
 
 # =========================
