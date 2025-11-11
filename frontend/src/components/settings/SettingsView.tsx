@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import SegmentedThemeControl from "@/components/settings/SegmentedThemeControl";
 import { ThemeMode, ExtColors } from "@/types/ui";
 import { ImagePlus } from "lucide-react";
+import MigrationModal from "@/components/settings/MigrationModal";
 
 type SettingsProps = {
   mode: "light" | "dark" | "system";
@@ -34,6 +35,11 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
   const [ingestEndpointOverride, setIngestEndpointOverride] = useState(() =>
     typeof window !== "undefined" ? localStorage.getItem("cfy.ingest.endpoint.override") || "" : ""
   );
+  // ——— Migration Modal State ———
+  const [showMigration, setShowMigration] = useState(false);
+  const [migrationFilePath, setMigrationFilePath] = useState("");
+  const migrationFileRef = useRef<HTMLInputElement | null>(null);
+
   const [tab, setTab] = useState<SettingsTab>("appearance");
   const tabs: Array<{ key: SettingsTab; label: string }> = [
     { key: "appearance", label: "Appearance" },
@@ -124,6 +130,25 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
     setFileLabel("");
     if (typeof window !== "undefined") localStorage.removeItem("cfy.wallpaper");
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function handleMigrationFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    // For browser file uploads, we'd need to read and upload the file
+    // For now, we'll use the file name as a placeholder
+    const reader = new FileReader();
+    reader.onload = () => {
+      // In production, this would upload to backend and get a path
+      // For now, using file name as placeholder
+      setMigrationFilePath(f.name);
+      setShowMigration(true);
+    };
+    reader.readAsText(f);
+  }
+
+  function triggerMigrationFile() {
+    migrationFileRef.current?.click();
   }
 
   // Sliders remain interactive at all times; theme toggle sets defaults in AppShell
@@ -323,6 +348,30 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
                     })}
                   </div>
                 </div>
+
+                {/* ——— Migration Section ——— */}
+                <div className="space-y-2">
+                  <div className="text-xs tracking-wide uppercase text-gray-400">ChatGPT Migration</div>
+                  <div className="text-xs opacity-60 pb-2">
+                    Import your ChatGPT conversation history into Codexify
+                  </div>
+                  <input
+                    ref={migrationFileRef}
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    onChange={handleMigrationFileSelect}
+                  />
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    className="rounded-[var(--tile-radius,19px)]"
+                    onClick={triggerMigrationFile}
+                  >
+                    🔄 Migrate from ChatGPT
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -421,6 +470,13 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
         </FrameCard>
 
       </div>
+
+      {/* Migration Modal */}
+      <MigrationModal
+        open={showMigration}
+        onClose={() => setShowMigration(false)}
+        filePath={migrationFilePath}
+      />
     </div>
   );
 }

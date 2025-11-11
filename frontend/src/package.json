@@ -1,3 +1,51 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:74b84c060ad38c6ae98f4db8fdafc24ced6b2a60f9d8c198e9606f5f8064c9dd
-size 637
+{
+  "name": "codexify-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\""
+  },
+  "dependencies": {
+    "@radix-ui/react-visually-hidden": "^1.2.3",
+    "@tauri-apps/api": "^2.7.0",
+    "axios": "^1.12.2",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.23.12",
+    "lodash-es": "^4.17.21",
+    "lucide-react": "^0.541.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@tailwindcss/cli": "^4.1.14",
+    "@tailwindcss/postcss": "^4.1.12",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.21",
+    "cypress": "^15.2.0",
+    "eslint": "^9.32.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "jsdom": "^26.1.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.11",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.39.0",
+    "vite": "^7.1.0",
+    "vite-plugin-pwa": "^1.0.3",
+    "vitest": "^3.0.5"
+  }
+}
