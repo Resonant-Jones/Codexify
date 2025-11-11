@@ -16,12 +16,26 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-# Import shared context
-try:
-    from guardian.guardian_api import chatlog_db, require_api_key
-except ImportError:
-    chatlog_db = None
-    require_api_key = lambda x: x
+# Import shared context (initialized as None, bound later via bind_dependencies)
+chatlog_db = None
+require_api_key = lambda x: x
+
+
+def bind_dependencies(*, chatlog_db_instance, require_api_key_func):
+    """
+    Bind runtime dependencies for memory routes.
+
+    This function should be called after guardian_api initializes its globals
+    to ensure memory routes have access to the database and auth function.
+
+    Args:
+        chatlog_db_instance: Initialized ChatDB instance
+        require_api_key_func: API key validation dependency function
+    """
+    global chatlog_db, require_api_key
+    chatlog_db = chatlog_db_instance
+    require_api_key = require_api_key_func
+    logger.info("[memory] dependencies bound successfully")
 
 
 # User context dependency for extracting user ID from request headers

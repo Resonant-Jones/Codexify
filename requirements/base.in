@@ -10,6 +10,7 @@ python-dotenv
 pydantic-settings
 structlog
 redis
+prometheus-client>=0.20.0
 
 # Core Utils
 requests
