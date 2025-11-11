@@ -4,6 +4,10 @@ Admin Routes
 
 Diagnostic and administrative endpoints including health checks,
 session token management, and configuration debugging.
+
+Admin-protected endpoints require:
+- X-Admin-Token header matching GUARDIAN_ADMIN_TOKEN, OR
+- DEBUG=true environment variable (development only)
 """
 
 import logging
@@ -45,6 +49,78 @@ except ImportError as e:
 
 class SessionRequest(BaseModel):
     ttl_seconds: int | None = None
+
+
+# Admin token from environment (optional, for stricter access control)
+ADMIN_TOKEN = os.getenv("GUARDIAN_ADMIN_TOKEN")
+DEBUG_MODE = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
+
+
+def require_admin(
+    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> str:
+    """
+    Enforce admin-level access control for sensitive diagnostic endpoints.
+
+    Access is granted if ANY of the following conditions are met:
+    1. X-Admin-Token header matches GUARDIAN_ADMIN_TOKEN environment variable
+    2. DEBUG=true environment variable is set (development only)
+    3. Future: User role verification (when RBAC is fully implemented)
+
+    Args:
+        x_admin_token: Admin token from X-Admin-Token header
+        x_api_key: Regular API key (for context/logging)
+
+    Returns:
+        str: Access method used ("admin_token", "debug_mode")
+
+    Raises:
+        HTTPException: 403 if access is denied
+
+    Logs:
+        - Info: Successful admin access with method used
+        - Warning: Failed admin access attempts
+    """
+    # Method 1: Check X-Admin-Token header
+    if x_admin_token and ADMIN_TOKEN:
+        if secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+            logger.info(
+                "[admin] Admin access granted via X-Admin-Token (token=%s...)",
+                x_admin_token[:8] if len(x_admin_token) > 8 else "short"
+            )
+            return "admin_token"
+
+    # Method 2: Check DEBUG mode (development only)
+    if DEBUG_MODE:
+        logger.info(
+            "[admin] Admin access granted via DEBUG mode (api_key=%s)",
+            x_api_key[:8] + "..." if x_api_key and len(x_api_key) > 8 else "none"
+        )
+        return "debug_mode"
+
+    # Method 3: Future - User role verification
+    # if user_role == "admin":
+    #     return "user_role"
+
+    # Access denied - log the attempt
+    logger.warning(
+        "[admin] Admin access DENIED - missing admin token or debug mode "
+        "(admin_token_provided=%s, debug_mode=%s, api_key=%s)",
+        bool(x_admin_token),
+        DEBUG_MODE,
+        x_api_key[:8] + "..." if x_api_key and len(x_api_key) > 8 else "none"
+    )
+
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error": "Admin access required",
+            "message": "This endpoint requires admin privileges. "
+                      "Provide X-Admin-Token header or enable DEBUG mode.",
+            "required": "X-Admin-Token header or DEBUG=true environment"
+        }
+    )
 
 
 router = APIRouter(tags=["Admin"])
@@ -136,19 +212,23 @@ def create_session_cookie(
 # Diagnostic Endpoints
 # =========================
 
-@router.get("/authz/debug", tags=["Diag"], summary="Echo masked API key received in header")
-def authz_debug(api_key: str = Depends(require_api_key)):
-    """Return the masked API key received via X-API-Key, masked for safety."""
-    key = api_key or ""
+@router.get("/authz/debug", tags=["Diag"], summary="Echo masked API key received in header (admin-only)")
+def authz_debug(
+    access_method: str = Depends(require_admin),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
+    """Return the masked API key received via X-API-Key, masked for safety.
+    This endpoint requires admin privileges (X-Admin-Token header or DEBUG=true)."""
+    key = x_api_key or ""
     masked = (key[:4] + "…" + key[-4:]) if len(key) > 8 else key
     return {"received_api_key": masked}
 
 
-@router.get("/debug/config", tags=["Diag"], summary="Return masked config for debugging (development only)")
-def debug_config(api_key: str = Depends(require_api_key)):
+@router.get("/debug/config", tags=["Diag"], summary="Return masked config for debugging (admin-only)")
+def debug_config(access_method: str = Depends(require_admin)):
     """
     Return a small, masked snapshot of runtime config useful for local debugging.
-    This endpoint requires a valid X-API-Key header and is intended for dev use only.
+    This endpoint requires admin privileges (X-Admin-Token header or DEBUG=true).
     """
     env = os.getenv("GUARDIAN_ENV", "development")
     masked_key = (
