@@ -508,6 +508,9 @@ from guardian.core import metrics
 metrics.set_db_backend(DB_BACKEND)
 logger.info("[metrics] Prometheus metrics initialized (db_backend=%s)", DB_BACKEND)
 
+# Bind memory route dependencies (after chatlog_db and require_api_key are initialized)
+memory.bind_dependencies(chatlog_db_instance=chatlog_db, require_api_key_func=require_api_key)
+
 # Initialize shared ContextBroker dependencies (vector store + sensors)
 _vector_store = VectorStore()
 _sensors = Sensors(chatlog_db)
