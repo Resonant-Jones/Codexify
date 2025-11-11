@@ -503,6 +503,11 @@ else:
 
 logger.info("📦 DB backend selected: %s", DB_BACKEND)
 
+# Initialize Prometheus metrics
+from guardian.core import metrics
+metrics.set_db_backend(DB_BACKEND)
+logger.info("[metrics] Prometheus metrics initialized (db_backend=%s)", DB_BACKEND)
+
 # Initialize shared ContextBroker dependencies (vector store + sensors)
 _vector_store = VectorStore()
 _sensors = Sensors(chatlog_db)
