@@ -399,3 +399,68 @@ class TestMemoryEndToEnd:
             headers=other_user_headers,
         )
         assert delete_response.status_code == 404
+
+
+class TestMemoryRoutingCorrectness:
+    """Test that memory routes are correctly mounted and legacy paths are removed."""
+
+    def test_canonical_memory_path_works(self, memory_test_client, auth_headers):
+        """Test that canonical /api/memory/{silo} path works."""
+        response = memory_test_client.get("/api/memory/midterm", headers=auth_headers)
+        assert response.status_code == 200
+
+    def test_legacy_nested_path_returns_404(self, memory_test_client, auth_headers):
+        """Test that legacy /memory/api/memory/{silo} path returns 404."""
+        # This path should not exist after deduplication
+        response = memory_test_client.get("/memory/api/memory/midterm", headers=auth_headers)
+        assert response.status_code == 404
+
+    def test_all_memory_crud_operations_use_canonical_path(self, memory_test_client, auth_headers, mock_memory_db):
+        """Test that all CRUD operations work on canonical /api/memory path."""
+        # GET (list)
+        list_response = memory_test_client.get("/api/memory/midterm", headers=auth_headers)
+        assert list_response.status_code == 200
+
+        # POST (create)
+        create_response = memory_test_client.post(
+            "/api/memory/midterm",
+            headers=auth_headers,
+            json={"content": "Test memory"},
+        )
+        assert create_response.status_code == 200
+
+        # PATCH (update)
+        update_response = memory_test_client.patch(
+            "/api/memory/midterm/1",
+            headers=auth_headers,
+            json={"content": "Updated memory"},
+        )
+        assert update_response.status_code == 200
+
+        # DELETE
+        delete_response = memory_test_client.delete(
+            "/api/memory/midterm/1",
+            headers=auth_headers,
+        )
+        assert delete_response.status_code == 200
+
+    def test_legacy_paths_do_not_bypass_auth(self, memory_test_client):
+        """Test that legacy paths do not exist and cannot bypass authentication."""
+        # These paths should all return 404, not 401, proving they don't exist
+        legacy_paths = [
+            "/memory/api/memory/midterm",
+            "/memory/api/memory/ephemeral",
+            "/memory/api/memory/longterm",
+        ]
+
+        for path in legacy_paths:
+            # Without auth headers
+            response = memory_test_client.get(path)
+            assert response.status_code == 404, f"Path {path} should return 404, not {response.status_code}"
+
+            # With auth headers (to verify it's not just missing auth)
+            response_with_auth = memory_test_client.get(
+                path,
+                headers={"X-API-Key": "test-api-key", "X-User-Id": "test_user"},
+            )
+            assert response_with_auth.status_code == 404, f"Path {path} should return 404 even with auth"
