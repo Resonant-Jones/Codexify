@@ -540,23 +540,6 @@ def delete_thread(thread_id: int, force: bool = Query(False)):
 
 
 # =========================
-# Health endpoint
-# =========================
-
-@router.get("/health/chat", tags=["Health"])
-def health_chat():
-    """Get health status of chat subsystem."""
-    try:
-        threads = chatlog_db.count_chat_threads()
-        messages = chatlog_db.count_all_messages()
-    except Exception as _e:
-        logger.warning("[health/chat] check failed: %s", _e)
-        threads = 0
-        messages = 0
-    return {"ok": True, "threads": threads, "messages": messages}
-
-
-# =========================
 # Thread Lineage Endpoints
 # =========================
 
