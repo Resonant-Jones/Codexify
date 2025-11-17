@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Optional Neo4j driver session provider
 try:
-    from db.neo import get_session as get_neo_session
+    from guardian.db.neo import get_session as get_neo_session
     NEO4J_AVAILABLE = True
 except Exception as e:
     logging.warning(f"[Codexify ⚠️] Neo4j driver not available: {e}")

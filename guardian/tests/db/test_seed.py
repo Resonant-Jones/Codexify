@@ -12,24 +12,17 @@ can exercise the graph queries during development.
 
 from datetime import datetime, timezone
 
-from dotenv import load_dotenv
 from neomodel import config, db
 
 BOLT_URL = os.environ.get("BOLT_URL", "bolt://localhost:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
 NEO4J_PASS = os.environ.get("NEO4J_PASS", "guardian")
 
-from db.neo import MessageNode, ThreadNode, UserNode
-
-try:
-    from dotenv import load_dotenv
-except ImportError:  # pragma: no cover - optional helper for local runs
-    load_dotenv = lambda *_args, **_kwargs: None  # type: ignore
+from guardian.db.neo import MessageNode, ThreadNode, UserNode
 
 
 def configure_connection() -> None:
     """Load env vars and point neomodel at the configured Bolt URL."""
-    load_dotenv()
     # Resolve user / pass with common env var names and safe defaults
     user = os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME") or "neo4j"
     password = os.getenv("NEO4J_PASS") or os.getenv("NEO4J_PASSWORD") or "guardian"

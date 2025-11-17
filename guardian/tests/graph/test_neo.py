@@ -2,8 +2,7 @@ import os
 from dotenv import load_dotenv
 from neomodel import config, db
 
-from db.neo import UserNode, MessageNode, ThreadNode
-
+from guardian.db.neo import UserNode, MessageNode, ThreadNode
 
 def _connect_neomodel() -> None:
     load_dotenv()
