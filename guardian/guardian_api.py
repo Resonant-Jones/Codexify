@@ -98,9 +98,9 @@ from guardian.connectors.github import sync_repo
 
 # Optional Neo4j driver session provider
 try:
-    # Prefer local db.neo module; falls back to unavailable if not present
-    from db.neo import get_session as get_neo_session  # type: ignore
-    from db.neo import UserNode, MessageNode, ThreadNode
+    # Prefer local guardian.db.neo module; falls back to unavailable if not present
+    from guardian.db.neo import get_session as get_neo_session  # type: ignore
+    from guardian.db.neo import UserNode, MessageNode, ThreadNode
     NEO4J_AVAILABLE = True
 except Exception as e:  # pragma: no cover
     logging.warning(f"[Codexify ⚠️] Neo4j driver not available: {e}")
@@ -109,7 +109,7 @@ except Exception as e:  # pragma: no cover
 
 # --- RAG modules import (for /upload-chat) ---
 try:
-    from backend.rag.enhanced_rag import EnhancedRAG
+    from codexify.rag.enhanced_rag import EnhancedRAG
     from backend.rag.embedder import Embedder
     from backend.rag.parser import parse_chat_history
 except Exception as e:
@@ -596,6 +596,90 @@ async def app_lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Guardian Codex API", lifespan=app_lifespan)
+
+
+# =========================
+# Events SSE endpoint
+# =========================
+
+@app.get("/api/events", tags=["Events"])
+async def stream_events(
+    request: Request,
+    last_id_query: int = Query(0, alias="last_id"),
+    last_event_id_header: Optional[str] = Header(None, alias="Last-Event-ID"),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    Stream domain events from the durable events_outbox as Server-Sent Events.
+
+    - Resumes from `last_id` query param or `Last-Event-ID` header.
+    - Emits a `retry: 3000` hint on connect.
+    - Periodically polls the outbox and sends `ping` events when idle.
+    - Deletes events up to the last delivered id so the outbox does not grow unbounded.
+    """
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        # Prefer explicit header over query, fall back to zero.
+        try:
+            last_id = int(last_event_id_header or last_id_query or 0)
+        except (TypeError, ValueError):
+            last_id = 0
+
+        # Initial retry hint expected by many SSE clients.
+        yield "retry: 3000\n\n"
+
+        heartbeat_elapsed = 0.0
+        heartbeat_interval = 15.0  # seconds
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            events = event_bus.fetch_events_after(last_id, limit=OUTBOX_BATCH_SIZE)
+            max_id_seen = last_id
+
+            if events:
+                for ev in events:
+                    ev_id = ev.get("id")
+                    topic = ev.get("topic") or "message"
+                    payload = ev.get("payload") or {}
+
+                    try:
+                        data_str = json.dumps(payload, default=str)
+                    except Exception:
+                        data_str = "{}"
+
+                    lines = []
+                    if ev_id is not None:
+                        lines.append(f"id: {ev_id}")
+                    if topic:
+                        lines.append(f"event: {topic}")
+                    lines.append(f"data: {data_str}")
+
+                    yield "\n".join(lines) + "\n\n"
+
+                    if isinstance(ev_id, int) and ev_id > max_id_seen:
+                        max_id_seen = ev_id
+
+                if max_id_seen > last_id:
+                    last_id = max_id_seen
+                    try:
+                        event_bus.delete_events_through(max_id_seen)
+                    except Exception:
+                        logger.exception(
+                            "[events] failed to delete events through id=%s", max_id_seen
+                        )
+
+                heartbeat_elapsed = 0.0
+            else:
+                heartbeat_elapsed += OUTBOX_POLL_INTERVAL
+                if heartbeat_elapsed >= heartbeat_interval:
+                    yield "event: ping\ndata: {}\n\n"
+                    heartbeat_elapsed = 0.0
+
+            await asyncio.sleep(OUTBOX_POLL_INTERVAL)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 # Neo4j health endpoint (appears only when driver import succeeded)
 if NEO4J_AVAILABLE and get_neo_session:

@@ -9,7 +9,6 @@ import Sidebar from "@/components/chat/Sidebar";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message } from "@/types/ui";
 import api from "@/lib/api";
-import { GuardianAPI } from "@/lib/guardianApi";
 import { useBreakpoint } from "./useBreakpoint";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
@@ -167,11 +166,12 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   // ----- Thread loader (hoisted early to avoid TDZ) -----
   const loadThreads = React.useCallback(async () => {
     try {
-      const res = await GuardianAPI.get("/chat/threads");
-      const rawList = Array.isArray(res?.threads)
-        ? res.threads
-        : Array.isArray(res)
-        ? res
+      const res = await api.get("/chat/threads");
+      const data = res?.data;
+      const rawList = Array.isArray(data?.threads)
+        ? data.threads
+        : Array.isArray(data)
+        ? data
         : [];
       if (!rawList.length) {
         await handleNewChat();
@@ -285,180 +285,93 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     const threadKey = activeId;
     const numericThreadId = Number(threadKey);
     const userMsgId = String(Math.random());
-    const userMsg: Message = { id: userMsgId, authorId: "me", authorName: userName, content: text, createdAt: Date.now(), status: "sending" };
+    const userMsg: Message = {
+      id: userMsgId,
+      authorId: "me",
+      authorName: userName,
+      content: text,
+      createdAt: Date.now(),
+      status: "sending",
+    };
 
-    // Update thread title if it's the first user message
+    // Optimistic local update and title refinement for first message
     setThreads((prev) =>
       prev.map((t) => {
-        if (t.id === threadKey) {
-          let newTitle = t.title;
-          if (
-            // Only update if "New Chat" and no messages yet (or only system messages)
-            (t.title === "New Chat" || t.title === "Untitled Chat") &&
-            (!t.messages || t.messages.length === 0)
-          ) {
-            // Use first ~6 words of the message
-            const trimmed = text.trim().split(/\s+/).slice(0, 6).join(" ");
-            newTitle = trimmed.length > 0 ? trimmed + (text.trim().split(/\s+/).length > 6 ? "…" : "") : "New Chat";
-          }
-          return { ...t, messages: [...t.messages, userMsg], lastMessage: text, title: newTitle };
+        if (t.id !== threadKey) return t;
+        let newTitle = t.title;
+        if (
+          (t.title === "New Chat" || t.title === "Untitled Chat") &&
+          (!t.messages || t.messages.length === 0)
+        ) {
+          const words = text.trim().split(/\s+/);
+          const head = words.slice(0, 6).join(" ");
+          newTitle = head.length > 0 ? head + (words.length > 6 ? "…" : "") : "New Chat";
         }
-        return t;
+        return {
+          ...t,
+          messages: [...t.messages, userMsg],
+          lastMessage: text,
+          title: newTitle,
+        };
       })
     );
 
-    // If first message, update the thread title server-side as well
-    (async () => {
-      if (!Number.isFinite(numericThreadId)) return;
-      try {
-        // Fetch thread to see if it needs updating
-        const thread = threads.find((t) => t.id === threadKey);
-        if (
-          thread &&
-          (thread.title === "New Chat" || thread.title === "Untitled Chat") &&
-          (!thread.messages || thread.messages.length === 0)
-        ) {
-          // Update title on server
-          const trimmed = text.trim().split(/\s+/).slice(0, 6).join(" ");
-          const newTitle = trimmed.length > 0 ? trimmed + (text.trim().split(/\s+/).length > 6 ? "…" : "") : "New Chat";
-          await api.patch(`/chat/threads/${numericThreadId}`, { title: newTitle });
-        }
-        await api.post(`/chat/${numericThreadId}/messages`, { role: "user", content: text, metadata: isLikelyPrompt(text) ? { type: 'prompt' } : undefined });
-        if (isLikelyPrompt(text)) {
-          void embedPrompt(text, 'chat');
-        }
-        try {
-          await api.post("/neo/graph-message", {
-            role: "user",
-            content: text,
-            threadId: numericThreadId,
-            userName,
-            guardianName,
-            source: "chat",
-            tags: isLikelyPrompt(text) ? ["prompt"] : [],
-          });
-        } catch (err) {
-          console.warn("[guardian] failed to graph user message", err);
-        }
-        setThreads((prev) =>
-          prev.map((t) =>
-            t.id === threadKey
-              ? {
-                  ...t,
-                  messages: t.messages.map((m) => (m.id === userMsgId ? { ...m, status: "sent" } : m)),
-                }
-              : t
-          )
-        );
-      } catch (err) {
-        console.warn("[guardian] failed to persist user message", err);
+    if (!Number.isFinite(numericThreadId)) return;
+
+    try {
+      // Optionally update the thread title on the server if this is the first message
+      const thread = threads.find((t) => t.id === threadKey);
+      if (
+        thread &&
+        (thread.title === "New Chat" || thread.title === "Untitled Chat") &&
+        (!thread.messages || thread.messages.length === 0)
+      ) {
+        const words = text.trim().split(/\s+/);
+        const head = words.slice(0, 6).join(" ");
+        const newTitle = head.length > 0 ? head + (words.length > 6 ? "…" : "") : "New Chat";
+        await api.patch(`/chat/threads/${numericThreadId}`, { title: newTitle });
       }
-    })();
 
-    const botMsgId = String(Math.random());
-    const botBase: Message = { id: botMsgId, authorId: "bot", authorName: guardianName, content: "", createdAt: Date.now(), status: "delivered" };
-    setThreads((prev) =>
-      prev.map((t) => (t.id === threadKey ? { ...t, messages: [...t.messages, botBase] } : t))
-    );
+      await api.post(`/chat/${numericThreadId}/messages`, {
+        role: "user",
+        content: text,
+        metadata: isLikelyPrompt(text) ? { type: "prompt" } : undefined,
+      });
 
-    const provider = "groq";
-    const model = (import.meta as any).env?.VITE_DEFAULT_MODEL as string | undefined;
-
-    let acc = "";
-    let gotFirstToken = false;
-    let finalized = false;
-    let assistantPersisted = false;
-    let fallbackTimer: ReturnType<typeof setTimeout>;
-
-    const persistAssistant = async (content: string) => {
-      if (assistantPersisted) return;
-      if (!Number.isFinite(numericThreadId)) return;
-      if (!content || !content.trim()) return;
-      assistantPersisted = true;
-      try {
-        await api.post(`/chat/${numericThreadId}/messages`, { role: "assistant", content });
-        try {
-          await api.post("/neo/graph-message", {
-            role: "assistant",
-            content,
-            threadId: numericThreadId,
-            userName,
-            guardianName,
-            source: "chat",
-          });
-        } catch (err) {
-          console.warn("[guardian] failed to graph assistant message", err);
-        }
-      } catch (err) {
-        console.warn("[guardian] failed to persist assistant message", err);
+      if (isLikelyPrompt(text)) {
+        void embedPrompt(text, "chat");
       }
-    };
 
-    const finalizeAssistant = (content: string, fallbackLast?: string) => {
-      if (finalized) return;
-      finalized = true;
-      if (fallbackTimer) clearTimeout(fallbackTimer);
-      const display = content ?? "";
-      const last = display || fallbackLast || text;
+      // Best-effort graph hook; safe to fail until the route exists
+      try {
+        await api.post("/neo/graph-message", {
+          role: "user",
+          content: text,
+          threadId: numericThreadId,
+          userName,
+          guardianName,
+          source: "chat",
+          tags: isLikelyPrompt(text) ? ["prompt"] : [],
+        });
+      } catch (err) {
+        console.warn("[guardian] failed to graph user message", err);
+      }
+
+      // Mark our optimistic message as sent
       setThreads((prev) =>
         prev.map((t) =>
           t.id === threadKey
             ? {
                 ...t,
-                messages: t.messages.map((m) => (m.id === botMsgId ? { ...m, content: display } : m)),
-                lastMessage: last,
+                messages: t.messages.map((m) =>
+                  m.id === userMsgId ? { ...m, status: "sent" } : m
+                ),
               }
             : t
         )
       );
-      void persistAssistant(display);
-    };
-
-    fallbackTimer = setTimeout(async () => {
-      if (gotFirstToken) return;
-      try {
-        const res = await GuardianAPI.chat({ prompt: text, provider, model });
-        const finalText = (res as any)?.text ?? "";
-        finalizeAssistant(finalText, text);
-      } catch (e) {
-        const errText = e instanceof Error ? e.message : String(e);
-        finalizeAssistant(errText, text);
-      }
-    }, 2500);
-
-    try {
-      const stop = GuardianAPI.chatStream(
-        { prompt: text, provider, model },
-        (chunk: string) => {
-          if (!gotFirstToken) {
-            gotFirstToken = true;
-            clearTimeout(fallbackTimer);
-          }
-          acc += chunk;
-          setThreads((prev) =>
-            prev.map((t) =>
-              t.id === threadKey
-                ? {
-                    ...t,
-                    messages: t.messages.map((m) => (m.id === botMsgId ? { ...m, content: acc } : m)),
-                    lastMessage: acc || text,
-                  }
-                : t
-            )
-          );
-        },
-        (err?: unknown) => {
-          if (!gotFirstToken && !acc.trim()) {
-            if (err) console.warn("[guardian] stream ended without tokens", err);
-            return;
-          }
-          finalizeAssistant(acc, text);
-        }
-      );
-      void stop;
-    } catch (e) {
-      const errText = e instanceof Error ? e.message : String(e);
-      finalizeAssistant(errText, text);
+    } catch (err) {
+      console.warn("[guardian] failed to persist user message", err);
     }
   };
 
