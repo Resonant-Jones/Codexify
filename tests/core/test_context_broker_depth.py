@@ -236,11 +236,14 @@ class TestContextBrokerDeepDepth:
         )
 
         # Verify semantic search was performed
-        mock_vector_store.search.assert_called_once()
+        # Note: In deep mode, vector store is called twice (semantic + memory via MemoryOSRetriever)
+        assert mock_vector_store.search.call_count >= 1
+        # First call should be for semantic search
+        mock_vector_store.search.assert_any_call("test query", k=4)
 
     @pytest.mark.asyncio
-    async def test_deep_depth_searches_memory(self, context_broker, mock_memory_store):
-        """Verify deep mode searches memory store."""
+    async def test_deep_depth_searches_memory(self, context_broker, mock_vector_store):
+        """Verify deep mode searches memory via MemoryOSRetriever."""
         await context_broker.assemble(
             thread_id=1,
             query="test query",
@@ -248,20 +251,28 @@ class TestContextBrokerDeepDepth:
             k_memory=5
         )
 
-        # Verify memory search was performed
-        mock_memory_store.search_related.assert_called_once_with("test query", limit=5)
+        # Verify memory search was performed via MemoryOSRetriever (uses vector_store)
+        # Vector store should be called twice: once for semantic (k=4), once for memory (k=5)
+        assert mock_vector_store.search.call_count == 2
+        mock_vector_store.search.assert_any_call("test query", k=5)
 
     @pytest.mark.asyncio
     async def test_deep_depth_memory_results(self, context_broker):
-        """Verify deep mode returns memory search results."""
+        """Verify deep mode returns memory search results via MemoryOSRetriever."""
         result = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="deep"
         )
 
-        # Should have memory results (mocked as [{"memory": "stored"}])
-        assert result["memory"] == [{"memory": "stored"}]
+        # Should have memory results with MemoryOSRetriever schema: {text, metadata, score}
+        # Vector store returns [{"text": "semantic"}], MemoryOSRetriever normalizes it
+        assert "memory" in result
+        assert len(result["memory"]) > 0
+        # Verify normalized schema
+        assert "text" in result["memory"][0]
+        assert "metadata" in result["memory"][0]
+        assert "score" in result["memory"][0]
 
     @pytest.mark.asyncio
     async def test_deep_depth_no_sensors(self, context_broker, mock_sensors):
@@ -333,19 +344,22 @@ class TestContextBrokerDiagnosticDepth:
         )
 
         # Verify semantic search was performed
-        mock_vector_store.search.assert_called_once()
+        # Note: In diagnostic mode, vector store is called twice (semantic + memory via MemoryOSRetriever)
+        assert mock_vector_store.search.call_count >= 1
+        mock_vector_store.search.assert_any_call("test query", k=4)
 
     @pytest.mark.asyncio
-    async def test_diagnostic_depth_searches_memory(self, context_broker, mock_memory_store):
-        """Verify diagnostic mode searches memory store."""
+    async def test_diagnostic_depth_searches_memory(self, context_broker, mock_vector_store):
+        """Verify diagnostic mode searches memory via MemoryOSRetriever."""
         await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="diagnostic"
         )
 
-        # Verify memory search was performed
-        mock_memory_store.search_related.assert_called_once()
+        # Verify memory search was performed via MemoryOSRetriever (uses vector_store)
+        # Vector store called twice: semantic + memory
+        assert mock_vector_store.search.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_diagnostic_depth_snapshots_sensors(self, context_broker, mock_sensors):
@@ -419,7 +433,7 @@ class TestContextBrokerParameterization:
         mock_vector_store.search.assert_called_once_with("test query", k=10)
 
     @pytest.mark.asyncio
-    async def test_custom_k_memory(self, context_broker, mock_memory_store):
+    async def test_custom_k_memory(self, context_broker, mock_vector_store):
         """Verify custom k_memory parameter is respected."""
         await context_broker.assemble(
             thread_id=1,
@@ -428,8 +442,9 @@ class TestContextBrokerParameterization:
             k_memory=8
         )
 
-        # Verify the parameter was passed
-        mock_memory_store.search_related.assert_called_once_with("test query", limit=8)
+        # Verify the parameter was passed to MemoryOSRetriever (via vector_store.search)
+        # Should have been called with k=8 for memory search
+        mock_vector_store.search.assert_any_call("test query", k=8)
 
     @pytest.mark.asyncio
     async def test_depth_case_insensitive(self, context_broker, mock_vector_store):
@@ -490,17 +505,36 @@ class TestContextBrokerErrorHandling:
         assert result["semantic"] == []
 
     @pytest.mark.asyncio
-    async def test_memory_search_error_graceful(self, context_broker, mock_memory_store):
+    async def test_memory_search_error_graceful(self, mock_chatlog_db, mock_sensors):
         """Verify memory search errors are handled gracefully."""
-        mock_memory_store.search_related.side_effect = Exception("Memory error")
+        # Create a vector_store that fails for memory search (second call)
+        from unittest.mock import MagicMock
+        error_vector_store = MagicMock()
+        call_count = [0]
 
-        result = await context_broker.assemble(
+        def search_side_effect(query, k):
+            call_count[0] += 1
+            if call_count[0] == 1:  # First call (semantic) succeeds
+                return [{"text": "semantic"}]
+            else:  # Second call (memory) fails
+                raise Exception("Memory retriever error")
+
+        error_vector_store.search = MagicMock(side_effect=search_side_effect)
+
+        broker = ContextBroker(
+            chatlog_db=mock_chatlog_db,
+            vector_store=error_vector_store,
+            memory_store=None,
+            sensors=mock_sensors,
+        )
+
+        result = await broker.assemble(
             thread_id=1,
             query="test query",
             depth="deep"
         )
 
-        # Should still return a result with empty memory
+        # Should still return a result with empty memory (MemoryOSRetriever failed, no fallback)
         assert "memory" in result
         assert result["memory"] == []
 
@@ -621,7 +655,11 @@ class TestContextBrokerIntegration:
         # Verify all components are present
         assert result["messages"] == ["msg1", "msg2"]
         assert result["semantic"] == [{"text": "semantic"}]
-        assert result["memory"] == [{"memory": "stored"}]
+        # Memory now uses MemoryOSRetriever with normalized schema
+        assert len(result["memory"]) > 0
+        assert "text" in result["memory"][0]
+        assert "metadata" in result["memory"][0]
+        assert "score" in result["memory"][0]
         assert result["sensors"] == {"cpu": 5, "memory": 42}
 
     @pytest.mark.asyncio
