@@ -7,6 +7,7 @@ import { ThemeMode, ExtColors } from "@/types/ui";
 import { ImagePlus } from "lucide-react";
 import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
+import { MemoryBrowser } from "@/features/settings/diagnostics";
 
 export function SettingsView({
   mode,
@@ -69,7 +70,7 @@ export function SettingsView({
   ingestionEnabled: boolean;
   setIngestionEnabled: (b: boolean) => void;
 }) {
-  const [tab, setTab] = useState<"appearance" | "system" | "connectors">("appearance");
+  const [tab, setTab] = useState<"appearance" | "system" | "connectors" | "diagnostics">("appearance");
   const [name, setName] = useState(guardianName);
   const [uName, setUName] = useState(userName);
   const [uRole, setURole] = useState(role);
@@ -135,6 +136,9 @@ export function SettingsView({
           </Button>
           <Button type="button" variant={tab === "connectors" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("connectors")}>
             Connectors
+          </Button>
+          <Button type="button" variant={tab === "diagnostics" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("diagnostics")}>
+            Diagnostics
           </Button>
         </div>
 
@@ -337,6 +341,12 @@ export function SettingsView({
                 <div className="text-sm opacity-70">No connectors available</div>
               )
             )}
+          </div>
+        )}
+
+        {tab === "diagnostics" && (
+          <div className="space-y-4">
+            <MemoryBrowser />
           </div>
         )}
       </div>

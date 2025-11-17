@@ -1536,7 +1536,12 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         except Exception:
             logger.debug("[live] emit message.created failed", exc_info=True)
 
-        return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text}}
+        # Include RAG context in response for diagnostics/memory browser
+        return {
+            "ok": True,
+            "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text},
+            "context": bundle if bundle else {"semantic": [], "memory": [], "messages": []}
+        }
     except HTTPException:
         raise
     except Exception as exc:

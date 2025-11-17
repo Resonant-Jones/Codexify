@@ -8,6 +8,7 @@ import ChatView from "@/features/chat/ChatView";
 import api from "@/lib/api";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
+import { setTrace } from "@/state/contextTrace";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -95,8 +96,21 @@ export function GuardianChat({
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
     try {
-      await api.post(`/chat/${tid}/complete`, {}, { params: { depth } });
+      const response = await api.post(`/chat/${tid}/complete`, {}, { params: { depth } });
       console.log(`[guardian] Completing with depth=${depth}`);
+
+      // Capture RAG trace for diagnostics/memory browser
+      const ctx = response?.data?.context;
+      if (ctx) {
+        setTrace({
+          semantic: ctx.semantic || [],
+          memory: ctx.memory || [],
+          depth,
+          threadId: tid,
+          timestamp: Date.now(),
+        });
+        console.log(`[guardian] RAG trace captured: ${ctx.semantic?.length || 0} semantic, ${ctx.memory?.length || 0} memory`);
+      }
     } catch (err) {
       console.warn("[guardian] completion failed", err);
     } finally {
