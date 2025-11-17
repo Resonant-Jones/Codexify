@@ -42,7 +42,7 @@ except ImportError as e:
 
 # Optional Neo4j imports for graph sync
 try:
-    from db.neo import UserNode, MessageNode, ThreadNode
+    from guardian.db.neo import UserNode, MessageNode, ThreadNode    NEO4J_SYNC_AVAILABLE = True
     NEO4J_SYNC_AVAILABLE = True
 except Exception:
     NEO4J_SYNC_AVAILABLE = False

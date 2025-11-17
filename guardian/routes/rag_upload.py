@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # RAG modules import
 try:
-    from backend.rag.enhanced_rag import EnhancedRAG
+    from codexify.rag.enhanced_rag import EnhancedRAG
     from backend.rag.embedder import Embedder
     from backend.rag.parser import parse_chat_history
     RAG_AVAILABLE = True

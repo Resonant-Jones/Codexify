@@ -119,6 +119,22 @@ services:
     ports: ["5173:5173"]
     volumes:
       - ./frontend:/app
+      - /app/node_modules
+    environment:
+      # Ensure pnpm installs modules inside the container mount and skips heavy postinstall scripts
+      PNPM_HOME: /app
+      PNPM_CONFIG_IGNORE_SCRIPTS: "true"
+      # Stabilize file watching inside Docker on macOS/Windows
+      CHOKIDAR_USEPOLLING: "true"
+    command: >
+      sh -lc '
+        set -e
+        cd /app
+        echo "[Frontend] Installing deps (container-local node_modules)..."
+        pnpm install --frozen-lockfile=false --ignore-scripts || pnpm install --ignore-scripts
+        echo "[Frontend] Starting Vite dev server..."
+        pnpm --dir /app run dev -- --host 0.0.0.0 --port 5173
+      '
 
   codexify-init:
     image: alpine:latest

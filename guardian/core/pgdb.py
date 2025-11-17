@@ -58,6 +58,10 @@ class PgDB(ChatDB):
         self._sync_jobs_ready = False
         self._events_outbox_ready = False
         self._connector_tables_ready = False
+        # Some deployments may be on an older schema without the optional
+        # connector_configs.schedule column. We detect this lazily and
+        # degrade to a schedule-less projection instead of failing queries.
+        self._connector_has_schedule = False
 
     def _connect(self):
         return psycopg2.connect(self.dsn, cursor_factory=RealDictCursor)
@@ -119,7 +123,12 @@ class PgDB(ChatDB):
         self._events_outbox_ready = True
 
     def _ensure_connector_tables(self, conn) -> None:
-        """Verify connector_* schema; DDL owned by Alembic revision ac973209add4."""
+        """Verify connector_* schema; DDL owned by Alembic revision ac973209add4.
+
+        Older databases may lack the optional ``schedule`` column on
+        ``connector_configs``; rather than failing hard, we detect its
+        presence once and have connector queries adapt accordingly.
+        """
         if self._connector_tables_ready:
             return
         with conn.cursor() as cur:
@@ -151,6 +160,23 @@ class PgDB(ChatDB):
                     logging.warning(
                         "Index %s missing; expected from Alembic revision ac973209add4.", index.split(".")[-1]
                     )
+
+            # Introspect connector_configs columns once to see if the
+            # optional schedule column is available.
+            cur.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'connector_configs'
+                """
+            )
+            columns = {row["column_name"] for row in cur.fetchall()}
+            self._connector_has_schedule = "schedule" in columns
+            if not self._connector_has_schedule:
+                logging.info(
+                    "[connectors] connector_configs.schedule column not present; "
+                    "using config['schedule'] only."
+                )
 
         self._connector_tables_ready = True
 
@@ -1120,14 +1146,27 @@ class PgDB(ChatDB):
         with self._connect() as conn:
             self._ensure_connector_tables(conn)
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO connector_configs (name, type, config, schedule)
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING id, name, type, config, schedule, created_at, updated_at
-                    """,
-                    (name, type_, _to_json(config or {}), schedule),
-                )
+                if self._connector_has_schedule:
+                    cur.execute(
+                        """
+                        INSERT INTO connector_configs (name, type, config, schedule)
+                        VALUES (%s, %s, %s, %s)
+                        RETURNING id, name, type, config, schedule, created_at, updated_at
+                        """,
+                        (name, type_, _to_json(config or {}), schedule),
+                    )
+                else:
+                    merged = dict(config or {})
+                    if schedule is not None:
+                        merged.setdefault("schedule", schedule)
+                    cur.execute(
+                        """
+                        INSERT INTO connector_configs (name, type, config)
+                        VALUES (%s, %s, %s)
+                        RETURNING id, name, type, config, created_at, updated_at
+                        """,
+                        (name, type_, _to_json(merged)),
+                    )
                 row = cur.fetchone()
                 conn.commit()
         if not row:
@@ -1146,7 +1185,7 @@ class PgDB(ChatDB):
         if config is not None:
             updates.append("config = %s")
             params.append(_to_json(config or {}))
-        if schedule is not None:
+        if schedule is not None and self._connector_has_schedule:
             updates.append("schedule = %s")
             params.append(schedule)
         params.append(name)
@@ -1159,9 +1198,16 @@ class PgDB(ChatDB):
                         f"UPDATE connector_configs SET {', '.join(updates)} WHERE name = %s",
                         params,
                     )
+                # If schedule column is not present, we fall back to a
+                # projection without it; callers only read from config/settings.
+                select_cols = (
+                    "id, name, type, config, schedule, created_at, updated_at"
+                    if self._connector_has_schedule
+                    else "id, name, type, config, created_at, updated_at"
+                )
                 cur.execute(
-                    """
-                    SELECT id, name, type, config, schedule, created_at, updated_at
+                    f"""
+                    SELECT {select_cols}
                     FROM connector_configs
                     WHERE name = %s
                     """,
@@ -1176,7 +1222,12 @@ class PgDB(ChatDB):
     def list_connector_configs(
         self, type_filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        query = "SELECT id, name, type, config, schedule, created_at, updated_at FROM connector_configs"
+        select_cols = (
+            "id, name, type, config, schedule, created_at, updated_at"
+            if self._connector_has_schedule
+            else "id, name, type, config, created_at, updated_at"
+        )
+        query = f"SELECT {select_cols} FROM connector_configs"
         params: List[Any] = []
         if type_filter:
             query += " WHERE type = %s"
@@ -1193,9 +1244,14 @@ class PgDB(ChatDB):
         with self._connect() as conn:
             self._ensure_connector_tables(conn)
             with conn.cursor() as cur:
+                select_cols = (
+                    "id, name, type, config, schedule, created_at, updated_at"
+                    if self._connector_has_schedule
+                    else "id, name, type, config, created_at, updated_at"
+                )
                 cur.execute(
-                    """
-                    SELECT id, name, type, config, schedule, created_at, updated_at
+                    f"""
+                    SELECT {select_cols}
                     FROM connector_configs
                     WHERE name = %s
                     """,

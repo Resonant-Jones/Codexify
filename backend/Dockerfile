@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
+ENV ROLLUP_SKIP_NODE_PLATFORM_CHECK=true
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 # System deps for typical Python builds (psycopg2, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
