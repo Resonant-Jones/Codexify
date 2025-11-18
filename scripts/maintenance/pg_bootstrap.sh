@@ -12,7 +12,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 DEFAULT_CONTAINER="guardian-pg"
-DEFAULT_DSN="postgresql://guardian:guardian@localhost:5432/guardian"
+DEFAULT_DSN="postgresql://codexify:codexify@localhost:5432/Codexify"
 ENV_FILE="$ROOT_DIR/.env"
 MIGRATIONS_DIR="migrations"
 ALT_MIGRATIONS_DIR="db/migrations"

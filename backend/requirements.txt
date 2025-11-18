@@ -437,6 +437,8 @@ pre-commit==4.3.0
     # via -r requirements/dev.in
 primp==0.15.0
     # via duckduckgo-search
+prometheus-client>=0.20.0
+    # via uvicorn
 propcache==0.4.1
     # via
     #   aiohttp
@@ -447,6 +449,8 @@ protobuf==6.33.0
     #   mlx-lm
     #   onnxruntime
     #   opentelemetry-proto
+PyJWT>=2.9.0
+    # via google-auth
 psutil==7.1.1
     # via crawl4ai
 psycopg2-binary==2.9.9
