@@ -110,3 +110,4 @@ HRM/
 .env
 frontend/store
 .env
+chatgpt_conversation.json
