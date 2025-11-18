@@ -1,0 +1,315 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://codexify.dev/schemas/scout-fdp-log.schema.json",
+  "title": "Scout-FDP Log Schema",
+  "description": "JSON Schema for Scout logs generated via Firefox DevTools Protocol",
+  "type": "object",
+  "required": ["version", "generatedAt", "protocol", "url"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Scout log schema version",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-fdp)?$",
+      "examples": ["1.0.0-fdp"]
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of log generation"
+    },
+    "protocol": {
+      "type": "string",
+      "const": "fdp",
+      "description": "Source protocol (always 'fdp' for this variant)"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Target URL that was scanned"
+    },
+    "title": {
+      "type": "string",
+      "description": "Page title extracted from HTML"
+    },
+    "fdpMetadata": {
+      "type": "object",
+      "description": "Firefox DevTools Protocol specific metadata",
+      "properties": {
+        "firefoxVersion": {
+          "type": "string",
+          "description": "Firefox browser version",
+          "examples": ["120.0", "121.0.1"]
+        },
+        "protocolVersion": {
+          "type": "string",
+          "description": "FDP protocol version",
+          "examples": ["1.0", "1.1"]
+        },
+        "actorIds": {
+          "type": "array",
+          "description": "Actor IDs used during capture",
+          "items": {
+            "type": "string"
+          }
+        },
+        "captureTimestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when FDP capture occurred"
+        }
+      }
+    },
+    "html": {
+      "type": "string",
+      "description": "Sanitized HTML snapshot of the page"
+    },
+    "css": {
+      "type": "object",
+      "description": "CSS data captured from page",
+      "properties": {
+        "computedStyles": {
+          "type": "object",
+          "description": "Computed styles for nodes (nodeId -> properties)",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "cascade": {
+          "type": "array",
+          "description": "CSS cascade information",
+          "items": {
+            "type": "object",
+            "required": ["selector", "properties"],
+            "properties": {
+              "selector": {
+                "type": "string",
+                "description": "CSS selector or node identifier"
+              },
+              "properties": {
+                "type": "object",
+                "description": "CSS properties applied",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "source": {
+                "type": "string",
+                "description": "Source stylesheet URL or 'inline'"
+              },
+              "specificity": {
+                "type": "array",
+                "description": "CSS specificity [inline, id, class, element]",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            }
+          }
+        },
+        "boxModels": {
+          "type": "object",
+          "description": "Layout box models for nodes (nodeId -> box model)",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["content", "padding", "border", "margin"],
+            "properties": {
+              "content": {
+                "type": "array",
+                "description": "Content box [x1, y1, x2, y2, ...]",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "padding": {
+                "type": "array",
+                "description": "Padding box [x1, y1, x2, y2, ...]",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "border": {
+                "type": "array",
+                "description": "Border box [x1, y1, x2, y2, ...]",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "margin": {
+                "type": "array",
+                "description": "Margin box [x1, y1, x2, y2, ...]",
+                "items": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "description": "Network activity summary",
+      "properties": {
+        "requestCount": {
+          "type": "integer",
+          "description": "Total number of network requests",
+          "minimum": 0
+        },
+        "totalBytes": {
+          "type": "integer",
+          "description": "Total bytes transferred",
+          "minimum": 0
+        },
+        "requests": {
+          "type": "array",
+          "description": "Individual network requests",
+          "items": {
+            "type": "object",
+            "required": ["url", "method", "status"],
+            "properties": {
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "Request URL"
+              },
+              "method": {
+                "type": "string",
+                "description": "HTTP method",
+                "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+              },
+              "status": {
+                "type": "integer",
+                "description": "HTTP status code",
+                "minimum": 100,
+                "maximum": 599
+              },
+              "timing": {
+                "type": "object",
+                "description": "Request timing breakdown",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "console": {
+      "type": "array",
+      "description": "Console log messages",
+      "items": {
+        "type": "object",
+        "required": ["level", "text", "timestamp"],
+        "properties": {
+          "level": {
+            "type": "string",
+            "description": "Log level",
+            "enum": ["log", "info", "warn", "error", "debug"]
+          },
+          "text": {
+            "type": "string",
+            "description": "Log message text"
+          },
+          "timestamp": {
+            "type": "number",
+            "description": "Timestamp (Unix milliseconds)"
+          }
+        }
+      }
+    },
+    "performance": {
+      "type": "object",
+      "description": "Performance metrics",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "description": "Summary of PII redaction operations",
+      "required": ["applied"],
+      "properties": {
+        "applied": {
+          "type": "boolean",
+          "description": "Whether redaction was applied"
+        },
+        "stats": {
+          "type": "object",
+          "description": "Redaction statistics",
+          "properties": {
+            "emailsRedacted": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of email addresses redacted"
+            },
+            "phoneNumbersRedacted": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of phone numbers redacted"
+            },
+            "creditCardsRedacted": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of credit card numbers redacted"
+            },
+            "apiKeysRedacted": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of API keys redacted"
+            },
+            "otherRedacted": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of other sensitive values redacted"
+            }
+          }
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Redaction timestamp"
+        }
+      }
+    },
+    "processingMetadata": {
+      "type": "object",
+      "description": "Metadata about log processing",
+      "properties": {
+        "durationMs": {
+          "type": "number",
+          "description": "Processing duration in milliseconds",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "array",
+          "description": "Warnings generated during processing",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "_comments": {
+    "todo": [
+      "Add FDP-specific actor tracking schema",
+      "Add layout box model precision fields",
+      "Add CSS cascade snapshot with inheritance chain",
+      "Add viewport and screen dimension metadata",
+      "Add accessibility tree data schema",
+      "Add storage inspection schema (cookies, localStorage, etc.)",
+      "Add WebSocket and EventSource tracking",
+      "Add Service Worker state",
+      "Add Firefox extension detection metadata",
+      "Add Gecko-specific rendering flags"
+    ],
+    "status": "DORMANT - Schema is minimal scaffold",
+    "version": "0.1.0"
+  }
+}
