@@ -4,11 +4,11 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_USER: guardian
-      POSTGRES_PASSWORD: guardian
-      POSTGRES_DB: guardian
+      POSTGRES_USER: codexify
+      POSTGRES_PASSWORD: codexify
+      POSTGRES_DB: Codexify
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U guardian -d guardian"]
+      test: ["CMD-SHELL", "pg_isready -U codexify -d Codexify"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -19,13 +19,13 @@ services:
   neo4j:
     image: neo4j:5
     environment:
-      NEO4J_AUTH: neo4j/guardian
+      NEO4J_AUTH: neo4j/codexify
       NEO4J_server_default__listen__address: 0.0.0.0
     ports: ["7474:7474", "7687:7687"]
     volumes:
       - neo4j_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -a bolt://localhost:7687 -u neo4j -p guardian 'RETURN 1' || exit 1"]
+      test: ["CMD-SHELL", "cypher-shell -a bolt://localhost:7687 -u neo4j -p codexify 'RETURN 1' || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 30
@@ -57,7 +57,7 @@ services:
     working_dir: /app
     entrypoint: []            # ensure our command runs; ignore any image ENTRYPOINT
     environment:
-      DATABASE_URL: postgresql://guardian:guardian@db:5432/guardian
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
       ENABLE_BLIP_MODEL: "false"   # keep migrations light (no model loading)
     depends_on:
       db:
@@ -84,9 +84,9 @@ services:
     working_dir: /app
     entrypoint: []            # ensure uvicorn runs directly; ignore image ENTRYPOINT
     environment:
-      DATABASE_URL: postgresql://guardian:guardian@db:5432/guardian
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
       PORT: "8888"
-      NEO4J_BOLT_URL: bolt://neo4j:guardian@neo4j:7687
+      NEO4J_BOLT_URL: bolt://neo4j:codexify@neo4j:7687
       GUARDIAN_API_KEY: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e
       ENABLE_CONNECTOR_WORKER: "false"
     depends_on:
@@ -109,7 +109,7 @@ services:
       - .:/app
 
   frontend:
-  
+
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -120,20 +120,25 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      - /app/src/node_modules
     environment:
       # Ensure pnpm installs modules inside the container mount and skips heavy postinstall scripts
+      VITE_PROXY_TARGET: http://backend:8888
+      VITE_GUARDIAN_API_KEY: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e
       PNPM_HOME: /app
       PNPM_CONFIG_IGNORE_SCRIPTS: "true"
+      CI: "true"
       # Stabilize file watching inside Docker on macOS/Windows
       CHOKIDAR_USEPOLLING: "true"
     command: >
       sh -lc '
         set -e
-        cd /app
-        echo "[Frontend] Installing deps (container-local node_modules)..."
+        echo "[Frontend] Installing root deps..."
         pnpm install --frozen-lockfile=false --ignore-scripts || pnpm install --ignore-scripts
+        echo "[Frontend] Installing src deps..."
+        pnpm --dir src install --frozen-lockfile=false --ignore-scripts || pnpm --dir src install --ignore-scripts
         echo "[Frontend] Starting Vite dev server..."
-        pnpm --dir /app run dev -- --host 0.0.0.0 --port 5173
+        pnpm --dir src dev -- --host 0.0.0.0 --port 5173
       '
 
   codexify-init:

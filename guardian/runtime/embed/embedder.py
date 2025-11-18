@@ -31,7 +31,7 @@ DEFAULT_OPENAI_MODEL = os.getenv("CODEXIFY_OPENAI_MODEL", "text-embedding-3-larg
 DEFAULT_STORE = os.getenv("CODEXIFY_VECTOR_STORE", "chroma")  # 'chroma' | 'faiss'
 CHROMA_PATH = os.getenv("CODEXIFY_CHROMA_PATH", "./.chroma")
 COLLECTION = os.getenv("CODEXIFY_COLLECTION", "codexify_vault")
-
+MAX_EMBED_CHARS = int(os.getenv("CODEXIFY_MAX_EMBED_CHARS", "16000"))
 
 def _batched(seq: Iterable[str], batch_size: int = 64):
     buf: List[str] = []
@@ -47,7 +47,7 @@ def _batched(seq: Iterable[str], batch_size: int = 64):
 class CodexifyEmbedder:
     def __init__(
         self,
-        use_openai: bool = False,
+        use_openai: bool = True,
         model: Optional[str] = None,
         store: str = DEFAULT_STORE,
         chroma_path: str = CHROMA_PATH,
@@ -85,7 +85,13 @@ class CodexifyEmbedder:
 
     # ---- Embeddings ----
     def _embed_batch_openai(self, texts: List[str]) -> List[List[float]]:
-        resp = self._client.embeddings.create(model=self.model_name, input=texts)
+        # Ensure no text exceeds model context length (in tokens) by clamping by characters.
+        # 16k chars is well under the 8k-token limit for typical English text.
+        safe_texts = [
+            t if len(t) <= MAX_EMBED_CHARS else t[:MAX_EMBED_CHARS]
+            for t in texts
+        ]
+        resp = self._client.embeddings.create(model=self.model_name, input=safe_texts)
         data_sorted = sorted(resp.data, key=lambda d: d.index)
         return [d.embedding for d in data_sorted]
 
