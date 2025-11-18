@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Scout IDDB Node Definitions",
+  "description": "Descriptive schema for Scout log nodes in IDDB. These are not active registrations.",
+  "version": "0.1.0",
+  "state": "dormant",
+  "nodeTypes": [
+    {
+      "type": "ScoutLog",
+      "description": "Primary log entry from Scout observability system",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the log entry",
+          "required": true
+        },
+        "type": {
+          "type": "string",
+          "const": "ScoutLog",
+          "required": true
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the log was created",
+          "required": true
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error", "critical"],
+          "description": "Log severity level",
+          "required": true
+        },
+        "message": {
+          "type": "string",
+          "description": "Sanitized log message content",
+          "required": true
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Categorical tags for log classification",
+          "required": false
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional structured metadata",
+          "required": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "Source system or component"
+            },
+            "traceId": {
+              "type": "string",
+              "description": "Distributed trace identifier"
+            },
+            "spanId": {
+              "type": "string",
+              "description": "Trace span identifier"
+            },
+            "userId": {
+              "type": "string",
+              "description": "Sanitized user identifier"
+            }
+          }
+        },
+        "rawFingerprint": {
+          "type": "string",
+          "description": "Hash of the original log for deduplication",
+          "required": false
+        }
+      },
+      "indexes": ["timestamp", "severity", "tags"]
+    },
+    {
+      "type": "Component",
+      "description": "System component or service that generates logs",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the component",
+          "required": true
+        },
+        "type": {
+          "type": "string",
+          "const": "Component",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable component name",
+          "required": true
+        },
+        "componentType": {
+          "type": "string",
+          "enum": ["service", "library", "module", "function", "api", "database", "queue", "other"],
+          "description": "Type of component",
+          "required": true
+        },
+        "version": {
+          "type": "string",
+          "description": "Component version (semver preferred)",
+          "required": false
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Organizational namespace or package name",
+          "required": false
+        },
+        "repository": {
+          "type": "string",
+          "description": "Source code repository URL",
+          "required": false
+        }
+      },
+      "indexes": ["name", "componentType"]
+    },
+    {
+      "type": "URL",
+      "description": "URL or endpoint being observed in logs",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier (typically hash of normalized URL)",
+          "required": true
+        },
+        "type": {
+          "type": "string",
+          "const": "URL",
+          "required": true
+        },
+        "fullUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Complete URL string (sanitized)",
+          "required": true
+        },
+        "protocol": {
+          "type": "string",
+          "description": "URL protocol (http, https, ws, etc.)",
+          "required": false
+        },
+        "domain": {
+          "type": "string",
+          "description": "Domain name without protocol",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "description": "URL path component",
+          "required": false
+        },
+        "queryParams": {
+          "type": "object",
+          "description": "Sanitized query parameters",
+          "required": false
+        },
+        "fragment": {
+          "type": "string",
+          "description": "URL fragment/hash",
+          "required": false
+        },
+        "isInternal": {
+          "type": "boolean",
+          "description": "Whether URL is internal to the system",
+          "required": false
+        }
+      },
+      "indexes": ["domain", "fullUrl"]
+    },
+    {
+      "type": "RuntimeInstance",
+      "description": "Specific runtime or execution context that generated logs",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the runtime instance",
+          "required": true
+        },
+        "type": {
+          "type": "string",
+          "const": "RuntimeInstance",
+          "required": true
+        },
+        "instanceId": {
+          "type": "string",
+          "description": "Runtime-specific instance identifier (pod name, container ID, etc.)",
+          "required": true
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["development", "staging", "production", "test", "other"],
+          "description": "Deployment environment",
+          "required": true
+        },
+        "runtimeVersion": {
+          "type": "string",
+          "description": "Version of the runtime or application",
+          "required": false
+        },
+        "platform": {
+          "type": "string",
+          "description": "Platform or infrastructure (kubernetes, docker, serverless, etc.)",
+          "required": false
+        },
+        "region": {
+          "type": "string",
+          "description": "Geographic region or availability zone",
+          "required": false
+        },
+        "startTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the runtime instance started",
+          "required": false
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional runtime metadata",
+          "required": false
+        }
+      },
+      "indexes": ["environment", "instanceId"]
+    }
+  ],
+  "notes": [
+    "This schema is for documentation and type generation only.",
+    "No automatic IDDB registration occurs from this file.",
+    "Activate integration by connecting to IDDB schema registry manually."
+  ]
+}
