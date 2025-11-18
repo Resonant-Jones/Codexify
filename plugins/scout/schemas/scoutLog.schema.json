@@ -1,0 +1,179 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://codexify.dev/schemas/scout/scoutLog.v0.1.0.json",
+  "title": "ScoutLog",
+  "description": "Schema for SCOUT inspection logs (v0.1.0 - DRAFT)",
+  "type": "object",
+  "required": ["id", "meta", "dom", "redaction", "processing"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for this log",
+      "pattern": "^scout_[a-z0-9_]+$"
+    },
+
+    "meta": {
+      "type": "object",
+      "description": "Metadata about the log",
+      "required": ["timestamp", "url", "scoutVersion", "schemaVersion"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the data was captured (ISO 8601)"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL where data was captured"
+        },
+        "scoutVersion": {
+          "type": "string",
+          "description": "SCOUT plugin version",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "schemaVersion": {
+          "type": "string",
+          "description": "Schema version for this log",
+          "enum": ["0.1.0"]
+        }
+      }
+    },
+
+    "dom": {
+      "type": "object",
+      "description": "Sanitized DOM content",
+      "required": ["html"],
+      "properties": {
+        "html": {
+          "type": "string",
+          "description": "Sanitized HTML content"
+        },
+        "stats": {
+          "type": "object",
+          "description": "DOM statistics",
+          "properties": {
+            "elementCount": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Number of DOM elements"
+            },
+            "depth": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Maximum nesting depth"
+            },
+            "size": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Size in bytes"
+            }
+          }
+        }
+      }
+    },
+
+    "redaction": {
+      "type": "object",
+      "description": "Summary of redaction process",
+      "required": ["fieldsMasked", "tokensMasked", "detectedPatterns", "strategy", "success"],
+      "properties": {
+        "fieldsMasked": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Number of fields that were masked"
+        },
+        "tokensMasked": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Number of tokens that were masked"
+        },
+        "detectedPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Types of PII detected (e.g., 'email', 'phone')"
+        },
+        "strategy": {
+          "type": "string",
+          "enum": ["regex", "ml", "manual", "none"],
+          "description": "Redaction strategy used"
+        },
+        "success": {
+          "type": "boolean",
+          "description": "Whether redaction was successful"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Any warnings during redaction"
+        }
+      }
+    },
+
+    "insights": {
+      "type": "object",
+      "description": "Extracted insights from DOM",
+      "properties": {
+        "forms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Number of forms detected"
+        },
+        "interactive": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Number of interactive elements"
+        },
+        "externalResources": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Number of external resources"
+        }
+      }
+    },
+
+    "processing": {
+      "type": "object",
+      "description": "Processing metadata",
+      "required": ["processedAt", "duration"],
+      "properties": {
+        "processedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this log was processed"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Processing duration in milliseconds"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Any processing errors"
+        }
+      }
+    }
+  },
+
+  "_TODO": {
+    "note": "This is a DRAFT schema for the initial scaffold.",
+    "futureEnhancements": [
+      "Add console log capture schema",
+      "Add network activity schema",
+      "Add performance metrics schema",
+      "Add accessibility analysis schema",
+      "Add semantic extraction schema",
+      "Add screenshot/visual capture schema",
+      "Add browser context schema (viewport, user agent, etc.)",
+      "Add storage/cookie analysis schema",
+      "Add version migration paths"
+    ]
+  }
+}
