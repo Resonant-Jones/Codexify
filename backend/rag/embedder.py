@@ -14,7 +14,7 @@ class Embedder:
 
     def __init__(
         self,
-        use_openai: bool = False,
+        use_openai: bool = True,
         model: Optional[str] = None,
         store: str = "chroma",
         chroma_path: str = "./.chroma",

@@ -107,3 +107,6 @@ tmp-clone/
 chatgpt_migrations/conversations.json
 .pnpm-store/
 HRM/
+.env
+frontend/store
+.env
