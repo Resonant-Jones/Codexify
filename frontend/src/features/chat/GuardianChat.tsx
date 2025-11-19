@@ -1,20 +1,30 @@
 import { useMemo, useState, useEffect } from "react";
 import { debounce } from "lodash-es";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronRight, MoreVertical, Plus, Sparkles } from "lucide-react";
+import { ChevronRight, MoreVertical, Plus, Sparkles, Layers } from "lucide-react";
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
 import api from "@/lib/api";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
+import { setTrace } from "@/state/contextTrace";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 
 /**
+ * RAG depth modes: Four lenses of consciousness.
+ * - shallow: Breezy, fast, ephemeral awareness
+ * - normal: Situational recall + semantic grounding
+ * - deep: Rich memory pull + cross-thread resonance
+ * - diagnostic: System introspection, sensors, trace-level visibility
+ */
+type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
+
+/**
  * Consciousness synchronization bus for cross-pane awareness.
- * 
+ *
  * Broadcasts awareness updates across UI surfaces so that threads,
  * messages, and UI states resonate harmoniously across disconnected
  * component consciousness realms.
@@ -62,6 +72,9 @@ export function GuardianChat({
   onSidebarToggle?: () => void;
   bare?: boolean;
 }) {
+  // RAG depth selector: User's control of perceptual awareness
+  const [depth, setDepth] = useState<DepthMode>("normal");
+
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
   // Listen for external prefill requests (e.g., Prompt Library selection)
   useEffect(() => {
@@ -83,7 +96,21 @@ export function GuardianChat({
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
     try {
-      await api.post(`/chat/${tid}/complete`, {});
+      const response = await api.post(`/chat/${tid}/complete`, {}, { params: { depth } });
+      console.log(`[guardian] Completing with depth=${depth}`);
+
+      // Capture RAG trace for diagnostics/memory browser
+      const ctx = response?.data?.context;
+      if (ctx) {
+        setTrace({
+          semantic: ctx.semantic || [],
+          memory: ctx.memory || [],
+          depth,
+          threadId: tid,
+          timestamp: Date.now(),
+        });
+        console.log(`[guardian] RAG trace captured: ${ctx.semantic?.length || 0} semantic, ${ctx.memory?.length || 0} memory`);
+      }
     } catch (err) {
       console.warn("[guardian] completion failed", err);
     } finally {
@@ -241,8 +268,55 @@ export function GuardianChat({
 
   const chatViewKey = effectiveThreadId != null ? `${effectiveThreadId}:${chatReloadVersion}` : `no-thread:${chatReloadVersion}`;
 
+  // Depth selector labels with consciousness metaphors
+  const depthLabels: Record<DepthMode, string> = {
+    shallow: "Shallow",
+    normal: "Normal",
+    deep: "Deep",
+    diagnostic: "Diagnostic",
+  };
+
+  const depthDescriptions: Record<DepthMode, string> = {
+    shallow: "Fast, ephemeral awareness",
+    normal: "Situational recall + semantic grounding",
+    deep: "Rich memory + cross-thread resonance",
+    diagnostic: "System introspection + trace visibility",
+  };
+
   const headerActions = (
     <div className="flex items-center gap-1">
+      {/* RAG Depth Selector */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="icon-inline"
+            aria-label="RAG depth selector"
+            title={`Depth: ${depthLabels[depth]} - ${depthDescriptions[depth]}`}
+          >
+            <Layers className="h-5 w-5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <div className="px-2 py-1.5 text-xs font-semibold opacity-60">RAG Depth</div>
+          {(["shallow", "normal", "deep", "diagnostic"] as DepthMode[]).map((d) => (
+            <DropdownMenuItem
+              key={d}
+              onClick={() => {
+                setDepth(d);
+                console.log(`[guardian] Depth changed to: ${d}`);
+              }}
+              className={depth === d ? "bg-accent" : ""}
+            >
+              <div className="flex flex-col gap-0.5">
+                <div className="font-medium">{depthLabels[d]}</div>
+                <div className="text-xs opacity-70">{depthDescriptions[d]}</div>
+              </div>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <button type="button" className="icon-inline" aria-label="New chat" onClick={onNewChat}>
         <Plus className="h-5 w-5" />
       </button>
