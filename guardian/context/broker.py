@@ -3,6 +3,8 @@
 from typing import Any, Dict, List, Optional
 import logging
 
+from guardian.memoryos.retriever import MemoryOSRetriever
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,6 +37,9 @@ class ContextBroker:
         self.vector = vector_store
         self.memory = memory_store
         self.sensors = sensors
+        # Initialize MemoryOS semantic retriever for RAG-based memory search
+        self.memory_retriever = MemoryOSRetriever(vector_store)
+        logger.info("[ContextBroker] Initialized with MemoryOS semantic retriever")
 
     async def assemble(
         self,
@@ -149,14 +154,41 @@ class ContextBroker:
         return []
 
     async def _search_memory(self, query: str, k: int) -> List[Dict[str, Any]]:
-        """Search for related memory entries."""
-        if self.memory and hasattr(self.memory, 'search_related'):
-            result = self.memory.search_related(query, limit=k)
-            # Handle both sync and async returns
-            if hasattr(result, '__await__'):
-                return await result
-            return result if isinstance(result, list) else []
-        return []
+        """Search for related memory entries using MemoryOS semantic retriever.
+
+        Primary: Uses MemoryOSRetriever for vector-based semantic memory search.
+        Fallback: Falls back to legacy memory_store.search_related() if available.
+        """
+        try:
+            # Primary: Use MemoryOS semantic retriever for RAG-based memory recall
+            memory_results = await self.memory_retriever.retrieve(query, limit=k)
+            logger.debug(
+                f"[ContextBroker] Retrieved {len(memory_results)} memory chunks "
+                f"via MemoryOSRetriever"
+            )
+            return memory_results
+        except Exception as e:
+            logger.warning(f"[ContextBroker] MemoryOS retriever failed: {e}")
+
+            # Fallback: Use legacy memory_store if available
+            if self.memory and hasattr(self.memory, 'search_related'):
+                try:
+                    result = self.memory.search_related(query, limit=k)
+                    # Handle both sync and async returns
+                    if hasattr(result, '__await__'):
+                        result = await result
+                    if isinstance(result, list):
+                        logger.debug(
+                            f"[ContextBroker] Fallback: Retrieved {len(result)} "
+                            f"results from legacy memory_store"
+                        )
+                        return result
+                except Exception as fallback_error:
+                    logger.warning(
+                        f"[ContextBroker] Legacy memory_store also failed: {fallback_error}"
+                    )
+
+            return []
 
     async def _snapshot_sensors(self) -> Dict[str, Any]:
         """Snapshot current system sensors state."""
