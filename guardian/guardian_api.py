@@ -238,9 +238,66 @@ def _groq_complete(
     - Handles multiple possible response shapes (message.content as str or list, choice.text).
     - Detects provider-style error strings that sometimes appear inside a 200 payload.
     - Optionally retries once with GROQ_FALLBACK_MODEL if the first attempt yields empty/invalid text.
+    - Injects assembled context (semantic + memory) from ContextBroker if provided.
     """
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+
+    # Inject RAG context as system message if broker provided a bundle
+    enriched_messages = list(messages)  # Copy to avoid modifying original
+    if context:
+        context_parts: List[str] = []
+
+        # Include recent messages
+        recent_msgs = context.get("messages", [])
+        if recent_msgs:
+            context_parts.append("### Recent Context:")
+            for msg in recent_msgs[:6]:  # Limit to last 6 messages
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                if content:
+                    context_parts.append(f"- [{role}] {content[:200]}")
+
+        # Include semantic search results
+        semantic = context.get("semantic", [])
+        if semantic:
+            context_parts.append("")
+            context_parts.append("### Semantic Snippets:")
+            for item in semantic[:4]:  # Limit to top 4 semantic results
+                text = item.get("text", "")
+                if text:
+                    context_parts.append(f"- {text[:250]}")
+
+        # Include memory search results (RAG-based)
+        memory = context.get("memory", [])
+        if memory:
+            context_parts.append("")
+            context_parts.append("### Memory:")
+            for item in memory[:5]:  # Limit to top 5 memory results
+                text = item.get("text", "")
+                if text:
+                    context_parts.append(f"- {text[:250]}")
+
+        # Include sensor data for diagnostic depth
+        sensors = context.get("sensors", {})
+        if sensors:
+            context_parts.append("")
+            context_parts.append("### System State:")
+            for key, value in sensors.items():
+                context_parts.append(f"- {key}: {value}")
+
+        if context_parts:
+            context_preamble = "\n".join(context_parts)
+            enriched_messages.insert(0, {"role": "system", "content": context_preamble})
+            logger.debug(
+                f"[RAG] Injected context: messages={len(recent_msgs)}, "
+                f"semantic={len(semantic)}, memory={len(memory)}, "
+                f"sensors={len(sensors)}, total_chars={len(context_preamble)}"
+            )
+        else:
+            logger.debug("[RAG] Context bundle present but empty, skipping injection")
+    else:
+        logger.debug("[RAG] No context bundle provided, proceeding with messages only")
 
     def _extract_text(data: Dict[str, Any]) -> str:
         try:
@@ -302,7 +359,7 @@ def _groq_complete(
                     "Authorization": f"Bearer {GROQ_API_KEY}",
                     "Content-Type": "application/json",
                 },
-                json={"model": use_model, "messages": messages},
+                json={"model": use_model, "messages": enriched_messages},
                 timeout=60,
             )
         except Exception as e:
@@ -1563,7 +1620,12 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         except Exception:
             logger.debug("[live] emit message.created failed", exc_info=True)
 
-        return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text}}
+        # Include RAG context in response for diagnostics/memory browser
+        return {
+            "ok": True,
+            "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text},
+            "context": bundle if bundle else {"semantic": [], "memory": [], "messages": []}
+        }
     except HTTPException:
         raise
     except Exception as exc:
