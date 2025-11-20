@@ -65,7 +65,17 @@ class PgDB(ChatDB):
         self._connector_has_schedule = False
 
     def _connect(self):
-        return psycopg.connect(self.dsn, row_factory=dict_row)
+        """
+        Open a psycopg connection, normalising SQLAlchemy-style URLs when needed.
+
+        Accepts both:
+        - postgresql://user:pass@host/db
+        - postgresql+psycopg2://user:pass@host/db  (normalised to the former)
+        """
+        dsn = self.dsn
+        if isinstance(dsn, str) and dsn.startswith("postgresql+psycopg2://"):
+            dsn = "postgresql://" + dsn.split("://", 1)[1]
+        return psycopg.connect(dsn, row_factory=dict_row)
 
     # ---- internal helpers -------------------------------------------------
     def _ensure_sync_jobs_table(self, conn) -> None:

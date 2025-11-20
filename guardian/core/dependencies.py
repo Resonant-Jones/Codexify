@@ -11,19 +11,20 @@ with guardian_api.py.
 
 import logging
 import os
+import hmac
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
 from datetime import datetime, date, time
 
 from dotenv import load_dotenv
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Header
 from fastapi.security.api_key import APIKeyHeader
 
 from guardian.core import event_bus
 from guardian.core.chat_db import ChatDB
-from guardian.core.db import GuardianDB
-from guardian.config.db_defaults import DEFAULT_PG_DSN
+from guardian.core.sqlitedb import SqliteChatLogDB
+from guardian.core.pgdb import PgDB  # type: ignore
 from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
 from guardian.vector.store import VectorStore
@@ -95,10 +96,6 @@ CHAT_PROVIDER = (os.getenv("GUARDIAN_CHAT_PROVIDER") or GUARDIAN_PROVIDER).lower
 DEFAULT_MODEL = os.getenv("GUARDIAN_DEFAULT_MODEL") or GROQ_MODEL_DEFAULT
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
 
-# Database config
-PG_DSN = os.getenv("DATABASE_URL", DEFAULT_PG_DSN)
-DB_PATH = os.getenv("GUARDIAN_DB_PATH")
-
 # Feature flags
 ENABLE_BLIP_MODEL = os.getenv("ENABLE_BLIP_MODEL", "true").lower() in ("1", "true", "yes")
 ENABLE_OUTBOX = os.getenv("ENABLE_OUTBOX", "1").lower() in ("1", "true", "yes")
@@ -114,15 +111,72 @@ allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
 # Authentication
 # =========================
 
-def require_api_key(api_key: str = Depends(api_key_header)):
+def verify_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> str:
     """
-    Validate API key authentication.
-    Returns the API key if valid, raises 401 if invalid or missing.
-    Does not log the provided key to avoid leaking secrets.
+    Validate API key authentication using dynamic settings.
+
+    Accepts credentials via:
+    - X-API-Key header
+    - Authorization: Bearer <token>
+
+    Valid keys are sourced from:
+    - settings.GUARDIAN_API_KEY
+    - settings.GUARDIAN_API_KEYS (comma-separated list)
     """
-    if api_key != API_KEY:
-        logger.warning("Unauthorized API key attempt")
-        raise HTTPException(status_code=401, detail="Invalid or missing API Key")
+    candidates: List[str] = []
+    if x_api_key:
+        token = x_api_key.strip()
+        if token:
+            candidates.append(token)
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        if token:
+            candidates.append(token)
+
+    if not candidates:
+        logger.warning("Unauthorized API key attempt (missing)")
+        raise HTTPException(status_code=401, detail="Missing API key")
+
+    try:
+        settings = get_settings()
+        allowed: List[str] = []
+        primary = getattr(settings, "GUARDIAN_API_KEY", None)
+        if isinstance(primary, str) and primary.strip():
+            allowed.append(primary.strip())
+        raw_multi = getattr(settings, "GUARDIAN_API_KEYS", None)
+        if isinstance(raw_multi, str) and raw_multi.strip():
+            for token in raw_multi.replace(";", ",").split(","):
+                val = token.strip()
+                if val:
+                    allowed.append(val)
+    except Exception:
+        allowed = []
+
+    # Fallback: allow direct env GUARDIAN_API_KEY or a deterministic
+    # test-time default when settings are not configured.
+    if not allowed:
+        env_key = os.getenv("GUARDIAN_API_KEY") or "invalid-by-default"
+        allowed.append(env_key.strip())
+
+    for candidate in candidates:
+        for allowed_key in allowed:
+            if hmac.compare_digest(candidate, allowed_key):
+                return candidate
+
+    logger.warning("Unauthorized API key attempt")
+    raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
+    """
+    Backward-compatible wrapper around verify_api_key.
+
+    Existing routes depending on require_api_key automatically gain
+    the dynamic Settings-based behavior without code changes.
+    """
     return api_key
 
 
@@ -138,13 +192,13 @@ def get_current_user(api_key: str = Depends(require_api_key)) -> str:
 # Database Setup
 # =========================
 
-# This will be initialized by guardian_api.py at startup
-chatlog_db: Optional[ChatDB] = None
+# This will be initialized by init_database() / guardian_api.py at startup
+chatlog_db: Optional[Any] = None
 DB_BACKEND: Optional[str] = None
 SQLITE_PATH: Optional[str] = None
 
 
-def init_database() -> ChatDB:
+def init_database() -> Optional[Any]:
     """
     Initialize the database backend (PostgreSQL or SQLite).
     Called by guardian_api.py during startup.
@@ -152,31 +206,35 @@ def init_database() -> ChatDB:
     """
     global chatlog_db, DB_BACKEND, SQLITE_PATH
 
+    if chatlog_db is not None:
+        return chatlog_db
+
     settings = get_settings()
-    effective_sqlite_path: Optional[str] = None
+    db_path = getattr(settings, "GUARDIAN_DB_PATH", None)
+    db_url = getattr(settings, "GUARDIAN_DATABASE_URL", None)
 
-    if PG_DSN:
-        if PgDB is None:
-            raise RuntimeError(
-                "Postgres DSN provided but PgDB adapter is unavailable"
-            ) from _PG_IMPORT_ERROR
-        chatlog_db = PgDB(PG_DSN)  # type: ignore[arg-type]
-        DB_BACKEND = "postgres"
-        logger.info("[db] Using PostgreSQL DSN: %s", _mask_dsn(PG_DSN))
-    else:
-        if DB_PATH == "__DISABLE_SQLITE__":
-            raise RuntimeError(
-                "SQLite disabled but no Postgres DSN supplied; set GUARDIAN_DB_URL or DATABASE_URL"
-            )
-        effective_sqlite_path = DB_PATH or str(Path("guardian.db"))
-        chatlog_db = GuardianDB(effective_sqlite_path)
+    if db_path:
+        # Prefer SQLite when a GUARDIAN_DB_PATH is configured.
+        path_str = str(db_path)
+        chatlog_db = SqliteChatLogDB(path_str)
         DB_BACKEND = "sqlite"
-        logger.info("[db] Using SQLite path: %s", effective_sqlite_path)
+        SQLITE_PATH = path_str
+        logger.info("[db] Using SQLite chatlog DB at %s", path_str)
+        return chatlog_db
 
-    SQLITE_PATH = effective_sqlite_path if DB_BACKEND == "sqlite" else None
-    logger.info("📦 DB backend selected: %s", DB_BACKEND)
+    if db_url:
+        # Fall back to Postgres when a GUARDIAN_DATABASE_URL is explicitly set.
+        chatlog_db = PgDB(db_url)  # type: ignore[arg-type]
+        # PgDB manages its own schema via migrations; no explicit ensure_schema required.
+        DB_BACKEND = "postgres"
+        SQLITE_PATH = None
+        logger.info("[db] Using PostgreSQL chatlog DB DSN=%s", _mask_dsn(db_url))
+        return chatlog_db
 
-    return chatlog_db
+    logger.warning(
+        "[db] No chatlog DB configured (GUARDIAN_DB_PATH and GUARDIAN_DATABASE_URL are both unset)"
+    )
+    return None
 
 
 # =========================
@@ -404,6 +462,7 @@ def _groq_complete(
 
 __all__ = [
     # Authentication
+    "verify_api_key",
     "require_api_key",
     "get_current_user",
     "API_KEY",

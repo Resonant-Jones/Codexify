@@ -38,6 +38,35 @@ def health_chat():
     return {"ok": True, "threads": threads, "messages": messages, "backend": DB_BACKEND}
 
 
+@router.get("/health/memory")
+def health_memory():
+    """
+    Get health status of memory subsystem.
+
+    Returns a simple JSON payload with ok flag and per-silo counts.
+    """
+    try:
+        # Import lightweight dependencies lazily to avoid circulars
+        from guardian.routes.memory import EPHEMERAL_MEMORY
+        from guardian.core.dependencies import chatlog_db
+
+        ephemeral_count = len(EPHEMERAL_MEMORY)
+        midterm = chatlog_db.count_memories("midterm") if chatlog_db else 0
+        longterm = chatlog_db.count_memories("longterm") if chatlog_db else 0
+    except Exception as _e:
+        logger.warning("[health/memory] check failed: %s", _e)
+        ephemeral_count = midterm = longterm = 0
+
+    return {
+        "ok": True,
+        "counts": {
+            "ephemeral": ephemeral_count,
+            "midterm": midterm,
+            "longterm": longterm,
+        },
+    }
+
+
 @router.get("/metrics")
 def prometheus_metrics():
     """
