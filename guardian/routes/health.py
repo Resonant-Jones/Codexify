@@ -25,10 +25,8 @@ def health():
 @router.get("/health/chat")
 def health_chat():
     """Get health status of chat subsystem."""
-    # Lazy import to avoid circular dependency - guardian_api imports this module,
-    # so we can't import from it at module level. By the time this handler runs,
-    # guardian_api is fully loaded and these symbols are available.
-    from guardian.guardian_api import chatlog_db, DB_BACKEND
+    # Import from core dependencies module
+    from guardian.core.dependencies import chatlog_db, DB_BACKEND
 
     try:
         threads = chatlog_db.count_chat_threads()
@@ -38,6 +36,35 @@ def health_chat():
         threads = 0
         messages = 0
     return {"ok": True, "threads": threads, "messages": messages, "backend": DB_BACKEND}
+
+
+@router.get("/health/memory")
+def health_memory():
+    """
+    Get health status of memory subsystem.
+
+    Returns a simple JSON payload with ok flag and per-silo counts.
+    """
+    try:
+        # Import lightweight dependencies lazily to avoid circulars
+        from guardian.routes.memory import EPHEMERAL_MEMORY
+        from guardian.core.dependencies import chatlog_db
+
+        ephemeral_count = len(EPHEMERAL_MEMORY)
+        midterm = chatlog_db.count_memories("midterm") if chatlog_db else 0
+        longterm = chatlog_db.count_memories("longterm") if chatlog_db else 0
+    except Exception as _e:
+        logger.warning("[health/memory] check failed: %s", _e)
+        ephemeral_count = midterm = longterm = 0
+
+    return {
+        "ok": True,
+        "counts": {
+            "ephemeral": ephemeral_count,
+            "midterm": midterm,
+            "longterm": longterm,
+        },
+    }
 
 
 @router.get("/metrics")
@@ -60,12 +87,9 @@ def health_deps(format: str = "json"):
     Supports hybrid output:
     - format=json (default): Returns JSON with masked configuration details
     - format=prometheus: Returns Prometheus-compatible metrics
-
-    Note: This endpoint uses lazy imports to avoid circular dependencies.
-    Authentication should be added at the app level if needed.
     """
-    # Lazy import to avoid circular dependency
-    from guardian.guardian_api import (
+    # Import from core dependencies module
+    from guardian.core.dependencies import (
         DB_BACKEND,
         PG_DSN,
         SQLITE_PATH,

@@ -17,34 +17,27 @@ from typing import Any, Callable, Dict, List, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+# PostgreSQL imports for ingest endpoint
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2 = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
-# Import shared context from guardian_api
+# Import shared dependencies from core module (avoids circular imports)
 try:
     from guardian.core import event_bus
     from guardian.core.chat_db import ChatDB
-    from guardian.guardian_api import chatlog_db, require_api_key, PG_DSN
+    from guardian.core.dependencies import chatlog_db, require_api_key, PG_DSN, _jsonify
     from guardian.connectors.github import sync_repo
 except ImportError as e:
     logger.warning(f"[connectors] Import warning: {e}")
     chatlog_db = None
     require_api_key = lambda x: x
     PG_DSN = None
-
-
-# Helper: recursively convert datetimes/times to ISO strings for JSON/DB
-def _jsonify(obj: Any) -> Any:
-    """Recursively convert datetimes and times into ISO strings so JSON/DB can accept them.
-    Leaves other types untouched.
-    """
-    from datetime import datetime, date, time
-    if isinstance(obj, (datetime, date, time)):
-        return obj.isoformat()
-    if isinstance(obj, dict):
-        return {k: _jsonify(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_jsonify(v) for v in obj]
-    return obj
+    _jsonify = lambda x: x
 
 
 def _connector_status_from_env(connector_id: str) -> str:
