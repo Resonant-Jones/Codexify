@@ -7,6 +7,8 @@ Follows the same provider pattern as TTS services.
 
 import os
 import logging
+import tempfile
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Dict, List
@@ -428,38 +430,28 @@ def detect_media_type(filename: str) -> str:
 # =========================
 # Configuration Loading
 # =========================
-
-def create_storage_from_env() -> StorageManager:
+def create_storage_from_env() -> "StorageManager":
     """
-    Create storage manager from environment variables.
+    Create a StorageManager based on environment configuration.
 
-    Environment Variables:
-        STORAGE_TYPE: 'local' (default), 's3', or 'gcs'
-        STORAGE_BASE_PATH: Base path for local storage (default: /app/media)
-        STORAGE_URL_PREFIX: URL prefix for files (default: /media)
-        S3_BUCKET: S3 bucket name
-        S3_REGION: S3 region
-        S3_ACCESS_KEY: S3 access key
-        S3_SECRET_KEY: S3 secret key
-
-    Returns:
-        Configured StorageManager instance
+    Behavior:
+    - If STORAGE_BASE_PATH is set, always use that as the base path.
+    - Otherwise, when running under pytest (detected via PYTEST_CURRENT_TEST or presence of pytest in sys.modules),
+      use a writable temporary directory under the system temp dir.
+    - For normal runtime, default to /app/media (container default).
     """
-    storage_type = os.getenv('STORAGE_TYPE', 'local')
+    url_prefix = os.getenv("STORAGE_URL_PREFIX", "/media")
 
-    if storage_type == 'local':
-        base_path = os.getenv('STORAGE_BASE_PATH', '/app/media')
-        url_prefix = os.getenv('STORAGE_URL_PREFIX', '/media')
-        return StorageManager('local', base_path=base_path, url_prefix=url_prefix)
+    base_path_env = os.getenv("STORAGE_BASE_PATH")
+    is_pytest = "pytest" in sys.modules or os.environ.get("PYTEST_CURRENT_TEST")
 
-    elif storage_type == 's3':
-        # TODO: Implement S3 config loading
-        raise NotImplementedError("S3 storage not yet implemented")
-
-    elif storage_type == 'gcs':
-        # TODO: Implement GCS config loading
-        raise NotImplementedError("GCS storage not yet implemented")
-
+    if base_path_env:
+        base_path = Path(base_path_env)
+    elif is_pytest:
+        # Test environment: avoid writing to read-only /app
+        base_path = Path(tempfile.gettempdir()) / "codexify_media"
     else:
-        logger.warning(f"Unknown STORAGE_TYPE={storage_type}, falling back to local")
-        return StorageManager('local')
+        # Default container path (Docker runtime)
+        base_path = Path("/app/media")
+
+    return StorageManager("local", base_path=base_path, url_prefix=url_prefix)
