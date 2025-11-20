@@ -1,54 +1,38 @@
-# =========================
-# Imports
-# =========================
+"""
+guardian_api module
+~~~~~~~~~~~~~~~~~~~
 
-"""guardian_api module
+Minimal FastAPI application wiring layer for the Guardian backend.
 
-High‑level FastAPI entry point for the Guardian backend.
+This module is responsible for:
+- Creating the FastAPI app instance
+- Loading environment configuration
+- Initializing database and shared services
+- Configuring middleware (CORS, static files)
+- Including routers from guardian/routes/
+- Wiring startup/shutdown hooks
+- Providing a few unique endpoints that don't belong in specific routers
 
-This module wires together all major API routes, including:
-
-- **Chat** – creation, listing, and streaming of chat threads and messages.
-- **Memory** – CRUD operations for short‑term, mid‑term, and long‑term memory entries.
-- **Connectors** – management of external service connectors (GitHub, Google Drive, etc.).
-- **Tools & Jobs** – a minimal tool‑execution dispatcher and job status endpoint.
-- **Health & Diagnostics** – endpoints for service health checks, configuration debugging, and system status.
-
-It also sets up CORS middleware, loads environment variables, configures logging,
-and provides API‑key authentication for all protected routes.
-
-The implementation relies on the `guardian.core` database adapters, the
-`guardian.config` loader, and optional AI back‑ends (Gemini, Groq, etc.).
+All route logic has been moved to appropriate router modules in guardian/routes/.
+Shared dependencies (auth, DB, AI completion) are in guardian/core/dependencies.py.
 """
 
 import asyncio
 import json
 import logging
-import datetime
-
-# Standard Library
 import os
-import secrets
-from contextlib import suppress
-from threading import Lock
-from datetime import datetime, date, time
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
-from urllib.parse import urlparse, urlunparse
+from typing import Any, AsyncGenerator, Dict, Optional
 from uuid import uuid4
 
 import requests
-import psycopg
-from psycopg.rows import dict_row
 from dotenv import load_dotenv
 from fastapi import (
     Body,
-    APIRouter,
-    Cookie,
     Depends,
     FastAPI,
     File,
-    Form,
     Header,
     HTTPException,
     Query,
@@ -57,607 +41,238 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.security.api_key import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError, ConfigDict
-from starlette.responses import StreamingResponse
+from pydantic import BaseModel
 
-# Configure logging EARLY (before any logger.* calls)
+# Configure logging early
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Additional imports for default project creation
-# Optional SQLAlchemy ProgrammingError import (may be unused)
-try:
-    from sqlalchemy.exc import ProgrammingError  # type: ignore
-except Exception:  # pragma: no cover
-    ProgrammingError = Exception  # type: ignore
+# Import core dependencies module (contains shared helpers)
+from guardian.core import dependencies, event_bus, metrics
+from guardian.core.dependencies import (
+    init_database,
+    init_services,
+    chatlog_db,
+    require_api_key,
+    API_KEY,
+    ENABLE_OUTBOX,
+    ENABLE_CONNECTOR_WORKER,
+    allowed_origins,
+)
 
-# Import ORM models from canonical location
-try:
-    from guardian.db.models import Project
-    logger.info("[imports] Using guardian.db.models.Project")
-except ImportError as e:
-    logger.warning("[imports] Could not import Project model: %s", e)
-    Project = None  # type: ignore
-
-# Import for Neo4j graph endpoint
-from fastapi import APIRouter, HTTPException
-from neo4j import GraphDatabase
-import os
-
-# DB adapters
-from guardian.core import event_bus
-from guardian.core.chat_db import ChatDB
-from guardian.core.db import GuardianDB
-from guardian.config.db_defaults import DEFAULT_PG_DSN
+# Import all routers
+from guardian.routes import (
+    agent,
+    admin,
+    memory,
+    research,
+    threads,
+    documents,
+    share,
+    federation,
+    health,
+)
+from guardian.routes.chat import router as chat_router, simple_chat_router, api_chat_router
+from guardian.routes.connectors import router as connectors_router, _connector_worker
 from guardian.routes.codexify_router import router as codexify_router
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.media import router as media_router
+from guardian.routes.tools import router as tools_router
+from guardian.routes.projects import router as projects_router, ensure_loose_threads_project
+from guardian.realtime import collaboration
 
-from guardian.connectors.github import sync_repo
-
-# Optional Neo4j driver session provider
+# Optional Neo4j for graph endpoint
 try:
-    # Prefer local guardian.db.neo module; falls back to unavailable if not present
-    from guardian.db.neo import get_session as get_neo_session  # type: ignore
-    from guardian.db.neo import UserNode, MessageNode, ThreadNode
+    from neo4j import GraphDatabase
     NEO4J_AVAILABLE = True
-except Exception as e:  # pragma: no cover
-    logging.warning(f"[Codexify ⚠️] Neo4j driver not available: {e}")
-    get_neo_session = None  # type: ignore
+except Exception:
     NEO4J_AVAILABLE = False
+    logger.warning("[graph] Neo4j driver not available")
 
-# --- RAG modules import (for /upload-chat) ---
+# Optional RAG modules for upload-chat endpoint
 try:
     from codexify.rag.enhanced_rag import EnhancedRAG
     from backend.rag.embedder import Embedder
     from backend.rag.parser import parse_chat_history
-except Exception as e:
-    logging.warning(f"[RAG] Failed to import RAG modules: {e}")
-
-try:
-    from guardian.core.pgdb import PgDB  # type: ignore
-except Exception as _pg_exc:  # pragma: no cover
-    PgDB = None  # type: ignore
-    _pg_import_error = _pg_exc
-else:
-    _pg_import_error = None
-_PG_IMPORT_ERROR = _pg_import_error
-from io import BytesIO
-
-import numpy as np
-
-# Vision/captioning imports
-from PIL import Image
-from transformers import (
-    AutoModelForVision2Seq,
-    AutoProcessor,
-    BlipForConditionalGeneration,
-    BlipProcessor,
-)
-
-# Internal
-from guardian.config import get_settings
-from guardian.routes import agent, memory, research, threads, documents, share, federation, health
-from guardian.realtime import collaboration
-from guardian.core.auth import issue_session_token, verify_session_token, require_auth
-from guardian.context.broker import ContextBroker
-from guardian.vector.store import VectorStore
-from guardian.memory.query_memory import memory_store as _memory_store
-from guardian.sensors.state import Sensors
-
-# Optional AI Backend
-chat_with_ai: Optional[Callable[[List[Dict[str, str]]], str]] = None  # placeholder for optional AI backend
-try:
-    from guardian.core.ai_router import chat_with_ai as _chat_with_ai
-    chat_with_ai = _chat_with_ai
-except ModuleNotFoundError as e:
-    logging.warning(f"[Codexify ⚠️] Optional chat_with_ai module not available: {e}")
-
-# Optional Groq provider
-try:
-    from guardian.providers.groq_client import get_groq_chat  # lazy Groq client factory
-except ModuleNotFoundError as e:
-    logging.warning(f"[Codexify ⚠️] Optional groq_client not available: {e}")
-
-    def get_groq_chat() -> Any:  # type: ignore
-        return None
-
-# API Key authentication is enforced on all major endpoints (except /ping, /test, /)
-# Pass `X-API-Key` header with your requests.
-
-# ---- Env loading (backend) -----------------------------------------------
-def _load_env_chain() -> None:
-    """
-    Load .env files in priority order: base → mode-specific → local
-    Each layer can override previous ones, but actual environment vars always win.
-    """
-    cwd = Path(__file__).resolve().parents[1]
-    base = cwd / ".env"
-    mode = os.getenv("GUARDIAN_ENV", "development").strip()
-    backend_mode = cwd / f".env.backend.{mode}"
-    local = cwd / ".env.local"
-
-    loaded = []
-    for p in (base, backend_mode, local):
-        if p.exists():
-            # load with override=False so real env vars still take precedence
-            load_dotenv(p, override=False)
-            loaded.append(str(p))
-    logger.info(
-        "[env] dotenv loaded (in order): %s",
-        " -> ".join(loaded) if loaded else "<none>",
-    )
+    RAG_AVAILABLE = True
+except Exception:
+    RAG_AVAILABLE = False
+    logger.warning("[RAG] RAG modules not available")
 
 
-_load_env_chain()
+# =========================
+# Environment & Config Loading
+# =========================
 
-# API key dependency setup (re-read after dotenv)
-API_KEY = os.getenv("GUARDIAN_API_KEY", "changeme")
+# Load environment files
+dependencies._load_env_chain()
+
+# Log API key (masked)
 _mask = (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
 logger.info("[auth] Using GUARDIAN_API_KEY=%s", _mask)
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-
-def require_api_key(api_key: str = Depends(api_key_header)):
-    """
-    Validate API key authentication.
-    Returns the API key if valid, raises 401 if invalid or missing.
-    Does not log the provided key to avoid leaking secrets.
-    """
-    if api_key != API_KEY:
-        logger.warning("Unauthorized API key attempt")
-        raise HTTPException(status_code=401, detail="Invalid or missing API Key")
-    return api_key
-
-
-# Load configuration from environment variables
-GEMINI_API_URL = os.getenv("GEMINI_API_URL", "https://api.gemini.ai/v1/chat")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "your_gemini_api_key_here")
-
-# Provider selection and Groq config
-GUARDIAN_PROVIDER = os.getenv("GUARDIAN_PROVIDER", "groq").lower()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL_DEFAULT = os.getenv("GROQ_MODEL", "moonshotai/kimi-k2-instruct-0905")
-GROQ_FALLBACK_MODEL = (os.getenv("GROQ_FALLBACK_MODEL") or "").strip() or None
-
-# Back/forward-compatible aliases so both legacy and new env names work
-CHAT_PROVIDER = (os.getenv("GUARDIAN_CHAT_PROVIDER") or GUARDIAN_PROVIDER).lower()
-DEFAULT_MODEL = os.getenv("GUARDIAN_DEFAULT_MODEL") or GROQ_MODEL_DEFAULT
-GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
-
-# Minimal Groq completion helper for chat API (robust, fallback support)
-def _groq_complete(
-    messages: List[Dict[str, str]],
-    model: Optional[str] = None,
-    *,
-    context: Optional[Dict[str, Any]] = None,
-) -> str:
-    """
-    Call Groq's OpenAI-compatible /chat/completions and return assistant text.
-    - Handles multiple possible response shapes (message.content as str or list, choice.text).
-    - Detects provider-style error strings that sometimes appear inside a 200 payload.
-    - Optionally retries once with GROQ_FALLBACK_MODEL if the first attempt yields empty/invalid text.
-    - Injects assembled context (semantic + memory) from ContextBroker if provided.
-    """
-    if not GROQ_API_KEY:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
-
-    # Inject RAG context as system message if broker provided a bundle
-    enriched_messages = list(messages)  # Copy to avoid modifying original
-    if context:
-        context_parts: List[str] = []
-
-        # Include recent messages
-        recent_msgs = context.get("messages", [])
-        if recent_msgs:
-            context_parts.append("### Recent Context:")
-            for msg in recent_msgs[:6]:  # Limit to last 6 messages
-                role = msg.get("role", "unknown")
-                content = msg.get("content", "")
-                if content:
-                    context_parts.append(f"- [{role}] {content[:200]}")
-
-        # Include semantic search results
-        semantic = context.get("semantic", [])
-        if semantic:
-            context_parts.append("")
-            context_parts.append("### Semantic Snippets:")
-            for item in semantic[:4]:  # Limit to top 4 semantic results
-                text = item.get("text", "")
-                if text:
-                    context_parts.append(f"- {text[:250]}")
-
-        # Include memory search results (RAG-based)
-        memory = context.get("memory", [])
-        if memory:
-            context_parts.append("")
-            context_parts.append("### Memory:")
-            for item in memory[:5]:  # Limit to top 5 memory results
-                text = item.get("text", "")
-                if text:
-                    context_parts.append(f"- {text[:250]}")
-
-        # Include sensor data for diagnostic depth
-        sensors = context.get("sensors", {})
-        if sensors:
-            context_parts.append("")
-            context_parts.append("### System State:")
-            for key, value in sensors.items():
-                context_parts.append(f"- {key}: {value}")
-
-        if context_parts:
-            context_preamble = "\n".join(context_parts)
-            enriched_messages.insert(0, {"role": "system", "content": context_preamble})
-            logger.debug(
-                f"[RAG] Injected context: messages={len(recent_msgs)}, "
-                f"semantic={len(semantic)}, memory={len(memory)}, "
-                f"sensors={len(sensors)}, total_chars={len(context_preamble)}"
-            )
-        else:
-            logger.debug("[RAG] Context bundle present but empty, skipping injection")
-    else:
-        logger.debug("[RAG] No context bundle provided, proceeding with messages only")
-
-    def _extract_text(data: Dict[str, Any]) -> str:
-        try:
-            choices = data.get("choices") or []
-            if not choices:
-                return ""
-            ch0 = choices[0] or {}
-            # OpenAI-style: choices[0].message.content
-            msg = ch0.get("message")
-            if isinstance(msg, dict):
-                content = msg.get("content")
-                if isinstance(content, str):
-                    return content.strip()
-                # Some providers return a list of parts
-                if isinstance(content, list):
-                    parts: List[str] = []
-                    for p in content:
-                        if isinstance(p, str):
-                            parts.append(p)
-                        elif isinstance(p, dict):
-                            v = p.get("text") or p.get("content")
-                            if isinstance(v, str):
-                                parts.append(v)
-                    if parts:
-                        return "".join(parts).strip()
-            # Fallbacks sometimes used by wrappers
-            for k in ("text", "content"):
-                v = ch0.get(k)
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-        except Exception:
-            pass
-        return ""
-
-    def _looks_like_provider_error(text: str) -> bool:
-        t = text.strip().lower()
-        if not t:
-            return True
-        # Heuristic: upstream error echoed as "..., message='Not Found', url='https://api.siliconflow.cn/v1/chat/completions'"
-        if "not found" in t and "completions" in t:
-            return True
-        if t.startswith("error:") or "invalid model" in t or "unknown model" in t:
-            return True
-        return False
-
-    url = f"{GROQ_BASE_URL}/chat/completions"
-    primary_model = (model or DEFAULT_MODEL) or "moonshotai/kimi-k2-instruct-0905"
-    candidates: List[str] = [primary_model]
-    if GROQ_FALLBACK_MODEL and GROQ_FALLBACK_MODEL != primary_model:
-        candidates.append(GROQ_FALLBACK_MODEL)
-
-    last_error_detail: Optional[str] = None
-
-    for use_model in candidates:
-        try:
-            resp = requests.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {GROQ_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={"model": use_model, "messages": enriched_messages},
-                timeout=60,
-            )
-        except Exception as e:
-            last_error_detail = f"request failed: {e.__class__.__name__}"
-            continue
-
-        if resp.status_code != 200:
-            # try to keep error concise and non-secret
-            try:
-                err = resp.json()
-            except Exception:
-                err = (resp.text or "")[:200]
-            last_error_detail = f"HTTP {resp.status_code}: {str(err)[:150]}"
-            continue
-
-        try:
-            data = resp.json()
-        except Exception as e:
-            last_error_detail = f"bad json: {e.__class__.__name__}"
-            continue
-
-        text = _extract_text(data)
-        # Some upstreams incorrectly stuff errors into a 200 'content' field; detect and reject
-        if _looks_like_provider_error(text):
-            last_error_detail = f"invalid-content shape for model '{use_model}': {text[:120]}"
-            continue
-
-        if text:
-            return text
-
-        last_error_detail = f"empty-content for model '{use_model}'"
-
-    # If we made it here, both primary (and fallback if any) failed
-    raise HTTPException(
-        status_code=502,
-        detail=f"Groq completion failed: {last_error_detail or 'unknown error'}",
-    )
-
-# Feature flag: enable/disable BLIP vision model
-ENABLE_BLIP_MODEL = os.getenv("ENABLE_BLIP_MODEL", "true").lower() in ("1", "true", "yes")
-
-ENABLE_OUTBOX = os.getenv("ENABLE_OUTBOX", "1").lower() in ("1", "true", "yes")
-_ENABLE_SSE_FILTER_RAW = os.getenv("ENABLE_SSE_FILTER", "0")
-ENABLE_SSE_FILTER = bool(os.getenv("ENABLE_SSE_FILTER", "0"))
-ENABLE_SSE_FILTER = _ENABLE_SSE_FILTER_RAW.lower() in ("1", "true", "yes")
+# Feature flags
 OUTBOX_POLL_INTERVAL = float(os.getenv("OUTBOX_POLL_INTERVAL", "1.0"))
 OUTBOX_BATCH_SIZE = int(os.getenv("OUTBOX_BATCH_SIZE", "100"))
 
-# Vision model for image captioning
-processor = None
-vision_model = None
-if ENABLE_BLIP_MODEL:
-    try:
-        processor = BlipProcessor.from_pretrained(
-            "Salesforce/blip-image-captioning-base", use_fast=True
-        )
-    except Exception as e:
-        logging.warning(f"Fast BLIP processor unavailable, falling back to slow: {e}")
-        processor = BlipProcessor.from_pretrained(
-            "Salesforce/blip-image-captioning-base", use_fast=False
-        )
-    try:
-        vision_model = BlipForConditionalGeneration.from_pretrained(
-            "Salesforce/blip-image-captioning-base"
-        )
-    except Exception as e:
-        logging.error(f"BLIP vision model failed to load: {e}")
-        processor = None
-        vision_model = None
-    logging.info("BLIP model loaded: ENABLE_BLIP_MODEL=%s", ENABLE_BLIP_MODEL)
-else:
-    logging.info("BLIP model loading skipped: ENABLE_BLIP_MODEL=%s", ENABLE_BLIP_MODEL)
 
-# Mondream (symbolic/QA-style) initialization
-# Gate behind env flag to avoid noisy startup if not needed
+# =========================
+# Application Lifespan Management
+# =========================
 
-_ENABLE_MONDREAM = os.getenv("GUARDIAN_ENABLE_MONDREAM", "0").lower() in (
-    "1",
-    "true",
-    "yes",
-)
-mondream_processor: Any = None
-mondream_model: Any = None
-if _ENABLE_MONDREAM:
-    mondream_dir = Path(__file__).resolve().parents[1] / "models" / "mondream1"
-    repo_spec = str(mondream_dir) if mondream_dir.exists() else "vikhyatk/mondream1"
-    try:
-        mondream_processor = AutoProcessor.from_pretrained(
-            repo_spec, trust_remote_code=True
-        )
-        mondream_model = AutoModelForVision2Seq.from_pretrained(
-            repo_spec, trust_remote_code=True
-        )
-        logger.info("Mondream model loaded")
-    except Exception as e:
-        logging.warning(f"Failed to load Mondream model: {e}")
+# Global connector worker state
+_CONNECTOR_WORKER_STOP: Optional[asyncio.Event] = None
+_CONNECTOR_WORKER_TASK: Optional[asyncio.Task] = None
 
 
-# Helper: crop to content for image captioning
-def crop_to_content(pil_img: Image.Image, threshold: int = 10) -> Image.Image:
-    """
-    Trim away black borders only by scanning edges, leaving interior black content intact.
-    """
-    gray = pil_img.convert("L")
-    arr = np.array(gray)
-    h, w = arr.shape
-
-    # find top edge
-    top = 0
-    for i in range(h):
-        if arr[i, :].max() > threshold:
-            top = i
-            break
-
-    # find bottom edge
-    bottom = h
-    for i in range(h - 1, -1, -1):
-        if arr[i, :].max() > threshold:
-            bottom = i + 1
-            break
-
-    # find left edge
-    left = 0
-    for j in range(w):
-        if arr[:, j].max() > threshold:
-            left = j
-            break
-
-    # find right edge
-    right = w
-    for j in range(w - 1, -1, -1):
-        if arr[:, j].max() > threshold:
-            right = j + 1
-            break
-
-    # ensure we have a valid crop
-    if left >= right or top >= bottom:
-        return pil_img
-
-    # apply crop
-    return pil_img.crop((left, top, right, bottom))
-
-
-
-def _mask_dsn(dsn: str) -> str:
-    try:
-        parsed = urlparse(dsn)
-        netloc = parsed.netloc
-        if "@" in netloc:
-            creds, hostinfo = netloc.split("@", 1)
-            if ":" in creds:
-                user = creds.split(":", 1)[0]
-                creds = f"{user}:***"
-            netloc = f"{creds}@{hostinfo}"
-        return urlunparse(parsed._replace(netloc=netloc))
-    except Exception:
-        return dsn
-
-# Helper: recursively convert datetimes/times to ISO strings for JSON/DB
-def _jsonify(obj: Any) -> Any:
-    """Recursively convert datetimes and times into ISO strings so JSON/DB can accept them.
-    Leaves other types untouched.
-    """
-    if isinstance(obj, (datetime, date, time)):
-        return obj.isoformat()
-    if isinstance(obj, dict):
-        return {k: _jsonify(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [ _jsonify(v) for v in obj ]
-    return obj
-
-
-# ────────────────────────── DB backend selection ────────────────────────────
-settings = get_settings()
-
-PG_DSN = os.getenv("DATABASE_URL", DEFAULT_PG_DSN)
-DB_PATH = os.getenv("GUARDIAN_DB_PATH")  # may be "__DISABLE_SQLITE__"
-chatlog_db: ChatDB
-effective_sqlite_path: Optional[str] = None
-
-if PG_DSN:
-    if PgDB is None:
-        raise RuntimeError(
-            "Postgres DSN provided but PgDB adapter is unavailable"
-        ) from _PG_IMPORT_ERROR
-    chatlog_db = PgDB(PG_DSN)  # type: ignore[arg-type]
-    DB_BACKEND = "postgres"
-    logger.info("[db] Using PostgreSQL DSN: %s", _mask_dsn(PG_DSN))
-else:
-    if DB_PATH == "__DISABLE_SQLITE__":
-        raise RuntimeError(
-            "SQLite disabled but no Postgres DSN supplied; set GUARDIAN_DB_URL or DATABASE_URL"
-        )
-    effective_sqlite_path = DB_PATH or str(Path("guardian.db"))
-    chatlog_db = GuardianDB(effective_sqlite_path)
-    DB_BACKEND = "sqlite"
-    logger.info("[db] Using SQLite path: %s", effective_sqlite_path)
-
-logger.info("📦 DB backend selected: %s", DB_BACKEND)
-
-# Initialize Prometheus metrics
-from guardian.core import metrics
-metrics.set_db_backend(DB_BACKEND)
-logger.info("[metrics] Prometheus metrics initialized (db_backend=%s)", DB_BACKEND)
-
-# Bind memory route dependencies (after chatlog_db and require_api_key are initialized)
-memory.bind_dependencies(chatlog_db_instance=chatlog_db, require_api_key_func=require_api_key)
-
-# Initialize shared ContextBroker dependencies (vector store + sensors)
-_vector_store = VectorStore()
-_sensors = Sensors(chatlog_db)
-
-# Configure durable outbox storage when enabled
-if ENABLE_OUTBOX:
-    try:
-        event_bus.configure_event_store(chatlog_db)
-        logger.info("[outbox] durable event outbox enabled")
-    except Exception:
-        logger.exception("[outbox] failed to configure durable event outbox; falling back to in-memory hub")
-# ─────────────────────────────────────────────────────────────────────────────
-
-SQLITE_PATH = effective_sqlite_path if DB_BACKEND == "sqlite" else None
-
-
-# Helper: ensure "Loose Threads" project exists at startup
-def _ensure_loose_threads_project():
-    try:
-        chatlog_db.ensure_project(
-            "Loose Threads", "Default bucket for unassigned threads"
-        )
-    except Exception as e:
-        logger.warning("[projects] Failed to ensure Loose Threads project: %s", e)
-
-
-_ensure_loose_threads_project()
-
-try:
-    chatlog_db.ensure_sync_job_support()
-except Exception as e:
-    logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
-
-# ---- Memory retention and ephemeral silo
-MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
-EPHEMERAL_MEMORY: List[Dict[str, Any]] = []
-try:
-    from datetime import timedelta
-
-    # Use timezone-aware UTC timestamps to avoid deprecation warnings
-    cutoff = (datetime.now(datetime.UTC) - timedelta(days=MEMORY_RETENTION_DAYS)).isoformat()
-    pruned = chatlog_db.prune_midterm(cutoff)
-    if pruned:
-        logger.info("[memory] pruned %d expired midterm entries", pruned)
-except Exception as _e:
-    logger.debug("[memory] prune skipped: %s", _e)
-
-logger.info("[startup] ENABLE_BLIP_MODEL=%s", ENABLE_BLIP_MODEL)
-logger.info("[startup] chat provider=%s model=%s fallback=%s base=%s", CHAT_PROVIDER, DEFAULT_MODEL, GROQ_FALLBACK_MODEL, GROQ_BASE_URL)
-
-# Initialize FastAPI app with lifespan (replaces deprecated on_event handlers)
-
+@asynccontextmanager
 async def app_lifespan(app: FastAPI):
+    """
+    Application lifespan context manager.
+    Handles startup and shutdown logic.
+    """
     global _CONNECTOR_WORKER_STOP, _CONNECTOR_WORKER_TASK
 
-    # Startup: ensure default "Loose Threads" project exists
+    # === STARTUP ===
+    logger.info("[startup] Guardian API starting...")
+
+    # Initialize database
+    db = init_database()
+
+    # Initialize shared services (vector store, sensors)
+    init_services(db)
+
+    # Initialize Prometheus metrics
+    metrics.set_db_backend(dependencies.DB_BACKEND)
+    logger.info("[metrics] Prometheus metrics initialized (db_backend=%s)", dependencies.DB_BACKEND)
+
+    # Bind memory route dependencies
+    memory.bind_dependencies(chatlog_db_instance=db, require_api_key_func=require_api_key)
+
+    # Configure durable outbox storage
+    if ENABLE_OUTBOX:
+        try:
+            event_bus.configure_event_store(db)
+            logger.info("[outbox] Durable event outbox enabled")
+        except Exception:
+            logger.exception("[outbox] Failed to configure durable event outbox; falling back to in-memory hub")
+
+    # Ensure default "Loose Threads" project exists
     try:
-        from guardian.routes.projects import ensure_loose_threads_project
         ensure_loose_threads_project()
     except Exception as exc:
         logger.error("[startup] Failed to initialize Loose Threads project: %s", exc)
 
-    # Startup: optionally launch connector worker
+    # Ensure sync_jobs table exists
+    try:
+        db.ensure_sync_job_support()
+    except Exception as e:
+        logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
+
+    # Optionally launch connector worker
     if ENABLE_CONNECTOR_WORKER:
         try:
             # Validate DB tables exist before launching worker
-            chatlog_db.list_connector_configs()
+            db.list_connector_configs()
             stop_event = asyncio.Event()
             _CONNECTOR_WORKER_STOP = stop_event
             _CONNECTOR_WORKER_TASK = asyncio.create_task(_connector_worker(stop_event))
+            logger.info("[connectors] Background worker started")
         except Exception as exc:
-            logger.error("[connectors] unable to initialise connector tables: %s", exc)
+            logger.error("[connectors] Unable to initialize connector tables: %s", exc)
+
+    logger.info("[startup] Guardian API ready")
+
     yield
-    # Shutdown: stop worker if running
+
+    # === SHUTDOWN ===
+    logger.info("[shutdown] Guardian API shutting down...")
+
+    # Stop connector worker if running
     if _CONNECTOR_WORKER_STOP is not None:
         _CONNECTOR_WORKER_STOP.set()
     if _CONNECTOR_WORKER_TASK is not None:
         _CONNECTOR_WORKER_TASK.cancel()
-        with suppress(asyncio.CancelledError):
+        try:
             await _CONNECTOR_WORKER_TASK
-    _CONNECTOR_WORKER_STOP = None
-    _CONNECTOR_WORKER_TASK = None
+        except asyncio.CancelledError:
+            pass
 
-
-app = FastAPI(title="Guardian Codex API", lifespan=app_lifespan)
+    logger.info("[shutdown] Guardian API stopped")
 
 
 # =========================
-# Events SSE endpoint
+# FastAPI App Creation
+# =========================
+
+app = FastAPI(
+    title="Guardian Codex API",
+    description="Unified API for chat, memory, connectors, and tools",
+    version="1.0.0",
+    lifespan=app_lifespan,
+)
+
+
+# =========================
+# Middleware Configuration
+# =========================
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+logger.info("[CORS] Allowed origins: %s", allowed_origins)
+
+# Static file serving for media
+media_storage_path = os.getenv('STORAGE_BASE_PATH', '/app/media')
+if os.path.exists(media_storage_path):
+    app.mount("/media", StaticFiles(directory=media_storage_path), name="media")
+    logger.info("[static] Mounted /media from %s", media_storage_path)
+else:
+    logger.warning("[static] Media storage path does not exist: %s", media_storage_path)
+
+
+# =========================
+# Router Inclusion
+# =========================
+
+# Health endpoints (no prefix to preserve /health/chat paths)
+app.include_router(health.router)
+
+# Admin endpoints (auth, session, config debugging)
+app.include_router(admin.router)
+
+# Chat endpoints (includes /chat/*, /api/chat/*, and simple chat endpoints)
+app.include_router(chat_router)
+app.include_router(simple_chat_router)
+app.include_router(api_chat_router)
+
+# Core feature routers
+app.include_router(threads.router)
+app.include_router(projects_router)
+app.include_router(memory.router)
+app.include_router(agent.router, prefix="/agent")
+app.include_router(research.router, prefix="/research")
+app.include_router(documents.router)
+app.include_router(share.router)
+app.include_router(federation.router)
+app.include_router(collaboration.router)
+app.include_router(connectors_router)
+app.include_router(media_router)
+app.include_router(tools_router)
+app.include_router(exports_router)
+app.include_router(codexify_router)
+
+logger.info("[routers] All routers included")
+
+
+# =========================
+# Unique Endpoints (Not in Routers)
 # =========================
 
 @app.get("/api/events", tags=["Events"])
@@ -675,6 +290,7 @@ async def stream_events(
     - Periodically polls the outbox and sends `ping` events when idle.
     - Deletes events up to the last delivered id so the outbox does not grow unbounded.
     """
+    from starlette.responses import StreamingResponse
 
     async def event_stream() -> AsyncGenerator[str, None]:
         # Prefer explicit header over query, fall back to zero.
@@ -707,55 +323,48 @@ async def stream_events(
                     except Exception:
                         data_str = "{}"
 
-                    lines = []
-                    if ev_id is not None:
-                        lines.append(f"id: {ev_id}")
-                    if topic:
-                        lines.append(f"event: {topic}")
-                    lines.append(f"data: {data_str}")
+                    # Emit SSE event
+                    yield f"id: {ev_id}\n"
+                    yield f"event: {topic}\n"
+                    yield f"data: {data_str}\n\n"
 
-                    yield "\n".join(lines) + "\n\n"
-
-                    if isinstance(ev_id, int) and ev_id > max_id_seen:
+                    if ev_id and ev_id > max_id_seen:
                         max_id_seen = ev_id
 
-                if max_id_seen > last_id:
-                    last_id = max_id_seen
-                    try:
-                        event_bus.delete_events_through(max_id_seen)
-                    except Exception:
-                        logger.exception(
-                            "[events] failed to delete events through id=%s", max_id_seen
-                        )
+                # Update last_id for next poll
+                last_id = max_id_seen
 
+                # Clean up delivered events
+                if max_id_seen > 0:
+                    try:
+                        event_bus.delete_events_up_to(max_id_seen)
+                    except Exception:
+                        pass
+
+                # Reset heartbeat timer
                 heartbeat_elapsed = 0.0
             else:
+                # No events, check heartbeat
                 heartbeat_elapsed += OUTBOX_POLL_INTERVAL
                 if heartbeat_elapsed >= heartbeat_interval:
-                    yield "event: ping\ndata: {}\n\n"
+                    yield f": ping\n\n"
                     heartbeat_elapsed = 0.0
 
+            # Poll interval
             await asyncio.sleep(OUTBOX_POLL_INTERVAL)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-# Neo4j health endpoint (appears only when driver import succeeded)
-if NEO4J_AVAILABLE and get_neo_session:
-    from fastapi import Depends
-    @app.get("/health/neo4j", tags=["Health"])
-    async def neo4j_health(session=Depends(get_neo_session)):
-        try:
-            await session.run("RETURN 1 AS ok")
-            return {"ok": True}
-        except Exception as exc:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=500, detail=str(exc))
 
-# =========================
-# Neo4j Graph Endpoint
-# =========================
 @app.get('/graph', summary='Return graph data from Neo4j', tags=['Graph'])
 def get_graph(scope: str = 'codexify'):
+    """
+    Fetch graph data from Neo4j for visualization.
+    Returns nodes and links for the specified scope.
+    """
+    if not NEO4J_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Neo4j driver not available")
+
     uri = os.getenv('NEO4J_URI', 'bolt://neo4j:7687')
     user = os.getenv('NEO4J_USER', 'neo4j')
     password = os.getenv('NEO4J_PASSWORD', 'test')
@@ -772,1755 +381,72 @@ def get_graph(scope: str = 'codexify'):
             for record in result:
                 a, r, b = record['a'], record['r'], record['b']
                 nodes.extend([
-                    {"id": a.element_id, "label": a.get('name', list(a.labels)[0] if a.labels else 'Node'), "type": list(a.labels)[0] if a.labels else 'node'},
-                    {"id": b.element_id, "label": b.get('name', list(b.labels)[0] if b.labels else 'Node'), "type": list(b.labels)[0] if b.labels else 'node'}
+                    {
+                        "id": a.element_id,
+                        "label": a.get('name', list(a.labels)[0] if a.labels else 'Node'),
+                        "type": list(a.labels)[0] if a.labels else 'node'
+                    },
+                    {
+                        "id": b.element_id,
+                        "label": b.get('name', list(b.labels)[0] if b.labels else 'Node'),
+                        "type": list(b.labels)[0] if b.labels else 'node'
+                    }
                 ])
-                links.append({"source": a.element_id, "target": b.element_id, "label": r.type})
+                links.append({
+                    "source": a.element_id,
+                    "target": b.element_id,
+                    "label": r.type
+                })
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Graph query failed: {e}')
+        raise HTTPException(status_code=500, detail=f'Query failed: {e}')
     finally:
         driver.close()
 
-    unique_nodes = list({n['id']: n for n in nodes}.values())
-    return {"nodes": unique_nodes, "links": links}
-
-# Include routers for modular endpoints
-app.include_router(health.router)
-app.include_router(threads.router, prefix="/threads")
-app.include_router(research.router, prefix="/research")
-app.include_router(memory.router)  # memory.router already has prefix="/api/memory"
-app.include_router(agent.router, prefix="/agent")
-app.include_router(codexify_router)
-# --- API Routers ---
-app.include_router(documents.router)
-app.include_router(share.router)
-app.include_router(collaboration.router)
-app.include_router(federation.router)
-app.include_router(exports_router)
-app.include_router(media_router, prefix="/api/media", tags=["media"])
-
-# Mount static files for media storage
-# Serves uploaded files from /app/media at /media URL path
-try:
-    media_storage_path = os.getenv('STORAGE_BASE_PATH', '/app/media')
-    Path(media_storage_path).mkdir(parents=True, exist_ok=True)
-    app.mount("/media", StaticFiles(directory=media_storage_path), name="media")
-    logger.info(f"[media] Static file serving enabled at /media -> {media_storage_path}")
-except Exception as e:
-    logger.warning(f"[media] Could not mount static files at {media_storage_path}: {e}")
-
-# Meta / Self-Check endpoint for quick diagnostics (no auth by design, like /healthz)
-meta_router = APIRouter(prefix="/meta", tags=["Meta"])
+    # Deduplicate nodes by id
+    unique_nodes = {n["id"]: n for n in nodes}.values()
+    return {"nodes": list(unique_nodes), "links": links}
 
 
-@meta_router.get("/selfcheck")
-async def meta_selfcheck():
-    result = epistemic_self_check(
-        intent="runtime_status",
-        available_functions=["base_operation", "query_processing"],
-        context={"system": "guardian_api"},
-    )
-    try:
-        log_dir = Path(__file__).resolve().parent / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        with (log_dir / "selfcheck.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json.dumps(result) + "\n")
-    except Exception as _e:
-        logger.debug("[meta] failed to write selfcheck log: %s", _e)
-    return result
-
-
-app.include_router(meta_router)
-# CORS middleware for local/frontend use
-# Configure allowed origins via environment variable for production safety.
-# GUARDIAN_ALLOWED_ORIGINS can be a comma-separated list of origins.
-_origins_env = os.getenv("GUARDIAN_ALLOWED_ORIGINS", "http://localhost:5173")
-allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
-
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# =========================
-# Upload Chat for RAG Embedding
-# =========================
-from fastapi import UploadFile, File
-from fastapi.responses import JSONResponse
-
-@app.post("/upload-chat")
+@app.post("/upload-chat", tags=["RAG"])
 async def upload_chat(file: UploadFile = File(...)):
+    """
+    Upload a chat history file for RAG embedding.
+    Parses the file, extracts text blocks, and embeds them.
+    """
+    if not RAG_AVAILABLE:
+        raise HTTPException(status_code=503, detail="RAG modules not available")
+
     content = await file.read()
     try:
         text_blocks = parse_chat_history(content.decode("utf-8"))
         embedder = Embedder()
         results = embedder.embed_documents(text_blocks)
-        return JSONResponse({"embedded": len(results)})
+        return JSONResponse({"ok": True, "embedded": len(results)})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-# =========================
-# Tools & Jobs (minimal scaffold)
-# =========================
-# In-memory job registry (ok for dev; replace with persistent store for prod)
-JOBS: Dict[str, Dict[str, Any]] = {}
-
-
-class ToolRequest(BaseModel):
-    name: str
-    args: dict = Field(default_factory=dict)
-
-
-class ToolResponse(BaseModel):
-    job_id: str
-
-
-class JobStatus(BaseModel):
-    job_id: str
-    status: str
-    result: dict = Field(default_factory=dict)
-
-
-class ThreadDTO(BaseModel):
-    id: int
-    user_id: str
-    title: str
-    summary: str = ""
-    project_id: Optional[int] = None
-    parent_id: Optional[int] = None
-    archived_at: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-
-    # Pydantic v2: replace deprecated orm_mode with from_attributes
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ThreadUpdate(BaseModel):
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    project_id: Optional[int] = None
-    archived: Optional[bool] = None
-
-
-class ThreadBranchRequest(BaseModel):
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    project_id: Optional[int] = None
-
-
-@app.post("/tools/execute", response_model=ToolResponse, tags=["Tools"])
-def tools_execute(body: ToolRequest, api_key: str = Depends(require_api_key)):
-    """
-    Minimal tools dispatcher. For now, just echoes args and marks job done.
-    Replace with real tool routing/execution as needed.
-    """
-    jid = str(uuid4())
-    # Example: no-op tool that returns provided args
-    result = {"ok": True, "tool": body.name, "args": body.args}
-    JOBS[jid] = {"status": "done", "result": result}
-    logger.info("Tools.execute: %s job_id=%s", body.name, jid)
-    return {"job_id": jid}
+        logger.exception("[upload-chat] Failed to embed chat history")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
 # =========================
-# Connectors (stubbed API for frontend settings)
+# Root Endpoint
 # =========================
 
-
-def _connector_status_from_env(connector_id: str) -> str:
-    """Heuristic: mark as connected if an env token that looks relevant exists.
-    Examples: GITHUB_TOKEN, GOOGLE_DRIVE_TOKEN, NOTION_TOKEN, SLACK_BOT_TOKEN, etc.
-    """
-    cid = connector_id.upper()
-    candidates = [
-        f"{cid}_TOKEN",
-        f"{cid}_API_KEY",
-        f"{cid}_KEY",
-        f"{cid}_ACCESS_TOKEN",
-    ]
-    for k in candidates:
-        if os.getenv(k):
-            return "connected"
-    return "disconnected"
-
-
-def _display_name(connector_id: str) -> str:
-    return connector_id.replace("_", " ").title()
-
-
-
-def _read_sync_interval(default: str = "300") -> int:
-    raw = os.getenv("CONNECTOR_SYNC_INTERVAL")
-    if raw is None:
-        raw = os.getenv("GUARDIAN_CONNECTOR_SYNC_INTERVAL", default)
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        value = int(default)
-    return max(30, value)
-
-
-CONNECTOR_REGISTRY: Dict[str, Dict[str, Any]] = {
-    "github": {
-        "id": "github",
-        "name": "GitHub",
-        "capabilities": {
-            "supportsOAuth": False,
-            "supportsApiKey": True,
-            "supportsLocal": False,
-        },
-        "requiredFields": [
-            {"key": "owner", "label": "Owner", "type": "string"},
-            {"key": "repo", "label": "Repository", "type": "string"},
-        ],
-        "scopes": ["repo", "read:org"],
-        "options": [],
-    }
-}
-
-ENABLE_CONNECTOR_WORKER = os.getenv("ENABLE_CONNECTOR_WORKER", "0").lower() in (
-    "1",
-    "true",
-    "yes",
-)
-CONNECTOR_SYNC_INTERVAL = _read_sync_interval()
-
-_CONNECTOR_WORKER_STOP: Optional[asyncio.Event] = None
-_CONNECTOR_WORKER_TASK: Optional[asyncio.Task] = None
-
-
-class ConnectorCreate(BaseModel):
-    name: str
-    type: str
-    settings: Dict[str, Any] = Field(default_factory=dict)
-
-
-class ConnectorUpdate(BaseModel):
-    settings: Optional[Dict[str, Any]] = None
-
-
-class ConnectorConfigFields(BaseModel):
-    fields: Dict[str, Any]
-
-
-def _required_settings_for_type(type_: str) -> List[str]:
-    if type_ == "github":
-        return ["owner", "repo"]
-    return []
-
-
-def _serialize_connector_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    settings = cfg.get("settings") or {}
-    meta = CONNECTOR_REGISTRY.get(cfg.get("type", ""), {})
-    last_run = cfg.get("last_run")
-    status = "disconnected"
-    last_sync_at = None
-    error_message = None
-    if last_run:
-        status_map = {
-            "succeeded": "connected",
-            "running": "running",
-            "failed": "error",
-        }
-        status = status_map.get(last_run.get("status"), "error")
-        last_sync_at = last_run.get("finished_at") or last_run.get("started_at")
-        error_message = last_run.get("error")
+@app.get("/", tags=["Root"])
+def root():
+    """API root endpoint with basic information."""
     return {
-        "id": cfg.get("name"),
-        "configId": cfg.get("id"),
-        "name": cfg.get("name"),
-        "type": cfg.get("type"),
-        "settings": settings,
-        "status": status,
-        "lastRun": last_run,
-        "lastSyncAt": last_sync_at,
-        "errorMessage": error_message,
-        "auth": None,
-        "syncInterval": settings.get("syncInterval", "manual"),
-        "scopes": meta.get("scopes", []),
-        "options": meta.get("options", []),
-        "capabilities": meta.get("capabilities"),
-        "requiredFields": meta.get("requiredFields"),
-        "needsAdminSecret": False,
+        "service": "Guardian Codex API",
+        "version": "1.0.0",
+        "status": "running",
+        "docs": "/docs",
     }
 
 
-def _get_connector_by_name(name: str) -> Dict[str, Any]:
-    cfg = chatlog_db.get_connector_config(name)
-    if not cfg:
-        raise HTTPException(status_code=404, detail={"error": "Connector not found"})
-    last_run = chatlog_db.get_last_connector_run(cfg["id"])
-    cfg["last_run"] = last_run
-    return cfg
-
-
-def _validate_connector_settings(type_: str, settings: Dict[str, Any]) -> None:
-    required = _required_settings_for_type(type_)
-    missing = [key for key in required if not settings.get(key)]
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": f"Missing required settings: {', '.join(missing)}"},
-        )
-
-
-def _emit_connector_event(config: Dict[str, Any], run: Dict[str, Any]) -> None:
-    payload = {
-        "connector": config.get("name"),
-        "connector_id": config.get("id"),
-        "type": config.get("type"),
-        "run_id": run.get("id"),
-        "status": run.get("status"),
-        "started_at": run.get("started_at"),
-        "finished_at": run.get("finished_at"),
-        "document_count": run.get("document_count"),
-        "error": run.get("error"),
-    }
-    # Ensure datetimes (or other non-JSON types) are serialized safely before storing
-    event_bus.emit_event("connector.sync", _jsonify(payload))
-
-
-@app.get("/api/connectors", tags=["Connectors"])
-def list_connectors():
-    configs = chatlog_db.list_connector_configs_with_last_run()
-    return [_serialize_connector_config(cfg) for cfg in configs]
-
-
-@app.post("/api/connectors", tags=["Connectors"])
-def create_connector(cfg: ConnectorCreate):
-    cfg_type = cfg.type.lower()
-    if cfg_type not in CONNECTOR_REGISTRY:
-        raise HTTPException(status_code=400, detail={"error": "Unsupported connector type"})
-    if chatlog_db.get_connector_config(cfg.name):
-        raise HTTPException(status_code=400, detail={"error": "Connector name already exists"})
-    _validate_connector_settings(cfg_type, cfg.settings)
-    stored = chatlog_db.create_connector_config(cfg.name, cfg_type, cfg.settings)
-    stored["last_run"] = None
-    return _serialize_connector_config(stored)
-
-
-@app.get("/api/connectors/{connector_name}", tags=["Connectors"])
-def get_connector(connector_name: str):
-    cfg = _get_connector_by_name(connector_name)
-    return _serialize_connector_config(cfg)
-
-
-@app.patch("/api/connectors/{connector_name}", tags=["Connectors"])
-def patch_connector(connector_name: str, update: ConnectorUpdate):
-    cfg = _get_connector_by_name(connector_name)
-    if update.settings is not None:
-        merged = {**(cfg.get("settings") or {}), **update.settings}
-        _validate_connector_settings(cfg["type"], merged)
-        cfg = chatlog_db.update_connector_config(connector_name, config=merged)
-        cfg["last_run"] = chatlog_db.get_last_connector_run(cfg["id"])
-    return _serialize_connector_config(cfg)
-
-
-@app.post("/api/connectors/{connector_name}/config", tags=["Connectors"])
-def update_connector_fields(connector_name: str, payload: ConnectorConfigFields):
-    cfg = _get_connector_by_name(connector_name)
-    merged = {**(cfg.get("settings") or {}), **payload.fields}
-    _validate_connector_settings(cfg["type"], merged)
-    cfg = chatlog_db.update_connector_config(connector_name, config=merged)
-    cfg["last_run"] = chatlog_db.get_last_connector_run(cfg["id"])
-    return _serialize_connector_config(cfg)
-
-
-@app.post("/api/connectors/{connector_name}/test", tags=["Connectors"])
-def connector_test(connector_name: str) -> Dict[str, str]:
-    _get_connector_by_name(connector_name)
-    return {"ok": "True", "message": "Connection not validated in offline mode"}
-
-
-@app.post("/api/connectors/{connector_name}/sync", tags=["Connectors"])
-async def connector_sync(connector_name: str):
-    cfg = _get_connector_by_name(connector_name)
-    await _schedule_github_sync(cfg)
-    return {"ok": True}
-
-
-@app.post("/api/connectors/{connector_name}/authorize", tags=["Connectors"])
-def connector_authorize_not_supported(connector_name: str):
-    raise HTTPException(
-        status_code=400,
-        detail={"error": "OAuth authorization is not supported for this connector"},
-    )
-
-
-@app.get("/api/connectors/{connector_name}/status", tags=["Connectors"])
-def connector_status(connector_name: str) -> Dict[str, Any]:
-    cfg = _get_connector_by_name(connector_name)
-    serialized = _serialize_connector_config(cfg)
-    return {
-        "ok": True,
-        "connector": serialized,
-        "status": serialized.get("status"),
-        "latest_run": serialized.get("lastRun"),
-    }
-
-
-@app.get("/health/connectors", tags=["Connectors"])
-def connectors_health() -> Dict[str, object]:
-    connectors = chatlog_db.list_connector_configs_with_last_run()
-    total = len(connectors)
-    healthy = 0
-    for cfg in connectors:
-        run = cfg.get("last_run")
-        if run and run.get("status") == "succeeded":
-            healthy += 1
-    return {"ok": "True", "count": total, "connected": healthy}
-
-
-async def _schedule_github_sync(config: Dict[str, Any]) -> None:
-    if config.get("type") != "github":
-        logger.info("[connectors] sync skipped for unsupported type %s", config.get("type"))
-        return
-    loop = asyncio.get_running_loop()
-    loop.create_task(_run_github_sync(config))
-
-
-async def _run_github_sync(config: Dict[str, Any]) -> None:
-    settings = config.get("settings") or {}
-    # Explicitly cast settings to Dict[str, Any]
-    if not isinstance(settings, dict):
-        settings = dict(settings)
-    owner = str(settings.get("owner") or "")
-    repo = str(settings.get("repo") or "")
-    if not owner or not repo:
-        logger.error("[connectors] missing owner/repo for %s", str(config.get("name")))
-        return
-    token = os.getenv("GITHUB_TOKEN")
-    loop = asyncio.get_running_loop()
-    started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    run = await _run_db(
-        chatlog_db.create_connector_run,
-        config["id"],
-        status="running",
-        started_at=started_at,
-    )
-    run["document_count"] = 0
-    _emit_connector_event(config, run)
-    try:
-        # Explicitly typecast owner/repo to str for run_in_executor
-        docs = await loop.run_in_executor(None, sync_repo, owner, repo, token)
-        await _run_db(chatlog_db.upsert_raw_documents, config["id"], docs)
-        logger.info(
-            "[connectors] github sync stored %d docs for %s/%s",
-            len(docs),
-            str(owner),
-            str(repo),
-        )
-        finished = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        run = await _run_db(
-            chatlog_db.complete_connector_run,
-            run["id"],
-            status="succeeded",
-            finished_at=finished,
-            error=None,
-        )
-        run["document_count"] = len(docs)
-        _emit_connector_event(config, run)
-    except Exception as exc:  # pragma: no cover - network failure logging
-        logger.exception(
-            "[connectors] github sync failed for %s/%s: %s", str(owner), str(repo), exc
-        )
-        finished = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        run = await _run_db(
-            chatlog_db.complete_connector_run,
-            run["id"],
-            status="failed",
-            finished_at=finished,
-            error=str(exc),
-        )
-        run["document_count"] = 0
-        _emit_connector_event(config, run)
-
-
-# --- One-shot ingest of GitHub raw_documents into memory_entries ---
-
-def _ingest_github_for_config(connector_name: str) -> dict:
-    """Transform raw_documents for the given connector into memory_entries.
-    Dedups on (silo,key) so re-running is safe. Emits a durable outbox event.
-    """
-    dsn = os.environ.get("DATABASE_URL") or PG_DSN
-    if not dsn:
-        raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
-
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    cur = conn.cursor()
-    # Keep any single query from hanging forever
-    try:
-        cur.execute("SET LOCAL statement_timeout = 15000")  # 15s
-    except Exception:
-        pass
-    logger.info("[ingest] begin github ingest name=%s", connector_name)
-
-    # Resolve the connector and its owner/repo
-    cur.execute(
-        """
-        SELECT id, config->>'owner' AS owner, config->>'repo' AS repo
-          FROM connector_configs
-         WHERE name = %s
-        """,
-        (connector_name,),
-    )
-    cfg = cur.fetchone()
-    if not cfg:
-        conn.rollback(); conn.close()
-        raise HTTPException(status_code=404, detail="Connector not found")
-
-    # Fetch raw docs for the connector
-    cur.execute(
-        """
-        SELECT id, external_id, payload::text AS payload
-          FROM raw_documents
-         WHERE config_id = %s
-         ORDER BY id
-        """,
-        (cfg["id"],),
-    )
-    rows = cur.fetchall()
-
-    inserted = 0
-    for r in rows:
-        try:
-            payload = json.loads(r["payload"]) if isinstance(r["payload"], str) else (r["payload"] or {})
-        except Exception:
-            # Skip malformed rows but continue ingesting others
-            continue
-        # Heuristic type classification
-        typ = "issue"
-        if isinstance(payload, dict):
-            if payload.get("pull_request") is not None:
-                typ = "pr"
-            elif payload.get("sha"):
-                typ = "commit"
-
-        key = f"gh:{cfg['owner']}/{cfg['repo']}:{typ}:{r['external_id']}"
-        doc = {
-            "type": typ,
-            "repo": f"{cfg['owner']}/{cfg['repo']}",
-            "external_id": r["external_id"],
-            "title": (payload or {}).get("title"),
-            "body": (payload or {}).get("body"),
-            "url": (payload or {}).get("html_url"),
-            "state": (payload or {}).get("state"),
-            "number": (payload or {}).get("number"),
-            "author": ((payload or {}).get("user") or {}).get("login"),
-            "labels": [lbl.get("name") for lbl in (payload or {}).get("labels", []) if isinstance(lbl, dict)],
-            "created_at": (payload or {}).get("created_at"),
-            "updated_at": (payload or {}).get("updated_at"),
-        }
-
-        cur.execute(
-            """
-            INSERT INTO memory_entries (silo, key, payload)
-            SELECT %s, %s, %s::json
-            WHERE NOT EXISTS (
-              SELECT 1 FROM memory_entries WHERE silo=%s AND key=%s
-            )
-            """,
-            ("github", key, json.dumps(doc), "github", key),
-        )
-        inserted += cur.rowcount
-
-    # Telemetry counts
-    cur.execute("SELECT COUNT(*) AS n FROM raw_documents WHERE config_id=%s", (cfg["id"],))
-    raw_total = int(cur.fetchone()["n"])
-    cur.execute("SELECT COUNT(*) AS n FROM memory_entries WHERE silo='github'")
-    mem_total = int(cur.fetchone()["n"])
-
-    conn.commit()
-    conn.close()
-
-    # Durable event for SSE (emit after commit so readers can see the rows)
-    event_bus.emit_event(
-        "memory.ingest",
-        {"source": "github", "connector": connector_name, "inserted": inserted}
-    )
-    logger.info(
-        "[ingest] completed github ingest name=%s inserted=%s raw_total=%s mem_total=%s",
-        connector_name, inserted, raw_total, mem_total
-    )
-    return {"inserted": inserted, "raw_total": raw_total, "mem_total": mem_total}
-
-
-@app.post("/api/connectors/{name}/ingest", tags=["Connectors"])
-def api_ingest_connector(name: str, api_key: str = Depends(require_api_key)):
-    """One-shot transform of GitHub raw_documents -> memory_entries for this connector.
-    Returns insert count and totals; also emits a `memory.ingest` SSE event via the durable outbox.
-    """
-    try:
-        logger.info("[ingest] API request received for connector=%s", name)
-        result = _ingest_github_for_config(name)
-        logger.info("[ingest] API ingest done for connector=%s -> %s", name, result)
-        return {"ok": True, **result}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-async def _connector_worker(stop_event: asyncio.Event) -> None:
-    logger.info(
-        "[connectors] worker started interval=%ss (enabled=%s)",
-        CONNECTOR_SYNC_INTERVAL,
-        ENABLE_CONNECTOR_WORKER,
-    )
-    try:
-        while not stop_event.is_set():
-            configs = await _run_db(chatlog_db.list_connector_configs, "github")
-            if not configs:
-                try:
-                    await asyncio.wait_for(stop_event.wait(), timeout=CONNECTOR_SYNC_INTERVAL)
-                except asyncio.TimeoutError:
-                    continue
-                else:
-                    break
-            for cfg in configs:
-                if stop_event.is_set():
-                    break
-                await _run_github_sync(cfg)
-            try:
-                await asyncio.wait_for(stop_event.wait(), timeout=CONNECTOR_SYNC_INTERVAL)
-            except asyncio.TimeoutError:
-                continue
-    except asyncio.CancelledError:  # pragma: no cover
-        logger.debug("[connectors] worker cancelled")
-        raise
-    finally:
-        logger.info("[connectors] worker stopped")
-
-
-# on_event startup/shutdown migrated to lifespan above
-
-
-async def _run_db(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
-
-
 # =========================
-# Chat Threads API
+# Module Exports
 # =========================
 
+# Export app for tests and ASGI servers
+__all__ = ["app"]
 
-@app.post("/chat/threads", tags=["Chat"])
-def chat_create_thread(body: dict = Body(...)):
-    """Create a chat thread and return identifier metadata."""
-    try:
-        payload = body or {}
-        raw_title = payload.get("title")
-        title = (
-            str(raw_title).strip() if raw_title is not None else "New Chat"
-        ) or "New Chat"
-        raw_user = payload.get("user_id")
-        user_id = str(raw_user) if raw_user not in (None, "") else "default"
-        raw_summary = payload.get("summary")
-        summary = str(raw_summary).strip() if raw_summary is not None else ""
-        project_id = payload.get("project_id")
-        normalized_project: Optional[int] = None
-        if project_id is not None:
-            try:
-                normalized_project = int(project_id)
-            except (TypeError, ValueError):
-                normalized_project = None
-        if normalized_project is None:
-            # default to Loose Threads (id=1)
-            normalized_project = 1
-
-        # Idempotency guard: check for recent empty thread from same user
-        recent_thread = chatlog_db.get_recent_thread(user_id)
-        if recent_thread:
-            # If recent thread exists and has no messages, reuse it
-            recent_id = recent_thread.get("id")
-            if recent_id and chatlog_db.count_messages(recent_id) == 0:
-                logger.info(
-                    "Reusing recent empty thread %s for user %s", recent_id, user_id
-                )
-                return {"ok": True, "id": recent_id, "thread": recent_thread}
-
-        record = chatlog_db.create_chat_thread(
-            user_id=user_id,
-            title=title,
-            summary=summary,
-            project_id=normalized_project,
-        )
-        chatlog_db.write_audit_log(
-            "create", "chat_thread", str(record["id"]), user_id=user_id
-        )
-        return {"ok": True, "id": record["id"], "thread": record}
-    except Exception as exc:
-        logger.exception("Failed to create chat thread: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to create chat thread")
-
-
-@app.get("/chat/threads", tags=["Chat"])
-def chat_list_threads():
- # =========================
-# Simple Chat & Streaming API (for auth/tests)
-# =========================
-
-from typing import AsyncGenerator
-
-class ChatRequest(BaseModel):
-    prompt: str
-    provider: Optional[str] = None
-    model: Optional[str] = None
-
-
-@app.post("/chat", tags=["Chat"])
-async def chat_entrypoint(body: ChatRequest, api_key: str = Depends(require_api_key)):
-    """Minimal chat endpoint used by auth/tests.
-
-    - Requires X-API-Key via require_api_key.
-    - Accepts a simple {"prompt", "provider", "model"} payload.
-    - Returns {"reply": ..., "model": ..., "provider": ...}.
-    - Uses Groq when configured; falls back to echo-on-failure to keep tests stable
-      even when upstream credentials/models are misconfigured.
-    """
-    messages: List[Dict[str, str]] = [
-        {"role": "user", "content": body.prompt},
-    ]
-
-    provider = (body.provider or CHAT_PROVIDER).lower()
-    model = body.model or DEFAULT_MODEL
-
-    reply_text: str
-    try:
-        if provider == "groq":
-            reply_text = _groq_complete(messages, model=model)
-        elif chat_with_ai is not None:
-            # Optional generic backend, if wired
-            reply_text = str(chat_with_ai(messages))
-        else:
-            # Safe local echo fallback
-            reply_text = f"Echo: {body.prompt}"
-    except HTTPException:
-        # Propagate structured HTTP errors from _groq_complete unchanged
-        raise
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        logger.warning("/chat backend failed, using echo fallback: %s", exc)
-        reply_text = f"Echo: {body.prompt}"
-
-    return {
-        "reply": reply_text,
-        "model": model,
-        "provider": provider,
-    }
-
-
-@app.get("/chat/stream", tags=["Chat"])
-async def chat_stream(
-    prompt: str = Query(..., description="Prompt text"),
-    provider: Optional[str] = Query(None),
-    model: Optional[str] = Query(None),
-    api_key: str = Depends(require_api_key),
-):
-    """Simple SSE-style streaming endpoint used by auth/tests.
-
-    It intentionally does **not** depend on any external LLM to keep tests
-    deterministic; it just streams the prompt back token-by-token and then
-    emits a final `[DONE]` marker.
-    """
-
-    async def event_stream() -> AsyncGenerator[str, None]:
-        text = f"Echo: {prompt}"
-        # Very small artificial tokenization on whitespace
-        for token in text.split():
-            yield f"data: {token}\n\n"
-            # Yield control to the event loop without introducing real delays
-            await asyncio.sleep(0)
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-
-# =========================
-# /api/chat/* aliases (compat layer for tests)
-# =========================
-
-@app.post("/api/chat/threads", tags=["Chat"])
-def api_chat_create_thread(body: dict = Body(...)):
-    """Compat alias for POST /chat/threads used in tests."""
-    return chat_create_thread(body)
-
-
-@app.get("/api/chat/threads", tags=["Chat"])
-def api_chat_list_threads():
-    """Compat alias for GET /chat/threads used in tests."""
-    return chat_list_threads()
-
-
-@app.post("/api/chat/{thread_id}/messages", tags=["Chat"])
-def api_chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
-    """Compat alias for POST /chat/{thread_id}/messages used in tests."""
-    return chat_post_message(thread_id, body)
-
-
-@app.get("/api/chat/{thread_id}/messages", tags=["Chat"])
-def api_chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
-    """Compat alias for GET /chat/{thread_id}/messages used in tests."""
-    return chat_list_messages(thread_id, limit=limit, offset=offset)
-
-
-@app.post("/api/chat/{thread_id}/complete", tags=["Chat"])
-async def api_chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_factory=dict)):
-    """Compat alias for POST /chat/{thread_id}/complete used in tests."""
-    return await chat_complete(thread_id, body)
-
-
-@app.delete("/api/chat/{thread_id}/messages/{message_id}", tags=["Chat"])
-def api_chat_delete_message(thread_id: int, message_id: int):
-    """Compat alias for DELETE /chat/{thread_id}/messages/{message_id}."""
-    return chat_delete_message(thread_id, message_id)
-
-
-@app.post("/api/chat/{thread_id}/branch", response_model=ThreadDTO, tags=["Chat"])
-def api_branch_thread(thread_id: int, body: Optional[ThreadBranchRequest] = Body(default=None), api_key: str = Depends(require_api_key)):
-    """Compat alias for POST /chat/{thread_id}/branch.
-
-    We keep the same auth semantics as the underlying branch_thread handler.
-    """
-    return branch_thread(thread_id, body, api_key)  # type: ignore[arg-type]
-
-
-@app.patch("/api/chat/{thread_id}", response_model=ThreadDTO, tags=["Chat"])
-def api_update_thread(thread_id: int, payload: ThreadUpdate, api_key: str = Depends(require_api_key)):
-    """Compat alias for PATCH /chat/{thread_id}."""
-    return update_thread(thread_id, payload, api_key)  # type: ignore[arg-type]
-
-
-@app.patch("/api/chat/threads/{thread_id}", tags=["Chat"])
-def api_patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
-    """Compat alias for PATCH /chat/threads/{thread_id}."""
-    return patch_thread(thread_id, body)
-
-
-@app.delete("/api/chat/threads/{thread_id}", tags=["Chat"])
-def api_delete_thread(thread_id: int, force: bool = Query(False)):
-    """Compat alias for DELETE /chat/{thread_id}."""
-    return delete_thread(thread_id, force=force)
-    """Return the list of persisted chat threads."""
-    try:
-        threads = chatlog_db.list_chat_threads()
-        return {"ok": True, "threads": threads}
-    except Exception as exc:
-        logger.exception("Failed to list chat threads: %s", exc)
-        return {"ok": True, "threads": []}
-
-
-# =========================
-# Chat API (persisted messages)
-# =========================
-
-
-@app.post("/chat/{thread_id}/messages")
-def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
-    role = body.get("role")
-    content = body.get("content", "").strip()
-    if not role or not content:
-        return JSONResponse(
-            status_code=400, content={"ok": False, "error": "role and content required"}
-        )
-    owner = body.get("user_id") or "default"
-    try:
-        chatlog_db.ensure_chat_thread(
-            thread_id=thread_id,
-            user_id=str(owner),
-            title="New Chat",
-            summary="",
-            project_id=1,  # always assign to Loose Threads by default
-        )
-    except Exception as exc:
-        logger.exception("Failed to ensure chat thread %s exists: %s", thread_id, exc)
-        raise HTTPException(status_code=500, detail="Failed to persist chat message")
-    mid = chatlog_db.create_message(thread_id, role, content)
-    chatlog_db.write_audit_log("create", "chat_message", str(mid), user_id=str(owner))
-
-    # Emit event for real-time updates
-    event_bus.emit_event(
-        "message.created",
-        {
-            "thread_id": thread_id,
-            "message_id": mid,
-            "role": role,
-            "content": content,
-        },
-    )
-
-    # --- Neo4j sync ---
-    try:
-        # Import here in case not already
-        from datetime import datetime
-        import uuid
-        # Use string IDs for Neo4j
-        message_id = str(mid)
-        thread_id_str = str(thread_id)
-        user_id_str = str(owner)
-        message_text = content
-
-        neo_user = UserNode.nodes.get_or_none(user_id=user_id_str)
-        if not neo_user:
-            neo_user = UserNode(user_id=user_id_str, name=user_id_str).save()
-
-        neo_thread = ThreadNode.nodes.get_or_none(thread_id=thread_id_str)
-        if not neo_thread:
-            neo_thread = ThreadNode(thread_id=thread_id_str).save()
-
-        neo_msg = MessageNode(
-            message_id=message_id,
-            content=message_text,
-            created_at=datetime.utcnow()
-        ).save()
-
-        neo_msg.user.connect(neo_user)
-        neo_msg.thread.connect(neo_thread)
-
-    except Exception as e:
-        print(f"[Neo4j Sync Error] {e}")
-
-    return {
-        "ok": True,
-        "message": {
-            "id": mid,
-            "thread_id": thread_id,
-            "role": role,
-            "content": content,
-        },
-    }
-
-
-@app.get("/chat/{thread_id}/messages")
-def chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
-    items = chatlog_db.list_messages(thread_id, limit=limit, offset=offset)
-    total = chatlog_db.count_messages(thread_id)
-    return {"ok": True, "total": total, "messages": items}
-
-
-# Generate an assistant reply for the given thread using the configured provider and persist it
-@app.post("/chat/{thread_id}/complete", tags=["Chat"])
-async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_factory=dict)):
-    """
-    Generate an assistant reply for the given thread using the configured provider
-    and persist it as a new message (role='assistant'). Emits message.created.
-    Optional body:
-      - model: override model name
-      - max_context: how many recent messages to include (default 50)
-    """
-    try:
-        limit = int(body.get("max_context") or 50)
-        items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
-
-        # Shape OpenAI-style messages; drop empty or literal "null" content
-        context: List[Dict[str, str]] = []
-        for m in items:
-            role = str(m.get("role") or "").strip()
-            content = m.get("content")
-            if isinstance(content, str) and content.strip() and content.strip().lower() != "null":
-                context.append({"role": role, "content": content})
-
-        if not context:
-            raise HTTPException(status_code=400, detail="Thread has no usable context")
-
-        if CHAT_PROVIDER != "groq":
-            raise HTTPException(status_code=500, detail=f"Unsupported provider: {CHAT_PROVIDER}")
-
-        # Build ContextBroker bundle using latest user message as query
-        latest_message = ""
-        for m in reversed(items):
-            if str(m.get("role") or "").strip() == "user":
-                lm = str(m.get("content") or "").strip()
-                if lm:
-                    latest_message = lm
-                    break
-
-        depth = str(body.get("depth") or "normal").strip().lower()
-        bundle: Optional[Dict[str, Any]] = None
-        try:
-            broker = ContextBroker(chatlog_db, _vector_store, _memory_store, _sensors)
-            bundle = await broker.assemble(thread_id, query=latest_message, depth=depth)
-        except Exception as e:
-            logger.warning("[context] broker assemble failed (depth=%s): %s", depth, e)
-            bundle = None
-
-        model = body.get("model") or DEFAULT_MODEL
-        assistant_text = _groq_complete(context, model=model, context=bundle)
-
-        mid = chatlog_db.create_message(thread_id, "assistant", assistant_text)
-        try:
-            chatlog_db.write_audit_log("create", "chat_message", str(mid), user_id="bot")
-        except Exception:
-            pass
-
-        try:
-            event_bus.emit_event("message.created", {"thread_id": thread_id, "message_id": mid, "role": "assistant"})
-        except Exception:
-            logger.debug("[live] emit message.created failed", exc_info=True)
-
-        # Include RAG context in response for diagnostics/memory browser
-        return {
-            "ok": True,
-            "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text},
-            "context": bundle if bundle else {"semantic": [], "memory": [], "messages": []}
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("complete failed: %s", exc)
-        raise HTTPException(status_code=500, detail="completion_failed")
-
-
-@app.delete("/chat/{thread_id}/messages/{message_id}")
-def chat_delete_message(thread_id: int, message_id: int):
-    chatlog_db.delete_message(thread_id, message_id)
-    chatlog_db.write_audit_log(
-        "delete", "chat_message", str(message_id), user_id="default"
-    )
-    return {"ok": True}
-
-
-# =========================
-# Thread management
-# =========================
-
-
-def _normalize_thread_title(raw: Optional[str]) -> Optional[str]:
-    if raw is None:
-        return None
-    text = str(raw).strip()
-    return text or "New Chat"
-
-
-def _normalize_thread_summary(raw: Optional[str]) -> Optional[str]:
-    if raw is None:
-        return None
-    return str(raw).strip()
-
-
-def _apply_thread_update(thread_id: int, update: ThreadUpdate) -> Dict[str, Any]:
-    payload = update.dict(exclude_unset=True)
-    if not payload:
-        raise HTTPException(status_code=400, detail="No valid fields to update")
-
-    updated_field_keys = [key for key in ("title", "summary", "project_id") if key in payload]
-    existing = chatlog_db.get_chat_thread(thread_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    title_value = _normalize_thread_title(payload.get("title")) if "title" in payload else None
-    summary_value = _normalize_thread_summary(payload.get("summary")) if "summary" in payload else None
-    project_present = "project_id" in payload
-    project_value = payload.get("project_id") if project_present else None
-    archived_present = "archived" in payload
-    archived_requested = payload.get("archived") if archived_present else None
-
-    has_field_updates = any(
-        field is not None for field in (
-            title_value if "title" in payload else None,
-            summary_value if "summary" in payload else None,
-            project_value if project_present else None,
-        )
-    ) or project_present and payload.get("project_id") is None
-
-    if not has_field_updates and not archived_present:
-        raise HTTPException(status_code=400, detail="No valid fields to update")
-
-    if has_field_updates:
-        updated = chatlog_db.update_thread(
-            thread_id,
-            title=title_value if "title" in payload else None,
-            summary=(summary_value if "summary" in payload else None),
-            project_id=project_value if project_present else None,
-        )
-        if not updated:
-            raise HTTPException(status_code=404, detail="Thread not found")
-
-    refreshed = chatlog_db.get_chat_thread(thread_id)
-    if not refreshed:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    if has_field_updates:
-        chatlog_db.write_audit_log(
-            "update",
-            "chat_thread",
-            str(thread_id),
-            user_id=refreshed.get("user_id", "default"),
-        )
-        event_bus.emit_event(
-            "thread.updated",
-            {
-                "thread": refreshed,
-                "changes": {key: payload.get(key) for key in updated_field_keys},
-            },
-        )
-        logger.info(
-            "[threads] updated thread_id=%s fields=%s",
-            thread_id,
-            updated_field_keys or list(payload.keys()),
-        )
-
-    if archived_requested is True:
-        # Archive if not already archived
-        if not refreshed.get("archived_at"):
-            archived = chatlog_db.archive_thread(thread_id)
-            if archived:
-                refreshed = archived
-                event_bus.emit_event("thread.archived", {"thread": archived})
-                logger.info("[threads] archived thread_id=%s", thread_id)
-                chatlog_db.write_audit_log(
-                    "archive",
-                    "chat_thread",
-                    str(thread_id),
-                    user_id=archived.get("user_id", "default"),
-                )
-        else:
-            logger.debug("Thread %s already archived", thread_id)
-    elif archived_requested is False:
-        # Unarchive if currently archived
-        if refreshed.get("archived_at"):
-            unarchived = chatlog_db.unarchive_thread(thread_id)
-            if unarchived:
-                refreshed = unarchived
-                event_bus.emit_event("thread.unarchived", {"thread": unarchived})
-                logger.info("[threads] unarchived thread_id=%s", thread_id)
-                chatlog_db.write_audit_log(
-                    "unarchive",
-                    "chat_thread",
-                    str(thread_id),
-                    user_id=unarchived.get("user_id", "default"),
-                )
-        else:
-            logger.debug("Thread %s already unarchived", thread_id)
-
-    return refreshed
-
-
-@app.post("/chat/{thread_id}/branch", response_model=ThreadDTO, tags=["Chat"])
-def branch_thread(
-    thread_id: int,
-    body: Optional[ThreadBranchRequest] = Body(default=None),
-    api_key: str = Depends(require_api_key),
-):
-    payload = body or ThreadBranchRequest()
-    parent = chatlog_db.get_chat_thread(thread_id)
-    if not parent:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    title = _normalize_thread_title(payload.title)
-    if title is None:
-        base_title = parent.get("title") or "New Chat"
-        title = f"{base_title} (branch)"
-
-    summary = _normalize_thread_summary(payload.summary)
-    if summary is None:
-        summary = parent.get("summary") or ""
-
-    project_id: Optional[int]
-    if payload.project_id is not None:
-        project_id = payload.project_id
-    else:
-        project_id = parent.get("project_id")
-        try:
-            project_id = int(project_id) if project_id is not None else None
-        except (TypeError, ValueError):
-            project_id = None
-
-    child = chatlog_db.create_chat_thread(
-        user_id=parent.get("user_id", "default"),
-        title=title,
-        summary=summary,
-        project_id=project_id,
-        parent_id=parent["id"],
-    )
-
-    chatlog_db.write_audit_log(
-        "create",
-        "chat_thread",
-        str(child["id"]),
-        user_id=child.get("user_id", "default"),
-    )
-
-    event_bus.emit_event(
-        "thread.branch",
-        {
-            "parent": {
-                "id": parent.get("id"),
-                "title": parent.get("title"),
-                "archived_at": parent.get("archived_at"),
-                "project_id": parent.get("project_id"),
-            },
-            "child": child,
-        },
-    )
-
-    return child
-
-
-@app.patch("/chat/{thread_id}", response_model=ThreadDTO, tags=["Chat"])
-def update_thread(thread_id: int, payload: ThreadUpdate, api_key: str = Depends(require_api_key)):
-    updated = _apply_thread_update(thread_id, payload)
-    return updated
-
-
-@app.patch("/chat/threads/{thread_id}", tags=["Chat"])
-def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
-    try:
-        update = ThreadUpdate(**(body or {}))
-        refreshed = _apply_thread_update(thread_id, update)
-        return {"ok": True, "thread": refreshed}
-    except ValidationError as err:
-        logger.warning("Invalid payload for thread update: %s", err)
-        return JSONResponse(
-            status_code=400,
-            content={"ok": False, "error": "Invalid payload"},
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Failed to update chat thread %s: %s", thread_id, exc)
-        return JSONResponse(
-            status_code=500, content={"ok": False, "error": "Failed to update thread"}
-        )
-
-
-@app.delete("/chat/{thread_id}")
-def delete_thread(thread_id: int, force: bool = Query(False)):
-    """Hard delete a thread regardless of archived state."""
-    deleted = chatlog_db.delete_thread(thread_id, force=force)
-    if not deleted:
-        raise HTTPException(
-            status_code=404,
-            detail="Thread not found or not deletable (archive first or set force=true)"
-        )
-    try:
-        event_bus.emit_event("thread.deleted", {"thread_id": thread_id})
-    except Exception:
-        pass
-    logger.info("[threads] deleted thread_id=%s", thread_id)
-    return {"ok": True}
-# =========================
-# Projects management
-# =========================
-
-
-@app.patch("/projects/{project_id}")
-def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
-    name = body.get("name")
-    description = body.get("description")
-    try:
-        chatlog_db.update_project(
-            project_id,
-            name=name if name is not None else None,
-            description=description if description is not None else None,
-        )
-        return {"ok": True}
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
-
-
-@app.delete("/projects/{project_id}")
-def delete_project_and_eject(project_id: int):
-    # Eject threads from this project first
-    try:
-        chatlog_db.eject_threads_from_project(project_id)
-    except Exception as e:
-        logger.warning("eject threads failed: %s", e)
-    # Delete project row
-    try:
-        deleted = chatlog_db.delete_project(project_id)
-        if not deleted:
-            return JSONResponse(
-                status_code=404, content={"ok": False, "error": "Project not found"}
-            )
-        return {"ok": True}
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
-
-
-# =========================
-# Pydantic Models
-# =========================
-
-
-class CapsuleCreate(BaseModel):
-    summary: str
-    child_ids: List[int] = []
-    tag: Optional[str] = None
-    agent: Optional[str] = None
-
-
-class LogEntry(BaseModel):
-    command: str
-    tag: Optional[str] = None
-    agent: Optional[str] = "system"
-
-
-class SummaryEntry(BaseModel):
-    parent_id: int
-    summary: str
-    tag: Optional[str] = None
-    agent: Optional[str] = "system"
-
-
-class GeminiChatRequest(BaseModel):
-    prompt: str
-    model: Optional[str] = "gemini-1.5"
-
-
-class GeminiChatResponse(BaseModel):
-    model_used: str
-    reply: str
-
-
-# =========================
-# Memory Management Endpoints
-# =========================
-
-
-@app.get("/ping", summary="Health check endpoint", tags=["Memory"])
-def ping():
-    """
-    Simple health check endpoint to verify that the Guardian API is awake.
-    """
-    logger.debug("Ping request received")
-    return {"status": "Guardian awake!"}
-
-
-# =========================
-# Diagnostics Endpoints
-# =========================
-@app.get(
-    "/authz/debug", tags=["Diag"], summary="Echo masked API key received in header"
-)
-def authz_debug(api_key: str = Depends(require_api_key)):
-    """Return the masked API key received via X-API-Key, masked for safety."""
-    key = api_key or ""
-    masked = (key[:4] + "…" + key[-4:]) if len(key) > 8 else key
-    return {"received_api_key": masked}
-
-# --- Session token minting ---------------------------------------------------
-class SessionRequest(BaseModel):
-    ttl_seconds: int | None = None
-
-@app.post("/auth/session", tags=["Auth"], summary="Exchange API key for a short-lived session token")
-def create_session(body: SessionRequest, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
-    expected = os.getenv("GUARDIAN_API_KEY") or ""
-    if not (x_api_key and secrets.compare_digest(x_api_key, expected)):
-        raise HTTPException(status_code=401, detail="API key required to mint session")
-    token, exp = issue_session_token(subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600)
-    return {"token": token, "expires": exp}
-
-from fastapi import Response
-
-@app.post("/auth/session/cookie", tags=["Auth"], summary="Mint a session token and set it as an HttpOnly cookie")
-def create_session_cookie(
-    response: Response,
-    body: SessionRequest,
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-):
-    expected = os.getenv("GUARDIAN_API_KEY") or ""
-    if not (x_api_key and secrets.compare_digest(x_api_key, expected)):
-        raise HTTPException(status_code=401, detail="API key required to mint session")
-    token, exp = issue_session_token(subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600)
-    max_age = (body.ttl_seconds or 24 * 3600)
-    # NOTE: set secure=True when serving over HTTPS
-    response.set_cookie("gc_session", token, max_age=max_age, httponly=True, samesite="Lax", secure=False)
-    return {"ok": True, "expires": exp}
-
-
-# Health endpoint for diagnostics
-@app.get("/healthz", tags=["Diag"], summary="DB health and table existence")
-def healthz():
-    """
-    Returns DB target and existence of projects/chat_threads for quick diagnostics.
-    """
-    db_target = PG_DSN if DB_BACKEND == "postgres" else SQLITE_PATH
-    projects_exists = False
-    threads_exists = False
-    try:
-        projects_exists = chatlog_db.table_exists("projects")
-        threads_exists = chatlog_db.table_exists("chat_threads")
-    except Exception as e:
-        logger.warning("/healthz check failed: %s", e)
-    return {
-        "db_target": db_target,
-        "backend": DB_BACKEND,
-        "projects_table_exists": projects_exists,
-        "chat_threads_table_exists": threads_exists,
-    }
-
-
-# Debug config endpoint (development only)
-@app.get(
-    "/debug/config",
-    tags=["Diag"],
-    summary="Return masked config for debugging (development only)",
-)
-def debug_config(api_key: str = Depends(require_api_key)):
-    """
-    Return a small, masked snapshot of runtime config useful for local debugging.
-    This endpoint requires a valid X-API-Key header and is intended for dev use only.
-    """
-    env = os.getenv("GUARDIAN_ENV", "development")
-    masked_key = (
-        (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
-    )
-    db_target = PG_DSN if DB_BACKEND == "postgres" else SQLITE_PATH
-    return {
-        "env": env,
-        "db_target": db_target,
-        "db_backend": DB_BACKEND,
-        "provider": GUARDIAN_PROVIDER,
-        "allowed_origins": allowed_origins,
-        "masked_api_key": masked_key,
-        "groq_available": bool(get_groq_chat()),
-    }
-
-
-@app.post("/log", summary="Log a command entry", tags=["Memory"])
-def log_entry(entry: LogEntry, api_key: str = Depends(require_api_key)):
-    """
-    Log a command entry into the Guardian memory database.
-
-    Args:
-        entry (LogEntry): The log entry data.
-
-    Returns:
-        dict: Confirmation message with timestamp.
-    """
-    timestamp = datetime.now().isoformat()
-    try:
-        chatlog_db.insert_memory_event(
-            content=entry.command,
-            tag=entry.tag,
-            agent=entry.agent or "system",
-            type_="log",
-            parent_id=None,
-        )
-        logger.info(f"Log entry stored: {entry.command}")
-    except Exception as e:
-        logger.error(f"Failed to store log entry: {e}")
-        raise HTTPException(status_code=500, detail="Failed to store log entry")
-    return {"result": "Log stored!", "timestamp": timestamp}
-
-
-@app.post("/summarize", summary="Store a summary entry", tags=["Memory"])
-def summarize_entry(entry: SummaryEntry, api_key: str = Depends(require_api_key)):
-    """
-    Store a summary related to a parent entry in the Guardian memory database.
-
-    Args:
-        entry (SummaryEntry): The summary entry data.
-
-    Returns:
-        dict: Confirmation message with timestamp.
-    """
-    timestamp = datetime.now().isoformat()
-    try:
-        chatlog_db.insert_memory_event(
-            content=entry.summary,
-            tag=entry.tag,
-            agent=entry.agent or "system",
-            type_="summary",
-            parent_id=entry.parent_id,
-        )
-        logger.info(f"Summary entry stored for parent_id {entry.parent_id}")
-    except Exception as e:
-        logger.error(f"Failed to store summary entry: {e}")
-        raise HTTPException(status_code=500, detail="Failed to store summary entry")
-    return {"result": "Summary stored!", "timestamp": timestamp}
-
-
-
-@app.get("/search", summary="Search memory entries", tags=["Memory"])
-def search(
-    query: str = Query(..., description="Search query string"),
-    limit: int = Query(10, ge=1, le=100),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    Search the Guardian memory entries matching the query string.
-
-    Args:
-        query (str): The search query.
-        limit (int): Maximum number of results to return.
-
-    Returns:
-        List[dict]: List of matching memory entries.
-    """
-    try:
-        rows = chatlog_db.search_memory(query, limit)
-        results = [
-            {
-                "timestamp": r["timestamp"],
-                "command": r["command"],
-                "tag": r["tag"],
-                "agent": r["agent"],
-            }
-            for r in rows
-        ]
-        logger.info(
-            f"Search performed with query: {query}, results found: {len(results)}"
-        )
-    except Exception as e:
-        logger.error(f"Search failed: {e}")
-        raise HTTPException(status_code=500, detail="Search operation failed")
-    return results
-
-
-# --- GitHub-specific memory search endpoint ---
-@app.get(
-    "/api/github/search",
-    summary="Search GitHub memory (github silo)",
-    tags=["Memory"],
-)
-def github_memory_search(
-    query: str = Query(
-        ...,
-        description="Search query string (full‑text over GitHub issues/PRs)",
-    ),
-    repo: Optional[str] = Query(
-        None,
-        description="Optional owner/repo filter (e.g. Resonant-Jones/guardian-backend)",
-    ),
-    limit: int = Query(
-        20, ge=1, le=100, description="Maximum number of results to return"
-    ),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    Search the GitHub documents that were ingested into the `memory_entries`
-    table (silo='github'). Supports an optional `repo` filter.
-    """
-    try:
-        rows = chatlog_db.search_github_memory(query, repo=repo, limit=limit)
-        results = []
-        for r in rows:
-            payload = r.get("payload") or {}
-            results.append(
-                {
-                    "id": r["id"],
-                    "key": r["key"],
-                    "repo": payload.get("repo"),
-                    "type": payload.get("type"),
-                    "title": payload.get("title"),
-                    "url": payload.get("url"),
-                    "state": payload.get("state"),
-                    "created_at": payload.get("created_at"),
-                }
-            )
-        return {"ok": True, "count": len(results), "results": results}
-    except Exception as exc:
-        logger.error("GitHub memory search failed: %s", exc)
-        raise HTTPException(
-            status_code=500, detail="GitHub memory search failed"
-        )
-
-
-@app.get(
-    "/history",
-    summary="Retrieve history entries with optional filters",
-    tags=["Memory"],
-)
-def history(
-    limit: int = Query(
-        10, ge=1, le=100, description="Maximum number of entries to return"
-    ),
-    tag: Optional[str] = Query(None, description="Filter by tag"),
-    agent: Optional[str] = Query(None, description="Filter by agent"),
-    start_date: Optional[str] = Query(
-        None, description="Filter entries from this date (inclusive), format YYYY-MM-DD"
-    ),
-    end_date: Optional[str] = Query(
-        None,
-        description="Filter entries up to this date (inclusive), format YYYY-MM-DD",
-    ),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    Retrieve history entries from Guardian memory with optional filtering by tag, agent, and date range.
-
-    Args:
-        limit (int): Maximum number of entries to return.
-        tag (Optional[str]): Filter entries by tag.
-        agent (Optional[str]): Filter entries by agent.
-        start_date (Optional[str]): Filter entries from this date (inclusive).
-        end_date (Optional[str]): Filter entries up to this date (inclusive).
-
-    Returns:
-        List[dict]: List of filtered history entries.
-    """
-    # Validate date formats
-    start_dt = None
-    end_dt = None
-    try:
-        if start_date:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        if end_date:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-    except ValueError as ve:
-        logger.error(f"Invalid date format in history filters: {ve}")
-        raise HTTPException(
-            status_code=400, detail="Invalid date format. Use YYYY-MM-DD."
-        )
-
-    try:
-        rows = chatlog_db.history_entries(limit=limit, tag=tag, agent=agent)
-        filtered_rows = []
-        for r in rows:
-            entry_dt = datetime.fromisoformat(r["timestamp"])
-            if start_dt and entry_dt < start_dt:
-                continue
-            if end_dt and entry_dt > end_dt:
-                continue
-            filtered_rows.append(r)
-        results = [
-            {
-                "timestamp": r["timestamp"],
-                "command": r["command"],
-                "tag": r["tag"],
-                "agent": r["agent"],
-            }
-            for r in filtered_rows
-        ]
-        logger.info(
-            f"History retrieved with filters - tag: {tag}, agent: {agent}, start_date: {start_date}, end_date: {end_date}, entries returned: {len(results)}"
-        )
-    except Exception as e:
-        logger.error(f"Failed to retrieve history entries: {e}")
-        raise HTTPException(
-            status_code=500, detail="Failed to retrieve history entries"
-        )
-    return results
-
-
-# =========================
-# Thread Lineage Endpoints
-# =========================
-
-
-class ThreadCreateRequest(BaseModel):
-    parent_thread_id: int = None
-    session_id: str = None
-    summary: str = ""
-    user_id: str = "default"
-    project_id: str = None
-
-
-@app.get("/threads", summary="List all threads", tags=["Threads"])
-def list_threads(
-    user_id: str = Query(None, description="Filter by user_id"),
-    project_id: str = Query(None, description="Filter by project_id"),
-    api_key: str = Depends(require_api_key),
-):
-    """
-    List all threads. Optionally filter by user or project.
-    """
-    try:
-        items = chatlog_db.list_threads(user_id=user_id, project_id=project_id)
-        return {"threads": items}
-    except Exception as exc:
-        if (
-            "no such table" in str(exc).lower()
-            or getattr(exc, "pgcode", None) == "42P01"
-        ):
-            return {"threads": []}
-        logger.exception("Thread listing failed")
-        raise HTTPException(status_code=500, detail="Thread listing failed")
-
-
-@app.get("/thread/{thread_id}", summary="Get thread details", tags=["Threads"])
-def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
-    """
-    Get details for a specific thread by thread_id.
-    """
-    row = chatlog_db.get_thread(thread_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Thread not found")
-    return {
-        "thread_id": row[0],
-        "parent_thread_id": row[1],
-        "session_id": row[2],
-        "summary": row[3],
-        "created_at": row[4],
-        "user_id": row[5],
-        "project_id": row[6],
-    }
-
-
-@app.get("/thread/{thread_id}/children", summary="List child threads", tags=["Threads"])
-def get_child_threads(thread_id: int, api_key: str = Depends(require_api_key)):
-    """
-    List all child threads for a parent thread.
-    """
-    rows = chatlog_db.get_child_threads(thread_id)
-    results = [
-        {
-            "thread_id": row.get("id"),
-            "user_id": row.get("user_id"),
-            "title": row.get("title"),
-            "summary": row.get("summary"),
-            "project_id": row.get("project_id"),
-            "parent_id": row.get("parent_id"),
-            "archived_at": row.get("archived_at"),
-            "created_at": row.get("created_at"),
-            "updated_at": row.get("updated_at"),
-        }
-        for row in rows
-    ]
-    return {"children": results}
-
-
-@app.get("/thread/{thread_id}/summary", summary="Get thread summary", tags=["Threads"])
-def get_thread_summary(thread_id: int, api_key: str = Depends(require_api_key)):
-    """
-    Get the summary for a thread.
-    """
-    summary = chatlog_db.get_thread_summary(thread_id)
-    return {"thread_id": thread_id, "summary": summary}
-
-
-@app.post("/thread", summary="Create a new thread", tags=["Threads"], status_code=201)
-def create_thread(req: ThreadCreateRequest, api_key: str = Depends(require_api_key)):
-    """
-    Create a new thread with optional parent, summary, session, user, and project.
-    Returns the new thread_id.
-    """
-    thread_id = chatlog_db.create_thread(
-        parent_thread_id=req.parent_thread_id,
-        session_id=req.session_id,
-        summary=req.summary,
-        user_id=req.user_id,
-        project_id=req.project_id,
-    )
-    return {"thread_id": thread_id}
-
-
-# Alias: POST /threads (frontend convenience)
-@app.post(
-    "/threads",
-    summary="Create a new thread (alias of /thread)",
-    tags=["Threads"],
-    status_code=201,
-)
-def create_thread_alias(
-    req: ThreadCreateRequest, api_key: str = Depends(require_api_key)
-):
-    return create_thread(req, api_key)
-
-
-# =========================
-# Projects Endpoints
-# =========================
-
-
-class ProjectCreate(BaseModel):
-    name: str
-    description: Optional[str] = ""
+logger.info("[guardian_api] Module loaded successfully")

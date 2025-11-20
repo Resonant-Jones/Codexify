@@ -25,10 +25,8 @@ def health():
 @router.get("/health/chat")
 def health_chat():
     """Get health status of chat subsystem."""
-    # Lazy import to avoid circular dependency - guardian_api imports this module,
-    # so we can't import from it at module level. By the time this handler runs,
-    # guardian_api is fully loaded and these symbols are available.
-    from guardian.guardian_api import chatlog_db, DB_BACKEND
+    # Import from core dependencies module
+    from guardian.core.dependencies import chatlog_db, DB_BACKEND
 
     try:
         threads = chatlog_db.count_chat_threads()
@@ -60,12 +58,9 @@ def health_deps(format: str = "json"):
     Supports hybrid output:
     - format=json (default): Returns JSON with masked configuration details
     - format=prometheus: Returns Prometheus-compatible metrics
-
-    Note: This endpoint uses lazy imports to avoid circular dependencies.
-    Authentication should be added at the app level if needed.
     """
-    # Lazy import to avoid circular dependency
-    from guardian.guardian_api import (
+    # Import from core dependencies module
+    from guardian.core.dependencies import (
         DB_BACKEND,
         PG_DSN,
         SQLITE_PATH,

@@ -19,9 +19,9 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-# Import shared context
+# Import shared dependencies from core module (avoids circular imports)
 try:
-    from guardian.guardian_api import (
+    from guardian.core.dependencies import (
         chatlog_db,
         require_api_key,
         API_KEY,
