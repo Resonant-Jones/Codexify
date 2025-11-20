@@ -2,15 +2,9 @@
 import os
 
 import pytest
-from fastapi.testclient import TestClient
-
-# make sure this matches how you import your app
-from guardian.guardian_api import app
 
 # pick up the same key your server uses
 VALID_KEY = os.getenv("GUARDIAN_API_KEY", "invalid-by-default")
-
-client = TestClient(app)
 
 
 @pytest.mark.parametrize(
@@ -19,8 +13,8 @@ client = TestClient(app)
         ("/chat", "post"),
         ("/chat/stream", "get"),
     ],
-)
-def test_requires_api_key(path, method):
+) 
+def test_requires_api_key(path, method, client):
     # 1) no header -> 401
     r = getattr(client, method)(path, json={"prompt": "hello"})
     assert (

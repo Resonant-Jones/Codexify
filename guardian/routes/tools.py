@@ -32,9 +32,9 @@ class JobStatus(BaseModel):
     result: dict = Field(default_factory=dict)
 
 
-# Import API key dependency
+# Import shared dependencies from core module (avoids circular imports)
 try:
-    from guardian.guardian_api import require_api_key
+    from guardian.core.dependencies import require_api_key
 except ImportError:
     # Fallback for standalone usage
     def require_api_key(api_key: str = None):

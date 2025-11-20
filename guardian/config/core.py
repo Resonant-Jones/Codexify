@@ -38,6 +38,28 @@ class Settings(BaseSettings):
     # Google Gemini & Cloud
     GOOGLE_API_KEY: Optional[str] = None
 
+    # Guardian HTTP API keys
+    GUARDIAN_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Primary API key for Guardian HTTP layer",
+    )
+    GUARDIAN_API_KEYS: Optional[str] = Field(
+        default=None,
+        description="Comma-separated list of additional valid API keys",
+    )
+
+    # Optional Postgres URL for chat log DB
+    GUARDIAN_DATABASE_URL: Optional[str] = Field(
+        default=None,
+        description="Postgres connection URL for chatlog DB (postgresql://...)",
+    )
+
+    # API keys for Guardian HTTP layer (comma-separated list of valid keys)
+    GUARDIAN_API_KEYS: Optional[str] = Field(
+        default=None,
+        description="Comma-separated list of valid API keys for Guardian API",
+    )
+
     # OpenAI
     OPENAI_API_KEY: Optional[str] = Field(None, description="OpenAI API Key")
     OPENAI_API_ENDPOINT: str = Field(
