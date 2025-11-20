@@ -22,4 +22,4 @@ ENV VITE_DEV_PORT=5173
 EXPOSE 5173
 
 # Dev server entry
-CMD ["sh","-lc","cd /app/src && node ./node_modules/.bin/vite dev --host 0.0.0.0 --port ${VITE_DEV_PORT:-5173}"]
+CMD ["sh","-lc","cd /app/src && npx vite dev --host 0.0.0.0 --port ${VITE_DEV_PORT:-5173}"]
