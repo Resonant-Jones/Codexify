@@ -48,3 +48,54 @@ if __name__ == "__main__":
         current_goal="Assist Resonant in compiling Codexify schema routing for the desktop GUI.",
     )
     print(prompt)
+
+
+# Backwards-compatible shim: build_prompt(thread, persona, system_overrides=None) -> str
+# Used by tests to build prompts from thread, persona, and system overrides.
+def build_prompt(thread: dict, persona: dict, system_overrides: dict = None) -> str:
+    """
+    Build a prompt from thread, persona, and optional system overrides.
+
+    Backwards-compatible shim that constructs a formatted prompt string
+    from thread context (title, transcript, branch) and persona information
+    (name, system_prompt, anchor_points), optionally modified by system_overrides.
+
+    Args:
+        thread: Thread context dict with keys like 'title', 'transcript', 'branch'
+        persona: Persona dict with keys like 'name', 'system_prompt', 'anchor_points'
+        system_overrides: Optional dict of system-level overrides (e.g., 'tone')
+
+    Returns:
+        str: Formatted prompt string
+    """
+    # Extract thread info
+    thread_title = thread.get("title", "Untitled")
+    transcript = thread.get("transcript", "")
+    branch_name = thread.get("branch", {}).get("name", "main")
+
+    # Extract persona info
+    persona_name = persona.get("name", "Assistant")
+    system_prompt = persona.get("system_prompt", "")
+    anchor_points = persona.get("anchor_points", [])
+
+    # Apply system overrides (e.g., tone)
+    overrides = system_overrides or {}
+    tone = overrides.get("tone", "professional")
+
+    # Format anchor points
+    anchors_text = "\n".join(f"- {a}" for a in anchor_points)
+
+    # Build the prompt
+    prompt = f"""{system_prompt}
+
+Thread: {thread_title}
+Branch: {branch_name}
+Tone: {tone}
+
+Anchor Points:
+{anchors_text}
+
+Transcript:
+{transcript}
+"""
+    return prompt.strip()

@@ -11,8 +11,6 @@ import datetime
 import json
 import logging
 import os
-import psycopg2
-import psycopg2.extras
 import random
 import time
 from typing import Any, Callable, Dict, List, Optional

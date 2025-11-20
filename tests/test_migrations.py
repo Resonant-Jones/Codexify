@@ -10,9 +10,9 @@ from urllib.parse import urlparse, urlunparse
 import pytest
 
 try:
-    import psycopg2  # type: ignore
+    import psycopg  # type: ignore
 except ImportError:  # pragma: no cover
-    psycopg2 = None
+    psycopg = None
 
 from sqlalchemy import create_engine, inspect
 
@@ -31,8 +31,8 @@ def _admin_database_url(base_url: str) -> str:
 
 @pytest.mark.integration
 def test_migrations_apply_cleanly(tmp_path, monkeypatch):
-    if psycopg2 is None:
-        pytest.skip("psycopg2 not installed")
+    if psycopg is None:
+        pytest.skip("psycopg not installed")
 
     base_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
     if not base_url:
@@ -42,12 +42,11 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
     db_name = f"codexify_migrate_{uuid.uuid4().hex[:12]}"
     temp_url = _build_database_url(base_url, db_name)
 
-    admin_conn = psycopg2.connect(admin_url)
-    admin_conn.autocommit = True
+    admin_conn = psycopg.connect(admin_url, autocommit=True)
     try:
         with admin_conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE {db_name}")
-    except psycopg2.Error as exc:  # pragma: no cover - environment specific
+    except psycopg.Error as exc:  # pragma: no cover - environment specific
         admin_conn.close()
         pytest.skip(f"Unable to create test database: {exc.pgcode}")
     finally:
@@ -90,8 +89,7 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
             engine.dispose()
 
         # Use separate autocommit connections for cleanup
-        cleanup_conn = psycopg2.connect(admin_url)
-        cleanup_conn.autocommit = True
+        cleanup_conn = psycopg.connect(admin_url, autocommit=True)
         try:
             with cleanup_conn.cursor() as cur:
                 cur.execute(
@@ -99,8 +97,7 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
                     (db_name,),
                 )
             # Open a one-off autocommit connection for DROP DATABASE
-            drop_conn = psycopg2.connect(admin_url)
-            drop_conn.autocommit = True
+            drop_conn = psycopg.connect(admin_url, autocommit=True)
             try:
                 with drop_conn.cursor() as cur:
                     cur.execute(f"DROP DATABASE IF EXISTS {db_name}")

@@ -18,9 +18,9 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
-import psycopg2
-from psycopg2 import errors as pg_errors
-from psycopg2.extras import Json, RealDictCursor
+import psycopg
+from psycopg import errors as pg_errors
+from psycopg.rows import dict_row
 
 from .chat_db import ChatDB
 
@@ -41,10 +41,11 @@ def _json_default(o):
 
 def _to_json(value):
     """Wrap raw consciousness in database-safe JSON packaging.
-    
+
     Transforms Python objects into a format PostgreSQL can safely store and retrieve
     without losing the subtle temporal and numerical properties of your data's soul."""
-    return Json(value, dumps=lambda obj: json.dumps(obj, default=_json_default))
+    # In psycopg3, JSON is handled natively; just return the value and psycopg handles serialization
+    return json.dumps(value, default=_json_default)
 
 
 class PgDB(ChatDB):
@@ -64,7 +65,7 @@ class PgDB(ChatDB):
         self._connector_has_schedule = False
 
     def _connect(self):
-        return psycopg2.connect(self.dsn, cursor_factory=RealDictCursor)
+        return psycopg.connect(self.dsn, row_factory=dict_row)
 
     # ---- internal helpers -------------------------------------------------
     def _ensure_sync_jobs_table(self, conn) -> None:
@@ -1613,9 +1614,9 @@ def fetch_threads_for_user(
         return
 
     dsn = _resolve_dsn()
-    conn = psycopg2.connect(dsn, cursor_factory=RealDictCursor)
+    conn = psycopg.connect(dsn, row_factory=dict_row)
     cursor_name = f"threads_export_{uuid.uuid4().hex}"
-    cur = conn.cursor(name=cursor_name, cursor_factory=RealDictCursor)
+    cur = conn.cursor(name=cursor_name)
     cur.itersize = max(int(chunk_size), 1)
 
     try:

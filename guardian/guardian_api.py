@@ -38,7 +38,8 @@ from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 import requests
-import psycopg2, psycopg2.extras
+import psycopg
+from psycopg.rows import dict_row
 from dotenv import load_dotenv
 from fastapi import (
     Body,
@@ -1251,9 +1252,8 @@ def _ingest_github_for_config(connector_name: str) -> dict:
     if not dsn:
         raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
 
-    conn = psycopg2.connect(dsn)
-    conn.autocommit = False
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = psycopg.connect(dsn, row_factory=dict_row)
+    cur = conn.cursor()
     # Keep any single query from hanging forever
     try:
         cur.execute("SET LOCAL statement_timeout = 15000")  # 15s
