@@ -319,6 +319,38 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
         },
     )
 
+    # Best-effort auto-title on first user message. If the backing thread row
+    # has an empty/NULL title and this is the first persisted message, derive
+    # a short title from the content so thread lists remain readable.
+    try:
+        thread = chatlog_db.get_chat_thread(thread_id)
+        title_text = (thread.get("title") or "").strip() if thread else ""
+        if role == "user" and not title_text:
+            try:
+                total = chatlog_db.count_messages(thread_id)
+            except Exception:
+                total = 1
+            if total == 1:
+                candidate = content.split("\n", 1)[0].strip()
+                if len(candidate) > 80:
+                    candidate = candidate[:80]
+                if candidate:
+                    try:
+                        chatlog_db.update_thread(thread_id, title=candidate)
+                    except Exception:
+                        logger.debug(
+                            "[threads] auto-title update failed for thread_id=%s",
+                            thread_id,
+                            exc_info=True,
+                        )
+    except Exception:
+        # Auto-title must never break message insertion.
+        logger.debug(
+            "[threads] auto-title computation failed for thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+
     # --- Neo4j sync ---
     if NEO4J_SYNC_AVAILABLE:
         try:
