@@ -486,7 +486,7 @@ export function GuardianChat({
         )}
       </div>
 
-      <div className="shrink-0 border-t px-[var(--card-pad)] pb-3 pt-2" style={{ borderColor: "var(--panel-border)" }}>
+      <div className="shrink-0 px-[var(--card-pad)] pb-3 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
         <Composer
           onSend={handleSendMessage}
           prefill={externalPrefill ?? prefill}

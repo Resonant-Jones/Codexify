@@ -64,11 +64,11 @@ export function Composer({
   }
   return (
     <>
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-3">
         <ProviderSelect />
       </div>
       <div
-        className="flex items-center gap-2 rounded-2xl border p-2 shadow-sm"
+        className="flex items-center gap-1.5 rounded-2xl border p-2"
         style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}
         onDrop={uploader.onDrop}
         onDragOver={uploader.onDragOver}
@@ -78,8 +78,8 @@ export function Composer({
           aria-label="Attach files"
           title="Attach files"
           onClick={uploader.pick}
-          className="grid place-items-center h-10 w-10 rounded-xl border"
-          style={{ borderColor: "var(--panel-border)" }}
+          className="grid place-items-center h-9 w-9 rounded-lg flex-shrink-0 transition-colors hover:bg-white/10"
+          style={{ color: "var(--text)" }}
         >
           <Paperclip className="h-4 w-4" />
         </button>
@@ -88,8 +88,8 @@ export function Composer({
           aria-label="Generate image"
           title="Generate image"
           onClick={() => setShowImgGen(true)}
-          className="grid place-items-center h-10 w-10 rounded-xl border"
-          style={{ borderColor: "var(--panel-border)" }}
+          className="grid place-items-center h-9 w-9 rounded-lg flex-shrink-0 transition-colors hover:bg-white/10"
+          style={{ color: "var(--text)" }}
         >
           <ImagePlus className="h-4 w-4" />
         </button>
@@ -105,7 +105,7 @@ export function Composer({
               send();
             }
           }}
-          className="min-h-[44px] max-h-44 resize-none border-0 bg-transparent px-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          className="min-h-[40px] max-h-44 resize-none border-0 bg-transparent px-2 py-1 flex-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
           style={{ color: "var(--text)", outlineColor: "var(--accent-weak)" }}
         />
         <Button
@@ -113,8 +113,12 @@ export function Composer({
           onClick={send}
           disabled={effectiveSending || !value.trim()}
           size="icon"
-          className="h-11 w-11 grid place-items-center"
-          style={{ background: "#2f2f2f", color: "#fff", borderRadius: "22px", outlineColor: "var(--accent-weak)" }}
+          className="h-9 w-9 grid place-items-center flex-shrink-0 rounded-lg transition-colors"
+          style={{
+            background: effectiveSending || !value.trim() ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.12)",
+            color: "var(--text)",
+            cursor: effectiveSending || !value.trim() ? "not-allowed" : "pointer"
+          }}
         >
           <Send className="h-4 w-4" />
         </Button>
