@@ -502,7 +502,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       <div
         className="relative grid h-full w-[calc(100%-12px)] max-w-[1500px] box-border items-stretch mx-auto overflow-hidden"
         style={{
-          gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
+          gridTemplateColumns: "clamp(300px, 24vw, 360px) 6px minmax(0, 1fr)",
           gap: "0px",
           padding: "6px",
           boxSizing: "border-box",
@@ -555,13 +555,27 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                 </PanelShell>
               </div>
             </div>
+            {/* Vertical Divider */}
+            <div
+              style={{
+                gridColumn: "2",
+                gridRow: "1",
+                background: "var(--panel-border,rgba(80,80,120,0.14))",
+                width: "6px",
+                minWidth: "6px",
+                maxWidth: "6px",
+                height: "100%",
+                alignSelf: "stretch",
+                pointerEvents: "none",
+              }}
+            />
           </>
         )}
         {/* Chat Panel */}
         <div
           className="h-full w-full overflow-hidden box-border"
           style={{
-            gridColumn: isSidebarOpen ? 2 : "1 / span 2",
+            gridColumn: isSidebarOpen ? 3 : "1 / span 3",
             gridRow: "1",
           }}
         >
