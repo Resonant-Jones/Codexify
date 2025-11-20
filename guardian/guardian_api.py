@@ -53,34 +53,12 @@ from guardian.core import dependencies, event_bus, metrics
 from guardian.core.dependencies import (
     init_database,
     init_services,
-    chatlog_db,
     require_api_key,
     API_KEY,
     ENABLE_OUTBOX,
     ENABLE_CONNECTOR_WORKER,
     allowed_origins,
 )
-
-# Import all routers
-from guardian.routes import (
-    agent,
-    admin,
-    memory,
-    research,
-    threads,
-    documents,
-    share,
-    federation,
-    health,
-)
-from guardian.routes.chat import router as chat_router, simple_chat_router, api_chat_router
-from guardian.routes.connectors import router as connectors_router, _connector_worker
-from guardian.routes.codexify_router import router as codexify_router
-from guardian.routes.api_exports import router as exports_router
-from guardian.routes.media import router as media_router
-from guardian.routes.tools import router as tools_router
-from guardian.routes.projects import router as projects_router, ensure_loose_threads_project
-from guardian.realtime import collaboration
 
 # Optional Neo4j for graph endpoint
 try:
@@ -112,9 +90,37 @@ dependencies._load_env_chain()
 _mask = (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
 logger.info("[auth] Using GUARDIAN_API_KEY=%s", _mask)
 
+# Initialize primary chat database eagerly so router modules
+# can safely import `chatlog_db` from core.dependencies.
+dependencies.init_database()
+chatlog_db = dependencies.chatlog_db
+
 # Feature flags
 OUTBOX_POLL_INTERVAL = float(os.getenv("OUTBOX_POLL_INTERVAL", "1.0"))
 OUTBOX_BATCH_SIZE = int(os.getenv("OUTBOX_BATCH_SIZE", "100"))
+
+
+# Import all routers (after DB init so dependencies.chatlog_db is ready)
+from guardian.routes import (
+    agent,
+    admin,
+    memory,
+    research,
+    threads,
+    documents,
+    share,
+    federation,
+    health,
+)
+from guardian.routes.chat import router as chat_router, simple_chat_router, api_chat_router
+from guardian.routes.connectors import router as connectors_router, _connector_worker
+from guardian.routes.codexify_router import router as codexify_router
+from guardian.routes.api_exports import router as exports_router
+from guardian.routes.media import router as media_router
+from guardian.routes.tools import router as tools_router
+from guardian.routes.projects import router as projects_router, ensure_loose_threads_project
+from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
+from guardian.realtime import collaboration
 
 
 # =========================
@@ -137,8 +143,8 @@ async def app_lifespan(app: FastAPI):
     # === STARTUP ===
     logger.info("[startup] Guardian API starting...")
 
-    # Initialize database
-    db = init_database()
+    # Initialize database via shared initializer (idempotent)
+    db = dependencies.init_database()
 
     # Initialize shared services (vector store, sensors)
     init_services(db)
@@ -446,7 +452,7 @@ def root():
 # Module Exports
 # =========================
 
-# Export app for tests and ASGI servers
-__all__ = ["app"]
+# Export app and selected globals for tests and ASGI servers
+__all__ = ["app", "chatlog_db", "EPHEMERAL_MEMORY"]
 
 logger.info("[guardian_api] Module loaded successfully")

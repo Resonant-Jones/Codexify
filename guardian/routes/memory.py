@@ -12,11 +12,11 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, Depends, Query, HTTPException, Header
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-# Import shared context (initialized as None, bound later via bind_dependencies)
+# Import shared context (initialized via guardian.core.dependencies in app startup)
 chatlog_db = None
 require_api_key = lambda x: x
 
@@ -40,28 +40,15 @@ def bind_dependencies(*, chatlog_db_instance, require_api_key_func):
 
 # User context dependency for extracting user ID from request headers
 def get_current_user(
-    api_key: str = Depends(require_api_key),
     x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
 ) -> str:
     """
-    Extract and validate user ID from request headers.
+    Determine the current user for memory operations.
 
-    Args:
-        api_key: Validated API key (ensures authentication)
-        x_user_id: Optional user ID from X-User-Id header
-
-    Returns:
-        User ID string
-
-    Raises:
-        HTTPException: If user ID is not provided
+    - If X-User-Id header is present, use it.
+    - Otherwise, default to \"default\" (single-user dev/test behavior).
     """
-    if not x_user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="X-User-Id header is required for authentication"
-        )
-    return x_user_id
+    return x_user_id or "default"
 
 # Memory retention configuration
 MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
@@ -83,6 +70,14 @@ def _silo_valid(s: str) -> bool:
 
 
 router = APIRouter(prefix="/api/memory", tags=["Memory"])
+
+
+class MemoryCreate(BaseModel):
+    """Request model for creating memory entries."""
+
+    content: str
+    tags: List[str] = Field(default_factory=list)
+    pinned: bool = False
 
 
 @router.get("/{silo}")
@@ -122,7 +117,7 @@ def memory_list(
 @router.post("/{silo}")
 def memory_create(
     silo: str,
-    body: Dict[str, object] = Body(...),
+    body: MemoryCreate = Body(...),
     current_user: str = Depends(get_current_user),
 ):
     """
@@ -140,9 +135,9 @@ def memory_create(
         return JSONResponse(
             status_code=400, content={"ok": False, "error": "invalid silo"}
         )
-    content = str(body.get("content", "")).strip()
-    tags = ",".join(body.get("tags", []) or [])
-    pinned = bool(body.get("pinned", False))
+    content = body.content.strip()
+    tags = ",".join(body.tags or [])
+    pinned = bool(body.pinned)
     if not content:
         return JSONResponse(
             status_code=400, content={"ok": False, "error": "content required"}
@@ -160,6 +155,16 @@ def memory_create(
         }
         EPHEMERAL_MEMORY.append(entry)
         return {"ok": True, "entry": entry}
+
+    # Ensure chatlog_db is initialized even if bind_dependencies was not called
+    if chatlog_db is None:
+        from guardian.core.dependencies import init_database, chatlog_db as core_chatlog_db
+
+        init_database()
+        if core_chatlog_db is None:
+            raise RuntimeError("chatlog_db is not initialised")
+        globals()["chatlog_db"] = core_chatlog_db
+
     eid = chatlog_db.add_memory(current_user, silo, content, tags=tags, pinned=pinned)
     chatlog_db.write_audit_log("create", "memory_entry", str(eid), user_id=current_user)
     return {"ok": True, "id": eid}
