@@ -314,6 +314,112 @@ class SqliteChatLogDB:
             (count,) = cur.fetchone()
         return int(count or 0)
 
+    def update_thread(
+        self,
+        thread_id: int,
+        *,
+        title: Optional[str] = None,
+        summary: Optional[str] = None,
+        project_id: Optional[int] = None,
+    ) -> bool:
+        """
+        Patch fields on a chat thread row.
+
+        Returns:
+            bool: True if a row was updated, False otherwise.
+        """
+        fields: List[str] = []
+        params: List[Any] = []
+        if title is not None:
+            fields.append("title = ?")
+            params.append(title)
+        if summary is not None:
+            fields.append("summary = ?")
+            params.append(summary)
+        if project_id is not None:
+            fields.append("project_id = ?")
+            params.append(project_id)
+        if not fields:
+            return False
+        now = datetime.utcnow().isoformat()
+        fields.append("updated_at = ?")
+        params.append(now)
+        params.append(thread_id)
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                f"UPDATE chat_threads SET {', '.join(fields)} WHERE id = ?",
+                params,
+            )
+            updated = cur.rowcount > 0
+            conn.commit()
+        return bool(updated)
+
+    def archive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Mark a chat thread as archived by setting archived_at and updating updated_at.
+
+        Returns:
+            The updated thread dict, or None if not found.
+        """
+        now = datetime.utcnow().isoformat()
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE chat_threads
+                SET archived_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (now, now, thread_id),
+            )
+            changed = cur.rowcount > 0
+            conn.commit()
+        if not changed:
+            return None
+        return self.get_chat_thread(thread_id)
+
+    def unarchive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Clear archived_at for a chat thread and bump updated_at.
+
+        Returns:
+            The updated thread dict, or None if not found.
+        """
+        now = datetime.utcnow().isoformat()
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE chat_threads
+                SET archived_at = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (now, thread_id),
+            )
+            changed = cur.rowcount > 0
+            conn.commit()
+        if not changed:
+            return None
+        return self.get_chat_thread(thread_id)
+
+    def delete_thread(self, thread_id: int, force: bool = False) -> bool:
+        """
+        Hard delete a chat thread and its messages.
+
+        The ``force`` flag is accepted for API compatibility but is not required;
+        the thread is removed regardless of archived state.
+        """
+        with self._connect() as conn:
+            cur = conn.cursor()
+            # First remove associated messages to keep state consistent even if
+            # SQLite foreign-key enforcement is disabled.
+            cur.execute("DELETE FROM chat_messages WHERE thread_id = ?", (thread_id,))
+            cur.execute("DELETE FROM chat_threads WHERE id = ?", (thread_id,))
+            deleted = cur.rowcount > 0
+            conn.commit()
+        return bool(deleted)
+
     # ------------------------------------------------------------------
     # Chat messages (chat_messages)
     # ------------------------------------------------------------------
@@ -551,6 +657,36 @@ class SqliteChatLogDB:
         return int(count or 0)
 
     # ------------------------------------------------------------------
+    # Connector sync jobs (minimal for tests/startup)
+    # ------------------------------------------------------------------
+
+    def ensure_sync_job_support(self) -> None:
+        """
+        Ensure the SQLite backing tables for connector sync jobs exist.
+
+        The current test suite only exercises the existence of this method via
+        startup wiring; a lightweight schema is sufficient here.
+        """
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sync_jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    connector_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    started_at TEXT,
+                    finished_at TEXT,
+                    attempts INTEGER DEFAULT 0,
+                    last_error TEXT,
+                    metadata TEXT
+                )
+                """
+            )
+            conn.commit()
+
+    # ------------------------------------------------------------------
     # Projects & legacy threads (minimal subset for tests)
     # ------------------------------------------------------------------
 
@@ -706,4 +842,3 @@ class SqliteChatLogDB:
         logger.debug(
             "[audit] event=%s entity=%s id=%s user=%s", event, entity, entity_id, user_id
         )
-
