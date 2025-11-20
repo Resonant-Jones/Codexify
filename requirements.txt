@@ -156,7 +156,7 @@ proto-plus==1.26.1
 protobuf==6.31.1
 psutil==7.0.0
 psycopg==3.2.10
-psycopg2-binary==2.9.9
+psycopg[binary]==3.2.10
 pyaml==25.7.0
 pyarrow==21.0.0
 pyasn1==0.6.1
