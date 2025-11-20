@@ -90,6 +90,7 @@ import os
 from guardian.core import event_bus
 from guardian.core.chat_db import ChatDB
 from guardian.core.db import GuardianDB
+from guardian.core.sqlitedb import SqliteChatLogDB
 from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.routes.codexify_router import router as codexify_router
 from guardian.routes.api_exports import router as exports_router
@@ -536,12 +537,20 @@ def _jsonify(obj: Any) -> Any:
 # ────────────────────────── DB backend selection ────────────────────────────
 settings = get_settings()
 
-PG_DSN = os.getenv("DATABASE_URL", DEFAULT_PG_DSN)
+# Prefer explicit env vars, then fall back to guessing based on availability
 DB_PATH = os.getenv("GUARDIAN_DB_PATH")  # may be "__DISABLE_SQLITE__"
+PG_DSN = os.getenv("DATABASE_URL") or os.getenv("GUARDIAN_DB_URL")
 chatlog_db: ChatDB
 effective_sqlite_path: Optional[str] = None
 
-if PG_DSN:
+# If DB_PATH is set to a file path (not disable flag), use SQLite
+if DB_PATH and DB_PATH != "__DISABLE_SQLITE__":
+    effective_sqlite_path = DB_PATH
+    chatlog_db = SqliteChatLogDB(effective_sqlite_path)
+    DB_BACKEND = "sqlite"
+    logger.info("[db] Using SQLite path: %s", effective_sqlite_path)
+# If PG_DSN is explicitly set, use Postgres
+elif PG_DSN:
     if PgDB is None:
         raise RuntimeError(
             "Postgres DSN provided but PgDB adapter is unavailable"
@@ -549,15 +558,16 @@ if PG_DSN:
     chatlog_db = PgDB(PG_DSN)  # type: ignore[arg-type]
     DB_BACKEND = "postgres"
     logger.info("[db] Using PostgreSQL DSN: %s", _mask_dsn(PG_DSN))
+# Default to SQLite if no explicit database configured
 else:
     if DB_PATH == "__DISABLE_SQLITE__":
         raise RuntimeError(
             "SQLite disabled but no Postgres DSN supplied; set GUARDIAN_DB_URL or DATABASE_URL"
         )
-    effective_sqlite_path = DB_PATH or str(Path("guardian.db"))
-    chatlog_db = GuardianDB(effective_sqlite_path)
+    effective_sqlite_path = str(Path("guardian.db"))
+    chatlog_db = SqliteChatLogDB(effective_sqlite_path)
     DB_BACKEND = "sqlite"
-    logger.info("[db] Using SQLite path: %s", effective_sqlite_path)
+    logger.info("[db] Using SQLite path (default): %s", effective_sqlite_path)
 
 logger.info("📦 DB backend selected: %s", DB_BACKEND)
 
@@ -1463,7 +1473,16 @@ def chat_create_thread(body: dict = Body(...)):
 
 @app.get("/chat/threads", tags=["Chat"])
 def chat_list_threads():
- # =========================
+    """Return the list of persisted chat threads."""
+    try:
+        threads = chatlog_db.list_chat_threads()
+        return {"ok": True, "threads": threads}
+    except Exception as exc:
+        logger.exception("Failed to list chat threads: %s", exc)
+        return {"ok": True, "threads": []}
+
+
+# =========================
 # Simple Chat & Streaming API (for auth/tests)
 # =========================
 
@@ -1607,13 +1626,6 @@ def api_patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
 def api_delete_thread(thread_id: int, force: bool = Query(False)):
     """Compat alias for DELETE /chat/{thread_id}."""
     return delete_thread(thread_id, force=force)
-    """Return the list of persisted chat threads."""
-    try:
-        threads = chatlog_db.list_chat_threads()
-        return {"ok": True, "threads": threads}
-    except Exception as exc:
-        logger.exception("Failed to list chat threads: %s", exc)
-        return {"ok": True, "threads": []}
 
 
 # =========================
