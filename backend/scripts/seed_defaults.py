@@ -3,7 +3,7 @@ Seed default data into the database if missing (idempotent).
 
 This script is intentionally dependency-light:
 - It does NOT import guardian.models or codexify.guardian_api.
-- It talks directly to the DB (Postgres via psycopg2; SQLite fallback).
+- It talks directly to the DB (Postgres via psycopg; SQLite fallback).
 - It is safe to run multiple times.
 
 Run order assumption:
@@ -31,10 +31,8 @@ def _is_pg(dsn: str | None) -> bool:
     return bool(dsn and (dsn.startswith("postgres://") or dsn.startswith("postgresql://")))
 
 def _connect_pg(dsn: str):
-    import psycopg2
-    import psycopg2.extras
-    conn = psycopg2.connect(dsn)
-    conn.autocommit = False
+    import psycopg
+    conn = psycopg.connect(dsn)
     return conn
 
 def _connect_sqlite(path: str):
@@ -60,7 +58,7 @@ def _cursor(conn):
 def table_exists(conn, table: str, schema: str = "public") -> bool:
     """Return True if table exists; supports Postgres and SQLite."""
     mod = conn.__class__.__module__
-    if "psycopg2" in mod:
+    if "psycopg" in mod and "psycopg2" not in mod:
         with _cursor(conn) as cur:
             cur.execute(
                 """
@@ -96,7 +94,7 @@ def wait_for_table(conn, table: str, timeout_sec: int = 20) -> bool:
 def ensure_project(conn, name: str, description: str = "") -> None:
     """Insert a project row if one with the same name isn't present."""
     mod = conn.__class__.__module__
-    if "psycopg2" in mod:
+    if "psycopg" in mod and "psycopg2" not in mod:
         with _cursor(conn) as cur:
             # Use INSERT ... WHERE NOT EXISTS for maximum compatibility (no need for unique index).
             cur.execute(
