@@ -27,7 +27,7 @@ type SettingsProps = {
   setIngestionEnabled: (enabled: boolean) => void;
 };
 
-type SettingsTab = "appearance" | "system";
+type SettingsTab = "appearance" | "system" | "data";
 
 export function SettingsView({ mode, setMode, guardianName, setGuardianName, userName, setUserName, role, setRole, notes, setNotes, baseColor, setBaseColor, depth, setDepth, fade, setFade, resolved, systemPrompt, setSystemPrompt, wallpaper, setWallpaper, wallpaperBlur, setWallpaperBlur, extColors, setExtColors, ingestionEnabled, setIngestionEnabled }: SettingsProps) {
   // ——— Ingestion Endpoint Override State ———
@@ -38,6 +38,7 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
   const tabs: Array<{ key: SettingsTab; label: string }> = [
     { key: "appearance", label: "Appearance" },
     { key: "system", label: "System Prompt" },
+    { key: "data", label: "Data" },
   ];
   const [name, setName] = useState(guardianName);
   const [uName, setUName] = useState(userName);
@@ -126,15 +127,67 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
     if (fileRef.current) fileRef.current.value = "";
   }
 
+  // ——— ChatGPT Migration State ———
+  const [chatGPTFile, setChatGPTFile] = useState<File | null>(null);
+  const [migrationStatus, setMigrationStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [migrationStats, setMigrationStats] = useState<{ threads: number; messages: number } | null>(null);
+  const [migrationError, setMigrationError] = useState<string | null>(null);
+  const chatGPTFileRef = useRef<HTMLInputElement | null>(null);
+
+  function handleChatGPTFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    setChatGPTFile(f);
+    setMigrationStatus("idle");
+    setMigrationError(null);
+    setMigrationStats(null);
+  }
+
+  async function handleMigrate() {
+    if (!chatGPTFile) return;
+    setMigrationStatus("uploading");
+    setMigrationError(null);
+
+    const formData = new FormData();
+    formData.append("file", chatGPTFile);
+
+    try {
+      const res = await fetch("/upload-chatgpt-export", {
+        method: "POST",
+        headers: {
+          "X-User-Id": userName || "user",
+        },
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.details || data.error || "Migration failed");
+      }
+
+      setMigrationStats({
+        threads: data.threads_imported,
+        messages: data.messages_imported,
+      });
+      setMigrationStatus("success");
+      setChatGPTFile(null); // Clear file after success
+    } catch (err: any) {
+      console.error("Migration error:", err);
+      setMigrationStatus("error");
+      setMigrationError(err.message || "Failed to migrate data");
+    }
+  }
+
   // Sliders remain interactive at all times; theme toggle sets defaults in AppShell
 
   return (
     <div className="flex h-full w-full items-start justify-center p-6" style={{ color: "var(--text)" }}>
-      <div className="grid w-full max-w-[1600px] grid-cols-1 lg:grid-cols-[580px_minmax(0,1fr)] gap-6 items-start">
+      <div className="grid w-full max-w-[1600px] grid-cols-1 lg:grid-cols-[clamp(572px,60vw,858px)_minmax(0,1fr)] gap-6 items-start">
       <FrameCard
         refractiveFallback
         shimmerMode="subtle"
-        className="flex h-[990px] w-[572px] max-w-full flex-col overflow-hidden p-6"
+        className="flex h-[990px] w-full lg:w-[clamp(572px,60vw,858px)] max-w-full flex-col overflow-hidden p-6"
       >
         <div className="flex flex-1 flex-col gap-6 overflow-hidden">
           <div className="flex justify-center">
@@ -211,6 +264,115 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
                   <Button type="button" onClick={handleSave} className="rounded-[var(--tile-radius,19px)] px-6">
                     Save
                   </Button>
+                </div>
+              </div>
+            ) : tab === "data" ? (
+              <div className="flex h-full flex-col gap-6 overflow-y-auto pr-1">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="text-xs tracking-wide uppercase text-gray-400">ChatGPT Migration</div>
+                    <div className="text-xs opacity-70 leading-relaxed">
+                      Import your full conversation history from ChatGPT. This process ingests your data into both the Knowledge Graph (for relationships) and the Vector Store (for semantic recall).
+                    </div>
+                  </div>
+
+                  <div className="rounded-[var(--tile-radius,19px)] border border-white/10 bg-white/5 p-4 space-y-4">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          ref={chatGPTFileRef}
+                          type="file"
+                          accept=".json"
+                          className="hidden"
+                          onChange={handleChatGPTFileSelect}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-[var(--tile-radius,19px)]"
+                          onClick={() => chatGPTFileRef.current?.click()}
+                        >
+                          Choose Export File
+                        </Button>
+                        <span className="text-xs opacity-70 truncate max-w-[200px]">
+                          {chatGPTFile ? chatGPTFile.name : "No file selected"}
+                        </span>
+                      </div>
+
+                      <Button
+                        type="button"
+                        disabled={!chatGPTFile || migrationStatus === "uploading"}
+                        onClick={handleMigrate}
+                        className="w-full rounded-[var(--tile-radius,19px)]"
+                      >
+                        {migrationStatus === "uploading" ? "Migrating..." : "Upload & Migrate"}
+                      </Button>
+                    </div>
+
+                    {migrationStatus === "uploading" && (
+                      <div className="text-xs text-center opacity-70 animate-pulse">
+                        Processing conversations... this may take a moment.
+                      </div>
+                    )}
+
+                    {migrationStatus === "success" && migrationStats && (
+                      <div className="rounded-lg bg-green-500/10 p-3 border border-green-500/20">
+                        <div className="text-xs font-medium text-green-400 mb-1">Migration Successful</div>
+                        <div className="text-[10px] opacity-80">
+                          Imported {migrationStats.threads} threads and {migrationStats.messages} messages.
+                        </div>
+                      </div>
+                    )}
+
+                    {migrationStatus === "error" && migrationError && (
+                      <div className="rounded-lg bg-red-500/10 p-3 border border-red-500/20">
+                        <div className="text-xs font-medium text-red-400 mb-1">Migration Failed</div>
+                        <div className="text-[10px] opacity-80">{migrationError}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ——— Labs: Ingestion API toggle/override ——— */}
+                <div className="space-y-2 pt-4 border-t border-white/5">
+                  <div className="text-xs tracking-wide uppercase text-gray-400">Labs</div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="ingestion-api-toggle"
+                      checked={ingestionEnabled}
+                      onChange={e => setIngestionEnabled(e.target.checked)}
+                      className="accent-primary"
+                    />
+                    <label htmlFor="ingestion-api-toggle" className="text-xs opacity-80 cursor-pointer select-none">
+                      Enable Ingestion API
+                    </label>
+                  </div>
+                  {ingestionEnabled && (
+                    <div className="space-y-2 pt-2">
+                      <div className="text-xs opacity-70">Custom Ingestion Endpoint</div>
+                      <Input
+                        value={ingestEndpointOverride}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setIngestEndpointOverride(val);
+                          if (typeof window !== "undefined") localStorage.setItem("cfy.ingest.endpoint.override", val);
+                        }}
+                        placeholder="/api/ingest"
+                        className="h-8 rounded-[var(--tile-radius,19px)] px-3 text-xs w-full"
+                      />
+                    </div>
+                  )}
+                  {ingestionEnabled && (
+                    <div className="space-y-2 pt-2">
+                      <div className="text-xs opacity-70">Ingestion Tags</div>
+                      <div className="text-xs opacity-60">
+                        Files uploaded may be auto-tagged with their source or context (e.g. "chat", "upload", "project").
+                        This metadata enables better embeddings and graph enrichment.
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -306,7 +468,7 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
                 <div className="space-y-2">
                   <div className="text-xs tracking-wide uppercase text-gray-400">File Type Colors</div>
                   <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-                    {(["pdf","md","txt","sketch","docx","png","jpg"] as const).map((k) => {
+                    {(["pdf","md","txt","sketch","docx","png","jpeg"] as const).map((k) => {
                       const swatch = extColors[k as keyof ExtColors] || "#6B7280";
                       return (
                         <div key={k} className="flex items-center gap-2">
