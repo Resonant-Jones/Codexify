@@ -1049,8 +1049,21 @@ export default function AppShell({}: PropsWithChildren) {
             />
           </div>
 
-          {/* brand badge */}
-          <span className="pill-tab brand-tab">Codexify</span>
+          {/* brand badge — doubles as layout mode toggle */}
+          <button
+            type="button"
+            className="pill-tab brand-tab"
+            title={
+              layoutMode === "zen"
+                ? "Zen layout — click to switch to Focus"
+                : "Focus layout — click to switch to Zen"
+            }
+            onClick={() =>
+              setLayoutMode((prev) => (prev === "focus" ? "zen" : "focus"))
+            }
+          >
+            Codexify
+          </button>
 
           {/* nav tabs */}
           <button
@@ -1089,35 +1102,7 @@ export default function AppShell({}: PropsWithChildren) {
             Settings
           </button>
 
-          {/* Layout Mode Toggle */}
-          <div className="ml-auto flex items-center gap-1 pl-2">
-            <div className="inline-flex rounded-full bg-black/10 dark:bg-white/5 p-0.5 gap-0">
-              <button
-                type="button"
-                className="px-2.5 py-1 text-xs rounded-full transition"
-                style={{
-                  background: layoutMode === "focus" ? "rgba(0,0,0,0.8)" : "transparent",
-                  color: layoutMode === "focus" ? "#ffffff" : "var(--muted)",
-                }}
-                onClick={() => setLayoutMode("focus")}
-                title="Focus mode: content stretches to chrome edge"
-              >
-                Focus
-              </button>
-              <button
-                type="button"
-                className="px-2.5 py-1 text-xs rounded-full transition"
-                style={{
-                  background: layoutMode === "zen" ? "rgba(0,0,0,0.8)" : "transparent",
-                  color: layoutMode === "zen" ? "#ffffff" : "var(--muted)",
-                }}
-                onClick={() => setLayoutMode("zen")}
-                title="Zen mode: content pulled in with wallpaper air"
-              >
-                Zen
-              </button>
-            </div>
-          </div>
+
         </div>
       </div>
 
@@ -1143,8 +1128,7 @@ export default function AppShell({}: PropsWithChildren) {
                 "--gutter": "16px",
                 "--card-pad": "10px",
                 "--min-h": "clamp(520px, 70vh, 1000px)",
-                borderRadius: "var(--card-radius)",
-                padding: "var(--bezel, 6px)"
+                borderRadius: "var(--card-radius)"
               } as React.CSSProperties}
             >
               <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
@@ -1307,7 +1291,7 @@ export default function AppShell({}: PropsWithChildren) {
           )}
           {view === "gallery" && (
             <>
-            <div className="isolate" style={{ "--radius": "var(--card-radius)", "--frame": "1px", "--bezel": "var(--bezel, 6px)", "--rim": "1px", "--gutter": "6px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)", borderRadius: "var(--card-radius)", padding: "var(--bezel, 6px)" } as React.CSSProperties}>
+            <div className="isolate" style={{ "--radius": "var(--card-radius)", "--frame": "1px", "--bezel": "var(--bezel, 6px)", "--rim": "1px", "--gutter": "6px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)", borderRadius: "var(--card-radius)" } as React.CSSProperties}>
               <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
                 <div
                   className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
@@ -1409,7 +1393,7 @@ export default function AppShell({}: PropsWithChildren) {
           {view === "dashboard" && (
             <div
               className="h-full w-full isolate"
-              style={{ "--gutter": "16px", padding: "var(--bezel, 6px)" } as React.CSSProperties}
+              style={{ "--gutter": "16px" } as React.CSSProperties}
             >
               <div className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch">
                 <div className="min-h-0 flex-1">
@@ -1503,7 +1487,7 @@ export default function AppShell({}: PropsWithChildren) {
           {view === "settings" && (
             <div
               className="flex-1 h-full isolate"
-              style={{ "--radius": "var(--card-radius)", "--frame": "1px", "--bezel": "var(--bezel, 6px)", "--rim": "1px", borderRadius: "var(--card-radius)", padding: "var(--bezel, 6px)" } as React.CSSProperties}
+              style={{ "--radius": "var(--card-radius)", "--frame": "1px", "--bezel": "var(--bezel, 6px)", "--rim": "1px", borderRadius: "var(--card-radius)" } as React.CSSProperties}
             >
               <div className="flex-1 h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
                 <div
