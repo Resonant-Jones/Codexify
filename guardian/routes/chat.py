@@ -100,6 +100,28 @@ class ThreadCreateRequest(BaseModel):
 
 
 # Helper functions
+def _embed_message(thread_id: int, role: str, content: str, message_id: int):
+    """Best-effort embedding of a chat message."""
+    if not _vector_store:
+        return
+    try:
+        # Run in background or just await? 
+        # Since VectorStore is sync (wrapper around sync embedder calls), we can just call it.
+        # But wait, VectorStore might be slow if using OpenAI.
+        # For MVP, sync is fine, but ideally this should be backgrounded.
+        # However, VectorStore.add_texts is synchronous in the current implementation.
+        meta = {
+            "thread_id": thread_id,
+            "role": role,
+            "message_id": message_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "source": "chat"
+        }
+        _vector_store.add_texts([{"text": content, "meta": meta}])
+    except Exception as e:
+        logger.warning(f"[chat] Failed to auto-embed message {message_id}: {e}")
+
+# Helper functions
 def _normalize_thread_title(raw: Optional[str]) -> Optional[str]:
     if raw is None:
         return None
@@ -319,6 +341,9 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
         },
     )
 
+    # Auto-embed message
+    _embed_message(thread_id, role, content, mid)
+
     # Best-effort auto-title on first user message. If the backing thread row
     # has an empty/NULL title and this is the first persisted message, derive
     # a short title from the content so thread lists remain readable.
@@ -455,6 +480,9 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
             event_bus.emit_event("message.created", {"thread_id": thread_id, "message_id": mid, "role": "assistant"})
         except Exception:
             logger.debug("[live] emit message.created failed", exc_info=True)
+
+        # Auto-embed assistant response
+        _embed_message(thread_id, "assistant", assistant_text, mid)
 
         return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text}}
     except HTTPException:
