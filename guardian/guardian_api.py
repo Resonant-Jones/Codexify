@@ -111,6 +111,8 @@ from guardian.routes import (
     share,
     federation,
     health,
+    migration,
+    neo as neo_routes,
 )
 from guardian.routes.chat import router as chat_router, simple_chat_router, api_chat_router
 from guardian.routes.connectors import router as connectors_router, _connector_worker
@@ -253,6 +255,9 @@ app.include_router(health.router)
 # Admin endpoints (auth, session, config debugging)
 app.include_router(admin.router)
 
+# Neo graph logging (safe stub; exposed under /api/neo/…)
+app.include_router(neo_routes.router, prefix="/api")
+
 # Chat endpoints (includes /chat/*, /api/chat/*, and simple chat endpoints)
 app.include_router(chat_router)
 app.include_router(simple_chat_router)
@@ -273,6 +278,7 @@ app.include_router(media_router)
 app.include_router(tools_router)
 app.include_router(exports_router)
 app.include_router(codexify_router)
+app.include_router(migration.router)
 
 logger.info("[routers] All routers included")
 

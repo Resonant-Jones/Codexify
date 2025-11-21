@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     PROMPT_DIR_PATH: str | None = Field(
         default=None, description="Optional absolute path to the prompts directory."
     )
+    GUARDIAN_ENABLE_GRAPH_LOGGING: bool = Field(
+        default=False, description="Enable graph logging of messages (Neo4j integration)."
+    )
+    GUARDIAN_GRAPH_LOGGING_MODE: str = Field(
+        default="noop",
+        description="Graph logging mode (e.g., 'noop', 'neo4j', 'stub').",
+    )
 
 
 # Create a singleton instance that can be imported across the application
@@ -85,3 +92,8 @@ def validate_llm_config(settings: Settings, provider_override: str | None = None
         return
 
     raise LLMConfigError(f"Unsupported LLM_PROVIDER: {provider or '<empty>'}")
+
+
+def get_settings() -> Settings:
+    """Return the shared Settings instance for dependency injection."""
+    return settings
