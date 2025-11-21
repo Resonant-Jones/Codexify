@@ -116,6 +116,13 @@ def mock_db():
 
     mock.write_audit_log.return_value = None
 
+    # Memory-related mocks
+    mock.list_memories.return_value = []
+    mock.add_memory.return_value = {"id": 1, "content": "test"}
+    mock.update_memory.return_value = True
+    mock.delete_memory.return_value = True
+    mock.query_memories.return_value = []
+
     return mock
 
 
@@ -162,23 +169,28 @@ def test_client(mock_db, mock_auth, monkeypatch, tmp_path):
     # Patch logging to work around the bool formatting issue in guardian_api.py
     with patch("logging.info"):
         # Import the app here to avoid circular imports and ensure fresh state
+        # Patch chatlog_db at all import locations to ensure proper mock isolation
         with patch("guardian.guardian_api.chatlog_db", mock_db):
-            with patch("guardian.guardian_api.event_bus") as mock_event_bus:
-                mock_event_bus.emit_event.return_value = None
+            with patch("guardian.core.dependencies.chatlog_db", mock_db):
+                with patch("guardian.routes.chat.chatlog_db", mock_db):
+                    with patch("guardian.routes.projects.chatlog_db", mock_db):
+                        with patch("guardian.routes.memory.chatlog_db", mock_db):
+                            with patch("guardian.guardian_api.event_bus") as mock_event_bus:
+                                mock_event_bus.emit_event.return_value = None
 
-                from guardian.guardian_api import app, require_api_key
+                                from guardian.guardian_api import app, require_api_key
 
-                # Override the dependency injection for require_api_key
-                def mock_require_api_key_override():
-                    return mock_auth
+                                # Override the dependency injection for require_api_key
+                                def mock_require_api_key_override():
+                                    return mock_auth
 
-                app.dependency_overrides[require_api_key] = mock_require_api_key_override
+                                app.dependency_overrides[require_api_key] = mock_require_api_key_override
 
-                client = TestClient(app)
-                yield client
+                                client = TestClient(app)
+                                yield client
 
-                # Clean up dependency override
-                app.dependency_overrides.clear()
+                                # Clean up dependency override
+                                app.dependency_overrides.clear()
 
 
 @pytest.fixture
