@@ -62,6 +62,18 @@ try:
 except Exception:
     NEO4J_SYNC_AVAILABLE = False
 
+# LLM configuration validation
+try:
+    from guardian.core.config import (
+        settings as llm_settings,
+        validate_llm_config,
+        LLMConfigError,
+    )
+except Exception:  # pragma: no cover - defensive import guard
+    llm_settings = None
+    validate_llm_config = None
+    LLMConfigError = Exception
+
 
 # Pydantic models for thread operations
 class ThreadDTO(BaseModel):
@@ -435,6 +447,10 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
       - max_context: how many recent messages to include (default 50)
     """
     try:
+        provider = str(body.get("provider") or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)).lower()
+        # Validate provider credentials up-front to avoid raw 500s from missing keys.
+        if validate_llm_config and llm_settings:
+            validate_llm_config(llm_settings, provider_override=provider)
         limit = int(body.get("max_context") or 50)
         items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
 
@@ -468,7 +484,14 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
             bundle = None
 
         model = body.get("model") or DEFAULT_MODEL
-        assistant_text = _groq_complete(context, model=model, context=bundle)
+        if provider == "groq":
+            assistant_text = _groq_complete(context, model=model, context=bundle)
+        elif provider == "openai":
+            if chat_with_ai is None:
+                raise HTTPException(status_code=501, detail="OpenAI provider is not available")
+            assistant_text = str(chat_with_ai(context, model=model))
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported LLM_PROVIDER: {provider}")
 
         mid = chatlog_db.create_message(thread_id, "assistant", assistant_text)
         try:
@@ -487,6 +510,8 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text}}
     except HTTPException:
         raise
+    except LLMConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.exception("complete failed: %s", exc)
         raise HTTPException(status_code=500, detail="completion_failed")
@@ -748,11 +773,13 @@ async def simple_chat_entrypoint(body: ChatRequest, api_key: str = Depends(verif
         {"role": "user", "content": body.prompt},
     ]
 
-    provider = (body.provider or CHAT_PROVIDER).lower()
+    provider = (body.provider or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)).lower()
     model = body.model or DEFAULT_MODEL
 
     reply_text: str
     try:
+        if validate_llm_config and llm_settings:
+            validate_llm_config(llm_settings, provider_override=provider)
         if provider == "groq":
             reply_text = _groq_complete(messages, model=model)
         elif chat_with_ai is not None:
