@@ -462,3 +462,8 @@ def root():
 __all__ = ["app", "chatlog_db", "EPHEMERAL_MEMORY"]
 
 logger.info("[guardian_api] Module loaded successfully")
+
+
+# Regression guard: ensure core exports remain present (fail loudly if truncated).
+if __name__ == "guardian.guardian_api":
+    assert app is not None, "guardian_api.app missing"
