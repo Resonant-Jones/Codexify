@@ -499,15 +499,15 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   return (
     <div className="flex h-full w-full box-border overflow-hidden">
-      <div
-        className="relative grid h-full w-[calc(100%-12px)] max-w-[1500px] box-border items-stretch mx-auto overflow-hidden"
-        style={{
-          gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
-          gap: "0px",
-          padding: "6px",
-          boxSizing: "border-box",
-        }}
-      >
+   <div
+      className="relative grid h-full w-full max-w-[1500px] box-border items-stretch mx-auto overflow-hidden"
+      style={{
+        gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
+        gap: "8px",
+        padding: "0px",
+        boxSizing: "border-box",
+      }}
+    >
         {/* Sidebar */}
         {isSidebarOpen && (
           <>

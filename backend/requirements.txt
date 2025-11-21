@@ -453,7 +453,14 @@ PyJWT>=2.9.0
     # via google-auth
 psutil==7.1.1
     # via crawl4ai
-psycopg2-binary==2.9.9
+psycopg2-binary>=2.9.9
+    # via
+    #   -r requirements/base.in
+    #   crawl4ai
+psycopg[binary]>=3.2.10
+    # via
+    #   -r requirements/base.in
+    #   crawl4ai
     # via -r requirements/base.in
 pyarrow==21.0.0
     # via datasets

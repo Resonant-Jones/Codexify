@@ -31,9 +31,22 @@ def _is_pg(dsn: str | None) -> bool:
     return bool(dsn and (dsn.startswith("postgres://") or dsn.startswith("postgresql://")))
 
 def _connect_pg(dsn: str):
-    import psycopg
-    conn = psycopg.connect(dsn)
-    return conn
+    """
+    Connect to Postgres using whatever driver is available.
+
+    Prefer the modern ``psycopg`` v3 driver when installed, but gracefully
+    fall back to ``psycopg2`` so containers or environments that only ship
+    the legacy driver can still run the seed script.
+    """
+    try:
+        import psycopg  # type: ignore[import]
+
+        return psycopg.connect(dsn)
+    except Exception:
+        # Fallback path for environments that only have psycopg2-binary.
+        import psycopg2  # type: ignore[import]
+
+        return psycopg2.connect(dsn)
 
 def _connect_sqlite(path: str):
     import sqlite3
@@ -58,7 +71,8 @@ def _cursor(conn):
 def table_exists(conn, table: str, schema: str = "public") -> bool:
     """Return True if table exists; supports Postgres and SQLite."""
     mod = conn.__class__.__module__
-    if "psycopg" in mod and "psycopg2" not in mod:
+    # Treat both psycopg v3 and psycopg2 connections as Postgres.
+    if "psycopg" in mod:
         with _cursor(conn) as cur:
             cur.execute(
                 """
@@ -94,7 +108,8 @@ def wait_for_table(conn, table: str, timeout_sec: int = 20) -> bool:
 def ensure_project(conn, name: str, description: str = "") -> None:
     """Insert a project row if one with the same name isn't present."""
     mod = conn.__class__.__module__
-    if "psycopg" in mod and "psycopg2" not in mod:
+    # Treat both psycopg v3 and psycopg2 connections as Postgres.
+    if "psycopg" in mod:
         with _cursor(conn) as cur:
             # Use INSERT ... WHERE NOT EXISTS for maximum compatibility (no need for unique index).
             cur.execute(
