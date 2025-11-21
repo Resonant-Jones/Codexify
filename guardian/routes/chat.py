@@ -2,10 +2,13 @@
 Chat Routes
 ~~~~~~~~~~~
 
-Chat thread and message management endpoints.
-Includes thread creation, messaging, completion, branching, and lineage tracking.
-Also includes simple /chat and /chat/stream endpoints for auth tests,
-and /api/chat/* alias endpoints for backward compatibility.
+Frontend contract (primary calls today):
+- POST   /api/chat/threads                     -> create a thread
+- GET    /api/chat/threads                     -> list threads
+- POST   /api/chat/{thread_id}/messages        -> append a user message
+- GET    /api/chat/{thread_id}/messages        -> fetch thread messages
+- POST   /api/chat/{thread_id}/complete        -> run completion (depth query param optional)
+- POST   /api/chat                             -> simple chat helper used by legacy API helper
 """
 
 import asyncio
@@ -448,9 +451,14 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
     """
     try:
         provider = str(body.get("provider") or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)).lower()
+        thread_exists = chatlog_db.get_chat_thread(thread_id) if hasattr(chatlog_db, "get_chat_thread") else True
+        if not thread_exists:
+            raise HTTPException(status_code=404, detail="Thread not found")
+
         # Validate provider credentials up-front to avoid raw 500s from missing keys.
         if validate_llm_config and llm_settings:
             validate_llm_config(llm_settings, provider_override=provider)
+
         limit = int(body.get("max_context") or 50)
         items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
 
@@ -508,13 +516,15 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         _embed_message(thread_id, "assistant", assistant_text, mid)
 
         return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text}}
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code >= 500:
+            raise HTTPException(status_code=502, detail="completion_failed")
         raise
     except LLMConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.exception("complete failed: %s", exc)
-        raise HTTPException(status_code=500, detail="completion_failed")
+        raise HTTPException(status_code=502, detail="completion_failed")
 
 
 @router.delete("/{thread_id}/messages/{message_id}")
@@ -838,6 +848,12 @@ async def simple_chat_stream(
 # /api/chat/* paths by delegating to the canonical /chat/* implementations
 
 api_chat_router = APIRouter(prefix="/api/chat", tags=["Chat"])
+
+
+@api_chat_router.post("")
+async def api_chat_root(body: ChatRequest):
+    """Compat alias for POST /api/chat used by legacy frontend helper."""
+    return await simple_chat_entrypoint(body, api_key="api-bypass")
 
 
 @api_chat_router.post("/threads")
