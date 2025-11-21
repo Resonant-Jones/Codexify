@@ -73,6 +73,7 @@ injectCssVars();
    which will always be either "light" or "dark".
    ───────────────────────────────────────────────────────────────────────────── */
 type Resolved = "light" | "dark";
+type LayoutMode = "focus" | "zen";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    🧠 SECTION: Theme Preference Handling
@@ -202,6 +203,23 @@ export default function AppShell({}: PropsWithChildren) {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
   const [sessionOverride, setSessionOverride] = useState<Resolved | null>(() => readSessionOverride());
+
+  /* ─────────────────────────────────────────────────────────────────────────────
+     🧠 Layout Mode State (Focus vs Zen)
+     - `layoutMode`: Controls page padding via --page-pad CSS variable
+     - Persists to localStorage for seamless user experience
+     ───────────────────────────────────────────────────────────────────────────── */
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
+    if (typeof window === "undefined") return "focus";
+    const raw = window.localStorage.getItem("cfy.layoutMode");
+    return raw === "zen" ? "zen" : "focus";
+  });
+
+  // Persist layoutMode to localStorage when it changes
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("cfy.layoutMode", layoutMode);
+  }, [layoutMode]);
 
   // Listen for OS-level theme changes and storage updates
   useEffect(() => {
@@ -553,7 +571,7 @@ export default function AppShell({}: PropsWithChildren) {
     "--shell-gap": "16px",                      // Gap between cards or columns
     "--viewport-radius": "19px",                // Rounding for main window
     "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
-    "--page-pad": "0px",                        // Can be overridden per-view
+    "--page-pad": layoutMode === "zen" ? "12px" : "0px",  // Layout mode: zen (12px) or focus (0px)
 
     /* === CARD GEOMETRY === */
     "--card-pad": "12px",                       // Internal card padding
@@ -1070,6 +1088,36 @@ export default function AppShell({}: PropsWithChildren) {
           >
             Settings
           </button>
+
+          {/* Layout Mode Toggle */}
+          <div className="ml-auto flex items-center gap-1 pl-2">
+            <div className="inline-flex rounded-full bg-black/10 dark:bg-white/5 p-0.5 gap-0">
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs rounded-full transition"
+                style={{
+                  background: layoutMode === "focus" ? "rgba(0,0,0,0.8)" : "transparent",
+                  color: layoutMode === "focus" ? "#ffffff" : "var(--muted)",
+                }}
+                onClick={() => setLayoutMode("focus")}
+                title="Focus mode: content stretches to chrome edge"
+              >
+                Focus
+              </button>
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs rounded-full transition"
+                style={{
+                  background: layoutMode === "zen" ? "rgba(0,0,0,0.8)" : "transparent",
+                  color: layoutMode === "zen" ? "#ffffff" : "var(--muted)",
+                }}
+                onClick={() => setLayoutMode("zen")}
+                title="Zen mode: content pulled in with wallpaper air"
+              >
+                Zen
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1083,7 +1131,7 @@ export default function AppShell({}: PropsWithChildren) {
           - Settings
          ───────────────────────────────────────────────────────────────────────────── */}
       <div className="relative z-10 isolate flex flex-col flex-1 h-full min-h-0 overflow-hidden items-stretch justify-center">
-        <div className="flex-1 h-full min-h-0 flex">
+        <div className="flex-1 h-full min-h-0 flex" style={{ padding: "var(--page-pad)" }}>
           {view === "documents" && (
             <div
               className="isolate"
