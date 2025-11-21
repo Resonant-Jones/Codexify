@@ -75,21 +75,23 @@ def memory_test_client(mock_memory_db, mock_auth, monkeypatch, tmp_path):
 
     with patch("logging.info"):
         with patch("guardian.guardian_api.chatlog_db", mock_memory_db):
-            with patch("guardian.guardian_api.event_bus") as mock_event_bus:
-                mock_event_bus.emit_event.return_value = None
+            with patch("guardian.core.dependencies.chatlog_db", mock_memory_db):
+                with patch("guardian.routes.memory.chatlog_db", mock_memory_db):
+                    with patch("guardian.guardian_api.event_bus") as mock_event_bus:
+                        mock_event_bus.emit_event.return_value = None
 
-                from guardian.guardian_api import app, require_api_key
+                        from guardian.guardian_api import app, require_api_key
 
-                # Override require_api_key dependency
-                def mock_require_api_key_override():
-                    return mock_auth
+                        # Override require_api_key dependency
+                        def mock_require_api_key_override():
+                            return mock_auth
 
-                app.dependency_overrides[require_api_key] = mock_require_api_key_override
+                        app.dependency_overrides[require_api_key] = mock_require_api_key_override
 
-                client = TestClient(app)
-                yield client
+                        client = TestClient(app)
+                        yield client
 
-                app.dependency_overrides.clear()
+                        app.dependency_overrides.clear()
 
 
 class TestMemoryAuthentication:
