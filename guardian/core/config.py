@@ -55,3 +55,33 @@ class Settings(BaseSettings):
 
 # Create a singleton instance that can be imported across the application
 settings = Settings()
+
+
+class LLMConfigError(Exception):
+    """Raised when LLM provider configuration is invalid."""
+
+
+def validate_llm_config(settings: Settings, provider_override: str | None = None) -> None:
+    """
+    Validate that the configured LLM provider has its required credentials.
+
+    Args:
+        settings: Settings instance to validate.
+        provider_override: Optional provider name to validate instead of settings.LLM_PROVIDER.
+
+    Raises:
+        LLMConfigError: if the provider is unsupported or missing a required API key.
+    """
+    provider = (provider_override or settings.LLM_PROVIDER or "").strip().lower()
+
+    if provider == "openai":
+        if not settings.OPENAI_API_KEY:
+            raise LLMConfigError("OPENAI_API_KEY is not configured")
+        return
+
+    if provider == "groq":
+        if not settings.GROQ_API_KEY:
+            raise LLMConfigError("GROQ_API_KEY is not configured")
+        return
+
+    raise LLMConfigError(f"Unsupported LLM_PROVIDER: {provider or '<empty>'}")
