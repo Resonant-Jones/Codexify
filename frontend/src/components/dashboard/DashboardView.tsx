@@ -5,7 +5,33 @@ import { Button } from "@/components/ui/button";
 import { ExtColors, GalleryItem } from "@/types/ui";
 import api from "@/lib/api";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
-import { ImagePlus } from "lucide-react";
+import { ImagePlus, X } from "lucide-react";
+
+// ──────── Demo Data ────────
+const DEMO_RECENT_DOCS: string[] = [
+  "Codexify Design Tokens.pdf",
+  "UI Architecture Guide.md",
+  "Integration Roadmap.doc",
+];
+
+const DEMO_GALLERY_ITEMS: GalleryItem[] = [
+  {
+    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g1' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23ff6b6b;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23ee5a6f;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g1)'/%3E%3C/svg%3E",
+    prompt: "Demo: Warm Gradient",
+  },
+  {
+    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g2' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%234c2a7d;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%236d28d9;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g2)'/%3E%3C/svg%3E",
+    prompt: "Demo: Deep Purple",
+  },
+  {
+    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g3' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2360a5fa;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%233b82f6;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g3)'/%3E%3C/svg%3E",
+    prompt: "Demo: Cool Blue",
+  },
+  {
+    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g4' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2310b981;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23059669;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g4)'/%3E%3C/svg%3E",
+    prompt: "Demo: Fresh Green",
+  },
+];
 
 type DashboardViewProps = {
   extColors: ExtColors;
@@ -33,6 +59,14 @@ export default function DashboardView({
   >([]);
   const [showImgGen, setShowImgGen] = React.useState(false);
   const [recentDocs, setRecentDocs] = React.useState<string[]>([]);
+  const [showDemoDocs, setShowDemoDocs] = React.useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("cfy.hideMockDocs") !== "1";
+  });
+  const [showDemoGallery, setShowDemoGallery] = React.useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("cfy.hideMockGallery") !== "1";
+  });
 
   React.useEffect(() => {
     let cancelled = false;
@@ -96,7 +130,15 @@ export default function DashboardView({
   const threadLimit = threadColumns * rows;
   const threadList = pinnedThreads.slice(0, threadLimit);
 
-  const galleryItems = React.useMemo(() => gallery.slice(0, 12), [gallery]);
+  // Compute which docs and gallery items to show
+  const hasRealDocs = recentDocs && recentDocs.length > 0;
+  const docsToRender = hasRealDocs ? recentDocs : showDemoDocs ? DEMO_RECENT_DOCS : [];
+
+  const hasRealGallery = gallery && gallery.length > 0;
+  const galleryToRender = React.useMemo(
+    () => (hasRealGallery ? gallery.slice(0, 12) : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
+    [gallery, hasRealGallery, showDemoGallery]
+  );
 
   return (
     <section className="flex h-full w-full min-h-0 flex-col">
@@ -174,16 +216,38 @@ export default function DashboardView({
                     See All
                   </Button>
                 </div>
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)] justify-items-center">
-                    {recentDocs.map((d) => (
-                      <DocumentPreviewTile
-                        key={d}
-                        file={{ name: d }}
-                        className="dashboard-doc-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
-                      />
-                    ))}
+                {!hasRealDocs && showDemoDocs && (
+                  <div className="rounded-[var(--tile-radius,19px)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
+                    <p className="text-xs opacity-75">Demo documents. Create or upload to replace.</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDemoDocs(false);
+                        window.localStorage.setItem("cfy.hideMockDocs", "1");
+                      }}
+                      className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+                      aria-label="Dismiss demo documents"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
+                )}
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  {docsToRender.length === 0 ? (
+                    <div className="flex h-full items-center justify-center text-sm opacity-70">
+                      No documents yet. Create or upload to get started.
+                    </div>
+                  ) : (
+                    <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)] justify-items-center">
+                      {docsToRender.map((d) => (
+                        <DocumentPreviewTile
+                          key={d}
+                          file={{ name: d }}
+                          className="dashboard-doc-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </FrameCard>
@@ -207,20 +271,42 @@ export default function DashboardView({
                   </Button>
                 </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-hidden">
-                <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)]">
-                  {galleryItems.map((item, index) => (
-                    <button
-                      key={`${item.src}-${index}`}
-                      className="relative aspect-square w-full overflow-hidden rounded-[var(--tile-radius,19px)] border border-[color-mix(in oklab,var(--panel-border) 85%,transparent)] bg-[color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 90%,transparent)] transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
-                      onClick={() => onImagePrompt(item.prompt)}
-                      aria-label={item.prompt || "Open gallery image"}
-                      type="button"
-                    >
-                      <img src={item.src} alt={item.prompt || "Gallery image"} className="absolute inset-0 h-full w-full object-cover" />
-                    </button>
-                  ))}
+              {!hasRealGallery && showDemoGallery && (
+                <div className="rounded-[var(--tile-radius,19px)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
+                  <p className="text-xs opacity-75">Demo gallery images. They'll disappear once you add your own.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDemoGallery(false);
+                      window.localStorage.setItem("cfy.hideMockGallery", "1");
+                    }}
+                    className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+                    aria-label="Dismiss demo gallery"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
+              )}
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {galleryToRender.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-sm opacity-70">
+                    No gallery images yet. Generate or upload to get started.
+                  </div>
+                ) : (
+                  <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)]">
+                    {galleryToRender.map((item, index) => (
+                      <button
+                        key={`${item.src}-${index}`}
+                        className="relative aspect-square w-full overflow-hidden rounded-[var(--tile-radius,19px)] border border-[color-mix(in oklab,var(--panel-border) 85%,transparent)] bg-[color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 90%,transparent)] transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+                        onClick={() => onImagePrompt(item.prompt)}
+                        aria-label={item.prompt || "Open gallery image"}
+                        type="button"
+                      >
+                        <img src={item.src} alt={item.prompt || "Gallery image"} className="absolute inset-0 h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </FrameCard>
