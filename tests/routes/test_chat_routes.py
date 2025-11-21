@@ -10,8 +10,15 @@ from fastapi import HTTPException
 
 @pytest.fixture(autouse=True)
 def _ensure_groq_key(monkeypatch):
-    """Provide a dummy GROQ_API_KEY so completion validation passes in tests."""
+    """Provide a dummy GROQ_API_KEY and force provider to groq for tests."""
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    try:
+        import guardian.routes.chat as chat_module
+        chat_module.llm_settings.LLM_PROVIDER = "groq"
+        chat_module.llm_settings.LLM_MODEL = "moonshotai-kimi-k2-instruct-9050"
+    except Exception:
+        pass
 
 
 class TestChatThreadsPost:

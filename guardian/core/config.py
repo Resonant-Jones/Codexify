@@ -17,8 +17,15 @@ class Settings(BaseSettings):
         default="groq", description="The LLM provider to use ('groq', 'openai')."
     )
     LLM_MODEL: str = Field(
-        default="gpt-4o-mini",
+        default="moonshotai-kimi-k2-instruct-9050",
         description="Model identifier to pass to the selected LLM provider.",
+    )
+    DEFAULT_OPENAI_MODEL: str = Field(
+        default="gpt-4o", description="Default chat model for OpenAI completions."
+    )
+    DEFAULT_GROQ_MODEL: str = Field(
+        default="moonshotai-kimi-k2-instruct-9050",
+        description="Default chat model for Groq completions.",
     )
     EMBEDDER_PROVIDER: str = Field(
         default="local",
