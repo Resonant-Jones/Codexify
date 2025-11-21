@@ -49,20 +49,23 @@ class CodexifyEmbedder:
         self,
         use_openai: bool = True,
         model: Optional[str] = None,
-        store: str = DEFAULT_STORE,
-        chroma_path: str = CHROMA_PATH,
-        collection: str = COLLECTION,
+        store: Optional[str] = None,
+        chroma_path: Optional[str] = None,
+        collection: Optional[str] = None,
     ):
         self.use_openai = use_openai
         self.model_name = model or (
             DEFAULT_OPENAI_MODEL if use_openai else DEFAULT_LOCAL_MODEL
         )
-        self.store = store.lower()
-        self.chroma_path = chroma_path
-        self.collection = collection
+        # Resolve configuration from env if not provided
+        self.store = (store or os.getenv("CODEXIFY_VECTOR_STORE", "chroma")).lower()
+        self.chroma_path = chroma_path or os.getenv("CODEXIFY_CHROMA_PATH", "./.chroma")
+        self.collection = collection or os.getenv("CODEXIFY_COLLECTION", "codexify_vault")
 
         self._client = None
         self._local_model = None
+        self._chroma_client = None
+        self._chroma_collection = None
 
         if self.use_openai:
             if OpenAI is None:
@@ -78,8 +81,14 @@ class CodexifyEmbedder:
         if self.store not in ("chroma", "faiss"):
             raise ValueError("VECTOR_STORE must be 'chroma' or 'faiss'")
 
-        if self.store == "chroma" and chromadb is None:
-            raise RuntimeError("chromadb not installed.")
+        if self.store == "chroma":
+            if chromadb is None:
+                raise RuntimeError("chromadb not installed.")
+            # Initialize persistent client and collection
+            self._chroma_client = chromadb.PersistentClient(path=self.chroma_path)
+            self._chroma_collection = self._chroma_client.get_or_create_collection(
+                name=self.collection
+            )
         if self.store == "faiss" and faiss is None:
             raise RuntimeError("faiss-cpu not installed.")
 
@@ -119,10 +128,14 @@ class CodexifyEmbedder:
         metadatas: Optional[List[Dict[str, Any]]] = None,
         ids_prefix: str = "doc",
     ):
-        client = chromadb.PersistentClient(path=self.chroma_path)
-        coll = client.get_or_create_collection(name=self.collection)
+        # Use the persistent collection initialized in __init__
+        if self._chroma_collection is None:
+             raise RuntimeError("Chroma collection not initialized")
+             
         ids = [f"{ids_prefix}_{i}" for i in range(len(docs))]
-        coll.add(documents=docs, embeddings=embeddings, metadatas=metadatas, ids=ids)
+        self._chroma_collection.add(
+            documents=docs, embeddings=embeddings, metadatas=metadatas, ids=ids
+        )
 
     def _store_faiss(
         self,
@@ -163,6 +176,42 @@ class CodexifyEmbedder:
                 "index": "codexify_index.faiss",
                 "count": len(docs),
             }
+
+    def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+        """Search the vector store for the query."""
+        if self.store != "chroma":
+            raise NotImplementedError("Search only implemented for ChromaDB currently.")
+            
+        if self._chroma_collection is None:
+            raise RuntimeError("Chroma collection not initialized")
+
+        # Embed the query
+        query_embeddings = self.embed_texts([query])
+        
+        # Query Chroma
+        results = self._chroma_collection.query(
+            query_embeddings=query_embeddings,
+            n_results=k
+        )
+        
+        # Format results to match the expected output structure
+        # Chroma returns lists of lists (one per query), we only have one query
+        formatted_results = []
+        
+        if results and results['documents']:
+            # Unpack the first (and only) query result
+            docs = results['documents'][0]
+            metas = results['metadatas'][0] if results['metadatas'] else [{}] * len(docs)
+            distances = results['distances'][0] if results['distances'] else [0.0] * len(docs)
+            
+            for doc, meta, dist in zip(docs, metas, distances):
+                formatted_results.append({
+                    "text": doc,
+                    "meta": meta,
+                    "score": 1.0 - dist  # Convert distance to similarity score roughly
+                })
+                
+        return formatted_results
 
 
 def embed_file(

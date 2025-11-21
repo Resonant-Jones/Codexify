@@ -3,9 +3,8 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-# Local imports – these modules are created in this task
-from guardian.embedding_engine import get_embedding
-from guardian.vector_store import VectorStore
+# Use the unified VectorStore
+from guardian.vector.store import VectorStore
 
 router = APIRouter()
 
@@ -38,7 +37,7 @@ class SearchRequest(BaseModel):
 
 
 # ----------------------------------------------------------------------
-# Global in‑memory vector store (FAISS based)
+# Global unified vector store
 # ----------------------------------------------------------------------
 vector_store = VectorStore()
 
@@ -65,18 +64,20 @@ async def codexify_endpoint(payload: CodexifyRequest) -> dict[str, Any]:
 async def embed_endpoint(payload: EmbedRequest) -> dict[str, Any]:
     """
     Generate an embedding for the provided text and store it in the
-    in‑memory vector store.
+    unified vector store.
     """
     try:
-        embedding = get_embedding(payload.text)
         # Compose metadata: merge provided metadata with tags
         md: dict[str, Any] = {}
         if payload.metadata:
             md.update(payload.metadata)
         if payload.tags:
             md["tags"] = list(payload.tags)
-        vector_store.add(text=payload.text, embedding=embedding, metadata=md)
-        return {"embedding": embedding, "message": "Embedding stored successfully", "metadata": md}
+            
+        # VectorStore handles embedding internally now
+        vector_store.add_texts([{"text": payload.text, "meta": md}])
+        
+        return {"message": "Embedding stored successfully", "metadata": md}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -88,8 +89,7 @@ async def search_endpoint(payload: SearchRequest) -> dict[str, Any]:
     query text. Returns the top 5 results with similarity scores.
     """
     try:
-        query_emb = get_embedding(payload.query)
-        results = vector_store.search(query_emb, top_k=5)
+        results = vector_store.search(payload.query, k=5)
         return {"results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

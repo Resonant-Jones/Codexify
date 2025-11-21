@@ -329,13 +329,14 @@ def ingest_chatgpt_export(
         if all_messages:
             # Use OpenAI embeddings if available, otherwise fall back to local
             use_openai = bool(os.getenv("OPENAI_API_KEY"))
-            chroma_path = os.getenv("CHROMA_PATH") or os.getenv("CODEXIFY_CHROMA_PATH", "./.chroma")
+            chroma_path = os.getenv("CODEXIFY_CHROMA_PATH", "./.chroma")
+            collection_name = os.getenv("CODEXIFY_COLLECTION", "codexify_vault")
 
             embedder = CodexifyEmbedder(
                 use_openai=use_openai,
                 store="chroma",
                 chroma_path=chroma_path,
-                collection="chat_history",
+                collection=collection_name,
             )
 
             # Embed and index
@@ -350,7 +351,7 @@ def ingest_chatgpt_export(
             # Store directly in Chroma with our custom IDs
             import chromadb
             client = chromadb.PersistentClient(path=chroma_path)
-            collection = client.get_or_create_collection(name="chat_history")
+            collection = client.get_or_create_collection(name=collection_name)
 
             # Use our custom IDs
             custom_ids = [msg["id"] for msg in all_messages]
