@@ -8,6 +8,12 @@ import pytest
 from fastapi import HTTPException
 
 
+@pytest.fixture(autouse=True)
+def _ensure_groq_key(monkeypatch):
+    """Provide a dummy GROQ_API_KEY so completion validation passes in tests."""
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+
+
 class TestChatThreadsPost:
     """Tests for POST /chat/threads endpoint."""
 
@@ -450,3 +456,30 @@ class TestChatThreadDelete:
         assert response.status_code == 404
         data = response.json()
         assert "detail" in data
+
+
+class TestApiChatAlias:
+    """Ensure /api/chat alias endpoints behave for the frontend."""
+
+    def test_api_chat_create_thread(self, test_client, mock_db):
+        resp = test_client.post("/api/chat/threads", json={"title": "From API"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "thread_id" in data
+
+    def test_api_chat_root_simple_reply(self, test_client):
+        resp = test_client.post("/api/chat", json={"prompt": "hello"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "reply" in data
+        assert data["reply"]
+
+    def test_api_chat_complete_missing_thread(self, test_client, mock_db):
+        mock_db.get_chat_thread.return_value = None
+        resp = test_client.post("/api/chat/999/complete", json={})
+        assert resp.status_code == 404
+
+    def test_api_chat_complete_missing_config(self, test_client, mock_db, monkeypatch):
+        monkeypatch.setattr("guardian.routes.chat.llm_settings.GROQ_API_KEY", None)
+        resp = test_client.post("/api/chat/1/complete", json={})
+        assert resp.status_code == 400
