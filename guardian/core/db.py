@@ -1,21 +1,14 @@
-"""GuardianDB multi-backend adapter.
+"""GuardianDB Postgres adapter.
 
-The primary implementation in this module targets PostgreSQL via SQLAlchemy
-ORM models. For backwards compatibility with existing SQLite-focused tests
-and utilities, a thin wrapper class at the bottom of this file can also
-route to the legacy SQLite GuardianDB implementation stored alongside this
-module in ``db.py.sqlite_backup``.
-
-Schema for the Postgres backend is defined in guardian/db/models.py and
-managed via Alembic.
+The implementation in this module targets PostgreSQL via SQLAlchemy ORM
+models. SQLite support has been removed; all persistence is expected to
+flow through Postgres tables managed by Alembic migrations.
 """
 
-import importlib.util
 import json
 import logging
 import os
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import create_engine, text, func, inspect
@@ -949,72 +942,16 @@ class _PostgresGuardianDB:
         return []
 
 
-_SQLITE_IMPL_CLS = None
-
-
-def _load_sqlite_impl():
-    """
-    Lazily import the legacy SQLite GuardianDB implementation from the
-    backup file stored next to this module.
-
-    The backup file keeps the older, sqlite3-based GuardianDB class that
-    tests like test_guardian_db and test_chat_history rely on.
-    """
-    global _SQLITE_IMPL_CLS
-    if _SQLITE_IMPL_CLS is not None:
-        return _SQLITE_IMPL_CLS
-
-    backup_path = Path(__file__).with_suffix(".py.sqlite_backup")
-    if not backup_path.exists():
-        raise RuntimeError(f"SQLite GuardianDB backup not found at {backup_path}")
-
-    # Use a SourceFileLoader explicitly so the non-standard suffix is accepted.
-    from importlib.machinery import SourceFileLoader
-
-    loader = SourceFileLoader(
-        "guardian.core._sqlite_guardian_db_backup", str(backup_path)
-    )
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    if spec is None:  # pragma: no cover - defensive
-        raise RuntimeError("Unable to construct spec for SQLite GuardianDB backup")
-
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)  # type: ignore[arg-type]
-    impl_cls = getattr(module, "GuardianDB", None)
-    if impl_cls is None:  # pragma: no cover - defensive
-        raise RuntimeError("SQLite backup module does not define GuardianDB")
-
-    _SQLITE_IMPL_CLS = impl_cls
-    return _SQLITE_IMPL_CLS
-
-
 class GuardianDB:
-    """
-    Unified façade over Postgres and SQLite GuardianDB implementations.
+    """Postgres-only façade over ``_PostgresGuardianDB``."""
 
-    Instantiation rules:
-    - GuardianDB(db_url=\"postgresql://...\") -> Postgres backend
-    - GuardianDB(\"guardian.db\") or GuardianDB(db_path=\"guardian.db\") -> SQLite backend
-    """
-
-    def __init__(self, db_url: Optional[str] = None, db_path: Optional[str] = None, **_: Any) -> None:
-        # Backwards compatibility: some callers only pass db_path=...
-        if db_path is None and db_url is not None:
-            # Heuristic: treat plain paths (no scheme) as SQLite.
-            if isinstance(db_url, str) and "://" not in db_url:
-                db_path = db_url
-                db_url = None
-
-        if db_path is not None and not (db_url and db_url.startswith("postgresql")):
-            impl_cls = _load_sqlite_impl()
-            # Legacy SQLite GuardianDB takes db_path as its primary argument.
-            self._impl = impl_cls(db_path=db_path)
-            self.backend = "sqlite"
-        else:
-            if not db_url:
-                raise RuntimeError("Postgres GuardianDB requires a non-empty db_url")
-            self._impl = _PostgresGuardianDB(db_url=db_url)
-            self.backend = "postgres"
+    def __init__(self, db_url: Optional[str] = None, **_: Any) -> None:
+        if not db_url:
+            raise RuntimeError("GuardianDB now requires a Postgres DATABASE_URL")
+        if "://" not in str(db_url):
+            raise RuntimeError("SQLite backend has been removed; provide a Postgres DATABASE_URL")
+        self._impl = _PostgresGuardianDB(db_url=db_url)
+        self.backend = "postgres"
 
     def __getattr__(self, name: str) -> Any:
         """

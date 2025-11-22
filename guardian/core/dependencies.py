@@ -23,22 +23,12 @@ from fastapi.security.api_key import APIKeyHeader
 
 from guardian.core import event_bus
 from guardian.core.chat_db import ChatDB
-from guardian.core.sqlitedb import SqliteChatLogDB
-from guardian.core.pgdb import PgDB  # type: ignore
+from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
 from guardian.vector.store import VectorStore
 from guardian.memory.query_memory import memory_store as _memory_store
 from guardian.sensors.state import Sensors
-
-# Try to import PgDB (PostgreSQL adapter)
-try:
-    from guardian.core.pgdb import PgDB  # type: ignore
-except Exception as _pg_exc:
-    PgDB = None  # type: ignore
-    _PG_IMPORT_ERROR = _pg_exc
-else:
-    _PG_IMPORT_ERROR = None
 
 # Try to import Groq provider
 try:
@@ -199,61 +189,43 @@ def get_current_user(api_key: str = Depends(require_api_key)) -> str:
 
 # This will be initialized by init_database() / guardian_api.py at startup
 chatlog_db: Optional[Any] = None
-DB_BACKEND: Optional[str] = None
-SQLITE_PATH: Optional[str] = None
+DB_BACKEND: str = "postgres"
 PG_DSN: Optional[str] = None
 
 
 def init_database() -> Optional[Any]:
     """
-    Initialize the database backend (PostgreSQL or SQLite).
+    Initialize the database backend (PostgreSQL).
     Called by guardian_api.py during startup.
     Returns the initialized ChatDB instance.
     """
-    global chatlog_db, DB_BACKEND, SQLITE_PATH, PG_DSN
+    global chatlog_db, PG_DSN
 
     if chatlog_db is not None:
         return chatlog_db
 
     settings = get_settings()
-    db_path = getattr(settings, "GUARDIAN_DB_PATH", None)
-    db_url = getattr(settings, "GUARDIAN_DATABASE_URL", None)
-
-    if db_path:
-        # Prefer SQLite when a GUARDIAN_DB_PATH is configured.
-        path_str = str(db_path)
-        chatlog_db = SqliteChatLogDB(path_str)
-        DB_BACKEND = "sqlite"
-        SQLITE_PATH = path_str
-        logger.info("[db] Using SQLite chatlog DB at %s", path_str)
-        return chatlog_db
+    db_url = getattr(settings, "GUARDIAN_DATABASE_URL", None) or os.getenv("DATABASE_URL")
 
     if db_url:
         # Fall back to Postgres when a GUARDIAN_DATABASE_URL is explicitly set.
-        chatlog_db = PgDB(db_url)  # type: ignore[arg-type]
-        # PgDB manages its own schema via migrations; no explicit ensure_schema required.
-        DB_BACKEND = "postgres"
-        SQLITE_PATH = None
+        chatlog_db = PostgresChatLogDB(db_url)  # type: ignore[arg-type]
+        # PgDB/PostgresChatLogDB manage schema via migrations; no explicit ensure_schema required.
         PG_DSN = db_url
         logger.info("[db] Using PostgreSQL chatlog DB DSN=%s", _mask_dsn(db_url))
         return chatlog_db
 
     logger.warning(
-        "[db] No chatlog DB configured (GUARDIAN_DB_PATH and GUARDIAN_DATABASE_URL are both unset)"
+        "[db] No chatlog DB configured (GUARDIAN_DATABASE_URL or DATABASE_URL must be set)"
     )
     return None
 
 
 def get_database_dsn() -> Optional[str]:
-    """Return the configured database DSN or SQLite path without raising."""
+    """Return the configured database DSN without raising."""
     if PG_DSN:
         return PG_DSN
-    env_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if env_url:
-        return env_url
-    if SQLITE_PATH:
-        return f"sqlite:///{SQLITE_PATH}"
-    return None
+    return os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
 
 
 # =========================
@@ -491,7 +463,6 @@ __all__ = [
     "init_database",
     "DB_BACKEND",
     "PG_DSN",
-    "SQLITE_PATH",
     "get_database_dsn",
 
     # Services

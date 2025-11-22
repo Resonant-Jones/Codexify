@@ -72,10 +72,10 @@ REQUEST_COUNT = Counter(
     registry=registry,
 )
 
-# Database backend gauge - 1 for Postgres, 0 for SQLite
+# Database backend gauge - 1 for Postgres, 0 for unknown/legacy
 DB_BACKEND_GAUGE = Gauge(
     "codexify_db_backend",
-    "Current active database backend (1=Postgres, 0=SQLite)",
+    "Current active database backend (1=Postgres, 0=unknown)",
     registry=registry,
 )
 
@@ -85,7 +85,7 @@ def set_db_backend(backend: str) -> None:
     Set the database backend metric value.
 
     Args:
-        backend: Database backend name ("postgres" or "sqlite")
+        backend: Database backend name ("postgres" expected)
     """
     # Metrics are safe to call even when PROMETHEUS_AVAILABLE is False
     # because _NoopMetric implements the same surface API.

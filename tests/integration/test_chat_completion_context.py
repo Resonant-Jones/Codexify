@@ -224,72 +224,72 @@ class TestChatCompletionDepthModes:
     async def test_completion_shallow_depth(self, mock_context_broker, mock_chatlog_db):
         """Test completion with shallow depth mode (messages only)."""
         # Simulate endpoint with ContextBroker integration
-        bundle = await mock_context_broker.assemble(
+        context, _ = await mock_context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="shallow"
         )
 
         # Verify shallow depth structure
-        assert "messages" in bundle
-        assert bundle["semantic"] == []
-        assert "memory" not in bundle
-        assert "sensors" not in bundle
+        assert "messages" in context
+        assert context["semantic"] == []
+        assert "memory" not in context
+        assert "sensors" not in context
 
     @pytest.mark.asyncio
     async def test_completion_normal_depth(self, mock_context_broker):
         """Test completion with normal depth mode (messages + semantic)."""
-        bundle = await mock_context_broker.assemble(
+        context, _ = await mock_context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="normal"
         )
 
         # Verify normal depth structure
-        assert "messages" in bundle
-        assert "semantic" in bundle
-        assert len(bundle["semantic"]) > 0
-        assert "memory" not in bundle
-        assert "sensors" not in bundle
+        assert "messages" in context
+        assert "semantic" in context
+        assert len(context["semantic"]) > 0
+        assert "memory" not in context
+        assert "sensors" not in context
 
         # Verify semantic results have expected structure
-        for result in bundle["semantic"]:
+        for result in context["semantic"]:
             assert "text" in result
             assert "score" in result
 
     @pytest.mark.asyncio
     async def test_completion_deep_depth(self, mock_context_broker):
         """Test completion with deep depth mode (messages + semantic + memory)."""
-        bundle = await mock_context_broker.assemble(
+        context, _ = await mock_context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="deep"
         )
 
         # Verify deep depth structure
-        assert "messages" in bundle
-        assert "semantic" in bundle
-        assert "memory" in bundle
-        assert len(bundle["memory"]) > 0
-        assert "sensors" not in bundle
+        assert "messages" in context
+        assert "semantic" in context
+        assert "memory" in context
+        assert len(context["memory"]) > 0
+        assert "sensors" not in context
 
     @pytest.mark.asyncio
     async def test_completion_diagnostic_depth(self, mock_context_broker):
         """Test completion with diagnostic depth mode (all components)."""
-        bundle = await mock_context_broker.assemble(
+        context, _ = await mock_context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="diagnostic"
         )
 
         # Verify diagnostic depth structure
-        assert "messages" in bundle
-        assert "semantic" in bundle
-        assert "memory" in bundle
-        assert "sensors" in bundle
+        assert "messages" in context
+        assert "semantic" in context
+        assert "memory" in context
+        assert "sensors" in context
 
         # Verify sensor structure
-        sensors = bundle["sensors"]
+        sensors = context["sensors"]
         assert "cpu" in sensors
         assert "memory" in sensors
         assert "connectors" in sensors
@@ -299,15 +299,15 @@ class TestChatCompletionDepthModes:
     async def test_completion_default_depth_is_shallow(self, mock_context_broker):
         """Test that default depth (no depth specified) behaves as shallow."""
         # No depth parameter specified
-        bundle = await mock_context_broker.assemble(
+        context, _ = await mock_context_broker.assemble(
             thread_id=1,
             query="test query"
         )
 
         # Should behave like normal (default), not shallow
-        assert "messages" in bundle
+        assert "messages" in context
         # Default is "normal", not shallow
-        assert "semantic" in bundle
+        assert "semantic" in context
 
 
 class TestChatCompletionContextIntegration:
@@ -320,7 +320,7 @@ class TestChatCompletionContextIntegration:
         query = "What is the status?"
         depth = "deep"
 
-        bundle = await mock_context_broker.assemble(
+        context, _ = await mock_context_broker.assemble(
             thread_id=thread_id,
             query=query,
             depth=depth
@@ -352,7 +352,7 @@ class TestChatCompletionContextIntegration:
     @pytest.mark.asyncio
     async def test_context_summary_creation(self, mock_context_broker):
         """Test that context bundle is summarized for system prompt."""
-        bundle = await mock_context_broker.assemble(
+        context, _ = await mock_context_broker.assemble(
             thread_id=1,
             query="test",
             depth="deep"
@@ -362,17 +362,17 @@ class TestChatCompletionContextIntegration:
         summary_parts = []
 
         # Add semantic matches
-        if bundle.get("semantic"):
+        if context.get("semantic"):
             summary_parts.append("Semantic context:")
-            for item in bundle["semantic"][:3]:  # Top 3
+            for item in context["semantic"][:3]:  # Top 3
                 score = item.get("score", 0)
                 text = item.get("text", "")[:100]
                 summary_parts.append(f"  [{score:.2f}] {text}")
 
         # Add memory hits
-        if bundle.get("memory"):
+        if context.get("memory"):
             summary_parts.append("Related memories:")
-            for item in bundle["memory"][:3]:  # Top 3
+            for item in context["memory"][:3]:  # Top 3
                 score = item.get("score", 0)
                 text = item.get("text", "")[:100]
                 summary_parts.append(f"  [{score:.2f}] {text}")
@@ -387,7 +387,7 @@ class TestChatCompletionContextIntegration:
     async def test_completion_with_rich_context(self, mock_context_broker, mock_groq_complete):
         """Test that completion uses rich context from broker."""
         # Get enriched context from broker
-        bundle = await mock_context_broker.assemble(
+        context, _ = await mock_context_broker.assemble(
             thread_id=1,
             query="What is the status?",
             depth="deep"
@@ -396,7 +396,7 @@ class TestChatCompletionContextIntegration:
         # Build system message from context
         system_message = {
             "role": "system",
-            "content": f"You have access to: {len(bundle['semantic'])} semantic matches, {len(bundle.get('memory', []))} memory items"
+            "content": f"You have access to: {len(context['semantic'])} semantic matches, {len(context.get('memory', []))} memory items"
         }
 
         # Construct messages for completion
@@ -586,7 +586,7 @@ class TestChatCompletionContextAwareness:
     async def test_depth_param_passed_to_broker(self, mock_context_broker):
         """Test that depth parameter is passed to ContextBroker."""
         for depth in ["shallow", "normal", "deep", "diagnostic"]:
-            bundle = await mock_context_broker.assemble(
+            _, _ = await mock_context_broker.assemble(
                 thread_id=1,
                 query="test",
                 depth=depth
@@ -621,7 +621,7 @@ class TestChatCompletionContextAwareness:
         }
 
         for depth, expected_keys in depths_and_keys.items():
-            bundle = await mock_context_broker.assemble(
+            context, _ = await mock_context_broker.assemble(
                 thread_id=1,
                 query="test",
                 depth=depth
@@ -629,7 +629,7 @@ class TestChatCompletionContextAwareness:
 
             # Check that expected keys are present
             for key in expected_keys:
-                assert key in bundle, f"Missing {key} in {depth} depth"
+                assert key in context, f"Missing {key} in {depth} depth"
 
 
 class TestChatCompletionFallback:
