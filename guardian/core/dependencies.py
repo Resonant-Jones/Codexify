@@ -201,6 +201,7 @@ def get_current_user(api_key: str = Depends(require_api_key)) -> str:
 chatlog_db: Optional[Any] = None
 DB_BACKEND: Optional[str] = None
 SQLITE_PATH: Optional[str] = None
+PG_DSN: Optional[str] = None
 
 
 def init_database() -> Optional[Any]:
@@ -209,7 +210,7 @@ def init_database() -> Optional[Any]:
     Called by guardian_api.py during startup.
     Returns the initialized ChatDB instance.
     """
-    global chatlog_db, DB_BACKEND, SQLITE_PATH
+    global chatlog_db, DB_BACKEND, SQLITE_PATH, PG_DSN
 
     if chatlog_db is not None:
         return chatlog_db
@@ -233,12 +234,25 @@ def init_database() -> Optional[Any]:
         # PgDB manages its own schema via migrations; no explicit ensure_schema required.
         DB_BACKEND = "postgres"
         SQLITE_PATH = None
+        PG_DSN = db_url
         logger.info("[db] Using PostgreSQL chatlog DB DSN=%s", _mask_dsn(db_url))
         return chatlog_db
 
     logger.warning(
         "[db] No chatlog DB configured (GUARDIAN_DB_PATH and GUARDIAN_DATABASE_URL are both unset)"
     )
+    return None
+
+
+def get_database_dsn() -> Optional[str]:
+    """Return the configured database DSN or SQLite path without raising."""
+    if PG_DSN:
+        return PG_DSN
+    env_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if env_url:
+        return env_url
+    if SQLITE_PATH:
+        return f"sqlite:///{SQLITE_PATH}"
     return None
 
 
@@ -478,6 +492,7 @@ __all__ = [
     "DB_BACKEND",
     "PG_DSN",
     "SQLITE_PATH",
+    "get_database_dsn",
 
     # Services
     "_vector_store",

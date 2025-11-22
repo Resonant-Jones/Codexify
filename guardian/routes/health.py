@@ -9,6 +9,7 @@ Mounted without a prefix to preserve public paths like /health/chat.
 import logging
 from fastapi import APIRouter, Depends, Response
 from guardian.core import metrics
+from guardian.core.dependencies import get_database_dsn
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,6 @@ def health_deps(format: str = "json"):
     # Import from core dependencies module
     from guardian.core.dependencies import (
         DB_BACKEND,
-        PG_DSN,
         SQLITE_PATH,
         API_KEY,
         _mask_dsn,
@@ -110,6 +110,6 @@ def health_deps(format: str = "json"):
         "status": "ok",
         "db_backend": DB_BACKEND,
         "sqlite_path": SQLITE_PATH,
-        "pg_dsn_masked": _mask_dsn(PG_DSN) if PG_DSN else None,
+        "pg_dsn_masked": _mask_dsn(get_database_dsn()) if get_database_dsn() else None,
         "api_key_masked": masked_api_key,
     }
