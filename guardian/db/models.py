@@ -114,6 +114,7 @@ class ConnectorConfig(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     type: Mapped[str] = mapped_column(String(64), nullable=False)  # 'github', 'gdrive', etc.
     config: Mapped[dict] = mapped_column(JSONB, server_default='{}', nullable=False)
+    schedule: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

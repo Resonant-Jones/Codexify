@@ -4,7 +4,6 @@ import os
 import pytest
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, DateTime, Boolean, JSON, ForeignKey, func
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 
@@ -52,12 +51,11 @@ class CollaborationAuditLog(Base):
 
 @pytest.fixture(scope="function")
 def db_engine():
-    """Create an in-memory SQLite database for testing."""
-    engine = create_engine(
-        "sqlite:///:memory:",
-        poolclass=StaticPool,
-        connect_args={"check_same_thread": False},
-    )
+    """Create a Postgres-backed database for testing."""
+    db_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not db_url:
+        pytest.skip("TEST_DATABASE_URL or DATABASE_URL must be set for realtime DB tests")
+    engine = create_engine(db_url, future=True)
 
     # Create only the test tables
     Base.metadata.create_all(engine)

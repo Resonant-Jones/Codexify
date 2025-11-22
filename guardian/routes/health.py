@@ -91,8 +91,6 @@ def health_deps(format: str = "json"):
     """
     # Import from core dependencies module
     from guardian.core.dependencies import (
-        DB_BACKEND,
-        SQLITE_PATH,
         API_KEY,
         _mask_dsn,
     )
@@ -109,7 +107,6 @@ def health_deps(format: str = "json"):
     return {
         "status": "ok",
         "db_backend": DB_BACKEND,
-        "sqlite_path": SQLITE_PATH,
         "pg_dsn_masked": _mask_dsn(get_database_dsn()) if get_database_dsn() else None,
         "api_key_masked": masked_api_key,
     }

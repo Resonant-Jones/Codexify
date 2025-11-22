@@ -26,7 +26,6 @@ try:
         require_api_key,
         API_KEY,
         PG_DSN,
-        SQLITE_PATH,
         DB_BACKEND,
         GUARDIAN_PROVIDER,
         allowed_origins,
@@ -41,8 +40,7 @@ except ImportError as e:
     issue_session_token = None
     API_KEY = None
     PG_DSN = None
-    SQLITE_PATH = None
-    DB_BACKEND = "unknown"
+    DB_BACKEND = "postgres"
     GUARDIAN_PROVIDER = "unknown"
     allowed_origins = []
     get_groq_chat = lambda: None
@@ -144,7 +142,7 @@ def healthz():
     """
     Returns DB target and existence of projects/chat_threads for quick diagnostics.
     """
-    db_target = get_database_dsn() if DB_BACKEND == "postgres" else SQLITE_PATH
+    db_target = get_database_dsn()
     projects_exists = False
     threads_exists = False
     try:
@@ -236,7 +234,7 @@ def debug_config(access_method: str = Depends(require_admin)):
     masked_key = (
         (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
     )
-    db_target = PG_DSN if DB_BACKEND == "postgres" else SQLITE_PATH
+    db_target = PG_DSN
     return {
         "env": env,
         "db_target": db_target,

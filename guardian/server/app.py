@@ -76,11 +76,12 @@ app.include_router(retrieve_router)
 app.include_router(documents_router)
 app.include_router(workspace_router)
 
-# Configure documents DB (SQLite path by default)
+# Configure documents DB (Postgres only)
 try:
-    _db_path = os.getenv("GUARDIAN_DB_PATH") or os.path.join(os.getcwd(), "guardian.db")
-    _doc_db = GuardianDB(_db_path)
-    configure_documents_db(_doc_db)
+    _db_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if _db_url:
+        _doc_db = GuardianDB(_db_url)
+        configure_documents_db(_doc_db)
 except Exception:
     # Non-fatal for app startup; autosave endpoints will error if used
     pass

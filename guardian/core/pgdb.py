@@ -15,12 +15,17 @@ import decimal
 import logging
 import os
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import psycopg
 from psycopg import errors as pg_errors
 from psycopg.rows import dict_row
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import sessionmaker
+
+from guardian.db.models import EventOutbox
 
 from .chat_db import ChatDB
 
@@ -56,6 +61,9 @@ class PgDB(ChatDB):
         your database's distributed consciousness. False flags guard against table
         recreation loops when multiple database operations request the same structure."""
         self.dsn = dsn
+        self._sa_url = self._build_sqlalchemy_url(dsn)
+        self._sa_engine = create_engine(self._sa_url, future=True)
+        self._SessionLocal = sessionmaker(bind=self._sa_engine, autoflush=False, autocommit=False)
         self._sync_jobs_ready = False
         self._events_outbox_ready = False
         self._connector_tables_ready = False
@@ -63,6 +71,17 @@ class PgDB(ChatDB):
         # connector_configs.schedule column. We detect this lazily and
         # degrade to a schedule-less projection instead of failing queries.
         self._connector_has_schedule = False
+
+    def _build_sqlalchemy_url(self, dsn: str) -> str:
+        """Normalise DSN for SQLAlchemy to use the psycopg driver."""
+        if isinstance(dsn, str):
+            if dsn.startswith("postgresql+psycopg://"):
+                return dsn
+            if dsn.startswith("postgresql+psycopg2://"):
+                return "postgresql+psycopg://" + dsn.split("://", 1)[1]
+            if dsn.startswith("postgresql://"):
+                return "postgresql+psycopg://" + dsn.split("://", 1)[1]
+        return dsn
 
     def _connect(self):
         """
@@ -76,6 +95,19 @@ class PgDB(ChatDB):
         if isinstance(dsn, str) and dsn.startswith("postgresql+psycopg2://"):
             dsn = "postgresql://" + dsn.split("://", 1)[1]
         return psycopg.connect(dsn, row_factory=dict_row)
+
+    @contextmanager
+    def _sa_session(self):
+        """Context-managed SQLAlchemy session for ORM-backed operations."""
+        session = self._SessionLocal()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     # ---- internal helpers -------------------------------------------------
     def _ensure_sync_jobs_table(self, conn) -> None:
@@ -103,33 +135,25 @@ class PgDB(ChatDB):
 
         self._sync_jobs_ready = True
 
-    def _ensure_events_outbox_table(self, conn) -> None:
+    def _ensure_events_outbox_table(self, conn=None) -> None:
         """Verify events_outbox schema; DDL managed in Alembic revision ac973209add4."""
         if self._events_outbox_ready:
             return
-        with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass(%s) AS relname", ("public.events_outbox",))
-            result = cur.fetchone() or {}
-            table_exists = result.get("relname") is not None
-            if not table_exists:
-                raise RuntimeError(
-                    "events_outbox table missing. Apply Alembic revision ac973209add4 before using PgDB."
-                )
 
-            cur.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = 'events_outbox'
-                """
+        inspector = inspect(self._sa_engine)
+        table_names = set(inspector.get_table_names(schema="public"))
+        if "events_outbox" not in table_names:
+            raise RuntimeError(
+                "events_outbox table missing. Apply Alembic revision ac973209add4 before using PgDB."
             )
-            columns = {row["column_name"] for row in cur.fetchall()}
-            required_columns = {"id", "topic", "payload", "status", "tenant_id", "created_at"}
-            missing_columns = required_columns - columns
-            if missing_columns:
-                raise RuntimeError(
-                    f"events_outbox columns missing {sorted(missing_columns)}; ensure Alembic revision ac973209add4 is applied."
-                )
+
+        columns = {col["name"] for col in inspector.get_columns("events_outbox", schema="public")}
+        required_columns = {"id", "topic", "payload", "status", "tenant_id", "created_at"}
+        missing_columns = required_columns - columns
+        if missing_columns:
+            raise RuntimeError(
+                f"events_outbox columns missing {sorted(missing_columns)}; ensure Alembic revision ac973209add4 is applied."
+            )
 
         self._events_outbox_ready = True
 
@@ -1412,58 +1436,56 @@ class PgDB(ChatDB):
 
     # ---- events outbox -------------------------------------------------
     def ensure_event_outbox(self) -> None:
-        with self._connect() as conn:
-            self._ensure_events_outbox_table(conn)
+        self._ensure_events_outbox_table()
 
     def append_event(
         self, topic: str, payload: Dict[str, Any], tenant_id: str = "default"
     ) -> None:
-        with self._connect() as conn:
-            self._ensure_events_outbox_table(conn)
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO events_outbox (topic, payload, tenant_id)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (topic, _to_json(payload), tenant_id),
+        self._ensure_events_outbox_table()
+        with self._sa_session() as session:
+            session.add(
+                EventOutbox(
+                    topic=topic,
+                    payload=payload,
+                    tenant_id=tenant_id,
                 )
-                conn.commit()
+            )
 
     def list_events_after(self, last_id: int, limit: int = 100) -> List[Dict[str, Any]]:
-        with self._connect() as conn:
-            self._ensure_events_outbox_table(conn)
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT id, topic, payload, tenant_id, created_at
-                    FROM events_outbox
-                    WHERE id > %s
-                    ORDER BY id ASC
-                    LIMIT %s
-                    """,
-                    (last_id, limit),
+        self._ensure_events_outbox_table()
+        with self._sa_session() as session:
+            rows = (
+                session.query(EventOutbox)
+                .filter(EventOutbox.id > last_id)
+                .order_by(EventOutbox.id.asc())
+                .limit(limit)
+                .all()
+            )
+            events: List[Dict[str, Any]] = []
+            for row in rows:
+                created = row.created_at
+                if isinstance(created, datetime):
+                    created = created.isoformat()
+                events.append(
+                    {
+                        "id": row.id,
+                        "topic": row.topic,
+                        "payload": row.payload,
+                        "tenant_id": row.tenant_id,
+                        "created_at": created,
+                    }
                 )
-                rows = cur.fetchall()
-        return [dict(row) for row in rows]
+            return events
 
     def delete_events_through(self, last_id: int, tenant_id: Optional[str] = None) -> None:
         if last_id <= 0:
             return
-        with self._connect() as conn:
-            self._ensure_events_outbox_table(conn)
-            with conn.cursor() as cur:
-                if tenant_id:
-                    cur.execute(
-                        "DELETE FROM events_outbox WHERE id <= %s AND tenant_id = %s",
-                        (last_id, tenant_id),
-                    )
-                else:
-                    cur.execute(
-                        "DELETE FROM events_outbox WHERE id <= %s",
-                        (last_id,),
-                    )
-                conn.commit()
+        self._ensure_events_outbox_table()
+        with self._sa_session() as session:
+            query = session.query(EventOutbox).filter(EventOutbox.id <= last_id)
+            if tenant_id:
+                query = query.filter(EventOutbox.tenant_id == tenant_id)
+            query.delete(synchronize_session=False)
 
     def write_audit_log(
         self, event: str, entity: str, entity_id: str, user_id: str

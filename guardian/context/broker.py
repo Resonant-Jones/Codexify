@@ -73,12 +73,19 @@ class ContextBroker:
             federated: If True, include federated context from peer nodes
 
         Returns:
-            Dict with keys depending on depth:
-            - "messages": Recent thread messages (all depths)
-            - "semantic": Semantic search results (all depths)
-            - "memory": Memory search results (deep, diagnostic)
-            - "sensors": System sensor snapshot (diagnostic only)
-            - "federated": Federated search results (if federated=True)
+            A tuple of (context, rag_trace):
+
+            context: Dict with keys depending on depth:
+                - "messages": Recent thread messages (all depths)
+                - "semantic": Semantic search results (all depths except "shallow")
+                - "graph": Graph-derived context (if enabled)
+                - "memory": Memory search results (deep, diagnostic)
+                - "sensors": System sensor snapshot (diagnostic only)
+                - "federated": Federated search results (if federated=True)
+
+            rag_trace: Dict summarizing contributing items:
+                - "documents": List of {id, title, score, snippet}
+                - "graph": List of {node_id, kind, text}
         """
         # Normalize depth
         depth = str(depth or "normal").strip().lower()

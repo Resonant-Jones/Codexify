@@ -82,7 +82,8 @@ Run with:
     python -m guardian.cli.main --help
 """
 
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from typing import Optional
 
 from rich import print
@@ -97,7 +98,10 @@ from guardian.core.utils.hybrid_router import HybridRouter
 
 
 settings = get_settings()
-db = GuardianDB(settings.GUARDIAN_DB_PATH)
+_db_url = getattr(settings, "GUARDIAN_DATABASE_URL", None) or os.getenv("DATABASE_URL")
+if not _db_url:
+    raise RuntimeError("DATABASE_URL or GUARDIAN_DATABASE_URL is required for guardian CLI commands.")
+db = GuardianDB(_db_url)
 
 
 # --------------------------------------------------------------------------- #
@@ -107,9 +111,12 @@ db = GuardianDB(settings.GUARDIAN_DB_PATH)
 
 @app.command()
 def init() -> None:
-    """Initialise the SQLite database schema."""
-    db.init_db()
-    print("[bold green]Database initialised.[/bold green]")
+    """Verify Postgres connectivity (schema is managed via Alembic)."""
+    try:
+        db.count_chat_threads()
+        print("[bold green]Database connection verified.[/bold green]")
+    except Exception as exc:  # pragma: no cover - CLI guard
+        print(f"[red]Database check failed:[/red] {exc}")
 
 
 @app.command()
@@ -328,29 +335,18 @@ def list_threads(
     ),
 ):
     """List all threads (optionally filtered by user or project)."""
-    import sqlite3
-
-    query = "SELECT thread_id, parent_thread_id, session_id, summary, created_at, user_id, project_id FROM threads WHERE 1=1"
-    params = []
-    if user_id:
-        query += " AND user_id = ?"
-        params.append(user_id)
-    if project_id:
-        query += " AND project_id = ?"
-        params.append(project_id)
-    with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:
-        c = conn.cursor()
-        c.execute(query, params)
-        rows = c.fetchall()
+    rows = db.list_threads(user_id=user_id, project_id=project_id)
     if not rows:
         print("[yellow]No threads found.[/yellow]")
         return
     for row in rows:
         print(
-            f"[cyan]Thread {row[0]}[/cyan] | Parent: {row[1] or '-'} | Session: {row[2] or '-'} | [magenta]User:[/magenta] {row[5] or '-'} | [magenta]Project:[/magenta] {row[6] or '-'}"
+            f"[cyan]Thread {row['id']}[/cyan] | Parent: {row.get('parent_id') or '-'} | "
+            f"[magenta]User:[/magenta] {row.get('user_id') or '-'} | "
+            f"[magenta]Project:[/magenta] {row.get('project_id') or '-'}"
         )
-        print(f"  [green]Summary:[/green] {row[3] or '(None)'}")
-        print(f"  Created: {row[4]}")
+        print(f"  [green]Summary:[/green] {row.get('summary') or '(None)'}")
+        print(f"  Created: {row.get('created_at')}")
         print("")
 
 

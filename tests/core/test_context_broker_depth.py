@@ -62,18 +62,18 @@ class TestContextBrokerShallowDepth:
     @pytest.mark.asyncio
     async def test_shallow_depth_returns_only_messages(self, context_broker, mock_chatlog_db):
         """Verify shallow mode returns only messages key."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="shallow"
         )
 
         # Verify structure
-        assert isinstance(result, dict)
-        assert "messages" in result
-        assert "semantic" in result
-        assert "memory" not in result
-        assert "sensors" not in result
+        assert isinstance(context, dict)
+        assert "messages" in context
+        assert "semantic" in context
+        assert "memory" not in context
+        assert "sensors" not in context
 
     @pytest.mark.asyncio
     async def test_shallow_depth_fetches_messages(self, context_broker, mock_chatlog_db):
@@ -91,14 +91,14 @@ class TestContextBrokerShallowDepth:
     @pytest.mark.asyncio
     async def test_shallow_depth_empty_semantic(self, context_broker, mock_vector_store):
         """Verify shallow mode has empty semantic results."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="shallow"
         )
 
         # Semantic should be present but empty for shallow
-        assert result["semantic"] == []
+        assert context["semantic"] == []
         # Vector store should not be called for shallow depth
         mock_vector_store.search.assert_not_called()
 
@@ -122,17 +122,17 @@ class TestContextBrokerNormalDepth:
     @pytest.mark.asyncio
     async def test_normal_depth_includes_messages_and_semantic(self, context_broker):
         """Verify normal mode returns messages and semantic."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="normal"
         )
 
         # Verify structure
-        assert "messages" in result
-        assert "semantic" in result
-        assert "memory" not in result
-        assert "sensors" not in result
+        assert "messages" in context
+        assert "semantic" in context
+        assert "memory" not in context
+        assert "sensors" not in context
 
     @pytest.mark.asyncio
     async def test_normal_depth_fetches_messages(self, context_broker, mock_chatlog_db):
@@ -162,14 +162,14 @@ class TestContextBrokerNormalDepth:
     @pytest.mark.asyncio
     async def test_normal_depth_default_mode(self, context_broker, mock_vector_store):
         """Verify normal is the default depth when not specified."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query"
         )
 
         # Should perform semantic search (normal mode behavior)
         mock_vector_store.search.assert_called_once()
-        assert "semantic" in result
+        assert "semantic" in context
 
     @pytest.mark.asyncio
     async def test_normal_depth_no_memory(self, context_broker, mock_memory_store):
@@ -186,14 +186,14 @@ class TestContextBrokerNormalDepth:
     @pytest.mark.asyncio
     async def test_normal_depth_semantic_results(self, context_broker):
         """Verify normal mode returns semantic search results."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="normal"
         )
 
         # Should have semantic results (mocked as [{"text": "semantic"}])
-        assert result["semantic"] == [{"text": "semantic"}]
+        assert context["semantic"] == [{"text": "semantic"}]
 
 
 class TestContextBrokerDeepDepth:
@@ -202,17 +202,17 @@ class TestContextBrokerDeepDepth:
     @pytest.mark.asyncio
     async def test_deep_depth_includes_messages_semantic_memory(self, context_broker):
         """Verify deep mode returns messages, semantic, and memory."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="deep"
         )
 
         # Verify structure
-        assert "messages" in result
-        assert "semantic" in result
-        assert "memory" in result
-        assert "sensors" not in result
+        assert "messages" in context
+        assert "semantic" in context
+        assert "memory" in context
+        assert "sensors" not in context
 
     @pytest.mark.asyncio
     async def test_deep_depth_fetches_messages(self, context_broker, mock_chatlog_db):
@@ -259,7 +259,7 @@ class TestContextBrokerDeepDepth:
     @pytest.mark.asyncio
     async def test_deep_depth_memory_results(self, context_broker):
         """Verify deep mode returns memory search results via MemoryOSRetriever."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="deep"
@@ -267,12 +267,12 @@ class TestContextBrokerDeepDepth:
 
         # Should have memory results with MemoryOSRetriever schema: {text, metadata, score}
         # Vector store returns [{"text": "semantic"}], MemoryOSRetriever normalizes it
-        assert "memory" in result
-        assert len(result["memory"]) > 0
+        assert "memory" in context
+        assert len(context["memory"]) > 0
         # Verify normalized schema
-        assert "text" in result["memory"][0]
-        assert "metadata" in result["memory"][0]
-        assert "score" in result["memory"][0]
+        assert "text" in context["memory"][0]
+        assert "metadata" in context["memory"][0]
+        assert "score" in context["memory"][0]
 
     @pytest.mark.asyncio
     async def test_deep_depth_no_sensors(self, context_broker, mock_sensors):
@@ -289,19 +289,19 @@ class TestContextBrokerDeepDepth:
     @pytest.mark.asyncio
     async def test_deep_depth_all_results_present(self, context_broker):
         """Verify deep mode returns all required context components."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="deep"
         )
 
         # All three components should be present
-        assert "messages" in result
-        assert len(result["messages"]) > 0
-        assert "semantic" in result
-        assert len(result["semantic"]) > 0
-        assert "memory" in result
-        assert len(result["memory"]) > 0
+        assert "messages" in context
+        assert len(context["messages"]) > 0
+        assert "semantic" in context
+        assert len(context["semantic"]) > 0
+        assert "memory" in context
+        assert len(context["memory"]) > 0
 
 
 class TestContextBrokerDiagnosticDepth:
@@ -310,17 +310,17 @@ class TestContextBrokerDiagnosticDepth:
     @pytest.mark.asyncio
     async def test_diagnostic_depth_includes_all_components(self, context_broker):
         """Verify diagnostic mode returns all context components including sensors."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="diagnostic"
         )
 
         # Verify structure - should have all keys
-        assert "messages" in result
-        assert "semantic" in result
-        assert "memory" in result
-        assert "sensors" in result
+        assert "messages" in context
+        assert "semantic" in context
+        assert "memory" in context
+        assert "sensors" in context
 
     @pytest.mark.asyncio
     async def test_diagnostic_depth_fetches_messages(self, context_broker, mock_chatlog_db):
@@ -376,31 +376,31 @@ class TestContextBrokerDiagnosticDepth:
     @pytest.mark.asyncio
     async def test_diagnostic_depth_sensor_results(self, context_broker):
         """Verify diagnostic mode returns sensor snapshot results."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="diagnostic"
         )
 
         # Should have sensor results (mocked as {"cpu": 5, "memory": 42})
-        assert result["sensors"] == {"cpu": 5, "memory": 42}
-        assert result["sensors"]["cpu"] == 5
-        assert result["sensors"]["memory"] == 42
+        assert context["sensors"] == {"cpu": 5, "memory": 42}
+        assert context["sensors"]["cpu"] == 5
+        assert context["sensors"]["memory"] == 42
 
     @pytest.mark.asyncio
     async def test_diagnostic_depth_all_results_present(self, context_broker):
         """Verify diagnostic mode returns all context components."""
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="diagnostic"
         )
 
         # All components should be present and populated
-        assert "messages" in result and len(result["messages"]) > 0
-        assert "semantic" in result and len(result["semantic"]) > 0
-        assert "memory" in result and len(result["memory"]) > 0
-        assert "sensors" in result and len(result["sensors"]) > 0
+        assert "messages" in context and len(context["messages"]) > 0
+        assert "semantic" in context and len(context["semantic"]) > 0
+        assert "memory" in context and len(context["memory"]) > 0
+        assert "sensors" in context and len(context["sensors"]) > 0
 
 
 class TestContextBrokerParameterization:
@@ -479,30 +479,30 @@ class TestContextBrokerErrorHandling:
         """Verify message fetch errors are handled gracefully."""
         mock_chatlog_db.last_messages.side_effect = Exception("DB error")
 
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="normal"
         )
 
         # Should still return a result with empty messages
-        assert "messages" in result
-        assert result["messages"] == []
+        assert "messages" in context
+        assert context["messages"] == []
 
     @pytest.mark.asyncio
     async def test_semantic_search_error_graceful(self, context_broker, mock_vector_store):
         """Verify semantic search errors are handled gracefully."""
         mock_vector_store.search.side_effect = Exception("Vector store error")
 
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="normal"
         )
 
         # Should still return a result with empty semantic
-        assert "semantic" in result
-        assert result["semantic"] == []
+        assert "semantic" in context
+        assert context["semantic"] == []
 
     @pytest.mark.asyncio
     async def test_memory_search_error_graceful(self, mock_chatlog_db, mock_sensors):
@@ -528,30 +528,30 @@ class TestContextBrokerErrorHandling:
             sensors=mock_sensors,
         )
 
-        result = await broker.assemble(
+        context, _ = await broker.assemble(
             thread_id=1,
             query="test query",
             depth="deep"
         )
 
         # Should still return a result with empty memory (MemoryOSRetriever failed, no fallback)
-        assert "memory" in result
-        assert result["memory"] == []
+        assert "memory" in context
+        assert context["memory"] == []
 
     @pytest.mark.asyncio
     async def test_sensor_snapshot_error_graceful(self, context_broker, mock_sensors):
         """Verify sensor snapshot errors are handled gracefully."""
         mock_sensors.snapshot.side_effect = Exception("Sensor error")
 
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="diagnostic"
         )
 
         # Should still return a result with empty sensors
-        assert "sensors" in result
-        assert result["sensors"] == {}
+        assert "sensors" in context
+        assert context["sensors"] == {}
 
     @pytest.mark.asyncio
     async def test_multiple_errors_graceful(self, context_broker, mock_chatlog_db, mock_vector_store):
@@ -559,15 +559,15 @@ class TestContextBrokerErrorHandling:
         mock_chatlog_db.last_messages.side_effect = Exception("DB error")
         mock_vector_store.search.side_effect = Exception("Vector error")
 
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=1,
             query="test query",
             depth="normal"
         )
 
         # Should still return a result with both empty
-        assert "messages" in result and result["messages"] == []
-        assert "semantic" in result and result["semantic"] == []
+        assert "messages" in context and context["messages"] == []
+        assert "semantic" in context and context["semantic"] == []
 
 
 class TestContextBrokerOptionalDependencies:
@@ -583,14 +583,14 @@ class TestContextBrokerOptionalDependencies:
             sensors=mock_sensors,
         )
 
-        result = await broker.assemble(
+        context, _ = await broker.assemble(
             thread_id=1,
             query="test query",
             depth="deep"
         )
 
         # Should have empty memory
-        assert result["memory"] == []
+        assert context["memory"] == []
 
     @pytest.mark.asyncio
     async def test_without_sensors(self, mock_chatlog_db, mock_vector_store, mock_memory_store):
@@ -602,14 +602,14 @@ class TestContextBrokerOptionalDependencies:
             sensors=None,
         )
 
-        result = await broker.assemble(
+        context, _ = await broker.assemble(
             thread_id=1,
             query="test query",
             depth="diagnostic"
         )
 
         # Should have empty sensors
-        assert result["sensors"] == {}
+        assert context["sensors"] == {}
 
     @pytest.mark.asyncio
     async def test_without_optional_dependencies(self, mock_chatlog_db, mock_vector_store):
@@ -623,15 +623,15 @@ class TestContextBrokerOptionalDependencies:
 
         # Test all depths
         for depth in ["shallow", "normal", "deep", "diagnostic"]:
-            result = await broker.assemble(
+            context, _ = await broker.assemble(
                 thread_id=1,
                 query="test query",
                 depth=depth
             )
 
             # Should always return a dict
-            assert isinstance(result, dict)
-            assert "messages" in result
+            assert isinstance(context, dict)
+            assert "messages" in context
 
 
 class TestContextBrokerIntegration:
@@ -643,7 +643,7 @@ class TestContextBrokerIntegration:
         thread_id = 1
         query = "What is the status?"
 
-        result = await context_broker.assemble(
+        context, _ = await context_broker.assemble(
             thread_id=thread_id,
             query=query,
             depth="diagnostic",
@@ -653,14 +653,14 @@ class TestContextBrokerIntegration:
         )
 
         # Verify all components are present
-        assert result["messages"] == ["msg1", "msg2"]
-        assert result["semantic"] == [{"text": "semantic"}]
+        assert context["messages"] == ["msg1", "msg2"]
+        assert context["semantic"] == [{"text": "semantic"}]
         # Memory now uses MemoryOSRetriever with normalized schema
-        assert len(result["memory"]) > 0
-        assert "text" in result["memory"][0]
-        assert "metadata" in result["memory"][0]
-        assert "score" in result["memory"][0]
-        assert result["sensors"] == {"cpu": 5, "memory": 42}
+        assert len(context["memory"]) > 0
+        assert "text" in context["memory"][0]
+        assert "metadata" in context["memory"][0]
+        assert "score" in context["memory"][0]
+        assert context["sensors"] == {"cpu": 5, "memory": 42}
 
     @pytest.mark.asyncio
     async def test_progressive_depth_expansion(self, context_broker):
@@ -669,7 +669,7 @@ class TestContextBrokerIntegration:
         query = "test"
 
         # Test shallow
-        shallow = await context_broker.assemble(
+        shallow, _ = await context_broker.assemble(
             thread_id=thread_id,
             query=query,
             depth="shallow"
@@ -677,7 +677,7 @@ class TestContextBrokerIntegration:
         assert "messages" in shallow
 
         # Test normal - should have everything from shallow plus semantic
-        normal = await context_broker.assemble(
+        normal, _ = await context_broker.assemble(
             thread_id=thread_id,
             query=query,
             depth="normal"
@@ -686,7 +686,7 @@ class TestContextBrokerIntegration:
         assert "semantic" in normal
 
         # Test deep - should have everything from normal plus memory
-        deep = await context_broker.assemble(
+        deep, _ = await context_broker.assemble(
             thread_id=thread_id,
             query=query,
             depth="deep"
@@ -696,7 +696,7 @@ class TestContextBrokerIntegration:
         assert "memory" in deep
 
         # Test diagnostic - should have everything plus sensors
-        diagnostic = await context_broker.assemble(
+        diagnostic, _ = await context_broker.assemble(
             thread_id=thread_id,
             query=query,
             depth="diagnostic"

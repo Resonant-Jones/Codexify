@@ -32,7 +32,6 @@ class Settings(BaseSettings):
 
     # Core/legacy
     GENAI_API_KEY: Optional[str] = Field(None, description="Google Gemini API Key")
-    GUARDIAN_DB_PATH: str = Field("guardian.db", description="SQLite DB path")
     NOTION_API_KEY: Optional[str] = Field(None, description="Notion API Key (optional)")
 
     # Google Gemini & Cloud
