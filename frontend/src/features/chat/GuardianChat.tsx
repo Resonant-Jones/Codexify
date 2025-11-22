@@ -9,6 +9,7 @@ import api from "@/lib/api";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { setTrace } from "@/state/contextTrace";
+import TraceButton from "./components/TraceButton";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -316,6 +317,8 @@ export function GuardianChat({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <TraceButton threadId={effectiveThreadId} />
 
       <button type="button" className="icon-inline" aria-label="New chat" onClick={onNewChat}>
         <Plus className="h-5 w-5" />
