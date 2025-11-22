@@ -96,18 +96,30 @@ class TrustRegistry:
     Computes trust score from weighted metrics with exponential penalty for violations.
     """
 
-    def __init__(self, path: str = "data/trust_registry.json"):
+    def __init__(
+        self,
+        path: str | Dict[str, float] = "data/trust_registry.json",
+        initial_trust: Optional[Dict[str, float]] = None,
+        load_existing: bool = True,
+    ):
         """Initialize trust registry.
 
         Args:
             path: Path to persistent trust registry file
+            initial_trust: Optional initial trust map
+            load_existing: Load persisted registry from disk when True
         """
+        if isinstance(path, dict):
+            initial_trust = path
+            path = "data/trust_registry.json"
+
         self.path = Path(path)
         self.records: Dict[str, TrustRecord] = {}
         # Keep simple trust dict for backward compatibility
-        self.trust = DEFAULT_TRUST_LEVELS.copy()
+        self.trust = (initial_trust or DEFAULT_TRUST_LEVELS).copy()
         self.last_updated: Dict[str, datetime] = {}
-        self._load()
+        if load_existing and initial_trust is None and self.path != Path(":memory:"):
+            self._load()
 
     def _load(self) -> None:
         """Load trust records from persistent storage."""
@@ -172,9 +184,11 @@ class TrustRegistry:
         Returns:
             Trust level from 0.0 (untrusted) to 1.0 (fully trusted)
         """
+        if peer_id in self.trust:
+            return self.trust.get(peer_id, 0.5)
         if peer_id in self.records:
             return self.compute_trust_score(peer_id)
-        return self.trust.get(peer_id, 0.5)
+        return 0.5
 
     def set_trust_level(self, peer_id: str, trust_level: float) -> None:
         """Set simple trust level for a peer (backward compatible).

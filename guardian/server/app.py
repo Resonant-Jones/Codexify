@@ -20,12 +20,26 @@ except ImportError:
 from guardian.retrieve.api import router as retrieve_router
 from guardian.server.codexify_api import oauth_status as codexify_oauth_status
 from guardian.server.codexify_api import router as codexify_router
-from guardian.server.tools_api import router as tools_router
+try:
+    from guardian.server.tools_api import router as tools_router
+except ModuleNotFoundError:
+    from fastapi import APIRouter
+    tools_router = APIRouter()
 from guardian.routes.documents import router as documents_router
+from guardian.routes.chat import (
+    router as chat_router,
+    api_chat_router,
+    threads_router as chat_threads_router,
+    thread_router as chat_thread_router,
+    simple_chat_router,
+)
+from guardian.routes.projects import router as projects_router, api_router as api_projects_router
+from guardian.routes.threads import router as threads_router, api_router as api_threads_router
 from guardian.routes.workspace import router as workspace_router
 from guardian.core.db import GuardianDB
 from guardian.routes.documents import configure_db as configure_documents_db
 from guardian.sync.api import router as sync_router
+from guardian.core import metrics
 
 # --- Rate Limiting Configuration ---
 _rate_limits_env = os.getenv("GUARDIAN_RATE_LIMITS", "100/minute").strip()
@@ -43,6 +57,8 @@ limiter = Limiter(
     storage_uri="memory://",  # In-memory storage (upgrade to Redis for production scale)
     enabled=_enable_rate_limiting,
 )
+
+metrics.set_db_backend("postgres")
 
 # Create logger for rate limiting (will be configured later in the file)
 _rate_limit_logger = logging.getLogger(__name__)
@@ -75,6 +91,15 @@ app.include_router(sync_router)
 app.include_router(retrieve_router)
 app.include_router(documents_router)
 app.include_router(workspace_router)
+app.include_router(chat_router)
+app.include_router(simple_chat_router)
+app.include_router(chat_threads_router)
+app.include_router(chat_thread_router)
+app.include_router(api_chat_router)
+app.include_router(projects_router)
+app.include_router(api_projects_router)
+app.include_router(threads_router)
+app.include_router(api_threads_router)
 
 # Configure documents DB (Postgres only)
 try:
@@ -373,11 +398,9 @@ else:
     root_logger.info("[security-headers] Middleware DISABLED")
 
 # Log rate limiting status
-root_logger.info(
-    "[rate-limiting] %s (limits: %s)",
-    "ENABLED" if _enable_rate_limiting else "DISABLED",
-    ", ".join(_default_limits) if _enable_rate_limiting else "none"
-)
+_rate_status = "ENABLED" if _enable_rate_limiting else "DISABLED"
+_rate_limits = ", ".join(_default_limits) if _enable_rate_limiting else "none"
+root_logger.info(f"[rate-limiting] {_rate_status} (limits: {_rate_limits})")
 
 
 @app.get("/")

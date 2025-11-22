@@ -42,7 +42,10 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
     db_name = f"codexify_migrate_{uuid.uuid4().hex[:12]}"
     temp_url = _build_database_url(base_url, db_name)
 
-    admin_conn = psycopg.connect(admin_url, autocommit=True)
+    try:
+        admin_conn = psycopg.connect(admin_url, autocommit=True)
+    except Exception as exc:  # pragma: no cover - environment-specific availability
+        pytest.skip(f"Unable to connect to admin database: {exc}")
     try:
         with admin_conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE {db_name}")

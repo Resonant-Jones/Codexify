@@ -9,7 +9,7 @@ Mounted without a prefix to preserve public paths like /health/chat.
 import logging
 from fastapi import APIRouter, Depends, Response
 from guardian.core import metrics
-from guardian.core.dependencies import get_database_dsn
+from guardian.core.dependencies import get_database_dsn, DB_BACKEND
 
 logger = logging.getLogger(__name__)
 

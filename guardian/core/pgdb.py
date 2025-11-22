@@ -60,8 +60,8 @@ class PgDB(ChatDB):
         dsn: Data Source Name - the incantation for opening dimensional portals to 
         your database's distributed consciousness. False flags guard against table
         recreation loops when multiple database operations request the same structure."""
-        self.dsn = dsn
-        self._sa_url = self._build_sqlalchemy_url(dsn)
+        self.dsn = self._normalize_dsn(dsn)
+        self._sa_url = self._build_sqlalchemy_url(self.dsn)
         self._sa_engine = create_engine(self._sa_url, future=True)
         self._SessionLocal = sessionmaker(bind=self._sa_engine, autoflush=False, autocommit=False)
         self._sync_jobs_ready = False
@@ -72,15 +72,16 @@ class PgDB(ChatDB):
         # degrade to a schedule-less projection instead of failing queries.
         self._connector_has_schedule = False
 
+    def _normalize_dsn(self, dsn: str) -> str:
+        """Coerce any SQLAlchemy-style DSN to plain psycopg-compatible URL."""
+        if isinstance(dsn, str) and dsn.startswith("postgresql+"):
+            return "postgresql://" + dsn.split("://", 1)[1]
+        return dsn
+
     def _build_sqlalchemy_url(self, dsn: str) -> str:
         """Normalise DSN for SQLAlchemy to use the psycopg driver."""
-        if isinstance(dsn, str):
-            if dsn.startswith("postgresql+psycopg://"):
-                return dsn
-            if dsn.startswith("postgresql+psycopg2://"):
-                return "postgresql+psycopg://" + dsn.split("://", 1)[1]
-            if dsn.startswith("postgresql://"):
-                return "postgresql+psycopg://" + dsn.split("://", 1)[1]
+        if isinstance(dsn, str) and dsn.startswith("postgresql://"):
+            return "postgresql+psycopg://" + dsn.split("://", 1)[1]
         return dsn
 
     def _connect(self):
@@ -91,10 +92,7 @@ class PgDB(ChatDB):
         - postgresql://user:pass@host/db
         - postgresql+psycopg2://user:pass@host/db  (normalised to the former)
         """
-        dsn = self.dsn
-        if isinstance(dsn, str) and dsn.startswith("postgresql+psycopg2://"):
-            dsn = "postgresql://" + dsn.split("://", 1)[1]
-        return psycopg.connect(dsn, row_factory=dict_row)
+        return psycopg.connect(self.dsn, row_factory=dict_row)
 
     @contextmanager
     def _sa_session(self):
