@@ -59,6 +59,7 @@ from guardian.core.dependencies import (
     ENABLE_CONNECTOR_WORKER,
     allowed_origins,
 )
+from guardian.core.config import get_settings
 
 # Optional Neo4j for graph endpoint
 try:
@@ -68,15 +69,13 @@ except Exception:
     NEO4J_AVAILABLE = False
     logger.warning("[graph] Neo4j driver not available")
 
-# Optional RAG modules for upload-chat endpoint
 try:
-    from codexify.rag.enhanced_rag import EnhancedRAG
-    from backend.rag.embedder import Embedder
-    from backend.rag.parser import parse_chat_history
-    RAG_AVAILABLE = True
+    from guardian.graph.connection import connect_neo4j
+    _NEO_CONNECT_AVAILABLE = True
 except Exception:
-    RAG_AVAILABLE = False
-    logger.warning("[RAG] RAG modules not available")
+    _NEO_CONNECT_AVAILABLE = False
+
+# Optional RAG modules (removed unused imports)
 
 
 # =========================
@@ -145,6 +144,8 @@ async def app_lifespan(app: FastAPI):
     # === STARTUP ===
     logger.info("[startup] Guardian API starting...")
 
+    settings = get_settings()
+
     # Initialize database via shared initializer (idempotent)
     db = dependencies.init_database()
 
@@ -177,6 +178,14 @@ async def app_lifespan(app: FastAPI):
         db.ensure_sync_job_support()
     except Exception as e:
         logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
+
+    # Initialize Neo4j connection if graph logging is enabled
+    if getattr(settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False) and _NEO_CONNECT_AVAILABLE:
+        try:
+            connect_neo4j()
+            logger.info("[graph] Neo4j connection initialized")
+        except Exception as exc:
+            logger.warning("[graph] Neo4j connection failed: %s", exc)
 
     # Optionally launch connector worker
     if ENABLE_CONNECTOR_WORKER:
@@ -419,24 +428,7 @@ def get_graph(scope: str = 'codexify'):
     return {"nodes": list(unique_nodes), "links": links}
 
 
-@app.post("/upload-chat", tags=["RAG"])
-async def upload_chat(file: UploadFile = File(...)):
-    """
-    Upload a chat history file for RAG embedding.
-    Parses the file, extracts text blocks, and embeds them.
-    """
-    if not RAG_AVAILABLE:
-        raise HTTPException(status_code=503, detail="RAG modules not available")
-
-    content = await file.read()
-    try:
-        text_blocks = parse_chat_history(content.decode("utf-8"))
-        embedder = Embedder()
-        results = embedder.embed_documents(text_blocks)
-        return JSONResponse({"ok": True, "embedded": len(results)})
-    except Exception as e:
-        logger.exception("[upload-chat] Failed to embed chat history")
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+# (Removed redundant /upload-chat endpoint; use guardian/routes/migration.py instead)
 
 
 # =========================
