@@ -1,0 +1,15 @@
+version: 1
+description: "KG vs RAG smoke eval for Codexify"
+prompts:
+  - id: "project-overview-1"
+    user_id: "demo"
+    thread_title: "Project Codexify"
+    seed_docs:
+      - "docs/specs/codexify_architecture.md"
+      - "docs/specs/context_broker.md"
+    question: "Summarize how the knowledge graph is used to enhance retrieval."
+  - id: "research-thread-1"
+    user_id: "demo"
+    thread_title: "RAG vs KG comparison"
+    seed_docs: []
+    question: "How does the graph help with multi-hop reasoning over my notes?"
