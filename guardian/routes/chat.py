@@ -482,12 +482,37 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         # Resolve user_id for graph context
         thread_info = chatlog_db.get_chat_thread(thread_id) if hasattr(chatlog_db, "get_chat_thread") else None
         user_for_context = (thread_info or {}).get("user_id", "default")
+        user_for_context = (thread_info or {}).get("user_id", "default")
         bundle: Optional[Dict[str, Any]] = None
+        trace: Optional[Dict[str, Any]] = None
         try:
             broker = ContextBroker(chatlog_db, _vector_store, _memory_store, _sensors, settings=llm_settings)
-            bundle = await broker.assemble(
+            # Unpack context and trace
+            bundle, trace = await broker.assemble(
                 thread_id, query=latest_message, depth=depth, user_id=user_for_context
             )
+            
+            # Store trace if available
+            if trace:
+                _rag_traces[thread_id] = trace
+                
+                # Compact logging
+                doc_count = len(trace.get("documents", []))
+                graph_count = len(trace.get("graph", []))
+                
+                top_doc = "None"
+                if doc_count > 0:
+                    top_doc = trace["documents"][0].get("title", "unknown")
+                    
+                top_graph = "None"
+                if graph_count > 0:
+                    top_graph = trace["graph"][0].get("node_id", "unknown")
+                
+                logger.info(
+                    f"[rag] thread={thread_id} docs={doc_count} graph={graph_count} "
+                    f"top_doc=\"{top_doc}\" top_graph=\"{top_graph}\""
+                )
+
         except Exception as e:
             logger.warning("[context] broker assemble failed (depth=%s): %s", depth, e)
             bundle = None
@@ -813,6 +838,27 @@ async def simple_chat_entrypoint(body: ChatRequest, api_key: str = Depends(verif
         "model": model,
         "provider": provider,
     }
+
+
+# =========================
+# Debug / Dev Tools
+# =========================
+
+# In-memory store for RAG traces (thread_id -> trace_dict)
+# This is ephemeral and per-process, which is fine for dev debugging.
+_rag_traces: Dict[int, Dict[str, Any]] = {}
+
+
+@router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
+def get_latest_rag_trace(thread_id: int):
+    """
+    [DEV ONLY] Get the RAG trace for the last completion in this thread.
+    Returns 404 if no trace is available.
+    """
+    trace = _rag_traces.get(thread_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="No RAG trace found for this thread")
+    return trace
 
 
 @simple_chat_router.get("/chat/stream")

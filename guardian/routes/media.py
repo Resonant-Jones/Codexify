@@ -280,6 +280,34 @@ async def upload_document(
 
         logger.info(f"Document uploaded: {file.filename} ({filesize} bytes) by user {user_id}")
 
+        # --- Embedding (RAG) ---
+        if parsed_text:
+            try:
+                # Import here to avoid circular deps if any, or move to top if safe
+                from guardian.runtime.embed.embedder import CodexifyEmbedder
+                
+                # Initialize embedder (uses env vars for config)
+                embedder = CodexifyEmbedder(store="chroma")
+                
+                # Prepare metadata
+                meta = {
+                    "source": "document",
+                    "filename": file.filename,
+                    "doc_id": doc_id,
+                    "user_id": user_id,
+                    "project_id": project_id,
+                    "thread_id": thread_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                
+                # Embed and index
+                embedder.embed_and_index([parsed_text], metadatas=[meta])
+                logger.info(f"Document embedded: {file.filename}")
+                
+            except Exception as e:
+                # specific logging but don't fail the upload if embedding fails
+                logger.error(f"Failed to embed document {file.filename}: {e}")
+
         return DocumentUploadResponse(
             id=doc_id,
             src_url=src_url,

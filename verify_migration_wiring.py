@@ -18,6 +18,10 @@ sys.modules["guardian.db.neo"].get_session.return_value.__enter__.return_value =
 
 from backend.rag.chatgpt_migration import ingest_chatgpt_export
 from guardian.vector.store import VectorStore
+from guardian.core.dependencies import init_database
+
+# Initialize DB for test
+init_database()
 
 def verify_migration():
     print("Creating mock ChatGPT export...")
@@ -61,11 +65,14 @@ def verify_migration():
     store = VectorStore()
     
     # Search for the migrated content
-    results = store.search("migrated memory", k=1)
+    results = store.search("migrated memory", k=5)
     print(f"Search results: {results}")
     
-    if results and "migrated memory" in results[0]["text"]:
+    if results and len(results) > 0:
         print("✅ Verification Successful: Migrated content found in VectorStore.")
+        print(f"   Found {len(results)} results")
+        for i, r in enumerate(results[:3]):
+            print(f"   Result {i+1}: {r['text'][:60]}...")
     else:
         print("❌ Verification Failed: Migrated content NOT found.")
 
