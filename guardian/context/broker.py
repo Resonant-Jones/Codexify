@@ -60,7 +60,7 @@ class ContextBroker:
         k_memory: int = 5,
         federated: bool = False,
         user_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """Assemble a context bundle for the given thread and query.
 
         Args:
@@ -154,7 +154,28 @@ class ContextBroker:
                 logger.warning(f"Failed to fetch federated context: {e}")
                 context["federated"] = []
 
-        return context
+        # Build RAG Trace
+        rag_trace = {
+            "documents": [
+                {
+                    "id": str(item.get("id", "")),
+                    "title": str(item.get("metadata", {}).get("filename", "unknown")),
+                    "score": float(item.get("score", 0.0)),
+                    "snippet": str(item.get("text", ""))[:100] + "..."
+                }
+                for item in context.get("semantic", [])
+            ],
+            "graph": [
+                {
+                    "node_id": str(item.get("message_id", "")),
+                    "kind": str(item.get("kind", "unknown")),
+                    "text": str(item.get("text", ""))[:100] + "..."
+                }
+                for item in context.get("graph", [])
+            ]
+        }
+
+        return context, rag_trace
 
     async def _fetch_messages(self, thread_id: int, n: int) -> List[Dict[str, Any]]:
         """Fetch recent messages from a thread."""

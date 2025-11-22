@@ -569,17 +569,18 @@ export default function AppShell({}: PropsWithChildren) {
     "--card-radius": "19px",    // pointer used by components (explicit for clarity)
     "--edge-chrome": "6px",                     // Outer padding (PWA safe zone)
     "--shell-gap": "16px",                      // Gap between cards or columns
-    "--viewport-radius": "19px",                // Rounding for main window
+    "--pill-pad-y": "11px", // Vertical padding for the navigation pill dock (controls thickness)
+    "--viewport-radius": "20px",                // Rounding for main window
     "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
-    "--page-pad": layoutMode === "zen" ? "12px" : "0px",  // Layout mode: zen (12px) or focus (0px)
-
+    "--page-gutter-top": "24px",                // Fixed gutter under the pill dock
+    "--page-pad": layoutMode === "zen" ? "48px" : "0px",  // Layout mode: zen (12px) or focus (0px)
     /* === CARD GEOMETRY === */
     "--card-pad": "12px",                       // Internal card padding
-    "--frame": "1.5px",                         // Outer frame thickness
+    "--frame": "3px",                         // Outer frame thickness
     // --bezel: Visual margin between the refractive glass and the opaque content surface.
     // Changing this variable tunes the glass thickness everywhere.
     "--bezel": "var(--bezel, 6px)",             // Bezel (margin) between glass and content (default 6px)
-    "--rim": "1.5px",                           // Inner rim spacing
+    "--rim": "3px",                           // Inner rim spacing
 
     /* === TILE / CHIP / ELEMENT SIZING === */
     "--project-tile-size": "72px",              // Project tile square size
@@ -1006,10 +1007,10 @@ export default function AppShell({}: PropsWithChildren) {
         } as React.CSSProperties}
       >
       {/* Global outer glass skin */}
-      <div className="absolute inset-0 -z-10 pointer-events-none rounded-[19px] overflow-hidden">
+      <div className="absolute inset-0 -z-10 pointer-events-none rounded-[20px] overflow-hidden">
         <RefractiveGlassCard
           wallpaperUrl={activeWallpaper}
-          className="w-full h-full rounded-[19px]"
+          className="w-full h-full rounded-[20px]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
           aberration={0}
@@ -1020,7 +1021,7 @@ export default function AppShell({}: PropsWithChildren) {
         style={{
           ...backgroundStyle,
           ...styleVars,
-          borderRadius: "19px",
+          borderRadius: "20px",
           paddingLeft: "6px",
           paddingRight: "6px",
           boxSizing: "border-box",
@@ -1037,7 +1038,10 @@ export default function AppShell({}: PropsWithChildren) {
       )} */}
       {/* Glass Pill Menu Bar - Left Corner */}
       <div className="relative z-10 w-full flex justify-start">
-        <div className="glass-pill isolate">
+        <div
+          className="glass-pill isolate"
+          style={{ paddingTop: "var(--pill-pad-y)", paddingBottom: "var(--pill-pad-y)" }}
+        >
           {/* glass backdrop */}
           <div className="absolute inset-0 -z-10 overflow-hidden rounded-full pointer-events-none">
             <RefractiveGlassCard
@@ -1045,7 +1049,7 @@ export default function AppShell({}: PropsWithChildren) {
               className="w-full h-full rounded-full"
               style={{ background: "transparent", border: "none" }}
               intensity={0.006}
-              aberration={0}
+              aberration={0.006}
             />
           </div>
 
@@ -1115,22 +1119,30 @@ export default function AppShell({}: PropsWithChildren) {
           - Documents
           - Settings
          ───────────────────────────────────────────────────────────────────────────── */}
-      <div className="relative z-10 isolate flex flex-col flex-1 h-full min-h-0 overflow-hidden items-stretch justify-center">
-        <div className="flex-1 h-full min-h-0 flex" style={{ padding: "var(--page-pad)" }}>
-          {view === "documents" && (
-            <div
-              className="isolate"
-              style={{
-                "--radius": "var(--card-radius)",
-                "--frame": "1px",
-                "--bezel": "var(--bezel, 6px)",
-                "--rim": "1px",
-                "--gutter": "16px",
-                "--card-pad": "10px",
-                "--min-h": "clamp(520px, 70vh, 1000px)",
-                borderRadius: "var(--card-radius)"
-              } as React.CSSProperties}
-            >
+ <div className="relative z-10 isolate flex flex-col flex-1 h-full min-h-0 overflow-hidden items-stretch justify-center">
+   <div
+     className="flex-1 h-full min-h-0 flex"
+     style={{
+      paddingTop: "var(--page-gutter-top)",   // always-on gutter under the pill dock
+      paddingRight: "var(--page-pad)",        // mode-dependent
+      paddingBottom: "var(--page-pad)",       // mode-dependent
+      paddingLeft: "var(--page-pad)",         // mode-dependent
+    }}
+   >
+     {view === "documents" && (
+       <div
+         className="isolate"
+         style={{
+           "--radius": "var(--card-radius)",
+           "--frame": "1px",
+           "--bezel": "var(--bezel, 6px)",
+           "--rim": "1px",
+           "--gutter": "16px",
+           "--card-pad": "10px",
+           "--min-h": "clamp(520px, 70vh, 1000px)",
+           borderRadius: "var(--card-radius)",
+         } as React.CSSProperties}
+       >
               <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
                 {/* LIST COLUMN (left) */}
                 <div

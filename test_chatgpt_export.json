@@ -1,0 +1,56 @@
+[
+  {
+    "title": "Test Conversation from ChatGPT",
+    "create_time": 1672531200,
+    "mapping": {
+      "msg_1": {
+        "message": {
+          "id": "msg_1",
+          "author": {
+            "role": "user"
+          },
+          "content": {
+            "parts": ["What is the meaning of life?"]
+          },
+          "create_time": 1672531200
+        }
+      },
+      "msg_2": {
+        "message": {
+          "id": "msg_2",
+          "author": {
+            "role": "assistant"
+          },
+          "content": {
+            "parts": ["The meaning of life is a profound philosophical question that has been pondered throughout human history. Different perspectives offer various answers - from finding purpose and happiness, to creating meaningful connections, to the pursuit of knowledge and growth."]
+          },
+          "create_time": 1672531205
+        }
+      },
+      "msg_3": {
+        "message": {
+          "id": "msg_3",
+          "author": {
+            "role": "user"
+          },
+          "content": {
+            "parts": ["Can you tell me about quantum computing?"]
+          },
+          "create_time": 1672531210
+        }
+      },
+      "msg_4": {
+        "message": {
+          "id": "msg_4",
+          "author": {
+            "role": "assistant"
+          },
+          "content": {
+            "parts": ["Quantum computing is a revolutionary approach to computation that leverages quantum mechanical phenomena like superposition and entanglement. Unlike classical computers that use bits (0 or 1), quantum computers use qubits that can exist in multiple states simultaneously, potentially solving certain complex problems exponentially faster."]
+          },
+          "create_time": 1672531215
+        }
+      }
+    }
+  }
+]

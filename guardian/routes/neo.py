@@ -15,13 +15,13 @@ router = APIRouter(prefix="/neo", tags=["neo"])
 class GraphMessageRequest(BaseModel):
     thread_id: str | None = None
     message_id: str | None = None
-    text: str
+    text: str | None = None
     metadata: dict | None = None
 
 
 @router.post("/graph-message")
 async def graph_message(
-    payload: GraphMessageRequest,
+    payload: GraphMessageRequest | None = None,
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """

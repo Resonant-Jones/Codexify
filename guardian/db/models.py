@@ -57,7 +57,7 @@ class ChatThread(Base):
 
     # Relationships
     messages: Mapped[list["ChatMessage"]] = relationship("ChatMessage", back_populates="thread", cascade="all, delete-orphan")
-    children: Mapped[list["ChatThread"]] = relationship("ChatThread", back_populates="parent", remote_side=[id])
+    children: Mapped[list["ChatThread"]] = relationship("ChatThread", back_populates="parent")
     parent: Mapped[Optional["ChatThread"]] = relationship("ChatThread", back_populates="children", foreign_keys=[parent_id], remote_side=[id])
 
     __mapper_args__ = {"eager_defaults": True}
