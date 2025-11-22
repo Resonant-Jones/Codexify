@@ -97,7 +97,7 @@ export function GuardianChat({
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
     try {
-      const response = await api.post(`/chat/${tid}/complete`, {}, { params: { depth } });
+      const response = await api.post(`/api/chat/${tid}/complete`, {}, { params: { depth } });
       console.log(`[guardian] Completing with depth=${depth}`);
 
       // Capture RAG trace for diagnostics/memory browser
@@ -139,7 +139,7 @@ export function GuardianChat({
     if (numericThreadId != null && numericThreadId !== currentThreadId) {
       setCurrentThreadId(numericThreadId);
     }
-  }, [numericThreadId, currentThreadId]);
+  }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
 
@@ -215,7 +215,7 @@ export function GuardianChat({
         const firstLine = text.trim().split(/\n+/)[0] ?? "";
         const provisionalTitle = firstLine.slice(0, 60) || "New Chat";
         try {
-          const resp = await api.post("/chat/threads", {
+          const resp = await api.post("/api/chat/threads", {
             title: provisionalTitle,
             project_id: 1, // Loose Threads
           });
@@ -230,7 +230,7 @@ export function GuardianChat({
           handleThreadCreated(numericNewId, derivedTitle);
 
           // Post the first message to the newly-created thread
-          await api.post(`/chat/${numericNewId}/messages`, {
+          await api.post(`/api/chat/${numericNewId}/messages`, {
             role: "user",
             content: text,
             user_id: normalizedUserId,
@@ -343,7 +343,7 @@ export function GuardianChat({
               setThreadTitle(title);
               emitThreadsRefresh("rename", { id: String(effectiveThreadId), title });
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, { title });
+                await api.patch(`/api/chat/${effectiveThreadId}`, { title });
                 triggerReload();
               } catch (e) {
                 console.warn(e);
@@ -379,7 +379,7 @@ export function GuardianChat({
               const pid = Number(pidRaw);
               if (!Number.isFinite(pid)) return alert("Invalid project id");
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, { project_id: pid });
+                await api.patch(`/api/chat/${effectiveThreadId}`, { project_id: pid });
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
                 triggerReload();
               } catch (e) {
@@ -394,7 +394,7 @@ export function GuardianChat({
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, { project_id: null });
+                await api.patch(`/api/chat/${effectiveThreadId}`, { project_id: null });
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: null });
                 triggerReload();
               } catch (e) {
@@ -410,7 +410,7 @@ export function GuardianChat({
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
               if (!window.confirm("Delete this thread? This cannot be undone.")) return;
               try {
-                await api.delete(`/chat/${effectiveThreadId}`);
+                await api.delete(`/api/chat/${effectiveThreadId}`);
                 emitThreadsRefresh("delete", { id: String(effectiveThreadId) });
                 setCurrentThreadId(null);
                 setThreadTitle("New Chat");
