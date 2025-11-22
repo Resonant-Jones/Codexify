@@ -40,8 +40,13 @@ class ContextBroker:
         self.memory = memory_store
         self.sensors = sensors
         self.settings = settings or get_settings()
-        # Initialize MemoryOS semantic retriever for RAG-based memory search
-        self.memory_retriever = MemoryOSRetriever(vector_store)
+        # Initialize MemoryOS semantic retriever for RAG-based memory search when available
+        self.memory_retriever = None
+        try:
+            if vector_store is not None:
+                self.memory_retriever = MemoryOSRetriever(vector_store)
+        except Exception as exc:
+            logger.debug("[ContextBroker] Memory retriever init failed: %s", exc)
         logger.info("[ContextBroker] Initialized with MemoryOS semantic retriever")
 
     async def assemble(
@@ -54,6 +59,7 @@ class ContextBroker:
         k_semantic: int = 4,
         k_memory: int = 5,
         federated: bool = False,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Assemble a context bundle for the given thread and query.
 
@@ -101,14 +107,19 @@ class ContextBroker:
         else:
             context["semantic"] = []
 
-        # Optional graph-derived context
+        # Optional graph-derived context (gated by explicit flag)
         context["graph"] = []
-        if getattr(self.settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False):
+        if getattr(self.settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
             try:
-                graph_chunks = await self._search_graph(thread_id, limit=4)
+                graph_chunks = await self._get_graph_context(
+                    user_id=user_id or "default", thread_id=str(thread_id)
+                )
                 context["graph"] = graph_chunks
             except Exception as e:
-                logger.warning("[ContextBroker] Graph context unavailable; continuing without it: %s", e)
+                logger.warning(
+                    "[ContextBroker] Graph context unavailable; continuing without it: %s",
+                    e,
+                )
 
         # Include memory search for deep and diagnostic modes
         if depth in ("deep", "diagnostic"):
@@ -173,12 +184,13 @@ class ContextBroker:
         """
         try:
             # Primary: Use MemoryOS semantic retriever for RAG-based memory recall
-            memory_results = await self.memory_retriever.retrieve(query, limit=k)
-            logger.debug(
-                f"[ContextBroker] Retrieved {len(memory_results)} memory chunks "
-                f"via MemoryOSRetriever"
-            )
-            return memory_results
+            if self.memory_retriever:
+                memory_results = await self.memory_retriever.retrieve(query, limit=k)
+                logger.debug(
+                    f"[ContextBroker] Retrieved {len(memory_results)} memory chunks "
+                    f"via MemoryOSRetriever"
+                )
+                return memory_results
         except Exception as e:
             logger.warning(f"[ContextBroker] MemoryOS retriever failed: {e}")
 
@@ -237,8 +249,10 @@ class ContextBroker:
             logger.warning(f"Error searching federated peers: {e}")
             return []
 
-    async def _search_graph(self, thread_id: int, limit: int = 4) -> List[Dict[str, Any]]:
-        """Fetch lightweight graph context for a thread."""
+    async def _get_graph_context(
+        self, *, user_id: str, thread_id: Optional[str]
+    ) -> List[Dict[str, Any]]:
+        """Fetch lightweight graph context for a thread/user pair."""
         try:
             from guardian.graph.connection import connect_neo4j
             from guardian.graph.models import ThreadNode, MessageNode, UserNode
@@ -248,28 +262,44 @@ class ContextBroker:
 
         try:
             connect_neo4j()
-            thread = ThreadNode.nodes.get_or_none(thread_id=str(thread_id))
-            if not thread:
-                return []
-
             snippets: List[Dict[str, Any]] = []
-            msgs = thread.messages.all()[:limit] if hasattr(thread.messages, "all") else []
-            for msg in msgs:
-                snippet = {
-                    "source": "graph",
-                    "type": "message",
-                    "message_id": getattr(msg, "message_id", ""),
-                    "content": getattr(msg, "content", ""),
-                }
-                try:
-                    sender = msg.user.single()
-                    if sender:
-                        snippet["user_id"] = getattr(sender, "user_id", None)
-                except Exception:
-                    pass
-                snippets.append(snippet)
+
+            thread = ThreadNode.nodes.get_or_none(thread_id=str(thread_id)) if thread_id else None
+            if thread and hasattr(thread.messages, "all"):
+                msgs = thread.messages.all()
+                for msg in msgs:
+                    snippet = {
+                        "kind": "graph-fact",
+                        "text": getattr(msg, "content", ""),
+                        "source": "neo4j",
+                        "message_id": getattr(msg, "message_id", ""),
+                    }
+                    try:
+                        sender = msg.user.single()
+                        if sender:
+                            snippet["user_id"] = getattr(sender, "user_id", None)
+                    except Exception:
+                        pass
+                    snippets.append(snippet)
+
+            if not snippets and user_id:
+                user = UserNode.nodes.get_or_none(user_id=str(user_id))
+                if user and hasattr(user.messages, "all"):
+                    for msg in user.messages.all():
+                        snippets.append(
+                            {
+                                "kind": "graph-fact",
+                                "text": getattr(msg, "content", ""),
+                                "source": "neo4j",
+                                "message_id": getattr(msg, "message_id", ""),
+                                "user_id": getattr(user, "user_id", None),
+                            }
+                        )
 
             return snippets
         except Exception as exc:
-            logger.debug("[ContextBroker] Failed to fetch graph context: %s", exc, exc_info=True)
+            logger.warning(
+                "[ContextBroker] Graph context unavailable; proceeding without it: %s",
+                exc,
+            )
             return []

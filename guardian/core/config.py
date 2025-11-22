@@ -65,6 +65,10 @@ class Settings(BaseSettings):
         default="noop",
         description="Graph logging mode (e.g., 'noop', 'neo4j', 'stub').",
     )
+    GUARDIAN_ENABLE_GRAPH_CONTEXT: bool = Field(
+        default=False,
+        description="Enable using graph-derived context during completions.",
+    )
 
 
 # Create a singleton instance that can be imported across the application

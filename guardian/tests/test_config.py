@@ -11,15 +11,18 @@ def test_settings_loads_from_env(monkeypatch):
     monkeypatch.setenv("GENAI_API_KEY", "fake-gemini-key")
     monkeypatch.setenv("OPENAI_API_KEY", "fake-openai-key")
     monkeypatch.setenv("NOTION_API_KEY", "fake-notion-key")
+    monkeypatch.delenv("GUARDIAN_ENABLE_GRAPH_CONTEXT", raising=False)
     s = get_settings()
     assert isinstance(s, Config)
     assert s.GENAI_API_KEY == "fake-gemini-key"
     assert s.OPENAI_API_KEY == "fake-openai-key"
+    assert s.GUARDIAN_ENABLE_GRAPH_CONTEXT is False
 
 
 def test_missing_required_env(monkeypatch):
     monkeypatch.delenv("GENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GUARDIAN_ENABLE_GRAPH_CONTEXT", raising=False)
     with pytest.raises(ValidationError):
         s = get_settings()
         # Pydantic v2: model_dump() triggers validation; v1: instantiation should fail
@@ -29,6 +32,13 @@ def test_missing_required_env(monkeypatch):
         else:
             # For older Pydantic (v1), just access a required field to force validation
             _ = s.GENAI_API_KEY
+
+
+def test_graph_context_env_flag(monkeypatch):
+    monkeypatch.setenv("GENAI_API_KEY", "fake-gemini-key")
+    monkeypatch.setenv("GUARDIAN_ENABLE_GRAPH_CONTEXT", "1")
+    s = get_settings()
+    assert s.GUARDIAN_ENABLE_GRAPH_CONTEXT is True
 
 
 from guardian.config import (

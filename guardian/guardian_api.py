@@ -145,6 +145,10 @@ async def app_lifespan(app: FastAPI):
     logger.info("[startup] Guardian API starting...")
 
     settings = get_settings()
+    if getattr(settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
+        logger.info("[graph] Knowledge graph context: ENABLED (Neo4j)")
+    else:
+        logger.info("[graph] Knowledge graph context: disabled")
 
     # Initialize database via shared initializer (idempotent)
     db = dependencies.init_database()

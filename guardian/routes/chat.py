@@ -479,10 +479,15 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
                     break
 
         depth = str(body.get("depth") or "normal").strip().lower()
+        # Resolve user_id for graph context
+        thread_info = chatlog_db.get_chat_thread(thread_id) if hasattr(chatlog_db, "get_chat_thread") else None
+        user_for_context = (thread_info or {}).get("user_id", "default")
         bundle: Optional[Dict[str, Any]] = None
         try:
-            broker = ContextBroker(chatlog_db, _vector_store, _memory_store, _sensors)
-            bundle = await broker.assemble(thread_id, query=latest_message, depth=depth)
+            broker = ContextBroker(chatlog_db, _vector_store, _memory_store, _sensors, settings=llm_settings)
+            bundle = await broker.assemble(
+                thread_id, query=latest_message, depth=depth, user_id=user_for_context
+            )
         except Exception as e:
             logger.warning("[context] broker assemble failed (depth=%s): %s", depth, e)
             bundle = None
