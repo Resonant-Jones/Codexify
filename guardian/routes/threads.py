@@ -14,6 +14,7 @@ except Exception:  # pragma: no cover - fallback for import issues
 
 
 router = APIRouter(tags=["Threads"])
+api_router = APIRouter(prefix="/api", tags=["Threads"])
 
 
 class ThreadCreatePayload(BaseModel):
@@ -24,6 +25,7 @@ class ThreadCreatePayload(BaseModel):
 
 
 @router.get("/threads")
+@api_router.get("/threads")
 def list_threads(api_key: str = Depends(require_api_key)) -> Dict[str, Any]:
     """
     List legacy threads.
@@ -47,6 +49,7 @@ def list_threads(api_key: str = Depends(require_api_key)) -> Dict[str, Any]:
 
 
 @router.post("/threads")
+@api_router.post("/threads")
 def create_thread(
     body: ThreadCreatePayload = Body(...),
     api_key: str = Depends(require_api_key),

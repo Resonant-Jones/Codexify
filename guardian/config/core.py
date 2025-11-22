@@ -150,6 +150,20 @@ class Settings(BaseSettings):
                     )
         return self
 
+    @model_validator(mode="after")
+    def _normalize_db_urls(self):
+        """Normalize database URLs to psycopg-friendly form."""
+        def _norm(url: Optional[str]) -> Optional[str]:
+            if isinstance(url, str) and url.startswith("postgresql+"):
+                return "postgresql://" + url.split("://", 1)[1]
+            return url
+
+        if hasattr(self, "GUARDIAN_DATABASE_URL"):
+            self.GUARDIAN_DATABASE_URL = _norm(getattr(self, "GUARDIAN_DATABASE_URL"))
+        if hasattr(self, "DATABASE_URL"):
+            self.DATABASE_URL = _norm(getattr(self, "DATABASE_URL"))  # type: ignore[attr-defined]
+        return self
+
     model_config = ConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

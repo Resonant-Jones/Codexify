@@ -1,18 +1,5 @@
 {
   "records": {
-    "untrusted-peer": {
-      "node_id": "untrusted-peer",
-      "trust_score": 0.5,
-      "reputation": {
-        "uptime": 1.0,
-        "auth_success": 1.0,
-        "diff_accuracy": 1.0,
-        "latency": 1.0,
-        "violations": 10.0
-      },
-      "last_updated": "2025-11-10T04:33:48.506266+00:00",
-      "created_at": "2025-11-10T04:33:48.506263+00:00"
-    },
     "peer-1": {
       "node_id": "peer-1",
       "trust_score": 0.5,
@@ -23,8 +10,8 @@
         "latency": 1.0,
         "violations": 0.0
       },
-      "last_updated": "2025-11-22T16:07:57.071937+00:00",
-      "created_at": "2025-11-10T04:33:48.513098+00:00"
+      "last_updated": "2025-11-22T18:53:11.834891+00:00",
+      "created_at": "2025-11-22T18:53:11.834889+00:00"
     },
     "peer-2": {
       "node_id": "peer-2",
@@ -34,11 +21,11 @@
         "auth_success": 1.0,
         "diff_accuracy": 1.0,
         "latency": 1.0,
-        "violations": 18.0
+        "violations": 3.0
       },
-      "last_updated": "2025-11-22T16:07:57.074592+00:00",
-      "created_at": "2025-11-10T04:33:48.513433+00:00"
+      "last_updated": "2025-11-22T18:53:11.835212+00:00",
+      "created_at": "2025-11-22T18:53:11.835210+00:00"
     }
   },
-  "updated_at": "2025-11-22T16:07:57.074804+00:00"
+  "updated_at": "2025-11-22T18:53:11.835234+00:00"
 }

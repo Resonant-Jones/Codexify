@@ -48,9 +48,25 @@ class ProjectCreate(BaseModel):
 
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
+api_router = APIRouter(prefix="/api/projects", tags=["Projects"])
+
+
+@router.get("")
+@api_router.get("")
+def list_projects():
+    """
+    Return all projects as a list for compatibility with frontend /api/projects calls.
+    """
+    try:
+        projects = chatlog_db.list_projects()
+    except Exception as exc:
+        logger.warning("[projects] failed to list projects: %s", exc)
+        projects = []
+    return projects
 
 
 @router.patch("/{project_id}")
+@api_router.patch("/{project_id}")
 def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
     """
     Update an existing project's name or description.
@@ -76,6 +92,7 @@ def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
 
 
 @router.delete("/{project_id}")
+@api_router.delete("/{project_id}")
 def delete_project_and_eject(project_id: int):
     """
     Delete a project and eject all threads back to the default project.

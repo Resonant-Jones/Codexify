@@ -19,6 +19,7 @@ try:
 except Exception:  # ModuleNotFoundError or any import/runtime issue
     # Fallback: no-op metrics so code still imports and tests can run
     PROMETHEUS_AVAILABLE = False
+    _last_backend_metric = 0.0
 
     class _NoopMetric:
         def __init__(self, *args, **kwargs):
@@ -58,9 +59,18 @@ except Exception:  # ModuleNotFoundError or any import/runtime issue
 
     def generate_latest(registry=None):
         # Minimal stub; real Prometheus returns bytes
-        return b""
+        return (
+            "# HELP codexify_db_backend Current active database backend\n"
+            "# TYPE codexify_db_backend gauge\n"
+            f"codexify_db_backend {_last_backend_metric}\n"
+            "# HELP codexify_requests_total Total requests\n"
+            "# TYPE codexify_requests_total counter\n"
+            "codexify_requests_total 0\n"
+        ).encode()
 
     CONTENT_TYPE_LATEST = "text/plain; charset=utf-8"
+# Track last-set backend metric for noop mode
+_last_backend_metric = 0.0
 # Custom registry to avoid conflicts with default registry
 registry = CollectorRegistry()
 
@@ -89,13 +99,16 @@ def set_db_backend(backend: str) -> None:
     """
     # Metrics are safe to call even when PROMETHEUS_AVAILABLE is False
     # because _NoopMetric implements the same surface API.
+    global _last_backend_metric
     try:
         is_postgres = backend.lower() == "postgres"
     except AttributeError:
         # Defensive: if backend is None or non-string, skip metric update.
         return
 
-    DB_BACKEND_GAUGE.set(1 if is_postgres else 0)
+    value = 1 if is_postgres else 0
+    _last_backend_metric = value
+    DB_BACKEND_GAUGE.set(value)
 
 
 # Export all prometheus-client exports for convenience

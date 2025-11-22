@@ -59,24 +59,25 @@ def mock_event_bus():
 @pytest.fixture
 def mock_context_broker():
     """Mock ContextBroker for context assembly."""
-    mock = AsyncMock()
+    mock = MagicMock()
 
     # Define return values for different depths
     async def assemble_side_effect(thread_id, query, depth="normal", **kwargs):
+        rag_trace = {"documents": [], "graph": []}
         if depth == "shallow":
             return {
                 "messages": ["msg1", "msg2"],
                 "semantic": []
-            }
-        elif depth == "normal":
+            }, rag_trace
+        if depth == "normal":
             return {
                 "messages": ["msg1", "msg2"],
                 "semantic": [
                     {"text": "relevant doc 1", "score": 0.95},
                     {"text": "relevant doc 2", "score": 0.87}
                 ]
-            }
-        elif depth == "deep":
+            }, rag_trace
+        if depth == "deep":
             return {
                 "messages": ["msg1", "msg2"],
                 "semantic": [
@@ -86,7 +87,7 @@ def mock_context_broker():
                 "memory": [
                     {"text": "previous context", "score": 0.92}
                 ]
-            }
+            }, rag_trace
         elif depth == "diagnostic":
             return {
                 "messages": ["msg1", "msg2"],
@@ -104,14 +105,19 @@ def mock_context_broker():
                     "threads_open": 3,
                     "last_event": None
                 }
-            }
-        else:
-            return {
-                "messages": ["msg1", "msg2"],
-                "semantic": []
-            }
+            }, rag_trace
+        return {
+            "messages": ["msg1", "msg2"],
+            "semantic": []
+        }, rag_trace
 
-    mock.assemble = MagicMock(side_effect=assemble_side_effect)
+    mock.assemble = AsyncMock(
+        side_effect=assemble_side_effect,
+        return_value=(
+            {"messages": ["msg1", "msg2"], "semantic": []},
+            {"documents": [], "graph": []},
+        ),
+    )
     return mock
 
 
