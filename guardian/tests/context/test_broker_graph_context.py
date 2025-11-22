@@ -28,9 +28,10 @@ async def test_graph_context_flag_off(monkeypatch):
     settings = Settings(GUARDIAN_ENABLE_GRAPH_CONTEXT=False)
     broker = TestBroker(DummyChatlog(), DummyVector(), settings=settings, memory_store=None, sensors=None)
 
-    bundle = await broker.assemble(thread_id=1, query="hi", user_id="demo")
+    bundle, trace = await broker.assemble(thread_id=1, query="hi", user_id="demo")
     assert calls["graph"] == 0
     assert bundle.get("graph") == []
+    assert trace["graph"] == []
 
 
 @pytest.mark.asyncio
@@ -42,9 +43,10 @@ async def test_graph_context_flag_on(monkeypatch):
     settings = Settings(GUARDIAN_ENABLE_GRAPH_CONTEXT=True)
     broker = TestBroker(DummyChatlog(), DummyVector(), settings=settings, memory_store=None, sensors=None)
 
-    bundle = await broker.assemble(thread_id=1, query="hi", user_id="demo")
+    bundle, trace = await broker.assemble(thread_id=1, query="hi", user_id="demo")
     assert bundle.get("graph")
     assert bundle["graph"][0]["text"] == "from-graph"
+    assert trace["graph"]
 
 
 @pytest.mark.asyncio
@@ -56,5 +58,6 @@ async def test_graph_context_failure_soft(monkeypatch):
     settings = Settings(GUARDIAN_ENABLE_GRAPH_CONTEXT=True)
     broker = TestBroker(DummyChatlog(), DummyVector(), settings=settings, memory_store=None, sensors=None)
 
-    bundle = await broker.assemble(thread_id=1, query="hi", user_id="demo")
+    bundle, trace = await broker.assemble(thread_id=1, query="hi", user_id="demo")
     assert bundle.get("graph") == []
+    assert trace["graph"] == []

@@ -31,6 +31,7 @@ try:
         GUARDIAN_PROVIDER,
         allowed_origins,
         get_groq_chat,
+        get_database_dsn,
     )
     from guardian.core.auth import issue_session_token, verify_session_token
 except ImportError as e:
@@ -45,6 +46,7 @@ except ImportError as e:
     GUARDIAN_PROVIDER = "unknown"
     allowed_origins = []
     get_groq_chat = lambda: None
+    get_database_dsn = lambda: None
 
 
 class SessionRequest(BaseModel):
@@ -142,7 +144,7 @@ def healthz():
     """
     Returns DB target and existence of projects/chat_threads for quick diagnostics.
     """
-    db_target = PG_DSN if DB_BACKEND == "postgres" else SQLITE_PATH
+    db_target = get_database_dsn() if DB_BACKEND == "postgres" else SQLITE_PATH
     projects_exists = False
     threads_exists = False
     try:

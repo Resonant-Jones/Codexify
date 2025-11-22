@@ -295,6 +295,7 @@ class TestChatCompletePost:
             response = test_client.post("/chat/1/complete", json={})
 
             assert response.status_code == 502
+            assert "LLM backend error" in response.json()["detail"]
 
 
 class TestChatMessageDelete:
@@ -493,3 +494,4 @@ class TestApiChatAlias:
         monkeypatch.setattr("guardian.routes.chat.llm_settings.GROQ_API_KEY", None)
         resp = test_client.post("/api/chat/1/complete", json={})
         assert resp.status_code == 400
+        assert "LLM unavailable" in resp.json()["detail"]

@@ -482,7 +482,6 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         # Resolve user_id for graph context
         thread_info = chatlog_db.get_chat_thread(thread_id) if hasattr(chatlog_db, "get_chat_thread") else None
         user_for_context = (thread_info or {}).get("user_id", "default")
-        user_for_context = (thread_info or {}).get("user_id", "default")
         bundle: Optional[Dict[str, Any]] = None
         trace: Optional[Dict[str, Any]] = None
         try:
@@ -543,11 +542,14 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
 
         return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text}}
     except HTTPException as exc:
+        detail = str(exc.detail)
+        if exc.status_code == 400:
+            raise HTTPException(status_code=400, detail=f"LLM unavailable: {detail}")
         if exc.status_code >= 500:
-            raise HTTPException(status_code=502, detail="completion_failed")
+            raise HTTPException(status_code=502, detail=f"LLM backend error: {detail}")
         raise
     except LLMConfigError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=f"LLM unavailable: {exc}")
     except Exception as exc:
         logger.exception("complete failed: %s", exc)
         raise HTTPException(status_code=502, detail="completion_failed")
@@ -853,11 +855,11 @@ _rag_traces: Dict[int, Dict[str, Any]] = {}
 def get_latest_rag_trace(thread_id: int):
     """
     [DEV ONLY] Get the RAG trace for the last completion in this thread.
-    Returns 404 if no trace is available.
+    Returns empty arrays if no trace is available.
     """
     trace = _rag_traces.get(thread_id)
     if not trace:
-        raise HTTPException(status_code=404, detail="No RAG trace found for this thread")
+        return {"documents": [], "graph": []}
     return trace
 
 

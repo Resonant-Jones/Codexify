@@ -42,10 +42,8 @@ def test_debug_endpoint_returns_trace():
     result = get_latest_rag_trace(123)
     assert result == {"documents": [], "graph": []}
 
-def test_debug_endpoint_404():
-    """Verify debug endpoint returns 404 for missing trace."""
+def test_debug_endpoint_empty_when_missing():
+    """Verify debug endpoint returns empty structure for missing trace."""
     _rag_traces.clear()
-    
-    with pytest.raises(HTTPException) as exc:
-        get_latest_rag_trace(999)
-    assert exc.value.status_code == 404
+    result = get_latest_rag_trace(999)
+    assert result == {"documents": [], "graph": []}

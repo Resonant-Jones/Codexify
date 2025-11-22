@@ -63,7 +63,7 @@ async def run_prompt(prompt_spec: Dict[str, Any], settings: Settings, mode: str)
         settings=settings,
     )
 
-    context_bundle = await broker.assemble(
+    context_bundle, trace = await broker.assemble(
         thread_id=hash(prompt_spec["id"]) % (10**6),
         query=prompt_spec["question"],
         depth="normal",
