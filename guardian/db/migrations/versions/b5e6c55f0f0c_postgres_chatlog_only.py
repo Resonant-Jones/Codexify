@@ -1,7 +1,7 @@
 """ensure chatlog and connector tables exist for Postgres-only runtime
 
 Revision ID: b5e6c55f0f0c
-Revises: ac973209add4
+Revises: 9373693cc12e
 Create Date: 2025-11-16 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "b5e6c55f0f0c"
-down_revision: Union[str, Sequence[str], None] = "ac973209add4"
+down_revision: Union[str, Sequence[str], None] = "9373693cc12e"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
