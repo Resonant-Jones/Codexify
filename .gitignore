@@ -113,3 +113,4 @@ frontend/store
 chatgpt_conversation.json
 
 
+.chroma/
