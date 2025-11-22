@@ -60,7 +60,8 @@ except ModuleNotFoundError:
 
 # Optional Neo4j imports for graph sync
 try:
-    from guardian.db.neo import UserNode, MessageNode, ThreadNode
+    from guardian.graph.models import UserNode, MessageNode, ThreadNode
+    from guardian.graph.connection import connect_neo4j
     NEO4J_SYNC_AVAILABLE = True
 except Exception:
     NEO4J_SYNC_AVAILABLE = False
@@ -392,34 +393,29 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
         )
 
     # --- Neo4j sync ---
-    if NEO4J_SYNC_AVAILABLE:
+    if NEO4J_SYNC_AVAILABLE and getattr(llm_settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False):
         try:
-            import uuid
+            connect_neo4j()
             # Use string IDs for Neo4j
             message_id = str(mid)
             thread_id_str = str(thread_id)
             user_id_str = str(owner)
             message_text = content
 
-            neo_user = UserNode.nodes.get_or_none(user_id=user_id_str)
-            if not neo_user:
-                neo_user = UserNode(user_id=user_id_str, name=user_id_str).save()
+            neo_user, _ = UserNode.get_or_create({"user_id": user_id_str, "name": user_id_str})
+            neo_thread, _ = ThreadNode.get_or_create({"thread_id": thread_id_str})
 
-            neo_thread = ThreadNode.nodes.get_or_none(thread_id=thread_id_str)
-            if not neo_thread:
-                neo_thread = ThreadNode(thread_id=thread_id_str).save()
-
-            neo_msg = MessageNode(
-                message_id=message_id,
-                content=message_text,
-                created_at=datetime.utcnow()
-            ).save()
+            neo_msg, _ = MessageNode.get_or_create({
+                "message_id": message_id,
+                "content": message_text,
+                "created_at": datetime.utcnow()
+            })
 
             neo_msg.user.connect(neo_user)
             neo_msg.thread.connect(neo_thread)
 
         except Exception as e:
-            logger.warning(f"[Neo4j Sync Error] {e}")
+            logger.warning("[Neo4j Sync Error] %s", e, exc_info=True)
 
     return {
         "ok": True,

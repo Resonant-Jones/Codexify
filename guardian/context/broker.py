@@ -1,8 +1,9 @@
 """Minimal, dependency-light context assembly broker for enriching chat completions."""
 
-from typing import Any, Dict, List, Optional
 import logging
+from typing import Any, Dict, List, Optional
 
+from guardian.core.config import Settings, get_settings
 from guardian.memoryos.retriever import MemoryOSRetriever
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ class ContextBroker:
         vector_store: Any,
         memory_store: Optional[Any] = None,
         sensors: Optional[Any] = None,
+        settings: Optional[Settings] = None,
     ):
         """Initialize ContextBroker with required and optional stores.
 
@@ -37,6 +39,7 @@ class ContextBroker:
         self.vector = vector_store
         self.memory = memory_store
         self.sensors = sensors
+        self.settings = settings or get_settings()
         # Initialize MemoryOS semantic retriever for RAG-based memory search
         self.memory_retriever = MemoryOSRetriever(vector_store)
         logger.info("[ContextBroker] Initialized with MemoryOS semantic retriever")
@@ -97,6 +100,15 @@ class ContextBroker:
                 context["semantic"] = []
         else:
             context["semantic"] = []
+
+        # Optional graph-derived context
+        context["graph"] = []
+        if getattr(self.settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False):
+            try:
+                graph_chunks = await self._search_graph(thread_id, limit=4)
+                context["graph"] = graph_chunks
+            except Exception as e:
+                logger.warning("[ContextBroker] Graph context unavailable; continuing without it: %s", e)
 
         # Include memory search for deep and diagnostic modes
         if depth in ("deep", "diagnostic"):
@@ -223,4 +235,41 @@ class ContextBroker:
             return []
         except Exception as e:
             logger.warning(f"Error searching federated peers: {e}")
+            return []
+
+    async def _search_graph(self, thread_id: int, limit: int = 4) -> List[Dict[str, Any]]:
+        """Fetch lightweight graph context for a thread."""
+        try:
+            from guardian.graph.connection import connect_neo4j
+            from guardian.graph.models import ThreadNode, MessageNode, UserNode
+        except Exception as exc:  # pragma: no cover - optional dependency
+            logger.debug("[ContextBroker] Graph modules unavailable: %s", exc)
+            return []
+
+        try:
+            connect_neo4j()
+            thread = ThreadNode.nodes.get_or_none(thread_id=str(thread_id))
+            if not thread:
+                return []
+
+            snippets: List[Dict[str, Any]] = []
+            msgs = thread.messages.all()[:limit] if hasattr(thread.messages, "all") else []
+            for msg in msgs:
+                snippet = {
+                    "source": "graph",
+                    "type": "message",
+                    "message_id": getattr(msg, "message_id", ""),
+                    "content": getattr(msg, "content", ""),
+                }
+                try:
+                    sender = msg.user.single()
+                    if sender:
+                        snippet["user_id"] = getattr(sender, "user_id", None)
+                except Exception:
+                    pass
+                snippets.append(snippet)
+
+            return snippets
+        except Exception as exc:
+            logger.debug("[ContextBroker] Failed to fetch graph context: %s", exc, exc_info=True)
             return []
