@@ -48,7 +48,7 @@ services:
       MERGE (me:User {id:'me'}) ON CREATE SET me.name = 'Resonant Jones';
       MERGE (p:Project {id:'proj-loose-threads'}) ON CREATE SET p.name = 'Loose Threads', p.createdAt = datetime();
       MERGE (me)-[:OWNS]->(p);
-      " | cypher-shell -a bolt://neo4j:7687 -u neo4j -p guardian
+      " | cypher-shell -a bolt://neo4j:7687 -u neo4j -p codexify
 
   migrator:
     build:
@@ -58,6 +58,8 @@ services:
     entrypoint: []            # ensure our command runs; ignore any image ENTRYPOINT
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       ENABLE_BLIP_MODEL: "false"   # keep migrations light (no model loading)
     depends_on:
       db:
@@ -83,12 +85,16 @@ services:
       dockerfile: backend/Dockerfile
     working_dir: /app
     entrypoint: []            # ensure uvicorn runs directly; ignore image ENTRYPOINT
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       PORT: "8888"
       NEO4J_BOLT_URL: bolt://neo4j:codexify@neo4j:7687
       GUARDIAN_API_KEY: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e
       ENABLE_CONNECTOR_WORKER: "false"
+      GROQ_API_KEY: ${GROQ_API_KEY}
     depends_on:
       db:
         condition: service_healthy

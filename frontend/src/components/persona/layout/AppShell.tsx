@@ -36,7 +36,6 @@ import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
-import Sidebar from "@/components/chat/Sidebar";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";

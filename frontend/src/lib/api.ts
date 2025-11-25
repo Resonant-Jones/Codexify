@@ -14,6 +14,36 @@ export interface ApiResponse<T = unknown> {
   raw: Response;
 }
 
+export class ApiError<T = unknown> extends Error {
+  status: number;
+  statusText: string;
+  data: T | null;
+  headers?: Headers;
+  raw?: Response;
+  cause?: unknown;
+
+  constructor(
+    message: string,
+    options: {
+      status: number;
+      statusText: string;
+      data: T | null;
+      headers?: Headers;
+      raw?: Response;
+      cause?: unknown;
+    }
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = options.status;
+    this.statusText = options.statusText;
+    this.data = options.data;
+    this.headers = options.headers;
+    this.raw = options.raw;
+    this.cause = options.cause;
+  }
+}
+
 function withQuery(path: string, params?: ApiParams): string {
   if (!params || Object.keys(params).length === 0) return path;
   const search = new URLSearchParams();
@@ -61,14 +91,61 @@ async function coreRequest<T = unknown>(path: string, init: RequestInit = {}): P
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(url, { ...init, headers });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`HTTP ${response.status} ${response.statusText}: ${text}`);
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, headers });
+  } catch (err) {
+    // Network/CORS-level failure: no Response object
+    throw new ApiError("Network request failed", {
+      status: 0,
+      statusText: "NETWORK_ERROR",
+      data: null,
+      cause: err,
+    });
   }
 
   const contentType = response.headers.get("content-type") ?? "";
-  const data = (contentType.includes("application/json")
+  const isJson = contentType.includes("application/json");
+
+  if (!response.ok) {
+    let errorData: unknown = null;
+    let fallbackText = "";
+
+    if (isJson) {
+      try {
+        errorData = await response.json();
+        fallbackText = JSON.stringify(errorData);
+      } catch {
+        fallbackText = await response.text().catch(() => "");
+      }
+    } else {
+      fallbackText = await response.text().catch(() => "");
+      errorData = fallbackText;
+    }
+
+    const detail =
+      typeof errorData === "object" &&
+      errorData !== null &&
+      "detail" in errorData
+        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (errorData as any).detail
+        : undefined;
+
+    const message =
+      typeof detail === "string" && detail.trim().length > 0
+        ? detail
+        : `HTTP ${response.status} ${response.statusText}: ${fallbackText}`;
+
+    throw new ApiError(message, {
+      status: response.status,
+      statusText: response.statusText,
+      data: (errorData as T | null) ?? null,
+      headers: response.headers,
+      raw: response,
+    });
+  }
+
+  const data = (isJson
     ? await response.json()
     : await response.text()) as T;
 

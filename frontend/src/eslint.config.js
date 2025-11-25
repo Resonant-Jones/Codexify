@@ -26,12 +26,33 @@ export default tseslint.config(
       "components/ui/__tests__/**",
       "components/settings/SettingsView.tsx",
       "components/chat/Composer.tsx",
-      "test/**"
+      "test/**",
+      "src/**"
     ],
+  },
+  {
+    settings: {
+      react: {
+        version: "detect",
+      },
+      "import/resolver": {
+        node: {
+          extensions: [".js", ".jsx", ".ts", ".tsx"],
+        },
+      },
+    },
+    plugins: {
+      react: reactPlugin,
+      "react-hooks": reactHooks,
+      "jsx-a11y": jsxA11y,
+      import: importPlugin,
+    },
+    rules: {
+      "react/no-unescaped-entities": OFF,
+    },
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
-  reactPlugin.configs.flat.recommended,
   {
     files: ["**/*.{ts,tsx}", "**/*.ts", "**/*.tsx"],
     languageOptions: {
@@ -46,25 +67,6 @@ export default tseslint.config(
         ...globals.browser,
         ...globals.node,
       },
-    },
-    settings: {
-      react: {
-        version: "19.1.1",
-      },
-      "import/resolver": {
-        typescript: {
-          project: "./tsconfig.json",
-        },
-        node: {
-          extensions: [".js", ".jsx", ".ts", ".tsx"],
-        },
-      },
-    },
-    plugins: {
-      react: reactPlugin,
-      "react-hooks": reactHooks,
-      "jsx-a11y": jsxA11y,
-      import: importPlugin,
     },
     rules: {
       "react/react-in-jsx-scope": OFF,

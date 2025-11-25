@@ -10,7 +10,21 @@ from typing import Optional
 from datetime import datetime
 
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, TIMESTAMP, Integer, BigInteger, Boolean, ForeignKey, Index, func, CheckConstraint
+from sqlalchemy import (
+    String,
+    Text,
+    TIMESTAMP,
+    Integer,
+    BigInteger,
+    Boolean,
+    ForeignKey,
+    Index,
+    func,
+    CheckConstraint,
+    UniqueConstraint,
+    Float,
+    JSON,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 
 
@@ -366,6 +380,87 @@ class ThreadDocument(Base):
         CheckConstraint("relation IN ('autosave', 'attached', 'reference')", name='thread_documents_relation_check'),
     )
     __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Imprints, Personas, System Docs
+# =========================
+
+
+class Imprint(Base):
+    """Imprint_Zero outputs persisted per user/project."""
+    __tablename__ = "imprints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    guardian_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preferred_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    style: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grammar_prefs: Mapped[dict] = mapped_column(JSON, server_default="{}", nullable=False)
+    metrics: Mapped[dict] = mapped_column(JSON, server_default="{}", nullable=False)
+    heat_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('draft','active','superseded')", name='imprints_status_check'),
+    )
+
+
+class Persona(Base):
+    """User-editable persona text."""
+    __tablename__ = "personas"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="user")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SystemDoc(Base):
+    """Long-form system documents (constitutions, guidelines)."""
+    __tablename__ = "system_docs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    owner_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("scope IN ('global','project','user')", name='system_docs_scope_check'),
+        UniqueConstraint('scope', 'owner_user_id', 'project_id', 'slug', name='uq_system_docs_scope_owner_project_slug'),
+    )
+
+
+class SystemDocLink(Base):
+    """Links docs to user/project selections."""
+    __tablename__ = "system_doc_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    system_doc_id: Mapped[int] = mapped_column(Integer, ForeignKey("system_docs.id", ondelete="CASCADE"), nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    doc: Mapped[SystemDoc] = relationship("SystemDoc")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'project_id', 'system_doc_id', name='uq_system_doc_links_attachment'),
+    )
 
 
 # =========================

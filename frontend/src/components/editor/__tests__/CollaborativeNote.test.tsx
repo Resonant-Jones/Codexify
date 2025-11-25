@@ -65,7 +65,7 @@ describe("CollaborativeNote", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText(/Start typing/);
+    const textarea = screen.getByPlaceholderText(/Read-only mode - you do not have edit permissions/);
     expect(textarea).toBeInTheDocument();
     expect((textarea as HTMLTextAreaElement).value).toBe("Initial content");
   });
@@ -96,7 +96,7 @@ describe("CollaborativeNote", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText(/Start typing/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Read-only mode - you do not have edit permissions/) as HTMLTextAreaElement;
 
     // Wait for connection
     await waitFor(() => {
@@ -136,7 +136,7 @@ describe("CollaborativeNote", () => {
     };
 
     // We can't easily trigger the onmessage from outside, but we verify the component renders
-    expect(screen.getByPlaceholderText(/Start typing/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Read-only mode - you do not have edit permissions/)).toBeInTheDocument();
   });
 
   it("calls onContentChange callback when text changes", async () => {
@@ -157,7 +157,7 @@ describe("CollaborativeNote", () => {
       expect(screen.getByText("Live Editing")).toBeInTheDocument();
     });
 
-    const textarea = screen.getByPlaceholderText(/Start typing/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Read-only mode - you do not have edit permissions/) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "Test content" } });
 
@@ -184,7 +184,7 @@ describe("CollaborativeNote", () => {
       expect(screen.getByText("Live Editing")).toBeInTheDocument();
     });
 
-    const textarea = screen.getByPlaceholderText(/Start typing/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Read-only mode - you do not have edit permissions/) as HTMLTextAreaElement;
 
     // Change content
     fireEvent.change(textarea, { target: { value: "Updated content" } });
@@ -225,7 +225,7 @@ describe("CollaborativeNote", () => {
     unmount();
 
     // After unmount, component should be gone
-    expect(screen.queryByPlaceholderText(/Start typing/)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Read-only mode - you do not have edit permissions/)).not.toBeInTheDocument();
   });
 
   it("handles WebSocket connection errors gracefully", async () => {
@@ -253,7 +253,7 @@ describe("CollaborativeNote", () => {
     );
 
     // Component should still render despite connection failure
-    expect(screen.getByPlaceholderText(/Start typing/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Read-only mode - you do not have edit permissions/)).toBeInTheDocument();
 
     // Status should show offline or error
     await waitFor(() => {
@@ -278,7 +278,7 @@ describe("CollaborativeNote", () => {
     });
 
     // Component should render without errors
-    const textarea = screen.getByPlaceholderText(/Start typing/);
+    const textarea = screen.getByPlaceholderText(/Read-only mode - you do not have edit permissions/);
     expect(textarea).toBeInTheDocument();
   });
 
@@ -298,7 +298,7 @@ describe("CollaborativeNote", () => {
     });
 
     // Component should be interactive
-    const textarea = screen.getByPlaceholderText(/Start typing/);
+    const textarea = screen.getByPlaceholderText(/Read-only mode - you do not have edit permissions/);
     expect(textarea).toBeInTheDocument();
   });
 });

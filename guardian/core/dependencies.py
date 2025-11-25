@@ -352,10 +352,20 @@ def _groq_complete(
             if sensor_info:
                 context_parts.append("**System State:**\n" + "\n".join(sensor_info))
 
-        # Prepend as system message
+        # Insert the context system message *after* any leading system prompts
         if context_parts:
             system_context = "\n\n".join(context_parts)
-            enriched_messages.insert(0, {
+
+            # Find index after the last leading system message, so the primary
+            # Guardian persona/system prompt (if present) stays first.
+            insert_at = 0
+            for idx, msg in enumerate(enriched_messages):
+                if msg.get("role") == "system":
+                    insert_at = idx + 1
+                else:
+                    break
+
+            enriched_messages.insert(insert_at, {
                 "role": "system",
                 "content": f"You have access to the following context:\n\n{system_context}"
             })
