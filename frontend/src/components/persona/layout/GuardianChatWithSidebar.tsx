@@ -5,7 +5,7 @@
 import React, { useMemo } from "react";
 import clsx from "clsx";
 import GuardianChat from "@/features/chat/GuardianChat";
-import Sidebar from "@/components/chat/Sidebar";
+import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message } from "@/types/ui";
 import api from "@/lib/api";
@@ -546,7 +546,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                 className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
               >
                 <PanelShell surfaceStyle={sidebarSurfaceStyle}>
-                  <Sidebar
+                  <SidebarRoot
                     threads={threads}
                     activeId={activeId}
                     onSelect={setActiveId}

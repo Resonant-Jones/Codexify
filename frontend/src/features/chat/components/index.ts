@@ -1,4 +1,4 @@
 export * from "./Composer";
-export * from "./Sidebar";
+export { default as Sidebar } from "@/components/sidebar/SidebarRoot";
 export * from "./ChatBubble";
 

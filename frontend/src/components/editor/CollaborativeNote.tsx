@@ -438,11 +438,11 @@ export function CollaborativeNote({
       <textarea
         value={content}
         onChange={(e: any) => handleChange(e.target.value)}
-        disabled={!permissions?.can_edit}
+        disabled={permissions?.can_edit === false}
         placeholder={
-          permissions?.can_edit
-            ? "Start typing... (auto-saves every 15s)"
-            : "Read-only mode - you do not have edit permissions"
+          permissions?.can_edit === false
+            ? "Read-only mode - you do not have edit permissions"
+            : "Start typing... (auto-saves every 15s)"
         }
         style={{
           flex: 1,
@@ -453,9 +453,9 @@ export function CollaborativeNote({
           lineHeight: 1.6,
           resize: "none",
           outline: "none",
-          color: permissions?.can_edit ? "rgba(0,0,0,.9)" : "rgba(0,0,0,.5)",
-          backgroundColor: permissions?.can_edit ? "#fff" : "#f9fafb",
-          cursor: permissions?.can_edit ? "text" : "not-allowed",
+          color: permissions?.can_edit === false ? "rgba(0,0,0,.5)" : "rgba(0,0,0,.9)",
+          backgroundColor: permissions?.can_edit === false ? "#f9fafb" : "#fff",
+          cursor: permissions?.can_edit === false ? "not-allowed" : "text",
         }}
       />
     </div>

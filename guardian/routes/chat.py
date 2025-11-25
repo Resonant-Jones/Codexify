@@ -78,6 +78,12 @@ except Exception:  # pragma: no cover - defensive import guard
     validate_llm_config = None
     LLMConfigError = Exception
 
+# Optional prompt helpers for system / persona layering
+try:  # pragma: no cover - prompts are optional in some deployments
+    from codexify.system_prompt_builder import build_guardian_system_prompt
+except Exception:
+    build_guardian_system_prompt = None
+
 
 # Pydantic models for thread operations
 class ThreadDTO(BaseModel):
@@ -136,6 +142,22 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
         _vector_store.add_texts([{"text": content, "meta": meta}])
     except Exception as e:
         logger.warning(f"[chat] Failed to auto-embed message {message_id}: {e}")
+
+# Very rough token estimate used for UX hints about prompt cost.
+# We avoid hard dependencies on specific tokenizer libraries here.
+def _estimate_tokens(text: Optional[str]) -> int:
+    """
+    Very rough token estimate used for UX hints about prompt cost.
+    We avoid hard dependencies on specific tokenizer libraries here.
+    """
+    if not text:
+        return 0
+    # Heuristic: ~4 characters per token for English text
+    try:
+        length = len(text)
+    except Exception:
+        return 0
+    return max(1, length // 4)
 
 # Helper functions
 def _normalize_thread_title(raw: Optional[str]) -> Optional[str]:
@@ -447,6 +469,16 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
     """
     try:
         provider = str(body.get("provider") or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)).lower()
+
+        # Optional per-request system prompt override coming from the frontend / settings.
+        # This allows users to layer their own persona/instructions on top of the immutable
+        # Codexify base prompt, while still letting prompts.py enforce invariants.
+        user_system_override = body.get("system_override")
+        if isinstance(user_system_override, str):
+            user_system_override = user_system_override.strip() or None
+        else:
+            user_system_override = None
+
         thread_exists = chatlog_db.get_chat_thread(thread_id) if hasattr(chatlog_db, "get_chat_thread") else True
         if not thread_exists:
             raise HTTPException(status_code=404, detail="Thread not found")
@@ -457,6 +489,13 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
 
         limit = int(body.get("max_context") or 50)
         items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
+
+        # Ensure deterministic oldest-first order if backend returns newest-first
+        try:
+            items = sorted(items, key=lambda m: m.get("id") or 0)
+        except Exception:
+            # If items are not sortable by id, leave ordering as-is
+            pass
 
         # Shape OpenAI-style messages; drop empty or literal "null" content
         context: List[Dict[str, str]] = []
@@ -482,6 +521,10 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         # Resolve user_id for graph context
         thread_info = chatlog_db.get_chat_thread(thread_id) if hasattr(chatlog_db, "get_chat_thread") else None
         user_for_context = (thread_info or {}).get("user_id", "default")
+
+        # Stats about the effective system prompt for UX (e.g. cost warnings in the UI)
+        system_prompt_stats: Dict[str, Any] = {}
+
         bundle: Optional[Dict[str, Any]] = None
         trace: Optional[Dict[str, Any]] = None
         try:
@@ -490,23 +533,32 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
             bundle, trace = await broker.assemble(
                 thread_id, query=latest_message, depth=depth, user_id=user_for_context
             )
-            
+
+            # Allow a per-request/user override to be visible to prompts.py.
+            # The immutable Codexify base prompt still lives in codexify.prompts;
+            # this simply gives it a hook to merge or ignore user intent.
+            if user_system_override:
+                if bundle is None:
+                    bundle = {}
+                # Do not overwrite if something upstream already set this key
+                bundle.setdefault("user_system_override", user_system_override)
+
             # Store trace if available
             if trace:
                 _rag_traces[thread_id] = trace
-                
+
                 # Compact logging
                 doc_count = len(trace.get("documents", []))
                 graph_count = len(trace.get("graph", []))
-                
+
                 top_doc = "None"
                 if doc_count > 0:
                     top_doc = trace["documents"][0].get("title", "unknown")
-                    
+
                 top_graph = "None"
                 if graph_count > 0:
                     top_graph = trace["graph"][0].get("node_id", "unknown")
-                
+
                 logger.info(
                     f"[rag] thread={thread_id} docs={doc_count} graph={graph_count} "
                     f"top_doc=\"{top_doc}\" top_graph=\"{top_graph}\""
@@ -516,13 +568,89 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
             logger.warning("[context] broker assemble failed (depth=%s): %s", depth, e)
             bundle = None
 
+        # Build Guardian system prompt and final message list
+        messages_for_llm: List[Dict[str, str]] = []
+
+        # Resolve project_id for prompt configuration, if available
+        project_id_for_prompt: Optional[int] = None
+        if thread_info:
+            try:
+                raw_project_id = thread_info.get("project_id")
+                if raw_project_id is not None:
+                    project_id_for_prompt = int(raw_project_id)
+            except (TypeError, ValueError):
+                project_id_for_prompt = None
+
+        try:
+            prompt_meta: Dict[str, Any] = {}
+            if build_guardian_system_prompt:
+                system_content, prompt_meta = build_guardian_system_prompt(
+                    user_id=user_for_context,
+                    project_id=project_id_for_prompt,
+                    depth=depth,
+                    bundle=bundle,
+                )
+            else:
+                system_content = (
+                    "You are Guardian, the Codexify assistant. "
+                    "You must be honest, precise, and safe. "
+                    "Prefer clear, structured answers for a busy software engineer. "
+                    "If you are uncertain, say so explicitly and avoid fabrication."
+                )
+
+            char_len = prompt_meta.get("total_chars", len(system_content or ""))
+            token_est = prompt_meta.get("estimated_tokens", _estimate_tokens(system_content))
+            system_prompt_stats.update(
+                {
+                    "char_length": char_len,
+                    "token_estimate": token_est,
+                    "depth": depth,
+                    "project_id": project_id_for_prompt,
+                    "has_user_override": bool(user_system_override),
+                    "docs_count": prompt_meta.get("docs_count"),
+                    "segments": prompt_meta.get("segments"),
+                }
+            )
+            if token_est > 2048:
+                logger.warning(
+                    "[chat] large system prompt for user=%s project_id=%s est_tokens=%s",
+                    user_for_context,
+                    project_id_for_prompt,
+                    token_est,
+                )
+            messages_for_llm.append({"role": "system", "content": system_content})
+        except Exception as e:
+            logger.warning("[chat] failed to build system prompt: %s", e)
+            fallback_text = (
+                "You are Guardian, a careful and honest AI assistant. "
+                "Answer concisely, avoid speculation, and clearly mark any uncertainty."
+            )
+            system_prompt_stats.update(
+                {
+                    "char_length": len(fallback_text),
+                    "token_estimate": _estimate_tokens(fallback_text),
+                    "depth": depth,
+                    "project_id": project_id_for_prompt,
+                    "has_user_override": bool(user_system_override),
+                }
+            )
+            messages_for_llm.append(
+                {
+                    "role": "system",
+                    "content": fallback_text,
+                }
+            )
+
+        # Append conversational history after the system prompt
+        messages_for_llm.extend(context)
+
         model = body.get("model") or DEFAULT_MODEL
         if provider == "groq":
-            assistant_text = _groq_complete(context, model=model, context=bundle)
+            assistant_text = _groq_complete(messages_for_llm, model=model, context=bundle)
         elif provider == "openai":
             if chat_with_ai is None:
                 raise HTTPException(status_code=501, detail="OpenAI provider is not available")
-            assistant_text = str(chat_with_ai(context, model=model))
+            assistant_text = str(chat_with_ai(messages_for_llm, model=model))
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported LLM_PROVIDER: {provider}")
 
@@ -540,7 +668,18 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         # Auto-embed assistant response
         _embed_message(thread_id, "assistant", assistant_text, mid)
 
-        return {"ok": True, "message": {"id": mid, "thread_id": thread_id, "role": "assistant", "content": assistant_text}}
+        return {
+            "ok": True,
+            "message": {
+                "id": mid,
+                "thread_id": thread_id,
+                "role": "assistant",
+                "content": assistant_text,
+            },
+            "prompt_meta": {
+                "system_prompt": system_prompt_stats,
+            },
+        }
     except HTTPException as exc:
         detail = str(exc.detail)
         if exc.status_code == 400:

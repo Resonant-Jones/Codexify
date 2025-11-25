@@ -1,5 +1,6 @@
 {
   "name": "guardian-monorepo",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -10,19 +11,34 @@
     "lint": "eslint ."
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.56.1",
     "@tailwindcss/postcss": "^4.1.14",
     "@tailwindcss/vite": "^4.1.14",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.21",
+    "eslint": "^9.39.1",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "jsdom": "^27.2.0",
     "tailwindcss": "^4.1.14",
-    "vite-plugin-pwa": "^1.1.0"
+    "typescript-eslint": "^8.47.0",
+    "vite-plugin-pwa": "^1.1.0",
+    "vitest": "^4.0.13"
   },
   "dependencies": {
     "clsx": "^2.1.1",
     "dompurify": "^3.3.0",
     "event-source-polyfill": "^1.0.31",
     "framer-motion": "^12.23.24",
+    "lodash-es": "^4.17.21",
     "lucide-react": "^0.554.0",
     "monaco-editor": "^0.53.0",
     "react": "19.2.0",
