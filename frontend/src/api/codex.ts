@@ -18,20 +18,33 @@ export type CodexEntry = CodexEntrySummary & {
 };
 
 export async function listCodexEntries(): Promise<CodexEntrySummary[]> {
-  const res = await api.get<CodexEntrySummary[]>("/api/codex/entries");
-  return res.data;
+  try {
+    const res = await api.get<CodexEntrySummary[]>("/codex/entries");
+    return res.data || [];
+  } catch (err: any) {
+    if (err?.response?.status === 404) {
+      console.warn("[codex] /codex/entries endpoint not found, returning empty list");
+      return [];
+    }
+    console.warn("[codex] failed to load entries, returning empty list", err);
+    return [];
+  }
 }
 
 export async function getCodexEntry(id: string): Promise<CodexEntry> {
-  const res = await api.get<CodexEntry>(`/api/codex/entries/${id}`);
-  return res.data;
+  try {
+    const res = await api.get<CodexEntry>(`/codex/entries/${id}`);
+    return res.data;
+  } catch (err: any) {
+    console.warn(`[codex] failed to load entry ${id}`, err);
+    throw err;
+  }
 }
 
 export function getCodexExportUrl(id: string): string {
   const base = (ENV.apiBase || "").replace(/\/+$/, "");
-  const path = `/api/codex/entries/${id}/export`;
+  const path = `/codex/entries/${id}/export`;
   if (!base) return path;
   const needsSlash = !path.startsWith("/");
   return `${base}${needsSlash ? "/" : ""}${path}`;
 }
-

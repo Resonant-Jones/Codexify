@@ -446,15 +446,18 @@ export default function AppShell({}: PropsWithChildren) {
       cancelled = true;
     };
   }, []);
-  const codexDocs = useMemo<DocItem[]>(() => codexEntries.map((e, idx) => ({
-    id: e.id || `codex-${idx}`,
-    name: e.title,
-    title: e.title,
-    ext: (e.ext || "codex") as keyof ExtColors,
-    type: "codex_entry",
-    createdAt: e.created_at,
-    mock: false,
-  })), [codexEntries]);
+  const codexDocs = useMemo<DocItem[]>(() => {
+    if (!Array.isArray(codexEntries)) return [];
+    return codexEntries.map((e, idx) => ({
+      id: e?.id || `codex-${idx}`,
+      name: e?.title || "Untitled Codex Entry",
+      title: e?.title || "Untitled Codex Entry",
+      ext: ((e?.ext || "codex") as keyof ExtColors),
+      type: "codex_entry" as const,
+      createdAt: e?.created_at,
+      mock: false,
+    }));
+  }, [codexEntries]);
   const allDocuments = useMemo<DocItem[]>(() => [...codexDocs, ...documents], [codexDocs, documents]);
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   // Utility: parse a number from unknown input, fall back & clamp to [0,1]

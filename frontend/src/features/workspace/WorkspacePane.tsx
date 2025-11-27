@@ -27,12 +27,19 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
     let cancelled = false;
     setLoading(true);
     setError(null);
+
     getCodexEntry(activeDoc.id)
       .then((entry) => {
-        if (!cancelled) setCodexEntry(entry);
+        if (!cancelled) {
+          setCodexEntry(entry);
+          setError(null);
+        }
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message || "Failed to load Codex entry");
+        if (!cancelled) {
+          setError(err?.message || "Failed to load Codex entry");
+          setCodexEntry(null);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -45,7 +52,9 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
 
   const headerTitle = useMemo(() => {
     if (!activeDoc) return "Workspace";
-    return `Workspace · ${activeDoc.title}${activeDoc.ext ? `.${activeDoc.ext}` : ""}`;
+    const title = activeDoc?.title || "Untitled";
+    const ext = activeDoc?.ext ? `.${activeDoc.ext}` : "";
+    return `Workspace · ${title}${ext}`;
   }, [activeDoc]);
 
   const exportHref = activeDoc?.type === "codex_entry" && activeDoc.id ? getCodexExportUrl(activeDoc.id) : null;
@@ -92,7 +101,7 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
 
         {activeDoc && activeDoc.type !== "codex_entry" && (
           <div className="rounded-[var(--tile-radius)] border p-4" style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)", color: "var(--text)" }}>
-            <div className="text-sm font-semibold">{activeDoc.title}{activeDoc.ext ? `.${activeDoc.ext}` : ""}</div>
+            <div className="text-sm font-semibold">{activeDoc?.title || "Untitled"}{activeDoc?.ext ? `.${activeDoc.ext}` : ""}</div>
             <p className="mt-2 text-sm opacity-70">
               Preview is not available for this document type. Use Export or open in thread to review.
             </p>
@@ -103,7 +112,7 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
           <div className="rounded-[var(--tile-radius)] border p-4 space-y-3" style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)", color: "var(--text)" }}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold">{activeDoc.title}</div>
+                <div className="text-sm font-semibold">{activeDoc?.title || "Untitled Codex Entry"}</div>
                 <div className="text-xs opacity-70">
                   {codexEntry?.thread_id ? `Thread: ${codexEntry.thread_id}` : "Codex entry"}
                 </div>
@@ -119,14 +128,21 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
               <div className="text-sm opacity-70">Loading Codex entry…</div>
             )}
             {error && (
-              <div className="text-sm text-red-400">Error: {error}</div>
+              <div className="text-sm text-red-400">
+                <div className="font-semibold">Error loading Codex entry</div>
+                <div className="mt-1">{error}</div>
+                <div className="mt-2 opacity-70">The entry may have been deleted or the endpoint may be unavailable.</div>
+              </div>
             )}
-            {!loading && !error && (
+            {!loading && !error && codexEntry && (
               <div className="prose prose-sm max-w-none dark:prose-invert">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {codexEntry?.body || "_No content available._"}
                 </ReactMarkdown>
               </div>
+            )}
+            {!loading && !error && !codexEntry && (
+              <div className="text-sm opacity-70">No content available.</div>
             )}
           </div>
         )}
