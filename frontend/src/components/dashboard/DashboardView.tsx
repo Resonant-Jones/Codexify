@@ -1,11 +1,13 @@
 import * as React from "react";
-import DocumentPreviewTile from "@/components/ui/DocumentPreviewTile";
+import DocumentTile from "@/components/documents/DocumentTile";
 import FrameCard from "@/components/surface/FrameCard";
 import { Button } from "@/components/ui/button";
 import { ExtColors, GalleryItem } from "@/types/ui";
 import api from "@/lib/api";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ImagePlus, X } from "lucide-react";
+import TileShell from "@/components/surface/TileShell";
+import GalleryPreviewTile from "@/components/gallery/PreviewTile";
 
 // ──────── Demo Data ────────
 const DEMO_RECENT_DOCS: string[] = [
@@ -184,11 +186,17 @@ export default function DashboardView({
                   ) : (
                     <div className="grid h-full grid-cols-2 gap-[var(--gutter)]">
                       {threadList.map((t) => (
-                        <button
+                        <TileShell
                           key={t.id}
-                          className="flex flex-col justify-between gap-3 rounded-[var(--tile-radius,19px)] border border-[color-mix(in oklab,var(--panel-border) 85%,transparent)] bg-[color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 96%,transparent)] px-4 py-4 text-left transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
-                          onClick={() => openThread(t.id)}
+                          as="button"
                           type="button"
+                          className="flex h-full w-full flex-col justify-between gap-3 px-4 py-4 text-left transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+                          style={{
+                            background:
+                              "color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 96%,transparent)",
+                            borderColor: "color-mix(in oklab,var(--panel-border) 85%,transparent)",
+                          }}
+                          onClick={() => openThread(t.id)}
                         >
                           <span className="text-base font-semibold truncate">{t.title}</span>
                           {t.lastMessage ? (
@@ -196,7 +204,7 @@ export default function DashboardView({
                           ) : (
                             <span className="text-xs italic opacity-50">No replies yet</span>
                           )}
-                        </button>
+                        </TileShell>
                       ))}
                     </div>
                   )}
@@ -217,7 +225,7 @@ export default function DashboardView({
                   </Button>
                 </div>
                 {!hasRealDocs && showDemoDocs && (
-                  <div className="rounded-[var(--tile-radius,19px)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
+                  <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
                     <p className="text-xs opacity-75">Demo documents. Create or upload to replace.</p>
                     <button
                       type="button"
@@ -240,7 +248,7 @@ export default function DashboardView({
                   ) : (
                     <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)] justify-items-center">
                       {docsToRender.map((d) => (
-                        <DocumentPreviewTile
+                        <DocumentTile
                           key={d}
                           file={{ name: d }}
                           className="dashboard-doc-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
@@ -272,7 +280,7 @@ export default function DashboardView({
                 </div>
               </div>
               {!hasRealGallery && showDemoGallery && (
-                <div className="rounded-[var(--tile-radius,19px)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
+                <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
                   <p className="text-xs opacity-75">Demo gallery images. They'll disappear once you add your own.</p>
                   <button
                     type="button"
@@ -295,15 +303,12 @@ export default function DashboardView({
                 ) : (
                   <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)]">
                     {galleryToRender.map((item, index) => (
-                      <button
+                      <GalleryPreviewTile
                         key={`${item.src}-${index}`}
-                        className="relative aspect-square w-full overflow-hidden rounded-[var(--tile-radius,19px)] border border-[color-mix(in oklab,var(--panel-border) 85%,transparent)] bg-[color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 90%,transparent)] transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+                        src={item.src}
+                        alt={item.prompt || "Gallery image"}
                         onClick={() => onImagePrompt(item.prompt)}
-                        aria-label={item.prompt || "Open gallery image"}
-                        type="button"
-                      >
-                        <img src={item.src} alt={item.prompt || "Gallery image"} className="absolute inset-0 h-full w-full object-cover" />
-                      </button>
+                      />
                     ))}
                   </div>
                 )}

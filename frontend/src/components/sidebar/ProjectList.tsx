@@ -2,6 +2,7 @@ import * as React from "react";
 import clsx from "clsx";
 import { FolderOpen, PlusCircle } from "lucide-react";
 import type { Project } from "@/types/common";
+import TileShell from "@/components/surface/TileShell";
 
 type Props = {
   projects: Project[];
@@ -78,14 +79,24 @@ function ProjectTileCard({
       })
     : <span className="project-tile__icon">{baseIcon}</span>;
   return (
-    <button
+    <TileShell
+      as="button"
       type="button"
       onClick={onClick}
-      className={clsx("project-tile", active && "project-tile--active")}
+      className={clsx(
+        "project-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]",
+        active && "project-tile--active"
+      )}
+      style={{
+        background: "color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 60%,transparent)",
+        border: `1.5px solid ${
+          active ? "color-mix(in oklab,var(--accent-strong) 55%, var(--panel-border))" : "var(--panel-border)"
+        }`,
+      }}
       aria-pressed={active}
     >
       {iconNode}
       <span className="project-tile__label">{label}</span>
-    </button>
+    </TileShell>
   );
 }

@@ -1,7 +1,7 @@
 // src/components/gallery/GalleryView.tsx
 import React, { useContext, useMemo, useState } from "react";
 import { ProjectContext } from "@/components/layout/ProjectContext";
-import PreviewTile from "@/components/ui/PreviewTile";
+import PreviewTile from "@/components/gallery/PreviewTile";
 import FrameCard from "@/components/surface/FrameCard";
 import { X } from "lucide-react";
 
@@ -97,12 +97,11 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
               {galleryToRender.map((item, i) => (
                 <PreviewTile
                   key={`${item.src}-${i}`}
-                  className="cursor-pointer"
-                  rectH={tileSize}
+                  src={item.src}
+                  alt={item.prompt}
                   onClick={() => onSelect(item.prompt)}
-                >
-                  <img src={item.src} alt={item.prompt} className="h-full w-full object-cover" />
-                </PreviewTile>
+                  style={{ minHeight: tileSize }}
+                />
               ))}
             </div>
           )}
