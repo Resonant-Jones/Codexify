@@ -13,19 +13,23 @@ import pytest
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.metacognition import MetacognitionEngine
-from guardian.plugins.system_diagnostics.main import DiagnosticResult, SystemDiagnostics
+from guardian.plugins.system_diagnostics.main import (
+    DiagnosticResult,
+    SystemDiagnostics,
+)
 from guardian.threads_structure.thread_manager import ThreadManager
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
 def load_config():
     plugin_dir = Path(__file__).parent.parent
-    with open(plugin_dir / "plugin.json", "r") as f:
+    with open(plugin_dir / "plugin.json") as f:
         return json.load(f)["config"]
 
 
@@ -52,7 +56,12 @@ async def test_memory_monitor():
     diagnostics.metacognition = MagicMock(spec=MetacognitionEngine)
     diagnostics.thread_manager = MagicMock(spec=ThreadManager)
 
-    memory_info = {"usage_percent": 75.0, "total": 16384, "used": 12288, "free": 4096}
+    memory_info = {
+        "usage_percent": 75.0,
+        "total": 16384,
+        "used": 12288,
+        "free": 4096,
+    }
     diagnostics.thread_manager.get_memory_info.return_value = memory_info
 
     result = await diagnostics.monitors["memory"].check()

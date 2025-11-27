@@ -16,7 +16,8 @@ from typing import Any, Dict, List, Optional
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ def load_agent_registry() -> Dict[str, Any]:
     """Load the current agent registry to check available capabilities."""
     try:
         registry_path = Path(__file__).parent / "agent_registry.json"
-        with open(registry_path, "r") as f:
+        with open(registry_path) as f:
             return json.load(f)
     except Exception as e:
         logger.error(f"Failed to load agent registry: {e}")
@@ -82,7 +83,8 @@ def epistemic_self_check(
     # Gather evidence for confidence assessment
     evidence = {
         "has_required_functions": all(
-            func in available_functions for func in _get_required_functions(intent)
+            func in available_functions
+            for func in _get_required_functions(intent)
         ),
         "has_required_agents": _check_required_agents(intent, agent_registry),
         "context_completeness": _assess_context_completeness(context),
@@ -195,7 +197,9 @@ def _generate_recommendations(gaps: List[str], confidence: float) -> List[str]:
             recommendations.append(f"Address knowledge gap: {gap}")
 
     if confidence < 0.5:
-        recommendations.append("Consider gathering more context before proceeding")
+        recommendations.append(
+            "Consider gathering more context before proceeding"
+        )
 
     return recommendations
 

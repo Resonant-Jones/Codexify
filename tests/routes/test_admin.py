@@ -23,14 +23,15 @@ class TestRequireAdminFunction:
         monkeypatch.setenv("DEBUG", "false")
 
         # Reload module to pick up env vars
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Call require_admin with valid token
         result = admin_module.require_admin(
-            x_admin_token="test-admin-secret",
-            x_api_key="some-api-key"
+            x_admin_token="test-admin-secret", x_api_key="some-api-key"
         )
 
         assert result == "admin_token"
@@ -41,15 +42,16 @@ class TestRequireAdminFunction:
         monkeypatch.setenv("DEBUG", "false")
 
         # Reload module to pick up env vars
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Call require_admin with wrong token
         with pytest.raises(HTTPException) as exc_info:
             admin_module.require_admin(
-                x_admin_token="wrong-token",
-                x_api_key="some-api-key"
+                x_admin_token="wrong-token", x_api_key="some-api-key"
             )
 
         assert exc_info.value.status_code == 403
@@ -61,15 +63,16 @@ class TestRequireAdminFunction:
         monkeypatch.setenv("DEBUG", "false")
 
         # Reload module to pick up env vars
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Call require_admin without token
         with pytest.raises(HTTPException) as exc_info:
             admin_module.require_admin(
-                x_admin_token=None,
-                x_api_key="some-api-key"
+                x_admin_token=None, x_api_key="some-api-key"
             )
 
         assert exc_info.value.status_code == 403
@@ -81,14 +84,15 @@ class TestRequireAdminFunction:
         monkeypatch.setenv("DEBUG", "true")
 
         # Reload module to pick up env vars
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Call require_admin without token but with DEBUG mode
         result = admin_module.require_admin(
-            x_admin_token=None,
-            x_api_key="some-api-key"
+            x_admin_token=None, x_api_key="some-api-key"
         )
 
         assert result == "debug_mode"
@@ -99,15 +103,16 @@ class TestRequireAdminFunction:
         monkeypatch.setenv("DEBUG", "false")
 
         # Reload module to pick up env vars
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Should fail since no admin token env var and DEBUG is false
         with pytest.raises(HTTPException) as exc_info:
             admin_module.require_admin(
-                x_admin_token="any-token",
-                x_api_key="some-api-key"
+                x_admin_token="any-token", x_api_key="some-api-key"
             )
 
         assert exc_info.value.status_code == 403
@@ -118,16 +123,15 @@ class TestRequireAdminFunction:
         monkeypatch.setenv("DEBUG", "false")
 
         # Reload module to pick up env vars
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Call require_admin without credentials
         with pytest.raises(HTTPException) as exc_info:
-            admin_module.require_admin(
-                x_admin_token=None,
-                x_api_key=None
-            )
+            admin_module.require_admin(x_admin_token=None, x_api_key=None)
 
         detail = exc_info.value.detail
         assert "error" in detail
@@ -143,68 +147,75 @@ class TestAdminLogging:
     def test_successful_access_logs_info(self, monkeypatch, caplog):
         """Test that successful admin access logs info message."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         monkeypatch.setenv("GUARDIAN_ADMIN_TOKEN", "test-admin-secret")
         monkeypatch.setenv("DEBUG", "false")
 
         # Reload module to pick up env vars
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Call with valid token
         admin_module.require_admin(
-            x_admin_token="test-admin-secret",
-            x_api_key="some-key"
+            x_admin_token="test-admin-secret", x_api_key="some-key"
         )
 
         # Check that log was emitted
-        assert any("Admin access granted" in record.message for record in caplog.records)
+        assert any(
+            "Admin access granted" in record.message
+            for record in caplog.records
+        )
 
     def test_failed_access_logs_warning(self, monkeypatch, caplog):
         """Test that failed admin access logs warning message."""
         import logging
+
         caplog.set_level(logging.WARNING)
 
         monkeypatch.setenv("GUARDIAN_ADMIN_TOKEN", "test-admin-secret")
         monkeypatch.setenv("DEBUG", "false")
 
         # Reload module to pick up env vars
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Call without valid credentials
         try:
-            admin_module.require_admin(
-                x_admin_token=None,
-                x_api_key="some-key"
-            )
+            admin_module.require_admin(x_admin_token=None, x_api_key="some-key")
         except HTTPException:
             pass
 
         # Check that warning log was emitted
-        assert any("Admin access DENIED" in record.message for record in caplog.records)
+        assert any(
+            "Admin access DENIED" in record.message for record in caplog.records
+        )
 
     def test_debug_mode_access_logs_info(self, monkeypatch, caplog):
         """Test that DEBUG mode access logs info message."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         monkeypatch.setenv("GUARDIAN_ADMIN_TOKEN", "test-admin-secret")
         monkeypatch.setenv("DEBUG", "true")
 
         # Reload module to pick up env vars
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Call without admin token but with DEBUG mode
-        admin_module.require_admin(
-            x_admin_token=None,
-            x_api_key="some-key"
-        )
+        admin_module.require_admin(x_admin_token=None, x_api_key="some-key")
 
         # Check that debug mode log was emitted
         assert any("DEBUG mode" in record.message for record in caplog.records)
@@ -219,17 +230,20 @@ class TestAdminTokenComparison:
         monkeypatch.setenv("DEBUG", "false")
 
         # Reload module
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # Patch secrets.compare_digest to verify it's called
-        with patch("guardian.routes.admin.secrets.compare_digest") as mock_compare:
+        with patch(
+            "guardian.routes.admin.secrets.compare_digest"
+        ) as mock_compare:
             mock_compare.return_value = True
 
             admin_module.require_admin(
-                x_admin_token="test-admin-secret",
-                x_api_key="some-key"
+                x_admin_token="test-admin-secret", x_api_key="some-key"
             )
 
             # Verify secrets.compare_digest was called
@@ -244,8 +258,10 @@ class TestAdminTokenComparison:
         monkeypatch.setenv("DEBUG", "false")
 
         # Reload module
-        from guardian.routes import admin as admin_module
         import importlib
+
+        from guardian.routes import admin as admin_module
+
         importlib.reload(admin_module)
 
         # These should all fail, but take the same amount of time
@@ -254,10 +270,7 @@ class TestAdminTokenComparison:
 
         for token in wrong_tokens:
             with pytest.raises(HTTPException):
-                admin_module.require_admin(
-                    x_admin_token=token,
-                    x_api_key="key"
-                )
+                admin_module.require_admin(x_admin_token=token, x_api_key="key")
 
 
 class TestConfigEndpointAccess:

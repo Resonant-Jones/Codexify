@@ -7,7 +7,10 @@ Exports: ImprintZero, ImprintZeroAgent, UserManager, settings, get_memoryos_inst
 
 # Core re-exports
 try:
-    from .imprint_zero_onboarding import ImprintZero, ImprintZeroAgent  # type: ignore
+    from .imprint_zero_onboarding import (  # type: ignore
+        ImprintZero,
+        ImprintZeroAgent,
+    )
 except Exception:
 
     class ImprintZero:  # type: ignore

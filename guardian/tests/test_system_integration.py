@@ -27,7 +27,8 @@ pytestmark = pytest.mark.asyncio
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -49,12 +50,18 @@ class TestWorkerThread(threading.Thread):
                 self.manager.lock
             ):  # Need to acquire lock to safely access health_metrics
                 health_status = self.manager.health_metrics.get(self.thread_id)
-                if health_status and health_status.status in ["stopping", "stopped"]:
+                if health_status and health_status.status in [
+                    "stopping",
+                    "stopped",
+                ]:
                     break
 
             self.manager.heartbeat(
                 self.thread_id,
-                {"status": "running", "timestamp": datetime.utcnow().isoformat()},
+                {
+                    "status": "running",
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
             )
             time.sleep(0.1)  # Reduced sleep for faster test reaction
 
@@ -82,7 +89,10 @@ class SystemIntegrationTest(unittest.TestCase):
 
         # Ensure artifacts.json is clean for CodexAwareness
         artifact_path = (
-            Path(__file__).parent.parent / "guardian" / "memory" / "artifacts.json"
+            Path(__file__).parent.parent
+            / "guardian"
+            / "memory"
+            / "artifacts.json"
         )
         if artifact_path.exists():
             artifact_path.unlink()
@@ -94,7 +104,8 @@ class SystemIntegrationTest(unittest.TestCase):
         )  # Assuming this can be fresh or state doesn't conflict
         # Pass the test's codex_awareness instance to MetacognitionEngine
         self.metacognition = MetacognitionEngine(
-            thread_manager=self.thread_manager, codex_awareness=self.codex_awareness
+            thread_manager=self.thread_manager,
+            codex_awareness=self.codex_awareness,
         )
 
         self.test_threads: List[TestWorkerThread] = []
@@ -228,7 +239,9 @@ class SystemIntegrationTest(unittest.TestCase):
             available_functions=["test_integration"],
         )
 
-        self.assertGreater(reflection["confidence_assessment"]["confidence_score"], 0.5)
+        self.assertGreater(
+            reflection["confidence_assessment"]["confidence_score"], 0.5
+        )
 
         # 5. Store decision outcome
         outcome_id = self.metacognition.store_decision_outcome(

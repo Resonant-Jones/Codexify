@@ -8,9 +8,9 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Any, Dict, List, Optional
 
-from guardian.federation.graph_model import GraphNode, GraphEdge, GraphSnapshot
+from guardian.federation.graph_model import GraphEdge, GraphNode, GraphSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,11 @@ class GraphStore:
             path: Path to JSON file for persistence (created if missing)
         """
         self.path = Path(path)
-        self.graph = {"nodes": {}, "edges": [], "metadata": {"version": 1, "created_at": None}}
+        self.graph = {
+            "nodes": {},
+            "edges": [],
+            "metadata": {"version": 1, "created_at": None},
+        }
         self._load()
 
     def _load(self) -> None:
@@ -57,12 +61,14 @@ class GraphStore:
         """
         if self.path.exists():
             try:
-                with open(self.path, "r") as f:
+                with open(self.path) as f:
                     data = json.load(f)
 
                 # Validate structure
                 if "nodes" not in data or "edges" not in data:
-                    logger.warning(f"Invalid graph structure in {self.path}, initializing new")
+                    logger.warning(
+                        f"Invalid graph structure in {self.path}, initializing new"
+                    )
                     self._initialize()
                     return
 
@@ -85,7 +91,9 @@ class GraphStore:
                         logger.error(f"Failed to load edge: {e}")
 
                 # Load metadata
-                self.graph["metadata"] = data.get("metadata", {"version": 1, "created_at": None})
+                self.graph["metadata"] = data.get(
+                    "metadata", {"version": 1, "created_at": None}
+                )
 
                 logger.info(
                     f"Loaded graph with {len(self.graph['nodes'])} nodes "
@@ -121,7 +129,9 @@ class GraphStore:
                     node_id: node.model_dump(mode="json")
                     for node_id, node in self.graph["nodes"].items()
                 },
-                "edges": [edge.model_dump(mode="json") for edge in self.graph["edges"]],
+                "edges": [
+                    edge.model_dump(mode="json") for edge in self.graph["edges"]
+                ],
                 "metadata": self.graph["metadata"],
             }
 
@@ -177,7 +187,8 @@ class GraphStore:
 
         # Remove connected edges
         self.graph["edges"] = [
-            edge for edge in self.graph["edges"]
+            edge
+            for edge in self.graph["edges"]
             if edge.source != node_id and edge.target != node_id
         ]
 
@@ -238,7 +249,11 @@ class GraphStore:
         self.graph["edges"] = [
             e
             for e in self.graph["edges"]
-            if not (e.source == source and e.target == target and e.relation == relation)
+            if not (
+                e.source == source
+                and e.target == target
+                and e.relation == relation
+            )
         ]
 
         removed = len(self.graph["edges"]) < original_count
@@ -259,7 +274,9 @@ class GraphStore:
         """
         return self.graph["nodes"].get(node_id)
 
-    def query_neighbors(self, node_id: str, direction: str = "both") -> List[GraphNode]:
+    def query_neighbors(
+        self, node_id: str, direction: str = "both"
+    ) -> List[GraphNode]:
         """Query all nodes connected to a given node.
 
         Args:
@@ -341,7 +358,10 @@ class GraphStore:
         Returns:
             List of paths, each path is a list of GraphNodes
         """
-        if source not in self.graph["nodes"] or target not in self.graph["nodes"]:
+        if (
+            source not in self.graph["nodes"]
+            or target not in self.graph["nodes"]
+        ):
             return []
 
         paths = []
@@ -382,7 +402,9 @@ class GraphStore:
             timestamp=datetime.now(timezone.utc),
         )
 
-    def import_snapshot(self, snapshot: GraphSnapshot, merge: bool = True) -> None:
+    def import_snapshot(
+        self, snapshot: GraphSnapshot, merge: bool = True
+    ) -> None:
         """Import a graph snapshot.
 
         Can merge with existing graph or replace entirely.
@@ -424,7 +446,9 @@ class GraphStore:
 
         relation_types = {}
         for edge in self.graph["edges"]:
-            relation_types[edge.relation] = relation_types.get(edge.relation, 0) + 1
+            relation_types[edge.relation] = (
+                relation_types.get(edge.relation, 0) + 1
+            )
 
         return {
             "node_count": len(self.graph["nodes"]),

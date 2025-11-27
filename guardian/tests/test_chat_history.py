@@ -40,7 +40,9 @@ def test_chat_log_persistence(temp_db_path):
         )
 
     # Retrieve history and assert correct
-    history = db.get_chat_history(session_id=session_id, user_id=user_id, limit=10)
+    history = db.get_chat_history(
+        session_id=session_id, user_id=user_id, limit=10
+    )
     assert len(history) == 4
     assert history[0]["message"] == "Dusty, as usual."
     assert history[0]["role"] == "assistant"
@@ -71,7 +73,9 @@ def test_chat_history_order(temp_db_path):
             response=None,
             backend="test-backend",
         )
-    history = db.get_chat_history(session_id=session_id, user_id=user_id, limit=10)
+    history = db.get_chat_history(
+        session_id=session_id, user_id=user_id, limit=10
+    )
     assert [m["message"] for m in history] == ["Four", "Three", "Two", "One"]
 
 

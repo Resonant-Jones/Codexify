@@ -40,7 +40,9 @@ class SearchAgent(Agent):
         import json
         import re
 
-        print(f"[DEBUG] _extract_response: Raw input:\n{res}\n--- end raw input ---")
+        print(
+            f"[DEBUG] _extract_response: Raw input:\n{res}\n--- end raw input ---"
+        )
 
         # Unescape string if it's str type, with ast.literal_eval for robust decoding
         if isinstance(res, str):
@@ -64,7 +66,9 @@ class SearchAgent(Agent):
 
         # 2. If not string now, bail out with debug
         if not isinstance(res, str):
-            print(f"[DEBUG] _extract_response: Expected string, got {type(res)}: {res}")
+            print(
+                f"[DEBUG] _extract_response: Expected string, got {type(res)}: {res}"
+            )
             return None
 
         # 3. Try to extract JSON from Markdown code block
@@ -72,7 +76,9 @@ class SearchAgent(Agent):
         markdown_matches = re.findall(markdown_pattern, res, re.DOTALL)
         if markdown_matches:
             extracted = markdown_matches[0].strip()
-            print(f"[DEBUG] _extract_response: Extracted markdown block:\n{extracted}")
+            print(
+                f"[DEBUG] _extract_response: Extracted markdown block:\n{extracted}"
+            )
             return extracted
 
         # 4. Try to parse the raw string as JSON
@@ -120,7 +126,9 @@ class SearchAgent(Agent):
             except json.JSONDecodeError:
                 continue
 
-        print("[DEBUG] _extract_response: No valid JSON found after all attempts.")
+        print(
+            "[DEBUG] _extract_response: No valid JSON found after all attempts."
+        )
         return None
 
     async def run(self, task, data) -> str:
@@ -292,7 +300,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run a search agent with a specific query"
     )
-    parser.add_argument("--query", type=str, required=True, help="Query to search for")
+    parser.add_argument(
+        "--query", type=str, required=True, help="Query to search for"
+    )
     parser.add_argument(
         "--backend",
         type=str,

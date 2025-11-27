@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Add project root to path
@@ -28,7 +29,10 @@ else:
 # Try importing config to see what pydantic sees
 try:
     from guardian.core.config import get_settings
+
     settings = get_settings()
-    print(f"Settings.GROQ_API_KEY: {settings.GROQ_API_KEY[:4] if settings.GROQ_API_KEY else 'None'}...")
+    print(
+        f"Settings.GROQ_API_KEY: {settings.GROQ_API_KEY[:4] if settings.GROQ_API_KEY else 'None'}..."
+    )
 except Exception as e:
     print(f"Failed to load settings: {e}")

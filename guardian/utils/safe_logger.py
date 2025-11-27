@@ -36,7 +36,7 @@ class BatchLogger:
         self.max_buffer = max_buffer or cfg.MAX_MEMORY_BUFFER
         """
         Initialize batch logger.
-        
+
         Args:
             log_dir: Directory for log files
             batch_size: Events per batch
@@ -114,7 +114,9 @@ class BatchLogger:
                         f.write(json.dumps(event) + "\n")
 
                 self.last_flush = time.time()
-                logger.debug(f"Flushed {len(current_buffer)} events to {log_file}")
+                logger.debug(
+                    f"Flushed {len(current_buffer)} events to {log_file}"
+                )
 
             except Exception as e:
                 logger.error(f"Failed to flush events: {e}")
@@ -176,23 +178,31 @@ class SafeLogger:
     @throttle(rate=20.0)  # Limit INFO logs
     async def info(self, message: str, **kwargs: Any) -> None:
         """Log INFO level message."""
-        await self.batch_logger.log({"message": message, **kwargs}, level="INFO")
+        await self.batch_logger.log(
+            {"message": message, **kwargs}, level="INFO"
+        )
 
     @throttle(rate=50.0)  # Allow more DEBUG logs
     async def debug(self, message: str, **kwargs: Any) -> None:
         """Log DEBUG level message."""
         if Config.VERBOSE_LOGGING:
-            await self.batch_logger.log({"message": message, **kwargs}, level="DEBUG")
+            await self.batch_logger.log(
+                {"message": message, **kwargs}, level="DEBUG"
+            )
 
     @throttle(rate=5.0)  # Limit WARNING logs
     async def warning(self, message: str, **kwargs: Any) -> None:
         """Log WARNING level message."""
-        await self.batch_logger.log({"message": message, **kwargs}, level="WARNING")
+        await self.batch_logger.log(
+            {"message": message, **kwargs}, level="WARNING"
+        )
 
     @throttle(rate=2.0)  # Strictly limit ERROR logs
     async def error(self, message: str, **kwargs: Any) -> None:
         """Log ERROR level message."""
-        await self.batch_logger.log({"message": message, **kwargs}, level="ERROR")
+        await self.batch_logger.log(
+            {"message": message, **kwargs}, level="ERROR"
+        )
 
     async def close(self) -> None:
         """Clean shutdown of logger."""

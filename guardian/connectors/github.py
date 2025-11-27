@@ -11,7 +11,7 @@ API_ROOT = "https://api.github.com"
 LOGGER = logging.getLogger(__name__)
 
 
-def _headers(token: Optional[str]) -> Dict[str, str]:
+def _headers(token: str | None) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "guardian-backend",
@@ -21,7 +21,7 @@ def _headers(token: Optional[str]) -> Dict[str, str]:
     return headers
 
 
-def _fetch_json(url: str, token: Optional[str]) -> List[Dict[str, Any]]:
+def _fetch_json(url: str, token: str | None) -> list[dict[str, Any]]:
     resp = requests.get(url, headers=_headers(token), timeout=60)
     resp.raise_for_status()
     data = resp.json()
@@ -30,7 +30,9 @@ def _fetch_json(url: str, token: Optional[str]) -> List[Dict[str, Any]]:
     return []
 
 
-def _format_doc(kind: str, record: Dict[str, Any], fetched_at: str) -> Optional[Dict[str, Any]]:
+def _format_doc(
+    kind: str, record: dict[str, Any], fetched_at: str
+) -> dict[str, Any] | None:
     external_id = record.get("id")
     if external_id is None:
         return None
@@ -45,10 +47,12 @@ def _format_doc(kind: str, record: Dict[str, Any], fetched_at: str) -> Optional[
     }
 
 
-def sync_repo(owner: str, repo: str, token: Optional[str]) -> List[Dict[str, Any]]:
+def sync_repo(
+    owner: str, repo: str, token: str | None
+) -> list[dict[str, Any]]:
     """Return a list of JSON documents (issues + pull requests)."""
     base = f"{API_ROOT}/repos/{owner}/{repo}"
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     fetched_at = datetime.now(timezone.utc).isoformat()
 
     issues = _fetch_json(f"{base}/issues?state=all&per_page=50", token)

@@ -20,7 +20,8 @@ from guardian.threads_structure.thread_manager import ThreadManager
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,9 @@ class SystemInitializer:
             status = self._system.get_system_status()
             return {
                 "status": (
-                    "healthy" if status["health_status"] == "nominal" else "unhealthy"
+                    "healthy"
+                    if status["health_status"] == "nominal"
+                    else "unhealthy"
                 ),
                 "initialized": status["initialized"],
                 "components": status["components"],
@@ -81,7 +84,9 @@ class ThreadspaceSystem:
         # Initialize core components
         self.thread_manager = ThreadManager()
         self.codex_awareness = CodexAwareness()
-        self.metacognition = MetacognitionEngine(thread_manager=self.thread_manager)
+        self.metacognition = MetacognitionEngine(
+            thread_manager=self.thread_manager
+        )
         self.plugin_loader = plugin_loader  # Expose plugin loader
 
         # Update metacognition with codex reference
@@ -132,7 +137,9 @@ class ThreadspaceSystem:
             self.startup_timestamp = datetime.now(UTC)
             self.health_status = initial_health["status"]
 
-            logger.info("Threadspace system initialization completed successfully")
+            logger.info(
+                "Threadspace system initialization completed successfully"
+            )
             return True
 
         except Exception as e:
@@ -183,7 +190,8 @@ class ThreadspaceSystem:
         for plugin_name, health in plugin_health.items():
             if health["status"] == "error":
                 logger.warning(
-                    f"Plugin {plugin_name} health check failed: " f"{health['message']}"
+                    f"Plugin {plugin_name} health check failed: "
+                    f"{health['message']}"
                 )
 
     def _register_signal_handlers(self) -> None:
@@ -293,7 +301,9 @@ class ThreadspaceSystem:
         return {
             "initialized": self.initialized,
             "startup_time": (
-                self.startup_timestamp.isoformat() if self.startup_timestamp else None
+                self.startup_timestamp.isoformat()
+                if self.startup_timestamp
+                else None
             ),
             "health_status": self.health_status,
             "uptime": (

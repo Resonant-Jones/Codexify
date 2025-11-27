@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
+
 ## ChatDB Abstract Base Class
 class ChatDB(ABC):
     """Common interface that both SQLite and Postgres adapters must implement."""
@@ -14,9 +15,9 @@ class ChatDB(ABC):
         user_id: str,
         title: str,
         summary: str = "",
-        project_id: Optional[int] = None,
-        parent_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        project_id: int | None = None,
+        parent_id: int | None = None,
+    ) -> dict[str, Any]:
         """Create a new chat thread.
 
         Args:
@@ -38,9 +39,9 @@ class ChatDB(ABC):
         user_id: str,
         title: str,
         summary: str = "",
-        project_id: Optional[int] = None,
-        parent_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        project_id: int | None = None,
+        parent_id: int | None = None,
+    ) -> dict[str, Any]:
         """Ensure a chat thread exists, creating it if necessary.
 
         Args:
@@ -57,7 +58,7 @@ class ChatDB(ABC):
         ...
 
     @abstractmethod
-    def get_recent_thread(self, user_id: str) -> Optional[Dict[str, Any]]:
+    def get_recent_thread(self, user_id: str) -> dict[str, Any] | None:
         """Get the most recent chat thread for a user.
 
         Args:
@@ -69,7 +70,7 @@ class ChatDB(ABC):
         ...
 
     @abstractmethod
-    def get_chat_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+    def get_chat_thread(self, thread_id: int) -> dict[str, Any] | None:
         """Get a chat thread by ID.
 
         Args:
@@ -86,9 +87,9 @@ class ChatDB(ABC):
         *,
         limit: int = 50,
         offset: int = 0,
-        user_id: Optional[str] = None,
-        project_id: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        user_id: str | None = None,
+        project_id: int | None = None,
+    ) -> list[dict[str, Any]]:
         """List chat threads.
 
         Args:
@@ -107,9 +108,9 @@ class ChatDB(ABC):
         self,
         thread_id: int,
         *,
-        title: Optional[str] = None,
-        summary: Optional[str] = None,
-        project_id: Optional[int] = None,
+        title: str | None = None,
+        summary: str | None = None,
+        project_id: int | None = None,
     ) -> bool:
         """Update a chat thread.
 
@@ -155,7 +156,7 @@ class ChatDB(ABC):
         ...
 
     @abstractmethod
-    def archive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
+    def archive_thread(self, thread_id: int) -> dict[str, Any] | None:
         """Set ``archived_at`` for the given thread and return the updated record."""
         ...
 
@@ -166,7 +167,7 @@ class ChatDB(ABC):
         thread_id: int,
         role: str,
         content: str,
-        created_at: Optional[str] = None,
+        created_at: str | None = None,
     ) -> int:
         """Create a new message in a thread.
 
@@ -188,7 +189,7 @@ class ChatDB(ABC):
         *,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List messages in a thread.
 
         Args:
@@ -230,11 +231,11 @@ class ChatDB(ABC):
     @abstractmethod
     def create_thread(
         self,
-        parent_thread_id: Optional[int],
+        parent_thread_id: int | None,
         session_id: str,
         summary: str,
         user_id: str,
-        project_id: Optional[str] = None,
+        project_id: str | None = None,
     ) -> int:
         """Create a new thread.
 
@@ -251,7 +252,7 @@ class ChatDB(ABC):
         ...
 
     @abstractmethod
-    def get_thread(self, thread_id: int) -> Optional[Tuple[Any, ...]]:
+    def get_thread(self, thread_id: int) -> tuple[Any, ...] | None:
         """Get a thread.
 
         Args:
@@ -266,9 +267,9 @@ class ChatDB(ABC):
     def list_threads(
         self,
         *,
-        user_id: Optional[str] = None,
-        project_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        user_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """List threads.
 
         Args:
@@ -281,7 +282,7 @@ class ChatDB(ABC):
         ...
 
     @abstractmethod
-    def get_child_threads(self, parent_thread_id: int) -> List[Tuple[Any, ...]]:
+    def get_child_threads(self, parent_thread_id: int) -> list[tuple[Any, ...]]:
         """Get child threads of a parent thread.
 
         Args:
@@ -293,7 +294,7 @@ class ChatDB(ABC):
         ...
 
     @abstractmethod
-    def get_thread_summary(self, thread_id: int) -> Optional[str]:
+    def get_thread_summary(self, thread_id: int) -> str | None:
         """Get the summary of a thread.
 
         Args:
@@ -309,10 +310,10 @@ class ChatDB(ABC):
     def get_chat_history(
         self,
         *,
-        session_id: Optional[str] = None,
-        user_id: Optional[str] = None,
+        session_id: str | None = None,
+        user_id: str | None = None,
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get chat history.
 
         Args:
@@ -335,8 +336,8 @@ class ChatDB(ABC):
         *,
         tags: str = "",
         pinned: bool = False,
-        created_at: Optional[str] = None,
-        updated_at: Optional[str] = None,
+        created_at: str | None = None,
+        updated_at: str | None = None,
     ) -> int:
         """Add a memory entry.
 
@@ -361,7 +362,7 @@ class ChatDB(ABC):
         *,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List memory entries.
 
         Args:
@@ -391,9 +392,9 @@ class ChatDB(ABC):
         self,
         entry_id: int,
         *,
-        content: Optional[str] = None,
-        tags: Optional[str] = None,
-        pinned: Optional[bool] = None,
+        content: str | None = None,
+        tags: str | None = None,
+        pinned: bool | None = None,
     ) -> None:
         """Update a memory entry.
 
@@ -425,10 +426,10 @@ class ChatDB(ABC):
         self,
         *,
         content: str,
-        tag: Optional[str],
+        tag: str | None,
         agent: str,
         type_: str,
-        parent_id: Optional[int] = None,
+        parent_id: int | None = None,
     ) -> int:
         """Insert a memory event.
 
@@ -457,7 +458,9 @@ class ChatDB(ABC):
         ...
 
     @abstractmethod
-    def search_memory(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def search_memory(
+        self, query: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
         """Search memories.
 
         Args:
@@ -474,9 +477,9 @@ class ChatDB(ABC):
         self,
         *,
         limit: int = 50,
-        tag: Optional[str] = None,
-        agent: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        tag: str | None = None,
+        agent: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Get history entries.
 
         Args:
@@ -538,7 +541,7 @@ class ChatDB(ABC):
         ...
 
     @abstractmethod
-    def list_projects(self) -> List[Dict[str, Any]]:
+    def list_projects(self) -> list[dict[str, Any]]:
         """List projects.
 
         Returns:
@@ -562,8 +565,8 @@ class ChatDB(ABC):
     def update_project(
         self,
         project_id: int,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
+        name: str | None = None,
+        description: str | None = None,
     ) -> None:
         """Update a project.
 
@@ -591,7 +594,7 @@ class ChatDB(ABC):
 
     ## ---- agent profiles ---------------------------------------------------
     @abstractmethod
-    def get_agent_profile(self, agent_id: str) -> Optional[Dict[str, Any]]:
+    def get_agent_profile(self, agent_id: str) -> dict[str, Any] | None:
         """Get an agent profile.
 
         Args:
@@ -620,7 +623,7 @@ class ChatDB(ABC):
         self,
         agent_id: str,
         requested_by: str,
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """Check if summarization is allowed.
 
         Args:
@@ -645,8 +648,8 @@ class ChatDB(ABC):
         connector_id: str,
         *,
         status: str = "queued",
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Persist a new connector sync job and return the stored row."""
         ...
 
@@ -655,13 +658,13 @@ class ChatDB(ABC):
         self,
         job_id: int,
         *,
-        status: Optional[str] = None,
-        started_at: Optional[str] = None,
-        finished_at: Optional[str] = None,
-        attempts: Optional[int] = None,
-        last_error: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        status: str | None = None,
+        started_at: str | None = None,
+        finished_at: str | None = None,
+        attempts: int | None = None,
+        last_error: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Update fields on a sync job and return the latest representation."""
         ...
 
@@ -669,9 +672,9 @@ class ChatDB(ABC):
     def list_recent_sync_jobs(
         self,
         *,
-        connector_id: Optional[str] = None,
+        connector_id: str | None = None,
         limit: int = 20,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return recent sync jobs, optionally filtered by connector."""
         ...
 
@@ -681,9 +684,9 @@ class ChatDB(ABC):
         self,
         name: str,
         type_: str,
-        config: Dict[str, Any],
-        schedule: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        config: dict[str, Any],
+        schedule: str | None = None,
+    ) -> dict[str, Any]:
         """Persist a connector configuration and return the stored row."""
 
     @abstractmethod
@@ -691,23 +694,23 @@ class ChatDB(ABC):
         self,
         name: str,
         *,
-        config: Optional[Dict[str, Any]] = None,
-        schedule: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        config: dict[str, Any] | None = None,
+        schedule: str | None = None,
+    ) -> dict[str, Any]:
         """Update connector configuration and/or schedule."""
 
     @abstractmethod
     def list_connector_configs(
-        self, type_filter: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, type_filter: str | None = None
+    ) -> list[dict[str, Any]]:
         """List connector configurations, optionally filtered by type."""
 
     @abstractmethod
-    def list_connector_configs_with_last_run(self) -> List[Dict[str, Any]]:
+    def list_connector_configs_with_last_run(self) -> list[dict[str, Any]]:
         """Return connector configs annotated with their most recent run."""
 
     @abstractmethod
-    def get_connector_config(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_connector_config(self, name: str) -> dict[str, Any] | None:
         """Return a connector config identified by name (slug)."""
 
     @abstractmethod
@@ -717,8 +720,8 @@ class ChatDB(ABC):
         *,
         status: str,
         started_at: str,
-        error: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        error: str | None = None,
+    ) -> dict[str, Any]:
         """Insert a connector run row."""
 
     @abstractmethod
@@ -728,26 +731,28 @@ class ChatDB(ABC):
         *,
         status: str,
         finished_at: str,
-        error: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        error: str | None = None,
+    ) -> dict[str, Any]:
         """Update a connector run with completion data."""
 
     @abstractmethod
-    def get_last_connector_run(self, config_id: int) -> Optional[Dict[str, Any]]:
+    def get_last_connector_run(
+        self, config_id: int
+    ) -> dict[str, Any] | None:
         """Return the most recent run for a connector."""
 
     @abstractmethod
     def upsert_raw_documents(
         self,
         config_id: int,
-        docs: List[Dict[str, Any]],
+        docs: list[dict[str, Any]],
     ) -> None:
         """Insert or update raw documents for a connector."""
 
     @abstractmethod
     def list_raw_documents_for_config(
         self, config_id: int, limit: int = 100
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return raw documents stored for a connector configuration."""
 
     ## ---- events outbox ---------------------------------------------------
@@ -758,7 +763,7 @@ class ChatDB(ABC):
 
     @abstractmethod
     def append_event(
-        self, topic: str, payload: Dict[str, Any], tenant_id: str = "default"
+        self, topic: str, payload: dict[str, Any], tenant_id: str = "default"
     ) -> None:
         """Persist a new event for later streaming."""
         ...
@@ -766,12 +771,14 @@ class ChatDB(ABC):
     @abstractmethod
     def list_events_after(
         self, last_id: int, limit: int = 100
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Fetch events with IDs greater than ``last_id`` ordered ascending."""
         ...
 
     @abstractmethod
-    def delete_events_through(self, last_id: int, tenant_id: Optional[str] = None) -> None:
+    def delete_events_through(
+        self, last_id: int, tenant_id: str | None = None
+    ) -> None:
         """Delete events with IDs less than or equal to ``last_id``."""
         ...
 

@@ -41,12 +41,12 @@ class ShortTermMemory:
         try:
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(list(self.memory), f, ensure_ascii=False, indent=2)
-        except IOError as e:
+        except OSError as e:
             print(f"Error saving ShortTermMemory to {self.file_path}: {e}")
 
     def load(self):
         try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
+            with open(self.file_path, encoding="utf-8") as f:
                 data = json.load(f)
                 # Ensure items are loaded correctly, especially if file was empty or malformed
                 if isinstance(data, list):

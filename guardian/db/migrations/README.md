@@ -13,13 +13,13 @@ Creates the core media management tables:
 
 ## Features
 
-✅ **UUID Primary Keys** - Using gen_random_uuid() for distributed systems  
-✅ **Foreign Key Constraints** - Proper references to Projects, Threads, Users  
-✅ **Soft Delete Support** - deleted_at timestamp for recoverable deletions  
-✅ **Automatic Timestamps** - created_at, updated_at with automatic updates  
-✅ **Comprehensive Indexing** - Fast lookups on project_id, thread_id, user_id  
-✅ **Full-Text Search** - GIN indices on parsed_text for document search  
-✅ **File Type Validation** - CHECK constraints on format and mime_type  
+✅ **UUID Primary Keys** - Using gen_random_uuid() for distributed systems
+✅ **Foreign Key Constraints** - Proper references to Projects, Threads, Users
+✅ **Soft Delete Support** - deleted_at timestamp for recoverable deletions
+✅ **Automatic Timestamps** - created_at, updated_at with automatic updates
+✅ **Comprehensive Indexing** - Fast lookups on project_id, thread_id, user_id
+✅ **Full-Text Search** - GIN indices on parsed_text for document search
+✅ **File Type Validation** - CHECK constraints on format and mime_type
 
 ## Running Migrations
 
@@ -55,7 +55,7 @@ Stores AI-generated images with metadata about the generation process.
 - **prompt**: The text prompt used for generation
 - **model**: The AI model used (e.g., "dall-e-3", "stable-diffusion")
 
-### uploaded_images  
+### uploaded_images
 Stores user-uploaded images with file metadata.
 - **id**: UUID primary key
 - **src_url**: Storage location of the uploaded file
@@ -92,7 +92,7 @@ Each table includes indices on:
 
 ```
 Projects 1:N GeneratedImages
-Projects 1:N UploadedImages  
+Projects 1:N UploadedImages
 Projects 1:N GeneratedDocuments
 Projects 1:N UploadedDocuments
 

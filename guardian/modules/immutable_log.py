@@ -35,7 +35,7 @@ class ImmutableLog:
     """In-memory immutable log."""
 
     def __init__(self) -> None:
-        self._entries: Dict[str, NarrativeEntry] = {}
+        self._entries: dict[str, NarrativeEntry] = {}
 
     def add_entry(self, narrative: str, immutable: bool = False) -> str:
         entry = NarrativeEntry(

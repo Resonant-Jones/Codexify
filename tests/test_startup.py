@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -63,7 +64,9 @@ class TestImportTimeSideEffects:
             import guardian.routes.projects
 
             # The function should exist
-            assert hasattr(guardian.routes.projects, "ensure_loose_threads_project")
+            assert hasattr(
+                guardian.routes.projects, "ensure_loose_threads_project"
+            )
 
             # But it should NOT have been called during import
             mock_db.ensure_project.assert_not_called()
@@ -123,7 +126,9 @@ class TestStartupBehavior:
                     mock_ensure_project,
                 ):
                     # Verify the function can be called
-                    from guardian.routes.projects import ensure_loose_threads_project
+                    from guardian.routes.projects import (
+                        ensure_loose_threads_project,
+                    )
 
                     ensure_loose_threads_project()
 
@@ -164,7 +169,9 @@ class TestStartupBehavior:
         mock_db = MagicMock()
 
         # Simulate DB error
-        mock_db.ensure_project.side_effect = Exception("Database connection failed")
+        mock_db.ensure_project.side_effect = Exception(
+            "Database connection failed"
+        )
 
         with patch("guardian.routes.projects.chatlog_db", mock_db):
             from guardian.routes.projects import ensure_loose_threads_project
@@ -260,7 +267,9 @@ class TestNoImportTimeExecution:
         execution_tracker = {"import_time_calls": []}
 
         def spy_ensure_project(*args, **kwargs):
-            execution_tracker["import_time_calls"].append(("ensure_project", args, kwargs))
+            execution_tracker["import_time_calls"].append(
+                ("ensure_project", args, kwargs)
+            )
 
         mock_db.ensure_project.side_effect = spy_ensure_project
 

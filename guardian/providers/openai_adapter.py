@@ -38,7 +38,9 @@ class OpenAIChat(ChatProvider):
         # OpenAI 1.x returns choices[0].message.content
         return r.choices[0].message.content or ""
 
-    def stream(self, prompt: str, model: Optional[str] = None, **kw) -> Iterator[str]:
+    def stream(
+        self, prompt: str, model: Optional[str] = None, **kw
+    ) -> Iterator[str]:
         model = model or _DEFAULT_CHAT
         s = self.client.chat.completions.create(
             model=model,

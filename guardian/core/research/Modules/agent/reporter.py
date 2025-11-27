@@ -38,7 +38,9 @@ class Reporter(Agent):
         res = await self._planner(query=query, db=short_summary)
 
         print(f"res{res}")
-        time.sleep(3)  # FIXME: Replace with proper async wait or callback system
+        time.sleep(
+            3
+        )  # FIXME: Replace with proper async wait or callback system
         # problem it is not yet response and then it return and the problem is it can't extract correct res afterward
         tasks = self._extract_response(res)
         tasks = json.loads(tasks)
@@ -61,7 +63,9 @@ class Reporter(Agent):
         processed_data = []
 
         for d in data:
-            rand_id = "".join(secrets.choice(alphabet) for _ in range(self.length))
+            rand_id = "".join(
+                secrets.choice(alphabet) for _ in range(self.length)
+            )
 
             col = {
                 "id": rand_id,
@@ -74,7 +78,9 @@ class Reporter(Agent):
             processed_data.append(col)
 
             if col["summary"] != "":
-                short_summaries.append({"id": rand_id, "short_summary": col["summary"]})
+                short_summaries.append(
+                    {"id": rand_id, "short_summary": col["summary"]}
+                )
         self.source = processed_data
         return short_summaries
 

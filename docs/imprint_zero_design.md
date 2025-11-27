@@ -46,3 +46,17 @@
 3) Refactor `prompts.py` + add `system_prompt_builder.py`; wire into `chat_complete`.  
 4) Implement Imprint_Zero proposal APIs + frontend toast/modal; add persona/docs UI plus token warning.  
 5) Document in `docs/system_prompts_and_imprints.md`; expose `/api/system_prompt/summary` for UI.
+
+### Implementation status (v1)
+- Backend APIs:
+  - `/api/imprint/status` returns active imprint/persona and system prompt meta.
+  - `/api/imprint/proposal` generates a draft imprint/persona (not activated).
+  - `/api/imprint/accept` activates a draft and upserts persona; enforces one active imprint per (user, project).
+  - `/api/imprint/reject` supersedes a draft imprint.
+  - `/api/system_prompt/summary` exposes token estimates and segment sizes.
+- Prompt path:
+  - `codexify/system_prompt_builder.py` orchestrates imprint/persona/docs and calls `codexify/prompts.get_guardian_system_prompt`; chat_complete prepends the single system message.
+- Stores:
+  - `codexify/imprints/store.py`, `codexify/personas/store.py`, `codexify/system_docs/store.py` with unit tests.
+- Frontend:
+  - `useImprintZero` hook and `ImprintZeroToast` surface proposals; token-cost warning shown in chat panel when large.

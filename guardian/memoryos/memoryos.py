@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-
-
 import json
-import os
 import logging
+import os
+from typing import List, Protocol
 
 import memoryos.prompts as prompts
 from memoryos.long_term import LongTermMemory
@@ -22,11 +21,21 @@ from memoryos.utils import (
     gpt_user_profile_analysis,
 )
 
-from typing import Protocol, List
 
 class LLMClient(Protocol):
-    def chat_completion(self, *, model: str, messages: list, temperature: float = 0.7, max_tokens: int = 1500) -> str: ...
-    def tokenize(self, text: str) -> List[int]: ...
+    def chat_completion(
+        self,
+        *,
+        model: str,
+        messages: list,
+        temperature: float = 0.7,
+        max_tokens: int = 1500,
+    ) -> str:
+        ...
+
+    def tokenize(self, text: str) -> list[int]:
+        ...
+
 
 from guardian.codemap.generate_codemap import generate_codemap as load_codemap
 
@@ -48,7 +57,7 @@ class Memoryos:
         user_id: str,
         data_storage_path: str,
         embedder,  # required argument
-        llm_client: "LLMClient" | None = None,
+        llm_client: LLMClient | None = None,
         assistant_id: str = DEFAULT_ASSISTANT_ID,
         llm_model: str = "gpt-4",
     ):
@@ -62,7 +71,9 @@ class Memoryos:
 
         # Load codemap once during initialization
         self.codemap = load_codemap()
-        print(f"Memoryos: Loaded codemap with {len(self.codemap)} top-level entries.")
+        print(
+            f"Memoryos: Loaded codemap with {len(self.codemap)} top-level entries."
+        )
         # Prefer injected client; otherwise build from environment (OpenAI or Groq)
         if llm_client is not None:
             self.client = llm_client
@@ -74,8 +85,12 @@ class Memoryos:
             self.client = _build_llm_client_from_env()
 
         # Define file paths for user-specific data
-        self.user_data_dir = os.path.join(self.data_storage_path, "users", self.user_id)
-        user_short_term_path = os.path.join(self.user_data_dir, "short_term.json")
+        self.user_data_dir = os.path.join(
+            self.data_storage_path, "users", self.user_id
+        )
+        user_short_term_path = os.path.join(
+            self.user_data_dir, "short_term.json"
+        )
         user_mid_term_path = os.path.join(self.user_data_dir, "mid_term.json")
         user_long_term_path = os.path.join(
             self.user_data_dir, "long_term_user.json"
@@ -152,7 +167,9 @@ class Memoryos:
             # Get unanalyzed pages from this hot session
             # A page is a dict: {"user_input": ..., "agent_response": ..., "timestamp": ..., "analyzed": False, ...}
             unanalyzed_pages = [
-                p for p in session.get("details", []) if not p.get("analyzed", False)
+                p
+                for p in session.get("details", [])
+                if not p.get("analyzed", False)
             ]
 
             if unanalyzed_pages:
@@ -171,12 +188,19 @@ class Memoryos:
                     unanalyzed_pages, self.client, model=self.llm_model
                 )
                 new_user_private_knowledge = knowledge_result.get("private")
-                new_assistant_knowledge = knowledge_result.get("assistant_knowledge")
+                new_assistant_knowledge = knowledge_result.get(
+                    "assistant_knowledge"
+                )
 
                 # Update User Profile in user's LTM
-                if new_user_profile_text and new_user_profile_text.lower() != "none":
-                    old_profile = self.user_long_term_memory.get_raw_user_profile(
-                        self.user_id
+                if (
+                    new_user_profile_text
+                    and new_user_profile_text.lower() != "none"
+                ):
+                    old_profile = (
+                        self.user_long_term_memory.get_raw_user_profile(
+                            self.user_id
+                        )
                     )
                     if old_profile and old_profile.lower() != "none":
                         updated_profile = gpt_update_profile(
@@ -202,7 +226,9 @@ class Memoryos:
                             "- none",
                             "- none.",
                         ]:
-                            self.user_long_term_memory.add_user_knowledge(line.strip())
+                            self.user_long_term_memory.add_user_knowledge(
+                                line.strip()
+                            )
 
                 # Add Assistant Knowledge to assistant's LTM
                 if (
@@ -221,18 +247,22 @@ class Memoryos:
 
                 # Mark pages as analyzed and reset session heat contributors
                 for p in session["details"]:
-                    p["analyzed"] = (
-                        True  # Mark all pages in session, or just unanalyzed_pages?
-                    )
+                    p[
+                        "analyzed"
+                    ] = True  # Mark all pages in session, or just unanalyzed_pages?
                     # Original code marked all pages in session
 
                 session["N_visit"] = 0  # Reset visits after analysis
-                session["L_interaction"] = 0  # Reset interaction length contribution
+                session[
+                    "L_interaction"
+                ] = 0  # Reset interaction length contribution
                 # session["R_recency"] = 1.0 # Recency will re-calculate naturally
                 session["H_segment"] = compute_segment_heat(
                     session
                 )  # Recompute heat with reset factors
-                session["last_visit_time"] = get_timestamp()  # Update last visit time
+                session[
+                    "last_visit_time"
+                ] = get_timestamp()  # Update last visit time
 
                 self.mid_term_memory.rebuild_heap()  # Heap needs rebuild due to H_segment change
                 self.mid_term_memory.save()
@@ -283,14 +313,18 @@ class Memoryos:
         if meta_data and "thread_id" in meta_data:
             thread_id = meta_data["thread_id"]
             # Find all conversations in this thread
-            all_conversations = self.user_long_term_memory.get_conversations_for_thread(
-                thread_id
+            all_conversations = (
+                self.user_long_term_memory.get_conversations_for_thread(
+                    thread_id
+                )
             )
             for convo in all_conversations:
                 messages = convo.get("messages", [])
                 token_count = 0
                 for msg in messages:
-                    token_count += len(self.client.tokenize(msg.get("user_input", "")))
+                    token_count += len(
+                        self.client.tokenize(msg.get("user_input", ""))
+                    )
                     token_count += len(
                         self.client.tokenize(msg.get("agent_response", ""))
                     )
@@ -298,7 +332,9 @@ class Memoryos:
                     print(
                         f"Memoryos: Conversation {convo['conversation_id']} exceeded 80,000 tokens. Auto-branching..."
                     )
-                    self.summarize_and_branch_conversation(convo["conversation_id"])
+                    self.summarize_and_branch_conversation(
+                        convo["conversation_id"]
+                    )
 
         # After any memory addition that might impact mid-term, check for profile updates
         self._trigger_profile_and_knowledge_update_if_needed()
@@ -325,11 +361,15 @@ class Memoryos:
             recent_messages.extend(convo.get("messages", []))
 
         if not recent_messages:
-            print("Memoryos: No messages found for thread. Skipping rolling summary.")
+            print(
+                "Memoryos: No messages found for thread. Skipping rolling summary."
+            )
             return
 
         # Cap the number of messages to avoid overload
-        recent_messages = recent_messages[-40:]  # Only consider the last 40 exchanges
+        recent_messages = recent_messages[
+            -40:
+        ]  # Only consider the last 40 exchanges
 
         convo_text = "\n".join(
             [
@@ -411,9 +451,7 @@ class Memoryos:
         if retrieved_user_knowledge:
             user_knowledge_background = "\n【Relevant User Knowledge Entries】\n"
             for kn_entry in retrieved_user_knowledge:
-                user_knowledge_background += (
-                    f"- {kn_entry['knowledge']} (Recorded: {kn_entry['timestamp']})\n"
-                )
+                user_knowledge_background += f"- {kn_entry['knowledge']} (Recorded: {kn_entry['timestamp']})\n"
 
         background_context = (
             f"【User Profile】\n{user_profile_text}\n{user_knowledge_background}"
@@ -423,9 +461,7 @@ class Memoryos:
         assistant_knowledge_text_for_prompt = "【Assistant Knowledge Base】\n"
         if retrieved_assistant_knowledge:
             for ak_entry in retrieved_assistant_knowledge:
-                assistant_knowledge_text_for_prompt += (
-                    f"- {ak_entry['knowledge']} (Recorded: {ak_entry['timestamp']})\n"
-                )
+                assistant_knowledge_text_for_prompt += f"- {ak_entry['knowledge']} (Recorded: {ak_entry['timestamp']})\n"
         else:
             assistant_knowledge_text_for_prompt += (
                 "- No relevant assistant knowledge found for this query.\n"
@@ -442,19 +478,28 @@ class Memoryos:
             except TypeError:
                 meta_data_text_for_prompt += str(user_conversation_meta_data)
             # Extract project_id, thread_id, etc. for tagging the memory object
-            for key in ["project_id", "thread_id", "project_name", "thread_title"]:
+            for key in [
+                "project_id",
+                "thread_id",
+                "project_name",
+                "thread_title",
+            ]:
                 if key in user_conversation_meta_data:
                     meta_data_for_memory[key] = user_conversation_meta_data[key]
             # Optionally, store the whole metadata for future use
-            meta_data_for_memory["conversation_meta"] = user_conversation_meta_data
+            meta_data_for_memory[
+                "conversation_meta"
+            ] = user_conversation_meta_data
         else:
             meta_data_text_for_prompt += "None provided for this turn."
 
         # 8. Construct Prompts
-        system_prompt_text = prompts.GENERATE_SYSTEM_RESPONSE_SYSTEM_PROMPT.format(
-            relationship=relationship_with_user,
-            assistant_knowledge_text=assistant_knowledge_text_for_prompt,
-            meta_data_text=meta_data_text_for_prompt,
+        system_prompt_text = (
+            prompts.GENERATE_SYSTEM_RESPONSE_SYSTEM_PROMPT.format(
+                relationship=relationship_with_user,
+                assistant_knowledge_text=assistant_knowledge_text_for_prompt,
+                meta_data_text=meta_data_text_for_prompt,
+            )
         )
 
         user_prompt_text = prompts.GENERATE_SYSTEM_RESPONSE_USER_PROMPT.format(
@@ -473,7 +518,10 @@ class Memoryos:
         # 9. Call LLM for response
         print("Memoryos: Calling LLM for final response generation...")
         response_content = self.client.chat_completion(
-            model=self.llm_model, messages=messages, temperature=0.7, max_tokens=1500
+            model=self.llm_model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1500,
         )
 
         # Codemap fallback if LLM response is vague or empty
@@ -484,7 +532,9 @@ class Memoryos:
             "unknown",
             "not sure",
         ]
-        if any(trigger in response_content.lower() for trigger in fallback_triggers):
+        if any(
+            trigger in response_content.lower() for trigger in fallback_triggers
+        ):
             print(
                 "Memoryos: Primary LLM response was vague. Attempting codemap introspection as fallback."
             )
@@ -504,7 +554,9 @@ class Memoryos:
     def save(self, title: str, content: str, tags: list = None, **kwargs):
         """A convenience method to save a memory entry, aliasing add_memory."""
         meta_data = {"tags": tags or []}
-        self.add_memory(user_input=title, agent_response=content, meta_data=meta_data)
+        self.add_memory(
+            user_input=title, agent_response=content, meta_data=meta_data
+        )
 
     def query(self, query: str, limit: int = 10, **kwargs):
         """
@@ -534,7 +586,9 @@ class Memoryos:
         self.mid_term_heat_threshold = 0.0  # Temporarily lower threshold
         print("Memoryos: Force-triggering mid-term analysis...")
         self._trigger_profile_and_knowledge_update_if_needed()
-        self.mid_term_heat_threshold = original_threshold  # Restore original threshold
+        self.mid_term_heat_threshold = (
+            original_threshold  # Restore original threshold
+        )
 
     def __repr__(self):
         return f"<Memoryos user_id='{self.user_id}' assistant_id='{self.assistant_id}' data_path='{self.data_storage_path}'>"
@@ -549,7 +603,9 @@ class Memoryos:
 
     def get_conversations_by_thread(self, thread_id: str) -> list:
         """Returns conversations associated with a given thread ID."""
-        return self.user_long_term_memory.get_conversations_for_thread(thread_id)
+        return self.user_long_term_memory.get_conversations_for_thread(
+            thread_id
+        )
 
     def get_conversation_by_id(self, conversation_id: str) -> dict:
         """Returns a specific conversation given its ID."""
@@ -596,10 +652,14 @@ class Memoryos:
         Summarizes the specified conversation and creates a child conversation linked to it.
         Stores the summary on the parent and creates an empty child conversation.
         """
-        print(f"Memoryos: Summarizing and branching conversation '{conversation_id}'")
+        print(
+            f"Memoryos: Summarizing and branching conversation '{conversation_id}'"
+        )
 
         # Retrieve the full conversation
-        conversation = self.user_long_term_memory.get_conversation(conversation_id)
+        conversation = self.user_long_term_memory.get_conversation(
+            conversation_id
+        )
         if not conversation:
             print(f"Memoryos: Conversation '{conversation_id}' not found.")
             return None
@@ -655,8 +715,6 @@ class Memoryos:
         return summary_blob
 
 
- 
-
 # --- CLI command for codemap:query ---
 import click
 
@@ -671,6 +729,7 @@ def cli():
 def codemap_query(question):
     """Ask a question about the codebase using codemap.json."""
     from memoryos.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     llm_model = os.getenv("LLM_MODEL", "gpt-4")
     data_storage_path = "./data"
@@ -693,6 +752,7 @@ def codemap_query(question):
 def show_user_profile():
     """Display the current user's profile from long-term memory."""
     from memoryos.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     llm_model = os.getenv("LLM_MODEL", "gpt-4")
     data_storage_path = "./data"
@@ -715,6 +775,7 @@ def show_user_profile():
 def show_assistant_knowledge():
     """Display current assistant knowledge from long-term memory."""
     from memoryos.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     llm_model = os.getenv("LLM_MODEL", "gpt-4")
     data_storage_path = "./data"
@@ -738,6 +799,7 @@ def show_assistant_knowledge():
 def show_projects():
     """Display all known projects from long-term memory."""
     from memoryos.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     llm_model = os.getenv("LLM_MODEL", "gpt-4")
     data_storage_path = "./data"
@@ -762,6 +824,7 @@ def show_projects():
 def show_threads_by_project(project_id):
     """Display threads associated with a specific project."""
     from memoryos.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     llm_model = os.getenv("LLM_MODEL", "gpt-4")
     data_storage_path = "./data"
@@ -786,6 +849,7 @@ def show_threads_by_project(project_id):
 def show_conversations_by_thread(thread_id):
     """Display conversations associated with a specific thread."""
     from memoryos.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     llm_model = os.getenv("LLM_MODEL", "gpt-4")
     data_storage_path = "./data"
@@ -801,7 +865,9 @@ def show_conversations_by_thread(thread_id):
     conversations = memory.get_conversations_by_thread(thread_id)
     print(f"\n--- CONVERSATIONS in THREAD {thread_id} ---\n")
     for convo in conversations:
-        print(f"- {convo.get('conversation_id')} | {convo.get('title', 'Untitled')}")
+        print(
+            f"- {convo.get('conversation_id')} | {convo.get('title', 'Untitled')}"
+        )
 
 
 # --- CLI command for memory:get-conversation ---
@@ -810,7 +876,9 @@ def show_conversations_by_thread(thread_id):
 def get_conversation_by_id(conversation_id):
     """Retrieve a specific conversation by its ID."""
     import json
+
     from memoryos.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     llm_model = os.getenv("LLM_MODEL", "gpt-4")
     data_storage_path = "./data"
@@ -826,6 +894,7 @@ def get_conversation_by_id(conversation_id):
     convo = memory.get_conversation_by_id(conversation_id)
     print(f"\n--- CONVERSATION {conversation_id} ---\n")
     print(json.dumps(convo, indent=2))
+
 
 # Environment-based LLM client factory used by Memoryos when no client is injected
 def _build_llm_client_from_env():
@@ -856,13 +925,15 @@ def _build_llm_client_from_env():
     client = build_llm_client(provider, api_key=api_key, base_url=base_url)
     print(f"Memoryos: Using LLM provider '{provider}'.")
     return client
-        
+
+
 # --- CLI command for memory:summarize-and-branch ---
 @cli.command("memory:summarize-and-branch")
 @click.argument("conversation_id", type=str)
 def summarize_and_branch(conversation_id):
     """Summarize a conversation and create a child branch."""
     from memoryos.embedders.local_embedder import LocalEmbedder
+
     user_id = "default"
     llm_model = os.getenv("LLM_MODEL", "gpt-4")
     data_storage_path = "./data"

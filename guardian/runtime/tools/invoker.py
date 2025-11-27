@@ -25,14 +25,14 @@ def _to_click(cmd_app):
     )
 
 
-ROOTS: Dict[str, click.BaseCommand] = {
+ROOTS: dict[str, click.BaseCommand] = {
     "": root_cli,
     "gm": _to_click(guardian_main_app),
     "imprint-zero": _to_click(imprint_zero_app),
 }
 
 
-def _resolve(fq_name: str) -> Tuple[click.Command, str]:
+def _resolve(fq_name: str) -> tuple[click.Command, str]:
     """
     Resolve 'prefix:sub:cmd' into a Click command and return (command, canonical_name).
     """
@@ -49,7 +49,9 @@ def _resolve(fq_name: str) -> Tuple[click.Command, str]:
     ctx = click.Context(cmd)
     for i, part in enumerate(parts):
         sub = (
-            cmd.get_command(ctx, part) if isinstance(cmd, click.MultiCommand) else None
+            cmd.get_command(ctx, part)
+            if isinstance(cmd, click.MultiCommand)
+            else None
         )
         if sub is None:
             raise ValueError(f"Unknown command segment: {part} in {fq_name}")
@@ -64,7 +66,7 @@ def _resolve(fq_name: str) -> Tuple[click.Command, str]:
     raise ValueError(f"Could not resolve command: {fq_name}")
 
 
-def invoke_tool(fq_name: str, args: Dict[str, Any]) -> Any:
+def invoke_tool(fq_name: str, args: dict[str, Any]) -> Any:
     """
     Python‑level invocation of the Click/Typer command callback.
     """

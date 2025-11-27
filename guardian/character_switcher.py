@@ -156,18 +156,25 @@ if __name__ == "__main__":
         description="Manage companion identities: switch, create, backup, list, or delete."
     )
     parser.add_argument(
-        "name", nargs="?", default=None, help="Name of the companion (e.g., gregorios)"
+        "name",
+        nargs="?",
+        default=None,
+        help="Name of the companion (e.g., gregorios)",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-        "--create", action="store_true", help="Create new companion with imprint zero"
+        "--create",
+        action="store_true",
+        help="Create new companion with imprint zero",
     )
     group.add_argument(
         "--backup",
         action="store_true",
         help="Backup all companion identities to a zip archive",
     )
-    group.add_argument("--list", action="store_true", help="List all companions")
+    group.add_argument(
+        "--list", action="store_true", help="List all companions"
+    )
     group.add_argument(
         "--delete",
         action="store_true",

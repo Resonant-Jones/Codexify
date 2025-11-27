@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import faiss
 import numpy as np
+
 from .utils import (
     OpenAIClient,
     compute_time_decay,
@@ -50,8 +51,12 @@ class MidTermMemory:
         self.client = client
         self.max_capacity = max_capacity
         self.sessions = {}  # {session_id: session_object}
-        self.access_frequency = defaultdict(int)  # {session_id: access_count_for_lfu}
-        self.heap = []  # Min-heap storing (-H_segment, session_id) for hottest segments
+        self.access_frequency = defaultdict(
+            int
+        )  # {session_id: access_count_for_lfu}
+        self.heap = (
+            []
+        )  # Min-heap storing (-H_segment, session_id) for hottest segments
         self.load()
 
     def get_page_by_id(self, page_id):
@@ -114,7 +119,9 @@ class MidTermMemory:
         session_id = generate_id("session")
         summary_vec = get_embedding(summary)
         summary_vec = normalize_vector(summary_vec).tolist()
-        summary_keywords = list(llm_extract_keywords(summary, client=self.client))
+        summary_keywords = list(
+            llm_extract_keywords(summary, client=self.client)
+        )
 
         processed_details = []
         for page_data in details:
@@ -122,15 +129,21 @@ class MidTermMemory:
             full_text = f"User: {page_data.get('user_input','')} Assistant: {page_data.get('agent_response','')}"
             inp_vec = get_embedding(full_text)
             inp_vec = normalize_vector(inp_vec).tolist()
-            page_keywords = list(llm_extract_keywords(full_text, client=self.client))
+            page_keywords = list(
+                llm_extract_keywords(full_text, client=self.client)
+            )
 
             processed_page = {
                 **page_data,  # Carry over existing fields like user_input, agent_response, timestamp
                 "page_id": page_id,
                 "page_embedding": inp_vec,
                 "page_keywords": page_keywords,
-                "preloaded": page_data.get("preloaded", False),  # Preserve if passed
-                "analyzed": page_data.get("analyzed", False),  # Preserve if passed
+                "preloaded": page_data.get(
+                    "preloaded", False
+                ),  # Preserve if passed
+                "analyzed": page_data.get(
+                    "analyzed", False
+                ),  # Preserve if passed
                 # pre_page, next_page, meta_info are handled by DynamicUpdater
             }
             processed_details.append(processed_page)
@@ -183,7 +196,9 @@ class MidTermMemory:
         keyword_similarity_alpha=1.0,
     ):
         if not self.sessions:  # If no existing sessions, just add as a new one
-            print("MidTermMemory: No existing sessions. Adding new session directly.")
+            print(
+                "MidTermMemory: No existing sessions. Adding new session directly."
+            )
             return self.add_session(summary_for_new_pages, pages_to_insert)
 
         new_summary_vec = get_embedding(summary_for_new_pages)
@@ -199,16 +214,22 @@ class MidTermMemory:
             semantic_sim = float(np.dot(existing_summary_vec, new_summary_vec))
 
             # Keyword similarity (Jaccard index based)
-            existing_keywords = set(existing_session.get("summary_keywords", []))
+            existing_keywords = set(
+                existing_session.get("summary_keywords", [])
+            )
             new_keywords_set = set(keywords_for_new_pages)
             s_topic_keywords = 0
             if existing_keywords and new_keywords_set:
-                intersection = len(existing_keywords.intersection(new_keywords_set))
+                intersection = len(
+                    existing_keywords.intersection(new_keywords_set)
+                )
                 union = len(existing_keywords.union(new_keywords_set))
                 if union > 0:
                     s_topic_keywords = intersection / union
 
-            overall_score = semantic_sim + keyword_similarity_alpha * s_topic_keywords
+            overall_score = (
+                semantic_sim + keyword_similarity_alpha * s_topic_keywords
+            )
 
             if overall_score > best_overall_score:
                 best_overall_score = overall_score
@@ -243,9 +264,9 @@ class MidTermMemory:
                 processed_new_pages.append(processed_page)
 
             target_session["L_interaction"] += len(pages_to_insert)
-            target_session["last_visit_time"] = (
-                get_timestamp()
-            )  # Update last visit time on modification
+            target_session[
+                "last_visit_time"
+            ] = get_timestamp()  # Update last visit time on modification
             target_session["H_segment"] = compute_segment_heat(target_session)
             self.rebuild_heap()  # Rebuild heap as heat has changed
             self.save()
@@ -270,7 +291,9 @@ class MidTermMemory:
 
         query_vec = get_embedding(query_text)
         query_vec = normalize_vector(query_vec)
-        query_keywords = set(llm_extract_keywords(query_text, client=self.client))
+        query_keywords = set(
+            llm_extract_keywords(query_text, client=self.client)
+        )
 
         candidate_sessions = []
         session_ids = list(self.sessions.keys())
@@ -280,7 +303,9 @@ class MidTermMemory:
         summary_embeddings_list = [
             self.sessions[s]["summary_embedding"] for s in session_ids
         ]
-        summary_embeddings_np = np.array(summary_embeddings_list, dtype=np.float32)
+        summary_embeddings_np = np.array(
+            summary_embeddings_list, dtype=np.float32
+        )
 
         dim = summary_embeddings_np.shape[1]
         index = faiss.IndexFlatIP(dim)  # Inner product for similarity
@@ -300,13 +325,17 @@ class MidTermMemory:
 
             session_id = session_ids[idx]
             session = self.sessions[session_id]
-            semantic_sim_score = float(distances[0][i])  # This is the dot product
+            semantic_sim_score = float(
+                distances[0][i]
+            )  # This is the dot product
 
             # Keyword similarity for session summary
             session_keywords = set(session.get("summary_keywords", []))
             s_topic_keywords = 0
             if query_keywords and session_keywords:
-                intersection = len(query_keywords.intersection(session_keywords))
+                intersection = len(
+                    query_keywords.intersection(session_keywords)
+                )
                 union = len(query_keywords.union(session_keywords))
                 if union > 0:
                     s_topic_keywords = intersection / union
@@ -322,7 +351,9 @@ class MidTermMemory:
             if session_relevance_score >= segment_similarity_threshold:
                 matched_pages_in_session = []
                 for page in session.get("details", []):
-                    page_embedding = np.array(page["page_embedding"], dtype=np.float32)
+                    page_embedding = np.array(
+                        page["page_embedding"], dtype=np.float32
+                    )
                     # page_keywords = set(page.get("page_keywords", []))
 
                     page_sim_score = float(np.dot(page_embedding, query_vec))
@@ -337,8 +368,12 @@ class MidTermMemory:
                     # Update session access stats
                     session["N_visit"] += 1
                     session["last_visit_time"] = current_time_str
-                    session["access_count_lfu"] = session.get("access_count_lfu", 0) + 1
-                    self.access_frequency[session_id] = session["access_count_lfu"]
+                    session["access_count_lfu"] = (
+                        session.get("access_count_lfu", 0) + 1
+                    )
+                    self.access_frequency[session_id] = session[
+                        "access_count_lfu"
+                    ]
                     session["H_segment"] = compute_segment_heat(session)
                     self.rebuild_heap()  # Heat changed
 
@@ -357,7 +392,9 @@ class MidTermMemory:
 
         self.save()  # Save changes from access updates
         # Sort final results by session_relevance_score
-        return sorted(results, key=lambda x: x["session_relevance_score"], reverse=True)
+        return sorted(
+            results, key=lambda x: x["session_relevance_score"], reverse=True
+        )
 
     def save(self):
         # Make a copy for saving to avoid modifying heap during iteration if it happens
@@ -374,12 +411,12 @@ class MidTermMemory:
         try:
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(data_to_save, f, ensure_ascii=False, indent=2)
-        except IOError as e:
+        except OSError as e:
             print(f"Error saving MidTermMemory to {self.file_path}: {e}")
 
     def load(self):
         try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
+            with open(self.file_path, encoding="utf-8") as f:
                 data = json.load(f)
                 self.sessions = data.get("sessions", {})
                 self.access_frequency = defaultdict(

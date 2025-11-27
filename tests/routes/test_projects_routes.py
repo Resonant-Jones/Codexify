@@ -38,10 +38,7 @@ class TestProjectsPatch:
 
     def test_patch_project_both_fields(self, test_client, mock_db):
         """Test updating both name and description simultaneously."""
-        payload = {
-            "name": "New Name",
-            "description": "New description"
-        }
+        payload = {"name": "New Name", "description": "New description"}
 
         response = test_client.patch("/projects/1", json=payload)
 
@@ -66,7 +63,9 @@ class TestProjectsPatch:
 
     def test_patch_project_db_error(self, test_client, mock_db):
         """Test project patch handles database errors gracefully."""
-        mock_db.update_project.side_effect = Exception("Database constraint violation")
+        mock_db.update_project.side_effect = Exception(
+            "Database constraint violation"
+        )
 
         payload = {"name": "New Name"}
         response = test_client.patch("/projects/1", json=payload)
@@ -142,22 +141,24 @@ class TestProjectsDelete:
         assert mock_db.eject_threads_from_project.called
         assert mock_db.delete_project.called
         # Get call order
-        calls = [
-            (call[0], call[1]) for call in mock_db.method_calls
-        ]
+        calls = [(call[0], call[1]) for call in mock_db.method_calls]
         eject_call_index = next(
-            i for i, (name, args) in enumerate(calls)
+            i
+            for i, (name, args) in enumerate(calls)
             if name == "eject_threads_from_project"
         )
         delete_call_index = next(
-            i for i, (name, args) in enumerate(calls)
+            i
+            for i, (name, args) in enumerate(calls)
             if name == "delete_project"
         )
         assert eject_call_index < delete_call_index
 
     def test_delete_project_eject_error_continues(self, test_client, mock_db):
         """Test project deletion continues even if eject fails."""
-        mock_db.eject_threads_from_project.side_effect = Exception("Eject failed")
+        mock_db.eject_threads_from_project.side_effect = Exception(
+            "Eject failed"
+        )
 
         response = test_client.delete("/projects/1")
 
@@ -221,7 +222,7 @@ class TestProjectsIntegration:
         for project_id in [1, 2, 3]:
             response = test_client.patch(
                 f"/projects/{project_id}",
-                json={"name": f"Project {project_id}"}
+                json={"name": f"Project {project_id}"},
             )
             assert response.status_code == 200
 

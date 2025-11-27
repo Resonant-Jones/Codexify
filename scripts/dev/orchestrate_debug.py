@@ -1,10 +1,12 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+
 def mock_fast_agent(*args, **kwargs):
     print("Running mock_fast_agent")
     time.sleep(0.01)
     return {"status": "success", "message": "I finished on time"}
+
 
 def orchestrate():
     print("Starting orchestrate()...")
@@ -17,6 +19,7 @@ def orchestrate():
             result = {"status": "error", "message": str(e)}
     print(f"Result from future: {result}")
     return result
+
 
 if __name__ == "__main__":
     final_result = orchestrate()

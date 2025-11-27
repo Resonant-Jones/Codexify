@@ -79,7 +79,7 @@ chardet==5.2.0
     # via crawl4ai
 charset-normalizer==3.4.4
     # via requests
-chromadb==1.2.1
+chromadb==1.0.15
     # via -r requirements/ai.in
 click==8.3.0
     # via
@@ -302,7 +302,7 @@ mccabe==0.7.0
     # via flake8
 mdurl==0.1.2
     # via markdown-it-py
-    
+
 mmh3==5.2.0
     # via chromadb
 mpmath==1.3.0
@@ -527,7 +527,7 @@ python-dotenv==1.1.1
     #   litellm
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.9    
+python-multipart==0.0.9
 python-slugify==8.0.4
     # via -r requirements/base.in
 pytokens==0.2.0

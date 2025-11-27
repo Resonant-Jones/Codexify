@@ -44,14 +44,14 @@ except Exception:
     iz_click = None
 
 # Prefix → Click root table
-ROOTS: List[Tuple[str, click.BaseCommand]] = [("", root_cli)]
+ROOTS: list[tuple[str, click.BaseCommand]] = [("", root_cli)]
 if gm_click is not None:
     ROOTS.append(("gm", gm_click))
 if iz_click is not None:
     ROOTS.append(("imprint-zero", iz_click))
 
 
-def _click_type_to_json(p: click.Parameter) -> Dict[str, Any]:
+def _click_type_to_json(p: click.Parameter) -> dict[str, Any]:
     # Map Click/Typer types → JSON Schema
     t = "string"
     # Flags become boolean
@@ -76,16 +76,20 @@ def _click_type_to_json(p: click.Parameter) -> Dict[str, Any]:
     return schema
 
 
-def _command_to_tool_spec(fq_name: str, cmd: click.Command) -> Dict[str, Any]:
+def _command_to_tool_spec(fq_name: str, cmd: click.Command) -> dict[str, Any]:
     desc = (
         cmd.help
         or cmd.short_help
-        or (getattr(cmd.callback, "__doc__", "") if hasattr(cmd, "callback") else "")
+        or (
+            getattr(cmd.callback, "__doc__", "")
+            if hasattr(cmd, "callback")
+            else ""
+        )
         or ""
     ).strip()
 
-    props: Dict[str, Any] = {}
-    required: List[str] = []
+    props: dict[str, Any] = {}
+    required: list[str] = []
     for p in cmd.params:
         # Param names are normalized by Click/Typer; options use 'name'
         pname = getattr(p, "name", None)
@@ -104,18 +108,24 @@ def _command_to_tool_spec(fq_name: str, cmd: click.Command) -> Dict[str, Any]:
         "function": {
             "name": fq_name,
             "description": desc if desc else f"Run CLI command '{fq_name}'.",
-            "parameters": {"type": "object", "properties": props, "required": required},
+            "parameters": {
+                "type": "object",
+                "properties": props,
+                "required": required,
+            },
         },
     }
     return spec
 
 
-def _walk(group: click.BaseCommand, prefix: str) -> List[Dict[str, Any]]:
-    specs: List[Dict[str, Any]] = []
+def _walk(group: click.BaseCommand, prefix: str) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
     if not hasattr(group, "list_commands"):
         # Not a group; if it's a single command, add it directly
         if isinstance(group, click.Command):
-            specs.append(_command_to_tool_spec(prefix or group.name or "root", group))
+            specs.append(
+                _command_to_tool_spec(prefix or group.name or "root", group)
+            )
         return specs
 
     ctx = click.Context(group)  # type: ignore[arg-type]
@@ -131,13 +141,15 @@ def _walk(group: click.BaseCommand, prefix: str) -> List[Dict[str, Any]]:
     return specs
 
 
-def generate_tools_manifest() -> List[Dict[str, Any]]:
-    tools: List[Dict[str, Any]] = []
+def generate_tools_manifest() -> list[dict[str, Any]]:
+    tools: list[dict[str, Any]] = []
     for prefix, root in ROOTS:
         if hasattr(root, "list_commands"):
             tools.extend(_walk(root, prefix))
         elif isinstance(root, click.Command):
-            tools.append(_command_to_tool_spec(prefix or root.name or "root", root))
+            tools.append(
+                _command_to_tool_spec(prefix or root.name or "root", root)
+            )
     # Append HTTP-backed tool for Codexify save-entry
     tools.append(
         {
@@ -194,7 +206,9 @@ def generate_tools_manifest() -> List[Dict[str, Any]]:
     return tools
 
 
-def write_tools_manifest(path: str = "guardian/runtime/tools/manifest.json") -> None:
+def write_tools_manifest(
+    path: str = "guardian/runtime/tools/manifest.json",
+) -> None:
     tools = generate_tools_manifest()
     with open(path, "w") as f:
         json.dump(tools, f, indent=2)

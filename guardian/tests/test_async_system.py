@@ -133,7 +133,9 @@ async def test_rate_limiting():
     await asyncio.gather(*tasks)
 
     # Verify rate limiting
-    intervals = [call_times[i + 1] - call_times[i] for i in range(len(call_times) - 1)]
+    intervals = [
+        call_times[i + 1] - call_times[i] for i in range(len(call_times) - 1)
+    ]
     assert all(interval >= 0.5 for interval in intervals)
 
 
@@ -181,7 +183,8 @@ async def test_throttle():
 
     if len(call_times) > 1:
         intervals = [
-            call_times[i + 1] - call_times[i] for i in range(len(call_times) - 1)
+            call_times[i + 1] - call_times[i]
+            for i in range(len(call_times) - 1)
         ]
         assert all(interval >= 0.5 for interval in intervals)
 
@@ -243,7 +246,9 @@ async def test_full_system(monkeypatch):
     # Test concurrent plugin execution
     tasks = []
     for _ in range(5):
-        task = asyncio.create_task(plugin_executor.execute_plugin("memory_analyzer"))
+        task = asyncio.create_task(
+            plugin_executor.execute_plugin("memory_analyzer")
+        )
         tasks.append(task)
 
     # Wait for tasks

@@ -7,6 +7,7 @@ from neomodel import db
 
 from guardian.graph.connection import connect_neo4j
 
+
 def _load_env():
     here = Path(__file__).resolve()
     candidates = [
@@ -25,7 +26,11 @@ def test_connection():
     # Load environment variables
     _load_env()
 
-    database_url = os.getenv("BOLT_URL") or os.getenv("NEO4J_BOLT_URL") or "bolt://localhost:7687"
+    database_url = (
+        os.getenv("BOLT_URL")
+        or os.getenv("NEO4J_BOLT_URL")
+        or "bolt://localhost:7687"
+    )
     if not database_url:
         pytest.skip("Neo4j URL not configured")
     try:
@@ -37,6 +42,7 @@ def test_connection():
             print("⚠️ Unexpected result from test query.")
     except Exception as e:
         pytest.skip(f"Neo4j not available: {e}")
+
 
 if __name__ == "__main__":
     test_connection()

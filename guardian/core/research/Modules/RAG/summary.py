@@ -13,7 +13,7 @@ from ..model import Model
 from ..prompt import summary_prompt
 
 
-class Summary(object):
+class Summary:
     def __init__(self, model: Model, k: int = 10000):
         self.model = model
         self.db = []
@@ -58,7 +58,9 @@ class Summary(object):
 
             try:
                 d = json.loads(json_str)
-                rand_id = "".join(secrets.choice(alphabet) for _ in range(self.length))
+                rand_id = "".join(
+                    secrets.choice(alphabet) for _ in range(self.length)
+                )
                 response_obj = {
                     "id": rand_id,
                     "url": d.get("url", ""),

@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from guardian.config import Config
-from guardian.utils.safeguard import rate_limited, safe_plugin_execution, throttle
+from guardian.utils.safeguard import (
+    rate_limited,
+    safe_plugin_execution,
+    throttle,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -30,7 +34,9 @@ class PluginError(Exception):
 class SafePlugin:
     """Plugin wrapper with execution safeguards."""
 
-    def __init__(self, name: str, module: Any, metadata: Dict[str, Any], path: Path):
+    def __init__(
+        self, name: str, module: Any, metadata: Dict[str, Any], path: Path
+    ):
         self.name = name
         self.module = module
         self.metadata = metadata
@@ -136,7 +142,9 @@ class SafePluginManager:
             if not module_path.exists():
                 raise PluginError(f"No main.py found in {plugin_path}")
 
-            spec = importlib.util.spec_from_file_location(metadata["name"], module_path)
+            spec = importlib.util.spec_from_file_location(
+                metadata["name"], module_path
+            )
             if not spec or not spec.loader:
                 raise PluginError("Failed to create module spec")
 
@@ -225,7 +233,10 @@ class SafePluginManager:
         """
         plugin = self.plugins.get(plugin_name)
         if not plugin:
-            return {"status": "error", "message": f"Plugin {plugin_name} not found"}
+            return {
+                "status": "error",
+                "message": f"Plugin {plugin_name} not found",
+            }
 
         try:
             if hasattr(plugin.module, "health_check"):
@@ -233,7 +244,10 @@ class SafePluginManager:
                 plugin.last_health_check = health
                 return health
 
-            return {"status": "unknown", "message": "Health check not implemented"}
+            return {
+                "status": "unknown",
+                "message": "Health check not implemented",
+            }
 
         except Exception as e:
             plugin.error_count += 1

@@ -12,22 +12,22 @@ Tests:
 from __future__ import annotations
 
 import asyncio
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, call
 from typing import Any, Dict
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
+import pytest
 
 # Import functions to test
 from guardian.routes.connectors import (
-    _calculate_backoff_delay,
-    _connector_worker,
-    get_connector_worker_stats,
+    _CONNECTOR_WORKER_STATS,
     BACKOFF_INITIAL_DELAY,
     BACKOFF_MAX_DELAY,
     BACKOFF_MULTIPLIER,
-    MAX_CONSECUTIVE_FAILURES,
     CONNECTOR_SYNC_INTERVAL,
-    _CONNECTOR_WORKER_STATS,
+    MAX_CONSECUTIVE_FAILURES,
+    _calculate_backoff_delay,
+    _connector_worker,
+    get_connector_worker_stats,
 )
 
 
@@ -64,7 +64,7 @@ class TestBackoffCalculation:
         delays = [_calculate_backoff_delay(3) for _ in range(100)]
 
         # All delays should be within jitter range
-        base = BACKOFF_INITIAL_DELAY * (BACKOFF_MULTIPLIER ** 3)
+        base = BACKOFF_INITIAL_DELAY * (BACKOFF_MULTIPLIER**3)
         min_expected = base * 0.8
         max_expected = base * 1.2
 
@@ -81,7 +81,7 @@ class TestBackoffCalculation:
             base_delay=2.0,
             max_delay=10.0,
             multiplier=3.0,
-            jitter_range=(0.9, 1.1)
+            jitter_range=(0.9, 1.1),
         )
 
         # Base calculation: 2.0 * (3.0 ** 2) = 18.0, capped at 10.0
@@ -143,7 +143,9 @@ class TestConnectorWorkerDBErrors:
                 raise Exception("DB connection failed")
             return []  # Empty configs on success
 
-        mock_db.list_connector_configs.side_effect = side_effect_fail_then_succeed
+        mock_db.list_connector_configs.side_effect = (
+            side_effect_fail_then_succeed
+        )
 
         with patch("guardian.routes.connectors.chatlog_db", mock_db):
             # Reset stats
@@ -284,7 +286,10 @@ class TestConnectorWorkerStableConfigs:
             pass
 
         with patch("guardian.routes.connectors.chatlog_db", mock_db):
-            with patch("guardian.routes.connectors._run_github_sync", side_effect=mock_sync):
+            with patch(
+                "guardian.routes.connectors._run_github_sync",
+                side_effect=mock_sync,
+            ):
                 # Reset stats
                 _CONNECTOR_WORKER_STATS["poll_cycles"] = 0
                 _CONNECTOR_WORKER_STATS["db_errors"] = 0
@@ -325,14 +330,19 @@ class TestConnectorWorkerStableConfigs:
             return [mock_config]  # Recover with configs
 
         mock_db = MagicMock()
-        mock_db.list_connector_configs.side_effect = side_effect_fail_then_recover
+        mock_db.list_connector_configs.side_effect = (
+            side_effect_fail_then_recover
+        )
 
         # Mock _run_github_sync as a no-op coroutine
         async def mock_sync(config):
             pass
 
         with patch("guardian.routes.connectors.chatlog_db", mock_db):
-            with patch("guardian.routes.connectors._run_github_sync", side_effect=mock_sync):
+            with patch(
+                "guardian.routes.connectors._run_github_sync",
+                side_effect=mock_sync,
+            ):
                 # Reset stats
                 _CONNECTOR_WORKER_STATS["db_errors"] = 0
                 _CONNECTOR_WORKER_STATS["retries"] = 0

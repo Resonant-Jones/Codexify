@@ -48,7 +48,8 @@ async def test_high_frequency():
     expected_duration = 9 * (1.0 / 50.0)  # Time for 9 intervals at 50 ops/sec
 
     assert duration >= expected_duration * 0.9, (
-        f"Duration {duration} should be >= {expected_duration}s " "(with 10% tolerance)"
+        f"Duration {duration} should be >= {expected_duration}s "
+        "(with 10% tolerance)"
     )
 
 
@@ -67,7 +68,9 @@ async def test_mixed_durations():
     await variable_func(0.1)  # Fast
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     # Should maintain minimum interval regardless of operation duration
     min_interval = 0.25  # 4 ops/sec = 0.25s between ops
@@ -122,7 +125,9 @@ async def test_concurrent_bursts():
     results.sort(key=lambda x: x[2])
 
     # Check intervals between operations
-    intervals = [results[i + 1][2] - results[i][2] for i in range(len(results) - 1)]
+    intervals = [
+        results[i + 1][2] - results[i][2] for i in range(len(results) - 1)
+    ]
 
     min_interval = 0.1  # 10 ops/sec = 0.1s between ops
     assert all(

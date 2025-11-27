@@ -19,7 +19,8 @@ from guardian.config import system_config
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,9 @@ class PluginInterface:
 class Plugin:
     """Represents a loaded plugin instance."""
 
-    def __init__(self, name: str, module: Any, metadata: Dict[str, Any], path: Path):
+    def __init__(
+        self, name: str, module: Any, metadata: Dict[str, Any], path: Path
+    ):
         self.name = name
         self.module = module
         self.metadata = metadata
@@ -117,7 +120,7 @@ class PluginLoader:
         """
         try:
             # Load plugin metadata
-            with open(plugin_path / "plugin.json", "r") as f:
+            with open(plugin_path / "plugin.json") as f:
                 metadata = json.load(f)
 
             # Validate metadata
@@ -132,7 +135,9 @@ class PluginLoader:
             if not module_path.exists():
                 raise PluginError("No plugin entry point found")
 
-            spec = importlib.util.spec_from_file_location(metadata["name"], module_path)
+            spec = importlib.util.spec_from_file_location(
+                metadata["name"], module_path
+            )
             if not spec or not spec.loader:
                 raise PluginError("Failed to create module spec")
 
@@ -142,7 +147,9 @@ class PluginLoader:
 
             # Validate interface
             if not self._validate_interface(module):
-                raise PluginError("Plugin does not implement required interface")
+                raise PluginError(
+                    "Plugin does not implement required interface"
+                )
 
             # Initialize plugin
             if not module.init_plugin():
@@ -184,7 +191,8 @@ class PluginLoader:
             bool: True if interface is valid
         """
         return all(
-            hasattr(module, method) for method in PluginInterface.REQUIRED_METHODS
+            hasattr(module, method)
+            for method in PluginInterface.REQUIRED_METHODS
         )
 
     def load_all_plugins(self) -> None:
@@ -203,7 +211,7 @@ class PluginLoader:
         """Update the plugin manifest in plugin_manifest.json."""
         try:
             # Read existing README content
-            with open(self.manifest_path, "r") as f:
+            with open(self.manifest_path) as f:
                 content = f.read()
 
             # Prepare manifest data
@@ -256,7 +264,10 @@ class PluginLoader:
         """
         plugin = self.plugins.get(plugin_name)
         if not plugin:
-            return {"status": "error", "message": f"Plugin {plugin_name} not found"}
+            return {
+                "status": "error",
+                "message": f"Plugin {plugin_name} not found",
+            }
 
         if not plugin.enabled:
             return {
@@ -270,7 +281,10 @@ class PluginLoader:
                 plugin.last_health_check = health
                 return health
 
-            return {"status": "unknown", "message": "Health check not implemented"}
+            return {
+                "status": "unknown",
+                "message": "Health check not implemented",
+            }
 
         except Exception as e:
             plugin.error_count += 1

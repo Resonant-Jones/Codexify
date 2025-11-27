@@ -30,7 +30,7 @@ class CodexifyDesktopVault:
 
     def __init__(
         self,
-        keyring: Optional[CodexifyDesktopKeyring] = None,
+        keyring: CodexifyDesktopKeyring | None = None,
         vault_path: str = "iddb_vault.bin",
     ) -> None:
         self.keyring = keyring or CodexifyDesktopKeyring()
@@ -43,7 +43,7 @@ class CodexifyDesktopVault:
         self,
         plaintext: bytes,
         passphrase: str,
-        associated_data: Optional[bytes] = None,
+        associated_data: bytes | None = None,
     ) -> None:
         """
         Encrypt ``plaintext`` with a key derived from the
@@ -61,7 +61,7 @@ class CodexifyDesktopVault:
             f.write(nonce + ciphertext)
 
     def decrypt(
-        self, passphrase: str, associated_data: Optional[bytes] = None
+        self, passphrase: str, associated_data: bytes | None = None
     ) -> bytes:
         """
         Decrypt the vault using ``passphrase``.

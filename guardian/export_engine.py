@@ -16,6 +16,7 @@ from jinja2 import Template
 # For Notion export markdown -> blocks
 # Avoid package/module name collision by importing the module directly
 from guardian import codexify as codexify_mod
+
 flatten_notion_blocks = codexify_mod.flatten_notion_blocks
 markdown_to_notion_blocks = codexify_mod.markdown_to_notion_blocks
 
@@ -107,7 +108,11 @@ def export_records(records, format, template=None):
 
 
 def export_to_icloud(
-    records, format="md", filename=None, template=None, subfolder="Guardian Exports"
+    records,
+    format="md",
+    filename=None,
+    template=None,
+    subfolder="Guardian Exports",
 ):
     """
     Export records to iCloud Drive (Guardian Exports subfolder).
@@ -117,12 +122,16 @@ def export_to_icloud(
     - subfolder: Folder inside iCloud Drive (default 'Guardian Exports')
     Returns the path to the exported file.
     """
-    icloud_base = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs")
+    icloud_base = os.path.expanduser(
+        "~/Library/Mobile Documents/com~apple~CloudDocs"
+    )
     export_dir = os.path.join(icloud_base, subfolder)
     try:
         os.makedirs(export_dir, exist_ok=True)
     except OSError as e:
-        raise RuntimeError(f"Failed to create export directory {export_dir}: {e}")
+        raise RuntimeError(
+            f"Failed to create export directory {export_dir}: {e}"
+        )
 
     # Determine filename
     from datetime import datetime
@@ -138,7 +147,9 @@ def export_to_icloud(
     mode = "w"
     if isinstance(output, bytes):
         mode = "wb"
-    with open(export_path, mode, encoding="utf-8" if "b" not in mode else None) as f:
+    with open(
+        export_path, mode, encoding="utf-8" if "b" not in mode else None
+    ) as f:
         f.write(output)
 
     return export_path
@@ -174,7 +185,9 @@ def export_to_notion(
         )
 
     if not notion_token:
-        raise ValueError("Notion token required (from app secure storage or argument).")
+        raise ValueError(
+            "Notion token required (from app secure storage or argument)."
+        )
     if not parent_id:
         raise ValueError("Notion parent_id (page or database) required.")
 
@@ -194,7 +207,9 @@ def export_to_notion(
                     "object": "block",
                     "type": "paragraph",
                     "paragraph": {
-                        "rich_text": [{"type": "text", "text": {"content": md_content}}]
+                        "rich_text": [
+                            {"type": "text", "text": {"content": md_content}}
+                        ]
                     },
                 }
             ]
@@ -205,7 +220,9 @@ def export_to_notion(
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": json_content}}]
+                    "rich_text": [
+                        {"type": "text", "text": {"content": json_content}}
+                    ]
                 },
             }
         ]
@@ -216,7 +233,9 @@ def export_to_notion(
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": csv_content}}]
+                    "rich_text": [
+                        {"type": "text", "text": {"content": csv_content}}
+                    ]
                 },
             }
         ]
@@ -229,7 +248,9 @@ def export_to_notion(
     if not title:
         from datetime import datetime
 
-        title = f"Guardian Export {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        title = (
+            f"Guardian Export {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
 
     # Build parent param (page or database) explicitly from parent_type
     # Notion API: parent must be {"page_id": ...} or {"database_id": ...}
@@ -239,7 +260,9 @@ def export_to_notion(
     try:
         response = client.pages.create(
             parent=parent,
-            properties={"title": [{"type": "text", "text": {"content": title}}]},
+            properties={
+                "title": [{"type": "text", "text": {"content": title}}]
+            },
             children=children,
         )
         page_url = response.get("url")
@@ -291,7 +314,9 @@ def export_to_gdrive(
         tmpl = os.environ.get("CODEXIFY_FILENAME_TEMPLATE", "")
         if tmpl:
             try:
-                filename = tmpl.format(date=date_str, time=time_str, slug=slug, ext=ext)
+                filename = tmpl.format(
+                    date=date_str, time=time_str, slug=slug, ext=ext
+                )
             except Exception:
                 filename = f"{date_str}_{slug}_{time_str}.{ext}"
         else:
@@ -304,7 +329,9 @@ def export_to_gdrive(
     mode = "w"
     if isinstance(output, bytes):
         mode = "wb"
-    with open(tmp_path, mode, encoding="utf-8" if "b" not in mode else None) as f:
+    with open(
+        tmp_path, mode, encoding="utf-8" if "b" not in mode else None
+    ) as f:
         f.write(output)
 
     if service is None:
@@ -321,7 +348,9 @@ def export_to_gdrive(
     media = MediaFileUpload(tmp_path, resumable=True)
     uploaded = (
         service.files()
-        .create(body=file_metadata, media_body=media, fields="id, name, webViewLink")
+        .create(
+            body=file_metadata, media_body=media, fields="id, name, webViewLink"
+        )
         .execute()
     )
     # Optional sharing: anyone with the link can view
@@ -384,7 +413,9 @@ def import_from_gdrive(
     qstr = " and ".join(q) if q else None
 
     results = (
-        service.files().list(q=qstr, pageSize=10, fields="files(id, name)").execute()
+        service.files()
+        .list(q=qstr, pageSize=10, fields="files(id, name)")
+        .execute()
     )
     files = results.get("files", [])
     downloaded_files = []
@@ -410,7 +441,9 @@ def import_from_icloud(filename_or_pattern="*", subfolder="Guardian Exports"):
     - subfolder: folder in iCloud Drive (default 'Guardian Exports').
     Returns: list of file paths or file contents.
     """
-    icloud_base = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs")
+    icloud_base = os.path.expanduser(
+        "~/Library/Mobile Documents/com~apple~CloudDocs"
+    )
     export_dir = os.path.join(icloud_base, subfolder)
     if not os.path.exists(export_dir):
         raise FileNotFoundError(f"iCloud folder not found: {export_dir}")

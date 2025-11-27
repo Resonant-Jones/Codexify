@@ -18,9 +18,15 @@ def test_retrieve_simple(tmp_path, monkeypatch):
     vs = VectorStore()
     vs.add_texts(
         [
-            {"text": "ThreadSpace is the experiential layer.", "meta": {"src": "demo"}},
+            {
+                "text": "ThreadSpace is the experiential layer.",
+                "meta": {"src": "demo"},
+            },
             {"text": "PulseOS handles orchestration.", "meta": {"src": "demo"}},
-            {"text": "Guardian provides ethics filter.", "meta": {"src": "demo"}},
+            {
+                "text": "Guardian provides ethics filter.",
+                "meta": {"src": "demo"},
+            },
         ]
     )
     r = client.post("/api/retrieve", json={"q": "orchestration", "k": 2})

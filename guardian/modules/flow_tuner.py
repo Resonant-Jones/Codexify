@@ -29,22 +29,22 @@ class FlowConfig(BaseSettings):
     cloud_max_tokens: int = Field(4096, description="Cloud model token cap")
 
     # Add these to match .env keys
-    genai_api_key: Optional[str] = None
-    notion_api_key: Optional[str] = None
-    google_api_key: Optional[str] = None
-    openai_api_key: Optional[str] = None
-    nebius_api_key: Optional[str] = None
-    nebius_api_endpoint: Optional[str] = None
-    nebius_model: Optional[str] = None
-    groq_api_key: Optional[str] = None
-    groq_api_endpoint: Optional[str] = None
-    groq_model: Optional[str] = None
-    ai_backend: Optional[str] = None
-    github_bot_token: Optional[str] = None
-    guardian_llm_backend: Optional[str] = None
-    guardian_model_name: Optional[str] = None
-    guardian_ollama_endpoint: Optional[str] = None
-    guardian_db_path: Optional[str] = None
+    genai_api_key: str | None = None
+    notion_api_key: str | None = None
+    google_api_key: str | None = None
+    openai_api_key: str | None = None
+    nebius_api_key: str | None = None
+    nebius_api_endpoint: str | None = None
+    nebius_model: str | None = None
+    groq_api_key: str | None = None
+    groq_api_endpoint: str | None = None
+    groq_model: str | None = None
+    ai_backend: str | None = None
+    github_bot_token: str | None = None
+    guardian_llm_backend: str | None = None
+    guardian_model_name: str | None = None
+    guardian_ollama_endpoint: str | None = None
+    guardian_db_path: str | None = None
 
     model_config = {
         "env_prefix": "FLOW_",

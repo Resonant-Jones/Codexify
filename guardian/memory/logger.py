@@ -17,7 +17,8 @@ from guardian.utils.datetime import to_iso_z
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,9 @@ class JSONLMemoryLogger(MemoryLogger):
 
     def _get_current_log(self) -> Path:
         """Get or create current log file."""
-        current = self.log_dir / f"memory_{datetime.now(UTC).strftime('%Y%m')}.jsonl"
+        current = (
+            self.log_dir / f"memory_{datetime.now(UTC).strftime('%Y%m')}.jsonl"
+        )
         current.parent.mkdir(parents=True, exist_ok=True)
         return current
 
@@ -122,14 +125,19 @@ class JSONLMemoryLogger(MemoryLogger):
                 break
 
             try:
-                with open(log_file, "r") as f:
+                with open(log_file) as f:
                     for line in f:
                         if count >= limit:
                             break
 
                         event = json.loads(line)
                         if self._matches_criteria(
-                            event, source, event_type, tags, start_time, end_time
+                            event,
+                            source,
+                            event_type,
+                            tags,
+                            start_time,
+                            end_time,
                         ):
                             results.append(event)
                             count += 1
@@ -195,13 +203,13 @@ class SQLiteMemoryLogger(MemoryLogger):
             )
             conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_timestamp 
+                CREATE INDEX IF NOT EXISTS idx_timestamp
                 ON memory_events(timestamp)
             """
             )
             conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_source_type 
+                CREATE INDEX IF NOT EXISTS idx_source_type
                 ON memory_events(source, event_type)
             """
             )
@@ -212,7 +220,7 @@ class SQLiteMemoryLogger(MemoryLogger):
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
-                    INSERT INTO memory_events 
+                    INSERT INTO memory_events
                     (source, event_type, payload, tags, timestamp)
                     VALUES (?, ?, ?, ?, ?)
                     """,
@@ -336,7 +344,9 @@ class MemoryLogManager:
         event = MemoryEvent(source, event_type, payload, tags)
         return self.backends[backend].log_event(event)
 
-    def query_events(self, backend: str = "sqlite", **kwargs) -> List[Dict[str, Any]]:
+    def query_events(
+        self, backend: str = "sqlite", **kwargs
+    ) -> List[Dict[str, Any]]:
         """
         Query memory events from specified backend.
 
@@ -368,7 +378,9 @@ if __name__ == "__main__":
     )
 
     # Query events
-    events = memory_logger.query_events(source="test", tags=["example"], limit=10)
+    events = memory_logger.query_events(
+        source="test", tags=["example"], limit=10
+    )
 
     print("\nQueried Events:")
     print(json.dumps(events, indent=2))

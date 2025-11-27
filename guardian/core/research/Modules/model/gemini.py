@@ -59,7 +59,9 @@ class Gemini(Model):
         pass  # Placeholder (implement as needed)
 
     def get_llm_config(self) -> LLMConfig:
-        return LLMConfig(provider="gemini/" + self.model, api_token=self.api_key)
+        return LLMConfig(
+            provider="gemini/" + self.model, api_token=self.api_key
+        )
 
     def get_model(self):
         return self.model

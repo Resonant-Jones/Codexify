@@ -43,8 +43,8 @@ class MemoryKeyVault:
     """Simple in-memory vault for encrypted summaries."""
 
     def __init__(self) -> None:
-        self._keys: Dict[str, Fernet] = {}
-        self._store: Dict[str, VaultEntry] = {}
+        self._keys: dict[str, Fernet] = {}
+        self._store: dict[str, VaultEntry] = {}
 
     def set_user_key(self, user_id: str, key: bytes) -> None:
         """Register/replace a user's encryption key."""

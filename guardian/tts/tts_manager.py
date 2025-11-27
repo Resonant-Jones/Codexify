@@ -31,7 +31,8 @@ class TTSManager:
 
         # Load configuration
         self.config = self._load_config(
-            config_path or os.path.join(os.path.dirname(__file__), "config.json")
+            config_path
+            or os.path.join(os.path.dirname(__file__), "config.json")
         )
 
         # Register providers
@@ -52,7 +53,9 @@ class TTSManager:
             "providers": {
                 "elevenlabs": {"api_key": os.getenv("ELEVENLABS_API_KEY")},
                 "google": {
-                    "credentials_path": os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                    "credentials_path": os.getenv(
+                        "GOOGLE_APPLICATION_CREDENTIALS"
+                    )
                 },
                 "local": {"enabled": True},
             },
@@ -60,7 +63,7 @@ class TTSManager:
 
         if os.path.exists(config_path):
             try:
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     file_config = json.load(f)
                     config.update(file_config)
             except Exception as e:
@@ -80,7 +83,9 @@ class TTSManager:
             try:
                 # Initialize provider with its config
                 if name == "elevenlabs":
-                    provider = provider_class(api_key=provider_config.get("api_key"))
+                    provider = provider_class(
+                        api_key=provider_config.get("api_key")
+                    )
                 elif name == "google":
                     provider = provider_class(
                         credentials_path=provider_config.get("credentials_path")

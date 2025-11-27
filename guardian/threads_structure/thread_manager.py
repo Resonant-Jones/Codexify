@@ -19,7 +19,8 @@ from guardian.utils.datetime import to_iso_z
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,9 @@ class ThreadHealth:
         self.last_heartbeat = self.start_time
         self.error_count = 0
         self.last_error: Optional[str] = None
-        self.status = "initializing"  # initializing, running, warning, error, stopped
+        self.status = (
+            "initializing"  # initializing, running, warning, error, stopped
+        )
         self.metrics: Dict[str, Any] = {}
 
     def to_dict(self) -> Dict[str, Any]:
@@ -126,7 +129,9 @@ class ThreadManager:
                         f"Thread {thread_id} heartbeat is old: {heartbeat_age}"
                     )
 
-    def create_thread(self, name: str, target: Any, *args: Any, **kwargs: Any) -> str:
+    def create_thread(
+        self, name: str, target: Any, *args: Any, **kwargs: Any
+    ) -> str:
         """
         Create and register a new thread.
 
@@ -139,7 +144,9 @@ class ThreadManager:
         Returns:
             str: Thread ID
         """
-        thread = threading.Thread(target=target, args=args, kwargs=kwargs, daemon=True)
+        thread = threading.Thread(
+            target=target, args=args, kwargs=kwargs, daemon=True
+        )
         self.register_thread(name, thread, "worker")
         return name
 
@@ -159,7 +166,9 @@ class ThreadManager:
                 raise ValueError(f"Thread {thread_id} already registered")
 
             self.threads[thread_id] = thread
-            self.health_metrics[thread_id] = ThreadHealth(thread_id, thread_type)
+            self.health_metrics[thread_id] = ThreadHealth(
+                thread_id, thread_type
+            )
             logger.info(f"Registered thread {thread_id} of type {thread_type}")
 
     def start_thread(self, thread_id: str) -> None:
@@ -219,7 +228,9 @@ class ThreadManager:
                 else:
                     health.status = "error"
                     health.last_error = "Failed to stop thread"
-                    logger.warning(f"Thread {thread_id} did not stop within timeout")
+                    logger.warning(
+                        f"Thread {thread_id} did not stop within timeout"
+                    )
 
             return success
 
@@ -295,7 +306,9 @@ class ThreadManager:
         """
         with self.lock:
             return {
-                "active_count": len([t for t in self.threads.values() if t.is_alive()]),
+                "active_count": len(
+                    [t for t in self.threads.values() if t.is_alive()]
+                ),
                 "total_count": len(self.threads),
                 "threads": {
                     tid: {"alive": t.is_alive(), "daemon": t.daemon}
@@ -303,7 +316,9 @@ class ThreadManager:
                 },
             }
 
-    def join_thread(self, thread_id: str, timeout: Optional[float] = None) -> bool:
+    def join_thread(
+        self, thread_id: str, timeout: Optional[float] = None
+    ) -> bool:
         """
         Wait for a thread to complete.
 
@@ -369,7 +384,9 @@ class ThreadManager:
         )
         return []
 
-    def get_agents(self) -> List[Any]:  # Actual type might be List[Agent] or List[Dict]
+    def get_agents(
+        self,
+    ) -> List[Any]:  # Actual type might be List[Agent] or List[Dict]
         """
         Retrieves a list of agents.
 
@@ -416,7 +433,9 @@ class ThreadManager:
             status = "nominal"
             if any(h.status == "error" for h in self.health_metrics.values()):
                 status = "error"
-            elif any(h.status == "warning" for h in self.health_metrics.values()):
+            elif any(
+                h.status == "warning" for h in self.health_metrics.values()
+            ):
                 status = "warning"
 
             return {

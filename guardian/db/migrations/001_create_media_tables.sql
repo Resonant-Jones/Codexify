@@ -56,11 +56,11 @@ CREATE TABLE IF NOT EXISTS generated_images (
     updated_at TIMESTAMPTZ DEFAULT now(),
     deleted_at TIMESTAMPTZ DEFAULT NULL,
 
-    CONSTRAINT fk_generated_images_project 
+    CONSTRAINT fk_generated_images_project
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    CONSTRAINT fk_generated_images_thread 
+    CONSTRAINT fk_generated_images_thread
         FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
-    CONSTRAINT fk_generated_images_user 
+    CONSTRAINT fk_generated_images_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
@@ -85,11 +85,11 @@ CREATE TABLE IF NOT EXISTS uploaded_images (
     updated_at TIMESTAMPTZ DEFAULT now(),
     deleted_at TIMESTAMPTZ DEFAULT NULL,
 
-    CONSTRAINT fk_uploaded_images_project 
+    CONSTRAINT fk_uploaded_images_project
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    CONSTRAINT fk_uploaded_images_thread 
+    CONSTRAINT fk_uploaded_images_thread
         FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
-    CONSTRAINT fk_uploaded_images_user 
+    CONSTRAINT fk_uploaded_images_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
@@ -115,11 +115,11 @@ CREATE TABLE IF NOT EXISTS generated_documents (
     updated_at TIMESTAMPTZ DEFAULT now(),
     deleted_at TIMESTAMPTZ DEFAULT NULL,
 
-    CONSTRAINT fk_generated_documents_project 
+    CONSTRAINT fk_generated_documents_project
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    CONSTRAINT fk_generated_documents_thread 
+    CONSTRAINT fk_generated_documents_thread
         FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
-    CONSTRAINT fk_generated_documents_user 
+    CONSTRAINT fk_generated_documents_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
@@ -147,11 +147,11 @@ CREATE TABLE IF NOT EXISTS uploaded_documents (
     updated_at TIMESTAMPTZ DEFAULT now(),
     deleted_at TIMESTAMPTZ DEFAULT NULL,
 
-    CONSTRAINT fk_uploaded_documents_project 
+    CONSTRAINT fk_uploaded_documents_project
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    CONSTRAINT fk_uploaded_documents_thread 
+    CONSTRAINT fk_uploaded_documents_thread
         FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
-    CONSTRAINT fk_uploaded_documents_user 
+    CONSTRAINT fk_uploaded_documents_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 

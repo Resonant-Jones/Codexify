@@ -37,4 +37,3 @@ test("Clicking 'Use Demo' stores wallpaper and glass receives it", async () => {
   expect(glass).toHaveLength(2);
   glass.forEach((g) => expect(g).toHaveAttribute("data-wallpaper", "yes"));
 });
-

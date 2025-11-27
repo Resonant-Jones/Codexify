@@ -33,7 +33,7 @@ def read_config():
     """
     TODO: should this be place in util folder ?
     """
-    with open("./config.json", "r") as file:
+    with open("./config.json") as file:
         content = file.read()
         config = json.loads(content)
     return config

@@ -12,7 +12,7 @@ from ..agent.agent import Agent
 from .server import Server
 
 
-class Router(object):
+class Router:
     """
     The purpsoe of router is to simplify the communication between agent
     [OK actually i want to develope this as a lib but i don't have time and i think this idea is so awesome hahahha]

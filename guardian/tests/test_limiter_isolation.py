@@ -43,7 +43,9 @@ async def test_loop_safety():
 
     # Run in thread pool to avoid blocking
     with ThreadPoolExecutor() as pool:
-        result = await asyncio.get_event_loop().run_in_executor(pool, run_in_thread)
+        result = await asyncio.get_event_loop().run_in_executor(
+            pool, run_in_thread
+        )
 
     assert result, "Should have caught event loop error"
 
@@ -97,7 +99,9 @@ async def test_concurrent_limiters():
     assert len(results) == 2, "Both operations should complete"
     if len(results) == 2:
         interval = abs(results[0][0] - results[1][0])
-        assert interval >= 0.1 * 0.9, f"Operations too close: {interval}s < 0.1s"
+        assert (
+            interval >= 0.1 * 0.9
+        ), f"Operations too close: {interval}s < 0.1s"
 
 
 @pytest.mark.asyncio

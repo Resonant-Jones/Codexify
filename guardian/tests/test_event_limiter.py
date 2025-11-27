@@ -27,7 +27,9 @@ async def test_basic_limiting():
         timestamps.append(time.time())
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     min_interval = 0.1  # 10 ops/sec = 0.1s between ops
     assert all(
@@ -57,7 +59,9 @@ async def test_concurrent_workers():
     timestamps = [r[0] for r in results]
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     min_interval = 0.1  # 10 ops/sec = 0.1s between ops
     assert all(
@@ -83,13 +87,15 @@ async def test_safe_mode():
 
         # Check intervals
         intervals = [
-            timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+            timestamps[i + 1] - timestamps[i]
+            for i in range(len(timestamps) - 1)
         ]
 
         # In safe mode, should use reduced rate
         min_interval = 1.0 / Config.SAFE_MODE_RATE_LIMIT
         assert all(i >= min_interval * 0.9 for i in intervals), (
-            f"Safe mode intervals should be >= {min_interval}s " "(with 10% tolerance)"
+            f"Safe mode intervals should be >= {min_interval}s "
+            "(with 10% tolerance)"
         )
     finally:
         # Reset safe mode
@@ -147,7 +153,9 @@ async def test_high_concurrency():
     timestamps = [r[0] for r in results]
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     min_interval = 0.05  # 20 ops/sec = 0.05s between ops
     assert all(

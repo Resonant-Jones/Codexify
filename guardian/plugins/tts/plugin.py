@@ -50,7 +50,9 @@ class TTSPlugin(PluginBase):
             config = core_services.get("config", {})
 
             # Initialize TTS manager with config
-            self.tts_manager = TTSManager(config_path=config.get("tts_config_path"))
+            self.tts_manager = TTSManager(
+                config_path=config.get("tts_config_path")
+            )
 
             logger.info(
                 f"TTS Plugin activated with providers: {self.tts_manager.list_providers()}"
@@ -94,7 +96,9 @@ class TTSPlugin(PluginBase):
                     return
 
                 if list_voices:
-                    provider_name = provider or self.tts_manager.default_provider
+                    provider_name = (
+                        provider or self.tts_manager.default_provider
+                    )
                     print(f"\nAvailable voices for provider '{provider_name}':")
                     voices = self.tts_manager.list_voices(provider_name)
                     for voice in voices:

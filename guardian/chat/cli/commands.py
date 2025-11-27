@@ -37,7 +37,9 @@ def cli_codemap_query(args: argparse.Namespace) -> None:
             explained_results = llm_explain(results)
             print(memos.format_codemap_results(explained_results, explain=True))
         except ImportError:
-            logger.warning("LLM explanation not available - showing standard results")
+            logger.warning(
+                "LLM explanation not available - showing standard results"
+            )
             print(memos.format_codemap_results(results))
     else:
         print(memos.format_codemap_results(results))
@@ -87,10 +89,13 @@ def cli_conversation_simulate_overflow(args: argparse.Namespace) -> None:
             break
         else:
             # Add a dummy message (simulating 1000 tokens)
-            conversation = memos.conversation_manager.load_conversation(conversation_id)
+            conversation = memos.conversation_manager.load_conversation(
+                conversation_id
+            )
             if conversation:
                 conversation.add_message(
-                    {"role": "user", "content": f"Message {i+1}"}, token_count=1000
+                    {"role": "user", "content": f"Message {i+1}"},
+                    token_count=1000,
                 )
                 memos.conversation_manager.save_conversation(conversation)
                 if (i + 1) % 10 == 0:  # Print status every 10 messages
@@ -150,7 +155,9 @@ def cli_tts_speak(args: argparse.Namespace) -> None:
             output_path = f"tts_output/speech_{int(time.time())}.wav"
 
         # Synthesize speech
-        print(f"\nSynthesizing speech using provider '{args.provider or 'default'}'...")
+        print(
+            f"\nSynthesizing speech using provider '{args.provider or 'default'}'..."
+        )
         audio_data = tts_manager.synthesize(
             text=args.text, voice=args.voice, provider_name=args.provider
         )
@@ -172,7 +179,9 @@ def setup_cli_parser() -> argparse.ArgumentParser:
     Returns:
         argparse.ArgumentParser: Configured parser
     """
-    parser = argparse.ArgumentParser(description="Guardian CLI: Digital Archive Nexus")
+    parser = argparse.ArgumentParser(
+        description="Guardian CLI: Digital Archive Nexus"
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     # Add codemap:query command
@@ -180,7 +189,9 @@ def setup_cli_parser() -> argparse.ArgumentParser:
         "codemap:query", help="Query the codemap with a search term"
     )
     codemap_parser.add_argument(
-        "term", type=str, help='Search term to query the codemap (e.g., "MyFunction")'
+        "term",
+        type=str,
+        help='Search term to query the codemap (e.g., "MyFunction")',
     )
     codemap_parser.add_argument(
         "--explain",
@@ -208,7 +219,9 @@ def setup_cli_parser() -> argparse.ArgumentParser:
     conv_parser.set_defaults(func=cli_conversation_simulate_overflow)
 
     # Add tts:speak command
-    tts_parser = subparsers.add_parser("tts:speak", help="Synthesize text to speech")
+    tts_parser = subparsers.add_parser(
+        "tts:speak", help="Synthesize text to speech"
+    )
     tts_parser.add_argument("--text", type=str, help="Text to synthesize")
     tts_parser.add_argument(
         "--provider",
@@ -227,7 +240,9 @@ def setup_cli_parser() -> argparse.ArgumentParser:
         help="List available voices for the specified provider",
     )
     tts_parser.add_argument(
-        "--list-providers", action="store_true", help="List available TTS providers"
+        "--list-providers",
+        action="store_true",
+        help="List available TTS providers",
     )
     tts_parser.set_defaults(func=cli_tts_speak)
 

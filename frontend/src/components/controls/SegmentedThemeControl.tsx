@@ -23,4 +23,3 @@ export function SegmentedThemeControl({ mode, onChange }: { mode: ThemeMode; onC
 }
 
 export default SegmentedThemeControl;
-

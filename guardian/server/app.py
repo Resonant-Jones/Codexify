@@ -8,11 +8,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 try:
     from fastapi_security_headers import add_security_headers
+
     SECURITY_HEADERS_AVAILABLE = True
 except ImportError:
     SECURITY_HEADERS_AVAILABLE = False
@@ -20,35 +21,39 @@ except ImportError:
 from guardian.retrieve.api import router as retrieve_router
 from guardian.server.codexify_api import oauth_status as codexify_oauth_status
 from guardian.server.codexify_api import router as codexify_router
+
 try:
     from guardian.server.tools_api import router as tools_router
 except ModuleNotFoundError:
     from fastapi import APIRouter
+
     tools_router = APIRouter()
-from guardian.routes.documents import router as documents_router
-from guardian.routes.chat import (
-    router as chat_router,
-    api_chat_router,
-    threads_router as chat_threads_router,
-    thread_router as chat_thread_router,
-    simple_chat_router,
-)
-from guardian.routes.projects import router as projects_router, api_router as api_projects_router
-from guardian.routes.threads import router as threads_router, api_router as api_threads_router
-from guardian.routes.workspace import router as workspace_router
-from guardian.core.db import GuardianDB
-from guardian.routes.documents import configure_db as configure_documents_db
-from guardian.sync.api import router as sync_router
 from guardian.core import metrics
+from guardian.core.db import GuardianDB
+from guardian.routes.chat import api_chat_router
+from guardian.routes.chat import router as chat_router
+from guardian.routes.chat import simple_chat_router
+from guardian.routes.chat import thread_router as chat_thread_router
+from guardian.routes.chat import threads_router as chat_threads_router
+from guardian.routes.documents import configure_db as configure_documents_db
+from guardian.routes.documents import router as documents_router
+from guardian.routes.projects import api_router as api_projects_router
+from guardian.routes.projects import router as projects_router
+from guardian.routes.threads import api_router as api_threads_router
+from guardian.routes.threads import router as threads_router
+from guardian.routes.workspace import router as workspace_router
+from guardian.sync.api import router as sync_router
 
 # --- Rate Limiting Configuration ---
 _rate_limits_env = os.getenv("GUARDIAN_RATE_LIMITS", "100/minute").strip()
-_enable_rate_limiting = os.getenv("GUARDIAN_ENABLE_RATE_LIMITING", "1").strip().lower() in (
-    "1", "true", "yes", "on"
-)
+_enable_rate_limiting = os.getenv(
+    "GUARDIAN_ENABLE_RATE_LIMITING", "1"
+).strip().lower() in ("1", "true", "yes", "on")
 
 # Parse rate limits (supports comma-separated limits like "100/minute,1000/hour")
-_default_limits = [limit.strip() for limit in _rate_limits_env.split(",") if limit.strip()]
+_default_limits = [
+    limit.strip() for limit in _rate_limits_env.split(",") if limit.strip()
+]
 
 # Initialize limiter with IP-based key function
 limiter = Limiter(
@@ -73,15 +78,15 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     _rate_limit_logger.warning(
         "[rate-limiting] Limit exceeded for IP=%s path=%s",
         get_remote_address(request),
-        request.url.path
+        request.url.path,
     )
     return JSONResponse(
         status_code=429,
         content={
             "error": "Rate limit exceeded",
             "detail": "Too many requests. Please try again later.",
-            "retry_after": getattr(exc, "retry_after", 60)
-        }
+            "retry_after": getattr(exc, "retry_after", 60),
+        },
     )
 
 
@@ -232,7 +237,9 @@ class ScrubFormatter(logging.Formatter):
 
         # 2) Mask 'secret' near cred-like terms to reduce false positives in normal text
         key_words_re = re.compile(
-            r"(?i)\b(" + "|".join(re.escape(k) for k in _SECRET_KEYWORDS) + r")\b"
+            r"(?i)\b("
+            + "|".join(re.escape(k) for k in _SECRET_KEYWORDS)
+            + r")\b"
         )
 
         def mask_if_context(m: re.Match) -> str:
@@ -293,7 +300,9 @@ if _log_file:
 root_logger = logging.getLogger()
 
 # If no console handler exists, add one with ScrubFormatter
-has_stream = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
+has_stream = any(
+    isinstance(h, logging.StreamHandler) for h in root_logger.handlers
+)
 if not has_stream:
     console = logging.StreamHandler(sys.stdout)
     console.setLevel(root_logger.level)
@@ -304,7 +313,9 @@ else:
     for h in root_logger.handlers:
         if isinstance(h, logging.StreamHandler):
             existing_fmt = getattr(
-                getattr(h, "formatter", None), "_fmt", "%(levelname)s: %(message)s"
+                getattr(h, "formatter", None),
+                "_fmt",
+                "%(levelname)s: %(message)s",
             )
             h.setFormatter(ScrubFormatter(existing_fmt))
 
@@ -327,7 +338,8 @@ def healthz():
         "scrub_logs": SCRUB_ENABLED,
         "scrub_plaintext": SCRUB_PLAINTEXT_SECRETS,
         "rate_limiting": _enable_rate_limiting,
-        "security_headers": _enable_security_headers and SECURITY_HEADERS_AVAILABLE,
+        "security_headers": _enable_security_headers
+        and SECURITY_HEADERS_AVAILABLE,
     }
     return {"ok": True, "codexify": codexify_info}
 
@@ -336,7 +348,9 @@ def healthz():
 _origins_env = os.getenv("GUARDIAN_CORS_ORIGINS", "*").strip()
 if _origins_env == "*":
     _origins = ["*"]
-    _allow_credentials = False  # Star with credentials is not permitted by Starlette
+    _allow_credentials = (
+        False  # Star with credentials is not permitted by Starlette
+    )
 else:
     _origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
     _allow_credentials = True
@@ -373,15 +387,15 @@ app.add_middleware(
 )
 
 # --- Security Headers Configuration ---
-_enable_security_headers = os.getenv("GUARDIAN_ENABLE_SECURITY_HEADERS", "1").strip().lower() in (
-    "1", "true", "yes", "on"
-)
+_enable_security_headers = os.getenv(
+    "GUARDIAN_ENABLE_SECURITY_HEADERS", "1"
+).strip().lower() in ("1", "true", "yes", "on")
 
 if _enable_security_headers and SECURITY_HEADERS_AVAILABLE:
     # Custom CSP policy (adjust based on your frontend requirements)
     _csp_policy = os.getenv(
         "GUARDIAN_CSP_POLICY",
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;"
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;",
     )
 
     app.add_middleware(
@@ -391,9 +405,13 @@ if _enable_security_headers and SECURITY_HEADERS_AVAILABLE:
         referrer="strict-origin-when-cross-origin",
         permissions="geolocation=(), microphone=(), camera=()",
     )
-    root_logger.info("[security-headers] Middleware enabled (CSP: %s...)", _csp_policy[:50])
+    root_logger.info(
+        "[security-headers] Middleware enabled (CSP: %s...)", _csp_policy[:50]
+    )
 elif _enable_security_headers and not SECURITY_HEADERS_AVAILABLE:
-    root_logger.warning("[security-headers] Enabled but fastapi-security-headers not installed")
+    root_logger.warning(
+        "[security-headers] Enabled but fastapi-security-headers not installed"
+    )
 else:
     root_logger.info("[security-headers] Middleware DISABLED")
 

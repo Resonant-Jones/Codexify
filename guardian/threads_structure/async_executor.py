@@ -126,7 +126,9 @@ class AsyncPluginExecutor:
                                 None, module.execute, *a, **kw
                             )
                     else:
-                        logger.error(f"Plugin {plugin_name} has no execute function")
+                        logger.error(
+                            f"Plugin {plugin_name} has no execute function"
+                        )
                         return None
                 except ImportError as e:
                     logger.error(f"Failed to import plugin {plugin_name}: {e}")

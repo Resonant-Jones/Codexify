@@ -26,21 +26,21 @@ logger = logging.getLogger(__name__)
 
 
 class GDriveExportRequest(BaseModel):
-    records: List[Dict[str, Any]]
+    records: list[dict[str, Any]]
     format: str = "md"
     # Accept either explicit folder ID or a full folder URL. If both are provided, `folder` (ID) wins
-    folder: Optional[str] = None
-    folder_url: Optional[str] = None
+    folder: str | None = None
+    folder_url: str | None = None
     # Return clickable links for created items
     return_links: bool = False
     dry_run: bool = False
     share_anyone_with_link: bool = False
-    front_matter: Optional[Dict[str, Any]] = None
+    front_matter: dict[str, Any] | None = None
 
 
 class GDriveImportRequest(BaseModel):
-    query: Optional[str] = None
-    folder: Optional[str] = None
+    query: str | None = None
+    folder: str | None = None
 
 
 class ICloudImportRequest(BaseModel):
@@ -52,29 +52,31 @@ class SaveEntryRequest(BaseModel):
     title: str
     body: str = ""
     format: str = "md"
-    folder: Optional[str] = None
-    folder_url: Optional[str] = None
+    folder: str | None = None
+    folder_url: str | None = None
     return_links: bool = True
     dry_run: bool = False
     share_anyone_with_link: bool = False
-    front_matter: Optional[Dict[str, Any]] = None
+    front_matter: dict[str, Any] | None = None
 
 
 class NotionImportRequest(BaseModel):
     records: list[dict]
     parent_id: str
     token: str
-    db_title: Optional[str] = None
+    db_title: str | None = None
     with_template: bool = True
 
 
 # --- Helpers ---
 _FILE_LINK = "https://drive.google.com/file/d/{id}/view"
 _FOLDER_LINK = "https://drive.google.com/drive/folders/{id}"
-_FOLDER_RE = re.compile(r"(?:/folders/|/drive/folders/|[?&]id=)([A-Za-z0-9_-]{10,})")
+_FOLDER_RE = re.compile(
+    r"(?:/folders/|/drive/folders/|[?&]id=)([A-Za-z0-9_-]{10,})"
+)
 
 
-def _normalize_folder_id(folder_or_url: Optional[str]) -> Optional[str]:
+def _normalize_folder_id(folder_or_url: str | None) -> str | None:
     if not folder_or_url:
         return None
     s = folder_or_url.strip()
@@ -83,7 +85,11 @@ def _normalize_folder_id(folder_or_url: Optional[str]) -> Optional[str]:
         return s
     # Tolerate /u/{n}/ variants in the URL
     s = re.sub(r"/u/\d+/", "/", s)
-    m = re.search(_FOLDER_RE, s) if hasattr(re, "search") else _FOLDER_RE.search(s)
+    m = (
+        re.search(_FOLDER_RE, s)
+        if hasattr(re, "search")
+        else _FOLDER_RE.search(s)
+    )
     return m.group(1) if m else None
 
 
@@ -131,7 +137,7 @@ def _looks_like_service_account(json_path: Path) -> bool:
         return False
 
 
-def _extract_drive_id(url: str) -> Optional[str]:
+def _extract_drive_id(url: str) -> str | None:
     """
     Extract a Drive file/folder id from common URL shapes:
       - https://drive.google.com/drive/folders/<FOLDER_ID>
@@ -153,13 +159,13 @@ def _extract_drive_id(url: str) -> Optional[str]:
     return None
 
 
-def _with_links(result: Any) -> Dict[str, Any]:
+def _with_links(result: Any) -> dict[str, Any]:
     """
     Normalize exporter result into { files: [{id, webViewLink}], count }.
     - If result items already include webViewLink / id, keep them.
     - Otherwise, construct a web link from id using a generic template.
     """
-    files: List[Dict[str, Any]] = []
+    files: list[dict[str, Any]] = []
     # Accept a variety of shapes: list[str], list[dict], dict with 'files'
     items = None
     if isinstance(result, dict) and "files" in result:
@@ -174,7 +180,9 @@ def _with_links(result: Any) -> Dict[str, Any]:
             _link = it.get("webViewLink") or (
                 _FILE_LINK.format(id=_id) if _id else None
             )
-            base = {k: v for k, v in it.items() if k not in ("id", "webViewLink")}
+            base = {
+                k: v for k, v in it.items() if k not in ("id", "webViewLink")
+            }
             files.append({"id": _id, "webViewLink": _link, **base})
         else:
             # assume string id
@@ -189,7 +197,8 @@ def resolve_folder_id(url: str):
     _id = _extract_drive_id(url)
     if not _id:
         raise HTTPException(
-            status_code=400, detail="Could not parse an id from the provided URL."
+            status_code=400,
+            detail="Could not parse an id from the provided URL.",
         )
     return {"id": _id, "webLink": _FOLDER_LINK.format(id=_id)}
 
@@ -214,8 +223,16 @@ def oauth_status():
         repo_root = Path(__file__).resolve().parents[2]
         tpath = repo_root / "secrets" / "token.json"
     if tpath.exists():
-        return {"status": "oauth_ready", "credentials": creds, "token": str(tpath)}
-    return {"status": "oauth_no_token", "credentials": creds, "token": str(tpath)}
+        return {
+            "status": "oauth_ready",
+            "credentials": creds,
+            "token": str(tpath),
+        }
+    return {
+        "status": "oauth_no_token",
+        "credentials": creds,
+        "token": str(tpath),
+    }
 
 
 @router.post("/oauth-begin")
@@ -231,7 +248,7 @@ def oauth_begin():
         raise HTTPException(status_code=400, detail=str(e))
 
 
-def _service_account_email(p: Path) -> Optional[str]:
+def _service_account_email(p: Path) -> str | None:
     try:
         data = json.loads(p.read_text())
         if isinstance(data, dict):
@@ -253,7 +270,10 @@ def service_account_info():
     if not _looks_like_service_account(cpath):
         return {"status": "not_service_account", "credentials": str(cpath)}
     email = _service_account_email(cpath)
-    resp: Dict[str, Any] = {"status": "service_account", "credentials": str(cpath)}
+    resp: dict[str, Any] = {
+        "status": "service_account",
+        "credentials": str(cpath),
+    }
     if email:
         resp["email"] = email
     return resp
@@ -263,15 +283,20 @@ def service_account_info():
 def export_gdrive(req: GDriveExportRequest):
     try:
         # Resolve folder: accept either raw ID or URL (including /u/{n}/ variants)
-        folder_id = req.folder or _normalize_folder_id(getattr(req, "folder_url", None))
+        folder_id = req.folder or _normalize_folder_id(
+            getattr(req, "folder_url", None)
+        )
         # Apply default folder from env if none provided
         if not folder_id:
             default_folder = os.environ.get("CODEXIFY_DEFAULT_FOLDER")
             if default_folder:
-                folder_id = _normalize_folder_id(default_folder) or default_folder
+                folder_id = (
+                    _normalize_folder_id(default_folder) or default_folder
+                )
         if getattr(req, "folder_url", None) and not folder_id:
             raise HTTPException(
-                status_code=400, detail="Invalid folder_url: could not parse an id."
+                status_code=400,
+                detail="Invalid folder_url: could not parse an id.",
             )
         # Dry-run: validate only
         if req.dry_run:
@@ -289,7 +314,9 @@ def export_gdrive(req: GDriveExportRequest):
             try:
                 ensure_oauth_credentials()
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"OAuth setup failed: {e}")
+                raise HTTPException(
+                    status_code=400, detail=f"OAuth setup failed: {e}"
+                )
         # Real call: build Drive service explicitly
         service = build_drive_service(logger=logger)
         # Optional front matter for md batch export: prepend once at top
@@ -331,7 +358,9 @@ def export_gdrive(req: GDriveExportRequest):
                         if f.get("webViewLink")
                     ]
                     if urls:
-                        logger.info("Exported to Google Drive:\n%s", "\n".join(urls))
+                        logger.info(
+                            "Exported to Google Drive:\n%s", "\n".join(urls)
+                        )
                 except Exception:
                     pass
             return {"ok": True, **enriched}
@@ -345,7 +374,9 @@ def export_gdrive(req: GDriveExportRequest):
                     if f.get("webViewLink")
                 ]
                 if urls:
-                    logger.info("Exported to Google Drive:\n%s", "\n".join(urls))
+                    logger.info(
+                        "Exported to Google Drive:\n%s", "\n".join(urls)
+                    )
             except Exception:
                 pass
         return {"ok": True, "result": result}
@@ -399,7 +430,7 @@ def codexify_create(req: NotionImportRequest):
 def save_entry(req: SaveEntryRequest):
     """Preview and optionally export a single entry to Google Drive."""
     # Build single-record payload
-    records: List[Dict[str, Any]] = [{"title": req.title, "body": req.body}]
+    records: list[dict[str, Any]] = [{"title": req.title, "body": req.body}]
     # Preview formatted content
     try:
         if req.format == "md" and req.front_matter:
@@ -416,7 +447,9 @@ def save_entry(req: SaveEntryRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Preview failed: {e}")
 
-    folder_id = req.folder or _normalize_folder_id(getattr(req, "folder_url", None))
+    folder_id = req.folder or _normalize_folder_id(
+        getattr(req, "folder_url", None)
+    )
     if not folder_id:
         default_folder = os.environ.get("CODEXIFY_DEFAULT_FOLDER")
         if default_folder:
@@ -440,7 +473,9 @@ def save_entry(req: SaveEntryRequest):
         try:
             ensure_oauth_credentials()
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"OAuth setup failed: {e}")
+            raise HTTPException(
+                status_code=400, detail=f"OAuth setup failed: {e}"
+            )
 
     try:
         service = build_drive_service(logger=logger)
@@ -464,7 +499,9 @@ def save_entry(req: SaveEntryRequest):
         tmpl = os.environ.get("CODEXIFY_FILENAME_TEMPLATE", "")
         if tmpl:
             try:
-                filename = tmpl.format(date=date_str, time=time_str, slug=slug, ext=ext)
+                filename = tmpl.format(
+                    date=date_str, time=time_str, slug=slug, ext=ext
+                )
             except Exception:
                 filename = f"{date_str}_{slug}.{ext}"
         else:

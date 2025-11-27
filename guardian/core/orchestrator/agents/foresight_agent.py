@@ -30,7 +30,10 @@ def _handle_stress_foresight(
     STRESS_LOG_THRESHOLD = 10
 
     stress_logs = memory_client.fetch_memory(
-        query="stress", timeframe=STRESS_TIMEFRAME, tags=["ritual", "log"], limit=50
+        query="stress",
+        timeframe=STRESS_TIMEFRAME,
+        tags=["ritual", "log"],
+        limit=50,
     )
     if len(stress_logs) > STRESS_LOG_THRESHOLD:
         return {
@@ -67,7 +70,9 @@ def run_foresight(
     Returns:
         A dictionary containing foresight status and a human-readable message.
     """
-    logger.debug(f"Foresight triggered with context={context}, timeframe={timeframe}")
+    logger.debug(
+        f"Foresight triggered with context={context}, timeframe={timeframe}"
+    )
 
     strategy = FORESIGHT_STRATEGIES.get(context)
 
@@ -81,7 +86,9 @@ def run_foresight(
     try:
         return strategy(memory_client, timeframe)
     except Exception as e:
-        logger.error(f"MemoryOS error during foresight for context '{context}': {e}")
+        logger.error(
+            f"MemoryOS error during foresight for context '{context}': {e}"
+        )
         return {
             "status": STATUS_ERROR,
             "message": "Unable to access memory logs for foresight prediction.",

@@ -5,9 +5,9 @@ including verification, connection establishment, and message routing.
 """
 
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Set
-from dataclasses import dataclass, field
 
 import jwt
 from fastapi import WebSocket
@@ -31,7 +31,9 @@ class RelaySession:
     target_node_id: str
     document_id: str
     thread_id: Optional[str] = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     expires_at: Optional[datetime] = None
     source_ws: Optional[WebSocket] = None
     target_ws: Optional[WebSocket] = None
@@ -103,7 +105,9 @@ class FederationManager:
             expires_at=expires_at,
         )
         self.active_relays[relay_id] = relay
-        logger.info(f"Created relay session {relay_id}: {source_node_id} -> {target_node_id}")
+        logger.info(
+            f"Created relay session {relay_id}: {source_node_id} -> {target_node_id}"
+        )
         return relay
 
     def get_relay_session(self, relay_id: str) -> Optional[RelaySession]:
@@ -168,7 +172,9 @@ class FederationManager:
             logger.info(f"Closing relay session {relay_id}")
             del self.active_relays[relay_id]
 
-    def verify_relay_token(self, token: str, secret: str) -> Optional[Dict[str, Any]]:
+    def verify_relay_token(
+        self, token: str, secret: str
+    ) -> Optional[Dict[str, Any]]:
         """Verify a relay token and return its payload.
 
         Args:
@@ -204,7 +210,9 @@ class FederationManager:
         """
         return self.peer_manifests.get(node_id)
 
-    def check_rate_limit(self, node_id: str, limit: int = 10, window_seconds: int = 60) -> bool:
+    def check_rate_limit(
+        self, node_id: str, limit: int = 10, window_seconds: int = 60
+    ) -> bool:
         """Check if node has exceeded rate limit for requests.
 
         Args:
@@ -243,8 +251,7 @@ class FederationManager:
             Number of active, non-expired relay sessions
         """
         return sum(
-            1 for relay in self.active_relays.values()
-            if not relay.is_expired()
+            1 for relay in self.active_relays.values() if not relay.is_expired()
         )
 
     async def forward_diff(
@@ -283,7 +290,9 @@ class FederationManager:
                     try:
                         await ws.send_json(message)
                         forwarded_count += 1
-                        logger.debug(f"Forwarded diff to {side} of relay {relay.relay_id}")
+                        logger.debug(
+                            f"Forwarded diff to {side} of relay {relay.relay_id}"
+                        )
                     except Exception as e:
                         logger.warning(
                             f"Failed to forward diff to {side} of relay {relay.relay_id}: {e}"
@@ -291,9 +300,7 @@ class FederationManager:
 
         return forwarded_count
 
-    async def forward_graph_update(
-        self, update_payload: Dict[str, Any]
-    ) -> int:
+    async def forward_graph_update(self, update_payload: Dict[str, Any]) -> int:
         """Forward a graph update to all active relays.
 
         Used to broadcast awareness graph updates across federated nodes via
@@ -322,7 +329,9 @@ class FederationManager:
                     try:
                         await ws.send_json(message)
                         forwarded_count += 1
-                        logger.debug(f"Forwarded graph update to {side} of relay {relay.relay_id}")
+                        logger.debug(
+                            f"Forwarded graph update to {side} of relay {relay.relay_id}"
+                        )
                     except Exception as e:
                         logger.warning(
                             f"Failed to forward graph update to {side} of relay {relay.relay_id}: {e}"

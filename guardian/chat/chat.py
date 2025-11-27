@@ -99,7 +99,11 @@ def list_threads(project_id: int) -> list:
 
 
 def create_message(
-    thread_id: int, role: str, content: str, parent_id: int = None, user_id: int = None
+    thread_id: int,
+    role: str,
+    content: str,
+    parent_id: int = None,
+    user_id: int = None,
 ) -> int:
     """
     Create a new message in a thread.

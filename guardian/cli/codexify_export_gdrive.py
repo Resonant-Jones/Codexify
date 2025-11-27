@@ -32,8 +32,12 @@ def _load_records_from_file(path: Path) -> List[Dict[str, Any]]:
 
 
 @click.command(name="codexify:export-gdrive")
-@click.option("--title", help="Title of a single note (ignored if --file is used).")
-@click.option("--body", help="Body of a single note (ignored if --file is used).")
+@click.option(
+    "--title", help="Title of a single note (ignored if --file is used)."
+)
+@click.option(
+    "--body", help="Body of a single note (ignored if --file is used)."
+)
 @click.option(
     "--file",
     "file_path",
@@ -137,7 +141,9 @@ def export_gdrive_cmd(
         else:
             records: List[Dict[str, Any]] = []
             if title or body:
-                records.append({"title": title or "Untitled", "body": body or ""})
+                records.append(
+                    {"title": title or "Untitled", "body": body or ""}
+                )
         if not records:
             raise click.ClickException(
                 "No records to export. Provide --file or --title/--body."
@@ -168,7 +174,9 @@ def export_gdrive_cmd(
                 detail = r.json().get("detail")
             except Exception:
                 detail = r.text
-            raise click.ClickException(f"Export failed ({r.status_code}): {detail}")
+            raise click.ClickException(
+                f"Export failed ({r.status_code}): {detail}"
+            )
 
         data = r.json()
         click.echo(json.dumps(data, indent=2))
@@ -177,7 +185,9 @@ def export_gdrive_cmd(
             click.echo("\nDrive links:")
             first_link = None
             for f in files:
-                link = f.get("webViewLink") or f.get("webViewURL") or f.get("link")
+                link = (
+                    f.get("webViewLink") or f.get("webViewURL") or f.get("link")
+                )
                 name = f.get("name") or f.get("id")
                 if link:
                     click.echo(f" - {name}: {link}")

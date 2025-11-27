@@ -77,4 +77,3 @@ export function contrastRatioHex(a: string, b: string) {
   const [hi, lo] = L1 >= L2 ? [L1, L2] : [L2, L1];
   return (hi + 0.05) / (lo + 0.05);
 }
-

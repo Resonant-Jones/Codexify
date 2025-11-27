@@ -2,18 +2,18 @@
 from __future__ import annotations
 
 import os
-from uuid import uuid4
 from datetime import datetime
+from uuid import uuid4
 
 # --- Neo4j Graph Schema for Relationship Tracking and User-Memory Graphing ---
 from neomodel import (
-    StructuredNode,
-    StringProperty,
     DateTimeProperty,
-    RelationshipTo,
     RelationshipFrom,
-    UniqueIdProperty,
+    RelationshipTo,
+    StringProperty,
+    StructuredNode,
     StructuredRel,
+    UniqueIdProperty,
     config,
 )
 
@@ -24,7 +24,11 @@ from neomodel import (
 # for newer driver versions) and pass credentials to GraphDatabase.driver via
 # basic_auth when available.
 
-_raw_bolt = os.getenv("NEO4J_BOLT_URL") or os.getenv("BOLT_URL") or "bolt://localhost:7687"
+_raw_bolt = (
+    os.getenv("NEO4J_BOLT_URL")
+    or os.getenv("BOLT_URL")
+    or "bolt://localhost:7687"
+)
 _env_user = os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME")
 _env_pass = os.getenv("NEO4J_PASS") or os.getenv("NEO4J_PASSWORD")
 
@@ -44,6 +48,7 @@ def _strip_creds_from_bolt(url: str) -> str:
     except Exception:
         pass
     return url
+
 
 _clean_url = _strip_creds_from_bolt(_raw_bolt)
 
@@ -65,13 +70,16 @@ def get_session(**kwargs):
     """
     try:
         from neo4j import GraphDatabase
+
         # basic_auth exists in neo4j.driver API; import it if available
         try:
             from neo4j import basic_auth
         except Exception:
             basic_auth = None
     except Exception as e:
-        raise RuntimeError("neo4j driver is required for get_session: " + str(e)) from e
+        raise RuntimeError(
+            "neo4j driver is required for get_session: " + str(e)
+        ) from e
 
     user = _env_user
     password = _env_pass
@@ -97,7 +105,11 @@ def get_session(**kwargs):
             auth = (user, password)
 
     # Create the driver. The driver expects a URL without embedded username.
-    driver = GraphDatabase.driver(_clean_url, auth=auth) if auth else GraphDatabase.driver(_clean_url)
+    driver = (
+        GraphDatabase.driver(_clean_url, auth=auth)
+        if auth
+        else GraphDatabase.driver(_clean_url)
+    )
 
     # Return a session context; caller should use `with get_session() as s:`
     return driver.session(**kwargs)

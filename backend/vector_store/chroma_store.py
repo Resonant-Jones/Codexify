@@ -52,7 +52,9 @@ class ChromaVectorStore(VectorStore):
 
         target_namespace = namespace or DEFAULT_NAMESPACE
         collection = self._get_collection(target_namespace)
-        result = collection.query(query_embeddings=[list(embedding)], n_results=top_k)
+        result = collection.query(
+            query_embeddings=[list(embedding)], n_results=top_k
+        )
 
         ids = result.get("ids", [[]])[0] or []
         distances = result.get("distances", [[]])[0] or []
@@ -68,7 +70,9 @@ class ChromaVectorStore(VectorStore):
                     "id": doc_id,
                     "score": score,
                     "metadata": metadata,
-                    "namespace": (metadata or {}).get("namespace", target_namespace),
+                    "namespace": (metadata or {}).get(
+                        "namespace", target_namespace
+                    ),
                 }
             )
         return matches
@@ -94,7 +98,9 @@ class ChromaVectorStore(VectorStore):
         resolved_namespace = namespace or DEFAULT_NAMESPACE
         key = f"{self._collection_prefix}_{resolved_namespace}"
         if key not in self._collections:
-            self._collections[key] = self._client.get_or_create_collection(name=key)
+            self._collections[key] = self._client.get_or_create_collection(
+                name=key
+            )
         return self._collections[key]
 
 
@@ -102,13 +108,16 @@ def _default_client() -> ClientAPI:
     persist_directory = os.getenv("CHROMA_PERSIST_DIRECTORY")
     if persist_directory:
         return chromadb.PersistentClient(
-            path=persist_directory, settings=Settings(anonymized_telemetry=False)
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False),
         )
     return chromadb.Client(settings=Settings(anonymized_telemetry=False))
 
 
 def _namespace_from_metadata(metadata: Mapping[str, Any]) -> str:
-    namespace = metadata.get("namespace") if isinstance(metadata, Mapping) else None
+    namespace = (
+        metadata.get("namespace") if isinstance(metadata, Mapping) else None
+    )
     if isinstance(namespace, str) and namespace.strip():
         return namespace.strip()
     return DEFAULT_NAMESPACE

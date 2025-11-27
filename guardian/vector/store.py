@@ -13,7 +13,7 @@ class VectorStore:
     def add_texts(self, items: List[Dict[str, Any]]) -> int:
         texts = [i.get("text", "") for i in items]
         metas = [i.get("meta", {}) for i in items]
-        
+
         # Use embed_and_index which handles embedding and storage
         self.embedder.embed_and_index(texts, metadatas=metas)
         return len(items)

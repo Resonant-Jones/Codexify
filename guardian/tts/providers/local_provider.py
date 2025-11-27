@@ -138,7 +138,11 @@ class LocalProvider(TTSProvider):
             raise VoiceNotFoundError(f"Voice '{voice}' not found")
 
         gender = (
-            "male" if "male" in voice else "female" if "female" in voice else "neutral"
+            "male"
+            if "male" in voice
+            else "female"
+            if "female" in voice
+            else "neutral"
         )
 
         return {

@@ -22,14 +22,18 @@ async def post_event(event: Dict[str, Any]):
     ev_type = str(event.get("type") or "").strip()
     payload = event.get("payload") or {}
     if not event_id or not ev_type:
-        raise HTTPException(status_code=400, detail="event_id and type are required")
+        raise HTTPException(
+            status_code=400, detail="event_id and type are required"
+        )
 
     is_new = models.record_event(event_id, ev_type, payload)
 
     # Apply idempotent upsert side-effects based on ev_type
     try:
         if ev_type in ("thread.update", "thread.state"):
-            thread_id = str(payload.get("thread_id") or payload.get("id") or "").strip()
+            thread_id = str(
+                payload.get("thread_id") or payload.get("id") or ""
+            ).strip()
             if thread_id:
                 models.upsert_thread_state(thread_id, payload)
         elif ev_type in ("persona.set", "persona.selection"):
@@ -48,7 +52,9 @@ async def post_event(event: Dict[str, Any]):
         # Side-effects must not break idempotent acknowledgement
         pass
 
-    await bus.publish({"event_id": event_id, "type": ev_type, "payload": payload})
+    await bus.publish(
+        {"event_id": event_id, "type": ev_type, "payload": payload}
+    )
     return {"ok": True, "idempotent": not is_new}
 
 

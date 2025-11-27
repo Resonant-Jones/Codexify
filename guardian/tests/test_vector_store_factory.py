@@ -13,7 +13,9 @@ def test_factory_returns_chroma_by_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(store, ChromaVectorStore)
 
 
-def test_factory_returns_pgvector_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_factory_returns_pgvector_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     pytest.importorskip("pgvector.sqlalchemy")
     from backend.vector_store.pgvector_store import PGVectorStore
 
@@ -23,7 +25,9 @@ def test_factory_returns_pgvector_when_available(monkeypatch: pytest.MonkeyPatch
     assert isinstance(store, PGVectorStore)
 
 
-def test_factory_rejects_unknown_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_factory_rejects_unknown_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("VECTOR_STORE", "unknown")
     with pytest.raises(ValueError):
         get_vector_store()

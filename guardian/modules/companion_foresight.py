@@ -22,7 +22,9 @@ from pydantic import BaseModel, Field
 class PredictionRequest(BaseModel):
     """Input schema for foresight predictions."""
 
-    recent_narratives: List[str] = Field(..., description="Recent narrative texts")
+    recent_narratives: list[str] = Field(
+        ..., description="Recent narrative texts"
+    )
 
 
 class Foresight:

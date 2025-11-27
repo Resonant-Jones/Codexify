@@ -28,9 +28,9 @@ def patch_orchestrator_common(test_func):
         return_value=None,
     )(
         patch("guardian.core.orchestrator.pulse_orchestrator.settings")(
-            patch("guardian.core.orchestrator.pulse_orchestrator.AGENT_ACTIONS")(
-                test_func
-            )
+            patch(
+                "guardian.core.orchestrator.pulse_orchestrator.AGENT_ACTIONS"
+            )(test_func)
         )
     )
 

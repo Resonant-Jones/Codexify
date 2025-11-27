@@ -19,10 +19,7 @@ from guardian.config import Config
 from guardian.memory.query_memory import MemoryStore
 from guardian.plugin_manager import SafePluginManager
 from guardian.utils.safe_logger import SafeLogger
-from guardian.utils.safeguard import (
-    safe_model_call,
-    throttle,
-)
+from guardian.utils.safeguard import safe_model_call, throttle
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

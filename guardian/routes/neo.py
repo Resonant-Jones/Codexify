@@ -33,9 +33,15 @@ async def graph_message(
     - Errors should not surface as 5xx; return 'unavailable' instead.
     """
     if not settings.GUARDIAN_ENABLE_GRAPH_LOGGING:
-        return {"status": "disabled", "reason": "graph logging disabled in settings"}
+        return {
+            "status": "disabled",
+            "reason": "graph logging disabled in settings",
+        }
 
     try:
-        return {"status": "accepted", "mode": settings.GUARDIAN_GRAPH_LOGGING_MODE}
+        return {
+            "status": "accepted",
+            "mode": settings.GUARDIAN_GRAPH_LOGGING_MODE,
+        }
     except Exception as exc:  # pragma: no cover - defensive
         return {"status": "unavailable", "error": str(exc)}

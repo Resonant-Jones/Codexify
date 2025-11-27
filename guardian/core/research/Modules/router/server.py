@@ -74,6 +74,6 @@ class Server:
         self.initial_router = name
         self.initial_message = msg
 
-    def add_router(self, name: str, router: "Router"):
+    def add_router(self, name: str, router: Router):
         self.routers[name] = router
         self.router_list.append(name)

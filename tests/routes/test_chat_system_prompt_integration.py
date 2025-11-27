@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from guardian.routes import chat
 
@@ -7,7 +8,11 @@ from guardian.routes import chat
 @pytest.mark.asyncio
 async def test_chat_complete_uses_single_system_message():
     mock_db = MagicMock()
-    mock_db.get_chat_thread.return_value = {"id": 1, "user_id": "test", "project_id": None}
+    mock_db.get_chat_thread.return_value = {
+        "id": 1,
+        "user_id": "test",
+        "project_id": None,
+    }
     mock_db.list_messages.return_value = [
         {"role": "user", "content": "Hello", "id": 1},
     ]
@@ -21,15 +26,29 @@ async def test_chat_complete_uses_single_system_message():
     fake_context_broker.return_value = None
 
     with patch.object(chat, "chatlog_db", mock_db):
-        with patch.object(chat, "ContextBroker", lambda *args, **kwargs: MagicMock(assemble=lambda *a, **k: (None, None))):
+        with patch.object(
+            chat,
+            "ContextBroker",
+            lambda *args, **kwargs: MagicMock(
+                assemble=lambda *a, **k: (None, None)
+            ),
+        ):
             groq_mock = MagicMock(return_value="assistant")
             with patch.object(chat, "_groq_complete", groq_mock):
                 with patch.object(
                     chat,
                     "build_guardian_system_prompt",
-                    return_value=("SYS_PROMPT", {"total_chars": 10, "estimated_tokens": 3, "docs_count": 0}),
+                    return_value=(
+                        "SYS_PROMPT",
+                        {
+                            "total_chars": 10,
+                            "estimated_tokens": 3,
+                            "docs_count": 0,
+                        },
+                    ),
                 ):
-                    response = await chat.chat_complete(1, {})
+                    request_body = chat.ChatCompletionRequest()
+                    response = await chat.chat_complete(1, request_body)
 
     assert response["message"]["role"] == "assistant"
     assert response["prompt_meta"]["system_prompt"]["char_length"] >= 10

@@ -1,5 +1,5 @@
 # Vector Stores & GraphDB
-chromadb
+chromadb==1.0.15
 faiss-cpu
 neo4j
 neomodel

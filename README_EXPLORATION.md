@@ -297,4 +297,3 @@ Refer to the appropriate document:
 - "Where's the share link code?" → FILE_STRUCTURE_MAP.txt or /guardian/routes/share.py
 - "How do I add a feature?" → QUICK_REFERENCE.md "Common Use Cases"
 - "What's the full architecture?" → CODEBASE_SUMMARY.md or QUICK_REFERENCE.md diagram
-

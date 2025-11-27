@@ -1,4 +1,4 @@
-# scripts/setup-envs.sh  
+# scripts/setup-envs.sh
 set -euo pipefail
 
 ROOT="$(pwd)"

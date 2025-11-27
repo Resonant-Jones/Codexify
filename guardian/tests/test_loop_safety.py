@@ -25,7 +25,9 @@ async def test_basic_rate_limit():
         await limiter.acquire()
         timestamps.append(time.time())
 
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
     min_interval = 0.1  # 10 ops/sec = 0.1s between ops
 
     assert all(
@@ -48,7 +50,8 @@ async def test_safe_mode_limit():
             timestamps.append(time.time())
 
         intervals = [
-            timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+            timestamps[i + 1] - timestamps[i]
+            for i in range(len(timestamps) - 1)
         ]
         min_interval = 1.0 / Config.SAFE_MODE_RATE_LIMIT
 
@@ -109,7 +112,9 @@ async def test_concurrent_workers():
     # Verify timing
     results.sort(key=lambda x: x[0])
     timestamps = [r[0] for r in results]
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
     min_interval = 0.05  # 20 ops/sec = 0.05s between ops
 
     assert all(

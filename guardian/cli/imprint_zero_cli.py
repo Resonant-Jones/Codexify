@@ -36,7 +36,10 @@ class ImprintZeroCommand(BaseCommand):
     def register(cls, subparsers: _SubParsersAction) -> None:
         parser = subparsers.add_parser(cls.name(), help=cls.help_text())
         parser.add_argument(
-            "--json-output", "-j", action="store_true", help="Output in JSON format"
+            "--json-output",
+            "-j",
+            action="store_true",
+            help="Output in JSON format",
         )
         parser.set_defaults(func=cls.run)
 
@@ -62,7 +65,9 @@ def dump_imprint_zero_prompt(
         p = Path(dir_path)
         try:
             system_prompt = (p / "imprint_zero_system_prompt.md").read_text()
-            question_scaffold = (p / "imprint_zero_question_scaffold.md").read_text()
+            question_scaffold = (
+                p / "imprint_zero_question_scaffold.md"
+            ).read_text()
         except Exception:
             system_prompt = None
             question_scaffold = None

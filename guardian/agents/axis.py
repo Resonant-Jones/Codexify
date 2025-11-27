@@ -16,7 +16,8 @@ from guardian.self_check import epistemic_self_check
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,9 @@ class AxisAgent:
     Maintains system stability and operational coherence.
     """
 
-    def __init__(self, codex: CodexAwareness, metacognition: MetacognitionEngine):
+    def __init__(
+        self, codex: CodexAwareness, metacognition: MetacognitionEngine
+    ):
         self.codex = codex
         self.metacognition = metacognition
         self.decisions: List[Decision] = []
@@ -102,7 +105,9 @@ class AxisAgent:
             try:
                 actual_decision_type = DecisionType(decision_type)
             except ValueError as e:  # If string is invalid enum member
-                logger.error(f"Invalid decision_type string '{decision_type}': {e}")
+                logger.error(
+                    f"Invalid decision_type string '{decision_type}': {e}"
+                )
                 raise e  # Re-raise to be caught by test's assertRaises
         elif isinstance(decision_type, DecisionType):
             actual_decision_type = decision_type
@@ -195,7 +200,9 @@ class AxisAgent:
         }
 
         # Check context fields
-        if not all(field in context for field in required_fields[decision_type]):
+        if not all(
+            field in context for field in required_fields[decision_type]
+        ):
             return False
 
         # Check options structure
@@ -216,7 +223,9 @@ class AxisAgent:
             if isinstance(value, (str, int, float)):
                 query += f" {key}:{value}"
 
-        results = self.codex.query_memory(query=query, limit=10, min_confidence=0.7)
+        results = self.codex.query_memory(
+            query=query, limit=10, min_confidence=0.7
+        )
 
         return [r.content for r in results]
 
@@ -251,7 +260,9 @@ class AxisAgent:
 
             # Combine scores
             final_score = (
-                base_score * 0.4 + historical_score * 0.3 + stability_score * 0.3
+                base_score * 0.4
+                + historical_score * 0.3
+                + stability_score * 0.3
             )
 
             evaluated_options.append(
@@ -299,7 +310,9 @@ class AxisAgent:
 
         # Calculate success rate
         successes = sum(
-            1 for d in relevant_decisions if d.get("outcome", {}).get("success", False)
+            1
+            for d in relevant_decisions
+            if d.get("outcome", {}).get("success", False)
         )
 
         return successes / len(relevant_decisions)
@@ -324,7 +337,9 @@ class AxisAgent:
 
         return min(1.0, max(0.0, stability_score))
 
-    def _select_option(self, evaluated_options: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _select_option(
+        self, evaluated_options: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         """Select the best option based on evaluation."""
         if not evaluated_options:
             raise ValueError("No options to select from")
@@ -359,7 +374,8 @@ class AxisAgent:
 
         # Update overall system coherence
         self.stability_metrics["system_coherence"] = min(
-            1.0, sum(self.stability_metrics.values()) / len(self.stability_metrics)
+            1.0,
+            sum(self.stability_metrics.values()) / len(self.stability_metrics),
         )
 
     async def record_outcome(
@@ -381,7 +397,9 @@ class AxisAgent:
 
             if not decision_data:
                 # If not found, try query as fallback
-                results = self.codex.query_memory(query=f"id:{decision_id}", limit=1)
+                results = self.codex.query_memory(
+                    query=f"id:{decision_id}", limit=1
+                )
                 if results:
                     decision_data = results[0]
 
@@ -415,7 +433,9 @@ class AxisAgent:
                     confidence=decision_content.get("confidence", 0.5),
                 )
             except Exception as store_error:
-                logger.warning(f"Failed to store decision outcome: {store_error}")
+                logger.warning(
+                    f"Failed to store decision outcome: {store_error}"
+                )
 
             # Update stability metrics based on outcome
             if outcome.get("success", False):
@@ -465,7 +485,10 @@ if __name__ == "__main__":
     async def test_decision():
         result = await axis.make_decision(
             decision_type=DecisionType.ROUTING,
-            context={"destination": "memory_system", "payload": {"type": "test_data"}},
+            context={
+                "destination": "memory_system",
+                "payload": {"type": "test_data"},
+            },
             options=[
                 {"id": "opt1", "value": "direct_route"},
                 {"id": "opt2", "value": "cached_route"},

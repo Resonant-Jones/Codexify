@@ -8,14 +8,17 @@ Self-diagnostic endpoints for quick runtime status checks.
 import json
 import logging
 from pathlib import Path
+
 from fastapi import APIRouter
 
 # Import self-check function
 try:
     from guardian.self_check import epistemic_self_check
 except ImportError:
+
     def epistemic_self_check(*args, **kwargs):
         return {"error": "epistemic_self_check not available"}
+
 
 logger = logging.getLogger(__name__)
 

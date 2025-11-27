@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
 from typing import Any, Dict, List
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from guardian.memoryos.retriever import MemoryOSRetriever
 
@@ -12,12 +13,12 @@ from guardian.memoryos.retriever import MemoryOSRetriever
 class MockVectorStore:
     """Mock vector store for testing."""
 
-    def __init__(self, results: List[Dict[str, Any]] | None = None):
+    def __init__(self, results: list[dict[str, Any]] | None = None):
         """Initialize mock with predefined results."""
         self.results = results or []
-        self.search_calls: List[tuple] = []
+        self.search_calls: list[tuple] = []
 
-    def search(self, query: str, k: int) -> List[Dict[str, Any]]:
+    def search(self, query: str, k: int) -> list[dict[str, Any]]:
         """Mock search that returns predefined results."""
         self.search_calls.append((query, k))
         return self.results[:k]
@@ -26,12 +27,12 @@ class MockVectorStore:
 class AsyncMockVectorStore:
     """Async mock vector store for testing async compatibility."""
 
-    def __init__(self, results: List[Dict[str, Any]] | None = None):
+    def __init__(self, results: list[dict[str, Any]] | None = None):
         """Initialize mock with predefined results."""
         self.results = results or []
-        self.search_calls: List[tuple] = []
+        self.search_calls: list[tuple] = []
 
-    async def search(self, query: str, k: int) -> List[Dict[str, Any]]:
+    async def search(self, query: str, k: int) -> list[dict[str, Any]]:
         """Mock async search that returns predefined results."""
         self.search_calls.append((query, k))
         return self.results[:k]
@@ -44,17 +45,17 @@ def sample_results():
         {
             "text": "Python is a high-level programming language",
             "meta": {"source": "wiki", "page": 1},
-            "score": 0.95
+            "score": 0.95,
         },
         {
             "text": "JavaScript is used for web development",
             "meta": {"source": "docs", "page": 2},
-            "score": 0.87
+            "score": 0.87,
         },
         {
             "text": "Rust is a systems programming language",
             "meta": {"source": "wiki", "page": 3},
-            "score": 0.76
+            "score": 0.76,
         },
     ]
 

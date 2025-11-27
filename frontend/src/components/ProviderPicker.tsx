@@ -57,4 +57,3 @@ export const ProviderPicker: React.FC<Props> = ({ onSelect, value, style }) => {
 };
 
 export default ProviderPicker;
-

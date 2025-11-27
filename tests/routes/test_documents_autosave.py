@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from fastapi import HTTPException
@@ -30,7 +30,9 @@ class TestAutosaveCreation:
     def test_autosave_success(self, mock_emit, mock_uuid, mock_models, mock_db):
         """Test successful autosave creation returns 200 with document_id."""
         # Setup
-        mock_uuid.return_value = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        mock_uuid.return_value = uuid.UUID(
+            "12345678-1234-5678-1234-567812345678"
+        )
         mock_session = MagicMock()
         mock_db.get_session.return_value.__enter__.return_value = mock_session
 
@@ -43,7 +45,9 @@ class TestAutosaveCreation:
 
         # Setup query chain
         mock_chat_thread_query = MagicMock()
-        mock_chat_thread_query.filter_by.return_value.first.return_value = mock_thread
+        mock_chat_thread_query.filter_by.return_value.first.return_value = (
+            mock_thread
+        )
 
         mock_thread_doc_query = MagicMock()
         mock_thread_doc_query.filter_by.return_value.first.return_value = None
@@ -67,12 +71,13 @@ class TestAutosaveCreation:
         documents.configure_db(mock_db)
 
         # Execute
-        from guardian.routes.documents import autosave_document, AutosaveRequest
+        from guardian.routes.documents import AutosaveRequest, autosave_document
 
         request = AutosaveRequest(thread_id=1, content="Session notes content")
 
         # Run async function in sync context
         import asyncio
+
         result = asyncio.run(autosave_document(request))
 
         # Verify
@@ -89,14 +94,16 @@ class TestAutosaveCreation:
             topic="document.autosave",
             payload={
                 "thread_id": 1,
-                "document_id": "12345678-1234-5678-1234-567812345678"
-            }
+                "document_id": "12345678-1234-5678-1234-567812345678",
+            },
         )
 
     @patch("guardian.routes.documents.models")
     @patch("guardian.routes.documents.uuid.uuid4")
     @patch("guardian.routes.documents.event_bus.emit_event")
-    def test_autosave_update_existing(self, mock_emit, mock_uuid, mock_models, mock_db):
+    def test_autosave_update_existing(
+        self, mock_emit, mock_uuid, mock_models, mock_db
+    ):
         """Test autosave updates existing document instead of creating new one."""
         # Setup
         mock_session = MagicMock()
@@ -126,13 +133,19 @@ class TestAutosaveCreation:
 
         # Setup query chains
         mock_chat_thread_query = MagicMock()
-        mock_chat_thread_query.filter_by.return_value.first.return_value = mock_thread
+        mock_chat_thread_query.filter_by.return_value.first.return_value = (
+            mock_thread
+        )
 
         mock_thread_doc_query = MagicMock()
-        mock_thread_doc_query.filter_by.return_value.first.return_value = mock_link
+        mock_thread_doc_query.filter_by.return_value.first.return_value = (
+            mock_link
+        )
 
         mock_gen_doc_query = MagicMock()
-        mock_gen_doc_query.filter_by.return_value.first.return_value = mock_document
+        mock_gen_doc_query.filter_by.return_value.first.return_value = (
+            mock_document
+        )
 
         # Setup model mocks
         mock_models.ChatThread = MagicMock()
@@ -155,11 +168,12 @@ class TestAutosaveCreation:
         documents.configure_db(mock_db)
 
         # Execute
-        from guardian.routes.documents import autosave_document, AutosaveRequest
+        from guardian.routes.documents import AutosaveRequest, autosave_document
 
         request = AutosaveRequest(thread_id=1, content="Updated content")
 
         import asyncio
+
         result = asyncio.run(autosave_document(request))
 
         # Verify
@@ -185,12 +199,13 @@ class TestAutosaveValidation:
         """Test autosave with missing thread_id returns 400."""
         documents.configure_db(mock_db)
 
-        from guardian.routes.documents import autosave_document, AutosaveRequest
+        from guardian.routes.documents import AutosaveRequest, autosave_document
 
         # thread_id=0 should be treated as missing
         request = AutosaveRequest(thread_id=0, content="Some content")
 
         import asyncio
+
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(autosave_document(request))
 
@@ -201,11 +216,12 @@ class TestAutosaveValidation:
         """Test autosave with missing content returns 400."""
         documents.configure_db(mock_db)
 
-        from guardian.routes.documents import autosave_document, AutosaveRequest
+        from guardian.routes.documents import AutosaveRequest, autosave_document
 
         request = AutosaveRequest(thread_id=1, content="")
 
         import asyncio
+
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(autosave_document(request))
 
@@ -216,11 +232,12 @@ class TestAutosaveValidation:
         """Test autosave with whitespace-only content returns 400."""
         documents.configure_db(mock_db)
 
-        from guardian.routes.documents import autosave_document, AutosaveRequest
+        from guardian.routes.documents import AutosaveRequest, autosave_document
 
         request = AutosaveRequest(thread_id=1, content="   \n\t   ")
 
         import asyncio
+
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(autosave_document(request))
 
@@ -244,11 +261,12 @@ class TestAutosaveThreadNotFound:
 
         documents.configure_db(mock_db)
 
-        from guardian.routes.documents import autosave_document, AutosaveRequest
+        from guardian.routes.documents import AutosaveRequest, autosave_document
 
         request = AutosaveRequest(thread_id=999, content="Some content")
 
         import asyncio
+
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(autosave_document(request))
 
@@ -262,10 +280,14 @@ class TestAutosaveEventBus:
     @patch("guardian.routes.documents.models")
     @patch("guardian.routes.documents.uuid.uuid4")
     @patch("guardian.routes.documents.event_bus.emit_event")
-    def test_autosave_emits_event(self, mock_emit, mock_uuid, mock_models, mock_db):
+    def test_autosave_emits_event(
+        self, mock_emit, mock_uuid, mock_models, mock_db
+    ):
         """Test autosave emits document.autosave event."""
         # Setup
-        mock_uuid.return_value = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        mock_uuid.return_value = uuid.UUID(
+            "12345678-1234-5678-1234-567812345678"
+        )
         mock_session = MagicMock()
         mock_db.get_session.return_value.__enter__.return_value = mock_session
 
@@ -277,7 +299,9 @@ class TestAutosaveEventBus:
         mock_thread.project_id = 1
 
         mock_chat_thread_query = MagicMock()
-        mock_chat_thread_query.filter_by.return_value.first.return_value = mock_thread
+        mock_chat_thread_query.filter_by.return_value.first.return_value = (
+            mock_thread
+        )
 
         mock_thread_doc_query = MagicMock()
         mock_thread_doc_query.filter_by.return_value.first.return_value = None
@@ -298,11 +322,12 @@ class TestAutosaveEventBus:
 
         documents.configure_db(mock_db)
 
-        from guardian.routes.documents import autosave_document, AutosaveRequest
+        from guardian.routes.documents import AutosaveRequest, autosave_document
 
         request = AutosaveRequest(thread_id=1, content="Content")
 
         import asyncio
+
         asyncio.run(autosave_document(request))
 
         # Verify event emission
@@ -310,17 +335,21 @@ class TestAutosaveEventBus:
             topic="document.autosave",
             payload={
                 "thread_id": 1,
-                "document_id": "12345678-1234-5678-1234-567812345678"
-            }
+                "document_id": "12345678-1234-5678-1234-567812345678",
+            },
         )
 
     @patch("guardian.routes.documents.models")
     @patch("guardian.routes.documents.uuid.uuid4")
     @patch("guardian.routes.documents.event_bus.emit_event")
-    def test_autosave_continues_on_event_error(self, mock_emit, mock_uuid, mock_models, mock_db):
+    def test_autosave_continues_on_event_error(
+        self, mock_emit, mock_uuid, mock_models, mock_db
+    ):
         """Test autosave succeeds even if event emission fails."""
         # Setup
-        mock_uuid.return_value = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        mock_uuid.return_value = uuid.UUID(
+            "12345678-1234-5678-1234-567812345678"
+        )
         mock_session = MagicMock()
         mock_db.get_session.return_value.__enter__.return_value = mock_session
 
@@ -332,7 +361,9 @@ class TestAutosaveEventBus:
         mock_thread.project_id = 1
 
         mock_chat_thread_query = MagicMock()
-        mock_chat_thread_query.filter_by.return_value.first.return_value = mock_thread
+        mock_chat_thread_query.filter_by.return_value.first.return_value = (
+            mock_thread
+        )
 
         mock_thread_doc_query = MagicMock()
         mock_thread_doc_query.filter_by.return_value.first.return_value = None
@@ -356,11 +387,12 @@ class TestAutosaveEventBus:
 
         documents.configure_db(mock_db)
 
-        from guardian.routes.documents import autosave_document, AutosaveRequest
+        from guardian.routes.documents import AutosaveRequest, autosave_document
 
         request = AutosaveRequest(thread_id=1, content="Content")
 
         import asyncio
+
         result = asyncio.run(autosave_document(request))
 
         # Verify autosave still succeeded
@@ -374,15 +406,18 @@ class TestAutosaveDatabaseErrors:
     def test_autosave_database_error(self, mock_db):
         """Test autosave handles database errors gracefully."""
         # Setup
-        mock_db.get_session.side_effect = Exception("Database connection failed")
+        mock_db.get_session.side_effect = Exception(
+            "Database connection failed"
+        )
 
         documents.configure_db(mock_db)
 
-        from guardian.routes.documents import autosave_document, AutosaveRequest
+        from guardian.routes.documents import AutosaveRequest, autosave_document
 
         request = AutosaveRequest(thread_id=1, content="Content")
 
         import asyncio
+
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(autosave_document(request))
 

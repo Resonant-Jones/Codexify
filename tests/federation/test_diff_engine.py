@@ -7,13 +7,14 @@ Tests cover:
 - Content verification via hashing
 """
 
-import pytest
 from datetime import datetime, timezone
 
+import pytest
+
 from guardian.federation.diff_engine import (
-    DiffEntry,
-    DiffEngine,
     ConflictResolver,
+    DiffEngine,
+    DiffEntry,
 )
 
 
@@ -90,9 +91,7 @@ class TestDiffComputation:
         old = "Line 1\nLine 2\nLine 3\n"
         new = "Line 1\nModified 2\nLine 3\n"
 
-        diff = engine.compute_diff(
-            old, new, "doc-2", "user-1", version=1
-        )
+        diff = engine.compute_diff(old, new, "doc-2", "user-1", version=1)
 
         assert "Modified" in diff.patch or "Line 2" in diff.patch
 
@@ -284,6 +283,7 @@ class TestDiffVerification:
 
         # Compute actual hash
         import hashlib
+
         actual_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         diff.content_hash = actual_hash
 

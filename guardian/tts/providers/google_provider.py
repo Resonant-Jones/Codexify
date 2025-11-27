@@ -125,7 +125,9 @@ class GoogleProvider(TTSProvider):
 
             # Perform synthesis
             response = self.client.synthesize_speech(
-                input=synthesis_input, voice=voice_params, audio_config=audio_config
+                input=synthesis_input,
+                voice=voice_params,
+                audio_config=audio_config,
             )
 
             return response.audio_content
@@ -160,7 +162,9 @@ class GoogleProvider(TTSProvider):
                     return {
                         "name": voice.name,
                         "language_codes": voice.language_codes,
-                        "gender": texttospeech.SsmlVoiceGender(voice.ssml_gender).name,
+                        "gender": texttospeech.SsmlVoiceGender(
+                            voice.ssml_gender
+                        ).name,
                         "natural_sample_rate_hertz": voice.natural_sample_rate_hertz,
                     }
             raise VoiceNotFoundError(f"Voice '{voice_name}' not found")

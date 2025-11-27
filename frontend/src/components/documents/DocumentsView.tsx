@@ -14,9 +14,9 @@ interface DocumentsViewProps {
   defaultBehavior?: "workspace" | "thread";
 }
 
-export default function DocumentsView({ 
-  documents, 
-  extColors, 
+export default function DocumentsView({
+  documents,
+  extColors,
   onDocumentClick,
   onOpenInThread,
   onDeleteDocument,

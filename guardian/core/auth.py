@@ -48,7 +48,7 @@ def _session_secret() -> bytes:
 
 def issue_session_token(
     subject: str = "web", ttl_seconds: int = 24 * 3600
-) -> Tuple[str, int]:
+) -> tuple[str, int]:
     """
     Issue an HMAC-signed opaque session token.
 
@@ -57,13 +57,13 @@ def issue_session_token(
     now = int(time.time())
     exp = now + int(ttl_seconds)
     nonce = secrets.token_urlsafe(10)
-    payload = f"{subject}.{exp}.{nonce}".encode("utf-8")
+    payload = f"{subject}.{exp}.{nonce}".encode()
     sig = hmac.new(_session_secret(), payload, hashlib.sha256).digest()
     packed = base64.urlsafe_b64encode(payload + b"." + sig).decode("ascii")
     return packed, exp
 
 
-def verify_session_token(token: str) -> Tuple[bool, Optional[str]]:
+def verify_session_token(token: str) -> tuple[bool, str | None]:
     """
     Validate an opaque session token issued by `issue_session_token`.
 
@@ -87,10 +87,10 @@ def verify_session_token(token: str) -> Tuple[bool, Optional[str]]:
 
 
 def extract_auth_identity(
-    x_api_key: Optional[str],
-    authorization: Optional[str],
-    gc_session: Optional[str],
-) -> Optional[str]:
+    x_api_key: str | None,
+    authorization: str | None,
+    gc_session: str | None,
+) -> str | None:
     """
     Determine the identity of an authenticated caller.
 
@@ -112,10 +112,12 @@ def extract_auth_identity(
 
 def require_auth(
     request: Request,
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-    gc_session: Optional[str] = Cookie(default=None, alias="gc_session"),
-    x_guardian_key: Optional[str] = Header(default=None, alias="X-Guardian-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    gc_session: str | None = Cookie(default=None, alias="gc_session"),
+    x_guardian_key: str | None = Header(
+        default=None, alias="X-Guardian-Key"
+    ),
 ) -> str:
     """
     FastAPI dependency enforcing that a request is authenticated.

@@ -46,7 +46,9 @@ def ingest_obsidian(dir: str):
             }
         )
     n = store.add_texts(items)
-    typer.echo(json.dumps({"ingested": n, "dir": str(root)}, ensure_ascii=False))
+    typer.echo(
+        json.dumps({"ingested": n, "dir": str(root)}, ensure_ascii=False)
+    )
 
 
 @app.command("ingest-conversations")
@@ -67,7 +69,9 @@ def ingest_conversations(dir: str):
                 meta["path"] = str(p)
                 items.append({"text": text, "meta": meta})
     n = store.add_texts(items)
-    typer.echo(json.dumps({"ingested": n, "dir": str(root)}, ensure_ascii=False))
+    typer.echo(
+        json.dumps({"ingested": n, "dir": str(root)}, ensure_ascii=False)
+    )
 
 
 if __name__ == "__main__":

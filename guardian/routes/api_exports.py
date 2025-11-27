@@ -42,7 +42,9 @@ def export_threads(user: AuthenticatedUser = Depends(require_user)):
             "Active DB backend %s lacks fetch_threads_for_user; cannot export threads",
             type(db),
         )
-        raise HTTPException(status_code=500, detail="Thread export not available")
+        raise HTTPException(
+            status_code=500, detail="Thread export not available"
+        )
 
     def generate() -> Iterable[bytes]:
         try:
@@ -75,5 +77,9 @@ def export_threads(user: AuthenticatedUser = Depends(require_user)):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("Failed to start thread export for user %s: %s", user.id, exc)
-        raise HTTPException(status_code=500, detail="Failed to start export") from exc
+        logger.exception(
+            "Failed to start thread export for user %s: %s", user.id, exc
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to start export"
+        ) from exc

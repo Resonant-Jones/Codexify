@@ -43,7 +43,9 @@ class AsyncDebouncer:
                 future.set_result(None)
         self.pending_futures.clear()
 
-    async def _delayed_execute(self, func: Callable[..., Awaitable[Any]]) -> None:
+    async def _delayed_execute(
+        self, func: Callable[..., Awaitable[Any]]
+    ) -> None:
         """Execute the function after delay."""
         try:
             await asyncio.sleep(self.wait)
@@ -51,7 +53,9 @@ class AsyncDebouncer:
             async with self.lock:
                 if time.time() - self.last_call_time >= self.wait:
                     # Execute function with most recent args
-                    result = await func(*self.current_args, **self.current_kwargs)
+                    result = await func(
+                        *self.current_args, **self.current_kwargs
+                    )
 
                     # Set result for all pending futures
                     if self.current_future and not self.current_future.done():
@@ -87,7 +91,9 @@ class AsyncDebouncer:
             self.pending_futures.append(self.current_future)
 
             # Schedule new execution
-            self.scheduled_task = asyncio.create_task(self._delayed_execute(func))
+            self.scheduled_task = asyncio.create_task(
+                self._delayed_execute(func)
+            )
 
             return await self.current_future
 

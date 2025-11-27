@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from guardian.core import event_bus
-from guardian.federation.graph_model import GraphNode, GraphEdge
+from guardian.federation.graph_model import GraphEdge, GraphNode
 from guardian.federation.graph_store import get_graph_store
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,9 @@ async def _handle_autosave_event(payload: Dict[str, Any]) -> None:
         )
         store.add_edge(author_edge)
 
-        logger.info(f"Updated graph for autosave: thread={thread_id}, doc={document_id}")
+        logger.info(
+            f"Updated graph for autosave: thread={thread_id}, doc={document_id}"
+        )
 
     except Exception as e:
         logger.error(f"Error handling autosave event: {e}", exc_info=True)
@@ -192,7 +194,9 @@ async def _handle_collab_event(payload: Dict[str, Any]) -> None:
             )
             store.add_edge(collab_edge)
 
-        logger.info(f"Updated graph for collab: user={user_id}, doc={document_id}, action={action}")
+        logger.info(
+            f"Updated graph for collab: user={user_id}, doc={document_id}, action={action}"
+        )
 
     except Exception as e:
         logger.error(f"Error handling collab event: {e}", exc_info=True)
@@ -230,7 +234,9 @@ async def _handle_diff_applied_event(payload: Dict[str, Any]) -> None:
                 doc_node.metadata = {}
             doc_node.metadata["latest_version"] = version
             doc_node.metadata["latest_diff_author"] = author
-            doc_node.metadata["last_diff_applied"] = datetime.now(timezone.utc).isoformat()
+            doc_node.metadata["last_diff_applied"] = datetime.now(
+                timezone.utc
+            ).isoformat()
             store.upsert_node(doc_node)
 
             # If author is a node ID, create edge
@@ -259,7 +265,9 @@ async def _handle_diff_applied_event(payload: Dict[str, Any]) -> None:
                 )
                 store.add_edge(diff_edge)
 
-        logger.info(f"Updated graph for diff: doc={doc_id}, version={version}, author={author}")
+        logger.info(
+            f"Updated graph for diff: doc={doc_id}, version={version}, author={author}"
+        )
 
     except Exception as e:
         logger.error(f"Error handling diff applied event: {e}", exc_info=True)
@@ -315,7 +323,11 @@ async def _handle_session_accepted_event(payload: Dict[str, Any]) -> None:
         )
         store.add_edge(fed_edge)
 
-        logger.info(f"Updated graph for federation: {source_node_id} -> {target_node_id}")
+        logger.info(
+            f"Updated graph for federation: {source_node_id} -> {target_node_id}"
+        )
 
     except Exception as e:
-        logger.error(f"Error handling session accepted event: {e}", exc_info=True)
+        logger.error(
+            f"Error handling session accepted event: {e}", exc_info=True
+        )

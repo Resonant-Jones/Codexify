@@ -11,7 +11,9 @@ from guardian.export_engine import (
 app = FastAPI(title="Codexify API", version="0.1")
 
 # Re-export into module namespace for tests to monkeypatch easily
-create_notion_database_from_records = codexify_mod.create_notion_database_from_records
+create_notion_database_from_records = (
+    codexify_mod.create_notion_database_from_records
+)
 
 
 class GDriveExportRequest(BaseModel):
@@ -41,7 +43,9 @@ class NotionImportRequest(BaseModel):
 @app.post("/guardian/export-gdrive")
 def export_gdrive(req: GDriveExportRequest):
     try:
-        result = export_to_gdrive(req.records, format=req.format, folder_id=req.folder)
+        result = export_to_gdrive(
+            req.records, format=req.format, folder_id=req.folder
+        )
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

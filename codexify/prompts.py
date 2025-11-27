@@ -55,7 +55,11 @@ def _imprint_zero_style_block(imprint: Optional[Dict[str, Any]]) -> str:
     if not parts:
         return ""
 
-    return "User-style guidance (from Imprint_Zero):\n" + "\n".join(f"- {p}" for p in parts) + "\n"
+    return (
+        "User-style guidance (from Imprint_Zero):\n"
+        + "\n".join(f"- {p}" for p in parts)
+        + "\n"
+    )
 
 
 def _user_persona_block(instructions: Optional[str]) -> str:
@@ -99,7 +103,9 @@ def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
         return ""
     hints = []
     if bundle.get("semantic"):
-        hints.append("You may have semantic search context relevant to the query.")
+        hints.append(
+            "You may have semantic search context relevant to the query."
+        )
     if bundle.get("memory"):
         hints.append("You may have memory search results for this user.")
     if bundle.get("graph"):

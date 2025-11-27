@@ -20,7 +20,10 @@ def test_paths_and_secret_context():
     )
     assert "token.json (hidden)" in out
     assert "client_secret (hidden)" in out
-    assert "API secret (hidden) is adjacent" in out or "API secret (hidden) near" in out
+    assert (
+        "API secret (hidden) is adjacent" in out
+        or "API secret (hidden) near" in out
+    )
 
 
 def test_windows_and_mixed_case_paths():
@@ -43,7 +46,9 @@ def test_plain_secret_word_not_masked_without_context():
 
 def test_no_leak_of_original_paths():
     # Directory parts should be stripped; only basename should be shown with (hidden)
-    msg = "paths: /very/secret/path/token.json and /x/y/client_secret_oauth.json"
+    msg = (
+        "paths: /very/secret/path/token.json and /x/y/client_secret_oauth.json"
+    )
     out = fmt(msg)
     assert "/very/secret/path/token.json" not in out
     assert "/x/y/client_secret_oauth.json" not in out
@@ -54,6 +59,9 @@ def test_no_leak_of_original_paths():
 def test_adjacent_secret_word_gets_masked_when_near_credentials():
     # When the word 'secret' is adjacent to credentials-like terms, it should be masked
     out = fmt("API secret near credentials and client_secret plus token.pickle")
-    assert "API secret (hidden) near" in out or "API secret (hidden) is adjacent" in out
+    assert (
+        "API secret (hidden) near" in out
+        or "API secret (hidden) is adjacent" in out
+    )
     assert "client_secret (hidden)" in out
     assert "token.pickle (hidden)" in out

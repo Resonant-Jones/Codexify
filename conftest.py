@@ -2,13 +2,14 @@
 Test bootstrap: seed env and harmonize imports.
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Ensure legacy `memoryos.*` imports resolve to in-repo `guardian.memoryos.*`
 try:
     import guardian.memoryos as _gm
+
     sys.modules.setdefault("memoryos", _gm)
 except Exception:
     pass
@@ -46,7 +47,9 @@ class _MaskSecrets(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         msg = str(record.getMessage())
         # Replace long token-like strings; keep messages readable
-        record.msg = msg.replace(os.environ.get("OPENAI_API_KEY", "dummy"), "***")
+        record.msg = msg.replace(
+            os.environ.get("OPENAI_API_KEY", "dummy"), "***"
+        )
         for k in (
             "GENAI_API_KEY",
             "NOTION_API_KEY",

@@ -26,10 +26,12 @@ class TestImprintZero(unittest.TestCase):
 
             # Assert that the fallback prompts are used
             self.assertEqual(
-                imprint.system_prompt, "You are a friendly onboarding assistant."
+                imprint.system_prompt,
+                "You are a friendly onboarding assistant.",
             )
             self.assertEqual(
-                imprint.question_scaffold, "Please tell me a little about yourself."
+                imprint.question_scaffold,
+                "Please tell me a little about yourself.",
             )
 
     @patch("guardian.imprint_zero.settings")
@@ -57,7 +59,9 @@ class TestImprintZero(unittest.TestCase):
         with patch("builtins.open", mock_file_open):
             imprint = ImprintZero()
             self.assertEqual(imprint.system_prompt, "Test System Prompt")
-            self.assertEqual(imprint.question_scaffold, "Test Question Scaffold")
+            self.assertEqual(
+                imprint.question_scaffold, "Test Question Scaffold"
+            )
 
     @patch("guardian.imprint_zero.settings")
     @patch("guardian.imprint_zero.get_memoryos_instance")
@@ -72,7 +76,9 @@ class TestImprintZero(unittest.TestCase):
 
         # Setup mock MemoryOS client
         mock_llm_client = MagicMock()
-        mock_llm_client.chat_completion.return_value = "This is the AI response."
+        mock_llm_client.chat_completion.return_value = (
+            "This is the AI response."
+        )
         mock_memoryos = MagicMock()
         mock_memoryos.client = mock_llm_client
         mock_get_memoryos.return_value = mock_memoryos
@@ -85,7 +91,9 @@ class TestImprintZero(unittest.TestCase):
 
         # Run the async generator
         async def run_test():
-            response_generator = imprint.process_onboarding_message(1, user_message)
+            response_generator = imprint.process_onboarding_message(
+                1, user_message
+            )
             response_json = await anext(response_generator)
             return json.loads(response_json)
 

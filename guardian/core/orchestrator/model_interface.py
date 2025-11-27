@@ -36,8 +36,10 @@ class GemmaOllamaAdapter(ModelInterface):
         full_prompt = f"{system_prompt.strip()}\n\n{prompt.strip()}".strip()
         command = ["ollama", "run", self.model_name, full_prompt]
 
-        logger.info(f"Generating with model '{self.model_name}' using prompt: {prompt}")
-        result = run(command, stdout=PIPE, stderr=PIPE, text=True)
+        logger.info(
+            f"Generating with model '{self.model_name}' using prompt: {prompt}"
+        )
+        result = run(command, capture_output=True, text=True)
         return result.stdout.strip()
 
 

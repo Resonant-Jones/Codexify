@@ -41,4 +41,3 @@ export function usePreferredProvider() {
 
   return { provider, setProvider };
 }
-

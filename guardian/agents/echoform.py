@@ -15,7 +15,8 @@ from guardian.metacognition import MetacognitionEngine
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,9 @@ class EchoformAgent:
     Maintains system resonance and handles state transitions.
     """
 
-    def __init__(self, codex: CodexAwareness, metacognition: MetacognitionEngine):
+    def __init__(
+        self, codex: CodexAwareness, metacognition: MetacognitionEngine
+    ):
         self.codex = codex
         self.metacognition = metacognition
         self.current_resonance = ResonanceState.HARMONIC
@@ -86,7 +89,9 @@ class EchoformAgent:
         self.resonance_history: List[Tuple[datetime, ResonanceState]] = []
         self.transition_patterns: Dict[str, List[Dict[str, Any]]] = {}
 
-    async def assess_resonance(self, system_state: Dict[str, Any]) -> Dict[str, Any]:
+    async def assess_resonance(
+        self, system_state: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Assess current system resonance state.
 
@@ -101,7 +106,9 @@ class EchoformAgent:
             metrics_analysis = self._analyze_metrics(system_state)
 
             # Check for patterns
-            pattern_analysis = self._analyze_patterns(metrics_analysis, system_state)
+            pattern_analysis = self._analyze_patterns(
+                metrics_analysis, system_state
+            )
 
             # Determine resonance state
             new_resonance = self._determine_resonance(
@@ -132,7 +139,9 @@ class EchoformAgent:
                 "current_resonance": self.current_resonance.value,
             }
 
-    def _analyze_metrics(self, system_state: Dict[str, Any]) -> Dict[str, float]:
+    def _analyze_metrics(
+        self, system_state: Dict[str, Any]
+    ) -> Dict[str, float]:
         """Analyze system metrics for resonance assessment."""
         logger.info(
             logger.debug(
@@ -150,12 +159,16 @@ class EchoformAgent:
                 )
             else:
                 logger.warning(
-                    logger.debug("resources in system_state is not a dict: {resources}")
+                    logger.debug(
+                        "resources in system_state is not a dict: {resources}"
+                    )
                 )  # DEBUG
                 metrics["resource_balance"] = 0.0
         else:
             logger.info(
-                logger.debug("resources key not in system_state for _analyze_metrics")
+                logger.debug(
+                    "resources key not in system_state for _analyze_metrics"
+                )
             )  # DEBUG
             metrics["resource_balance"] = 0.0
 
@@ -163,9 +176,9 @@ class EchoformAgent:
         if "performance" in system_state:
             performance = system_state["performance"]
             if isinstance(performance, dict):  # DEBUG Check
-                metrics["performance_score"] = self._calculate_performance_score(
-                    performance
-                )
+                metrics[
+                    "performance_score"
+                ] = self._calculate_performance_score(performance)
             else:
                 logger.warning(
                     logger.debug(
@@ -188,14 +201,18 @@ class EchoformAgent:
                 metrics["error_rate"] = self._calculate_error_rate(errors)
             else:
                 logger.warning(
-                    logger.debug(f"'errors' in system_state is not a dict: {errors}")
+                    logger.debug(
+                        f"'errors' in system_state is not a dict: {errors}"
+                    )
                 )  # DEBUG
-                metrics["error_rate"] = (
-                    0.0  # Default to a safe value (1.0 implies no errors, 0.0 implies all errors)
-                )
+                metrics[
+                    "error_rate"
+                ] = 0.0  # Default to a safe value (1.0 implies no errors, 0.0 implies all errors)
         else:
             logger.info(
-                logger.debug("'errors' key not in system_state for _analyze_metrics")
+                logger.debug(
+                    "'errors' key not in system_state for _analyze_metrics"
+                )
             )  # DEBUG
             metrics["error_rate"] = 1.0  # Assume no errors if not provided
 
@@ -203,7 +220,9 @@ class EchoformAgent:
         if "coherence" in system_state:
             coherence = system_state["coherence"]
             if isinstance(coherence, dict):  # DEBUG Check
-                metrics["coherence_score"] = self._calculate_coherence_score(coherence)
+                metrics["coherence_score"] = self._calculate_coherence_score(
+                    coherence
+                )
             else:
                 logger.warning(
                     logger.debug(
@@ -213,7 +232,9 @@ class EchoformAgent:
                 metrics["coherence_score"] = 0.0
         else:
             logger.info(
-                logger.debug("'coherence' key not in system_state for _analyze_metrics")
+                logger.debug(
+                    "'coherence' key not in system_state for _analyze_metrics"
+                )
             )  # DEBUG
             metrics["coherence_score"] = 0.0
 
@@ -241,7 +262,9 @@ class EchoformAgent:
             else 0.0
         )
 
-    def _calculate_performance_score(self, performance: Dict[str, Any]) -> float:
+    def _calculate_performance_score(
+        self, performance: Dict[str, Any]
+    ) -> float:
         """Calculate performance score."""
         if not performance:
             return 0.0
@@ -314,9 +337,9 @@ class EchoformAgent:
             ]
 
             if history:
-                avg_value = sum(getattr(state, metric, 0.0) for state in history) / len(
-                    history
-                )
+                avg_value = sum(
+                    getattr(state, metric, 0.0) for state in history
+                ) / len(history)
                 trend = value - avg_value
                 trends[metric] = {
                     "direction": "up" if trend > 0 else "down",
@@ -349,7 +372,9 @@ class EchoformAgent:
             "frequency": self._calculate_frequency(load_data),
         }
 
-    def _detect_resource_cycles(self, resource_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _detect_resource_cycles(
+        self, resource_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Detect resource usage cycles."""
         cycles = {}
 
@@ -375,7 +400,9 @@ class EchoformAgent:
         pattern_length = len(history) // 2
         return self._has_repeating_pattern(history, pattern_length)
 
-    def _has_repeating_pattern(self, data: List[Any], pattern_length: int) -> bool:
+    def _has_repeating_pattern(
+        self, data: List[Any], pattern_length: int
+    ) -> bool:
         """Check for repeating patterns in data."""
         if len(data) < pattern_length * 2:
             return False
@@ -385,7 +412,9 @@ class EchoformAgent:
 
         # Compare sections with tolerance
         tolerance = 0.1
-        return all(abs(a - b) <= tolerance for a, b in zip(pattern, next_section))
+        return all(
+            abs(a - b) <= tolerance for a, b in zip(pattern, next_section)
+        )
 
     def _calculate_frequency(self, data: Dict[str, Any]) -> Optional[float]:
         """Calculate frequency of cyclic behavior."""
@@ -399,7 +428,9 @@ class EchoformAgent:
             return None
 
         # Calculate average time between peaks
-        peak_intervals = [peaks[i + 1] - peaks[i] for i in range(len(peaks) - 1)]
+        peak_intervals = [
+            peaks[i + 1] - peaks[i] for i in range(len(peaks) - 1)
+        ]
 
         return 1.0 / (sum(peak_intervals) / len(peak_intervals))
 
@@ -475,7 +506,9 @@ class EchoformAgent:
         # Normalize to 0-1 range
         return min(deviations / 4.0, 1.0)
 
-    def _check_state_anomalies(self, system_state: Dict[str, Any]) -> Dict[str, Any]:
+    def _check_state_anomalies(
+        self, system_state: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Check for anomalies in system state."""
         anomalies = {}
 
@@ -483,7 +516,10 @@ class EchoformAgent:
         if "components" in system_state:
             for comp, state in system_state["components"].items():
                 if state.get("status") == "error":
-                    anomalies[f"component_{comp}"] = {"type": "error", "severity": 1.0}
+                    anomalies[f"component_{comp}"] = {
+                        "type": "error",
+                        "severity": 1.0,
+                    }
 
         # Check resource states
         if "resources" in system_state:

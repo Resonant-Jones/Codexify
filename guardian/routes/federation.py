@@ -7,16 +7,28 @@ establishment between federated Codexify nodes.
 import logging
 import os
 import secrets
-from typing import Any, Dict, Optional, List
 from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 import jwt
 import requests
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from pydantic import BaseModel, Field
 
 from guardian.core import event_bus
+from guardian.federation.diff_engine import DiffEngine, DiffEntry
+from guardian.federation.diff_store import get_diff_store
+from guardian.federation.graph_model import GraphEdge, GraphNode, GraphSnapshot
+from guardian.federation.graph_store import get_graph_store
+from guardian.federation.manager import manager
 from guardian.federation.manifest import (
     NodeManifest,
     generate_keypair,
@@ -24,11 +36,6 @@ from guardian.federation.manifest import (
     sign_manifest,
     verify_manifest,
 )
-from guardian.federation.manager import manager
-from guardian.federation.diff_engine import DiffEntry, DiffEngine
-from guardian.federation.diff_store import get_diff_store
-from guardian.federation.graph_model import GraphNode, GraphEdge, GraphSnapshot
-from guardian.federation.graph_store import get_graph_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/federation", tags=["federation"])
@@ -80,14 +87,19 @@ def configure_federation(
 def _get_config() -> tuple[str, str, str, str]:
     """Get federation configuration, raising if not configured."""
     if not all([_node_id, _private_key, _public_key, _relay_endpoint]):
-        raise RuntimeError("Federation not configured. Call configure_federation() first.")
+        raise RuntimeError(
+            "Federation not configured. Call configure_federation() first."
+        )
     return _node_id, _private_key, _public_key, _relay_endpoint
 
 
 class SessionRequestBody(BaseModel):
     """Body for federation session request."""
 
-    target_node_url: str = Field(..., description="Full URL of target node (e.g., https://peer.codexify.io)")
+    target_node_url: str = Field(
+        ...,
+        description="Full URL of target node (e.g., https://peer.codexify.io)",
+    )
     document_id: str = Field(..., description="Document ID to collaborate on")
     user_id: str = Field(..., description="User requesting the session")
     thread_id: Optional[str] = Field(None, description="Optional thread ID")
@@ -97,7 +109,9 @@ class SessionResponse(BaseModel):
     """Response for successful session establishment."""
 
     relay_id: str = Field(..., description="ID for this relay session")
-    relay_url: str = Field(..., description="WebSocket URL for relay connection")
+    relay_url: str = Field(
+        ..., description="WebSocket URL for relay connection"
+    )
     token: str = Field(..., description="JWT token for relay authentication")
     expires_in: int = Field(..., description="Token expiration time in seconds")
 
@@ -174,19 +188,27 @@ async def request_session(body: SessionRequestBody) -> Dict[str, Any]:
         target_manifest = NodeManifest(**manifest_data)
     except requests.RequestException as e:
         logger.error(f"Failed to fetch target manifest: {e}")
-        raise HTTPException(status_code=502, detail="Failed to fetch peer manifest")
+        raise HTTPException(
+            status_code=502, detail="Failed to fetch peer manifest"
+        )
 
     # Verify target manifest signature
     if not verify_manifest(target_manifest):
-        logger.error(f"Invalid signature on manifest from {body.target_node_url}")
-        raise HTTPException(status_code=400, detail="Invalid peer manifest signature")
+        logger.error(
+            f"Invalid signature on manifest from {body.target_node_url}"
+        )
+        raise HTTPException(
+            status_code=400, detail="Invalid peer manifest signature"
+        )
 
     # Cache the peer manifest
     manager.cache_peer_manifest(target_manifest)
 
     # Check if target supports collab capability
     if "collab" not in target_manifest.capabilities:
-        raise HTTPException(status_code=400, detail="Target node does not support collaboration")
+        raise HTTPException(
+            status_code=400, detail="Target node does not support collaboration"
+        )
 
     # Generate relay session ID
     relay_id = f"relay-{secrets.token_hex(8)}"
@@ -268,7 +290,9 @@ async def accept_session(
 
     source_node_id = payload.get("source_node_id")
     if not source_node_id:
-        raise HTTPException(status_code=400, detail="Missing source_node_id in token")
+        raise HTTPException(
+            status_code=400, detail="Missing source_node_id in token"
+        )
 
     # Get source node's manifest from cache or reject
     source_manifest = manager.get_peer_manifest(source_node_id)
@@ -330,12 +354,16 @@ async def ws_federation_relay(
     """
     relay = manager.get_relay_session(relay_id)
     if not relay:
-        await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid relay_id")
+        await ws.close(
+            code=status.WS_1008_POLICY_VIOLATION, reason="Invalid relay_id"
+        )
         return
 
     # Validate token matches relay
     if token != relay.token:
-        await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+        await ws.close(
+            code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token"
+        )
         return
 
     try:
@@ -343,20 +371,31 @@ async def ws_federation_relay(
 
         # Determine if this is source or target connection
         is_source = await ws.receive_json()
-        connection_type = is_source.get("connection_type")  # "source" or "target"
+        connection_type = is_source.get(
+            "connection_type"
+        )  # "source" or "target"
 
         if connection_type == "source":
             if not manager.connect_relay_source(relay_id, ws):
-                await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="Failed to connect source")
+                await ws.close(
+                    code=status.WS_1008_POLICY_VIOLATION,
+                    reason="Failed to connect source",
+                )
                 return
             logger.info(f"Source connected to relay {relay_id}")
         elif connection_type == "target":
             if not manager.connect_relay_target(relay_id, ws):
-                await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="Failed to connect target")
+                await ws.close(
+                    code=status.WS_1008_POLICY_VIOLATION,
+                    reason="Failed to connect target",
+                )
                 return
             logger.info(f"Target connected to relay {relay_id}")
         else:
-            await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid connection_type")
+            await ws.close(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason="Invalid connection_type",
+            )
             return
 
         # Forward messages between source and target
@@ -374,13 +413,19 @@ async def ws_federation_relay(
                     relay.active_users.discard(user_id)
 
             # Forward to other side
-            other_ws = relay.target_ws if connection_type == "source" else relay.source_ws
+            other_ws = (
+                relay.target_ws
+                if connection_type == "source"
+                else relay.source_ws
+            )
 
             if other_ws and other_ws.client_state.name == "CONNECTED":
                 try:
                     await other_ws.send_json(message)
                 except Exception as e:
-                    logger.error(f"Failed to forward message in relay {relay_id}: {e}")
+                    logger.error(
+                        f"Failed to forward message in relay {relay_id}: {e}"
+                    )
                     break
 
             # Emit event for relay traffic
@@ -417,9 +462,13 @@ class DiffPushRequest(BaseModel):
     version: int = Field(..., description="Version number for this diff")
     patch: str = Field(..., description="Unified diff format patch")
     author: str = Field(..., description="Author/node that created diff")
-    content_hash: Optional[str] = Field(None, description="Hash of resulting content")
+    content_hash: Optional[str] = Field(
+        None, description="Hash of resulting content"
+    )
     base_version: int = Field(0, description="Version this was created from")
-    signature: Optional[str] = Field(None, description="Optional signature from source node")
+    signature: Optional[str] = Field(
+        None, description="Optional signature from source node"
+    )
 
 
 class DiffListResponse(BaseModel):
@@ -482,12 +531,16 @@ async def push_diff(body: DiffPushRequest) -> Dict[str, Any]:
             new_content = engine.apply_diff(current_content, diff)
         except ValueError as e:
             logger.error(f"Failed to apply diff: {e}")
-            raise HTTPException(status_code=400, detail=f"Cannot apply diff: {e}")
+            raise HTTPException(
+                status_code=400, detail=f"Cannot apply diff: {e}"
+            )
 
         # Verify content hash if provided
         if diff.content_hash:
             if not engine.verify_diff(diff, new_content):
-                logger.warning(f"Content hash mismatch for {body.doc_id} v{body.version}")
+                logger.warning(
+                    f"Content hash mismatch for {body.doc_id} v{body.version}"
+                )
                 # Log but continue - might be acceptable in some scenarios
 
         # Record the diff
@@ -515,7 +568,9 @@ async def push_diff(body: DiffPushRequest) -> Dict[str, Any]:
             },
         )
 
-        logger.info(f"Applied diff {body.doc_id} v{body.version} by {body.author}")
+        logger.info(
+            f"Applied diff {body.doc_id} v{body.version} by {body.author}"
+        )
 
         return {
             "status": "applied",
@@ -587,16 +642,26 @@ async def pull_diffs(
 class GraphUpdateRequest(BaseModel):
     """Request body for pushing graph updates from a peer node."""
 
-    nodes: List[Dict[str, Any]] = Field(default_factory=list, description="List of nodes to upsert")
-    edges: List[Dict[str, Any]] = Field(default_factory=list, description="List of edges to add/update")
-    signature: Optional[str] = Field(None, description="Optional signature from source node")
+    nodes: List[Dict[str, Any]] = Field(
+        default_factory=list, description="List of nodes to upsert"
+    )
+    edges: List[Dict[str, Any]] = Field(
+        default_factory=list, description="List of edges to add/update"
+    )
+    signature: Optional[str] = Field(
+        None, description="Optional signature from source node"
+    )
 
 
 class GraphSnapshotResponse(BaseModel):
     """Response containing graph snapshot."""
 
-    nodes: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Map of node_id to node data")
-    edges: List[Dict[str, Any]] = Field(default_factory=list, description="List of edges")
+    nodes: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict, description="Map of node_id to node data"
+    )
+    edges: List[Dict[str, Any]] = Field(
+        default_factory=list, description="List of edges"
+    )
     timestamp: str = Field(..., description="Snapshot timestamp in ISO format")
 
 

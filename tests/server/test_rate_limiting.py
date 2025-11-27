@@ -9,6 +9,7 @@ These tests validate that:
 """
 
 import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -18,6 +19,7 @@ def test_client():
     """Create a test client for the Guardian API."""
     # Import here to allow environment variable mocking in tests
     from guardian.server.app import app
+
     return TestClient(app)
 
 
@@ -89,13 +91,16 @@ def test_cors_headers_present(test_client):
         "/healthz",
         headers={
             "Origin": "http://localhost:5173",
-            "Access-Control-Request-Method": "GET"
-        }
+            "Access-Control-Request-Method": "GET",
+        },
     )
 
     # CORS headers should be present
     headers_lower = {k.lower(): v for k, v in response.headers.items()}
-    assert "access-control-allow-origin" in headers_lower or response.status_code in [200, 405]
+    assert (
+        "access-control-allow-origin" in headers_lower
+        or response.status_code in [200, 405]
+    )
 
 
 def test_cors_and_security_headers_compatible(test_client):
@@ -109,7 +114,10 @@ def test_cors_and_security_headers_compatible(test_client):
     assert response.status_code == 200
 
     # Validate no conflicting header values
-    if "access-control-allow-origin" in headers_lower and "x-frame-options" in headers_lower:
+    if (
+        "access-control-allow-origin" in headers_lower
+        and "x-frame-options" in headers_lower
+    ):
         # Both should be present without causing errors
         assert True
 
@@ -141,22 +149,26 @@ def test_root_endpoint_returns_routes(test_client):
 
 
 @pytest.mark.skipif(
-    os.getenv("GUARDIAN_ENABLE_RATE_LIMITING", "1").lower() not in ("1", "true", "yes", "on"),
-    reason="Rate limiting is disabled"
+    os.getenv("GUARDIAN_ENABLE_RATE_LIMITING", "1").lower()
+    not in ("1", "true", "yes", "on"),
+    reason="Rate limiting is disabled",
 )
 def test_rate_limiting_is_enabled():
     """Test that rate limiting is enabled in the current configuration."""
     from guardian.server.app import _enable_rate_limiting
+
     assert _enable_rate_limiting is True
 
 
 @pytest.mark.skipif(
-    os.getenv("GUARDIAN_ENABLE_SECURITY_HEADERS", "1").lower() not in ("1", "true", "yes", "on"),
-    reason="Security headers are disabled"
+    os.getenv("GUARDIAN_ENABLE_SECURITY_HEADERS", "1").lower()
+    not in ("1", "true", "yes", "on"),
+    reason="Security headers are disabled",
 )
 def test_security_headers_are_enabled():
     """Test that security headers are enabled in the current configuration."""
     from guardian.server.app import _enable_security_headers
+
     assert _enable_security_headers is True
 
 

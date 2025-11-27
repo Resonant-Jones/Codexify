@@ -6,7 +6,7 @@ Implements exponential decay to prevent stale trust drift.
 
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
 
 from guardian.core import event_bus
 from guardian.federation.trust_registry import get_trust_registry
@@ -80,7 +80,9 @@ class TrustEngine:
         finally:
             event_bus.unsubscribe_in_memory(queue)
 
-    async def _handle_trust_event(self, topic: str, payload: Dict[str, Any]) -> None:
+    async def _handle_trust_event(
+        self, topic: str, payload: Dict[str, Any]
+    ) -> None:
         """Handle a trust-related event.
 
         Args:
@@ -92,7 +94,11 @@ class TrustEngine:
             return
 
         # Extract node_id from payload
-        node_id = payload.get("source_node_id") or payload.get("target_node_id") or payload.get("author")
+        node_id = (
+            payload.get("source_node_id")
+            or payload.get("target_node_id")
+            or payload.get("author")
+        )
 
         if not node_id:
             logger.warning(f"Could not extract node_id from {topic} event")
@@ -102,7 +108,9 @@ class TrustEngine:
             self.registry.update_metric(node_id, metric, delta)
             trust_score = self.registry.compute_trust_score(node_id)
 
-            logger.debug(f"Updated trust for {node_id}: {metric} += {delta} (score: {trust_score:.2f})")
+            logger.debug(
+                f"Updated trust for {node_id}: {metric} += {delta} (score: {trust_score:.2f})"
+            )
 
             # Emit trust update event
             event_bus.emit_event(

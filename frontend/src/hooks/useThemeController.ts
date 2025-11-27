@@ -101,4 +101,3 @@ export function useThemeController() {
 
   return { mode, setMode, resolved, setSessionOverride: writeSessionOverride } as const;
 }
-

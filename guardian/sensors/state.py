@@ -30,7 +30,7 @@ class Sensors:
         except Exception:
             return 0.0
 
-    def _connectors(self) -> List[str]:
+    def _connectors(self) -> list[str]:
         try:
             if self.chatlog is None:
                 return []
@@ -52,7 +52,7 @@ class Sensors:
         except Exception:
             return 0
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         try:
             threads_open = threading.active_count()
         except Exception:
@@ -66,4 +66,3 @@ class Sensors:
             "collab_active_sessions": self._collab_active_sessions(),
             "last_event": None,
         }
-

@@ -116,7 +116,9 @@ async def test_concurrent_rate_limiting():
 
     # Order should be preserved
     original_order = [r[0] for r in results]
-    assert original_order == list(range(10)), "Results should maintain original order"
+    assert original_order == list(
+        range(10)
+    ), "Results should maintain original order"
 
 
 @pytest.mark.asyncio

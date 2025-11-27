@@ -6,7 +6,16 @@ import logging
 import os
 from typing import Any, Mapping, Sequence
 
-from sqlalchemy import Column, Index, MetaData, String, Table, create_engine, select, text
+from sqlalchemy import (
+    Column,
+    Index,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
@@ -44,7 +53,9 @@ class PGVectorStore(VectorStore):
                 "DATABASE_URL is required when using the pgvector vector store."
             )
 
-        self._engine: Engine = engine or create_engine(self._database_url, future=True)
+        self._engine: Engine = engine or create_engine(
+            self._database_url, future=True
+        )
         self._metadata = MetaData(schema=schema)
         self._table = Table(
             table_name,
@@ -95,9 +106,9 @@ class PGVectorStore(VectorStore):
         top_k: int,
         namespace: str | None = None,
     ) -> list[dict[str, Any]]:
-        distance_expr = CosineDistance(self._table.c.vector, list(embedding)).label(
-            "distance"
-        )
+        distance_expr = CosineDistance(
+            self._table.c.vector, list(embedding)
+        ).label("distance")
 
         stmt = (
             select(
@@ -156,14 +167,18 @@ class PGVectorStore(VectorStore):
                 try:
                     conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
                 except SQLAlchemyError as exc:
-                    logger.debug("Skipping pgvector extension creation: %s", exc)
+                    logger.debug(
+                        "Skipping pgvector extension creation: %s", exc
+                    )
                 self._metadata.create_all(conn)
         except SQLAlchemyError as exc:  # pragma: no cover - defensive
             raise RuntimeError("Failed to initialise pgvector table") from exc
 
 
 def _namespace_from_metadata(metadata: Mapping[str, Any]) -> str:
-    namespace = metadata.get("namespace") if isinstance(metadata, Mapping) else None
+    namespace = (
+        metadata.get("namespace") if isinstance(metadata, Mapping) else None
+    )
     if isinstance(namespace, str) and namespace.strip():
         return namespace.strip()
     return DEFAULT_NAMESPACE

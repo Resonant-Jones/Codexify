@@ -12,7 +12,8 @@ from typing import Any, Dict, Optional
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,11 @@ class SystemConfig:
             "optional": ["Echoform"],
             "startup_timeout": 30,  # seconds
         },
-        "plugins": {"auto_discover": True, "allow_remote": False, "max_retries": 3},
+        "plugins": {
+            "auto_discover": True,
+            "allow_remote": False,
+            "max_retries": 3,
+        },
         "security": {
             "require_authentication": True,
             "token_expiry": 3600,  # seconds
@@ -80,10 +85,12 @@ class SystemConfig:
         """Load configuration from file if it exists."""
         try:
             if self.config_path.exists():
-                with open(self.config_path, "r") as f:
+                with open(self.config_path) as f:
                     custom_config = json.load(f)
                     self._update_recursive(self.config, custom_config)
-                logger.info(f"Loaded custom configuration from {self.config_path}")
+                logger.info(
+                    f"Loaded custom configuration from {self.config_path}"
+                )
         except Exception as e:
             logger.error(f"Failed to load custom configuration: {e}")
 
@@ -196,7 +203,9 @@ class SystemConfig:
             # Check required paths
             for dir_name, dir_path in self.config["paths"].items():
                 if dir_name != "base_dir":
-                    full_path = Path(self.config["paths"]["base_dir"]) / dir_path
+                    full_path = (
+                        Path(self.config["paths"]["base_dir"]) / dir_path
+                    )
                     if not full_path.exists():
                         logger.error(f"Required directory missing: {full_path}")
                         return False

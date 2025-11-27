@@ -3,7 +3,7 @@
 A gated, dev-only playground for auditioning radius, glass, shadows, and tile layouts.
 Lives at the route **`/dev/tune`** and **does not** affect production unless you enable it.
 
-- **Folder (repo path):** `src/dev/ui-tune/`  
+- **Folder (repo path):** `src/dev/ui-tune/`
   (Shorthand in convo: `dev/ui-tune`)
 - **Entry docs:** this README.
 
@@ -62,8 +62,8 @@ The rack “listens” to your AppShell tokens so tests feel realistic:
 
 ## Promote a winning look
 
-1) In the sandbox, tweak variables until it sings.  
-2) Copy the **numbers only** into AppShell tokens (e.g., set `--radius-tile: 19px`, `--card-radius: var(--radius-tile)`).  
+1) In the sandbox, tweak variables until it sings.
+2) Copy the **numbers only** into AppShell tokens (e.g., set `--radius-tile: 19px`, `--card-radius: var(--radius-tile)`).
 3) Commit. The rack is for experiments; **AppShell** is the source of truth.
 
 ## Optional scripts
@@ -80,6 +80,6 @@ The rack “listens” to your AppShell tokens so tests feel realistic:
 
 ## Audit checklist
 
-- All rounded layers report the **same** computed `border-radius` (no corner ghosts).  
-- Hover shadows don’t reveal squared edges at 200–300% zoom.  
+- All rounded layers report the **same** computed `border-radius` (no corner ghosts).
+- Hover shadows don’t reveal squared edges at 200–300% zoom.
 - Rack styles are scoped; production pages unaffected.

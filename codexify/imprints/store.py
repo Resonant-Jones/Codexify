@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from guardian.core.dependencies import get_database_dsn
 from guardian.db.models import Imprint
 
-_SessionFactory: Optional[sessionmaker] = None
+_SessionFactory: sessionmaker | None = None
 
 
 def _get_session_factory() -> sessionmaker:
@@ -25,9 +25,13 @@ def _get_session_factory() -> sessionmaker:
         return _SessionFactory
     dsn = get_database_dsn()
     if not dsn:
-        raise RuntimeError("Database DSN not configured; cannot access imprints store.")
+        raise RuntimeError(
+            "Database DSN not configured; cannot access imprints store."
+        )
     engine = create_engine(dsn, future=True)
-    _SessionFactory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    _SessionFactory = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, future=True
+    )
     return _SessionFactory
 
 
@@ -37,7 +41,9 @@ def _set_session_factory(factory: sessionmaker) -> None:
     _SessionFactory = factory
 
 
-def get_active_imprint(user_id: str, project_id: Optional[int]) -> Optional[Imprint]:
+def get_active_imprint(
+    user_id: str, project_id: int | None
+) -> Imprint | None:
     """Return the active imprint for (user_id, project_id), if any."""
     Session = _get_session_factory()
     with Session() as session:
@@ -49,9 +55,16 @@ def get_active_imprint(user_id: str, project_id: Optional[int]) -> Optional[Impr
         return session.scalars(stmt).first()
 
 
+def get_imprint_by_id(imprint_id: int) -> Imprint | None:
+    """Fetch an imprint by primary key."""
+    Session = _get_session_factory()
+    with Session() as session:
+        return session.get(Imprint, imprint_id)
+
+
 def save_imprint(
     user_id: str,
-    project_id: Optional[int],
+    project_id: int | None,
     **fields: Any,
 ) -> Imprint:
     """
@@ -109,9 +122,26 @@ def activate_imprint(imprint_id: int) -> Imprint:
         return imprint
 
 
+def supersede_imprint(imprint_id: int) -> Imprint | None:
+    """Mark an imprint as superseded."""
+    Session = _get_session_factory()
+    with Session() as session:
+        imprint = session.get(Imprint, imprint_id)
+        if not imprint:
+            return None
+        imprint.status = "superseded"
+        imprint.updated_at = datetime.utcnow()
+        session.add(imprint)
+        session.commit()
+        session.refresh(imprint)
+        return imprint
+
+
 __all__ = [
     "get_active_imprint",
     "save_imprint",
     "activate_imprint",
+    "get_imprint_by_id",
+    "supersede_imprint",
     "_set_session_factory",
 ]

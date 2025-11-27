@@ -8,18 +8,21 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Tuple
 
-from codexify.prompts import (
-    _base_codexify_system_prompt,
-    _imprint_zero_style_block,
-    _user_persona_block,
-    _system_docs_block,
-    _depth_block,
-    _rag_hint_block,
-    get_guardian_system_prompt,
-)
 from codexify.imprints.store import get_active_imprint
 from codexify.personas.store import get_active_persona
-from codexify.system_docs.store import get_docs_for, estimate_token_cost_for_docs
+from codexify.prompts import (
+    _base_codexify_system_prompt,
+    _depth_block,
+    _imprint_zero_style_block,
+    _rag_hint_block,
+    _system_docs_block,
+    _user_persona_block,
+    get_guardian_system_prompt,
+)
+from codexify.system_docs.store import (
+    estimate_token_cost_for_docs,
+    get_docs_for,
+)
 
 
 def _estimate_tokens(text: str) -> int:
@@ -30,10 +33,11 @@ def _estimate_tokens(text: str) -> int:
 def build_guardian_system_prompt(
     *,
     user_id: str,
-    project_id: Optional[int],
+    project_id: int | None,
     depth: str,
-    bundle: Optional[Dict] = None,
-) -> Tuple[str, Dict]:
+    bundle: dict | None = None,
+    token_cap: int | None = None,
+) -> tuple[str, dict]:
     """
     Orchestrate prompt assembly for Guardian.
 
@@ -61,9 +65,13 @@ def build_guardian_system_prompt(
     if docs:
         segments = []
         for doc in docs:
-            segments.append(f"=== System Document: {doc.title} ===\n{doc.content}\n")
+            segments.append(
+                f"=== System Document: {doc.title} ===\n{doc.content}\n"
+            )
         docs_block = "\n".join(segments).strip()
 
+    # Apply optional token cap (char heuristic) by truncating system docs if necessary.
+    # We never drop/modify the immutable core, depth, imprint, or persona blocks.
     system_prompt = get_guardian_system_prompt(
         user_id=user_id,
         depth=depth,
@@ -73,6 +81,52 @@ def build_guardian_system_prompt(
         persona=persona_body,
         system_docs_text=docs_block,
     )
+    cap_tokens = token_cap or 2000
+    estimated_tokens = _estimate_tokens(system_prompt)
+    docs_truncated = False
+
+    if estimated_tokens > cap_tokens and docs_block:
+        # Remove current docs contribution and reapply with truncation budget
+        non_doc_prompt = get_guardian_system_prompt(
+            user_id=user_id,
+            depth=depth,
+            project_id=project_id,
+            bundle=bundle,
+            imprint=imprint_data,
+            persona=persona_body,
+            system_docs_text="",
+        )
+        remaining_tokens = cap_tokens - _estimate_tokens(non_doc_prompt)
+        if remaining_tokens < 0:
+            remaining_tokens = 0
+        max_chars = max(0, remaining_tokens * 4)
+        truncated_text = docs_block[:max_chars].rstrip()
+        if truncated_text != docs_block:
+            truncated_text += "\n[TRUNCATED DUE TO TOKEN BUDGET]"
+        system_prompt = get_guardian_system_prompt(
+            user_id=user_id,
+            depth=depth,
+            project_id=project_id,
+            bundle=bundle,
+            imprint=imprint_data,
+            persona=persona_body,
+            system_docs_text=truncated_text,
+        )
+        estimated_tokens = _estimate_tokens(system_prompt)
+        docs_truncated = True
+
+    # Hard cap if still over budget (truncate tail, keep marker)
+    if estimated_tokens > cap_tokens:
+        marker = "\n[TRUNCATED DUE TO TOKEN BUDGET]"
+        hard_chars = max(0, cap_tokens * 4)
+        if hard_chars > len(marker):
+            system_prompt = (
+                system_prompt[: hard_chars - len(marker)].rstrip()
+            ) + marker
+        else:
+            system_prompt = marker[:hard_chars]
+        estimated_tokens = _estimate_tokens(system_prompt)
+        docs_truncated = True
 
     # Segment breakdown for meta
     base = _base_codexify_system_prompt()
@@ -84,7 +138,7 @@ def build_guardian_system_prompt(
 
     meta = {
         "total_chars": len(system_prompt or ""),
-        "estimated_tokens": _estimate_tokens(system_prompt),
+        "estimated_tokens": estimated_tokens,
         "docs_count": len(docs),
         "segments": {
             "base": len(base),
@@ -94,6 +148,9 @@ def build_guardian_system_prompt(
             "system_docs": len(system_docs_formatted),
             "rag_hint": len(rag_block),
         },
+        "cap_tokens": cap_tokens,
+        "docs_truncated": docs_truncated,
+        "overflow": estimated_tokens > cap_tokens,
     }
 
     # Include doc token estimates separately

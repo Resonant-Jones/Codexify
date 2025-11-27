@@ -5,15 +5,15 @@ Supports multiple backends (local filesystem, S3, GCS) with a unified API.
 Follows the same provider pattern as TTS services.
 """
 
-import os
 import logging
-import tempfile
-import sys
-from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Optional, Dict, List
-from datetime import datetime
 import mimetypes
+import os
+import sys
+import tempfile
+from abc import ABC, abstractmethod
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,28 +22,34 @@ logger = logging.getLogger(__name__)
 # Exceptions
 # =========================
 
+
 class StorageError(Exception):
     """Base exception for storage operations."""
+
     pass
 
 
 class FileNotFoundError(StorageError):
     """File not found in storage."""
+
     pass
 
 
 class UploadError(StorageError):
     """Failed to upload file."""
+
     pass
 
 
 class DeleteError(StorageError):
     """Failed to delete file."""
+
     pass
 
 
 class StorageConfigError(StorageError):
     """Storage configuration error."""
+
     pass
 
 
@@ -51,12 +57,18 @@ class StorageConfigError(StorageError):
 # Storage Provider Interface
 # =========================
 
+
 class StorageProvider(ABC):
     """Abstract base class for storage providers."""
 
     @abstractmethod
-    def upload(self, file_data: bytes, filename: str, content_type: Optional[str] = None,
-               metadata: Optional[Dict[str, str]] = None) -> str:
+    def upload(
+        self,
+        file_data: bytes,
+        filename: str,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
         """
         Upload a file to storage.
 
@@ -151,6 +163,7 @@ class StorageProvider(ABC):
 # Local Filesystem Provider
 # =========================
 
+
 class LocalStorageProvider(StorageProvider):
     """
     Store files on local filesystem.
@@ -161,7 +174,9 @@ class LocalStorageProvider(StorageProvider):
     - Docker volume-backed storage
     """
 
-    def __init__(self, base_path: str = "/app/media", url_prefix: str = "/media"):
+    def __init__(
+        self, base_path: str = "/app/media", url_prefix: str = "/media"
+    ):
         """
         Initialize local storage.
 
@@ -170,14 +185,19 @@ class LocalStorageProvider(StorageProvider):
             url_prefix: URL prefix for accessing files (e.g., '/media' → http://host/media/file.jpg)
         """
         self.base_path = Path(base_path)
-        self.url_prefix = url_prefix.rstrip('/')
+        self.url_prefix = url_prefix.rstrip("/")
 
         # Create base directory if it doesn't exist
         self.base_path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Local storage initialized at {self.base_path}")
 
-    def upload(self, file_data: bytes, filename: str, content_type: Optional[str] = None,
-               metadata: Optional[Dict[str, str]] = None) -> str:
+    def upload(
+        self,
+        file_data: bytes,
+        filename: str,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
         """Upload file to local filesystem."""
         try:
             # Sanitize filename and create subdirectories if needed
@@ -185,10 +205,12 @@ class LocalStorageProvider(StorageProvider):
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Write file
-            with open(file_path, 'wb') as f:
+            with open(file_path, "wb") as f:
                 f.write(file_data)
 
-            logger.info(f"Uploaded {filename} ({len(file_data)} bytes) to local storage")
+            logger.info(
+                f"Uploaded {filename} ({len(file_data)} bytes) to local storage"
+            )
             return f"{self.url_prefix}/{filename}"
 
         except Exception as e:
@@ -198,7 +220,7 @@ class LocalStorageProvider(StorageProvider):
         """Download file from local filesystem."""
         # Strip URL prefix if present
         if file_path.startswith(self.url_prefix):
-            file_path = file_path[len(self.url_prefix):].lstrip('/')
+            file_path = file_path[len(self.url_prefix) :].lstrip("/")
 
         full_path = self.base_path / file_path
 
@@ -206,7 +228,7 @@ class LocalStorageProvider(StorageProvider):
             raise FileNotFoundError(f"File not found: {file_path}")
 
         try:
-            with open(full_path, 'rb') as f:
+            with open(full_path, "rb") as f:
                 return f.read()
         except Exception as e:
             raise StorageError(f"Failed to read {file_path}: {e}")
@@ -215,7 +237,7 @@ class LocalStorageProvider(StorageProvider):
         """Delete file from local filesystem."""
         # Strip URL prefix if present
         if file_path.startswith(self.url_prefix):
-            file_path = file_path[len(self.url_prefix):].lstrip('/')
+            file_path = file_path[len(self.url_prefix) :].lstrip("/")
 
         full_path = self.base_path / file_path
 
@@ -232,7 +254,7 @@ class LocalStorageProvider(StorageProvider):
     def exists(self, file_path: str) -> bool:
         """Check if file exists."""
         if file_path.startswith(self.url_prefix):
-            file_path = file_path[len(self.url_prefix):].lstrip('/')
+            file_path = file_path[len(self.url_prefix) :].lstrip("/")
 
         return (self.base_path / file_path).exists()
 
@@ -244,7 +266,7 @@ class LocalStorageProvider(StorageProvider):
             return []
 
         files = []
-        for file_path in search_path.rglob('*'):
+        for file_path in search_path.rglob("*"):
             if file_path.is_file():
                 relative_path = file_path.relative_to(self.base_path)
                 files.append(f"{self.url_prefix}/{relative_path}")
@@ -263,6 +285,7 @@ class LocalStorageProvider(StorageProvider):
 # S3 Provider (Stub for Future)
 # =========================
 
+
 class S3StorageProvider(StorageProvider):
     """
     Store files in AWS S3 or compatible object storage.
@@ -271,12 +294,22 @@ class S3StorageProvider(StorageProvider):
     Requires: boto3
     """
 
-    def __init__(self, bucket: str, region: str = "us-east-1",
-                 access_key: Optional[str] = None, secret_key: Optional[str] = None):
+    def __init__(
+        self,
+        bucket: str,
+        region: str = "us-east-1",
+        access_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+    ):
         raise NotImplementedError("S3 storage not yet implemented")
 
-    def upload(self, file_data: bytes, filename: str, content_type: Optional[str] = None,
-               metadata: Optional[Dict[str, str]] = None) -> str:
+    def upload(
+        self,
+        file_data: bytes,
+        filename: str,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
         raise NotImplementedError()
 
     def download(self, file_path: str) -> bytes:
@@ -298,6 +331,7 @@ class S3StorageProvider(StorageProvider):
 # =========================
 # Storage Manager
 # =========================
+
 
 class StorageManager:
     """
@@ -321,12 +355,16 @@ class StorageManager:
         self.provider_type = provider_type
         self.provider = self._create_provider(provider_type, provider_config)
 
-    def _create_provider(self, provider_type: str, config: Dict) -> StorageProvider:
+    def _create_provider(
+        self, provider_type: str, config: Dict
+    ) -> StorageProvider:
         """Create storage provider instance."""
         if provider_type == "local":
-            base_path = config.get('base_path', '/app/media')
-            url_prefix = config.get('url_prefix', '/media')
-            return LocalStorageProvider(base_path=base_path, url_prefix=url_prefix)
+            base_path = config.get("base_path", "/app/media")
+            url_prefix = config.get("url_prefix", "/media")
+            return LocalStorageProvider(
+                base_path=base_path, url_prefix=url_prefix
+            )
 
         elif provider_type == "s3":
             # TODO: Implement S3
@@ -337,11 +375,17 @@ class StorageManager:
             raise NotImplementedError("GCS storage not yet implemented")
 
         else:
-            raise StorageConfigError(f"Unknown storage provider: {provider_type}")
+            raise StorageConfigError(
+                f"Unknown storage provider: {provider_type}"
+            )
 
-    def upload_file(self, file_data: bytes, filename: str,
-                    content_type: Optional[str] = None,
-                    metadata: Optional[Dict[str, str]] = None) -> str:
+    def upload_file(
+        self,
+        file_data: bytes,
+        filename: str,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
         """Upload a file."""
         # Auto-detect content type if not provided
         if content_type is None:
@@ -365,7 +409,9 @@ class StorageManager:
         """List files."""
         return self.provider.list_files(prefix)
 
-    def get_file_url(self, file_path: str, expires_in: Optional[int] = None) -> str:
+    def get_file_url(
+        self, file_path: str, expires_in: Optional[int] = None
+    ) -> str:
         """Get URL for file."""
         return self.provider.get_url(file_path, expires_in)
 
@@ -373,6 +419,7 @@ class StorageManager:
 # =========================
 # Utility Functions
 # =========================
+
 
 def generate_unique_filename(original_filename: str, prefix: str = "") -> str:
     """
@@ -389,16 +436,16 @@ def generate_unique_filename(original_filename: str, prefix: str = "") -> str:
         generate_unique_filename('photo.jpg', 'images/')
         → 'images/2025-10-26_142530_photo.jpg'
     """
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     name, ext = os.path.splitext(original_filename)
 
     # Sanitize name
-    safe_name = "".join(c for c in name if c.isalnum() or c in ('_', '-'))
+    safe_name = "".join(c for c in name if c.isalnum() or c in ("_", "-"))
 
     filename = f"{timestamp}_{safe_name}{ext}"
 
     if prefix:
-        prefix = prefix.rstrip('/') + '/'
+        prefix = prefix.rstrip("/") + "/"
         filename = f"{prefix}{filename}"
 
     return filename
@@ -414,17 +461,22 @@ def detect_media_type(filename: str) -> str:
     mime_type, _ = mimetypes.guess_type(filename)
 
     if mime_type:
-        if mime_type.startswith('image/'):
-            return 'image'
-        elif mime_type.startswith('audio/'):
-            return 'audio'
-        elif mime_type.startswith('video/'):
-            return 'video'
-        elif mime_type in ('application/pdf', 'text/plain', 'text/markdown',
-                           'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'):
-            return 'document'
+        if mime_type.startswith("image/"):
+            return "image"
+        elif mime_type.startswith("audio/"):
+            return "audio"
+        elif mime_type.startswith("video/"):
+            return "video"
+        elif mime_type in (
+            "application/pdf",
+            "text/plain",
+            "text/markdown",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ):
+            return "document"
 
-    return 'unknown'
+    return "unknown"
 
 
 # =========================

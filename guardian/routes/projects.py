@@ -8,6 +8,7 @@ Includes default "Loose Threads" project initialization.
 
 import logging
 from typing import Dict, Optional
+
 from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -38,7 +39,9 @@ def ensure_loose_threads_project():
         logger.info("[projects] Ensured Loose Threads project exists")
         return True
     except Exception as e:
-        logger.warning("[projects] Failed to ensure Loose Threads project: %s", e)
+        logger.warning(
+            "[projects] Failed to ensure Loose Threads project: %s", e
+        )
         return False
 
 
@@ -88,7 +91,9 @@ def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
         )
         return {"ok": True}
     except Exception as e:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": str(e)}
+        )
 
 
 @router.delete("/{project_id}")
@@ -113,8 +118,11 @@ def delete_project_and_eject(project_id: int):
         deleted = chatlog_db.delete_project(project_id)
         if not deleted:
             return JSONResponse(
-                status_code=404, content={"ok": False, "error": "Project not found"}
+                status_code=404,
+                content={"ok": False, "error": "Project not found"},
             )
         return {"ok": True}
     except Exception as e:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": str(e)}
+        )

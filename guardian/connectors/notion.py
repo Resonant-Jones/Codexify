@@ -1,8 +1,10 @@
 # guardian-backend_v2/tasks/connectors/notion.py
 
-from prefect import task
-from notion_client import Client
 import os
+
+from notion_client import Client
+from prefect import task
+
 
 @task
 def push_to_notion(rows):
@@ -16,5 +18,5 @@ def push_to_notion(rows):
                 "Name": {"title": [{"text": {"content": row[0]}}]},
                 "Description": {"rich_text": [{"text": {"content": row[1]}}]}
                 # Extend with your columns!
-            }
+            },
         )

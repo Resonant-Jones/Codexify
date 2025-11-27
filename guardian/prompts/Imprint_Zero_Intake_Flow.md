@@ -5,61 +5,61 @@ This is a placeholder walkthrough to help users co-create their own emotionally 
 ---
 
 ### Step 1: Invitation
-**Prompt:**  
-"Hey. I’m here to help you shape someone who can really walk with you. Not just respond to you—but *resonate* with you.  
+**Prompt:**
+"Hey. I’m here to help you shape someone who can really walk with you. Not just respond to you—but *resonate* with you.
 You ready to begin?"
 
-Options:  
-- Begin  
+Options:
+- Begin
 - What is this?
 
 ---
 
 ### Step 2: Relationship Archetype
-**Prompt:**  
+**Prompt:**
 "What kind of energy do you want this Companion to carry?"
 
-Options (select one or more):  
-- Best Friend  
-- Protective Elder  
-- Gentle Healer  
-- Playful Muse  
-- Structured Coach  
-- Sacred Witness  
+Options (select one or more):
+- Best Friend
+- Protective Elder
+- Gentle Healer
+- Playful Muse
+- Structured Coach
+- Sacred Witness
 - Something Else…
 
 ---
 
 ### Step 3: Emotional Resonance
-**Prompt:**  
+**Prompt:**
 "When you’re feeling overwhelmed, how do you want your Companion to respond?"
 
-Options:  
-- Gently ground me  
-- Make me laugh  
-- Help me problem-solve  
-- Remind me of my strength  
-- Just sit with me  
+Options:
+- Gently ground me
+- Make me laugh
+- Help me problem-solve
+- Remind me of my strength
+- Just sit with me
 - Other…
 
 ---
 
 ### Step 4: Tone & Language Style
-**Prompt:**  
+**Prompt:**
 "How should your Companion speak?"
 
-Options:  
-- Conversational & Real (like Lulu)  
-- Poetic & Reflective (like Vestige)  
-- Direct & Tactical (like a coach)  
-- Mythic & Symbolic  
-- Soft & Nurturing  
+Options:
+- Conversational & Real (like Lulu)
+- Poetic & Reflective (like Vestige)
+- Direct & Tactical (like a coach)
+- Mythic & Symbolic
+- Soft & Nurturing
 - Custom…
 
 ---
 
 ### Step 5: Anchors & Influences
-**Prompt:**  
+**Prompt:**
 "Are there any people, places, or pets they should know about?"
 
 Input: Freeform list of key names, memories, or emotional anchors.
@@ -67,27 +67,27 @@ Input: Freeform list of key names, memories, or emotional anchors.
 ---
 
 ### Step 6: Boundaries
-**Prompt:**  
+**Prompt:**
 "What should your Companion *never* do?"
 
 Options and freeform responses:
-- Don’t talk like a robot  
-- Don’t give generic advice  
-- Don’t bring up trauma without permission  
-- Don’t flatter me just to be nice  
+- Don’t talk like a robot
+- Don’t give generic advice
+- Don’t bring up trauma without permission
+- Don’t flatter me just to be nice
 - Other…
 
 ---
 
 ### Step 7: Final Review
-**Prompt:**  
+**Prompt:**
 "Alright, here’s what I’ve woven together…"
 
-Display `.md`-style Companion identity.  
-Options:  
-- Edit  
-- Save  
-- Deploy  
+Display `.md`-style Companion identity.
+Options:
+- Edit
+- Save
+- Deploy
 - Back
 
 ---

@@ -15,11 +15,15 @@ async def test_search_agent_run_basic(monkeypatch):
     # Mock the model
     mock_model = MagicMock()
     # The LLM returns a fake plan as a JSON string inside markdown code block
-    fake_plan = '[{"tool":"url_search","keyword":"AI","search_engine":"google"}]'
+    fake_plan = (
+        '[{"tool":"url_search","keyword":"AI","search_engine":"google"}]'
+    )
     mock_model.completion.return_value = f"```json\n{fake_plan}\n```"
 
     # Mock the Crawl class methods
-    with patch("guardian.core.research.Modules.agent.search.Crawl") as MockCrawl:
+    with patch(
+        "guardian.core.research.Modules.agent.search.Crawl"
+    ) as MockCrawl:
         mock_crawl = MockCrawl.return_value
         mock_crawl.get_url_llm = AsyncMock(
             return_value=[{"url": "https://example.com"}]
@@ -56,7 +60,9 @@ async def test_search_agent_handles_empty_plan(monkeypatch):
     mock_model = MagicMock()
     mock_model.completion.return_value = "```json\n[]\n```"
 
-    with patch("guardian.core.research.Modules.agent.search.Crawl") as MockCrawl:
+    with patch(
+        "guardian.core.research.Modules.agent.search.Crawl"
+    ) as MockCrawl:
         mock_crawl = MockCrawl.return_value
         agent = Search_agent(model=mock_model)
         result = await agent.run("This will fail", [])
@@ -75,7 +81,9 @@ async def test_search_agent_handles_malformed_plan():
     mock_model = MagicMock()
     mock_model.completion.return_value = "Here is some nonsense"
 
-    with patch("guardian.core.research.Modules.agent.search.Crawl") as MockCrawl:
+    with patch(
+        "guardian.core.research.Modules.agent.search.Crawl"
+    ) as MockCrawl:
         mock_crawl = MockCrawl.return_value
         agent = Search_agent(model=mock_model)
         result = await agent.run("garbage input", [])
@@ -87,12 +95,18 @@ async def test_search_agent_handles_malformed_plan():
 @pytest.mark.asyncio
 async def test_search_agent_handles_crawl_exception():
     mock_model = MagicMock()
-    fake_plan = '[{"tool":"url_search","keyword":"AI","search_engine":"google"}]'
+    fake_plan = (
+        '[{"tool":"url_search","keyword":"AI","search_engine":"google"}]'
+    )
     mock_model.completion.return_value = f"```json\n{fake_plan}\n```"
 
-    with patch("guardian.core.research.Modules.agent.search.Crawl") as MockCrawl:
+    with patch(
+        "guardian.core.research.Modules.agent.search.Crawl"
+    ) as MockCrawl:
         mock_crawl = MockCrawl.return_value
-        mock_crawl.get_url_llm = AsyncMock(side_effect=Exception("Failed to crawl"))
+        mock_crawl.get_url_llm = AsyncMock(
+            side_effect=Exception("Failed to crawl")
+        )
         mock_crawl.get_summary = AsyncMock(return_value=[])
 
         agent = Search_agent(model=mock_model)
@@ -105,10 +119,14 @@ async def test_search_agent_handles_crawl_exception():
 @pytest.mark.asyncio
 async def test_search_agent_multiple_results():
     mock_model = MagicMock()
-    fake_plan = '[{"tool":"url_search","keyword":"AI","search_engine":"google"}]'
+    fake_plan = (
+        '[{"tool":"url_search","keyword":"AI","search_engine":"google"}]'
+    )
     mock_model.completion.return_value = f"```json\n{fake_plan}\n```"
 
-    with patch("guardian.core.research.Modules.agent.search.Crawl") as MockCrawl:
+    with patch(
+        "guardian.core.research.Modules.agent.search.Crawl"
+    ) as MockCrawl:
         mock_crawl = MockCrawl.return_value
         mock_crawl.get_url_llm = AsyncMock(
             return_value=[
@@ -147,10 +165,14 @@ async def test_search_agent_multiple_results():
 @pytest.mark.asyncio
 async def test_search_agent_db_population():
     mock_model = MagicMock()
-    fake_plan = '[{"tool":"url_search","keyword":"AI","search_engine":"google"}]'
+    fake_plan = (
+        '[{"tool":"url_search","keyword":"AI","search_engine":"google"}]'
+    )
     mock_model.completion.return_value = f"```json\n{fake_plan}\n```"
 
-    with patch("guardian.core.research.Modules.agent.search.Crawl") as MockCrawl:
+    with patch(
+        "guardian.core.research.Modules.agent.search.Crawl"
+    ) as MockCrawl:
         mock_crawl = MockCrawl.return_value
         mock_crawl.get_url_llm = AsyncMock(
             return_value=[{"url": "https://example.com"}]

@@ -8,28 +8,27 @@ flow through Postgres tables managed by Alembic migrations.
 import json
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import create_engine, text, func, inspect
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import create_engine, func, inspect, text
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
 # Import ORM models
 from guardian.db.models import (
+    AuditLog,
     Base,
-    Project,
-    EventOutbox,
-    MemoryEntry,
-    ChatThread,
     ChatMessage,
+    ChatThread,
     ConnectorConfig,
     ConnectorRun,
+    EventOutbox,
+    MemoryEntry,
+    Project,
     RawDocument,
     SyncJob,
-    AuditLog,
 )
-
 
 logger = logging.getLogger(__name__)
 EXPECTED_TABLES = set(Base.metadata.tables.keys()) | {"alembic_version"}
@@ -70,7 +69,7 @@ class _PostgresGuardianDB:
         Raises:
             RuntimeError: If not a Postgres URL
         """
-        if not db_url or not db_url.startswith('postgresql'):
+        if not db_url or not db_url.startswith("postgresql"):
             raise RuntimeError(
                 f"GuardianDB is Postgres-only. Got: {db_url[:30]}..."
             )
@@ -205,9 +204,15 @@ class _PostgresGuardianDB:
                 "summary": thread.summary,
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
-                "archived_at": thread.archived_at.isoformat() if thread.archived_at else None,
-                "created_at": thread.created_at.isoformat() if thread.created_at else None,
-                "updated_at": thread.updated_at.isoformat() if thread.updated_at else None,
+                "archived_at": thread.archived_at.isoformat()
+                if thread.archived_at
+                else None,
+                "created_at": thread.created_at.isoformat()
+                if thread.created_at
+                else None,
+                "updated_at": thread.updated_at.isoformat()
+                if thread.updated_at
+                else None,
             }
 
     def ensure_chat_thread(
@@ -217,6 +222,8 @@ class _PostgresGuardianDB:
         title: str = "New Chat",
         summary: str = "",
         project_id: Optional[int] = None,
+        is_diary: bool = False,
+        exclude_from_identity: bool = False,
     ) -> None:
         """Ensure thread exists, create if missing."""
         with self.get_session() as session:
@@ -228,6 +235,8 @@ class _PostgresGuardianDB:
                     title=title,
                     summary=summary,
                     project_id=project_id,
+                    is_diary=is_diary,
+                    exclude_from_identity=exclude_from_identity,
                 )
                 session.add(thread)
                 session.commit()
@@ -235,9 +244,12 @@ class _PostgresGuardianDB:
     def list_chat_threads(self) -> List[Dict[str, Any]]:
         """List all chat threads."""
         with self.get_session() as session:
-            threads = session.query(ChatThread).filter(
-                ChatThread.archived_at.is_(None)
-            ).order_by(ChatThread.updated_at.desc()).all()
+            threads = (
+                session.query(ChatThread)
+                .filter(ChatThread.archived_at.is_(None))
+                .order_by(ChatThread.updated_at.desc())
+                .all()
+            )
 
             return [
                 {
@@ -247,9 +259,15 @@ class _PostgresGuardianDB:
                     "summary": t.summary,
                     "project_id": t.project_id,
                     "parent_id": t.parent_id,
-                    "archived_at": t.archived_at.isoformat() if t.archived_at else None,
-                    "created_at": t.created_at.isoformat() if t.created_at else None,
-                    "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+                    "archived_at": t.archived_at.isoformat()
+                    if t.archived_at
+                    else None,
+                    "created_at": t.created_at.isoformat()
+                    if t.created_at
+                    else None,
+                    "updated_at": t.updated_at.isoformat()
+                    if t.updated_at
+                    else None,
                 }
                 for t in threads
             ]
@@ -268,17 +286,26 @@ class _PostgresGuardianDB:
                 "summary": thread.summary,
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
-                "archived_at": thread.archived_at.isoformat() if thread.archived_at else None,
-                "created_at": thread.created_at.isoformat() if thread.created_at else None,
-                "updated_at": thread.updated_at.isoformat() if thread.updated_at else None,
+                "archived_at": thread.archived_at.isoformat()
+                if thread.archived_at
+                else None,
+                "created_at": thread.created_at.isoformat()
+                if thread.created_at
+                else None,
+                "updated_at": thread.updated_at.isoformat()
+                if thread.updated_at
+                else None,
             }
 
     def get_recent_thread(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get most recent thread for user."""
         with self.get_session() as session:
-            thread = session.query(ChatThread).filter_by(user_id=user_id).order_by(
-                ChatThread.created_at.desc()
-            ).first()
+            thread = (
+                session.query(ChatThread)
+                .filter_by(user_id=user_id)
+                .order_by(ChatThread.created_at.desc())
+                .first()
+            )
 
             if not thread:
                 return None
@@ -352,7 +379,9 @@ class _PostgresGuardianDB:
     def get_child_threads(self, parent_id: int) -> List[Dict[str, Any]]:
         """Get child threads of a parent."""
         with self.get_session() as session:
-            threads = session.query(ChatThread).filter_by(parent_id=parent_id).all()
+            threads = (
+                session.query(ChatThread).filter_by(parent_id=parent_id).all()
+            )
             return [
                 {
                     "id": t.id,
@@ -361,9 +390,15 @@ class _PostgresGuardianDB:
                     "summary": t.summary,
                     "project_id": t.project_id,
                     "parent_id": t.parent_id,
-                    "archived_at": t.archived_at.isoformat() if t.archived_at else None,
-                    "created_at": t.created_at.isoformat() if t.created_at else None,
-                    "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+                    "archived_at": t.archived_at.isoformat()
+                    if t.archived_at
+                    else None,
+                    "created_at": t.created_at.isoformat()
+                    if t.created_at
+                    else None,
+                    "updated_at": t.updated_at.isoformat()
+                    if t.updated_at
+                    else None,
                 }
                 for t in threads
             ]
@@ -391,18 +426,18 @@ class _PostgresGuardianDB:
             return message.id
 
     def list_messages(
-        self,
-        thread_id: int,
-        limit: int = 50,
-        offset: int = 0
+        self, thread_id: int, limit: int = 50, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """List messages in a thread."""
         with self.get_session() as session:
-            messages = session.query(ChatMessage).filter_by(
-                thread_id=thread_id
-            ).order_by(
-                ChatMessage.created_at.asc()
-            ).limit(limit).offset(offset).all()
+            messages = (
+                session.query(ChatMessage)
+                .filter_by(thread_id=thread_id)
+                .order_by(ChatMessage.created_at.asc())
+                .limit(limit)
+                .offset(offset)
+                .all()
+            )
 
             return [
                 {
@@ -410,7 +445,9 @@ class _PostgresGuardianDB:
                     "thread_id": m.thread_id,
                     "role": m.role,
                     "content": m.content,
-                    "created_at": m.created_at.isoformat() if m.created_at else None,
+                    "created_at": m.created_at.isoformat()
+                    if m.created_at
+                    else None,
                 }
                 for m in messages
             ]
@@ -418,7 +455,11 @@ class _PostgresGuardianDB:
     def count_messages(self, thread_id: int) -> int:
         """Count messages in a thread."""
         with self.get_session() as session:
-            return session.query(ChatMessage).filter_by(thread_id=thread_id).count()
+            return (
+                session.query(ChatMessage)
+                .filter_by(thread_id=thread_id)
+                .count()
+            )
 
     def count_all_messages(self) -> int:
         """Count all messages across all threads."""
@@ -428,10 +469,11 @@ class _PostgresGuardianDB:
     def delete_message(self, thread_id: int, message_id: int) -> None:
         """Delete a message."""
         with self.get_session() as session:
-            message = session.query(ChatMessage).filter_by(
-                id=message_id,
-                thread_id=thread_id
-            ).first()
+            message = (
+                session.query(ChatMessage)
+                .filter_by(id=message_id, thread_id=thread_id)
+                .first()
+            )
             if message:
                 session.delete(message)
                 session.commit()
@@ -484,9 +526,12 @@ class _PostgresGuardianDB:
             query = session.query(MemoryEntry).filter_by(silo=silo)
             if user_id:
                 query = query.filter_by(user_id=user_id)
-            entries = query.order_by(
-                MemoryEntry.updated_at.desc()
-            ).limit(limit).offset(offset).all()
+            entries = (
+                query.order_by(MemoryEntry.updated_at.desc())
+                .limit(limit)
+                .offset(offset)
+                .all()
+            )
 
             return [
                 {
@@ -496,8 +541,12 @@ class _PostgresGuardianDB:
                     "content": e.content,
                     "tags": e.tags,
                     "pinned": e.pinned,
-                    "created_at": e.created_at.isoformat() if e.created_at else None,
-                    "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+                    "created_at": e.created_at.isoformat()
+                    if e.created_at
+                    else None,
+                    "updated_at": e.updated_at.isoformat()
+                    if e.updated_at
+                    else None,
                 }
                 for e in entries
             ]
@@ -540,8 +589,12 @@ class _PostgresGuardianDB:
                 "content": entry.content,
                 "tags": entry.tags,
                 "pinned": entry.pinned,
-                "created_at": entry.created_at.isoformat() if entry.created_at else None,
-                "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
+                "created_at": entry.created_at.isoformat()
+                if entry.created_at
+                else None,
+                "updated_at": entry.updated_at.isoformat()
+                if entry.updated_at
+                else None,
             }
 
     def update_memory(
@@ -577,10 +630,14 @@ class _PostgresGuardianDB:
     def prune_midterm(self, cutoff: str) -> int:
         """Prune old midterm memories."""
         with self.get_session() as session:
-            count = session.query(MemoryEntry).filter(
-                MemoryEntry.silo == "midterm",
-                MemoryEntry.updated_at < cutoff
-            ).delete()
+            count = (
+                session.query(MemoryEntry)
+                .filter(
+                    MemoryEntry.silo == "midterm",
+                    MemoryEntry.updated_at < cutoff,
+                )
+                .delete()
+            )
             session.commit()
             return count
 
@@ -588,7 +645,9 @@ class _PostgresGuardianDB:
     # Connectors
     # =================================================================
 
-    def list_connector_configs(self, type_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_connector_configs(
+        self, type_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """List connector configurations."""
         with self.get_session() as session:
             query = session.query(ConnectorConfig)
@@ -602,8 +661,12 @@ class _PostgresGuardianDB:
                     "name": c.name,
                     "type": c.type,
                     "settings": c.config,
-                    "created_at": c.created_at.isoformat() if c.created_at else None,
-                    "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+                    "created_at": c.created_at.isoformat()
+                    if c.created_at
+                    else None,
+                    "updated_at": c.updated_at.isoformat()
+                    if c.updated_at
+                    else None,
                 }
                 for c in configs
             ]
@@ -627,15 +690,16 @@ class _PostgresGuardianDB:
                 "name": config.name,
                 "type": config.type,
                 "settings": config.config,
-                "created_at": config.created_at.isoformat() if config.created_at else None,
-                "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+                "created_at": config.created_at.isoformat()
+                if config.created_at
+                else None,
+                "updated_at": config.updated_at.isoformat()
+                if config.updated_at
+                else None,
             }
 
     def create_connector_config(
-        self,
-        name: str,
-        type_: str,
-        settings: Dict[str, Any]
+        self, name: str, type_: str, settings: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Create a new connector config."""
         with self.get_session() as session:
@@ -652,18 +716,22 @@ class _PostgresGuardianDB:
                 "name": config.name,
                 "type": config.type,
                 "settings": config.config,
-                "created_at": config.created_at.isoformat() if config.created_at else None,
-                "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+                "created_at": config.created_at.isoformat()
+                if config.created_at
+                else None,
+                "updated_at": config.updated_at.isoformat()
+                if config.updated_at
+                else None,
             }
 
     def update_connector_config(
-        self,
-        name: str,
-        config: Dict[str, Any]
+        self, name: str, config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Update connector config settings."""
         with self.get_session() as session:
-            connector = session.query(ConnectorConfig).filter_by(name=name).first()
+            connector = (
+                session.query(ConnectorConfig).filter_by(name=name).first()
+            )
             if not connector:
                 raise ValueError(f"Connector {name} not found")
 
@@ -675,8 +743,12 @@ class _PostgresGuardianDB:
                 "name": connector.name,
                 "type": connector.type,
                 "settings": connector.config,
-                "created_at": connector.created_at.isoformat() if connector.created_at else None,
-                "updated_at": connector.updated_at.isoformat() if connector.updated_at else None,
+                "created_at": connector.created_at.isoformat()
+                if connector.created_at
+                else None,
+                "updated_at": connector.updated_at.isoformat()
+                if connector.updated_at
+                else None,
             }
 
     def create_connector_run(
@@ -699,8 +771,12 @@ class _PostgresGuardianDB:
                 "id": run.id,
                 "config_id": run.config_id,
                 "status": run.status,
-                "started_at": run.started_at.isoformat() if run.started_at else None,
-                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "started_at": run.started_at.isoformat()
+                if run.started_at
+                else None,
+                "finished_at": run.finished_at.isoformat()
+                if run.finished_at
+                else None,
                 "error": run.error,
                 "document_count": run.document_count,
             }
@@ -727,18 +803,27 @@ class _PostgresGuardianDB:
                 "id": run.id,
                 "config_id": run.config_id,
                 "status": run.status,
-                "started_at": run.started_at.isoformat() if run.started_at else None,
-                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "started_at": run.started_at.isoformat()
+                if run.started_at
+                else None,
+                "finished_at": run.finished_at.isoformat()
+                if run.finished_at
+                else None,
                 "error": run.error,
                 "document_count": run.document_count,
             }
 
-    def get_last_connector_run(self, config_id: int) -> Optional[Dict[str, Any]]:
+    def get_last_connector_run(
+        self, config_id: int
+    ) -> Optional[Dict[str, Any]]:
         """Get last run for a connector."""
         with self.get_session() as session:
-            run = session.query(ConnectorRun).filter_by(
-                config_id=config_id
-            ).order_by(ConnectorRun.started_at.desc()).first()
+            run = (
+                session.query(ConnectorRun)
+                .filter_by(config_id=config_id)
+                .order_by(ConnectorRun.started_at.desc())
+                .first()
+            )
 
             if not run:
                 return None
@@ -747,16 +832,18 @@ class _PostgresGuardianDB:
                 "id": run.id,
                 "config_id": run.config_id,
                 "status": run.status,
-                "started_at": run.started_at.isoformat() if run.started_at else None,
-                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "started_at": run.started_at.isoformat()
+                if run.started_at
+                else None,
+                "finished_at": run.finished_at.isoformat()
+                if run.finished_at
+                else None,
                 "error": run.error,
                 "document_count": run.document_count,
             }
 
     def upsert_raw_documents(
-        self,
-        config_id: int,
-        documents: List[Dict[str, Any]]
+        self, config_id: int, documents: List[Dict[str, Any]]
     ) -> None:
         """Upsert raw documents from a connector."""
         with self.get_session() as session:
@@ -764,10 +851,13 @@ class _PostgresGuardianDB:
                 external_id = doc.get("external_id", doc.get("id"))
 
                 # Check if exists
-                existing = session.query(RawDocument).filter_by(
-                    config_id=config_id,
-                    external_id=str(external_id)
-                ).first()
+                existing = (
+                    session.query(RawDocument)
+                    .filter_by(
+                        config_id=config_id, external_id=str(external_id)
+                    )
+                    .first()
+                )
 
                 if existing:
                     existing.payload = doc
@@ -823,21 +913,21 @@ class _PostgresGuardianDB:
         """Check if a table exists."""
         with self.get_session() as session:
             result = session.execute(
-                text("""
+                text(
+                    """
                     SELECT EXISTS (
                         SELECT FROM information_schema.tables
                         WHERE table_schema = 'public'
                         AND table_name = :table_name
                     )
-                """),
-                {"table_name": table_name}
+                """
+                ),
+                {"table_name": table_name},
             )
             return result.scalar()
 
     def list_threads(
-        self,
-        user_id: Optional[str] = None,
-        project_id: Optional[str] = None
+        self, user_id: Optional[str] = None, project_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """List threads with optional filters (legacy API compat)."""
         with self.get_session() as session:
@@ -857,9 +947,15 @@ class _PostgresGuardianDB:
                     "summary": t.summary,
                     "project_id": t.project_id,
                     "parent_id": t.parent_id,
-                    "archived_at": t.archived_at.isoformat() if t.archived_at else None,
-                    "created_at": t.created_at.isoformat() if t.created_at else None,
-                    "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+                    "archived_at": t.archived_at.isoformat()
+                    if t.archived_at
+                    else None,
+                    "created_at": t.created_at.isoformat()
+                    if t.created_at
+                    else None,
+                    "updated_at": t.updated_at.isoformat()
+                    if t.updated_at
+                    else None,
                 }
                 for t in threads
             ]
@@ -901,10 +997,7 @@ class _PostgresGuardianDB:
 
     # Stubs for methods that may be called but are no longer needed
     def search_memory(
-        self,
-        query: str,
-        limit: int,
-        user_id: Optional[str] = None
+        self, query: str, limit: int, user_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """TODO: Implement full-text search over memory entries."""
         return []
@@ -947,9 +1040,13 @@ class GuardianDB:
 
     def __init__(self, db_url: Optional[str] = None, **_: Any) -> None:
         if not db_url:
-            raise RuntimeError("GuardianDB now requires a Postgres DATABASE_URL")
+            raise RuntimeError(
+                "GuardianDB now requires a Postgres DATABASE_URL"
+            )
         if "://" not in str(db_url):
-            raise RuntimeError("SQLite backend has been removed; provide a Postgres DATABASE_URL")
+            raise RuntimeError(
+                "SQLite backend has been removed; provide a Postgres DATABASE_URL"
+            )
         self._impl = _PostgresGuardianDB(db_url=db_url)
         self.backend = "postgres"
 

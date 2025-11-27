@@ -1,7 +1,9 @@
 import json
 import os
 
-CONTRACTS_DIR = os.path.join(os.path.dirname(__file__), "../guardian-codex/integrity")
+CONTRACTS_DIR = os.path.join(
+    os.path.dirname(__file__), "../guardian-codex/integrity"
+)
 
 _contract_cache = {}
 
@@ -10,8 +12,10 @@ def load_contract(contract_id: str) -> str:
     filename = f"{contract_id}.md"
     path = os.path.abspath(os.path.join(CONTRACTS_DIR, filename))
     if not os.path.exists(path):
-        raise FileNotFoundError(f"Contract {contract_id} not found in {CONTRACTS_DIR}")
-    with open(path, "r") as f:
+        raise FileNotFoundError(
+            f"Contract {contract_id} not found in {CONTRACTS_DIR}"
+        )
+    with open(path) as f:
         return f.read()
 
 
@@ -25,7 +29,13 @@ def extract_json_block(md_text: str) -> dict:
 
 
 def validate_identity_contract(data: dict) -> bool:
-    required_keys = {"identity", "origin", "model_substrate", "context", "restrictions"}
+    required_keys = {
+        "identity",
+        "origin",
+        "model_substrate",
+        "context",
+        "restrictions",
+    }
     return required_keys.issubset(data.keys())
 
 

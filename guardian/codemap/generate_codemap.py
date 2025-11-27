@@ -6,7 +6,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 
 
 def extract_python_metadata(file_path):
-    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+    with open(file_path, encoding="utf-8", errors="replace") as f:
         try:
             tree = ast.parse(f.read(), filename=file_path)
         except SyntaxError:
@@ -17,9 +17,13 @@ def extract_python_metadata(file_path):
 
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
-            functions.append({"name": node.name, "docstring": ast.get_docstring(node)})
+            functions.append(
+                {"name": node.name, "docstring": ast.get_docstring(node)}
+            )
         elif isinstance(node, ast.ClassDef):
-            classes.append({"name": node.name, "docstring": ast.get_docstring(node)})
+            classes.append(
+                {"name": node.name, "docstring": ast.get_docstring(node)}
+            )
 
     return {"functions": functions, "classes": classes}
 
@@ -35,7 +39,11 @@ def generate_codemap():
                 metadata = extract_python_metadata(full_path)
                 if metadata:
                     codemap.append(
-                        {"path": rel_path, "type": "python", "metadata": metadata}
+                        {
+                            "path": rel_path,
+                            "type": "python",
+                            "metadata": metadata,
+                        }
                     )
 
     os.makedirs(os.path.join(BASE_DIR, "guardian/codemap"), exist_ok=True)

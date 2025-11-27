@@ -29,10 +29,14 @@ def test_save_entry_filename_prefix_and_template(monkeypatch):
 
     monkeypatch.setenv("CODEXIFY_FILENAME_TEMPLATE", "{date}_{slug}.{ext}")
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "")  # ensure no OAuth run
+    monkeypatch.setenv(
+        "GOOGLE_APPLICATION_CREDENTIALS", ""
+    )  # ensure no OAuth run
 
     monkeypatch.setattr(api, "export_to_gdrive", fake_export)
-    monkeypatch.setattr(api, "build_drive_service", lambda logger=None: object())
+    monkeypatch.setattr(
+        api, "build_drive_service", lambda logger=None: object()
+    )
 
     today = datetime.now().strftime("%Y-%m-%d")
     req = api.SaveEntryRequest(
@@ -99,7 +103,9 @@ def test_export_engine_default_filename_template(monkeypatch):
         def __init__(self, *a, **k):
             pass
 
-    sys.modules["googleapiclient.http"] = types.SimpleNamespace(MediaFileUpload=_MFU)
+    sys.modules["googleapiclient.http"] = types.SimpleNamespace(
+        MediaFileUpload=_MFU
+    )
     sys.modules["googleapiclient.discovery"] = types.SimpleNamespace(
         build=lambda *a, **k: None
     )
@@ -166,7 +172,9 @@ def test_export_engine_share_anyone(monkeypatch):
         def __init__(self, *a, **k):
             pass
 
-    sys.modules["googleapiclient.http"] = types.SimpleNamespace(MediaFileUpload=_MFU)
+    sys.modules["googleapiclient.http"] = types.SimpleNamespace(
+        MediaFileUpload=_MFU
+    )
     sys.modules["googleapiclient.discovery"] = types.SimpleNamespace(
         build=lambda *a, **k: None
     )
@@ -179,7 +187,9 @@ def test_export_engine_share_anyone(monkeypatch):
         share_anyone=True,
     )
     # Ensure a permission was created for anyone/reader
-    assert any(p[1] == {"type": "anyone", "role": "reader"} for p in svc.perm_log)
+    assert any(
+        p[1] == {"type": "anyone", "role": "reader"} for p in svc.perm_log
+    )
 
 
 def test_api_error_mapping_permission_denied(monkeypatch):
@@ -198,7 +208,9 @@ def test_api_error_mapping_permission_denied(monkeypatch):
     from guardian.server import codexify_api as api
 
     # Patch build service and export to raise 403
-    monkeypatch.setattr(api, "build_drive_service", lambda logger=None: object())
+    monkeypatch.setattr(
+        api, "build_drive_service", lambda logger=None: object()
+    )
 
     def raiser(*a, **k):
         raise FakeHttpError(403)
@@ -227,7 +239,9 @@ def test_api_error_mapping_invalid_folder(monkeypatch):
 
     from guardian.server import codexify_api as api
 
-    monkeypatch.setattr(api, "build_drive_service", lambda logger=None: object())
+    monkeypatch.setattr(
+        api, "build_drive_service", lambda logger=None: object()
+    )
 
     def raiser(*a, **k):
         raise FakeHttpError(404)

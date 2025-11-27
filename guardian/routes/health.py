@@ -7,9 +7,11 @@ Mounted without a prefix to preserve public paths like /health/chat.
 """
 
 import logging
+
 from fastapi import APIRouter, Depends, Response
+
 from guardian.core import metrics
-from guardian.core.dependencies import get_database_dsn, DB_BACKEND
+from guardian.core.dependencies import DB_BACKEND, get_database_dsn
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ def health():
 def health_chat():
     """Get health status of chat subsystem."""
     # Import from core dependencies module
-    from guardian.core.dependencies import chatlog_db, DB_BACKEND
+    from guardian.core.dependencies import DB_BACKEND, chatlog_db
 
     try:
         threads = chatlog_db.count_chat_threads()
@@ -36,7 +38,12 @@ def health_chat():
         logger.warning("[health/chat] check failed: %s", _e)
         threads = 0
         messages = 0
-    return {"ok": True, "threads": threads, "messages": messages, "backend": DB_BACKEND}
+    return {
+        "ok": True,
+        "threads": threads,
+        "messages": messages,
+        "backend": DB_BACKEND,
+    }
 
 
 @router.get("/health/memory")
@@ -48,8 +55,8 @@ def health_memory():
     """
     try:
         # Import lightweight dependencies lazily to avoid circulars
-        from guardian.routes.memory import EPHEMERAL_MEMORY
         from guardian.core.dependencies import chatlog_db
+        from guardian.routes.memory import EPHEMERAL_MEMORY
 
         ephemeral_count = len(EPHEMERAL_MEMORY)
         midterm = chatlog_db.count_memories("midterm") if chatlog_db else 0
@@ -90,10 +97,7 @@ def health_deps(format: str = "json"):
     - format=prometheus: Returns Prometheus-compatible metrics
     """
     # Import from core dependencies module
-    from guardian.core.dependencies import (
-        API_KEY,
-        _mask_dsn,
-    )
+    from guardian.core.dependencies import API_KEY, _mask_dsn
 
     if format == "prometheus":
         return Response(
@@ -102,11 +106,17 @@ def health_deps(format: str = "json"):
         )
 
     # JSON format (default)
-    masked_api_key = (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
+    masked_api_key = (
+        (API_KEY[:4] + "…" + API_KEY[-4:])
+        if API_KEY and len(API_KEY) > 8
+        else API_KEY
+    )
 
     return {
         "status": "ok",
         "db_backend": DB_BACKEND,
-        "pg_dsn_masked": _mask_dsn(get_database_dsn()) if get_database_dsn() else None,
+        "pg_dsn_masked": _mask_dsn(get_database_dsn())
+        if get_database_dsn()
+        else None,
         "api_key_masked": masked_api_key,
     }

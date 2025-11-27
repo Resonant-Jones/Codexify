@@ -15,7 +15,9 @@ class RitualJob:
         self.total = total
         self.error = None
         self.result = None
-        self.thread = threading.Thread(target=self._run, args=(target,), kwargs=kwargs)
+        self.thread = threading.Thread(
+            target=self._run, args=(target,), kwargs=kwargs
+        )
         RITUAL_JOBS[self.job_id] = self
 
     def _run(self, target, **kwargs):

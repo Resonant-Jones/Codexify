@@ -1,6 +1,8 @@
+from typing import List, Tuple
+
 import faiss
 import numpy as np
-from typing import List, Tuple
+
 
 class VectorDB:
     def __init__(self, dim: int = 384):
@@ -13,7 +15,9 @@ class VectorDB:
         self.index.add(vec_np)
         self.data.append(metadata)
 
-    def query(self, vector: List[float], top_k: int = 5) -> List[Tuple[float, dict]]:
+    def query(
+        self, vector: List[float], top_k: int = 5
+    ) -> List[Tuple[float, dict]]:
         vec_np = np.array([vector], dtype=np.float32)
         D, I = self.index.search(vec_np, top_k)
         results = []

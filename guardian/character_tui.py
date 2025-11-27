@@ -85,7 +85,9 @@ def draw_menu(stdscr):
             delete_actor(actors[cursor])
             cursor = max(0, cursor - 1)
         elif k in (curses.KEY_ENTER, 10, 13) and actors:
-            stdscr.addstr(20, 2, f"Switched to: {actors[cursor]} (press any key)")
+            stdscr.addstr(
+                20, 2, f"Switched to: {actors[cursor]} (press any key)"
+            )
             stdscr.getch()
 
         stdscr.refresh()

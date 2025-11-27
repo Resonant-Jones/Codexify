@@ -26,7 +26,7 @@ def load_model_backend(name="default"):
     Defaults to the entry marked 'default' in model_registry.json.
     """
     registry_path = Path(__file__).parent / "model_registry.json"
-    with open(registry_path, "r") as f:
+    with open(registry_path) as f:
         registry = json.load(f)
 
     model_key = get_default_model_key() if name == "default" else name
@@ -43,7 +43,9 @@ def load_model_backend(name="default"):
     # Dynamically import the adapter from known adapter locations
     adapter_class = resolve_adapter(adapter_name)
 
-    return adapter_class(model_name=model_name) if model_name else adapter_class()
+    return (
+        adapter_class(model_name=model_name) if model_name else adapter_class()
+    )
 
 
 def resolve_adapter(adapter_name):
@@ -58,9 +60,13 @@ def resolve_adapter(adapter_name):
 
     if adapter_name not in known_adapters:
         logger.warning(f"Adapter '{adapter_name}' not found in known_adapters.")
-        raise ImportError(f"No module mapping found for adapter '{adapter_name}'.")
+        raise ImportError(
+            f"No module mapping found for adapter '{adapter_name}'."
+        )
 
     module_path = known_adapters[adapter_name]
     module = import_module(module_path)
-    logger.info(f"Resolved adapter '{adapter_name}' from module '{module_path}'")
+    logger.info(
+        f"Resolved adapter '{adapter_name}' from module '{module_path}'"
+    )
     return getattr(module, adapter_name)

@@ -7,12 +7,13 @@ Tests cover:
 - Relay message forwarding
 """
 
-import pytest
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 
-from guardian.federation.diff_engine import DiffEntry, DiffEngine
+import pytest
+
+from guardian.federation.diff_engine import DiffEngine, DiffEntry
 from guardian.federation.diff_store import DiffStore, get_diff_store
 
 
@@ -190,7 +191,9 @@ class TestSyncFlow:
             self.store_b.record_diff(diff, f"v{diff.version}")
 
         # Verify B is caught up on versions
-        assert self.store_b.get_latest_version(doc_id) == self.store_a.get_latest_version(doc_id)
+        assert self.store_b.get_latest_version(
+            doc_id
+        ) == self.store_a.get_latest_version(doc_id)
 
     def test_concurrent_edits_different_lines(self):
         """Test concurrent edits on different lines."""
@@ -245,7 +248,9 @@ class TestSyncFlow:
             self.store_b.record_diff(diff, f"synced-v{diff.version}")
 
         # B is now caught up with A on version
-        assert self.store_b.get_latest_version(doc_id) == self.store_a.get_latest_version(doc_id)
+        assert self.store_b.get_latest_version(
+            doc_id
+        ) == self.store_a.get_latest_version(doc_id)
         # Both should be at version 3
         assert self.store_b.get_latest_version(doc_id) == 3
         assert self.store_a.get_latest_version(doc_id) == 3

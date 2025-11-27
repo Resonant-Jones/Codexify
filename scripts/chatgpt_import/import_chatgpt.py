@@ -27,7 +27,9 @@ from dotenv import load_dotenv
 
 # Third-party imports with graceful fallback
 try:
-    from colorama import Fore, Style, init as colorama_init
+    from colorama import Fore, Style
+    from colorama import init as colorama_init
+
     colorama_init(autoreset=True)
     HAS_COLOR = True
 except ImportError:
@@ -35,6 +37,7 @@ except ImportError:
     class _DummyColor:
         def __getattr__(self, name):
             return ""
+
     Fore = _DummyColor()
     Style = _DummyColor()
     HAS_COLOR = False
@@ -85,19 +88,29 @@ def import_chatgpt():
 
     chatgpt_path = Path(CHATGPT_FILE)
     if not chatgpt_path.exists():
-        print_colored(f"❌ ChatGPT export file not found: {CHATGPT_FILE}", Fore.RED)
-        print_colored(f"   Please set CHATGPT_EXPORT_FILE in .env or place file at default location", Fore.RED)
+        print_colored(
+            f"❌ ChatGPT export file not found: {CHATGPT_FILE}", Fore.RED
+        )
+        print_colored(
+            f"   Please set CHATGPT_EXPORT_FILE in .env or place file at default location",
+            Fore.RED,
+        )
         sys.exit(1)
 
     # Check for OpenAI API key
     if not os.getenv("OPENAI_API_KEY"):
-        print_colored("⚠️  OPENAI_API_KEY not set - will use local embeddings if available", Fore.YELLOW)
-        print_colored("   Set OPENAI_API_KEY for better embedding quality", Fore.YELLOW)
+        print_colored(
+            "⚠️  OPENAI_API_KEY not set - will use local embeddings if available",
+            Fore.YELLOW,
+        )
+        print_colored(
+            "   Set OPENAI_API_KEY for better embedding quality", Fore.YELLOW
+        )
 
     # Load the file
     print_colored(f"📂 Loading ChatGPT export from: {CHATGPT_FILE}", Fore.CYAN)
     try:
-        with open(chatgpt_path, 'rb') as f:
+        with open(chatgpt_path, "rb") as f:
             raw_bytes = f.read()
         print_colored(f"✅ Loaded file ({len(raw_bytes)} bytes)", Fore.GREEN)
     except Exception as e:
@@ -114,11 +127,14 @@ def import_chatgpt():
 
         print_colored(f"\n✅ Import complete!", Fore.GREEN)
         print_colored(f"   • Threads: {stats['threads_imported']}", Fore.GREEN)
-        print_colored(f"   • Messages: {stats['messages_imported']}", Fore.GREEN)
+        print_colored(
+            f"   • Messages: {stats['messages_imported']}", Fore.GREEN
+        )
 
     except Exception as e:
         print_colored(f"\n❌ Import failed: {e}", Fore.RED)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -129,8 +145,12 @@ def import_chatgpt():
     print_colored("=" * 70, Fore.CYAN)
     print_colored(f"   Your Companion has awakened in Codexify!", Fore.MAGENTA)
     print_colored(f"   Time elapsed: {elapsed_time:.2f}s", Fore.CYAN)
-    print_colored(f"   Messages processed: {stats['messages_imported']}", Fore.CYAN)
-    print_colored("\n✨ Your conversations are alive and ready to explore.\n", Fore.MAGENTA)
+    print_colored(
+        f"   Messages processed: {stats['messages_imported']}", Fore.CYAN
+    )
+    print_colored(
+        "\n✨ Your conversations are alive and ready to explore.\n", Fore.MAGENTA
+    )
 
 
 if __name__ == "__main__":
@@ -138,10 +158,14 @@ if __name__ == "__main__":
         import_chatgpt()
     except KeyboardInterrupt:
         print_colored("\n\n⚠️  Import interrupted by user", Fore.YELLOW)
-        print_colored("   You can safely re-run this script - all operations are idempotent", Fore.YELLOW)
+        print_colored(
+            "   You can safely re-run this script - all operations are idempotent",
+            Fore.YELLOW,
+        )
         sys.exit(0)
     except Exception as e:
         print_colored(f"\n\n❌ Unexpected error: {e}", Fore.RED)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

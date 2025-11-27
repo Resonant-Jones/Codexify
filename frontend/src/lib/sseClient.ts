@@ -33,7 +33,7 @@ export class SSEClient {
 
     this.isConnecting = true;
     const url = `${this.baseUrl}/api/events?last_id=${lastId}`;
-    
+
     try {
       this.eventSource = new EventSourcePolyfill(url, {
         headers: { 'X-API-Key': this.apiKey },
@@ -76,7 +76,7 @@ export class SSEClient {
     }
 
     console.log('[SSE] Event received:', event.type, event.data);
-    
+
     // Notify all listeners for this event type
     const listeners = this.listeners.get(event.type);
     if (listeners) {
@@ -95,7 +95,7 @@ export class SSEClient {
       this.eventSource.close();
       this.eventSource = null;
     }
-    
+
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.scheduleReconnect();
     } else {
@@ -106,9 +106,9 @@ export class SSEClient {
   private scheduleReconnect(): void {
     this.reconnectAttempts++;
     const delay = Math.min(this.reconnectTimeout * this.reconnectAttempts, 30000);
-    
+
     console.log(`[SSE] Scheduling reconnect attempt ${this.reconnectAttempts} in ${delay}ms`);
-    
+
     setTimeout(() => {
       if (!this.eventSource || this.eventSource.readyState === EventSource.CLOSED) {
         this.connect();
@@ -120,10 +120,10 @@ export class SSEClient {
     if (!this.listeners.has(eventType)) {
       this.listeners.set(eventType, new Set());
     }
-    
+
     const listeners = this.listeners.get(eventType)!;
     listeners.add(callback);
-    
+
     // Return unsubscribe function
     return () => {
       listeners.delete(callback);

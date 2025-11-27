@@ -19,7 +19,9 @@ class FakeClient:
 notion_stub.Client = FakeClient
 sys.modules.setdefault("notion_client", notion_stub)
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+)
 
 try:
     import guardian.api_server as api_mod
@@ -59,10 +61,14 @@ def test_import_icloud(monkeypatch):
 
 
 def test_codexify_create(monkeypatch):
-    def fake_create(records, parent_id, token, db_title=None, with_template=True):
+    def fake_create(
+        records, parent_id, token, db_title=None, with_template=True
+    ):
         return "db123"
 
-    monkeypatch.setattr(api_mod, "create_notion_database_from_records", fake_create)
+    monkeypatch.setattr(
+        api_mod, "create_notion_database_from_records", fake_create
+    )
     resp = client.post(
         "/codexify/create",
         json={"records": [{"t": 1}], "parent_id": "pid", "token": "tok"},

@@ -99,14 +99,18 @@ class DebounceController:
                 future.set_result(None)
         self.pending_futures.clear()
 
-    async def _delayed_execute(self, func: Callable[..., Awaitable[Any]]) -> None:
+    async def _delayed_execute(
+        self, func: Callable[..., Awaitable[Any]]
+    ) -> None:
         """Execute function after delay."""
         try:
             await asyncio.sleep(self.wait)
 
             async with self.lock:
                 if time.time() - self.last_call >= self.wait:
-                    result = await func(*self.current_args, **self.current_kwargs)
+                    result = await func(
+                        *self.current_args, **self.current_kwargs
+                    )
 
                     # Set result for current future
                     if self.current_future and not self.current_future.done():

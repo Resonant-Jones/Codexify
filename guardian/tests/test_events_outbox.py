@@ -1,12 +1,12 @@
 import asyncio
-import json
 import importlib
+import json
 
 import pytest
 from fastapi.testclient import TestClient
 
-from guardian.core import event_bus
 from guardian.connectors import github as github_module
+from guardian.core import event_bus
 
 
 def test_events_outbox_replay_and_cleanup(tmp_path, monkeypatch):
@@ -22,7 +22,9 @@ def test_events_outbox_replay_and_cleanup(tmp_path, monkeypatch):
     ga = importlib.reload(ga)
 
     with TestClient(ga.app) as client:
-        event_bus.emit_event("message.created", {"thread_id": 1, "content": "hi"})
+        event_bus.emit_event(
+            "message.created", {"thread_id": 1, "content": "hi"}
+        )
 
         received = None
         with client.stream(
@@ -41,7 +43,8 @@ def test_events_outbox_replay_and_cleanup(tmp_path, monkeypatch):
                         continue
                     lines = frame.splitlines()
                     data_line = next(
-                        (line for line in lines if line.startswith("data:")), None
+                        (line for line in lines if line.startswith("data:")),
+                        None,
                     )
                     if data_line is None:
                         continue
@@ -88,7 +91,9 @@ def test_github_connector_worker_stores_runs(tmp_path, monkeypatch):
         }
     ]
 
-    monkeypatch.setattr(github_module, "sync_repo", lambda owner, repo, token: sample_docs)
+    monkeypatch.setattr(
+        github_module, "sync_repo", lambda owner, repo, token: sample_docs
+    )
 
     asyncio.run(ga._run_github_sync(created))
 

@@ -9,7 +9,9 @@ def patch_schema():
         cursor = conn.cursor()
 
         try:
-            cursor.execute("ALTER TABLE memory ADD COLUMN type TEXT DEFAULT 'log'")
+            cursor.execute(
+                "ALTER TABLE memory ADD COLUMN type TEXT DEFAULT 'log'"
+            )
         except sqlite3.OperationalError:
             print("Column 'type' already exists.")
 
@@ -29,7 +31,9 @@ def patch_schema():
             print("Column 'related_to' already exists.")
 
         try:
-            cursor.execute("ALTER TABLE memory ADD COLUMN priority INTEGER DEFAULT 1")
+            cursor.execute(
+                "ALTER TABLE memory ADD COLUMN priority INTEGER DEFAULT 1"
+            )
         except sqlite3.OperationalError:
             print("Column 'priority' already exists.")
 

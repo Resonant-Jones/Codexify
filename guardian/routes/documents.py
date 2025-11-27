@@ -61,7 +61,7 @@ def _get_db() -> GuardianDB:
 
 
 @router.post("/api/documents/autosave", response_model=AutosaveResponse)
-async def autosave_document(request: AutosaveRequest) -> Dict[str, Any]:
+async def autosave_document(request: AutosaveRequest) -> dict[str, Any]:
     """
     Autosave a session document linked to a thread.
 
@@ -82,14 +82,14 @@ async def autosave_document(request: AutosaveRequest) -> Dict[str, Any]:
         logger.warning("Autosave request missing thread_id")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="thread_id is required"
+            detail="thread_id is required",
         )
 
     if not request.content or not request.content.strip():
         logger.warning("Autosave request missing or empty content")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="content is required and cannot be empty"
+            detail="content is required and cannot be empty",
         )
 
     try:
@@ -97,33 +97,46 @@ async def autosave_document(request: AutosaveRequest) -> Dict[str, Any]:
 
         with db.get_session() as session:
             # Verify thread exists
-            thread = session.query(models.ChatThread).filter_by(id=request.thread_id).first()
+            thread = (
+                session.query(models.ChatThread)
+                .filter_by(id=request.thread_id)
+                .first()
+            )
             if not thread:
-                logger.warning(f"Thread {request.thread_id} not found for autosave")
+                logger.warning(
+                    f"Thread {request.thread_id} not found for autosave"
+                )
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Thread {request.thread_id} not found"
+                    detail=f"Thread {request.thread_id} not found",
                 )
 
             # Check if autosave document already exists for this thread
-            existing_link = session.query(models.ThreadDocument).filter_by(
-                thread_id=request.thread_id,
-                relation='autosave'
-            ).first()
+            existing_link = (
+                session.query(models.ThreadDocument)
+                .filter_by(thread_id=request.thread_id, relation="autosave")
+                .first()
+            )
 
             if existing_link:
                 # Update existing document
-                document = session.query(models.GeneratedDocument).filter_by(
-                    id=existing_link.document_id
-                ).first()
+                document = (
+                    session.query(models.GeneratedDocument)
+                    .filter_by(id=existing_link.document_id)
+                    .first()
+                )
 
                 if document:
-                    logger.info(f"Updating autosave document {document.id} for thread {request.thread_id}")
+                    logger.info(
+                        f"Updating autosave document {document.id} for thread {request.thread_id}"
+                    )
                     document.content = request.content
                     document_id = document.id
                 else:
                     # Link exists but document is missing - create new document
-                    logger.warning(f"Autosave link exists but document missing, creating new one")
+                    logger.warning(
+                        f"Autosave link exists but document missing, creating new one"
+                    )
                     document_id = str(uuid.uuid4())
                     new_document = models.GeneratedDocument(
                         id=document_id,
@@ -132,8 +145,8 @@ async def autosave_document(request: AutosaveRequest) -> Dict[str, Any]:
                         user_id=thread.user_id,
                         title=f"Session notes - {thread.title}",
                         content=request.content,
-                        format='md',
-                        model='autosave'
+                        format="md",
+                        model="autosave",
                     )
                     session.add(new_document)
 
@@ -142,7 +155,9 @@ async def autosave_document(request: AutosaveRequest) -> Dict[str, Any]:
             else:
                 # Create new document
                 document_id = str(uuid.uuid4())
-                logger.info(f"Creating new autosave document {document_id} for thread {request.thread_id}")
+                logger.info(
+                    f"Creating new autosave document {document_id} for thread {request.thread_id}"
+                )
 
                 new_document = models.GeneratedDocument(
                     id=document_id,
@@ -151,8 +166,8 @@ async def autosave_document(request: AutosaveRequest) -> Dict[str, Any]:
                     user_id=thread.user_id,
                     title=f"Session notes - {thread.title}",
                     content=request.content,
-                    format='md',
-                    model='autosave'
+                    format="md",
+                    model="autosave",
                 )
                 session.add(new_document)
 
@@ -160,7 +175,7 @@ async def autosave_document(request: AutosaveRequest) -> Dict[str, Any]:
                 link = models.ThreadDocument(
                     thread_id=request.thread_id,
                     document_id=document_id,
-                    relation='autosave'
+                    relation="autosave",
                 )
                 session.add(link)
 
@@ -172,17 +187,13 @@ async def autosave_document(request: AutosaveRequest) -> Dict[str, Any]:
                 topic="document.autosave",
                 payload={
                     "thread_id": request.thread_id,
-                    "document_id": document_id
-                }
+                    "document_id": document_id,
+                },
             )
         except Exception as e:
             logger.error(f"Failed to emit autosave event: {e}")
 
-        return {
-            "ok": True,
-            "document_id": document_id,
-            "relation": "autosave"
-        }
+        return {"ok": True, "document_id": document_id, "relation": "autosave"}
 
     except HTTPException:
         raise
@@ -190,12 +201,12 @@ async def autosave_document(request: AutosaveRequest) -> Dict[str, Any]:
         logger.error(f"Error in autosave_document: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to autosave document: {str(e)}"
+            detail=f"Failed to autosave document: {str(e)}",
         )
 
 
 @router.get("/api/threads/{thread_id}/documents")
-async def get_thread_documents(thread_id: int) -> Dict[str, Any]:
+async def get_thread_documents(thread_id: int) -> dict[str, Any]:
     """
     Get all documents linked to a thread.
 
@@ -216,42 +227,52 @@ async def get_thread_documents(thread_id: int) -> Dict[str, Any]:
 
         with db.get_session() as session:
             # Verify thread exists
-            thread = session.query(models.ChatThread).filter_by(id=thread_id).first()
+            thread = (
+                session.query(models.ChatThread).filter_by(id=thread_id).first()
+            )
             if not thread:
                 logger.warning(f"Thread {thread_id} not found")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Thread {thread_id} not found"
+                    detail=f"Thread {thread_id} not found",
                 )
 
             # Get all thread-document links
-            links = session.query(models.ThreadDocument).filter_by(
-                thread_id=thread_id
-            ).order_by(models.ThreadDocument.created_at.desc()).all()
+            links = (
+                session.query(models.ThreadDocument)
+                .filter_by(thread_id=thread_id)
+                .order_by(models.ThreadDocument.created_at.desc())
+                .all()
+            )
 
             # Fetch document details
             documents = []
             for link in links:
                 # Try to find in GeneratedDocument first
-                doc = session.query(models.GeneratedDocument).filter_by(id=link.document_id).first()
+                doc = (
+                    session.query(models.GeneratedDocument)
+                    .filter_by(id=link.document_id)
+                    .first()
+                )
 
                 if doc:
-                    documents.append({
-                        "id": doc.id,
-                        "title": doc.title,
-                        "relation": link.relation,
-                        "created_at": link.created_at.isoformat() if link.created_at else None
-                    })
+                    documents.append(
+                        {
+                            "id": doc.id,
+                            "title": doc.title,
+                            "relation": link.relation,
+                            "created_at": link.created_at.isoformat()
+                            if link.created_at
+                            else None,
+                        }
+                    )
                 else:
                     # Document not found - log warning but continue
                     logger.warning(
                         f"Document {link.document_id} linked to thread {thread_id} not found"
                     )
 
-            return {
-                "ok": True,
-                "documents": documents
-            }
+            return {"ok": True, "documents": documents}
 
     except HTTPException:
         raise
@@ -259,5 +280,5 @@ async def get_thread_documents(thread_id: int) -> Dict[str, Any]:
         logger.error(f"Error in get_thread_documents: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve thread documents: {str(e)}"
+            detail=f"Failed to retrieve thread documents: {str(e)}",
         )

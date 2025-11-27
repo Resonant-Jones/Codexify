@@ -10,6 +10,7 @@ from typing import List
 
 from guardian.agents.imprint_zero import imprint_zero
 
+
 def print_options(options: List[str]) -> None:
     """Print numbered options."""
     if options:
@@ -18,16 +19,17 @@ def print_options(options: List[str]) -> None:
             print(f"{i}. {option}")
         print()
 
+
 def main() -> None:
     """Run the Imprint Zero flow."""
     try:
         # Start flow
         prompt, options = imprint_zero.start_flow()
         print(f"\n{prompt}")
-        
+
         while True:
             print_options(options)
-            
+
             if not options:
                 user_input = input("> ")
             else:
@@ -40,29 +42,29 @@ def main() -> None:
                 except (ValueError, IndexError):
                     print("Invalid option. Please try again.")
                     continue
-            
+
             # Process step
             prompt, options, is_complete = imprint_zero.process_step(user_input)
             print(f"\n{prompt}")
-            
+
             if is_complete:
                 if "Save" in options or "Deploy" in options:
                     # Final review
                     print_options(options)
                     choice = input("Enter option: ").lower()
-                    
-                    if choice in ['s', 'save', '2']:
+
+                    if choice in ["s", "save", "2"]:
                         name = input("\nEnter name for your companion: ")
                         file_path = imprint_zero.save_companion(name)
                         print(f"\nCompanion saved to: {file_path}")
                         break
-                    elif choice in ['d', 'deploy', '3']:
+                    elif choice in ["d", "deploy", "3"]:
                         name = input("\nEnter name for your companion: ")
                         file_path = imprint_zero.save_companion(name)
                         print(f"\nCompanion saved to: {file_path}")
                         print("To deploy: guardianctl deploy-companion", name)
                         break
-                    elif choice in ['e', 'edit', '1']:
+                    elif choice in ["e", "edit", "1"]:
                         # Restart from step 2
                         imprint_zero.current_flow["step"] = 1
                         prompt, options, _ = imprint_zero.process_step("edit")
@@ -77,6 +79,7 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nFlow cancelled. Progress saved as draft.")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

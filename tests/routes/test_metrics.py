@@ -8,7 +8,10 @@ def test_metrics_endpoint_prometheus(test_client):
     """Test that /metrics endpoint returns Prometheus-compatible metrics."""
     res = test_client.get("/metrics")
     assert res.status_code == 200
-    assert "codexify_requests_total" in res.text or "codexify_db_backend" in res.text
+    assert (
+        "codexify_requests_total" in res.text
+        or "codexify_db_backend" in res.text
+    )
     # Verify Prometheus content type
     assert "text/plain" in res.headers.get("content-type", "")
 

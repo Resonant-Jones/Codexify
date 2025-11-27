@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import types
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,10 +10,14 @@ from fastapi.testclient import TestClient
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Stub optional heavy deps to keep app import minimal
     import sys
-    sys.modules.setdefault("notion_client", types.SimpleNamespace(Client=object))
+
+    sys.modules.setdefault(
+        "notion_client", types.SimpleNamespace(Client=object)
+    )
 
     # Stub heavy server modules that drag in CLI stacks
     from fastapi import APIRouter
+
     tools_stub = types.ModuleType("guardian.server.tools_api")
     tools_stub.router = APIRouter()
     sys.modules["guardian.server.tools_api"] = tools_stub
@@ -39,10 +44,17 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     def fake_collect_docs(thread_id: int):
         return [
-            {"id": "d1", "title": "Session notes - Test Thread", "relation": "autosave", "created_at": "2025-01-01T00:00:00Z"}
+            {
+                "id": "d1",
+                "title": "Session notes - Test Thread",
+                "relation": "autosave",
+                "created_at": "2025-01-01T00:00:00Z",
+            }
         ]
 
-    monkeypatch.setattr(ws, "_collect_thread_documents", fake_collect_docs, raising=True)
+    monkeypatch.setattr(
+        ws, "_collect_thread_documents", fake_collect_docs, raising=True
+    )
 
     class FakeSensors:
         def __init__(self, *_args, **_kwargs):
@@ -55,6 +67,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     # Now import the app (workspace router is included)
     from guardian.server.app import app
+
     return TestClient(app)
 
 

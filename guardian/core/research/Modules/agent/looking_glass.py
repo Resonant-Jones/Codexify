@@ -71,7 +71,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run LookingGlass (Spy) Search queries via CLI"
     )
-    parser.add_argument("-q", "--query", required=True, help="Search query string")
+    parser.add_argument(
+        "-q", "--query", required=True, help="Search query string"
+    )
     parser.add_argument(
         "-b",
         "--backend",
@@ -79,7 +81,10 @@ if __name__ == "__main__":
         help="Model backend: ollama, gemini, openai",
     )
     parser.add_argument(
-        "-m", "--model", default="gemma3:1b", help="Model identifier (e.g., gemma3:1b)"
+        "-m",
+        "--model",
+        default="gemma3:1b",
+        help="Model identifier (e.g., gemma3:1b)",
     )
     args = parser.parse_args()
 
@@ -169,13 +174,20 @@ if __name__ == "__main__":
                 print(f"[ERROR] Task indexing issue at index {i}: {e}")
                 break
 
-            if task1["tool"] == "url_search" and task2["tool"] == "page_content":
+            if (
+                task1["tool"] == "url_search"
+                and task2["tool"] == "page_content"
+            ):
                 urls = await agent._search_url(
                     task1["keyword"], [], task1["search_engine"]
                 )
                 page_data = await agent._summarize_pages(urls)
                 results.append(
-                    {"search": task1["keyword"], "urls": urls, "summary": page_data}
+                    {
+                        "search": task1["keyword"],
+                        "urls": urls,
+                        "summary": page_data,
+                    }
                 )
                 i += 2
             else:
@@ -196,7 +208,7 @@ if __name__ == "__main__":
         )
         print(f"Markdown log saved to: {log_path}")
 
-        with open(log_path, "r", encoding="utf-8") as f:
+        with open(log_path, encoding="utf-8") as f:
             print(f.read())
 
     asyncio.run(run_agent())

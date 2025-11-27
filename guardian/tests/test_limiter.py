@@ -33,7 +33,9 @@ async def test_basic_limiting():
         await test_func()
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     # Should maintain minimum interval of 0.5 seconds
     min_interval = 0.5  # 2 ops/sec = 0.5s between ops
@@ -59,7 +61,9 @@ async def test_concurrent_limiting():
     timestamps.sort()
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     # Should maintain minimum interval of 0.2 seconds
     min_interval = 0.2  # 5 ops/sec = 0.2s between ops
@@ -78,7 +82,9 @@ async def test_direct_limiter_usage(limiter):
         timestamps.append(time.time())
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     # Should maintain minimum interval of 0.1 seconds
     min_interval = 0.1  # 10 ops/sec = 0.1s between ops
@@ -121,7 +127,9 @@ async def test_mixed_durations():
     await variable_func(0.1)  # Fast
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     # Should maintain minimum interval regardless of operation duration
     min_interval = 0.25  # 4 ops/sec = 0.25s between ops

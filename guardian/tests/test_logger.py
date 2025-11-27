@@ -32,7 +32,9 @@ class TestLogger:
         self.buffer: List[Dict[str, Any]] = []
 
     @throttle(rate=10.0)
-    async def log(self, message: str, level: str = "INFO", **kwargs: Any) -> None:
+    async def log(
+        self, message: str, level: str = "INFO", **kwargs: Any
+    ) -> None:
         """Log a message with rate limiting."""
         event = {
             "timestamp": datetime.utcnow().isoformat(),

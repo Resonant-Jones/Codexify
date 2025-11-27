@@ -14,7 +14,9 @@ from pathlib import Path
 
 # Load the sibling module file guardian/codexify.py under a distinct module name
 _mod_path = Path(__file__).resolve().parents[1] / "codexify.py"
-_spec = importlib.util.spec_from_file_location("guardian._codexify_module", str(_mod_path))
+_spec = importlib.util.spec_from_file_location(
+    "guardian._codexify_module", str(_mod_path)
+)
 if _spec and _spec.loader:
     _mod = importlib.util.module_from_spec(_spec)
     sys.modules[_spec.name] = _mod

@@ -7,20 +7,20 @@ Create Date: 2025-10-24 22:35:58.174725
 """
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '2fa2ab3faac6'
-down_revision: Union[str, Sequence[str], None] = '1eb6836bb10e'
+revision: str = "2fa2ab3faac6"
+down_revision: Union[str, Sequence[str], None] = "1eb6836bb10e"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.execute("""
+    op.execute(
+        """
         CREATE SCHEMA IF NOT EXISTS public;
         CREATE TABLE IF NOT EXISTS public.audit_log (
             id BIGSERIAL PRIMARY KEY,
@@ -30,9 +30,14 @@ def upgrade() -> None:
             user_id TEXT NOT NULL,
             "timestamp" TIMESTAMPTZ NOT NULL DEFAULT now()
         );
-    """)
-    op.execute('CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON public.audit_log ("timestamp" DESC);')
-    op.execute('CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON public.audit_log (entity, entity_id);')
+    """
+    )
+    op.execute(
+        'CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON public.audit_log ("timestamp" DESC);'
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON public.audit_log (entity, entity_id);"
+    )
 
 
 def downgrade() -> None:

@@ -32,7 +32,9 @@ class Planner(Agent):
     def set_name(self, name):
         self.name = name
 
-    async def run(self, response: str, data: str | None = None) -> dict[str, str]:
+    async def run(
+        self, response: str, data: str | None = None
+    ) -> dict[str, str]:
         """
         It should generate a to do list
         and then pass to different agent
@@ -62,7 +64,11 @@ class Planner(Agent):
             if new_task == None:
                 obj = {"agent": "TERMINATE", "task": "TERMINATE", "data": data}
             else:
-                obj = {"agent": new_task.agent, "task": new_task.task, "data": data}
+                obj = {
+                    "agent": new_task.agent,
+                    "task": new_task.task,
+                    "data": data,
+                }
             return obj
 
     def _response_handler(self, response):

@@ -79,7 +79,10 @@ class TestGetThreadDocuments:
             elif model == mock_models.ThreadDocument:
                 q = MagicMock()
                 filter_result = MagicMock()
-                filter_result.order_by.return_value.all.return_value = [mock_link1, mock_link2]
+                filter_result.order_by.return_value.all.return_value = [
+                    mock_link1,
+                    mock_link2,
+                ]
                 q.filter_by.return_value = filter_result
                 return q
             elif model == mock_models.GeneratedDocument:
@@ -100,9 +103,10 @@ class TestGetThreadDocuments:
 
         documents.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.documents import get_thread_documents
 
-        import asyncio
         result = asyncio.run(get_thread_documents(1))
 
         # Verify
@@ -147,9 +151,10 @@ class TestGetThreadDocuments:
 
         documents.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.documents import get_thread_documents
 
-        import asyncio
         result = asyncio.run(get_thread_documents(1))
 
         # Verify
@@ -170,9 +175,10 @@ class TestGetThreadDocuments:
 
         documents.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.documents import get_thread_documents
 
-        import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(get_thread_documents(999))
 
@@ -250,9 +256,10 @@ class TestMultipleDocumentsPerThread:
 
         documents.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.documents import get_thread_documents
 
-        import asyncio
         result = asyncio.run(get_thread_documents(1))
 
         # Verify
@@ -322,7 +329,10 @@ class TestDocumentOrdering:
                 q = MagicMock()
                 filter_result = MagicMock()
                 # Simulate order_by(desc()) returning newest first
-                filter_result.order_by.return_value.all.return_value = [link_new, link_old]
+                filter_result.order_by.return_value.all.return_value = [
+                    link_new,
+                    link_old,
+                ]
                 q.filter_by.return_value = filter_result
                 return q
             elif model == mock_models.GeneratedDocument:
@@ -343,9 +353,10 @@ class TestDocumentOrdering:
 
         documents.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.documents import get_thread_documents
 
-        import asyncio
         result = asyncio.run(get_thread_documents(1))
 
         # Verify newest document is first
@@ -407,7 +418,10 @@ class TestGracefulDegradation:
             elif model == mock_models.ThreadDocument:
                 q = MagicMock()
                 filter_result = MagicMock()
-                filter_result.order_by.return_value.all.return_value = [link_exists, link_missing]
+                filter_result.order_by.return_value.all.return_value = [
+                    link_exists,
+                    link_missing,
+                ]
                 q.filter_by.return_value = filter_result
                 return q
             elif model == mock_models.GeneratedDocument:
@@ -431,9 +445,10 @@ class TestGracefulDegradation:
 
         documents.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.documents import get_thread_documents
 
-        import asyncio
         result = asyncio.run(get_thread_documents(1))
 
         # Verify only existing document is returned
@@ -449,13 +464,16 @@ class TestDatabaseErrors:
     def test_get_documents_database_error(self, mock_models, mock_db):
         """Test document retrieval handles database errors gracefully."""
         # Setup
-        mock_db.get_session.side_effect = Exception("Database connection failed")
+        mock_db.get_session.side_effect = Exception(
+            "Database connection failed"
+        )
 
         documents.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.documents import get_thread_documents
 
-        import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(get_thread_documents(1))
 

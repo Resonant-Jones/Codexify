@@ -18,7 +18,7 @@ app = FastAPI(title="Guardian API", version="1.0")
 providers = ProviderRegistry()
 
 
-def require_api_key(x_api_key: Optional[str] = Query(None, alias="X-API-Key")):
+def require_api_key(x_api_key: str | None = Query(None, alias="X-API-Key")):
     """Simple query-param API key guard (X-API-Key), per acceptance checks."""
     expected = os.getenv("GUARDIAN_API_KEY")
     if expected and x_api_key != expected:
@@ -34,11 +34,11 @@ def capabilities(_: None = Depends(require_api_key)):
 
 class ChatBody(BaseModel):
     prompt: str
-    provider: Optional[str] = None
-    model: Optional[str] = None
-    temperature: Optional[float] = None
-    top_p: Optional[float] = None
-    max_tokens: Optional[int] = None
+    provider: str | None = None
+    model: str | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
 
 
 @app.post("/chat", tags=["Chat"])
@@ -65,11 +65,11 @@ def chat(body: ChatBody, _: None = Depends(require_api_key)):
 @app.get("/chat/stream", tags=["Chat"])
 def chat_stream(
     prompt: str,
-    provider: Optional[str] = None,
-    model: Optional[str] = None,
-    temperature: Optional[float] = None,
-    top_p: Optional[float] = None,
-    max_tokens: Optional[int] = None,
+    provider: str | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    max_tokens: int | None = None,
     _: None = Depends(require_api_key),
 ):
     chat = providers.get_chat(provider)
@@ -86,20 +86,18 @@ def chat_stream(
     def gen() -> Iterator[bytes]:
         try:
             for token in chat.stream(prompt, model=model, **extra):
-                yield f"data: {token}\n\n".encode("utf-8")
+                yield f"data: {token}\n\n".encode()
             yield b"data: [DONE]\n\n"
         except Exception as e:
-            yield f"event: error\ndata: {chat.name} upstream error: {e}\n\n".encode(
-                "utf-8"
-            )
+            yield f"event: error\ndata: {chat.name} upstream error: {e}\n\n".encode()
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 class EmbeddingsBody(BaseModel):
-    texts: List[str]
-    embedder: Optional[str] = None
-    model: Optional[str] = None
+    texts: list[str]
+    embedder: str | None = None
+    model: str | None = None
 
 
 @app.post("/embeddings", tags=["Embeddings"])
@@ -109,7 +107,9 @@ def embeddings(body: EmbeddingsBody, _: None = Depends(require_api_key)):
         vecs = emb.embed(body.texts, model=body.model)
         return {"provider": emb.name, "model": body.model, "vectors": vecs}
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Upstream error ({emb.name}): {e}")
+        raise HTTPException(
+            status_code=502, detail=f"Upstream error ({emb.name}): {e}"
+        )
 
 
 @app.get("/healthz", tags=["Diag"])

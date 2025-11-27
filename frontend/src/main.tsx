@@ -5,7 +5,7 @@ import App from "./App";
 import { configureGC } from "./dcw-services/gc";
 import { GuardianAPI } from "./lib/guardianApi";
 // Tailwind base/utilities and app entry
-;(window as any).GuardianAPI = GuardianAPI; 
+;(window as any).GuardianAPI = GuardianAPI;
 declare global {
   interface Window {
     __GC_ENV__?: any;

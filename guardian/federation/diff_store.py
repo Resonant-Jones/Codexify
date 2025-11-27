@@ -6,10 +6,10 @@ after periods of offline time.
 
 import json
 import logging
-from pathlib import Path
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional, Dict
-from dataclasses import dataclass, asdict, field
+from pathlib import Path
+from typing import Dict, List, Optional
 
 from .diff_engine import DiffEntry
 
@@ -26,7 +26,9 @@ class DocumentVersion:
     content_hash: str
     created_by: str
     created_at: str  # ISO format
-    diffs_applied: List[str] = field(default_factory=list)  # List of diff checksums
+    diffs_applied: List[str] = field(
+        default_factory=list
+    )  # List of diff checksums
 
 
 class DiffStore:
@@ -61,7 +63,7 @@ class DiffStore:
         """Load in-memory index from persistent storage."""
         for index_file in self.store_path.glob("*.json"):
             try:
-                with open(index_file, "r") as f:
+                with open(index_file) as f:
                     data = json.load(f)
                     doc_id = data.get("doc_id")
                     if doc_id:
@@ -101,13 +103,17 @@ class DiffStore:
             "author": diff.author,
             "timestamp": diff.timestamp.isoformat(),
             "content_hash": diff.content_hash,
-            "patch_checksum": hashlib.sha256(diff.patch.encode()).hexdigest()[:16],
+            "patch_checksum": hashlib.sha256(diff.patch.encode()).hexdigest()[
+                :16
+            ],
         }
 
         self._index[doc_id]["diffs"].append(diff_record)
         self._index[doc_id]["latest_version"] = diff.version
         self._index[doc_id]["latest_content"] = resulting_content
-        self._index[doc_id]["latest_updated"] = datetime.now(timezone.utc).isoformat()
+        self._index[doc_id]["latest_updated"] = datetime.now(
+            timezone.utc
+        ).isoformat()
 
         self._save_index(doc_id)
 
@@ -141,7 +147,9 @@ class DiffStore:
             return self._index[doc_id].get("latest_content")
         return None
 
-    def get_diffs_since(self, doc_id: str, since_version: int) -> List[DiffEntry]:
+    def get_diffs_since(
+        self, doc_id: str, since_version: int
+    ) -> List[DiffEntry]:
         """Get all diffs for a document since a given version.
 
         Used for resynchronization after offline periods.

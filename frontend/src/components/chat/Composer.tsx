@@ -76,7 +76,7 @@ export function Composer({
   prefill?: string;
   onPrefillConsumed?: () => void;
   threadId?: number;
-}) 
+})
 // Refs & local state: textarea ref, value and sending flag
 {
   const ref = useRef<HTMLTextAreaElement | null>(null);

@@ -290,7 +290,9 @@ class Crawl:
     async def _is_pdf(self, url):
         try:
             # Use GET request with stream=True to avoid downloading the entire file
-            response = requests.get(url, stream=True, allow_redirects=True, timeout=10)
+            response = requests.get(
+                url, stream=True, allow_redirects=True, timeout=10
+            )
             response.raise_for_status()
 
             content_type = response.headers.get("Content-Type", "").lower()
@@ -339,7 +341,9 @@ class Page_summary(BaseModel):
     title: str = Field(..., description="Title of the page.")
     summary: str = Field(..., description="Summary of the page")
     brief_summary: str = Field(..., description="Brief summary of the page")
-    keywords: list[str] = Field(..., description="Keywords assigned to the page")
+    keywords: list[str] = Field(
+        ..., description="Keywords assigned to the page"
+    )
 
 
 class TableRow(BaseModel):

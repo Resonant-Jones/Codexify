@@ -81,7 +81,9 @@ class GuardianCLI:
             discovered = self.plugin_host.discover_plugins()
             click.echo(f"\nDiscovered Plugins: {len(discovered)}")
 
-            active = len([p for p in self.plugin_host.plugin_states.values() if p])
+            active = len(
+                [p for p in self.plugin_host.plugin_states.values() if p]
+            )
             click.echo(f"Active Plugins: {active}")
 
             click.echo("\nPlugin Details:")
@@ -110,7 +112,9 @@ class GuardianCLI:
                     try:
                         self.plugin_host.activate_plugin(plugin_name)
                     except Exception as e:
-                        logger.error(f"Failed to activate plugin {plugin_name}: {e}")
+                        logger.error(
+                            f"Failed to activate plugin {plugin_name}: {e}"
+                        )
 
             # Register plugin CLI commands
             self.plugin_host.register_plugin_cli_commands(self.cli)

@@ -5,9 +5,13 @@ import uvicorn
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Launch Guardian FastAPI server")
+    parser = argparse.ArgumentParser(
+        description="Launch Guardian FastAPI server"
+    )
     parser.add_argument(
-        "--host", default=os.getenv("GUARDIAN_API_HOST", "127.0.0.1"), help="Bind host"
+        "--host",
+        default=os.getenv("GUARDIAN_API_HOST", "127.0.0.1"),
+        help="Bind host",
     )
     parser.add_argument(
         "--port",

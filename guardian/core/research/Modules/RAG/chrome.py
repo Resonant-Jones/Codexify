@@ -12,7 +12,6 @@ class VectorSearch:
         name="new_collection",
         path: str = "./db",
     ):
-
         self.client = chromadb.PersistentClient(
             path=path, settings=Settings(allow_reset=True)
         )
@@ -30,7 +29,9 @@ class VectorSearch:
         if metadatas == None:
             self.collection.add(documents=documents, ids=id)
         else:
-            self.collection.add(documents=documents, ids=id, metadatas=metadatas)
+            self.collection.add(
+                documents=documents, ids=id, metadatas=metadatas
+            )
 
     def query(self, query: str, k: int):
         return self.collection.query(query_texts=query, n_results=k)

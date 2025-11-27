@@ -7,7 +7,9 @@ client = TestClient(app)
 
 def test_chat_crud():
     # Create message
-    r = client.post("/api/chat/1/messages", json={"role": "user", "content": "hello"})
+    r = client.post(
+        "/api/chat/1/messages", json={"role": "user", "content": "hello"}
+    )
     assert r.status_code == 200
     data = r.json()
     assert data.get("ok") is True
@@ -29,7 +31,9 @@ def test_chat_crud():
 
 
 def test_chat_post_empty_400():
-    r = client.post("/api/chat/2/messages", json={"role": "user", "content": ""})
+    r = client.post(
+        "/api/chat/2/messages", json={"role": "user", "content": ""}
+    )
     assert r.status_code == 400
     assert r.json().get("ok") is False
 
@@ -54,7 +58,8 @@ def test_memory_crud_and_health():
 
     # Update
     r = client.patch(
-        f"/api/memory/longterm/{eid}", json={"content": "updated", "pinned": False}
+        f"/api/memory/longterm/{eid}",
+        json={"content": "updated", "pinned": False},
     )
     assert r.status_code == 200
     assert r.json().get("ok") is True
@@ -77,7 +82,8 @@ def test_chat_pagination():
     # Insert > 60 messages into thread 99
     for i in range(60):
         client.post(
-            "/api/chat/99/messages", json={"role": "user", "content": f"msg {i}"}
+            "/api/chat/99/messages",
+            json={"role": "user", "content": f"msg {i}"},
         )
     # Page 1
     r = client.get("/api/chat/99/messages", params={"limit": 50, "offset": 0})

@@ -53,7 +53,10 @@ def run_groq_vision_file(
     """Run a Groq vision model on a local image file and return the response text."""
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     messages = [
-        {"role": "user", "content": make_groq_vision_payload(prompt_text, image_path)}
+        {
+            "role": "user",
+            "content": make_groq_vision_payload(prompt_text, image_path),
+        }
     ]
     completion = client.chat.completions.create(
         model="meta-llama/llama-4-scout-17b-16e-instruct",

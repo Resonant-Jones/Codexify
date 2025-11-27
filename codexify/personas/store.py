@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from guardian.core.dependencies import get_database_dsn
 from guardian.db.models import Persona
 
-_SessionFactory: Optional[sessionmaker] = None
+_SessionFactory: sessionmaker | None = None
 
 
 def _get_session_factory() -> sessionmaker:
@@ -24,9 +24,13 @@ def _get_session_factory() -> sessionmaker:
         return _SessionFactory
     dsn = get_database_dsn()
     if not dsn:
-        raise RuntimeError("Database DSN not configured; cannot access personas store.")
+        raise RuntimeError(
+            "Database DSN not configured; cannot access personas store."
+        )
     engine = create_engine(dsn, future=True)
-    _SessionFactory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    _SessionFactory = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, future=True
+    )
     return _SessionFactory
 
 
@@ -36,19 +40,27 @@ def _set_session_factory(factory: sessionmaker) -> None:
     _SessionFactory = factory
 
 
-def get_active_persona(user_id: str, project_id: Optional[int]) -> Optional[Persona]:
+def get_active_persona(
+    user_id: str, project_id: int | None
+) -> Persona | None:
     """Return the active persona for (user_id, project_id), if any."""
     Session = _get_session_factory()
     with Session() as session:
-        stmt = select(Persona).where(
-            Persona.user_id == user_id,
-            Persona.project_id == project_id,
-            Persona.is_active.is_(True),
-        ).order_by(Persona.created_at.desc())
+        stmt = (
+            select(Persona)
+            .where(
+                Persona.user_id == user_id,
+                Persona.project_id == project_id,
+                Persona.is_active.is_(True),
+            )
+            .order_by(Persona.created_at.desc())
+        )
         return session.scalars(stmt).first()
 
 
-def set_persona(user_id: str, project_id: Optional[int], body: str, source: str = "user") -> Persona:
+def set_persona(
+    user_id: str, project_id: int | None, body: str, source: str = "user"
+) -> Persona:
     """
     Create and activate a persona. Any existing active persona for the pair
     will be deactivated.

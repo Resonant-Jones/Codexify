@@ -80,5 +80,7 @@ def test_chat_with_ai_groq_override_not_openai(monkeypatch):
         model="custom-model",
     )
 
-    assert any("api.groq.com/openai/v1/chat/completions" in u for u in calls["urls"])
+    assert any(
+        "api.groq.com/openai/v1/chat/completions" in u for u in calls["urls"]
+    )
     assert not any("api.openai.com" in u for u in calls["urls"])

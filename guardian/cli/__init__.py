@@ -8,7 +8,9 @@ from .memoryos_cli import cli
 # Register additional memory-related commands
 try:
     from guardian.cli.memory.embed import embed  # type: ignore
-    from guardian.cli.memory.embed_diagnose import embed_diagnose  # type: ignore
+    from guardian.cli.memory.embed_diagnose import (
+        embed_diagnose,  # type: ignore
+    )
 
     cli.add_command(embed)
     cli.add_command(embed_diagnose)

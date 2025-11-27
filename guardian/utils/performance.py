@@ -169,7 +169,9 @@ class RateLimitedRunner:
             int: Number of calls in window
         """
         current_time = time.time()
-        return sum(1 for t in self.call_history if current_time - t <= window_secs)
+        return sum(
+            1 for t in self.call_history if current_time - t <= window_secs
+        )
 
 
 def rate_limited_plugin_runner(

@@ -48,7 +48,10 @@ class ConfigLoader:
             dict: Configuration dictionary
         """
         config = {
-            "core": {"plugins_dir": "plugins", "conversation_token_limit": 90000},
+            "core": {
+                "plugins_dir": "plugins",
+                "conversation_token_limit": 90000,
+            },
             "plugins": {"enabled": ["tts", "codexify"]},
             "tts": {
                 "default_provider": "local",
@@ -63,7 +66,7 @@ class ConfigLoader:
 
         if config_path and os.path.exists(config_path):
             try:
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     file_config = yaml.safe_load(f)
                     if file_config:
                         self._deep_update(config, file_config)
@@ -83,7 +86,9 @@ class ConfigLoader:
             self.config["tts"]["providers"]["elevenlabs"]["api_key"] = api_key
 
         if creds_path := os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-            self.config["tts"]["providers"]["google"]["credentials_path"] = creds_path
+            self.config["tts"]["providers"]["google"][
+                "credentials_path"
+            ] = creds_path
 
         # Neo4j Database URL
         if bolt_url := os.getenv("BOLT_URL"):

@@ -147,4 +147,3 @@ export const ConnectorBar: React.FC<{
     </div>
   );
 };
-

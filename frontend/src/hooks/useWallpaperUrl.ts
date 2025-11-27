@@ -23,4 +23,3 @@ export function useWallpaperUrl() {
 }
 
 export default useWallpaperUrl;
-

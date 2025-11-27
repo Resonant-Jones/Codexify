@@ -13,9 +13,9 @@ import sys
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from guardian.logging_config import configure_logging
 from guardian.system_init import SystemInitializer
 from scripts.python.system_check import SystemCheck
-from guardian.logging_config import configure_logging
 
 # Configure logging
 configure_logging()
@@ -188,7 +188,9 @@ class SystemRunner:
 
     async def _handle_system_error(self, status: Dict[str, Any]) -> None:
         """Handle system error state."""
-        logger.error(f"System error detected: {status.get('error', 'Unknown error')}")
+        logger.error(
+            f"System error detected: {status.get('error', 'Unknown error')}"
+        )
 
         # Get error details
         error_info = await self.initializer.get_error_info()
@@ -215,7 +217,9 @@ class SystemRunner:
 async def main():
     """Run the system."""
     parser = argparse.ArgumentParser(description="Threadspace System Runner")
-    parser.add_argument("--config", help="Path to configuration file", default=None)
+    parser.add_argument(
+        "--config", help="Path to configuration file", default=None
+    )
     args = parser.parse_args()
 
     runner = SystemRunner(args.config)

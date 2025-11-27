@@ -8,9 +8,7 @@ from fastapi.responses import RedirectResponse
 
 from guardian.auth import get_current_user  # your user dependency
 from guardian.crypto import decrypt_str, encrypt_str  # helpers (see below)
-from guardian.db import (  # implement per your DB layer
-    save_oauth_tokens,
-)
+from guardian.db import save_oauth_tokens  # implement per your DB layer
 
 router = APIRouter(prefix="/connect/google", tags=["connectors"])
 
@@ -101,6 +99,10 @@ def refresh_google_token(row):
     update_oauth_tokens(
         row["id"],
         access_token=encrypt_str(token_data["access_token"]),
-        refresh_token=encrypt_str(token_data.get("refresh_token") or refresh_token),
-        expires_at=str(int(time.time()) + int(token_data.get("expires_in", 3600))),
+        refresh_token=encrypt_str(
+            token_data.get("refresh_token") or refresh_token
+        ),
+        expires_at=str(
+            int(time.time()) + int(token_data.get("expires_in", 3600))
+        ),
     )

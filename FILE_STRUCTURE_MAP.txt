@@ -177,14 +177,14 @@ FRONTEND - REACT COMPONENTS
 
 1. Collaborative Note Editor
    /frontend/src/components/editor/CollaborativeNote.tsx (296 lines)
-   
+
    Props:
    ├── documentId: string
    ├── threadId: number
    ├── userId?: string
    ├── initialContent?: string
    └── onContentChange?: (content) => void
-   
+
    Features:
    ├── WebSocket to /api/collab/ws/{documentId}
    ├── Real-time content sync
@@ -193,23 +193,23 @@ FRONTEND - REACT COMPONENTS
    ├── Autosave every 15 seconds
    ├── Last autosave timestamp
    └── Color assignment (5-color rotation)
-   
+
    Hooks:
    ├── useState(content, activeUsers, isConnected, lastAutosave)
    ├── useRef(ws, autosaveTimer, userColorMap)
    └── useEffect(WebSocket init, autosave timer)
-   
+
    Message Types:
    ├── Send: {content, user_id, timestamp}
    └── Receive: {type, payload/active_users}
 
 2. Share Button
    /frontend/src/components/ShareButton.tsx (113 lines)
-   
+
    Props:
    ├── targetType: "thread" | "document"
    └── targetId: number
-   
+
    Features:
    ├── POST to /api/share
    ├── Generate share token
@@ -220,17 +220,17 @@ FRONTEND - REACT COMPONENTS
 
 3. Share Page (Read-Only)
    /frontend/src/pages/SharePage.tsx (100+ lines)
-   
+
    Props:
    └── token: string
-   
+
    Features:
    ├── GET /api/share/{token}
    ├── Load shared content
    ├── Handle loading/error states
    ├── Display thread or document
    └── Read-only rendering
-   
+
    Content Types:
    ├── ThreadContent: {id, title, summary, messages, timestamps}
    └── DocumentContent: {id, title/filename, content, format, metadata}
@@ -240,7 +240,7 @@ TESTS
 
 1. Realtime WebSocket Tests
    /tests/realtime/test_collaboration_ws.py (80+ lines)
-   
+
    Test Cases:
    ├── test_connect_single_client
    ├── test_connect_multiple_clients_same_doc
@@ -250,7 +250,7 @@ TESTS
 
 2. Autosave Route Tests
    /tests/routes/test_documents_autosave.py (80+ lines)
-   
+
    Test Cases:
    ├── test_autosave_success
    ├── test_autosave_updates_existing
@@ -260,7 +260,7 @@ TESTS
 
 3. Share Link Route Tests
    /tests/routes/test_share_links.py (100+ lines)
-   
+
    Test Cases:
    ├── test_create_thread_share_success
    ├── test_create_thread_share_with_expiry
@@ -311,4 +311,3 @@ Collaboration:
 ├── ix_thread_documents_document_id
 ├── ix_shared_links_token
 └── ix_shared_links_target (target_type, target_id)
-

@@ -15,28 +15,29 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
-from pydantic import BaseModel, Field, ValidationError, ConfigDict
 
 logger = logging.getLogger(__name__)
 
 # Import shared dependencies from core module (avoids circular imports)
 try:
+    from guardian.context.broker import ContextBroker
     from guardian.core.dependencies import (
-        chatlog_db,
-        require_api_key,
-        verify_api_key,
+        CHAT_PROVIDER,
+        DEFAULT_MODEL,
         _groq_complete,
-        event_bus,
-        _vector_store,
         _memory_store,
         _sensors,
-        DEFAULT_MODEL,
-        CHAT_PROVIDER,
+        _vector_store,
+        chatlog_db,
+        event_bus,
+        require_api_key,
+        verify_api_key,
     )
-    from guardian.context.broker import ContextBroker
 except ImportError as e:
     logger.warning(f"[chat] Import warning: {e}")
     chatlog_db = None
@@ -54,25 +55,25 @@ except ImportError as e:
 # Optional AI backend
 try:
     from guardian.core.ai_router import chat_with_ai as _chat_with_ai
+
     chat_with_ai = _chat_with_ai
 except ModuleNotFoundError:
     chat_with_ai = None
 
 # Optional Neo4j imports for graph sync
 try:
-    from guardian.graph.models import UserNode, MessageNode, ThreadNode
     from guardian.graph.connection import connect_neo4j
+    from guardian.graph.models import MessageNode, ThreadNode, UserNode
+
     NEO4J_SYNC_AVAILABLE = True
 except Exception:
     NEO4J_SYNC_AVAILABLE = False
 
 # LLM configuration validation
 try:
-    from guardian.core.config import (
-        settings as llm_settings,
-        validate_llm_config,
-        LLMConfigError,
-    )
+    from guardian.core.config import LLMConfigError
+    from guardian.core.config import settings as llm_settings
+    from guardian.core.config import validate_llm_config
 except Exception:  # pragma: no cover - defensive import guard
     llm_settings = None
     validate_llm_config = None
@@ -121,13 +122,22 @@ class ThreadCreateRequest(BaseModel):
     project_id: str = None
 
 
+class ChatCompletionRequest(BaseModel):
+    model: Optional[str] = None
+    max_context: Optional[int] = 50
+    provider: Optional[str] = None
+    system_override: Optional[str] = None
+    depth_mode: Optional[str] = "normal"  # "shallow", "normal", "deep", "diagnostic"
+
+
+
 # Helper functions
 def _embed_message(thread_id: int, role: str, content: str, message_id: int):
     """Best-effort embedding of a chat message."""
     if not _vector_store:
         return
     try:
-        # Run in background or just await? 
+        # Run in background or just await?
         # Since VectorStore is sync (wrapper around sync embedder calls), we can just call it.
         # But wait, VectorStore might be slow if using OpenAI.
         # For MVP, sync is fine, but ideally this should be backgrounded.
@@ -137,11 +147,12 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
             "role": role,
             "message_id": message_id,
             "timestamp": datetime.utcnow().isoformat(),
-            "source": "chat"
+            "source": "chat",
         }
         _vector_store.add_texts([{"text": content, "meta": meta}])
     except Exception as e:
         logger.warning(f"[chat] Failed to auto-embed message {message_id}: {e}")
+
 
 # Very rough token estimate used for UX hints about prompt cost.
 # We avoid hard dependencies on specific tokenizer libraries here.
@@ -159,6 +170,7 @@ def _estimate_tokens(text: Optional[str]) -> int:
         return 0
     return max(1, length // 4)
 
+
 # Helper functions
 def _normalize_thread_title(raw: Optional[str]) -> Optional[str]:
     if raw is None:
@@ -173,31 +185,48 @@ def _normalize_thread_summary(raw: Optional[str]) -> Optional[str]:
     return str(raw).strip()
 
 
-def _apply_thread_update(thread_id: int, update: ThreadUpdate) -> Dict[str, Any]:
+def _apply_thread_update(
+    thread_id: int, update: ThreadUpdate
+) -> Dict[str, Any]:
     """Apply updates to a thread and emit appropriate events."""
     payload = update.dict(exclude_unset=True)
     if not payload:
         raise HTTPException(status_code=400, detail="No valid fields to update")
 
-    updated_field_keys = [key for key in ("title", "summary", "project_id") if key in payload]
+    updated_field_keys = [
+        key for key in ("title", "summary", "project_id") if key in payload
+    ]
     existing = chatlog_db.get_chat_thread(thread_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    title_value = _normalize_thread_title(payload.get("title")) if "title" in payload else None
-    summary_value = _normalize_thread_summary(payload.get("summary")) if "summary" in payload else None
+    title_value = (
+        _normalize_thread_title(payload.get("title"))
+        if "title" in payload
+        else None
+    )
+    summary_value = (
+        _normalize_thread_summary(payload.get("summary"))
+        if "summary" in payload
+        else None
+    )
     project_present = "project_id" in payload
     project_value = payload.get("project_id") if project_present else None
     archived_present = "archived" in payload
     archived_requested = payload.get("archived") if archived_present else None
 
-    has_field_updates = any(
-        field is not None for field in (
-            title_value if "title" in payload else None,
-            summary_value if "summary" in payload else None,
-            project_value if project_present else None,
+    has_field_updates = (
+        any(
+            field is not None
+            for field in (
+                title_value if "title" in payload else None,
+                summary_value if "summary" in payload else None,
+                project_value if project_present else None,
+            )
         )
-    ) or project_present and payload.get("project_id") is None
+        or project_present
+        and payload.get("project_id") is None
+    )
 
     if not has_field_updates and not archived_present:
         raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -227,7 +256,9 @@ def _apply_thread_update(thread_id: int, update: ThreadUpdate) -> Dict[str, Any]
             "thread.updated",
             {
                 "thread": refreshed,
-                "changes": {key: payload.get(key) for key in updated_field_keys},
+                "changes": {
+                    key: payload.get(key) for key in updated_field_keys
+                },
             },
         )
         logger.info(
@@ -258,7 +289,9 @@ def _apply_thread_update(thread_id: int, update: ThreadUpdate) -> Dict[str, Any]
             unarchived = chatlog_db.unarchive_thread(thread_id)
             if unarchived:
                 refreshed = unarchived
-                event_bus.emit_event("thread.unarchived", {"thread": unarchived})
+                event_bus.emit_event(
+                    "thread.unarchived", {"thread": unarchived}
+                )
                 logger.info("[threads] unarchived thread_id=%s", thread_id)
                 chatlog_db.write_audit_log(
                     "unarchive",
@@ -278,6 +311,7 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 # =========================
 # Chat Threads API
 # =========================
+
 
 @router.post("/threads")
 def chat_create_thread(body: dict = Body(...)):
@@ -310,7 +344,9 @@ def chat_create_thread(body: dict = Body(...)):
             recent_id = recent_thread.get("id")
             if recent_id and chatlog_db.count_messages(recent_id) == 0:
                 logger.info(
-                    "Reusing recent empty thread %s for user %s", recent_id, user_id
+                    "Reusing recent empty thread %s for user %s",
+                    recent_id,
+                    user_id,
                 )
                 return {"ok": True, "id": recent_id, "thread": recent_thread}
 
@@ -326,7 +362,9 @@ def chat_create_thread(body: dict = Body(...)):
         return {"ok": True, "id": record["id"], "thread": record}
     except Exception as exc:
         logger.exception("Failed to create chat thread: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to create chat thread")
+        raise HTTPException(
+            status_code=500, detail="Failed to create chat thread"
+        )
 
 
 @router.get("/threads")
@@ -344,6 +382,7 @@ def chat_list_threads():
 # Chat Messages API
 # =========================
 
+
 @router.post("/{thread_id}/messages")
 def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
     """Post a new message to a chat thread."""
@@ -351,7 +390,8 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
     content = body.get("content", "").strip()
     if not role or not content:
         return JSONResponse(
-            status_code=400, content={"ok": False, "error": "role and content required"}
+            status_code=400,
+            content={"ok": False, "error": "role and content required"},
         )
     owner = body.get("user_id") or "default"
     try:
@@ -363,10 +403,16 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
             project_id=1,  # always assign to Loose Threads by default
         )
     except Exception as exc:
-        logger.exception("Failed to ensure chat thread %s exists: %s", thread_id, exc)
-        raise HTTPException(status_code=500, detail="Failed to persist chat message")
+        logger.exception(
+            "Failed to ensure chat thread %s exists: %s", thread_id, exc
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to persist chat message"
+        )
     mid = chatlog_db.create_message(thread_id, role, content)
-    chatlog_db.write_audit_log("create", "chat_message", str(mid), user_id=str(owner))
+    chatlog_db.write_audit_log(
+        "create", "chat_message", str(mid), user_id=str(owner)
+    )
 
     # Emit event for real-time updates
     event_bus.emit_event(
@@ -415,7 +461,9 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
         )
 
     # --- Neo4j sync ---
-    if NEO4J_SYNC_AVAILABLE and getattr(llm_settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False):
+    if NEO4J_SYNC_AVAILABLE and getattr(
+        llm_settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False
+    ):
         try:
             connect_neo4j()
             # Use string IDs for Neo4j
@@ -424,14 +472,20 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
             user_id_str = str(owner)
             message_text = content
 
-            neo_user, _ = UserNode.get_or_create({"user_id": user_id_str, "name": user_id_str})
-            neo_thread, _ = ThreadNode.get_or_create({"thread_id": thread_id_str})
+            neo_user, _ = UserNode.get_or_create(
+                {"user_id": user_id_str, "name": user_id_str}
+            )
+            neo_thread, _ = ThreadNode.get_or_create(
+                {"thread_id": thread_id_str}
+            )
 
-            neo_msg, _ = MessageNode.get_or_create({
-                "message_id": message_id,
-                "content": message_text,
-                "created_at": datetime.utcnow()
-            })
+            neo_msg, _ = MessageNode.get_or_create(
+                {
+                    "message_id": message_id,
+                    "content": message_text,
+                    "created_at": datetime.utcnow(),
+                }
+            )
 
             neo_msg.user.connect(neo_user)
             neo_msg.thread.connect(neo_thread)
@@ -459,27 +513,33 @@ def chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
 
 
 @router.post("/{thread_id}/complete")
-async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_factory=dict)):
+async def chat_complete(
+    thread_id: int, body: ChatCompletionRequest = Body(...)
+):
     """
     Generate an assistant reply for the given thread using the configured provider
     and persist it as a new message (role='assistant'). Emits message.created.
-    Optional body:
-      - model: override model name
-      - max_context: how many recent messages to include (default 50)
     """
     try:
-        provider = str(body.get("provider") or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)).lower()
+        provider = str(
+            body.provider
+            or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
+        ).lower()
 
         # Optional per-request system prompt override coming from the frontend / settings.
         # This allows users to layer their own persona/instructions on top of the immutable
         # Codexify base prompt, while still letting prompts.py enforce invariants.
-        user_system_override = body.get("system_override")
+        user_system_override = body.system_override
         if isinstance(user_system_override, str):
             user_system_override = user_system_override.strip() or None
         else:
             user_system_override = None
 
-        thread_exists = chatlog_db.get_chat_thread(thread_id) if hasattr(chatlog_db, "get_chat_thread") else True
+        thread_exists = (
+            chatlog_db.get_chat_thread(thread_id)
+            if hasattr(chatlog_db, "get_chat_thread")
+            else True
+        )
         if not thread_exists:
             raise HTTPException(status_code=404, detail="Thread not found")
 
@@ -487,7 +547,7 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         if validate_llm_config and llm_settings:
             validate_llm_config(llm_settings, provider_override=provider)
 
-        limit = int(body.get("max_context") or 50)
+        limit = int(body.max_context or 50)
         items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
 
         # Ensure deterministic oldest-first order if backend returns newest-first
@@ -502,11 +562,17 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         for m in items:
             role = str(m.get("role") or "").strip()
             content = m.get("content")
-            if isinstance(content, str) and content.strip() and content.strip().lower() != "null":
+            if (
+                isinstance(content, str)
+                and content.strip()
+                and content.strip().lower() != "null"
+            ):
                 context.append({"role": role, "content": content})
 
         if not context:
-            raise HTTPException(status_code=400, detail="Thread has no usable context")
+            raise HTTPException(
+                status_code=400, detail="Thread has no usable context"
+            )
 
         # Build ContextBroker bundle using latest user message as query
         latest_message = ""
@@ -517,9 +583,13 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
                     latest_message = lm
                     break
 
-        depth = str(body.get("depth") or "normal").strip().lower()
+        depth = str(body.depth_mode or "normal").strip().lower()
         # Resolve user_id for graph context
-        thread_info = chatlog_db.get_chat_thread(thread_id) if hasattr(chatlog_db, "get_chat_thread") else None
+        thread_info = (
+            chatlog_db.get_chat_thread(thread_id)
+            if hasattr(chatlog_db, "get_chat_thread")
+            else None
+        )
         user_for_context = (thread_info or {}).get("user_id", "default")
 
         # Stats about the effective system prompt for UX (e.g. cost warnings in the UI)
@@ -528,10 +598,19 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         bundle: Optional[Dict[str, Any]] = None
         trace: Optional[Dict[str, Any]] = None
         try:
-            broker = ContextBroker(chatlog_db, _vector_store, _memory_store, _sensors, settings=llm_settings)
+            broker = ContextBroker(
+                chatlog_db,
+                _vector_store,
+                _memory_store,
+                _sensors,
+                settings=llm_settings,
+            )
             # Unpack context and trace
             bundle, trace = await broker.assemble(
-                thread_id, query=latest_message, depth=depth, user_id=user_for_context
+                thread_id,
+                query=latest_message,
+                depth_mode=depth,
+                user_id=user_for_context,
             )
 
             # Allow a per-request/user override to be visible to prompts.py.
@@ -561,15 +640,20 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
 
                 logger.info(
                     f"[rag] thread={thread_id} docs={doc_count} graph={graph_count} "
-                    f"top_doc=\"{top_doc}\" top_graph=\"{top_graph}\""
+                    f'top_doc="{top_doc}" top_graph="{top_graph}"'
                 )
 
         except Exception as e:
-            logger.warning("[context] broker assemble failed (depth=%s): %s", depth, e)
+            logger.warning(
+                "[context] broker assemble failed (depth=%s): %s", depth, e
+            )
             bundle = None
 
         # Build Guardian system prompt and final message list
         messages_for_llm: List[Dict[str, str]] = []
+
+        # Default context payload we can safely return to the client
+        context_payload: Dict[str, Any] = bundle or {}
 
         # Resolve project_id for prompt configuration, if available
         project_id_for_prompt: Optional[int] = None
@@ -599,7 +683,9 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
                 )
 
             char_len = prompt_meta.get("total_chars", len(system_content or ""))
-            token_est = prompt_meta.get("estimated_tokens", _estimate_tokens(system_content))
+            token_est = prompt_meta.get(
+                "estimated_tokens", _estimate_tokens(system_content)
+            )
             system_prompt_stats.update(
                 {
                     "char_length": char_len,
@@ -618,7 +704,9 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
                     project_id_for_prompt,
                     token_est,
                 )
-            messages_for_llm.append({"role": "system", "content": system_content})
+            messages_for_llm.append(
+                {"role": "system", "content": system_content}
+            )
         except Exception as e:
             logger.warning("[chat] failed to build system prompt: %s", e)
             fallback_text = (
@@ -644,24 +732,39 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
         # Append conversational history after the system prompt
         messages_for_llm.extend(context)
 
-        model = body.get("model") or DEFAULT_MODEL
+        model = body.model or DEFAULT_MODEL
         if provider == "groq":
-            assistant_text = _groq_complete(messages_for_llm, model=model, context=bundle)
+            assistant_text = _groq_complete(
+                messages_for_llm, model=model, context=bundle
+            )
         elif provider == "openai":
             if chat_with_ai is None:
-                raise HTTPException(status_code=501, detail="OpenAI provider is not available")
+                raise HTTPException(
+                    status_code=501, detail="OpenAI provider is not available"
+                )
             assistant_text = str(chat_with_ai(messages_for_llm, model=model))
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported LLM_PROVIDER: {provider}")
+            raise HTTPException(
+                status_code=400, detail=f"Unsupported LLM_PROVIDER: {provider}"
+            )
 
         mid = chatlog_db.create_message(thread_id, "assistant", assistant_text)
         try:
-            chatlog_db.write_audit_log("create", "chat_message", str(mid), user_id="bot")
+            chatlog_db.write_audit_log(
+                "create", "chat_message", str(mid), user_id="bot"
+            )
         except Exception:
             pass
 
         try:
-            event_bus.emit_event("message.created", {"thread_id": thread_id, "message_id": mid, "role": "assistant"})
+            event_bus.emit_event(
+                "message.created",
+                {
+                    "thread_id": thread_id,
+                    "message_id": mid,
+                    "role": "assistant",
+                },
+            )
         except Exception:
             logger.debug("[live] emit message.created failed", exc_info=True)
 
@@ -679,13 +782,20 @@ async def chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_fact
             "prompt_meta": {
                 "system_prompt": system_prompt_stats,
             },
+            # Expose assembled context for UI-side traces/inspector tooling
+            "context": context_payload,
+            "trace": trace or {},
         }
     except HTTPException as exc:
         detail = str(exc.detail)
         if exc.status_code == 400:
-            raise HTTPException(status_code=400, detail=f"LLM unavailable: {detail}")
+            raise HTTPException(
+                status_code=400, detail=f"LLM unavailable: {detail}"
+            )
         if exc.status_code >= 500:
-            raise HTTPException(status_code=502, detail=f"LLM backend error: {detail}")
+            raise HTTPException(
+                status_code=502, detail=f"LLM backend error: {detail}"
+            )
         raise
     except LLMConfigError as exc:
         raise HTTPException(status_code=400, detail=f"LLM unavailable: {exc}")
@@ -707,6 +817,7 @@ def chat_delete_message(thread_id: int, message_id: int):
 # =========================
 # Thread Management
 # =========================
+
 
 @router.post("/{thread_id}/branch", response_model=ThreadDTO)
 def branch_thread(
@@ -771,7 +882,11 @@ def branch_thread(
 
 
 @router.patch("/{thread_id}", response_model=ThreadDTO)
-def update_thread(thread_id: int, payload: ThreadUpdate, api_key: str = Depends(require_api_key)):
+def update_thread(
+    thread_id: int,
+    payload: ThreadUpdate,
+    api_key: str = Depends(require_api_key),
+):
     """Update thread metadata (title, summary, project, archive status)."""
     updated = _apply_thread_update(thread_id, payload)
     return updated
@@ -795,7 +910,8 @@ def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
     except Exception as exc:
         logger.exception("Failed to update chat thread %s: %s", thread_id, exc)
         return JSONResponse(
-            status_code=500, content={"ok": False, "error": "Failed to update thread"}
+            status_code=500,
+            content={"ok": False, "error": "Failed to update thread"},
         )
 
 
@@ -806,7 +922,7 @@ def delete_thread(thread_id: int, force: bool = Query(False)):
     if not deleted:
         raise HTTPException(
             status_code=404,
-            detail="Thread not found or not deletable (archive first or set force=true)"
+            detail="Thread not found or not deletable (archive first or set force=true)",
         )
     try:
         event_bus.emit_event("thread.deleted", {"thread_id": thread_id})
@@ -908,7 +1024,9 @@ def get_thread_summary(thread_id: int, api_key: str = Depends(require_api_key)):
 
 
 @thread_router.post("")
-def create_thread(req: ThreadCreateRequest, api_key: str = Depends(require_api_key)):
+def create_thread(
+    req: ThreadCreateRequest, api_key: str = Depends(require_api_key)
+):
     """Create a new thread with optional parent, summary, session, user, and project."""
     thread_id = chatlog_db.create_thread(
         parent_thread_id=req.parent_thread_id,
@@ -927,6 +1045,7 @@ def create_thread(req: ThreadCreateRequest, api_key: str = Depends(require_api_k
 # These endpoints are used by auth tests and provide simple, deterministic
 # chat functionality that doesn't depend on external APIs
 
+
 class ChatRequest(BaseModel):
     prompt: str
     provider: Optional[str] = None
@@ -937,7 +1056,9 @@ simple_chat_router = APIRouter(prefix="", tags=["Chat"])
 
 
 @simple_chat_router.post("/chat")
-async def simple_chat_entrypoint(body: ChatRequest, api_key: str = Depends(verify_api_key)):
+async def simple_chat_entrypoint(
+    body: ChatRequest, api_key: str = Depends(verify_api_key)
+):
     """Minimal chat endpoint used by auth/tests.
 
     - Requires X-API-Key via require_api_key.
@@ -950,7 +1071,10 @@ async def simple_chat_entrypoint(body: ChatRequest, api_key: str = Depends(verif
         {"role": "user", "content": body.prompt},
     ]
 
-    provider = (body.provider or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)).lower()
+    provider = (
+        body.provider
+        or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
+    ).lower()
     model = body.model or DEFAULT_MODEL
 
     reply_text: str
@@ -968,7 +1092,9 @@ async def simple_chat_entrypoint(body: ChatRequest, api_key: str = Depends(verif
     except HTTPException as exc:
         # For auth tests and offline environments, degrade to an echo reply
         # instead of surfacing upstream LLM errors.
-        logger.warning("/chat backend HTTPException, using echo fallback: %s", exc)
+        logger.warning(
+            "/chat backend HTTPException, using echo fallback: %s", exc
+        )
         reply_text = f"Echo: {body.prompt}"
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.warning("/chat backend failed, using echo fallback: %s", exc)
@@ -1069,7 +1195,9 @@ def api_chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
 
 
 @api_chat_router.post("/{thread_id}/complete")
-async def api_chat_complete(thread_id: int, body: Dict[str, Any] = Body(default_factory=dict)):
+async def api_chat_complete(
+    thread_id: int, body: ChatCompletionRequest = Body(...)
+):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
     return await chat_complete(thread_id, body)
 
@@ -1091,7 +1219,11 @@ def api_branch_thread(
 
 
 @api_chat_router.patch("/{thread_id}", response_model=ThreadDTO)
-def api_update_thread(thread_id: int, payload: ThreadUpdate, api_key: str = Depends(require_api_key)):
+def api_update_thread(
+    thread_id: int,
+    payload: ThreadUpdate,
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for PATCH /chat/{thread_id} used in tests."""
     return update_thread(thread_id, payload, api_key)
 

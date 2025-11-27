@@ -32,21 +32,22 @@ your actual logging implementation if available).
 import os
 import traceback
 
-from google.generativeai.client import configure
-from google.generativeai.generative_models import GenerativeModel
-from fastapi import FastAPI, Query, Depends
-from fastapi import APIRouter
-from guardian.api.auth import require_ui_key
-from pydantic import BaseModel
-
-from guardian.config import Config
-
 # Placeholder logger – replace with actual implementation if available
 from typing import Any
+
+from fastapi import APIRouter, Depends, FastAPI, Query
+from google.generativeai.client import configure
+from google.generativeai.generative_models import GenerativeModel
+from pydantic import BaseModel
+
+from guardian.api.auth import require_ui_key
+from guardian.config import Config
+
 
 def log_interaction(**kwargs: Any) -> None:
     """Placeholder for memoryos.logger.log_interaction."""
     pass
+
 
 # --------------------------------------------------------------------------- #
 # Configuration
@@ -108,7 +109,9 @@ async def chat(request: ChatRequest, model: str = Query("pro")):
     try:
         # Use model_dump() for Pydantic v2 compatibility
         persona = request.model_dump().get("persona", DEFAULT_PERSONALITY)
-        response = await gen_model.generate_content_async(persona + request.message)
+        response = await gen_model.generate_content_async(
+            persona + request.message
+        )
         log_interaction(
             role="user",
             input=request.message,

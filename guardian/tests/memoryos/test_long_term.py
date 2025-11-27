@@ -2,7 +2,6 @@ from collections import deque
 
 import numpy as np
 import pytest
-
 from memoryos.long_term import LongTermMemory
 
 
@@ -82,7 +81,9 @@ def test_knowledge_capacity_is_respected(ltm_instance: LongTermMemory):
     ltm_instance.add_user_knowledge("Fact 2")
     ltm_instance.add_user_knowledge("Fact 3")  # This should push "Fact 1" out
 
-    knowledge_texts = [k["knowledge"] for k in ltm_instance.get_user_knowledge()]
+    knowledge_texts = [
+        k["knowledge"] for k in ltm_instance.get_user_knowledge()
+    ]
     assert len(knowledge_texts) == 2
     assert "Fact 1" not in knowledge_texts
     assert "Fact 3" in knowledge_texts

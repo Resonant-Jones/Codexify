@@ -24,9 +24,13 @@ class MemoryOSRetriever:
             vector_store: A VectorStore instance with a search(query, k) method.
         """
         self.vector_store = vector_store
-        logger.info(f"[MemoryOSRetriever] Initialized with vector_store: {type(vector_store).__name__}")
+        logger.info(
+            f"[MemoryOSRetriever] Initialized with vector_store: {type(vector_store).__name__}"
+        )
 
-    async def retrieve(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    async def retrieve(
+        self, query: str, limit: int = 5
+    ) -> list[dict[str, Any]]:
         """Retrieve semantically similar documents for a given query.
 
         This method:
@@ -52,7 +56,9 @@ class MemoryOSRetriever:
             Returns empty list if vector store is empty or on error.
         """
         if not query or not query.strip():
-            logger.debug("[MemoryOSRetriever] Empty query, returning empty results")
+            logger.debug(
+                "[MemoryOSRetriever] Empty query, returning empty results"
+            )
             return []
 
         start_time = time.time()
@@ -63,23 +69,27 @@ class MemoryOSRetriever:
             results = self.vector_store.search(query, k=limit)
 
             # Handle both sync and async vector stores
-            if hasattr(results, '__await__'):
+            if hasattr(results, "__await__"):
                 results = await results
 
             # Ensure results is a list
             if not isinstance(results, list):
-                logger.warning(f"[MemoryOSRetriever] Vector store returned non-list: {type(results)}")
+                logger.warning(
+                    f"[MemoryOSRetriever] Vector store returned non-list: {type(results)}"
+                )
                 return []
 
             # Normalize schema: VectorStore returns {text, meta, score}
             # We want {text, metadata, score}
             standardized = []
             for item in results:
-                standardized.append({
-                    "text": item.get("text", ""),
-                    "metadata": item.get("meta", {}),
-                    "score": item.get("score", 0.0)
-                })
+                standardized.append(
+                    {
+                        "text": item.get("text", ""),
+                        "metadata": item.get("meta", {}),
+                        "score": item.get("score", 0.0),
+                    }
+                )
 
             # Results are already sorted by score (descending) from VectorStore
             elapsed_ms = (time.time() - start_time) * 1000
@@ -91,10 +101,14 @@ class MemoryOSRetriever:
             return standardized
 
         except Exception as e:
-            logger.warning(f"[MemoryOSRetriever] Search failed: {e}", exc_info=True)
+            logger.warning(
+                f"[MemoryOSRetriever] Search failed: {e}", exc_info=True
+            )
             return []
 
-    def retrieve_context(self, user_query: str, user_id: str) -> Dict[str, List[Dict[str, Any]]]:
+    def retrieve_context(
+        self, user_query: str, user_id: str
+    ) -> dict[str, list[dict[str, Any]]]:
         """Legacy method for backward compatibility.
 
         This method maintains compatibility with the old Retriever interface
@@ -117,14 +131,18 @@ class MemoryOSRetriever:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # If already in async context, create task
-                logger.warning("[MemoryOSRetriever] retrieve_context called from async context")
+                logger.warning(
+                    "[MemoryOSRetriever] retrieve_context called from async context"
+                )
                 return {
                     "retrieved_pages": [],
                     "retrieved_user_knowledge": [],
                     "retrieved_assistant_knowledge": [],
                 }
             else:
-                results = loop.run_until_complete(self.retrieve(user_query, limit=5))
+                results = loop.run_until_complete(
+                    self.retrieve(user_query, limit=5)
+                )
         except RuntimeError:
             # No event loop, create new one
             results = asyncio.run(self.retrieve(user_query, limit=5))
@@ -140,7 +158,9 @@ class MemoryOSRetriever:
 class Retriever:
     """Deprecated stub class. Use MemoryOSRetriever instead."""
 
-    def retrieve_context(self, user_query: str, user_id: str) -> Dict[str, List]:
+    def retrieve_context(
+        self, user_query: str, user_id: str
+    ) -> dict[str, list]:
         """Legacy stub that returns empty results."""
         logger.warning(
             "[Retriever] Using deprecated Retriever class. "

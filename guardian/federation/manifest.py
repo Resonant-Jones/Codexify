@@ -4,15 +4,16 @@ Nodes exchange signed manifests to establish trust and verify
 capabilities before creating relay channels.
 """
 
-import os
 import base64
+import os
 from typing import Optional
+
 from pydantic import BaseModel, Field
 
 try:
-    from cryptography.hazmat.primitives.asymmetric import ed25519
-    from cryptography.hazmat.primitives import serialization
     from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
 except ImportError:
     raise ImportError("cryptography library required for federation signing")
 
@@ -25,12 +26,16 @@ class NodeManifest(BaseModel):
     """
 
     node_id: str = Field(..., description="Unique identifier for this node")
-    public_key: str = Field(..., description="Base64-encoded Ed25519 public key")
+    public_key: str = Field(
+        ..., description="Base64-encoded Ed25519 public key"
+    )
     capabilities: list[str] = Field(
         default_factory=lambda: ["share", "collab", "autosave"],
         description="List of capabilities this node supports",
     )
-    relay_endpoint: str = Field(..., description="WebSocket endpoint for relay connections")
+    relay_endpoint: str = Field(
+        ..., description="WebSocket endpoint for relay connections"
+    )
     signature: Optional[str] = Field(
         default=None,
         description="Base64-encoded Ed25519 signature of the manifest",
@@ -92,17 +97,23 @@ def sign_manifest(manifest: NodeManifest, private_key_b64: str) -> str:
     manifest_copy.signature = None
 
     # Create deterministic JSON representation
-    manifest_json = manifest_copy.model_dump_json(exclude_none=True, by_alias=False)
+    manifest_json = manifest_copy.model_dump_json(
+        exclude_none=True, by_alias=False
+    )
 
     # Decode private key and sign
     private_key_bytes = base64.b64decode(private_key_b64)
-    private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+    private_key = ed25519.Ed25519PrivateKey.from_private_bytes(
+        private_key_bytes
+    )
     signature = private_key.sign(manifest_json.encode("utf-8"))
 
     return base64.b64encode(signature).decode("utf-8")
 
 
-def verify_manifest(manifest: NodeManifest, expected_signature: Optional[str] = None) -> bool:
+def verify_manifest(
+    manifest: NodeManifest, expected_signature: Optional[str] = None
+) -> bool:
     """Verify a manifest's signature using its public key.
 
     Args:
@@ -122,11 +133,15 @@ def verify_manifest(manifest: NodeManifest, expected_signature: Optional[str] = 
         manifest_copy.signature = None
 
         # Create deterministic JSON representation
-        manifest_json = manifest_copy.model_dump_json(exclude_none=True, by_alias=False)
+        manifest_json = manifest_copy.model_dump_json(
+            exclude_none=True, by_alias=False
+        )
 
         # Decode public key and signature
         public_key_bytes = base64.b64decode(manifest.public_key)
-        public_key = ed25519.Ed25519PublicKey.from_public_bytes(public_key_bytes)
+        public_key = ed25519.Ed25519PublicKey.from_public_bytes(
+            public_key_bytes
+        )
         signature_bytes = base64.b64decode(signature_b64)
 
         # Verify signature

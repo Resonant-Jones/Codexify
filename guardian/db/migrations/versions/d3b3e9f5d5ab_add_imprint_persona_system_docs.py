@@ -6,8 +6,8 @@ Create Date: 2025-11-20 00:00:00.000000
 """
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
@@ -26,13 +26,41 @@ def upgrade() -> None:
         sa.Column("guardian_name", sa.Text(), nullable=True),
         sa.Column("preferred_name", sa.Text(), nullable=True),
         sa.Column("style", sa.Text(), nullable=True),
-        sa.Column("grammar_prefs", postgresql.JSONB(astext_type=sa.Text()), server_default="{}", nullable=False),
-        sa.Column("metrics", postgresql.JSONB(astext_type=sa.Text()), server_default="{}", nullable=False),
+        sa.Column(
+            "grammar_prefs",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default="{}",
+            nullable=False,
+        ),
+        sa.Column(
+            "metrics",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default="{}",
+            nullable=False,
+        ),
         sa.Column("heat_score", sa.Float(), nullable=True),
-        sa.Column("status", sa.String(length=32), nullable=False, server_default="draft"),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.CheckConstraint("status IN ('draft','active','superseded')", name="imprints_status_check"),
+        sa.Column(
+            "status",
+            sa.String(length=32),
+            nullable=False,
+            server_default="draft",
+        ),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            "status IN ('draft','active','superseded')",
+            name="imprints_status_check",
+        ),
     )
     op.create_index(
         "ix_imprints_active_unique",
@@ -48,10 +76,30 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(length=255), nullable=False),
         sa.Column("project_id", sa.Integer(), nullable=True),
         sa.Column("body", sa.Text(), nullable=False),
-        sa.Column("source", sa.String(length=64), nullable=False, server_default="user"),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "source",
+            sa.String(length=64),
+            nullable=False,
+            server_default="user",
+        ),
+        sa.Column(
+            "is_active",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("true"),
+        ),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
     )
     op.create_index(
         "ix_personas_active_unique",
@@ -70,11 +118,35 @@ def upgrade() -> None:
         sa.Column("slug", sa.String(length=255), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.CheckConstraint("scope IN ('global','project','user')", name="system_docs_scope_check"),
-        sa.UniqueConstraint("scope", "owner_user_id", "project_id", "slug", name="uq_system_docs_scope_owner_project_slug"),
+        sa.Column(
+            "is_enabled",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("true"),
+        ),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            "scope IN ('global','project','user')",
+            name="system_docs_scope_check",
+        ),
+        sa.UniqueConstraint(
+            "scope",
+            "owner_user_id",
+            "project_id",
+            "slug",
+            name="uq_system_docs_scope_owner_project_slug",
+        ),
     )
 
     op.create_table(
@@ -83,11 +155,33 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(length=255), nullable=False),
         sa.Column("project_id", sa.Integer(), nullable=True),
         sa.Column("system_doc_id", sa.Integer(), nullable=False),
-        sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["system_doc_id"], ["system_docs.id"], ondelete="CASCADE"),
-        sa.UniqueConstraint("user_id", "project_id", "system_doc_id", name="uq_system_doc_links_attachment"),
+        sa.Column(
+            "is_enabled",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("true"),
+        ),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["system_doc_id"], ["system_docs.id"], ondelete="CASCADE"
+        ),
+        sa.UniqueConstraint(
+            "user_id",
+            "project_id",
+            "system_doc_id",
+            name="uq_system_doc_links_attachment",
+        ),
     )
 
 

@@ -62,7 +62,9 @@ def _init():
 _init()
 
 
-def record_event(event_id: str, event_type: str, payload: Dict[str, Any]) -> bool:
+def record_event(
+    event_id: str, event_type: str, payload: Dict[str, Any]
+) -> bool:
     """Returns True if this is a new event, False if duplicate."""
     created = datetime.now(timezone.utc).isoformat()
     data = json.dumps(payload, ensure_ascii=False)
@@ -109,6 +111,11 @@ def upsert_codex_result(
         c = conn.cursor()
         c.execute(
             "REPLACE INTO sync_codex_result (result_id, content, meta, updated_at) VALUES (?, ?, ?, ?)",
-            (result_id, content, json.dumps(meta or {}, ensure_ascii=False), updated),
+            (
+                result_id,
+                content,
+                json.dumps(meta or {}, ensure_ascii=False),
+                updated,
+            ),
         )
         conn.commit()

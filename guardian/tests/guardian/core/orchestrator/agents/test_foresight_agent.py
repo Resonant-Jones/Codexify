@@ -35,7 +35,9 @@ def test_foresight_stress_returns_nudge_on_high_log_count(
     assert "stress trend" in response["message"]
 
 
-def test_foresight_stress_returns_ok_on_low_log_count(mock_memory_client: MagicMock):
+def test_foresight_stress_returns_ok_on_low_log_count(
+    mock_memory_client: MagicMock,
+):
     """Verify an 'ok' status is returned when stress logs are few."""
     # Configure the mock to return only 5 items
     mock_memory_client.fetch_memory.return_value = ["log"] * 5
@@ -46,7 +48,9 @@ def test_foresight_stress_returns_ok_on_low_log_count(mock_memory_client: MagicM
     assert "stable" in response["message"]
 
 
-def test_foresight_handles_unknown_context_gracefully(mock_memory_client: MagicMock):
+def test_foresight_handles_unknown_context_gracefully(
+    mock_memory_client: MagicMock,
+):
     """Verify the agent doesn't crash and returns a safe response for unknown contexts."""
     response = run_foresight(mock_memory_client, context="unknown_context")
 

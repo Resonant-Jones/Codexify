@@ -48,12 +48,16 @@ def test_thread_patch_and_delete_cascade():
     r = client.patch(f"/api/chat/threads/{tid}", json={"project_id": 1})
     assert r.status_code == 200 and r.json().get("ok")
     # Add a message then delete thread
-    client.post(f"/api/chat/{tid}/messages", json={"role": "user", "content": "hi"})
+    client.post(
+        f"/api/chat/{tid}/messages", json={"role": "user", "content": "hi"}
+    )
     r = client.delete(f"/api/chat/threads/{tid}")
     assert r.status_code == 200 and r.json().get("ok")
     with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:
         c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM chat_messages WHERE thread_id = ?", (tid,))
+        c.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE thread_id = ?", (tid,)
+        )
         assert c.fetchone()[0] == 0
 
 
