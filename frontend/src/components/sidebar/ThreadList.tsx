@@ -10,9 +10,9 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
-import PreviewTile from "@/components/ui/PreviewTile";
 import type { ThreadAction } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import TileShell from "@/components/surface/TileShell";
 
 type ThreadListProps = {
   threads: Thread[];
@@ -331,24 +331,32 @@ function ThreadTileRow({
       </span>
     ) : null;
 
-  const payload = unreadBadge ? [titleNode, snippetNode, unreadBadge] : [titleNode, snippetNode];
-
   return (
     <div className={clsx("relative", className)}>
-      <PreviewTile
-        active={active}
+      <TileShell
+        as="button"
+        type="button"
         onClick={() => onSelect(thread.id)}
-        className="thread-preview w-full"
-        tone="panel"
-        rectH={rectH}
+        className="thread-preview w-full text-left transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+        style={{
+          minHeight: rectH,
+          background: active ? highlightBg : undefined,
+          borderColor: active ? highlightBorder : undefined,
+        }}
       >
-        {payload}
-      </PreviewTile>
+        <div className="flex h-full w-full items-center gap-3 px-3 py-2">
+          <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
+            {titleNode}
+            {snippetNode}
+          </div>
+          {unreadBadge}
+        </div>
+      </TileShell>
 
       <div className="absolute top-1 right-1">
         <button
           ref={kebabRef}
-          className="icon-inline"
+          className="icon-inline rounded-[var(--radius-micro)]"
           aria-label="Thread actions"
           onClick={(e) => { if (stop(e)) return; setMenuOpen(true); setHoveredAction(null); }}
           onMouseDown={(e) => stop(e)}
@@ -364,7 +372,7 @@ function ThreadTileRow({
           ref={menuRef}
           role="menu"
           tabIndex={-1}
-          className="absolute z-[9999] right-1 top-9 min-w-[180px] rounded-xl border p-1 shadow-xl pointer-events-auto backdrop-blur-sm"
+          className="absolute z-[9999] right-1 top-9 min-w-[180px] rounded-[var(--tile-radius)] border p-1 shadow-xl pointer-events-auto backdrop-blur-sm"
           style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}

@@ -1,8 +1,12 @@
 import { FolderOpen } from "lucide-react";
+import TileShell from "@/components/surface/TileShell";
 
 export function ProjectTile({ name, color = "var(--text)" }: { name: string; color?: string }) {
   return (
-    <div className="relative h-full w-full rounded-[var(--card-radius)] border overflow-hidden pointer-events-auto" style={{ background: "var(--chip-bg)", borderColor: "var(--panel-border)" }}>
+    <TileShell
+      className="relative h-full w-full pointer-events-auto"
+      style={{ background: "var(--panel-bg)" }}
+    >
       <div className="grid h-full place-items-center">
         <FolderOpen className="h-8 w-8" style={{ color }} />
       </div>
@@ -11,7 +15,7 @@ export function ProjectTile({ name, color = "var(--text)" }: { name: string; col
           {name}
         </div>
       </div>
-    </div>
+    </TileShell>
   );
 }
 

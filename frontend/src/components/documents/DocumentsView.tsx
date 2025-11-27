@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import DocumentPreviewTile from "@/components/ui/DocumentPreviewTile";
+import DocumentTile from "@/components/documents/DocumentTile";
 import ContextMenu from "@/components/ui/ContextMenu";
 import useUploader from "@/hooks/useUploader";
 import FrameCard from "@/components/surface/FrameCard";
@@ -56,7 +56,7 @@ export default function DocumentsView({
         <FrameCard
           refractiveFallback
           shimmerMode="subtle"
-          className="flex h-full w-full flex-col gap-4 px-[var(--card-pad)] py-[var(--card-pad)]"
+          className="flex h-full w-full flex-col gap-4 px-[var(--card-pad)] py-[var(--card-pad)] rounded-[var(--card-radius)]"
           style={{ color: "var(--text)" }}
         >
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] pb-3">
@@ -87,7 +87,7 @@ export default function DocumentsView({
                     setMenu({ x: e.clientX, y: e.clientY, doc: { name: d.name, ext: d.ext } });
                   }}
                 >
-                  <DocumentPreviewTile
+                  <DocumentTile
                     file={{ name: `${d.name}.${d.ext}` }}
                     onClick={() => handleDocumentClick(d.name, d.ext)}
                   />
