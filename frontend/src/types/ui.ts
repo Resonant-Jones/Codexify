@@ -30,6 +30,7 @@ export type ExtColors = {
   txt: string;
   docx: string;
   jpeg: string;
+  codex: string;
 };
 
 export type GalleryItem = { src: string; prompt: string; mock?: boolean };

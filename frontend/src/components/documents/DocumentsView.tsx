@@ -4,19 +4,20 @@ import ContextMenu from "@/components/ui/ContextMenu";
 import useUploader from "@/hooks/useUploader";
 import FrameCard from "@/components/surface/FrameCard";
 import { ExtColors } from "@/types/ui";
+import { DocumentLike } from "@/types/documents";
 
 interface DocumentsViewProps {
-  documents: Array<{ name: string; ext: keyof ExtColors; mock?: boolean }>;
+  documents: DocumentLike[];
   extColors: ExtColors;
-  onDocumentClick?: (name: string, ext: string) => void;
-  onOpenInThread?: (name: string, ext: string) => void;
-  onDeleteDocument?: (name: string, ext: string) => void;
+  onDocumentClick?: (doc: DocumentLike) => void;
+  onOpenInThread?: (doc: DocumentLike) => void;
+  onDeleteDocument?: (doc: DocumentLike) => void;
   defaultBehavior?: "workspace" | "thread";
 }
 
 export default function DocumentsView({
   documents,
-  extColors,
+  extColors: _extColors,
   onDocumentClick,
   onOpenInThread,
   onDeleteDocument,
@@ -24,24 +25,32 @@ export default function DocumentsView({
 }: DocumentsViewProps) {
   const [behavior, setBehavior] = useState<"workspace" | "thread">(defaultBehavior);
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
-  const [menu, setMenu] = useState<{x:number;y:number;doc?:{name:string;ext:string}}|null>(null);
+  const [menu, setMenu] = useState<{x:number;y:number;doc?:DocumentLike}|null>(null);
   const uploader = useUploader({
     tag: "upload",
     onImages: () => {},
     onDocuments: (items) => {
       // Let the parent wire in the state update via onDeleteDocument? Not ideal.
       // We dispatch a custom event so AppShell can listen and update.
-      try { window.dispatchEvent(new CustomEvent("cfy:documents:add", { detail: { items } })); } catch {}
+      const normalized = (items || []).map((item: any, idx: number) => ({
+        ...item,
+        id: item?.id || item?.name || `upload-${idx}`,
+        name: item?.name || item?.title || item?.filename || "Untitled",
+        title: item?.title || item?.name || item?.filename || "Untitled",
+        ext: item?.ext || item?.extension || "md",
+        type: "file",
+      }));
+      try { window.dispatchEvent(new CustomEvent("cfy:documents:add", { detail: { items: normalized } })); } catch {}
     },
     onAnyUpload: () => { try { localStorage.setItem("cfy.hasUserUpload", "true"); } catch {} },
   });
 
-  const handleDocumentClick = (name: string, ext: string) => {
+  const handleDocumentClick = (doc: DocumentLike) => {
     if (behavior === "thread" && onOpenInThread) {
-      onOpenInThread(name, ext);
+      onOpenInThread(doc);
       return;
     }
-    onDocumentClick?.(name, ext);
+    onDocumentClick?.(doc);
   };
 
   const docItems = useMemo(() => (hideMocks ? (documents ?? []).filter(d => !d.mock) : (documents ?? [])), [documents, hideMocks]);
@@ -78,26 +87,31 @@ export default function DocumentsView({
 
           <div className="min-h-0 flex-1 overflow-auto" onDrop={uploader.onDrop} onDragOver={uploader.onDragOver}>
             <div className="grid auto-rows-[minmax(112px,auto)] grid-cols-[repeat(auto-fit,minmax(132px,1fr))] gap-4 justify-items-center pb-1">
-              {docItems.map((d) => (
-                <div
-                  key={`${d.name}.${d.ext}`}
-                  className="relative"
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({ x: e.clientX, y: e.clientY, doc: { name: d.name, ext: d.ext } });
-                  }}
-                >
-                  <DocumentTile
-                    file={{ name: `${d.name}.${d.ext}` }}
-                    onClick={() => handleDocumentClick(d.name, d.ext)}
-                  />
-                  {d.mock && (
-                    <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
-                      Mock
-                    </span>
-                  )}
-                </div>
-              ))}
+              {docItems.map((d) => {
+                const key = d.id || `${d.title}.${d.ext}`;
+                const isCodex = d.type === "codex_entry";
+                return (
+                  <div
+                    key={key}
+                    className="relative"
+                    onContextMenu={(e) => {
+                      if (isCodex) return;
+                      e.preventDefault();
+                      setMenu({ x: e.clientX, y: e.clientY, doc: d });
+                    }}
+                  >
+                    <DocumentTile
+                      file={{ name: d.title, ext: d.ext }}
+                      onClick={() => handleDocumentClick(d)}
+                    />
+                    {d.mock && (
+                      <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
+                        Mock
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -118,13 +132,14 @@ export default function DocumentsView({
               y={menu.y}
               onClose={() => setMenu(null)}
               items={[
-                ...(menu.doc && onDeleteDocument ? [{ label: "Delete", onClick: () => {
-                  const key = `${menu.doc!.name}.${menu.doc!.ext}`;
-                  // Emit a request that parent should delete AND provide undo
-                  const ev = new CustomEvent("cfy:documents:delete", { detail: { name: menu.doc!.name, ext: menu.doc!.ext } });
-                  try { window.dispatchEvent(ev); } catch {}
-                  onDeleteDocument(menu.doc!.name, menu.doc!.ext);
-                }}] : []),
+                ...(menu.doc && onDeleteDocument ? [{
+                  label: "Delete",
+                  onClick: () => {
+                    const ev = new CustomEvent("cfy:documents:delete", { detail: { doc: menu.doc } });
+                    try { window.dispatchEvent(ev); } catch {}
+                    onDeleteDocument(menu.doc!);
+                  },
+                }] : []),
                 { label: hideMocks ? "Show Mock Items" : "Hide Mock Items", onClick: () => { const v = !hideMocks; setHideMocks(v); try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {} } },
               ]}
             />

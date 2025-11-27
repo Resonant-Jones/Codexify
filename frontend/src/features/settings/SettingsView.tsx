@@ -207,7 +207,7 @@ export function SettingsView({
                 value={baseColor}
                 onChange={(e) => setBaseColor(e.target.value)}
                 aria-label="Base color"
-                className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer shrink-0"
+                className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius)] bg-transparent cursor-pointer shrink-0"
                 style={{ width: "32px", height: "32px" }}
               />
             </div>
@@ -246,6 +246,10 @@ export function SettingsView({
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">JPEG</span>
                   <Input id="color-jpeg" type="color" value={extColors.jpeg} onChange={(e) => setExtColors({ ...extColors, jpeg: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs">CODEX</span>
+                  <Input id="color-codex" type="color" value={extColors.codex} onChange={(e) => setExtColors({ ...extColors, codex: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
                 </div>
               </div>
             </div>
