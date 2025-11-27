@@ -5,7 +5,9 @@ class _Settings:
 
 
 # Export a patchable settings object. If a real settings already exists, keep it.
-if "settings" not in globals() or not hasattr(globals()["settings"], "PROMPT_DIR_PATH"):
+if "settings" not in globals() or not hasattr(
+    globals()["settings"], "PROMPT_DIR_PATH"
+):
     settings = _Settings()  # type: ignore
 
 # Minimal placeholder to satisfy imports; production may override.
@@ -43,11 +45,19 @@ def _resolve_imprint_symbols() -> Tuple[Callable[[], Any], Type[Any], Any]:
     class _DefaultSettings:
         PROMPT_DIR_PATH: str = ""
 
-    return _default_get_memoryos_instance, _FallbackUserManager, _DefaultSettings()
+    return (
+        _default_get_memoryos_instance,
+        _FallbackUserManager,
+        _DefaultSettings(),
+    )
 
 
 # Expose symbols with the expected names for downstream code/tests
-get_memoryos_instance, UserManager, _facade_settings = _resolve_imprint_symbols()
+(
+    get_memoryos_instance,
+    UserManager,
+    _facade_settings,
+) = _resolve_imprint_symbols()
 
 # Ensure UserManager is defined; fallback already provided by _resolve_imprint_symbols.
 if "UserManager" not in globals() or UserManager is object:
@@ -62,7 +72,9 @@ if "UserManager" not in globals() or UserManager is object:
     UserManager = _FallbackUserManager  # type: ignore
 
 # Ensure get_memoryos_instance is defined as a callable stub
-if "get_memoryos_instance" not in globals() or not callable(get_memoryos_instance):
+if "get_memoryos_instance" not in globals() or not callable(
+    get_memoryos_instance
+):
 
     def get_memoryos_instance() -> Any:  # type: ignore
         return None
@@ -92,7 +104,9 @@ class _SafeMemoryOS:
         self.client = _NoopLLMClient()
 
     def save(self, title: str, content: str, tags=None):
-        logger.info(f"[SafeMemoryOS] save called: title={title!r}, tags={tags!r}")
+        logger.info(
+            f"[SafeMemoryOS] save called: title={title!r}, tags={tags!r}"
+        )
         return {"status": "ok", "title": title}
 
 
@@ -170,9 +184,9 @@ class ImprintZeroAgent:
             import importlib
             import sys
 
-            mod = sys.modules.get("guardian.imprint_zero") or importlib.import_module(
+            mod = sys.modules.get(
                 "guardian.imprint_zero"
-            )
+            ) or importlib.import_module("guardian.imprint_zero")
             fac_set = getattr(mod, "settings", None)
             if isinstance(fac_set, dict):
                 facade_value = fac_set.get("PROMPT_DIR_PATH")
@@ -230,7 +244,7 @@ class ImprintZeroAgent:
             for p in paths:
                 try:
                     # Use builtins.open without explicit encoding so patched mocks match signature
-                    with open(p, "r") as fh:
+                    with open(p) as fh:
                         return fh.read().strip()
                 except Exception:
                     # Ignore FS errors and keep looking for the next candidate
@@ -245,7 +259,8 @@ class ImprintZeroAgent:
             self.system_prompt = sys_text
         else:
             logger.warning(
-                "No system prompt files found in %s; using fallback.", prompts_dir
+                "No system prompt files found in %s; using fallback.",
+                prompts_dir,
             )
             self.system_prompt = "You are a friendly onboarding assistant."
 
@@ -254,7 +269,8 @@ class ImprintZeroAgent:
             self.question_scaffold = q_text
         else:
             logger.warning(
-                "No question scaffold files found in %s; using fallback.", prompts_dir
+                "No question scaffold files found in %s; using fallback.",
+                prompts_dir,
             )
             self.question_scaffold = "Please tell me a little about yourself."
 
@@ -287,7 +303,9 @@ class ImprintZeroAgent:
             "communication_preferences": communication_preferences,
             "accessibility_needs": accessibility_needs,
         }
-        self.user_manager.update_user_profile(user_id, {"profile_data": profile_data})
+        self.user_manager.update_user_profile(
+            user_id, {"profile_data": profile_data}
+        )
 
         # 3. Save a corresponding entry in MemoryOS to mark the "imprint".
         try:
@@ -300,7 +318,9 @@ class ImprintZeroAgent:
             )
             logger.info(f"Saved Imprint Zero to memory for user: {username}")
         except Exception as e:
-            logger.error(f"Failed to save Imprint Zero to memory for {username}: {e}")
+            logger.error(
+                f"Failed to save Imprint Zero to memory for {username}: {e}"
+            )
 
         return user_creation_result
 
@@ -311,7 +331,9 @@ class ImprintZeroAgent:
         Handles the conversational part of the onboarding, the "pulse read".
         This is a streaming async generator that yields JSON strings.
         """
-        logger.info(f"Processing onboarding message for user_id {user_id}: '{message}'")
+        logger.info(
+            f"Processing onboarding message for user_id {user_id}: '{message}'"
+        )
         try:
             # Get the memoryos instance to access its configured LLM client
             memory = _get_memory_or_safe()
@@ -320,7 +342,9 @@ class ImprintZeroAgent:
                 memory = _SafeMemoryOS()
 
             # Construct a specialized prompt for the "pulse read"
-            user_prompt = f"{self.question_scaffold}\n\nUser's Response: {message}"
+            user_prompt = (
+                f"{self.question_scaffold}\n\nUser's Response: {message}"
+            )
 
             # Use the underlying client for a direct, controlled LLM call
             try:
@@ -334,19 +358,25 @@ class ImprintZeroAgent:
                     max_tokens=1000,
                 )
             except Exception:
-                response_content = "Thanks. I captured that for your onboarding."
+                response_content = (
+                    "Thanks. I captured that for your onboarding."
+                )
 
             # Normalize possible client return types (string, dict-like, object with choices)
             content = response_content
             try:
                 if isinstance(content, dict):
                     # Common shapes: {'content': '...'} or {'choices': [{'message': {'content': '...'}}]}
-                    if "content" in content and isinstance(content["content"], str):
+                    if "content" in content and isinstance(
+                        content["content"], str
+                    ):
                         content = content["content"]
                     elif "choices" in content and content["choices"]:
                         first = content["choices"][0]
                         if isinstance(first, dict):
-                            msg = first.get("message") or first.get("delta") or {}
+                            msg = (
+                                first.get("message") or first.get("delta") or {}
+                            )
                             if isinstance(msg, dict) and isinstance(
                                 msg.get("content"), str
                             ):
@@ -360,11 +390,13 @@ class ImprintZeroAgent:
                         choices = getattr(content, "choices", None)
                         if choices:
                             first = choices[0]
-                            message = getattr(first, "message", None) or getattr(
-                                first, "delta", None
-                            )
+                            message = getattr(
+                                first, "message", None
+                            ) or getattr(first, "delta", None)
                             text = (
-                                getattr(message, "content", None) if message else None
+                                getattr(message, "content", None)
+                                if message
+                                else None
                             )
                             if isinstance(text, str):
                                 content = text
@@ -377,9 +409,7 @@ class ImprintZeroAgent:
             yield json.dumps({"type": "text", "content": content})
         except Exception as e:
             logger.error(f"Error during onboarding message processing: {e}")
-            error_message = (
-                "I'm having a little trouble connecting right now. Let's try again."
-            )
+            error_message = "I'm having a little trouble connecting right now. Let's try again."
             yield json.dumps({"type": "error", "content": error_message})
 
 

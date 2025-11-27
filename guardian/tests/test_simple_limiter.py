@@ -25,7 +25,9 @@ async def test_simple_rate_limit():
         timestamps.append(time.time())
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     # Should maintain minimum interval of 0.2 seconds
     min_interval = 0.2  # 5 ops/sec = 0.2s between ops
@@ -47,7 +49,9 @@ async def test_decorator():
         await test_func()
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     # Should maintain minimum interval of 0.5 seconds
     min_interval = 0.5  # 2 ops/sec = 0.5s between ops

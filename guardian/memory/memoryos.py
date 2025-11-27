@@ -33,7 +33,9 @@ class MemoryOS:
         self.conversation_token_limit = conversation_token_limit
         self.conversation_manager = ConversationManager()
 
-        logger.info("MemoryOS initialized with codemap and conversation services")
+        logger.info(
+            "MemoryOS initialized with codemap and conversation services"
+        )
 
     def query_codemap(self, term: str) -> List[Dict[str, Union[str, int]]]:
         """
@@ -55,7 +57,9 @@ class MemoryOS:
             logger.error(f"Error querying codemap: {e}")
             return [{"message": "An error occurred while querying the codemap"}]
 
-    def format_codemap_results(self, results: List[Dict], explain: bool = False) -> str:
+    def format_codemap_results(
+        self, results: List[Dict], explain: bool = False
+    ) -> str:
         """
         Format codemap query results for display.
 
@@ -94,7 +98,9 @@ class MemoryOS:
         Returns:
             dict: Status information including whether summarization was triggered
         """
-        conversation = self.conversation_manager.load_conversation(conversation_id)
+        conversation = self.conversation_manager.load_conversation(
+            conversation_id
+        )
         if not conversation:
             return {
                 "status": "error",
@@ -133,7 +139,9 @@ class MemoryOS:
         Returns:
             dict: Status information including new conversation ID if successful
         """
-        conversation = self.conversation_manager.load_conversation(conversation_id)
+        conversation = self.conversation_manager.load_conversation(
+            conversation_id
+        )
         if not conversation:
             return {
                 "status": "error",
@@ -149,7 +157,9 @@ class MemoryOS:
             conversation.summary = summary
 
             # Create child conversation
-            child = self.conversation_manager.create_child_conversation(conversation_id)
+            child = self.conversation_manager.create_child_conversation(
+                conversation_id
+            )
             if not child:
                 return {
                     "status": "error",
@@ -170,7 +180,9 @@ class MemoryOS:
             }
 
         except Exception as e:
-            logger.error(f"Error summarizing conversation {conversation_id}: {e}")
+            logger.error(
+                f"Error summarizing conversation {conversation_id}: {e}"
+            )
             return {"status": "error", "message": str(e)}
 
     def _generate_summary(self, conversation: Conversation) -> str:

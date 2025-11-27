@@ -6,7 +6,10 @@ from cryptography.fernet import Fernet
 from guardian.modules.companion_foresight import Foresight, PredictionRequest
 from guardian.modules.flow_tuner import FlowConfig
 from guardian.modules.immutable_log import ImmutableLog
-from guardian.modules.live_semantic_timeline import SemanticTimeline, TimelineEvent
+from guardian.modules.live_semantic_timeline import (
+    SemanticTimeline,
+    TimelineEvent,
+)
 from guardian.modules.memory_key_vault import MemoryKeyVault
 from guardian.modules.plug_adapter_registry import AdapterRegistry, AdapterSpec
 

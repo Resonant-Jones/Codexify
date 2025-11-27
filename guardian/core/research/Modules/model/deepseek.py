@@ -22,7 +22,9 @@ class Deepseek(Model):
         load_dotenv()
         self.api_key = os.getenv("DEEPSEEK_API") if api_key == "" else api_key
         self.model = model
-        self.client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com")
+        self.client = OpenAI(
+            api_key=self.api_key, base_url="https://api.deepseek.com"
+        )
         self.messages = []
 
     def set_api(self, api_key: str):
@@ -39,7 +41,9 @@ class Deepseek(Model):
         pass
 
     def get_llm_config(self):
-        return LLMConfig(provider="deepseek/" + self.model, api_token=self.api_key)
+        return LLMConfig(
+            provider="deepseek/" + self.model, api_token=self.api_key
+        )
 
     def get_client(self):
         return self.client

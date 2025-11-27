@@ -23,4 +23,3 @@ export function useLegacyThreads() {
 export function LegacyThreadsProvider({ value, children }: { value: LegacyThreadsContextValue; children: React.ReactNode }) {
   return <LegacyThreadsContext.Provider value={value}>{children}</LegacyThreadsContext.Provider>;
 }
-

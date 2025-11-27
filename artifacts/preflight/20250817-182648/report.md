@@ -33,11 +33,11 @@
     POSTGRES_URL=po****
     # Notion API Key (if using Notion integrations)
     NOTION_API_KEY=nt****
-    
+
     NOTION_DATABASE_ID=20****
     # .env.template
     # Environment configuration template for Guardian backend
-    
+
     OPENAI_API_KEY=du****
     ANTHROPIC_API_KEY=sk****
     GROQ_API_KEY=gs****
@@ -54,7 +54,7 @@
     OPENAI_MODEL=4.****
     GEMINI_MODEL=ge****
     ANTHROPIC_MODEL=cl****
-    
+
     # Select active AI backend provider
     AI_BACKEND=gr****
 
@@ -82,4 +82,3 @@ postgres 1337 resonant_jones    8u  IPv4 0x44faf0f1b3feca64      0t0  TCP 127.0.
 - src/TagSelector.tsx: present
 - src/ThreadPromptBox.tsx: present
 - src/PersonaEngine.ts: present
-

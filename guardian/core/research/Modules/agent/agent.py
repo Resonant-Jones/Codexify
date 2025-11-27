@@ -62,7 +62,9 @@ def _extract_response(res):
 
     # 2. If not string now, bail out with debug
     if not isinstance(res, str):
-        print(f"[DEBUG] _extract_response: Expected string, got {type(res)}: {res}")
+        print(
+            f"[DEBUG] _extract_response: Expected string, got {type(res)}: {res}"
+        )
         return None
 
     # 3. Try to extract JSON from Markdown code block
@@ -70,13 +72,17 @@ def _extract_response(res):
     markdown_matches = re.findall(markdown_pattern, res, re.DOTALL)
     if markdown_matches:
         extracted = markdown_matches[0].strip()
-        print(f"[DEBUG] _extract_response: Extracted markdown block:\n{extracted}")
+        print(
+            f"[DEBUG] _extract_response: Extracted markdown block:\n{extracted}"
+        )
         return extracted
 
     # 4. Try to parse the raw string as JSON
     try:
         json.loads(res.strip())
-        print(f"[DEBUG] _extract_response: Raw content is valid JSON:\n{res.strip()}")
+        print(
+            f"[DEBUG] _extract_response: Raw content is valid JSON:\n{res.strip()}"
+        )
         return res.strip()
     except Exception:
         print(

@@ -90,7 +90,9 @@ def test_trigger_ritual_memory_logging_fails(mock_memory_client):
         ("morning_initiation", "Morning initiation ritual complete"),
     ],
 )
-def test_all_known_rituals(mock_memory_client, ritual_name, expected_message_part):
+def test_all_known_rituals(
+    mock_memory_client, ritual_name, expected_message_part
+):
     """
     Tests all defined rituals to ensure they return success and the correct message.
     """

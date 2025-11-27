@@ -11,7 +11,9 @@ class MemoryAnalyzer:
 
     async def analyze_memories(self) -> dict:
         try:
-            memories = self.codex.query_memory(query="", min_confidence=0.0, limit=100)
+            memories = self.codex.query_memory(
+                query="", min_confidence=0.0, limit=100
+            )
             patterns = await self.detect_patterns(memories)
             stats = self.calculate_statistics(memories)
             return {"patterns": patterns, "statistics": stats}
@@ -31,8 +33,12 @@ class MemoryAnalyzer:
         avg_conf = sum(confidences) / total if total else 0.0
         return {"total_memories": total, "average_confidence": avg_conf}
 
-    def filter_memories(self, memories: list[dict], tags: list[str]) -> list[dict]:
-        return [m for m in memories if any(tag in m.get("tags", []) for tag in tags)]
+    def filter_memories(
+        self, memories: list[dict], tags: list[str]
+    ) -> list[dict]:
+        return [
+            m for m in memories if any(tag in m.get("tags", []) for tag in tags)
+        ]
 
     def get_metadata(self) -> dict:
         return {

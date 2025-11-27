@@ -8,7 +8,10 @@ DEFAULT_COLLECTION = os.getenv("CODEXIFY_COLLECTION", "codexify_vault")
 
 @click.command(name="embed-diagnose")
 @click.option(
-    "--path", default=DEFAULT_PATH, show_default=True, help="Chroma persistence path."
+    "--path",
+    default=DEFAULT_PATH,
+    show_default=True,
+    help="Chroma persistence path.",
 )
 @click.option(
     "--collection",

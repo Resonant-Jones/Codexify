@@ -1,17 +1,19 @@
 import json
 
 
-def assemble_prompt(identity_path, cue_card_path, context_path, current_goal=None):
+def assemble_prompt(
+    identity_path, cue_card_path, context_path, current_goal=None
+):
     # Load identity profile
-    with open(identity_path, "r") as file:
+    with open(identity_path) as file:
         identity = json.load(file)
 
     # Load cue card
-    with open(cue_card_path, "r") as file:
+    with open(cue_card_path) as file:
         cue_card = file.read().strip()
 
     # Load last context
-    with open(context_path, "r") as file:
+    with open(context_path) as file:
         last_context = file.read().strip()
 
     # Format user anchors as inline context
@@ -52,7 +54,9 @@ if __name__ == "__main__":
 
 # Backwards-compatible shim: build_prompt(thread, persona, system_overrides=None) -> str
 # Used by tests to build prompts from thread, persona, and system overrides.
-def build_prompt(thread: dict, persona: dict, system_overrides: dict = None) -> str:
+def build_prompt(
+    thread: dict, persona: dict, system_overrides: dict = None
+) -> str:
     """
     Build a prompt from thread, persona, and optional system overrides.
 

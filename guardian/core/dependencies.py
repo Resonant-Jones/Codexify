@@ -9,34 +9,36 @@ This module is imported by route modules to avoid circular imports
 with guardian_api.py.
 """
 
+import hmac
 import logging
 import os
-import hmac
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
-from datetime import datetime, date, time
 
 from dotenv import load_dotenv
-from fastapi import Depends, HTTPException, Header
+from fastapi import Depends, Header, HTTPException
 from fastapi.security.api_key import APIKeyHeader
 
+from guardian.config import get_settings
+from guardian.context.broker import ContextBroker
 from guardian.core import event_bus
 from guardian.core.chat_db import ChatDB
 from guardian.core.chatlog_postgres import PostgresChatLogDB
-from guardian.config import get_settings
-from guardian.context.broker import ContextBroker
-from guardian.vector.store import VectorStore
 from guardian.memory.query_memory import memory_store as _memory_store
 from guardian.sensors.state import Sensors
+from guardian.vector.store import VectorStore
 
 # Try to import Groq provider
 try:
     from guardian.providers.groq_client import get_groq_chat
 except ModuleNotFoundError as e:
     logging.warning(f"[dependencies] Optional groq_client not available: {e}")
+
     def get_groq_chat() -> Any:  # type: ignore
         return None
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ logger = logging.getLogger(__name__)
 # =========================
 # Environment Loading
 # =========================
+
 
 def _load_env_chain() -> None:
     """
@@ -82,14 +85,26 @@ GROQ_MODEL_DEFAULT = os.getenv("GROQ_MODEL", "moonshotai/kimi-k2-instruct-0905")
 GROQ_FALLBACK_MODEL = (os.getenv("GROQ_FALLBACK_MODEL") or "").strip() or None
 
 # Back/forward-compatible aliases
-CHAT_PROVIDER = (os.getenv("GUARDIAN_CHAT_PROVIDER") or GUARDIAN_PROVIDER).lower()
+CHAT_PROVIDER = (
+    os.getenv("GUARDIAN_CHAT_PROVIDER") or GUARDIAN_PROVIDER
+).lower()
 DEFAULT_MODEL = os.getenv("GUARDIAN_DEFAULT_MODEL") or GROQ_MODEL_DEFAULT
-GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
+GROQ_BASE_URL = os.getenv(
+    "GROQ_BASE_URL", "https://api.groq.com/openai/v1"
+).rstrip("/")
 
 # Feature flags
-ENABLE_BLIP_MODEL = os.getenv("ENABLE_BLIP_MODEL", "true").lower() in ("1", "true", "yes")
+ENABLE_BLIP_MODEL = os.getenv("ENABLE_BLIP_MODEL", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 ENABLE_OUTBOX = os.getenv("ENABLE_OUTBOX", "1").lower() in ("1", "true", "yes")
-ENABLE_CONNECTOR_WORKER = os.getenv("ENABLE_CONNECTOR_WORKER", "0").lower() in ("1", "true", "yes")
+ENABLE_CONNECTOR_WORKER = os.getenv("ENABLE_CONNECTOR_WORKER", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
 
 # CORS configuration
@@ -100,6 +115,7 @@ allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
 # =========================
 # Authentication
 # =========================
+
 
 def verify_api_key(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
@@ -205,14 +221,18 @@ def init_database() -> Optional[Any]:
         return chatlog_db
 
     settings = get_settings()
-    db_url = getattr(settings, "GUARDIAN_DATABASE_URL", None) or os.getenv("DATABASE_URL")
+    db_url = getattr(settings, "GUARDIAN_DATABASE_URL", None) or os.getenv(
+        "DATABASE_URL"
+    )
 
     if db_url:
         # Fall back to Postgres when a GUARDIAN_DATABASE_URL is explicitly set.
         chatlog_db = PostgresChatLogDB(db_url)  # type: ignore[arg-type]
         # PgDB/PostgresChatLogDB manage schema via migrations; no explicit ensure_schema required.
         PG_DSN = db_url
-        logger.info("[db] Using PostgreSQL chatlog DB DSN=%s", _mask_dsn(db_url))
+        logger.info(
+            "[db] Using PostgreSQL chatlog DB DSN=%s", _mask_dsn(db_url)
+        )
         return chatlog_db
 
     logger.warning(
@@ -252,6 +272,7 @@ def init_services(db: ChatDB) -> tuple[VectorStore, Sensors]:
 # Helper Functions
 # =========================
 
+
 def _mask_dsn(dsn: str) -> str:
     """Mask password in database connection string for safe logging."""
     try:
@@ -286,6 +307,7 @@ def _jsonify(obj: Any) -> Any:
 # Groq Completion Helper
 # =========================
 
+
 def _groq_complete(
     messages: List[Dict[str, str]],
     model: Optional[str] = None,
@@ -314,7 +336,9 @@ def _groq_complete(
     import requests
 
     if not GROQ_API_KEY:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+        raise HTTPException(
+            status_code=500, detail="GROQ_API_KEY not configured"
+        )
 
     # Inject RAG context as system message if broker provided a bundle
     enriched_messages = list(messages)  # Copy to avoid modifying original
@@ -329,7 +353,9 @@ def _groq_complete(
                 if snippet:
                     sem_parts.append(f"- {snippet}")
             if sem_parts:
-                context_parts.append("**Semantic Context:**\n" + "\n".join(sem_parts))
+                context_parts.append(
+                    "**Semantic Context:**\n" + "\n".join(sem_parts)
+                )
 
         # Add memory context
         if context.get("memory"):
@@ -339,7 +365,9 @@ def _groq_complete(
                 if txt:
                     mem_parts.append(f"- {txt}")
             if mem_parts:
-                context_parts.append("**Memory Context:**\n" + "\n".join(mem_parts))
+                context_parts.append(
+                    "**Memory Context:**\n" + "\n".join(mem_parts)
+                )
 
         # Add sensors/state context
         if context.get("sensors"):
@@ -350,7 +378,9 @@ def _groq_complete(
             if sensors.get("thread_count") is not None:
                 sensor_info.append(f"Active Threads: {sensors['thread_count']}")
             if sensor_info:
-                context_parts.append("**System State:**\n" + "\n".join(sensor_info))
+                context_parts.append(
+                    "**System State:**\n" + "\n".join(sensor_info)
+                )
 
         # Insert the context system message *after* any leading system prompts
         if context_parts:
@@ -365,10 +395,13 @@ def _groq_complete(
                 else:
                     break
 
-            enriched_messages.insert(insert_at, {
-                "role": "system",
-                "content": f"You have access to the following context:\n\n{system_context}"
-            })
+            enriched_messages.insert(
+                insert_at,
+                {
+                    "role": "system",
+                    "content": f"You have access to the following context:\n\n{system_context}",
+                },
+            )
 
         # Log diagnostic info if provided
         if context.get("diagnostics"):
@@ -378,7 +411,7 @@ def _groq_complete(
                 diag.get("depth", "unknown"),
                 diag.get("semantic_count", 0),
                 diag.get("memory_count", 0),
-                bool(diag.get("sensors_included", False))
+                bool(diag.get("sensors_included", False)),
             )
 
     target_model = model or DEFAULT_MODEL
@@ -395,7 +428,9 @@ def _groq_complete(
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=60)
             if resp.status_code != 200:
-                logger.error("[groq] HTTP %d: %s", resp.status_code, resp.text[:200])
+                logger.error(
+                    "[groq] HTTP %d: %s", resp.status_code, resp.text[:200]
+                )
                 return None
 
             data = resp.json()
@@ -445,7 +480,9 @@ def _groq_complete(
 
     # Try fallback if configured
     if GROQ_FALLBACK_MODEL and GROQ_FALLBACK_MODEL != target_model:
-        logger.info("[groq] retrying with fallback model=%s", GROQ_FALLBACK_MODEL)
+        logger.info(
+            "[groq] retrying with fallback model=%s", GROQ_FALLBACK_MODEL
+        )
         result = _attempt_completion(GROQ_FALLBACK_MODEL)
         if result:
             return result
@@ -453,7 +490,7 @@ def _groq_complete(
     # All attempts failed
     raise HTTPException(
         status_code=500,
-        detail=f"Groq completion failed for model={target_model}"
+        detail=f"Groq completion failed for model={target_model}",
     )
 
 
@@ -467,34 +504,29 @@ __all__ = [
     "require_api_key",
     "get_current_user",
     "API_KEY",
-
     # Database
     "chatlog_db",
     "init_database",
     "DB_BACKEND",
     "PG_DSN",
     "get_database_dsn",
-
     # Services
     "_vector_store",
     "_sensors",
     "_memory_store",
     "init_services",
     "event_bus",
-
     # AI Completion
     "_groq_complete",
     "get_groq_chat",
     "DEFAULT_MODEL",
     "GUARDIAN_PROVIDER",
-
     # Configuration
     "allowed_origins",
     "ENABLE_BLIP_MODEL",
     "ENABLE_OUTBOX",
     "ENABLE_CONNECTOR_WORKER",
     "MEMORY_RETENTION_DAYS",
-
     # Helpers
     "_mask_dsn",
     "_jsonify",

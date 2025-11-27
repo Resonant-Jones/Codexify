@@ -37,7 +37,9 @@ async def test_system_wide_limit():
     timestamps.sort()
 
     # Check intervals
-    intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+    intervals = [
+        timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+    ]
 
     # Each limiter allows 10 ops/sec, so combined should maintain
     # minimum interval of 0.1 seconds
@@ -64,7 +66,8 @@ async def test_safe_mode_limiting():
 
         # Check intervals
         intervals = [
-            timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)
+            timestamps[i + 1] - timestamps[i]
+            for i in range(len(timestamps) - 1)
         ]
 
         # In safe mode, rate should be reduced
@@ -72,7 +75,8 @@ async def test_safe_mode_limiting():
         min_interval = 1.0 / safe_rate
 
         assert all(i >= min_interval * 0.9 for i in intervals), (
-            f"Safe mode intervals should be >= {min_interval}s " "(with 10% tolerance)"
+            f"Safe mode intervals should be >= {min_interval}s "
+            "(with 10% tolerance)"
         )
     finally:
         # Reset safe mode
@@ -101,11 +105,13 @@ async def test_burst_recovery():
     # Check intervals within each burst
     def check_burst(start_idx: int):
         burst_intervals = [
-            timestamps[i + 1] - timestamps[i] for i in range(start_idx, start_idx + 2)
+            timestamps[i + 1] - timestamps[i]
+            for i in range(start_idx, start_idx + 2)
         ]
         min_interval = 0.2  # 5 ops/sec = 0.2s between ops
         assert all(i >= min_interval * 0.9 for i in burst_intervals), (
-            f"Burst intervals should be >= {min_interval}s " "(with 10% tolerance)"
+            f"Burst intervals should be >= {min_interval}s "
+            "(with 10% tolerance)"
         )
 
     check_burst(0)  # First burst
@@ -139,7 +145,9 @@ async def test_system_stress():
     results.sort(key=lambda x: x[2])
 
     # Check intervals between operations
-    intervals = [results[i + 1][2] - results[i][2] for i in range(len(results) - 1)]
+    intervals = [
+        results[i + 1][2] - results[i][2] for i in range(len(results) - 1)
+    ]
 
     min_interval = 0.05  # 20 ops/sec = 0.05s between ops
     assert all(

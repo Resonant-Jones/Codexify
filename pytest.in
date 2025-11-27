@@ -2,7 +2,7 @@
 [pytest]
 minversion = 7.0
 addopts = -ra -q
-testpaths = 
+testpaths =
     tests
 python_files = test_*.py
 python_classes = Test*
@@ -13,7 +13,7 @@ minversion = 7.0
 addopts = -ra -q --tb=short
 
 # Test discovery
-testpaths = 
+testpaths =
     tests
 
 python_files = test_*.py

@@ -16,7 +16,8 @@ from guardian.plugin_loader import plugin_loader
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -138,10 +139,14 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+    subparsers = parser.add_subparsers(
+        dest="command", help="Command to execute"
+    )
 
     # List plugins command
-    list_parser = subparsers.add_parser("list-plugins", help="List available plugins")
+    list_parser = subparsers.add_parser(
+        "list-plugins", help="List available plugins"
+    )
 
     # Add companion-related commands
     build_parser = subparsers.add_parser(
@@ -163,14 +168,18 @@ def main() -> None:
     delete_parser.add_argument("name", help="Companion name")
 
     # Run plugin command
-    run_parser = subparsers.add_parser("run-plugin", help="Run a specific plugin")
+    run_parser = subparsers.add_parser(
+        "run-plugin", help="Run a specific plugin"
+    )
     run_parser.add_argument("name", help="Plugin name")
     run_parser.add_argument(
         "--args", nargs="*", help="Plugin arguments in key=value format"
     )
 
     # Query memory command
-    query_parser = subparsers.add_parser("query-memory", help="Query memory events")
+    query_parser = subparsers.add_parser(
+        "query-memory", help="Query memory events"
+    )
     query_parser.add_argument(
         "--backend",
         choices=["sqlite", "jsonl"],
@@ -182,17 +191,23 @@ def main() -> None:
     query_parser.add_argument("--tags", help="Filter by tags (comma-separated)")
     query_parser.add_argument("--start", help="Start time (ISO format)")
     query_parser.add_argument("--end", help="End time (ISO format)")
-    query_parser.add_argument("--last", type=int, help="Query events from last N hours")
+    query_parser.add_argument(
+        "--last", type=int, help="Query events from last N hours"
+    )
     query_parser.add_argument(
         "--limit", type=int, default=100, help="Maximum number of results"
     )
 
     # Enable plugin command
-    enable_parser = subparsers.add_parser("enable-plugin", help="Enable a plugin")
+    enable_parser = subparsers.add_parser(
+        "enable-plugin", help="Enable a plugin"
+    )
     enable_parser.add_argument("name", help="Plugin name")
 
     # Disable plugin command
-    disable_parser = subparsers.add_parser("disable-plugin", help="Disable a plugin")
+    disable_parser = subparsers.add_parser(
+        "disable-plugin", help="Disable a plugin"
+    )
     disable_parser.add_argument("name", help="Plugin name")
 
     args = parser.parse_args()
@@ -220,7 +235,9 @@ def main() -> None:
         from pathlib import Path
 
         script_path = (
-            Path(__file__).parent.parent.parent / "scripts" / "imprint_zero_flow.py"
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "imprint_zero_flow.py"
         )
 
         if not script_path.exists():

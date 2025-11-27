@@ -8,7 +8,9 @@ from guardian.plugin_loader import PluginLoader
 
 class TestPluginLoader(unittest.TestCase):
     def setUp(self):
-        self.plugin_dir = Path("tests/test_plugins")  # Use a dedicated test directory
+        self.plugin_dir = Path(
+            "tests/test_plugins"
+        )  # Use a dedicated test directory
         self.plugin_loader = PluginLoader()
         self.plugin_loader.plugin_dir = self.plugin_dir
         self.manifest_path = self.plugin_dir / "plugin_manifest.json"
@@ -47,7 +49,7 @@ class TestPluginLoader(unittest.TestCase):
         self.plugin_loader.update_manifest()
 
         # Check manifest content
-        with open(self.manifest_path, "r") as f:
+        with open(self.manifest_path) as f:
             manifest = json.load(f)
 
         self.assertIn("active_plugins", manifest)

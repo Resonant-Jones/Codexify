@@ -2,7 +2,9 @@ def summary_prompt(content: str, db: list[str]) -> str:
     previous_summaries_text = "None."
     if db:
         # Enumerate for clarity if there are many previous summaries
-        previous_summaries_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(db)])
+        previous_summaries_text = "\n".join(
+            [f"{i+1}. {s}" for i, s in enumerate(db)]
+        )
 
     return f"""
       You are an expert AI assistant specializing in **context-aware content summarization**. Your goal is to process new information, summarize it thoroughly, and then create a highly condensed version that highlights its unique essence, especially in relation to previously summarized content. This will prevent redundant information processing in subsequent steps.

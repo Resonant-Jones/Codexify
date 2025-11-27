@@ -32,6 +32,7 @@ def pytest_collection_modifyitems(config, items):
 
 # --- Patched TestClient fixture for guardian tests -------------------------
 from fastapi.testclient import TestClient as _BaseTestClient
+
 from guardian.guardian_api import app as _app
 
 

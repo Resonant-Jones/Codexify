@@ -109,7 +109,9 @@ class Updater:
             )
 
             if is_continuous and temp_last_page_in_batch:
-                current_page_obj["pre_page"] = temp_last_page_in_batch["page_id"]
+                current_page_obj["pre_page"] = temp_last_page_in_batch[
+                    "page_id"
+                ]
                 # The actual next_page for temp_last_page_in_batch will be set when it's stored in mid-term
                 # or if it's already there, it needs an update. This linking is tricky.
                 # For now, we establish the link from current to previous.
@@ -118,7 +120,10 @@ class Updater:
                 # Meta info generation based on continuity
                 last_meta = temp_last_page_in_batch.get("meta_info")
                 new_meta = generate_page_meta_info(
-                    last_meta, current_page_obj, self.client, model=self.llm_model
+                    last_meta,
+                    current_page_obj,
+                    self.client,
+                    model=self.llm_model,
                 )
                 current_page_obj["meta_info"] = new_meta
                 # If temp_last_page_in_batch was part of a chain, its meta_info and subsequent ones should update.
@@ -159,7 +164,9 @@ class Updater:
             ]
         )
 
-        print("Updater: Generating multi-topic summary for the evicted batch...")
+        print(
+            "Updater: Generating multi-topic summary for the evicted batch..."
+        )
         multi_summary_result = gpt_generate_multi_summary(
             input_text_for_summary, self.client, model=self.llm_model
         )
@@ -187,7 +194,9 @@ class Updater:
             print(
                 "Updater: No specific themes from multi-summary. Adding batch as a general session."
             )
-            fallback_summary = "General conversation segment from short-term memory."
+            fallback_summary = (
+                "General conversation segment from short-term memory."
+            )
             fallback_keywords = (
                 llm_extract_keywords(
                     input_text_for_summary, self.client, model=self.llm_model
@@ -228,8 +237,12 @@ class Updater:
 
         new_profile_text = profile_analysis_result.get("profile")
         if new_profile_text and new_profile_text.lower() != "none":
-            print(f"Updater: Updating user profile for {user_id} in LongTermMemory.")
-            current_profile = self.long_term_memory.get_raw_user_profile(user_id)
+            print(
+                f"Updater: Updating user profile for {user_id} in LongTermMemory."
+            )
+            current_profile = self.long_term_memory.get_raw_user_profile(
+                user_id
+            )
             if current_profile and current_profile.lower() != "none":
                 updated_profile = gpt_update_profile(
                     current_profile, new_profile_text, self.client
@@ -252,8 +265,13 @@ class Updater:
                 ]:
                     self.long_term_memory.add_user_knowledge(line.strip())
 
-        assistant_knowledge_text = profile_analysis_result.get("assistant_knowledge")
-        if assistant_knowledge_text and assistant_knowledge_text.lower() != "none":
+        assistant_knowledge_text = profile_analysis_result.get(
+            "assistant_knowledge"
+        )
+        if (
+            assistant_knowledge_text
+            and assistant_knowledge_text.lower() != "none"
+        ):
             print("Updater: Adding assistant knowledge to LongTermMemory.")
             for line in assistant_knowledge_text.split("\n"):
                 if line.strip() and line.strip().lower() not in [

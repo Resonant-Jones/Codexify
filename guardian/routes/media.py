@@ -9,24 +9,37 @@ Handles:
 - TTS synthesis and tracking
 """
 
-import uuid
 import logging
-from typing import Optional, List
+import uuid
 from datetime import datetime
+from typing import List, Optional
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Body, Query
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+)
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from guardian.core.storage import StorageManager, create_storage_from_env, generate_unique_filename, detect_media_type
-from guardian.db.models import (
-    GeneratedImage,
-    UploadedImage,
-    GeneratedDocument,
-    UploadedDocument,
-    TTSOutput
-)
 from guardian.core.db import GuardianDB
+from guardian.core.storage import (
+    StorageManager,
+    create_storage_from_env,
+    detect_media_type,
+    generate_unique_filename,
+)
+from guardian.db.models import (
+    GeneratedDocument,
+    GeneratedImage,
+    TTSOutput,
+    UploadedDocument,
+    UploadedImage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +52,7 @@ storage = create_storage_from_env()
 # =========================
 # Pydantic Models
 # =========================
+
 
 class ImageUploadResponse(BaseModel):
     id: str
@@ -78,7 +92,9 @@ class ImageGenerationResponse(BaseModel):
 class TTSSynthesizeRequest(BaseModel):
     text: str = Field(..., description="Text to synthesize")
     voice: Optional[str] = Field(None, description="Voice ID")
-    provider: Optional[str] = Field(None, description="TTS provider (elevenlabs, google, local)")
+    provider: Optional[str] = Field(
+        None, description="TTS provider (elevenlabs, google, local)"
+    )
     project_id: Optional[int] = None
     thread_id: Optional[int] = None
     user_id: Optional[str] = None
@@ -98,10 +114,14 @@ class TTSOutputResponse(BaseModel):
 # Helper Functions
 # =========================
 
+
 def _get_db():
     """Get database connection."""
     import os
-    db_url = os.getenv("DATABASE_URL", "postgresql://guardian:guardian@db:5432/guardian")
+
+    db_url = os.getenv(
+        "DATABASE_URL", "postgresql://guardian:guardian@db:5432/guardian"
+    )
     return GuardianDB(db_url)
 
 
@@ -109,12 +129,15 @@ def _get_db():
 # Image Upload Routes
 # =========================
 
-@router.post("/upload/image", response_model=ImageUploadResponse, tags=["media"])
+
+@router.post(
+    "/upload/image", response_model=ImageUploadResponse, tags=["media"]
+)
 async def upload_image(
     file: UploadFile = File(...),
     project_id: int = Body(...),
     thread_id: int = Body(...),
-    user_id: str = Body(default="default")
+    user_id: str = Body(default="default"),
 ):
     """
     Upload an image file.
@@ -123,8 +146,10 @@ async def upload_image(
     Stores in: /media/images/
     """
     # Validate file type
-    if not file.content_type or not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail=f"Invalid file type: {file.content_type}")
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=400, detail=f"Invalid file type: {file.content_type}"
+        )
 
     try:
         # Read file data
@@ -132,10 +157,14 @@ async def upload_image(
         filesize = len(file_data)
 
         # Generate unique filename
-        unique_filename = generate_unique_filename(file.filename, prefix='images/')
+        unique_filename = generate_unique_filename(
+            file.filename, prefix="images/"
+        )
 
         # Upload to storage
-        src_url = storage.upload_file(file_data, unique_filename, content_type=file.content_type)
+        src_url = storage.upload_file(
+            file_data, unique_filename, content_type=file.content_type
+        )
 
         # Save to database
         db = _get_db()
@@ -150,12 +179,14 @@ async def upload_image(
                 src_url=src_url,
                 filename=file.filename,
                 filesize=filesize,
-                mime_type=file.content_type
+                mime_type=file.content_type,
             )
             session.add(uploaded_image)
             session.commit()
 
-        logger.info(f"Image uploaded: {file.filename} ({filesize} bytes) by user {user_id}")
+        logger.info(
+            f"Image uploaded: {file.filename} ({filesize} bytes) by user {user_id}"
+        )
 
         return ImageUploadResponse(
             id=image_id,
@@ -163,7 +194,7 @@ async def upload_image(
             filename=file.filename,
             filesize=filesize,
             mime_type=file.content_type,
-            created_at=datetime.utcnow().isoformat()
+            created_at=datetime.utcnow().isoformat(),
         )
 
     except Exception as e:
@@ -188,11 +219,15 @@ async def get_image(image_id: str):
             return StreamingResponse(
                 iter([file_data]),
                 media_type=image.mime_type,
-                headers={"Content-Disposition": f"inline; filename={image.filename}"}
+                headers={
+                    "Content-Disposition": f"inline; filename={image.filename}"
+                },
             )
         except Exception as e:
             logger.error(f"Failed to retrieve image {image_id}: {e}")
-            raise HTTPException(status_code=500, detail="Failed to retrieve image")
+            raise HTTPException(
+                status_code=500, detail="Failed to retrieve image"
+            )
 
 
 @router.delete("/images/{image_id}", tags=["media"])
@@ -218,12 +253,15 @@ async def delete_image(image_id: str):
 # Document Upload Routes
 # =========================
 
-@router.post("/upload/document", response_model=DocumentUploadResponse, tags=["media"])
+
+@router.post(
+    "/upload/document", response_model=DocumentUploadResponse, tags=["media"]
+)
 async def upload_document(
     file: UploadFile = File(...),
     project_id: int = Body(...),
     thread_id: int = Body(...),
-    user_id: str = Body(default="default")
+    user_id: str = Body(default="default"),
 ):
     """
     Upload a document file.
@@ -233,12 +271,19 @@ async def upload_document(
     Extracts text for full-text search
     """
     # Validate file type
-    allowed_types = ['application/pdf', 'text/plain', 'text/markdown',
-                     'application/msword',
-                     'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+    allowed_types = [
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]
 
     if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail=f"Unsupported document type: {file.content_type}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported document type: {file.content_type}",
+        )
 
     try:
         # Read file data
@@ -246,16 +291,23 @@ async def upload_document(
         filesize = len(file_data)
 
         # Generate unique filename
-        unique_filename = generate_unique_filename(file.filename, prefix='documents/')
+        unique_filename = generate_unique_filename(
+            file.filename, prefix="documents/"
+        )
 
         # Upload to storage
-        src_url = storage.upload_file(file_data, unique_filename, content_type=file.content_type)
+        src_url = storage.upload_file(
+            file_data, unique_filename, content_type=file.content_type
+        )
 
         # Extract text (basic implementation - could be enhanced)
         parsed_text = None
-        if file.content_type == 'text/plain' or file.content_type == 'text/markdown':
+        if (
+            file.content_type == "text/plain"
+            or file.content_type == "text/markdown"
+        ):
             try:
-                parsed_text = file_data.decode('utf-8')
+                parsed_text = file_data.decode("utf-8")
             except:
                 logger.warning(f"Failed to decode text from {file.filename}")
 
@@ -273,22 +325,24 @@ async def upload_document(
                 filename=file.filename,
                 filesize=filesize,
                 mime_type=file.content_type,
-                parsed_text=parsed_text
+                parsed_text=parsed_text,
             )
             session.add(uploaded_doc)
             session.commit()
 
-        logger.info(f"Document uploaded: {file.filename} ({filesize} bytes) by user {user_id}")
+        logger.info(
+            f"Document uploaded: {file.filename} ({filesize} bytes) by user {user_id}"
+        )
 
         # --- Embedding (RAG) ---
         if parsed_text:
             try:
                 # Import here to avoid circular deps if any, or move to top if safe
                 from guardian.runtime.embed.embedder import CodexifyEmbedder
-                
+
                 # Initialize embedder (uses env vars for config)
                 embedder = CodexifyEmbedder(store="chroma")
-                
+
                 # Prepare metadata
                 meta = {
                     "source": "document",
@@ -297,13 +351,13 @@ async def upload_document(
                     "user_id": user_id,
                     "project_id": project_id,
                     "thread_id": thread_id,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.utcnow().isoformat(),
                 }
-                
+
                 # Embed and index
                 embedder.embed_and_index([parsed_text], metadatas=[meta])
                 logger.info(f"Document embedded: {file.filename}")
-                
+
             except Exception as e:
                 # specific logging but don't fail the upload if embedding fails
                 logger.error(f"Failed to embed document {file.filename}: {e}")
@@ -315,7 +369,7 @@ async def upload_document(
             filesize=filesize,
             mime_type=file.content_type,
             parsed_text=parsed_text,
-            created_at=datetime.utcnow().isoformat()
+            created_at=datetime.utcnow().isoformat(),
         )
 
     except Exception as e:
@@ -327,7 +381,12 @@ async def upload_document(
 # Image Generation Routes
 # =========================
 
-@router.post("/generate/image", response_model=ImageGenerationResponse, tags=["generation"])
+
+@router.post(
+    "/generate/image",
+    response_model=ImageGenerationResponse,
+    tags=["generation"],
+)
 async def generate_image(request: ImageGenerationRequest):
     """
     Track an AI-generated image.
@@ -353,25 +412,28 @@ async def generate_image(request: ImageGenerationRequest):
             user_id=request.user_id,
             src_url=src_url,
             prompt=request.prompt,
-            model=request.model
+            model=request.model,
         )
         session.add(generated_image)
         session.commit()
 
-    logger.info(f"Image generation tracked: {request.prompt[:50]}... using {request.model}")
+    logger.info(
+        f"Image generation tracked: {request.prompt[:50]}... using {request.model}"
+    )
 
     return ImageGenerationResponse(
         id=image_id,
         src_url=src_url,
         prompt=request.prompt,
         model=request.model,
-        created_at=datetime.utcnow().isoformat()
+        created_at=datetime.utcnow().isoformat(),
     )
 
 
 # =========================
 # TTS Routes
 # =========================
+
 
 @router.post("/tts/synthesize", response_model=TTSOutputResponse, tags=["tts"])
 async def synthesize_speech(request: TTSSynthesizeRequest):
@@ -391,15 +453,17 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
         audio_data = tts_manager.synthesize(
             text=request.text,
             voice=request.voice,
-            provider_name=request.provider
+            provider_name=request.provider,
         )
 
         # Generate unique filename
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         filename = f"audio/tts_{timestamp}.wav"
 
         # Upload to storage
-        src_url = storage.upload_file(audio_data, filename, content_type='audio/wav')
+        src_url = storage.upload_file(
+            audio_data, filename, content_type="audio/wav"
+        )
 
         # Save to database
         db = _get_db()
@@ -412,13 +476,15 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
                 voice=request.voice,
                 provider=request.provider or tts_manager.default_provider,
                 src_url=src_url,
-                duration_seconds=None  # TODO: Calculate from audio data
+                duration_seconds=None,  # TODO: Calculate from audio data
             )
             session.add(tts_output)
             session.commit()
             session.refresh(tts_output)
 
-            logger.info(f"TTS synthesized: {len(request.text)} chars, provider={request.provider}")
+            logger.info(
+                f"TTS synthesized: {len(request.text)} chars, provider={request.provider}"
+            )
 
             return TTSOutputResponse(
                 id=tts_output.id,
@@ -427,12 +493,14 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
                 voice=request.voice,
                 provider=request.provider,
                 duration_seconds=None,
-                created_at=tts_output.created_at.isoformat()
+                created_at=tts_output.created_at.isoformat(),
             )
 
     except Exception as e:
         logger.error(f"TTS synthesis failed: {e}")
-        raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"TTS synthesis failed: {str(e)}"
+        )
 
 
 @router.get("/tts/{tts_id}", tags=["tts"])
@@ -450,30 +518,37 @@ async def get_tts_audio(tts_id: int):
             audio_data = storage.download_file(tts_output.src_url)
             return StreamingResponse(
                 iter([audio_data]),
-                media_type='audio/wav',
-                headers={"Content-Disposition": f"inline; filename=tts_{tts_id}.wav"}
+                media_type="audio/wav",
+                headers={
+                    "Content-Disposition": f"inline; filename=tts_{tts_id}.wav"
+                },
             )
         except Exception as e:
             logger.error(f"Failed to retrieve audio {tts_id}: {e}")
-            raise HTTPException(status_code=500, detail="Failed to retrieve audio")
+            raise HTTPException(
+                status_code=500, detail="Failed to retrieve audio"
+            )
 
 
 # =========================
 # List/Query Routes
 # =========================
 
+
 @router.get("/images", tags=["media"])
 async def list_images(
     project_id: Optional[int] = Query(None),
     thread_id: Optional[int] = Query(None),
     user_id: Optional[str] = Query(None),
-    limit: int = Query(50, le=100)
+    limit: int = Query(50, le=100),
 ):
     """List uploaded images with optional filters."""
     db = _get_db()
 
     with db.get_session() as session:
-        query = session.query(UploadedImage).filter(UploadedImage.deleted_at.is_(None))
+        query = session.query(UploadedImage).filter(
+            UploadedImage.deleted_at.is_(None)
+        )
 
         if project_id:
             query = query.filter_by(project_id=project_id)
@@ -482,7 +557,9 @@ async def list_images(
         if user_id:
             query = query.filter_by(user_id=user_id)
 
-        images = query.order_by(UploadedImage.created_at.desc()).limit(limit).all()
+        images = (
+            query.order_by(UploadedImage.created_at.desc()).limit(limit).all()
+        )
 
         return {
             "images": [
@@ -492,11 +569,13 @@ async def list_images(
                     "filename": img.filename,
                     "mime_type": img.mime_type,
                     "filesize": img.filesize,
-                    "created_at": img.created_at.isoformat() if img.created_at else None
+                    "created_at": img.created_at.isoformat()
+                    if img.created_at
+                    else None,
                 }
                 for img in images
             ],
-            "count": len(images)
+            "count": len(images),
         }
 
 
@@ -504,20 +583,26 @@ async def list_images(
 async def list_documents(
     project_id: Optional[int] = Query(None),
     thread_id: Optional[int] = Query(None),
-    limit: int = Query(50, le=100)
+    limit: int = Query(50, le=100),
 ):
     """List uploaded documents with optional filters."""
     db = _get_db()
 
     with db.get_session() as session:
-        query = session.query(UploadedDocument).filter(UploadedDocument.deleted_at.is_(None))
+        query = session.query(UploadedDocument).filter(
+            UploadedDocument.deleted_at.is_(None)
+        )
 
         if project_id:
             query = query.filter_by(project_id=project_id)
         if thread_id:
             query = query.filter_by(thread_id=thread_id)
 
-        documents = query.order_by(UploadedDocument.created_at.desc()).limit(limit).all()
+        documents = (
+            query.order_by(UploadedDocument.created_at.desc())
+            .limit(limit)
+            .all()
+        )
 
         return {
             "documents": [
@@ -527,9 +612,11 @@ async def list_documents(
                     "filename": doc.filename,
                     "mime_type": doc.mime_type,
                     "filesize": doc.filesize,
-                    "created_at": doc.created_at.isoformat() if doc.created_at else None
+                    "created_at": doc.created_at.isoformat()
+                    if doc.created_at
+                    else None,
                 }
                 for doc in documents
             ],
-            "count": len(documents)
+            "count": len(documents),
         }

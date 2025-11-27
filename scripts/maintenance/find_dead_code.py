@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
-
 REPO = Path(__file__).resolve().parents[2]
 EXCLUDE_DIRS = {
     ".git",
@@ -45,8 +44,8 @@ def should_skip_dir(path: Path) -> bool:
     return bool(EXCLUDE_DIRS & parts)
 
 
-def iter_py_files(root: Path) -> List[Path]:
-    files: List[Path] = []
+def iter_py_files(root: Path) -> list[Path]:
+    files: list[Path] = []
     for p in root.rglob("*.py"):
         if should_skip_dir(p.parent):
             continue
@@ -91,8 +90,8 @@ def is_entrypoint(path: Path) -> bool:
     return False
 
 
-def collect_imports(code: str) -> Set[str]:
-    mods: Set[str] = set()
+def collect_imports(code: str) -> set[str]:
+    mods: set[str] = set()
     try:
         tree = ast.parse(code)
     except Exception:
@@ -112,10 +111,12 @@ def main() -> int:
     py_files = iter_py_files(REPO)
 
     # Map: file -> module_name (or None)
-    file_to_module: Dict[Path, str | None] = {p: module_name_for(p) for p in py_files}
+    file_to_module: dict[Path, str | None] = {
+        p: module_name_for(p) for p in py_files
+    }
 
     # Collect imported module prefixes
-    referenced_modules: Set[str] = set()
+    referenced_modules: set[str] = set()
     for p in py_files:
         try:
             code = p.read_text(encoding="utf-8")
@@ -124,10 +125,12 @@ def main() -> int:
         referenced_modules.update(collect_imports(code))
 
     # Anything referenced as guardian.* or server.* counts as used
-    used_prefixes = {r for r in referenced_modules if r.split(".")[0] in PACKAGE_ROOTS}
+    used_prefixes = {
+        r for r in referenced_modules if r.split(".")[0] in PACKAGE_ROOTS
+    }
 
-    dead_candidates: List[Path] = []
-    kept: List[Path] = []
+    dead_candidates: list[Path] = []
+    kept: list[Path] = []
     for p, mod in file_to_module.items():
         if mod is None:
             # Files not within our packages are kept unless clearly unused and not entrypoints
@@ -137,7 +140,10 @@ def main() -> int:
             kept.append(p)
             continue
         # If the exact module or any parent is referenced, keep
-        parents = [".".join(mod.split(".")[:i]) for i in range(1, len(mod.split(".")) + 1)]
+        parents = [
+            ".".join(mod.split(".")[:i])
+            for i in range(1, len(mod.split(".")) + 1)
+        ]
         if any(par in used_prefixes for par in parents):
             kept.append(p)
         else:
@@ -154,7 +160,9 @@ def main() -> int:
     report.append("Dead code scan (heuristic)\n")
     report.append(f"Repo: {REPO}\n")
     report.append(f"Scanned Python files: {len(py_files)}\n")
-    report.append(f"Package files (guardian/server): {sum(1 for m in file_to_module.values() if m)}\n")
+    report.append(
+        f"Package files (guardian/server): {sum(1 for m in file_to_module.values() if m)}\n"
+    )
     report.append(f"Referenced module prefixes: {len(used_prefixes)}\n")
     report.append(f"Dead candidates: {len(dead_rel)}\n")
     report.append("\n# Dead candidates (relative):\n")
@@ -164,7 +172,10 @@ def main() -> int:
         report.append(f"... ({len(dead_rel) - 500} more omitted)\n")
 
     report_txt.write_text("".join(report), encoding="utf-8")
-    report_json.write_text(json.dumps({"dead": dead_rel, "kept": kept_rel}, indent=2), encoding="utf-8")
+    report_json.write_text(
+        json.dumps({"dead": dead_rel, "kept": kept_rel}, indent=2),
+        encoding="utf-8",
+    )
 
     print(f"Wrote {report_txt}")
     print(f"Wrote {report_json}")
@@ -174,4 +185,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

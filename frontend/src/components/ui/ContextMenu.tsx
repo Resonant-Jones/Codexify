@@ -37,4 +37,3 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
 }
 
 export default ContextMenu;
-

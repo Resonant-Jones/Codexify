@@ -89,7 +89,7 @@ After setup, you'll have these tables in PostgreSQL:
 
 ### Core Tables
 - **projects** - Project management
-- **threads** - Thread/Conversation management  
+- **threads** - Thread/Conversation management
 - **chat_threads** - Chat thread registry
 - **chat_messages** - Individual chat messages
 - **memory_entries** - Memory storage with silos

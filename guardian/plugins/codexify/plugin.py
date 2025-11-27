@@ -63,7 +63,9 @@ class CodexifyPlugin(PluginBase):
             logger.info("Codexify Plugin activated")
 
         except Exception as e:
-            raise PluginActivationError(f"Failed to activate Codexify plugin: {e}")
+            raise PluginActivationError(
+                f"Failed to activate Codexify plugin: {e}"
+            )
 
     def _init_adapters(self) -> None:
         """Initialize Codexify adapters."""

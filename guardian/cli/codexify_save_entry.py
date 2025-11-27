@@ -24,13 +24,17 @@ def _default_base() -> str:
     help="Output format for preview/export.",
 )
 @click.option("--folder", help="Google Drive folder ID.")
-@click.option("--folder-url", help="Google Drive folder URL (bare ID accepted).")
+@click.option(
+    "--folder-url", help="Google Drive folder URL (bare ID accepted)."
+)
 @click.option(
     "--front-matter",
     "front_matter",
     help="JSON object to include as YAML front matter (md only).",
 )
-@click.option("--return-links/--no-return-links", default=True, show_default=True)
+@click.option(
+    "--return-links/--no-return-links", default=True, show_default=True
+)
 @click.option("--dry-run/--no-dry-run", default=False, show_default=True)
 @click.option(
     "--base-url",
@@ -78,7 +82,9 @@ def save_entry_cmd(
                         else [t.strip() for t in tags.split(",") if t.strip()]
                     )
                 except Exception:
-                    tags_parsed = [t.strip() for t in tags.split(",") if t.strip()]
+                    tags_parsed = [
+                        t.strip() for t in tags.split(",") if t.strip()
+                    ]
             else:
                 tags_parsed = tags
             payload["tags"] = tags_parsed
@@ -95,13 +101,17 @@ def save_entry_cmd(
             except Exception as e:
                 raise click.ClickException(f"Invalid --front-matter JSON: {e}")
 
-        r = requests.post(f"{base_url}/codexify/save-entry", json=payload, timeout=60)
+        r = requests.post(
+            f"{base_url}/codexify/save-entry", json=payload, timeout=60
+        )
         if r.status_code >= 400:
             try:
                 detail = r.json().get("detail")
             except Exception:
                 detail = r.text
-            raise click.ClickException(f"Save-entry failed ({r.status_code}): {detail}")
+            raise click.ClickException(
+                f"Save-entry failed ({r.status_code}): {detail}"
+            )
 
         data = r.json()
         click.echo(json.dumps(data, indent=2))
@@ -111,7 +121,9 @@ def save_entry_cmd(
             click.echo("\nDrive links:")
             first_link = None
             for f in files:
-                link = f.get("webViewLink") or f.get("webViewURL") or f.get("link")
+                link = (
+                    f.get("webViewLink") or f.get("webViewURL") or f.get("link")
+                )
                 name = f.get("name") or f.get("id")
                 if link:
                     click.echo(f" - {name}: {link}")

@@ -138,4 +138,6 @@ class MemoryLogger:
 
 
 # Global logger instance with compact mode from config
-memory_logger = MemoryLogger(compact_mode=getattr(Config, "COMPACT_LOGGING", False))
+memory_logger = MemoryLogger(
+    compact_mode=getattr(Config, "COMPACT_LOGGING", False)
+)

@@ -6,8 +6,8 @@ No SQLite support - Codexify is Postgres-only as of 2025-10-26.
 """
 from __future__ import annotations
 
-import os
 import logging
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -24,7 +24,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-logger = logging.getLogger('alembic.env')
+logger = logging.getLogger("alembic.env")
 
 # Target metadata for autogenerate
 target_metadata = Base.metadata
@@ -59,8 +59,14 @@ def include_object(object, name, type_, reflected, compare_to):
     return True
 
 
-def _server_default_compare(context, inspected_column, metadata_column,
-                           inspected_default, metadata_default, rendered_metadata_default):
+def _server_default_compare(
+    context,
+    inspected_column,
+    metadata_column,
+    inspected_default,
+    metadata_default,
+    rendered_metadata_default,
+):
     """
     Reduce noise from server_default comparisons.
 
@@ -83,7 +89,7 @@ def _get_database_url() -> str:
     env_url = os.getenv("DATABASE_URL")
     if env_url:
         # Ensure it's Postgres
-        if not env_url.startswith('postgresql'):
+        if not env_url.startswith("postgresql"):
             raise RuntimeError(
                 f"Codexify requires Postgres. Got: {env_url[:30]}...\n"
                 f"Set DATABASE_URL to a postgresql:// URL"
@@ -99,7 +105,7 @@ def _get_database_url() -> str:
             "Set DATABASE_URL environment variable or update alembic.ini"
         )
 
-    if not url.startswith('postgresql'):
+    if not url.startswith("postgresql"):
         raise RuntimeError(
             f"Codexify requires Postgres. Check alembic.ini: {url[:30]}..."
         )
@@ -147,7 +153,7 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:  # type: Connection
         # Verify it's Postgres
         dialect_name = connection.dialect.name
-        if dialect_name != 'postgresql':
+        if dialect_name != "postgresql":
             raise RuntimeError(
                 f"Codexify requires Postgres. Connected to: {dialect_name}"
             )

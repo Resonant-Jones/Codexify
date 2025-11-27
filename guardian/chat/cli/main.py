@@ -15,7 +15,10 @@ from guardian.cli.imprint_zero_cli import ImprintZero
 from guardian.core.orchestrator.pulse_orchestrator import orchestrate
 
 # Vision helpers
-from guardian.utils.groq_helpers import run_groq_vision_file, run_groq_vision_url
+from guardian.utils.groq_helpers import (
+    run_groq_vision_file,
+    run_groq_vision_url,
+)
 
 app = typer.Typer()
 
@@ -26,7 +29,8 @@ app.add_typer(ImprintZero, name="imprint-zero")
 @app.command("orchestrate")
 def orchestrate_command(
     json_input: str = typer.Argument(
-        ..., help="JSON string representing the command for Gemma to orchestrate."
+        ...,
+        help="JSON string representing the command for Gemma to orchestrate.",
     )
 ):
     """Send a structured command to Gemma's orchestrator engine."""
@@ -98,9 +102,13 @@ from guardian.core.utils.hybrid_router import HybridRouter
 
 
 settings = get_settings()
-_db_url = getattr(settings, "GUARDIAN_DATABASE_URL", None) or os.getenv("DATABASE_URL")
+_db_url = getattr(settings, "GUARDIAN_DATABASE_URL", None) or os.getenv(
+    "DATABASE_URL"
+)
 if not _db_url:
-    raise RuntimeError("DATABASE_URL or GUARDIAN_DATABASE_URL is required for guardian CLI commands.")
+    raise RuntimeError(
+        "DATABASE_URL or GUARDIAN_DATABASE_URL is required for guardian CLI commands."
+    )
 db = GuardianDB(_db_url)
 
 
@@ -122,7 +130,9 @@ def init() -> None:
 @app.command()
 def log(
     command: str = typer.Argument(..., help="Text to log into memory"),
-    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Optional tag label"),
+    tag: Optional[str] = typer.Option(
+        None, "--tag", "-t", help="Optional tag label"
+    ),
     agent: Optional[str] = typer.Option(
         None, "--agent", "-a", help="Name of the calling agent"
     ),
@@ -175,7 +185,9 @@ def memory_history(
 @app.command()
 def history(
     limit: int = typer.Option(10, "--limit", "-n", help="Rows to display"),
-    user_id: str = typer.Option("default", "--user", "-u", help="User ID filter"),
+    user_id: str = typer.Option(
+        "default", "--user", "-u", help="User ID filter"
+    ),
 ) -> None:
     """Show the most recent memory entries."""
     rows = db.get_history(limit=limit, user_id=user_id)
@@ -185,7 +197,9 @@ def history(
 
     for row in rows:
         row_id, ts, cmd, tag, agent = row[:5]
-        print(f"[cyan]{row_id:>4}[/cyan] {ts}  {cmd}  {tag or '-'}  {agent or '-'}")
+        print(
+            f"[cyan]{row_id:>4}[/cyan] {ts}  {cmd}  {tag or '-'}  {agent or '-'}"
+        )
 
 
 @app.command("check-config")
@@ -197,7 +211,9 @@ def check_config():
         from guardian.config import Settings
 
         current_settings = Settings()
-        print("[bold green]✅ All required config variables are set![/bold green]\n")
+        print(
+            "[bold green]✅ All required config variables are set![/bold green]\n"
+        )
         for key, value in current_settings.dict().items():
             # Mask secrets for display
             if "KEY" in key or "TOKEN" in key:
@@ -212,7 +228,9 @@ def check_config():
         for err in e.errors():
             field = err["loc"][0]
             print(f" - {field}: {err['msg']}")
-        print("\nTo fix, set these as environment variables or in your .env file.")
+        print(
+            "\nTo fix, set these as environment variables or in your .env file."
+        )
         raise typer.Exit(code=1)
 
 
@@ -237,7 +255,8 @@ def config_status():
 @app.command("set-backend")
 def set_backend(
     backend: str = typer.Argument(
-        ..., help="AI backend to use (e.g., ollama, openai, gemini, nebius, groq)"
+        ...,
+        help="AI backend to use (e.g., ollama, openai, gemini, nebius, groq)",
     )
 ):
     """Update the AI_BACKEND setting in the .env file."""
@@ -276,7 +295,9 @@ def chat_history(
     limit: int = typer.Option(20, "--limit", "-n", help="Number of messages"),
 ) -> None:
     """Show recent chat log entries from the chat_log table."""
-    rows = db.get_chat_history(session_id=session_id, user_id=user_id, limit=limit)
+    rows = db.get_chat_history(
+        session_id=session_id, user_id=user_id, limit=limit
+    )
     if not rows:
         print("[yellow]No chat history found.[/yellow]")
         return
@@ -301,7 +322,9 @@ def summarize_chat(
         chat_with_ai,
     )
 
-    rows = db.get_chat_history(session_id=session_id, user_id=user_id, limit=limit)
+    rows = db.get_chat_history(
+        session_id=session_id, user_id=user_id, limit=limit
+    )
     if not rows:
         print("[yellow]No chat history found.[/yellow]")
         return
@@ -329,7 +352,9 @@ def summarize_chat(
 
 @app.command("list-threads")
 def list_threads(
-    user_id: str = typer.Option(None, "--user", "-u", help="User ID (optional)"),
+    user_id: str = typer.Option(
+        None, "--user", "-u", help="User ID (optional)"
+    ),
     project_id: str = typer.Option(
         None, "--project", "-p", help="Project ID (optional)"
     ),
@@ -398,7 +423,9 @@ def branch_thread(
 
 
 @app.command("show-children")
-def show_children(parent_thread_id: int = typer.Argument(..., help="Parent thread ID")):
+def show_children(
+    parent_thread_id: int = typer.Argument(..., help="Parent thread ID")
+):
     """List all child threads for a given parent."""
     children = db.get_child_threads(parent_thread_id)
     if not children:
@@ -428,7 +455,10 @@ def vision(
         None, "--image-file", help="Path to a local image file"
     ),
     text: str = typer.Option(
-        "What's in this image?", "--text", "-t", help="Prompt text for vision model"
+        "What's in this image?",
+        "--text",
+        "-t",
+        help="Prompt text for vision model",
     ),
 ):
     """Run Groq vision model on a URL or local image."""
@@ -453,7 +483,9 @@ def main(
         help="Force all LLM calls to cloud (sovereignty warning!)",
     ),
     hybrid: bool = typer.Option(
-        False, "--hybrid", help="Enable hybrid mode: cloud for research, local for chat"
+        False,
+        "--hybrid",
+        help="Enable hybrid mode: cloud for research, local for chat",
     ),
 ):
     """
@@ -466,7 +498,9 @@ def main(
         )
     elif hybrid:
         HybridRouter.set_hybrid_enabled(True)
-        print("[cyan]Hybrid mode enabled: cloud for research, local for chat.[/cyan]")
+        print(
+            "[cyan]Hybrid mode enabled: cloud for research, local for chat.[/cyan]"
+        )
 
 
 if __name__ == "__main__":

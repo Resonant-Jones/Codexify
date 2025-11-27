@@ -22,7 +22,9 @@ class HybridRouter:
         """
         settings = get_settings()
         cloud_only = (
-            cls._cloud_only if cls._cloud_only is not None else settings.CLOUD_ONLY
+            cls._cloud_only
+            if cls._cloud_only is not None
+            else settings.CLOUD_ONLY
         )
         hybrid_enabled = (
             cls._hybrid_enabled

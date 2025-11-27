@@ -137,4 +137,3 @@ export const ProviderSwitchFAB: React.FC = () => {
 };
 
 export default ProviderSwitchFAB;
-

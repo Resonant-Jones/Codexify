@@ -35,7 +35,9 @@ class Browser:
     def __init__(self):
         options = webdriver.ChromeOptions()
         options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option(
+            "excludeSwitches", ["enable-automation"]
+        )
         options.add_experimental_option("useAutomationExtension", False)
         self.driver = webdriver.Chrome(options=options)
         self.driver.execute_script(

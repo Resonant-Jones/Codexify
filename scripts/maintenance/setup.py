@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="guardian_codex",
@@ -20,11 +20,9 @@ setup(
         "aiosqlite>=0.19.0",
         "httpx>=0.24.0",
         "structlog>=21.1.0",  # Added structlog
-        
         # Plugin system
         "importlib-metadata>=6.0.0",
         "pluggy>=1.0.0",
-        
         # TTS Plugin dependencies
         "requests>=2.31.0",
         "google-cloud-texttospeech>=2.14.1",

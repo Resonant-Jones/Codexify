@@ -57,7 +57,7 @@ injectCssVars();
        --radius, --frame, --bezel, --rim, --gutter, --card-pad,
        --workspace-w, --min-h/--max-h, --min-w/--max-w
    - Per-CARD overrides: add vars on the *placement wrapper* (the <div> with
-     `style={{ padding: "var(--board-edge)", … }}`) using: 
+     `style={{ padding: "var(--board-edge)", … }}`) using:
        --w/--min-w/--max-w, --h/--min-h/--max-h, --flex
      Examples:
        • Fixed height:         {"--h":"560px","--flex":"0 0 auto"}
@@ -975,7 +975,7 @@ export default function AppShell({}: PropsWithChildren) {
   return (
     <LegacyThreadsProvider value={{ enabled: showLegacyThreads, isOpen: legacyOpen, open: openLegacy, close: closeLegacy }}>
     <>
-      {/* 
+      {/*
         --bezel: Visual margin between the refractive glass and the opaque content surface.
         Changing --bezel allows live tuning of the glass thickness throughout the UI without code edits.
       */}

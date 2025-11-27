@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 # In‑memory store for pending link tokens.
 # In production replace with a persistent store.
-_LINK_STORE: Dict[str, Dict] = {}
+_LINK_STORE: dict[str, dict] = {}
 
 
 class CodexifyLinker:
@@ -55,7 +55,7 @@ class CodexifyLinker:
     def _now() -> float:
         return time.time()
 
-    def create_link(self) -> Dict[str, str]:
+    def create_link(self) -> dict[str, str]:
         """
         Create a new link token and a public key for the desktop side.
 
@@ -108,7 +108,9 @@ class CodexifyLinker:
         desktop_public_key = desktop_private_key.public_key()
 
         # Derive shared secret
-        shared_secret = mobile_private_key.exchange(public_key=desktop_public_key)
+        shared_secret = mobile_private_key.exchange(
+            public_key=desktop_public_key
+        )
 
         # Derive symmetric key via HKDF
         hkdf = HKDF(

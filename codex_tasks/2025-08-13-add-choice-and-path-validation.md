@@ -175,5 +175,3 @@ ACCEPTANCE
  • For Path with file_okay=False, providing a file path errors; likewise for dir_okay=False with a directory path.
  • Existing bool/int/number validation still works; valid input runs.
  • All tests pass: pytest -q.
-
-

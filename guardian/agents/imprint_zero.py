@@ -15,7 +15,8 @@ from guardian.memory.logger import memory_logger
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,9 @@ class ImprintZeroAgent:
             Tuple[str, List[str], bool]: (prompt, options, is_complete)
         """
         # Store answer
-        self.current_flow["answers"][f"step_{self.current_flow['step']}"] = user_input
+        self.current_flow["answers"][
+            f"step_{self.current_flow['step']}"
+        ] = user_input
 
         # Save draft if enabled
         if save_draft:
@@ -158,7 +161,8 @@ class ImprintZeroAgent:
     def _save_draft(self) -> None:
         """Save current flow state as draft."""
         draft_path = (
-            self.draft_dir / f"draft_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.json"
+            self.draft_dir
+            / f"draft_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.json"
         )
         with open(draft_path, "w") as f:
             json.dump(self.current_flow, f, indent=2)

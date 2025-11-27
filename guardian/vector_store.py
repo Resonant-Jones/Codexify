@@ -8,11 +8,11 @@ from typing import Any, Dict, List, Tuple
 @dataclass
 class VectorEntry:
     text: str
-    embedding: List[float]
-    metadata: Dict[str, Any]
+    embedding: list[float]
+    metadata: dict[str, Any]
 
 
-def _cosine_similarity(a: List[float], b: List[float]) -> float:
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0
     dot = sum(x * y for x, y in zip(a, b))
@@ -31,24 +31,24 @@ class VectorStore:
     """
 
     def __init__(self) -> None:
-        self._entries: List[VectorEntry] = []
+        self._entries: list[VectorEntry] = []
 
     def add(
-        self, *, text: str, embedding: List[float], metadata: Dict[str, Any]
+        self, *, text: str, embedding: list[float], metadata: dict[str, Any]
     ) -> None:
         self._entries.append(
             VectorEntry(text=text, embedding=embedding, metadata=metadata)
         )
 
     def search(
-        self, query_embedding: List[float], top_k: int = 5
-    ) -> List[Dict[str, Any]]:
-        scored: List[Tuple[float, VectorEntry]] = []
+        self, query_embedding: list[float], top_k: int = 5
+    ) -> list[dict[str, Any]]:
+        scored: list[tuple[float, VectorEntry]] = []
         for e in self._entries:
             score = _cosine_similarity(query_embedding, e.embedding)
             scored.append((score, e))
         scored.sort(key=lambda t: t[0], reverse=True)
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         for score, entry in scored[: max(0, top_k)]:
             results.append(
                 {

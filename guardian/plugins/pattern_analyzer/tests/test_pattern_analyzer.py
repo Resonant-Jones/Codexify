@@ -19,7 +19,8 @@ from guardian.plugins.pattern_analyzer.main import PatternAnalyzer
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class TestPatternAnalyzer(unittest.IsolatedAsyncioTestCase):
         """Set up test resources."""
         # Load plugin configuration
         plugin_dir = Path(__file__).parent.parent
-        with open(plugin_dir / "plugin.json", "r") as f:
+        with open(plugin_dir / "plugin.json") as f:
             cls.config = json.load(f)["config"]
 
     def setUp(self):
@@ -64,7 +65,9 @@ class TestPatternAnalyzer(unittest.IsolatedAsyncioTestCase):
             {
                 "id": "data2",
                 "content": "recurring pattern X",
-                "timestamp": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+                "timestamp": (
+                    datetime.now(UTC) + timedelta(hours=1)
+                ).isoformat(),
                 "metadata": {"type": "test"},
             },
         ]
@@ -85,11 +88,15 @@ class TestPatternAnalyzer(unittest.IsolatedAsyncioTestCase):
         time_series = [
             {"timestamp": datetime.now(UTC).isoformat(), "value": 1.0},
             {
-                "timestamp": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+                "timestamp": (
+                    datetime.now(UTC) + timedelta(hours=1)
+                ).isoformat(),
                 "value": 2.0,
             },
             {
-                "timestamp": (datetime.now(UTC) + timedelta(hours=2)).isoformat(),
+                "timestamp": (
+                    datetime.now(UTC) + timedelta(hours=2)
+                ).isoformat(),
                 "value": 3.0,
             },
         ]
@@ -129,7 +136,11 @@ class TestPatternAnalyzer(unittest.IsolatedAsyncioTestCase):
     async def test_pattern_classification(self):
         """Test pattern classification."""
         # Test pattern
-        pattern = {"sequence": ["A", "B", "C"], "frequency": 10, "confidence": 0.9}
+        pattern = {
+            "sequence": ["A", "B", "C"],
+            "frequency": 10,
+            "confidence": 0.9,
+        }
 
         # Classify pattern
         classification = self.analyzer.classify_pattern(pattern)

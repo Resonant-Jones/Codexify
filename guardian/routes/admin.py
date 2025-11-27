@@ -14,6 +14,7 @@ import logging
 import os
 import secrets
 from typing import Optional
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel
 
@@ -21,18 +22,18 @@ logger = logging.getLogger(__name__)
 
 # Import shared dependencies from core module (avoids circular imports)
 try:
+    from guardian.core.auth import issue_session_token, verify_session_token
     from guardian.core.dependencies import (
-        chatlog_db,
-        require_api_key,
         API_KEY,
-        PG_DSN,
         DB_BACKEND,
         GUARDIAN_PROVIDER,
+        PG_DSN,
         allowed_origins,
-        get_groq_chat,
+        chatlog_db,
         get_database_dsn,
+        get_groq_chat,
+        require_api_key,
     )
-    from guardian.core.auth import issue_session_token, verify_session_token
 except ImportError as e:
     logger.warning(f"[admin] Import warning: {e}")
     chatlog_db = None
@@ -87,7 +88,7 @@ def require_admin(
         if secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
             logger.info(
                 "[admin] Admin access granted via X-Admin-Token (token=%s...)",
-                x_admin_token[:8] if len(x_admin_token) > 8 else "short"
+                x_admin_token[:8] if len(x_admin_token) > 8 else "short",
             )
             return "admin_token"
 
@@ -95,7 +96,9 @@ def require_admin(
     if DEBUG_MODE:
         logger.info(
             "[admin] Admin access granted via DEBUG mode (api_key=%s)",
-            x_api_key[:8] + "..." if x_api_key and len(x_api_key) > 8 else "none"
+            x_api_key[:8] + "..."
+            if x_api_key and len(x_api_key) > 8
+            else "none",
         )
         return "debug_mode"
 
@@ -109,7 +112,7 @@ def require_admin(
         "(admin_token_provided=%s, debug_mode=%s, api_key=%s)",
         bool(x_admin_token),
         DEBUG_MODE,
-        x_api_key[:8] + "..." if x_api_key and len(x_api_key) > 8 else "none"
+        x_api_key[:8] + "..." if x_api_key and len(x_api_key) > 8 else "none",
     )
 
     raise HTTPException(
@@ -117,9 +120,9 @@ def require_admin(
         detail={
             "error": "Admin access required",
             "message": "This endpoint requires admin privileges. "
-                      "Provide X-Admin-Token header or enable DEBUG mode.",
-            "required": "X-Admin-Token header or DEBUG=true environment"
-        }
+            "Provide X-Admin-Token header or enable DEBUG mode.",
+            "required": "X-Admin-Token header or DEBUG=true environment",
+        },
     )
 
 
@@ -129,6 +132,7 @@ router = APIRouter(tags=["Admin"])
 # =========================
 # Health & Ping Endpoints
 # =========================
+
 
 @router.get("/ping", summary="Health check endpoint")
 def ping():
@@ -162,8 +166,16 @@ def healthz():
 # Session Token Management
 # =========================
 
-@router.post("/auth/session", tags=["Auth"], summary="Exchange API key for a short-lived session token")
-def create_session(body: SessionRequest, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+
+@router.post(
+    "/auth/session",
+    tags=["Auth"],
+    summary="Exchange API key for a short-lived session token",
+)
+def create_session(
+    body: SessionRequest,
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+):
     """
     Exchange API key for a short-lived JWT session token.
 
@@ -176,12 +188,20 @@ def create_session(body: SessionRequest, x_api_key: Optional[str] = Header(defau
     """
     expected = os.getenv("GUARDIAN_API_KEY") or ""
     if not (x_api_key and secrets.compare_digest(x_api_key, expected)):
-        raise HTTPException(status_code=401, detail="API key required to mint session")
-    token, exp = issue_session_token(subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600)
+        raise HTTPException(
+            status_code=401, detail="API key required to mint session"
+        )
+    token, exp = issue_session_token(
+        subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600
+    )
     return {"token": token, "expires": exp}
 
 
-@router.post("/auth/session/cookie", tags=["Auth"], summary="Mint a session token and set it as an HttpOnly cookie")
+@router.post(
+    "/auth/session/cookie",
+    tags=["Auth"],
+    summary="Mint a session token and set it as an HttpOnly cookie",
+)
 def create_session_cookie(
     response: Response,
     body: SessionRequest,
@@ -200,11 +220,22 @@ def create_session_cookie(
     """
     expected = os.getenv("GUARDIAN_API_KEY") or ""
     if not (x_api_key and secrets.compare_digest(x_api_key, expected)):
-        raise HTTPException(status_code=401, detail="API key required to mint session")
-    token, exp = issue_session_token(subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600)
-    max_age = (body.ttl_seconds or 24 * 3600)
+        raise HTTPException(
+            status_code=401, detail="API key required to mint session"
+        )
+    token, exp = issue_session_token(
+        subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600
+    )
+    max_age = body.ttl_seconds or 24 * 3600
     # NOTE: set secure=True when serving over HTTPS
-    response.set_cookie("gc_session", token, max_age=max_age, httponly=True, samesite="Lax", secure=False)
+    response.set_cookie(
+        "gc_session",
+        token,
+        max_age=max_age,
+        httponly=True,
+        samesite="Lax",
+        secure=False,
+    )
     return {"ok": True, "expires": exp}
 
 
@@ -212,19 +243,29 @@ def create_session_cookie(
 # Diagnostic Endpoints
 # =========================
 
-@router.get("/authz/debug", tags=["Diag"], summary="Echo masked API key received in header (admin-only)")
+
+@router.get(
+    "/authz/debug",
+    tags=["Diag"],
+    summary="Echo masked API key received in header (admin-only)",
+)
 def authz_debug(
     access_method: str = Depends(require_admin),
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
 ):
     """Return the masked API key received via X-API-Key, masked for safety.
-    This endpoint requires admin privileges (X-Admin-Token header or DEBUG=true)."""
+    This endpoint requires admin privileges (X-Admin-Token header or DEBUG=true).
+    """
     key = x_api_key or ""
     masked = (key[:4] + "…" + key[-4:]) if len(key) > 8 else key
     return {"received_api_key": masked}
 
 
-@router.get("/debug/config", tags=["Diag"], summary="Return masked config for debugging (admin-only)")
+@router.get(
+    "/debug/config",
+    tags=["Diag"],
+    summary="Return masked config for debugging (admin-only)",
+)
 def debug_config(access_method: str = Depends(require_admin)):
     """
     Return a small, masked snapshot of runtime config useful for local debugging.
@@ -232,7 +273,9 @@ def debug_config(access_method: str = Depends(require_admin)):
     """
     env = os.getenv("GUARDIAN_ENV", "development")
     masked_key = (
-        (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
+        (API_KEY[:4] + "…" + API_KEY[-4:])
+        if API_KEY and len(API_KEY) > 8
+        else API_KEY
     )
     db_target = PG_DSN
     return {

@@ -99,11 +99,15 @@ def safe_plugin_execution(
         # Apply rate limiting
         rate_limited_func = rate_limited(
             "plugin_execution",
-            rate=rate if not settings.SAFE_MODE else settings.SAFE_MODE_RATE_LIMIT,
+            rate=rate
+            if not settings.SAFE_MODE
+            else settings.SAFE_MODE_RATE_LIMIT,
         )(func)
         # Add caching if enabled
         if settings.CACHE_ENABLED:
-            cached_func = lru_cache_safe(maxsize=100, expire=300)(rate_limited_func)
+            cached_func = lru_cache_safe(maxsize=100, expire=300)(
+                rate_limited_func
+            )
             return cached_func  # type: ignore
         return rate_limited_func  # type: ignore
 
@@ -124,7 +128,9 @@ def safe_memory_query(func: F) -> F:
     cached_func = memoize_to_disk(expire=3600)(func)
 
     # Add rate limiting
-    rate_limited_func = rate_limited("memory_query", rate=5.0)(  # 5 queries per second
+    rate_limited_func = rate_limited(
+        "memory_query", rate=5.0
+    )(  # 5 queries per second
         cached_func
     )
 

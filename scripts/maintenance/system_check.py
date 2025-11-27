@@ -9,6 +9,7 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict
+
 from guardian.logging_config import configure_logging
 
 # Configure logging
@@ -119,7 +120,7 @@ class SystemCheck:
                 "PLUGIN_DIR",
             ]
 
-            with open(env_path, "r") as f:
+            with open(env_path) as f:
                 content = f.read()
                 for var in required_vars:
                     if var not in content:
@@ -156,11 +157,13 @@ class SystemCheck:
 
                 for file in required_files:
                     if not (plugin_dir / file).exists():
-                        plugin_issues.append(f"Missing {file} in {plugin_dir.name}")
+                        plugin_issues.append(
+                            f"Missing {file} in {plugin_dir.name}"
+                        )
 
                 # Check plugin.json content
                 try:
-                    with open(plugin_dir / "plugin.json", "r") as f:
+                    with open(plugin_dir / "plugin.json") as f:
                         config = json.load(f)
                         required_fields = [
                             "name",
@@ -239,14 +242,16 @@ class SystemCheck:
         if makefile_path.exists():
             required_targets = ["install", "test", "lint", "format", "clean"]
 
-            with open(makefile_path, "r") as f:
+            with open(makefile_path) as f:
                 content = f.read()
                 for target in required_targets:
                     if f"{target}:" not in content:
                         makefile_issues.append(f"Missing target: {target}")
 
         self.results["checks"]["development"] = {
-            "status": "error" if missing_files or makefile_issues else "success",
+            "status": "error"
+            if missing_files or makefile_issues
+            else "success",
             "missing_files": missing_files,
             "makefile_issues": makefile_issues,
         }

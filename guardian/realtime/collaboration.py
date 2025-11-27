@@ -8,18 +8,23 @@ Includes permission enforcement and audit logging.
 from __future__ import annotations
 
 import hashlib
-import logging
 import inspect
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Set
 from unittest.mock import MagicMock
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status, Query
-from sqlalchemy import select, and_
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
+
 from guardian.core import event_bus
 from guardian.core.db import GuardianDB
-from guardian.db.models import CollaborationPermission, CollaborationAuditLog, SharedLink
+from guardian.db.models import (
+    CollaborationAuditLog,
+    CollaborationPermission,
+    SharedLink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +43,7 @@ def configure_db(db: GuardianDB) -> None:
 def _get_db() -> GuardianDB:
     """Get the configured database instance."""
     if _db is None:
+
         class _StubSession:
             def query(self, *args, **kwargs):
                 return MagicMock()
@@ -64,19 +70,19 @@ class CollaborationManager:
     def __init__(self):
         """Initialize the collaboration manager."""
         # Map of document_id -> set of active WebSocket connections
-        self.active: Dict[str, Set[WebSocket]] = {}
+        self.active: dict[str, set[WebSocket]] = {}
         # Map of document_id -> set of active user IDs (for presence)
-        self.presence: Dict[str, Set[str]] = {}
+        self.presence: dict[str, set[str]] = {}
         # Map of document_id -> map of user_id -> permissions dict
-        self.permissions: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self.permissions: dict[str, dict[str, dict[str, Any]]] = {}
 
     def verify_access(
         self,
         doc_id: str,
         user_id: str,
-        token: Optional[str],
+        token: str | None,
         session: Session,
-    ) -> tuple[bool, Optional[Dict[str, Any]]]:
+    ) -> tuple[bool, dict[str, Any] | None]:
         """Verify user has access to document via token or permission.
 
         Args:
@@ -90,31 +96,45 @@ class CollaborationManager:
         """
         # Check if token is a valid SharedLink
         if token:
-            shared_link = session.query(SharedLink).filter(
-                SharedLink.token == token,
-                SharedLink.target_type == "document",
-                SharedLink.target_id == doc_id,
-            ).first()
-            if shared_link and (shared_link.expires_at is None or shared_link.expires_at > datetime.now(timezone.utc)):
+            shared_link = (
+                session.query(SharedLink)
+                .filter(
+                    SharedLink.token == token,
+                    SharedLink.target_type == "document",
+                    SharedLink.target_id == doc_id,
+                )
+                .first()
+            )
+            if shared_link and (
+                shared_link.expires_at is None
+                or shared_link.expires_at > datetime.now(timezone.utc)
+            ):
                 # SharedLink allows read-only access
                 return True, {"can_edit": False, "can_comment": True}
 
         # Check CollaborationPermission
-        perm = session.query(CollaborationPermission).filter(
-            CollaborationPermission.document_id == doc_id,
-            CollaborationPermission.user_id == user_id,
-        ).first()
+        perm = (
+            session.query(CollaborationPermission)
+            .filter(
+                CollaborationPermission.document_id == doc_id,
+                CollaborationPermission.user_id == user_id,
+            )
+            .first()
+        )
         if perm:
-            return True, {"can_edit": perm.can_edit, "can_comment": perm.can_comment}
+            return True, {
+                "can_edit": perm.can_edit,
+                "can_comment": perm.can_comment,
+            }
 
         return False, None
 
     def log_audit_event(
         self,
         doc_id: str,
-        user_id: Optional[str],
+        user_id: str | None,
         action: str,
-        payload: Optional[Dict[str, Any]],
+        payload: dict[str, Any] | None,
         session: Session,
     ) -> None:
         """Log collaboration audit event to database.
@@ -138,7 +158,9 @@ class CollaborationManager:
         except Exception as e:
             logger.error(f"Failed to log audit event: {e}")
 
-    async def connect(self, doc_id: str, ws: WebSocket, user_id: Optional[str] = None) -> None:
+    async def connect(
+        self, doc_id: str, ws: WebSocket, user_id: str | None = None
+    ) -> None:
         """Register a new WebSocket connection for a document.
 
         Args:
@@ -157,7 +179,9 @@ class CollaborationManager:
         if user_id:
             self.presence[doc_id].add(user_id)
 
-        logger.info(f"Client connected to document {doc_id}. Active users: {len(self.presence[doc_id])}")
+        logger.info(
+            f"Client connected to document {doc_id}. Active users: {len(self.presence[doc_id])}"
+        )
 
         # Broadcast presence update
         await self.broadcast(
@@ -169,7 +193,9 @@ class CollaborationManager:
             },
         )
 
-    async def disconnect(self, doc_id: str, ws: WebSocket, user_id: Optional[str] = None) -> None:
+    async def disconnect(
+        self, doc_id: str, ws: WebSocket, user_id: str | None = None
+    ) -> None:
         """Unregister a WebSocket connection from a document.
 
         Args:
@@ -184,7 +210,9 @@ class CollaborationManager:
             if user_id and doc_id in self.presence:
                 self.presence[doc_id].discard(user_id)
 
-            logger.info(f"Client disconnected from document {doc_id}. Active users: {len(self.presence.get(doc_id, []))}")
+            logger.info(
+                f"Client disconnected from document {doc_id}. Active users: {len(self.presence.get(doc_id, []))}"
+            )
 
             # Broadcast presence update
             await self.broadcast(
@@ -202,7 +230,7 @@ class CollaborationManager:
                 if doc_id in self.presence:
                     del self.presence[doc_id]
 
-    async def broadcast(self, doc_id: str, message: Dict[str, Any]) -> None:
+    async def broadcast(self, doc_id: str, message: dict[str, Any]) -> None:
         """Broadcast a message to all connected clients for a document.
 
         Args:
@@ -255,7 +283,7 @@ manager = CollaborationManager()
 async def get_audit_trail(
     document_id: str,
     limit: int = Query(100, ge=1, le=1000),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get audit trail for a collaboration session.
 
     Args:
@@ -268,11 +296,13 @@ async def get_audit_trail(
     db = _get_db()
     session = db.SessionLocal()
     try:
-        logs = session.query(CollaborationAuditLog).filter(
-            CollaborationAuditLog.document_id == document_id
-        ).order_by(
-            CollaborationAuditLog.timestamp.desc()
-        ).limit(limit).all()
+        logs = (
+            session.query(CollaborationAuditLog)
+            .filter(CollaborationAuditLog.document_id == document_id)
+            .order_by(CollaborationAuditLog.timestamp.desc())
+            .limit(limit)
+            .all()
+        )
 
         return {
             "document_id": document_id,
@@ -283,7 +313,9 @@ async def get_audit_trail(
                     "user_id": log.user_id,
                     "action": log.action,
                     "payload": log.payload,
-                    "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                    "timestamp": log.timestamp.isoformat()
+                    if log.timestamp
+                    else None,
                 }
                 for log in logs
             ],
@@ -293,7 +325,9 @@ async def get_audit_trail(
 
 
 @router.websocket("/ws/{document_id}")
-async def ws_collab(ws: WebSocket, document_id: str, token: Optional[str] = Query(None)) -> None:
+async def ws_collab(
+    ws: WebSocket, document_id: str, token: str | None = Query(None)
+) -> None:
     """WebSocket endpoint for collaborative document editing.
 
     Requires authentication via token query parameter or authenticated user.
@@ -304,8 +338,8 @@ async def ws_collab(ws: WebSocket, document_id: str, token: Optional[str] = Quer
         document_id: The document being edited
         token: Optional access token (SharedLink or session token)
     """
-    user_id: Optional[str] = None
-    permissions: Optional[Dict[str, Any]] = None
+    user_id: str | None = None
+    permissions: dict[str, Any] | None = None
     if _db is None:
         await ws.accept()
         await manager.connect(document_id, ws, "stub")
@@ -319,11 +353,17 @@ async def ws_collab(ws: WebSocket, document_id: str, token: Optional[str] = Quer
         )
         try:
             active_sessions = (
-                manager.get_active_sessions() if hasattr(manager, "get_active_sessions") else 0
+                manager.get_active_sessions()
+                if hasattr(manager, "get_active_sessions")
+                else 0
             )
             event_bus.emit_event(
                 topic="collab.update",
-                payload={"document_id": document_id, "user_id": "stub", "active_sessions": active_sessions},
+                payload={
+                    "document_id": document_id,
+                    "user_id": "stub",
+                    "active_sessions": active_sessions,
+                },
             )
         except Exception:
             pass
@@ -344,7 +384,10 @@ async def ws_collab(ws: WebSocket, document_id: str, token: Optional[str] = Quer
             client_token = initial_data.get("token") or token
 
             if not user_id:
-                await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="user_id required")
+                await ws.close(
+                    code=status.WS_1008_POLICY_VIOLATION,
+                    reason="user_id required",
+                )
                 return
 
             # Verify access
@@ -377,7 +420,9 @@ async def ws_collab(ws: WebSocket, document_id: str, token: Optional[str] = Quer
                     topic="collab.access_denied",
                     payload={"document_id": document_id, "user_id": user_id},
                 )
-                await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="access_denied")
+                await ws.close(
+                    code=status.WS_1008_POLICY_VIOLATION, reason="access_denied"
+                )
                 return
 
             # Store permissions in manager
@@ -396,7 +441,10 @@ async def ws_collab(ws: WebSocket, document_id: str, token: Optional[str] = Quer
                     document_id,
                     user_id,
                     "presence.join",
-                    {"can_edit": permissions.get("can_edit"), "can_comment": permissions.get("can_comment")},
+                    {
+                        "can_edit": permissions.get("can_edit"),
+                        "can_comment": permissions.get("can_comment"),
+                    },
                     audit_session,
                 )
             finally:
@@ -407,7 +455,9 @@ async def ws_collab(ws: WebSocket, document_id: str, token: Optional[str] = Quer
                 data = await ws.receive_json()
 
                 # Enforce edit permissions
-                if data.get("type") == "update" and not permissions.get("can_edit"):
+                if data.get("type") == "update" and not permissions.get(
+                    "can_edit"
+                ):
                     # Log permission violation and skip broadcast
                     audit_session = db.SessionLocal()
                     try:
@@ -425,7 +475,9 @@ async def ws_collab(ws: WebSocket, document_id: str, token: Optional[str] = Quer
                 # Log update (hash content for audit, not full text)
                 content_hash = None
                 if "content" in data:
-                    content_hash = hashlib.sha256(str(data["content"]).encode()).hexdigest()[:16]
+                    content_hash = hashlib.sha256(
+                        str(data["content"]).encode()
+                    ).hexdigest()[:16]
 
                 audit_session = db.SessionLocal()
                 try:
@@ -486,5 +538,7 @@ async def ws_collab(ws: WebSocket, document_id: str, token: Optional[str] = Quer
                 logger.error(f"Failed to log presence.leave event: {e}")
         await manager.disconnect(document_id, ws, user_id)
     except Exception as e:
-        logger.error(f"WebSocket error for document {document_id}: {e}", exc_info=True)
+        logger.error(
+            f"WebSocket error for document {document_id}: {e}", exc_info=True
+        )
         await manager.disconnect(document_id, ws, user_id)

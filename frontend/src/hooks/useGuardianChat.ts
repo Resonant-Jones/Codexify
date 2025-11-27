@@ -112,4 +112,3 @@ export function useGuardianChat(initialProvider?: ProviderName) {
     [messages, isStreaming, send, abort, provider, setProvider, reset]
   );
 }
-

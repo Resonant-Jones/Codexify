@@ -1,3 +1,11 @@
+# Disabled docformatter hook for now: newer versions of docformatter use the
+# `python_venv` pre-commit language, which is not supported by the current
+# pre-commit version in this environment. Re-enable once pre-commit is upgraded.
+# -   repo: https://github.com/PyCQA/docformatter
+#     rev: v1.7.5
+#     hooks:
+#     -   id: docformatter
+#         args: [--in-place, --wrap-summaries=80, --wrap-descriptions=80]
 # Pre-commit configuration for Threadspace
 # See https://pre-commit.com for more information
 
@@ -44,9 +52,11 @@ repos:
     rev: v1.3.0
     hooks:
     -   id: mypy
-        additional_dependencies:
-        -   types-all
         args: [--ignore-missing-imports]
+        # If you want type stubs later, add them explicitly here instead of using types-all, e.g.:
+        # additional_dependencies:
+        # - types-requests
+        # - types-python-dateutil
 
 -   repo: https://github.com/pycqa/bandit
     rev: 1.7.5
@@ -60,11 +70,15 @@ repos:
     -   id: pyupgrade
         args: [--py38-plus]
 
--   repo: https://github.com/PyCQA/docformatter
-    rev: v1.7.5
-    hooks:
-    -   id: docformatter
-        args: [--in-place, --wrap-summaries=80, --wrap-descriptions=80]
+# NOTE: docformatter hook disabled for now.
+# Newer versions of docformatter use the `python_venv` pre-commit language,
+# which your current pre-commit version doesn’t understand. Re-enable once
+# you’ve upgraded pre-commit.
+# -   repo: https://github.com/PyCQA/docformatter
+#     rev: v1.7.5
+#     hooks:
+#     -   id: docformatter
+#         args: [--in-place, --wrap-summaries=80, --wrap-descriptions=80]
 
 -   repo: local
     hooks:

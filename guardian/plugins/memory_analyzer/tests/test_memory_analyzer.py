@@ -18,7 +18,7 @@ from guardian.plugins.memory_analyzer.main import MemoryAnalyzer
 # Helper function to load config
 def load_config():
     plugin_dir = Path(__file__).parent.parent
-    with open(plugin_dir / "plugin.json", "r") as f:
+    with open(plugin_dir / "plugin.json") as f:
         return json.load(f)["config"]
 
 

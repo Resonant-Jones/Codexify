@@ -9,19 +9,20 @@ import os
 import sys
 
 # Add parent directory to path so we can import guardian modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 
 def apply_guardiandb_schema():
     """Apply GuardianDB schema using PgDB adapter."""
     from guardian.core.pgdb import PgDB
 
-    db_url = os.getenv('DATABASE_URL')
+    db_url = os.getenv("DATABASE_URL")
     if not db_url:
         print("ERROR: DATABASE_URL not set", file=sys.stderr)
         sys.exit(1)
 
     # Switch to guardiandb test database
-    db_url = db_url.replace('/guardian', '/guardian_raw')
+    db_url = db_url.replace("/guardian", "/guardian_raw")
 
     print(f"Applying GuardianDB schema to {db_url}")
 
@@ -41,5 +42,6 @@ def apply_guardiandb_schema():
 
     print("✓ GuardianDB schema applied successfully")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     apply_guardiandb_schema()

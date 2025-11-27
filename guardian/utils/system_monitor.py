@@ -145,7 +145,10 @@ class SystemMonitor:
             current_time = time.time()
 
             # Log warnings if enough time has passed
-            if current_time - self.last_warning >= self.limits["warning_interval"]:
+            if (
+                current_time - self.last_warning
+                >= self.limits["warning_interval"]
+            ):
                 await system_logger.warning(
                     "Resource warning", warnings=warnings, usage=vars(usage)
                 )
@@ -172,7 +175,9 @@ class SystemMonitor:
 
         # Disable non-essential plugins
         for plugin in plugin_manager.plugins.values():
-            if plugin.enabled and "essential" not in plugin.metadata.get("tags", []):
+            if plugin.enabled and "essential" not in plugin.metadata.get(
+                "tags", []
+            ):
                 await plugin_manager.disable_plugin(plugin.name)
 
         # Force garbage collection
@@ -188,7 +193,9 @@ class SystemMonitor:
                 try:
                     cache_file.unlink()
                 except Exception as e:
-                    logger.error(f"Failed to clear cache file {cache_file}: {e}")
+                    logger.error(
+                        f"Failed to clear cache file {cache_file}: {e}"
+                    )
 
         # Reset warning count
         self.warning_count = 0

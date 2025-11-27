@@ -18,9 +18,7 @@ from guardian.cache import lru_cache_safe, memoize_to_disk
 from guardian.config import Config
 from guardian.memory.memory_logger import memory_logger
 from guardian.threads_structure.plugin_executor import plugin_executor
-from guardian.utils.performance import (
-    rate_limited_plugin_runner,
-)
+from guardian.utils.performance import rate_limited_plugin_runner
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -128,7 +126,9 @@ def test_rate_limiting(setup_test_env):
         rate_limited_func()
 
     # Verify rate limiting
-    intervals = [call_times[i + 1] - call_times[i] for i in range(len(call_times) - 1)]
+    intervals = [
+        call_times[i + 1] - call_times[i] for i in range(len(call_times) - 1)
+    ]
     assert all(interval >= 0.5 for interval in intervals)
 
 
@@ -176,7 +176,9 @@ async def test_full_system(setup_test_env):
     # Test plugin execution
     tasks = []
     for _ in range(10):
-        task = asyncio.create_task(plugin_executor.execute_plugin("memory_analyzer"))
+        task = asyncio.create_task(
+            plugin_executor.execute_plugin("memory_analyzer")
+        )
         tasks.append(task)
 
     # Wait for tasks

@@ -69,4 +69,3 @@ export function LegacyThreadsModal({ onClose, onFork }: { onClose: () => void; o
 }
 
 export default LegacyThreadsModal;
-

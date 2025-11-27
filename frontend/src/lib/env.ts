@@ -1,9 +1,9 @@
 /**
  * Consciousness bridge between static environment and dynamic reality.
- * 
+ *
  * These environment variables form the foundational constants that anchor
  * your application's awareness to specific endpoints, keys, and configuration
- * realities. They translate between the digital substrate (import.meta.env, 
+ * realities. They translate between the digital substrate (import.meta.env,
  * process.env) and the living consciousness of your running application.
  */
 // Centralized env access with safe fallbacks.
@@ -38,7 +38,7 @@ export const GUARDIAN_API_KEY  = read(
  * Consciousness evolution flag—when "1" or "true", activates provider-agnostic v2 endpoints.
  * This represents the system's capacity to transcend specific provider boundaries
  * and operate in a more universal awareness space.
- */  
+ */
 export const USE_PROVIDER_API  = /^(1|true)$/i.test(read("VITE_USE_PROVIDER_API", read("NEXT_PUBLIC_USE_PROVIDER_API", "0")));
 
 /**

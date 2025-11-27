@@ -77,7 +77,9 @@ def memory_test_client(mock_memory_db, mock_auth, monkeypatch, tmp_path):
         with patch("guardian.guardian_api.chatlog_db", mock_memory_db):
             with patch("guardian.core.dependencies.chatlog_db", mock_memory_db):
                 with patch("guardian.routes.memory.chatlog_db", mock_memory_db):
-                    with patch("guardian.guardian_api.event_bus") as mock_event_bus:
+                    with patch(
+                        "guardian.guardian_api.event_bus"
+                    ) as mock_event_bus:
                         mock_event_bus.emit_event.return_value = None
 
                         from guardian.guardian_api import app, require_api_key
@@ -86,7 +88,9 @@ def memory_test_client(mock_memory_db, mock_auth, monkeypatch, tmp_path):
                         def mock_require_api_key_override():
                             return mock_auth
 
-                        app.dependency_overrides[require_api_key] = mock_require_api_key_override
+                        app.dependency_overrides[
+                            require_api_key
+                        ] = mock_require_api_key_override
 
                         client = TestClient(app)
                         yield client
@@ -142,9 +146,13 @@ class TestMemoryAuthentication:
 class TestMemoryUserScoping:
     """Test user-scoped data access for memory operations."""
 
-    def test_list_memories_filters_by_user(self, memory_test_client, auth_headers, mock_memory_db):
+    def test_list_memories_filters_by_user(
+        self, memory_test_client, auth_headers, mock_memory_db
+    ):
         """Test that listing memories filters by authenticated user."""
-        response = memory_test_client.get("/api/memory/midterm", headers=auth_headers)
+        response = memory_test_client.get(
+            "/api/memory/midterm", headers=auth_headers
+        )
         assert response.status_code == 200
 
         # Verify user_id was passed to database method
@@ -152,7 +160,9 @@ class TestMemoryUserScoping:
         call_kwargs = mock_memory_db.list_memories.call_args.kwargs
         assert call_kwargs.get("user_id") == "test_user"
 
-    def test_create_memory_uses_authenticated_user(self, memory_test_client, auth_headers, mock_memory_db):
+    def test_create_memory_uses_authenticated_user(
+        self, memory_test_client, auth_headers, mock_memory_db
+    ):
         """Test that creating memory uses authenticated user ID."""
         response = memory_test_client.post(
             "/api/memory/midterm",
@@ -166,7 +176,9 @@ class TestMemoryUserScoping:
         call_args = mock_memory_db.add_memory.call_args.args
         assert call_args[0] == "test_user"  # First argument is user_id
 
-    def test_update_memory_checks_ownership(self, memory_test_client, other_user_headers, mock_memory_db):
+    def test_update_memory_checks_ownership(
+        self, memory_test_client, other_user_headers, mock_memory_db
+    ):
         """Test that updating memory checks ownership."""
         # Mock getting a memory owned by 'test_user'
         mock_memory_db.get_memory.return_value = {
@@ -186,7 +198,9 @@ class TestMemoryUserScoping:
         # Should return 404 (not found) to prevent information disclosure
         assert response.status_code == 404
 
-    def test_delete_memory_checks_ownership(self, memory_test_client, other_user_headers, mock_memory_db):
+    def test_delete_memory_checks_ownership(
+        self, memory_test_client, other_user_headers, mock_memory_db
+    ):
         """Test that deleting memory checks ownership."""
         # Mock getting a memory owned by 'test_user'
         mock_memory_db.get_memory.return_value = {
@@ -205,9 +219,13 @@ class TestMemoryUserScoping:
         # Should return 404 (not found) to prevent information disclosure
         assert response.status_code == 404
 
-    def test_count_memories_filters_by_user(self, memory_test_client, auth_headers, mock_memory_db):
+    def test_count_memories_filters_by_user(
+        self, memory_test_client, auth_headers, mock_memory_db
+    ):
         """Test that counting memories filters by authenticated user."""
-        response = memory_test_client.get("/api/memory/health/memory", headers=auth_headers)
+        response = memory_test_client.get(
+            "/api/memory/health/memory", headers=auth_headers
+        )
         assert response.status_code == 200
 
         # Verify user_id was passed to count_memories
@@ -220,7 +238,9 @@ class TestMemoryUserScoping:
 class TestMemoryNoDefaultUser:
     """Test that hardcoded 'default' user is not used."""
 
-    def test_create_memory_no_default_user(self, memory_test_client, auth_headers, mock_memory_db):
+    def test_create_memory_no_default_user(
+        self, memory_test_client, auth_headers, mock_memory_db
+    ):
         """Test that memory creation doesn't use 'default' user."""
         response = memory_test_client.post(
             "/api/memory/midterm",
@@ -234,7 +254,9 @@ class TestMemoryNoDefaultUser:
         assert call_args[0] != "default"
         assert call_args[0] == "test_user"
 
-    def test_audit_log_no_default_user(self, memory_test_client, auth_headers, mock_memory_db):
+    def test_audit_log_no_default_user(
+        self, memory_test_client, auth_headers, mock_memory_db
+    ):
         """Test that audit logs don't use 'default' user."""
         memory_test_client.post(
             "/api/memory/midterm",
@@ -252,7 +274,9 @@ class TestMemoryNoDefaultUser:
 class TestEphemeralMemoryScoping:
     """Test user-scoped access for ephemeral memory (in-memory storage)."""
 
-    def test_ephemeral_create_uses_user_id(self, memory_test_client, auth_headers):
+    def test_ephemeral_create_uses_user_id(
+        self, memory_test_client, auth_headers
+    ):
         """Test that ephemeral memory creation uses authenticated user ID."""
         response = memory_test_client.post(
             "/api/memory/ephemeral",
@@ -265,7 +289,9 @@ class TestEphemeralMemoryScoping:
         entry = response.json()["entry"]
         assert entry["user_id"] == "test_user"
 
-    def test_ephemeral_list_filters_by_user(self, memory_test_client, auth_headers, other_user_headers):
+    def test_ephemeral_list_filters_by_user(
+        self, memory_test_client, auth_headers, other_user_headers
+    ):
         """Test that ephemeral memory listing filters by user."""
         # Create memory for test_user
         memory_test_client.post(
@@ -282,14 +308,18 @@ class TestEphemeralMemoryScoping:
         )
 
         # List as test_user
-        response = memory_test_client.get("/api/memory/ephemeral", headers=auth_headers)
+        response = memory_test_client.get(
+            "/api/memory/ephemeral", headers=auth_headers
+        )
         assert response.status_code == 200
         entries = response.json()["entries"]
 
         # Should only see test_user's memory
         assert all(e["user_id"] == "test_user" for e in entries)
 
-    def test_ephemeral_update_checks_ownership(self, memory_test_client, auth_headers, other_user_headers):
+    def test_ephemeral_update_checks_ownership(
+        self, memory_test_client, auth_headers, other_user_headers
+    ):
         """Test that ephemeral memory update checks ownership."""
         # Create memory for test_user
         create_response = memory_test_client.post(
@@ -309,7 +339,9 @@ class TestEphemeralMemoryScoping:
         # Should return 404 (not found)
         assert response.status_code == 404
 
-    def test_ephemeral_delete_checks_ownership(self, memory_test_client, auth_headers, other_user_headers):
+    def test_ephemeral_delete_checks_ownership(
+        self, memory_test_client, auth_headers, other_user_headers
+    ):
         """Test that ephemeral memory delete checks ownership."""
         # Create memory for test_user
         create_response = memory_test_client.post(
@@ -332,7 +364,9 @@ class TestEphemeralMemoryScoping:
 class TestMemoryEndToEnd:
     """End-to-end tests for authenticated memory workflows."""
 
-    def test_complete_memory_lifecycle(self, memory_test_client, auth_headers, mock_memory_db):
+    def test_complete_memory_lifecycle(
+        self, memory_test_client, auth_headers, mock_memory_db
+    ):
         """Test complete CRUD lifecycle with authentication."""
         # Create
         create_response = memory_test_client.post(
@@ -344,7 +378,9 @@ class TestMemoryEndToEnd:
         memory_id = create_response.json()["id"]
 
         # List
-        list_response = memory_test_client.get("/api/memory/midterm", headers=auth_headers)
+        list_response = memory_test_client.get(
+            "/api/memory/midterm", headers=auth_headers
+        )
         assert list_response.status_code == 200
 
         # Update
@@ -363,7 +399,11 @@ class TestMemoryEndToEnd:
         assert delete_response.status_code == 200
 
     def test_authenticated_user_cannot_access_other_user_data(
-        self, memory_test_client, auth_headers, other_user_headers, mock_memory_db
+        self,
+        memory_test_client,
+        auth_headers,
+        other_user_headers,
+        mock_memory_db,
     ):
         """Test that authenticated users cannot access other users' data."""
         # Create memory as test_user
@@ -401,21 +441,33 @@ class TestMemoryEndToEnd:
 class TestMemoryRoutingCorrectness:
     """Test that memory routes are correctly mounted and legacy paths are removed."""
 
-    def test_canonical_memory_path_works(self, memory_test_client, auth_headers):
+    def test_canonical_memory_path_works(
+        self, memory_test_client, auth_headers
+    ):
         """Test that canonical /api/memory/{silo} path works."""
-        response = memory_test_client.get("/api/memory/midterm", headers=auth_headers)
+        response = memory_test_client.get(
+            "/api/memory/midterm", headers=auth_headers
+        )
         assert response.status_code == 200
 
-    def test_legacy_nested_path_returns_404(self, memory_test_client, auth_headers):
+    def test_legacy_nested_path_returns_404(
+        self, memory_test_client, auth_headers
+    ):
         """Test that legacy /memory/api/memory/{silo} path returns 404."""
         # This path should not exist after deduplication
-        response = memory_test_client.get("/memory/api/memory/midterm", headers=auth_headers)
+        response = memory_test_client.get(
+            "/memory/api/memory/midterm", headers=auth_headers
+        )
         assert response.status_code == 404
 
-    def test_all_memory_crud_operations_use_canonical_path(self, memory_test_client, auth_headers, mock_memory_db):
+    def test_all_memory_crud_operations_use_canonical_path(
+        self, memory_test_client, auth_headers, mock_memory_db
+    ):
         """Test that all CRUD operations work on canonical /api/memory path."""
         # GET (list)
-        list_response = memory_test_client.get("/api/memory/midterm", headers=auth_headers)
+        list_response = memory_test_client.get(
+            "/api/memory/midterm", headers=auth_headers
+        )
         assert list_response.status_code == 200
 
         # POST (create)
@@ -453,11 +505,15 @@ class TestMemoryRoutingCorrectness:
         for path in legacy_paths:
             # Without auth headers
             response = memory_test_client.get(path)
-            assert response.status_code == 404, f"Path {path} should return 404, not {response.status_code}"
+            assert (
+                response.status_code == 404
+            ), f"Path {path} should return 404, not {response.status_code}"
 
             # With auth headers (to verify it's not just missing auth)
             response_with_auth = memory_test_client.get(
                 path,
                 headers={"X-API-Key": "test-api-key", "X-User-Id": "test_user"},
             )
-            assert response_with_auth.status_code == 404, f"Path {path} should return 404 even with auth"
+            assert (
+                response_with_auth.status_code == 404
+            ), f"Path {path} should return 404 even with auth"

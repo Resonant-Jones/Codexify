@@ -50,20 +50,21 @@ logger = logging.getLogger(__name__)
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
+from guardian.core.config import get_settings
 from guardian.core.dependencies import (
+    API_KEY,
+    ENABLE_CONNECTOR_WORKER,
+    ENABLE_OUTBOX,
+    allowed_origins,
     init_database,
     init_services,
     require_api_key,
-    API_KEY,
-    ENABLE_OUTBOX,
-    ENABLE_CONNECTOR_WORKER,
-    allowed_origins,
 )
-from guardian.core.config import get_settings
 
 # Optional Neo4j for graph endpoint
 try:
     from neo4j import GraphDatabase
+
     NEO4J_AVAILABLE = True
 except Exception:
     NEO4J_AVAILABLE = False
@@ -71,6 +72,7 @@ except Exception:
 
 try:
     from guardian.graph.connection import connect_neo4j
+
     _NEO_CONNECT_AVAILABLE = True
 except Exception:
     _NEO_CONNECT_AVAILABLE = False
@@ -86,7 +88,11 @@ except Exception:
 dependencies._load_env_chain()
 
 # Log API key (masked)
-_mask = (API_KEY[:4] + "…" + API_KEY[-4:]) if API_KEY and len(API_KEY) > 8 else API_KEY
+_mask = (
+    (API_KEY[:4] + "…" + API_KEY[-4:])
+    if API_KEY and len(API_KEY) > 8
+    else API_KEY
+)
 logger.info("[auth] Using GUARDIAN_API_KEY=%s", _mask)
 
 # Initialize primary chat database eagerly so router modules
@@ -99,30 +105,35 @@ OUTBOX_POLL_INTERVAL = float(os.getenv("OUTBOX_POLL_INTERVAL", "1.0"))
 OUTBOX_BATCH_SIZE = int(os.getenv("OUTBOX_BATCH_SIZE", "100"))
 
 
-# Import all routers (after DB init so dependencies.chatlog_db is ready)
-from guardian.routes import (
-    agent,
-    admin,
-    memory,
-    research,
-    threads,
-    documents,
-    share,
-    federation,
-    health,
-    migration,
-    neo as neo_routes,
-)
-from guardian.routes.chat import router as chat_router, simple_chat_router, api_chat_router
-from guardian.routes.connectors import router as connectors_router, _connector_worker
-from guardian.routes.codexify_router import router as codexify_router
-from guardian.routes.api_exports import router as exports_router
-from guardian.routes.media import router as media_router
-from guardian.routes.tools import router as tools_router
-from guardian.routes.projects import router as projects_router, ensure_loose_threads_project
-from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
 from guardian.realtime import collaboration
 
+# Import all routers (after DB init so dependencies.chatlog_db is ready)
+from guardian.routes import (
+    admin,
+    agent,
+    documents,
+    federation,
+    health,
+    memory,
+    migration,
+)
+from guardian.routes import neo as neo_routes
+from guardian.routes import research, share, threads
+from guardian.routes.api_exports import router as exports_router
+from guardian.routes.chat import api_chat_router
+from guardian.routes.chat import router as chat_router
+from guardian.routes.chat import simple_chat_router
+from guardian.routes.codexify_router import router as codexify_router
+from guardian.routes.connectors import _connector_worker
+from guardian.routes.connectors import router as connectors_router
+from guardian.routes.iddb import router as iddb_router
+from guardian.routes.imprint import router as imprint_router
+from guardian.routes.imprint import system_docs_router, system_prompt_router
+from guardian.routes.media import router as media_router
+from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
+from guardian.routes.projects import ensure_loose_threads_project
+from guardian.routes.projects import router as projects_router
+from guardian.routes.tools import router as tools_router
 
 # =========================
 # Application Lifespan Management
@@ -158,10 +169,15 @@ async def app_lifespan(app: FastAPI):
 
     # Initialize Prometheus metrics
     metrics.set_db_backend(dependencies.DB_BACKEND)
-    logger.info("[metrics] Prometheus metrics initialized (db_backend=%s)", dependencies.DB_BACKEND)
+    logger.info(
+        "[metrics] Prometheus metrics initialized (db_backend=%s)",
+        dependencies.DB_BACKEND,
+    )
 
     # Bind memory route dependencies
-    memory.bind_dependencies(chatlog_db_instance=db, require_api_key_func=require_api_key)
+    memory.bind_dependencies(
+        chatlog_db_instance=db, require_api_key_func=require_api_key
+    )
 
     # Configure durable outbox storage
     if ENABLE_OUTBOX:
@@ -169,13 +185,17 @@ async def app_lifespan(app: FastAPI):
             event_bus.configure_event_store(db)
             logger.info("[outbox] Durable event outbox enabled")
         except Exception:
-            logger.exception("[outbox] Failed to configure durable event outbox; falling back to in-memory hub")
+            logger.exception(
+                "[outbox] Failed to configure durable event outbox; falling back to in-memory hub"
+            )
 
     # Ensure default "Loose Threads" project exists
     try:
         ensure_loose_threads_project()
     except Exception as exc:
-        logger.error("[startup] Failed to initialize Loose Threads project: %s", exc)
+        logger.error(
+            "[startup] Failed to initialize Loose Threads project: %s", exc
+        )
 
     # Ensure sync_jobs table exists
     try:
@@ -184,7 +204,10 @@ async def app_lifespan(app: FastAPI):
         logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
 
     # Initialize Neo4j connection if graph logging is enabled
-    if getattr(settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False) and _NEO_CONNECT_AVAILABLE:
+    if (
+        getattr(settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False)
+        and _NEO_CONNECT_AVAILABLE
+    ):
         try:
             connect_neo4j()
             logger.info("[graph] Neo4j connection initialized")
@@ -198,10 +221,14 @@ async def app_lifespan(app: FastAPI):
             db.list_connector_configs()
             stop_event = asyncio.Event()
             _CONNECTOR_WORKER_STOP = stop_event
-            _CONNECTOR_WORKER_TASK = asyncio.create_task(_connector_worker(stop_event))
+            _CONNECTOR_WORKER_TASK = asyncio.create_task(
+                _connector_worker(stop_event)
+            )
             logger.info("[connectors] Background worker started")
         except Exception as exc:
-            logger.error("[connectors] Unable to initialize connector tables: %s", exc)
+            logger.error(
+                "[connectors] Unable to initialize connector tables: %s", exc
+            )
 
     logger.info("[startup] Guardian API ready")
 
@@ -250,12 +277,14 @@ app.add_middleware(
 logger.info("[CORS] Allowed origins: %s", allowed_origins)
 
 # Static file serving for media
-media_storage_path = os.getenv('STORAGE_BASE_PATH', '/app/media')
+media_storage_path = os.getenv("STORAGE_BASE_PATH", "/app/media")
 if os.path.exists(media_storage_path):
     app.mount("/media", StaticFiles(directory=media_storage_path), name="media")
     logger.info("[static] Mounted /media from %s", media_storage_path)
 else:
-    logger.warning("[static] Media storage path does not exist: %s", media_storage_path)
+    logger.warning(
+        "[static] Media storage path does not exist: %s", media_storage_path
+    )
 
 
 # =========================
@@ -275,6 +304,10 @@ app.include_router(neo_routes.router, prefix="/api")
 app.include_router(chat_router)
 app.include_router(simple_chat_router)
 app.include_router(api_chat_router)
+app.include_router(imprint_router)
+app.include_router(system_prompt_router)
+app.include_router(system_docs_router)
+app.include_router(iddb_router)
 
 # Core feature routers
 app.include_router(threads.router)
@@ -299,6 +332,7 @@ logger.info("[routers] All routers included")
 # =========================
 # Unique Endpoints (Not in Routers)
 # =========================
+
 
 @app.get("/api/events", tags=["Events"])
 async def stream_events(
@@ -334,7 +368,9 @@ async def stream_events(
             if await request.is_disconnected():
                 break
 
-            events = event_bus.fetch_events_after(last_id, limit=OUTBOX_BATCH_SIZE)
+            events = event_bus.fetch_events_after(
+                last_id, limit=OUTBOX_BATCH_SIZE
+            )
             max_id_seen = last_id
 
             if events:
@@ -381,49 +417,63 @@ async def stream_events(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@app.get('/graph', summary='Return graph data from Neo4j', tags=['Graph'])
-def get_graph(scope: str = 'codexify'):
+@app.get("/graph", summary="Return graph data from Neo4j", tags=["Graph"])
+def get_graph(scope: str = "codexify"):
     """
     Fetch graph data from Neo4j for visualization.
     Returns nodes and links for the specified scope.
     """
     if not NEO4J_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Neo4j driver not available")
+        raise HTTPException(
+            status_code=503, detail="Neo4j driver not available"
+        )
 
-    uri = os.getenv('NEO4J_URI', 'bolt://neo4j:7687')
-    user = os.getenv('NEO4J_USER', 'neo4j')
-    password = os.getenv('NEO4J_PASSWORD', 'test')
+    uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
+    user = os.getenv("NEO4J_USER", "neo4j")
+    password = os.getenv("NEO4J_PASSWORD", "test")
 
     try:
         driver = GraphDatabase.driver(uri, auth=(user, password))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Failed to connect to Neo4j: {e}')
+        raise HTTPException(
+            status_code=500, detail=f"Failed to connect to Neo4j: {e}"
+        )
 
     nodes, links = [], []
     try:
         with driver.session() as session:
-            result = session.run('MATCH (a)-[r]->(b) RETURN a, r, b LIMIT 250')
+            result = session.run("MATCH (a)-[r]->(b) RETURN a, r, b LIMIT 250")
             for record in result:
-                a, r, b = record['a'], record['r'], record['b']
-                nodes.extend([
+                a, r, b = record["a"], record["r"], record["b"]
+                nodes.extend(
+                    [
+                        {
+                            "id": a.element_id,
+                            "label": a.get(
+                                "name",
+                                list(a.labels)[0] if a.labels else "Node",
+                            ),
+                            "type": list(a.labels)[0] if a.labels else "node",
+                        },
+                        {
+                            "id": b.element_id,
+                            "label": b.get(
+                                "name",
+                                list(b.labels)[0] if b.labels else "Node",
+                            ),
+                            "type": list(b.labels)[0] if b.labels else "node",
+                        },
+                    ]
+                )
+                links.append(
                     {
-                        "id": a.element_id,
-                        "label": a.get('name', list(a.labels)[0] if a.labels else 'Node'),
-                        "type": list(a.labels)[0] if a.labels else 'node'
-                    },
-                    {
-                        "id": b.element_id,
-                        "label": b.get('name', list(b.labels)[0] if b.labels else 'Node'),
-                        "type": list(b.labels)[0] if b.labels else 'node'
+                        "source": a.element_id,
+                        "target": b.element_id,
+                        "label": r.type,
                     }
-                ])
-                links.append({
-                    "source": a.element_id,
-                    "target": b.element_id,
-                    "label": r.type
-                })
+                )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Query failed: {e}')
+        raise HTTPException(status_code=500, detail=f"Query failed: {e}")
     finally:
         driver.close()
 
@@ -438,6 +488,7 @@ def get_graph(scope: str = 'codexify'):
 # =========================
 # Root Endpoint
 # =========================
+
 
 @app.get("/", tags=["Root"])
 def root():

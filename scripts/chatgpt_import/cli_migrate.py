@@ -34,13 +34,14 @@ try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.progress import (
+        BarColumn,
         Progress,
         SpinnerColumn,
-        BarColumn,
         TextColumn,
         TimeRemainingColumn,
     )
     from rich.table import Table
+
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
@@ -51,9 +52,9 @@ SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from import_chatgpt import (
-    load_chatgpt_export,
-    import_to_neo4j,
     import_embeddings_to_chroma,
+    import_to_neo4j,
+    load_chatgpt_export,
     normalize_timestamp,
 )
 
@@ -80,11 +81,13 @@ def print_header():
     """Print migration header."""
     if HAS_RICH and console:
         console.print()
-        console.print(Panel.fit(
-            "[bold cyan]ChatGPT → Codexify Migration[/bold cyan]\n"
-            "[dim]Dual-Engine Import: Neo4j + Chroma[/dim]",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]ChatGPT → Codexify Migration[/bold cyan]\n"
+                "[dim]Dual-Engine Import: Neo4j + Chroma[/dim]",
+                border_style="cyan",
+            )
+        )
         console.print()
     else:
         print("\n" + "=" * 70)
@@ -96,7 +99,11 @@ def print_header():
 def print_summary(stats: dict):
     """Print migration summary."""
     if HAS_RICH and console:
-        table = Table(title="Migration Summary", show_header=True, header_style="bold cyan")
+        table = Table(
+            title="Migration Summary",
+            show_header=True,
+            header_style="bold cyan",
+        )
         table.add_column("Metric", style="cyan")
         table.add_column("Count", justify="right", style="green")
 
@@ -125,7 +132,7 @@ def save_migration_summary(stats: dict, output_dir: Path = Path("logs")):
     summaries = []
     if summary_file.exists():
         try:
-            with open(summary_file, 'r') as f:
+            with open(summary_file) as f:
                 summaries = json.load(f)
                 if not isinstance(summaries, list):
                     summaries = [summaries]
@@ -136,7 +143,7 @@ def save_migration_summary(stats: dict, output_dir: Path = Path("logs")):
     summaries.append(stats)
 
     # Save
-    with open(summary_file, 'w') as f:
+    with open(summary_file, "w") as f:
         json.dump(summaries, f, indent=2)
 
     return summary_file
@@ -221,7 +228,9 @@ def migrate(
 
     # Print header
     print_header()
-    print_message("💫 [bold magenta]Reawakening your Companion...[/bold magenta]\n")
+    print_message(
+        "💫 [bold magenta]Reawakening your Companion...[/bold magenta]\n"
+    )
 
     # Track stats
     stats = {
@@ -240,18 +249,26 @@ def migrate(
     try:
         # Phase 1: Load and validate
         if HAS_RICH and console:
-            with console.status("[cyan]📂 Loading ChatGPT export...", spinner="dots"):
+            with console.status(
+                "[cyan]📂 Loading ChatGPT export...", spinner="dots"
+            ):
                 conversations = load_chatgpt_export(str(file))
-            print_message(f"✅ Loaded {len(conversations)} conversation thread(s)", "green")
+            print_message(
+                f"✅ Loaded {len(conversations)} conversation thread(s)", "green"
+            )
         else:
             print("📂 Loading ChatGPT export...")
             conversations = load_chatgpt_export(str(file))
             print(f"✅ Loaded {len(conversations)} conversation thread(s)")
 
         # Phase 2: Import to Neo4j
-        print_message("\n[cyan]──────────────────────────────────────────────────────────────────────[/cyan]")
+        print_message(
+            "\n[cyan]──────────────────────────────────────────────────────────────────────[/cyan]"
+        )
         print_message("[bold cyan]Phase 1: Graph Import (Neo4j)[/bold cyan]")
-        print_message("[cyan]──────────────────────────────────────────────────────────────────────[/cyan]\n")
+        print_message(
+            "[cyan]──────────────────────────────────────────────────────────────────────[/cyan]\n"
+        )
 
         # Import Neo4j
         from neo4j import GraphDatabase
@@ -268,15 +285,21 @@ def migrate(
                 TimeRemainingColumn(),
                 console=console,
             ) as progress:
-                task = progress.add_task("📊 Importing to Neo4j...", total=len(conversations))
+                task = progress.add_task(
+                    "📊 Importing to Neo4j...", total=len(conversations)
+                )
 
                 # Simple wrapper to update progress
-                threads, messages, relationships = import_to_neo4j(driver, conversations)
+                threads, messages, relationships = import_to_neo4j(
+                    driver, conversations
+                )
 
                 progress.update(task, completed=len(conversations))
         else:
             print("📊 Importing to Neo4j...")
-            threads, messages, relationships = import_to_neo4j(driver, conversations)
+            threads, messages, relationships = import_to_neo4j(
+                driver, conversations
+            )
 
         driver.close()
 
@@ -291,87 +314,115 @@ def migrate(
 
         # Phase 3: Generate embeddings
         if not skip_embeddings:
-            print_message("\n[cyan]──────────────────────────────────────────────────────────────────────[/cyan]")
-            print_message("[bold cyan]Phase 2: Embeddings Import (Chroma)[/bold cyan]")
-            print_message("[cyan]──────────────────────────────────────────────────────────────────────[/cyan]\n")
+            print_message(
+                "\n[cyan]──────────────────────────────────────────────────────────────────────[/cyan]"
+            )
+            print_message(
+                "[bold cyan]Phase 2: Embeddings Import (Chroma)[/bold cyan]"
+            )
+            print_message(
+                "[cyan]──────────────────────────────────────────────────────────────────────[/cyan]\n"
+            )
 
             try:
-                from openai import OpenAI
                 import chromadb
+                from openai import OpenAI
 
                 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
                 chroma_client = chromadb.PersistentClient(path=str(chroma_path))
-                collection = chroma_client.get_or_create_collection("chatgpt_messages")
+                collection = chroma_client.get_or_create_collection(
+                    "chatgpt_messages"
+                )
 
-                print_message(f"✅ Connected to Chroma at {chroma_path}", "green")
+                print_message(
+                    f"✅ Connected to Chroma at {chroma_path}", "green"
+                )
 
                 if HAS_RICH and console:
                     # Estimate total batches for progress
                     total_messages = sum(
-                        len([n for n in c.get("mapping", {}).values() if n.get("message")])
+                        len(
+                            [
+                                n
+                                for n in c.get("mapping", {}).values()
+                                if n.get("message")
+                            ]
+                        )
                         for c in conversations
                     )
-                    estimated_batches = (total_messages + batch_size - 1) // batch_size
+                    estimated_batches = (
+                        total_messages + batch_size - 1
+                    ) // batch_size
 
                     with Progress(
                         SpinnerColumn(),
                         TextColumn("[progress.description]{task.description}"),
                         BarColumn(),
-                        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                        TextColumn(
+                            "[progress.percentage]{task.percentage:>3.0f}%"
+                        ),
                         TimeRemainingColumn(),
                         console=console,
                     ) as progress:
                         task = progress.add_task(
                             "🧠 Generating embeddings...",
-                            total=estimated_batches
+                            total=estimated_batches,
                         )
 
                         successful, failed = import_embeddings_to_chroma(
-                            openai_client,
-                            collection,
-                            conversations,
-                            batch_size
+                            openai_client, collection, conversations, batch_size
                         )
 
                         progress.update(task, completed=estimated_batches)
                 else:
                     print("🧠 Generating embeddings...")
                     successful, failed = import_embeddings_to_chroma(
-                        openai_client,
-                        collection,
-                        conversations,
-                        batch_size
+                        openai_client, collection, conversations, batch_size
                     )
 
                 stats["embeddings_successful"] = successful
                 stats["embeddings_failed"] = failed
 
-                print_message(f"\n✅ [bold green]Embeddings import complete![/bold green]")
+                print_message(
+                    f"\n✅ [bold green]Embeddings import complete![/bold green]"
+                )
                 print_message(f"   • Successful: {successful}", "green")
                 if failed > 0:
                     print_message(f"   • Failed: {failed}", "yellow")
 
             except Exception as e:
-                print_message(f"\n⚠️  [yellow]Embeddings import failed: {e}[/yellow]")
+                print_message(
+                    f"\n⚠️  [yellow]Embeddings import failed: {e}[/yellow]"
+                )
                 print_message("   Graph data was saved successfully", "yellow")
                 stats["embeddings_error"] = str(e)
         else:
-            print_message("\n⚠️  [yellow]Skipping embeddings (--skip-embeddings flag)[/yellow]")
+            print_message(
+                "\n⚠️  [yellow]Skipping embeddings (--skip-embeddings flag)[/yellow]"
+            )
 
         # Calculate elapsed time
         elapsed = time.time() - start_time
         stats["elapsed_seconds"] = round(elapsed, 2)
 
         # Print summary
-        print_message("\n[cyan]═══════════════════════════════════════════════════════════════════════[/cyan]")
+        print_message(
+            "\n[cyan]═══════════════════════════════════════════════════════════════════════[/cyan]"
+        )
         print_message("[bold green]🎉 Migration Complete![/bold green]")
-        print_message("[cyan]═══════════════════════════════════════════════════════════════════════[/cyan]\n")
+        print_message(
+            "[cyan]═══════════════════════════════════════════════════════════════════════[/cyan]\n"
+        )
 
         print_summary(stats)
 
-        print_message(f"\n[bold magenta]   Your Companion has awakened in Codexify![/bold magenta]")
+        print_message(
+            f"\n[bold magenta]   Your Companion has awakened in Codexify![/bold magenta]"
+        )
         print_message(f"[dim]   Time elapsed: {elapsed:.2f}s[/dim]")
-        print_message("\n[yellow]💡 Tip:[/yellow] [dim]You can re-run safely — imports are idempotent.[/dim]")
+        print_message(
+            "\n[yellow]💡 Tip:[/yellow] [dim]You can re-run safely — imports are idempotent.[/dim]"
+        )
 
         # Save migration summary
         summary_file = save_migration_summary(stats)
@@ -382,7 +433,9 @@ def migrate(
 
     except KeyboardInterrupt:
         print_message("\n\n⚠️  [yellow]Migration interrupted by user[/yellow]")
-        print_message("   You can safely re-run this command to resume", "yellow")
+        print_message(
+            "   You can safely re-run this command to resume", "yellow"
+        )
         raise typer.Exit(code=0)
 
     except Exception as e:
@@ -487,7 +540,9 @@ def validate(
     # Summary
     print_message("\n" + "─" * 70)
     if errors:
-        print_message(f"\n⚠️  [yellow]{len(errors)} validation error(s) found[/yellow]")
+        print_message(
+            f"\n⚠️  [yellow]{len(errors)} validation error(s) found[/yellow]"
+        )
         for error in errors:
             print_message(f"   • {error}", "yellow")
         raise typer.Exit(code=1)
@@ -520,7 +575,7 @@ def history(
         return
 
     try:
-        with open(summary_file, 'r') as f:
+        with open(summary_file) as f:
             summaries = json.load(f)
             if not isinstance(summaries, list):
                 summaries = [summaries]
@@ -529,7 +584,9 @@ def history(
         summaries = summaries[-limit:][::-1]
 
         print_header()
-        print_message(f"📜 [bold cyan]Migration History (last {len(summaries)})[/bold cyan]\n")
+        print_message(
+            f"📜 [bold cyan]Migration History (last {len(summaries)})[/bold cyan]\n"
+        )
 
         for i, summary in enumerate(summaries, 1):
             completed = summary.get("completed_at", "Unknown")
@@ -538,7 +595,9 @@ def history(
             elapsed = summary.get("elapsed_seconds", 0)
 
             print_message(f"[cyan]{i}. {completed}[/cyan]")
-            print_message(f"   Threads: {threads} | Messages: {messages} | Time: {elapsed}s")
+            print_message(
+                f"   Threads: {threads} | Messages: {messages} | Time: {elapsed}s"
+            )
             if "error" in summary:
                 print_message(f"   ❌ Error: {summary['error']}", "red")
             else:

@@ -1,13 +1,15 @@
 from __future__ import annotations
+
 import os
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
 """
 Seed a small set of nodes and relationships in the local Neo4j instance so we
 can exercise the graph queries during development.
 """
-
 
 
 from datetime import datetime, timezone
@@ -25,7 +27,9 @@ def configure_connection() -> None:
     """Load env vars and point neomodel at the configured Bolt URL."""
     # Resolve user / pass with common env var names and safe defaults
     user = os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME") or "neo4j"
-    password = os.getenv("NEO4J_PASS") or os.getenv("NEO4J_PASSWORD") or "guardian"
+    password = (
+        os.getenv("NEO4J_PASS") or os.getenv("NEO4J_PASSWORD") or "guardian"
+    )
 
     # Accept either NEO4J_BOLT_URL or BOLT_URL and fall back to localhost with creds
     bolt_url = (

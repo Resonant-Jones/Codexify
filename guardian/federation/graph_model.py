@@ -6,7 +6,8 @@ memory and context sharing across federated nodes.
 """
 
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from pydantic import BaseModel, Field
 
 

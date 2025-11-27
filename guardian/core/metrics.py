@@ -9,12 +9,13 @@ Provides counters, gauges, and metric export endpoints.
 try:
     # Real Prometheus metrics (production / full env)
     from prometheus_client import (
+        CONTENT_TYPE_LATEST,
+        CollectorRegistry,
         Counter,
         Gauge,
         generate_latest,
-        CollectorRegistry,
-        CONTENT_TYPE_LATEST,
     )
+
     PROMETHEUS_AVAILABLE = True
 except Exception:  # ModuleNotFoundError or any import/runtime issue
     # Fallback: no-op metrics so code still imports and tests can run

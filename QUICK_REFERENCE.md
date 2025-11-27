@@ -15,7 +15,7 @@ CollaborativeNote ────WS────> /api/collab/ws/ ──────
    │
    └──POST share────────> /api/share
                           [Generate Token + Link]
-                          
+
 SharePage (anonymous)
    └──GET /api/share/{token}
       [Read-only access]
@@ -68,11 +68,11 @@ SharePage (anonymous)
   - WebSocket to `/api/collab/ws/{documentId}`
   - Autosave every 15 seconds
   - Presence avatars with colors
-  
+
 - **Share Button**: `/frontend/src/components/ShareButton.tsx` (113 lines)
   - POST `/api/share` - Create share link
   - Copy to clipboard + toast notification
-  
+
 - **Share Page**: `/frontend/src/pages/SharePage.tsx` (100+ lines)
   - GET `/api/share/{token}` - Display shared content
   - Read-only rendering of threads/documents
@@ -339,8 +339,8 @@ manager.get_session_user_count(doc_id)  # Returns user count for doc
 ### Check event durability
 ```python
 # Query events_outbox table
-SELECT * FROM events_outbox 
-WHERE status = 'pending' 
+SELECT * FROM events_outbox
+WHERE status = 'pending'
 ORDER BY created_at DESC;
 
 # Fetch since last_id
@@ -351,24 +351,24 @@ events = event_bus.fetch_events_after(last_id=100, limit=50)
 ### Trace autosave flow
 ```python
 # 1. Check if GeneratedDocument exists
-SELECT * FROM generated_documents 
+SELECT * FROM generated_documents
 WHERE model = 'autosave' AND thread_id = ?;
 
 # 2. Check ThreadDocument link
-SELECT * FROM thread_documents 
+SELECT * FROM thread_documents
 WHERE thread_id = ? AND relation = 'autosave';
 
 # 3. Check event emission
-SELECT * FROM events_outbox 
-WHERE topic = 'document.autosave' 
+SELECT * FROM events_outbox
+WHERE topic = 'document.autosave'
 ORDER BY created_at DESC;
 ```
 
 ### Validate share token
 ```python
 # 1. Check SharedLink exists and hasn't expired
-SELECT * FROM shared_links 
-WHERE token = ? 
+SELECT * FROM shared_links
+WHERE token = ?
 AND (expires_at IS NULL OR expires_at > NOW());
 
 # 2. Verify target exists
@@ -397,4 +397,3 @@ SELECT * FROM generated_documents WHERE id = target_id;
 6. **Conflict Resolution**: Multi-user merge strategies
 7. **Cursor Tracking**: Show other users' cursor positions
 8. **Offline Support**: Service Worker + IndexedDB for offline editing
-

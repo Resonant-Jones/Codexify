@@ -68,7 +68,6 @@ services:
     command: >
       sh -lc '
         set -e
-        ln -sf /app/guardian /app/codexify
         echo "[Migrator] Running Alembic migrations..."
         alembic --raiseerr -c backend/alembic.ini upgrade head
         echo "[Migrator] Running seed script..."
@@ -100,9 +99,7 @@ services:
         condition: service_healthy
       codexify-init:
         condition: service_completed_successfully
-    command: >
-      sh -lc 'ln -sf /app/guardian /app/codexify &&
-              uvicorn codexify.guardian_api:app --host 0.0.0.0 --port 8888'
+    command: uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8888
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; urllib.request.urlopen('http://localhost:8888/ping', timeout=3)\""]
       interval: 10s

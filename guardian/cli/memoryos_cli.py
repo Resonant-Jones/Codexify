@@ -51,7 +51,9 @@ def show_projects():
     projects = memory.get_all_projects_summary()
     click.echo("\n--- PROJECTS ---\n")
     for project in projects:
-        click.echo(f"- {project.get('project_id')} | {project.get('project_name')}")
+        click.echo(
+            f"- {project.get('project_id')} | {project.get('project_name')}"
+        )
 
 
 @cli.command("memory:show-threads")
@@ -62,7 +64,9 @@ def show_threads_by_project(project_id):
     threads = memory.get_threads_by_project(project_id)
     click.echo(f"\n--- THREADS in PROJECT {project_id} ---\n")
     for thread in threads:
-        click.echo(f"- {thread.get('thread_id')} | {thread.get('thread_title')}")
+        click.echo(
+            f"- {thread.get('thread_id')} | {thread.get('thread_title')}"
+        )
 
 
 @cli.command("memory:show-conversations")

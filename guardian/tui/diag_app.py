@@ -108,7 +108,9 @@ class DiagApp(App):
                                 try:
                                     extras["choices"] = list(choices)
                                 except Exception:
-                                    extras["choices"] = [str(c) for c in choices]
+                                    extras["choices"] = [
+                                        str(c) for c in choices
+                                    ]
                             else:
                                 # Path type (Click Path)
                                 if (
@@ -176,7 +178,9 @@ class DiagApp(App):
             lines = ["Provide JSON args (name:value). Params:"]
             for p in params:
                 dstr = (
-                    f" default={p['default']!r}" if p.get("default") is not None else ""
+                    f" default={p['default']!r}"
+                    if p.get("default") is not None
+                    else ""
                 )
                 rq = " (required)" if p.get("required") else ""
                 ptype = p.get("type", "string")
@@ -194,7 +198,9 @@ class DiagApp(App):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf):
-                result = invoke_tool(fq_name, args={})  # extend to prompt for args
+                result = invoke_tool(
+                    fq_name, args={}
+                )  # extend to prompt for args
             out = buf.getvalue()
             if out.strip():
                 self._write_log(out)
@@ -218,7 +224,9 @@ class DiagApp(App):
                 return
             base = os.environ.get("GUARDIAN_API_BASE", "http://127.0.0.1:8080")
             try:
-                r = requests.post(f"{base}/codexify/save-entry", json=args, timeout=30)
+                r = requests.post(
+                    f"{base}/codexify/save-entry", json=args, timeout=30
+                )
                 if r.status_code >= 400:
                     try:
                         detail = r.json().get("detail")
@@ -235,7 +243,9 @@ class DiagApp(App):
                     lines = ["Drive links:"]
                     for f in files:
                         link = (
-                            f.get("webViewLink") or f.get("webViewURL") or f.get("link")
+                            f.get("webViewLink")
+                            or f.get("webViewURL")
+                            or f.get("link")
                         )
                         name = f.get("name") or f.get("id")
                         if link:
@@ -294,14 +304,16 @@ class DiagApp(App):
         self.input.remove_class("error")
         # Small convenience: accept bare Google Drive folder IDs for a 'folder_url' arg
         try:
-            if isinstance(coerced, dict) and isinstance(coerced.get("folder_url"), str):
+            if isinstance(coerced, dict) and isinstance(
+                coerced.get("folder_url"), str
+            ):
                 s = coerced["folder_url"].strip()
                 import re as _re
 
                 if _re.fullmatch(r"[A-Za-z0-9_-]{10,}", s):
-                    coerced["folder_url"] = (
-                        f"https://drive.google.com/drive/folders/{s}"
-                    )
+                    coerced[
+                        "folder_url"
+                    ] = f"https://drive.google.com/drive/folders/{s}"
         except Exception:
             pass
         buf = io.StringIO()
@@ -392,7 +404,9 @@ class DiagApp(App):
                 choices = p.get("choices") or []
                 vv = v if isinstance(v, str) else str(v)
                 if vv not in choices:
-                    errors.append(f"Param '{k}' must be one of {choices} (got '{v}')")
+                    errors.append(
+                        f"Param '{k}' must be one of {choices} (got '{v}')"
+                    )
                 coerced = vv
             elif typ == "path":
                 path = str(v)
@@ -401,7 +415,9 @@ class DiagApp(App):
                 dir_okay = bool(p.get("dir_okay", True))
                 if exists_flag:
                     if not os.path.exists(path):
-                        errors.append(f"Param '{k}' path does not exist: {path}")
+                        errors.append(
+                            f"Param '{k}' path does not exist: {path}"
+                        )
                     else:
                         if not file_okay and os.path.isfile(path):
                             errors.append(

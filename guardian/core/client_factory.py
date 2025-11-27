@@ -23,12 +23,16 @@ def get_memoryos_instance() -> Memoryos:
         api_key = settings.GROQ_API_KEY
         base_url = settings.GROQ_BASE_URL or DEFAULT_GROQ_BASE_URL
         if not api_key:
-            raise ValueError("LLM_PROVIDER is 'groq' but GROQ_API_KEY is not set.")
+            raise ValueError(
+                "LLM_PROVIDER is 'groq' but GROQ_API_KEY is not set."
+            )
     elif provider == "openai":
         api_key = settings.OPENAI_API_KEY
         base_url = settings.OPENAI_BASE_URL
         if not api_key:
-            raise ValueError("LLM_PROVIDER is 'openai' but OPENAI_API_KEY is not set.")
+            raise ValueError(
+                "LLM_PROVIDER is 'openai' but OPENAI_API_KEY is not set."
+            )
     else:
         raise ValueError(f"Unsupported LLM_PROVIDER: {settings.LLM_PROVIDER}")
 
@@ -41,10 +45,14 @@ def get_memoryos_instance() -> Memoryos:
     elif settings.EMBEDDER_PROVIDER == "openai":
         embedder = OpenAIEmbedder(
             api_key=settings.OPENAI_API_KEY,
-            model=getattr(settings, "EMBEDDING_MODEL", "text-embedding-3-small")
+            model=getattr(
+                settings, "EMBEDDING_MODEL", "text-embedding-3-small"
+            ),
         )
     else:
-        raise ValueError(f"Unsupported EMBEDDER_PROVIDER: {settings.EMBEDDER_PROVIDER}")
+        raise ValueError(
+            f"Unsupported EMBEDDER_PROVIDER: {settings.EMBEDDER_PROVIDER}"
+        )
 
     # --- Instantiate MemoryOS ---
     return Memoryos(

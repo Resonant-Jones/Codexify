@@ -4,35 +4,39 @@ Enables Guardian to query the awareness graph and vector store locally,
 and to request context from trusted peer nodes across the federation.
 """
 
-import logging
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from guardian.core import event_bus
 from guardian.core.auth import require_user
-from guardian.federation.graph_model import GraphNode, GraphEdge
+from guardian.federation.graph_model import GraphEdge, GraphNode
 from guardian.federation.graph_store import get_graph_store
 from guardian.federation.manager import manager
 from guardian.federation.trust_registry import (
-    get_trust_registry,
-    calculate_result_score,
     calculate_recency_factor,
+    calculate_result_score,
+    get_trust_registry,
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/federation/context", tags=["federation-context"])
+router = APIRouter(
+    prefix="/api/federation/context", tags=["federation-context"]
+)
 
 
 class SearchRequest(BaseModel):
     """Request body for semantic context search."""
 
     query: str = Field(..., description="Search query/question")
-    limit: int = Field(default=5, ge=1, le=50, description="Max results to return")
+    limit: int = Field(
+        default=5, ge=1, le=50, description="Max results to return"
+    )
     include_peers: bool = Field(
         default=False,
         description="Whether to include results from peer nodes",
@@ -52,10 +56,16 @@ class SearchResult(BaseModel):
 
     source: str = Field(..., description="'local' or peer node ID")
     node_id: str = Field(..., description="ID of the found node")
-    node_type: str = Field(..., description="Type of node (document, thread, etc)")
+    node_type: str = Field(
+        ..., description="Type of node (document, thread, etc)"
+    )
     label: str = Field(..., description="Human-readable label")
-    score: float = Field(..., ge=0.0, le=1.0, description="Ranked relevance score")
-    summary: Optional[str] = Field(None, description="Brief description or content excerpt")
+    score: float = Field(
+        ..., ge=0.0, le=1.0, description="Ranked relevance score"
+    )
+    summary: Optional[str] = Field(
+        None, description="Brief description or content excerpt"
+    )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional node metadata",
@@ -156,7 +166,9 @@ async def _search_local(
                     else:
                         recency = 0.5
 
-                    score = (label_match * 0.5 + metadata_match * 0.3 + recency * 0.2)
+                    score = (
+                        label_match * 0.5 + metadata_match * 0.3 + recency * 0.2
+                    )
                     scored_nodes.append((score, node))
 
             # Sort by score and take top results
@@ -169,7 +181,9 @@ async def _search_local(
                         node_type=node.type,
                         label=node.label,
                         score=min(score, 1.0),
-                        summary=node.metadata.get("description") if node.metadata else None,
+                        summary=node.metadata.get("description")
+                        if node.metadata
+                        else None,
                         metadata=node.metadata or {},
                     )
                 )
@@ -218,8 +232,13 @@ async def _search_peers(
             target_node_id = relay.target_node_id
             target_manifest = manager.get_peer_manifest(target_node_id)
 
-            if not target_manifest or "search" not in target_manifest.capabilities:
-                logger.debug(f"Peer {target_node_id} does not support search capability")
+            if (
+                not target_manifest
+                or "search" not in target_manifest.capabilities
+            ):
+                logger.debug(
+                    f"Peer {target_node_id} does not support search capability"
+                )
                 continue
 
             trust_level = trust_registry.get_trust_level(target_node_id)
@@ -243,7 +262,9 @@ async def _search_peers(
                 if ws and hasattr(ws, "send_json"):
                     try:
                         await ws.send_json(message)
-                        logger.debug(f"Sent search query to peer {target_node_id}")
+                        logger.debug(
+                            f"Sent search query to peer {target_node_id}"
+                        )
                     except Exception as e:
                         logger.warning(f"Failed to send search to peer: {e}")
 
@@ -404,6 +425,7 @@ async def get_peers(
         # Get this node's ID from federation config
         try:
             from guardian.routes.federation import _node_id
+
             local_node_id = _node_id or "unknown"
         except Exception:
             local_node_id = "unknown"
@@ -450,7 +472,9 @@ async def set_peer_trust(
         trust_registry = get_trust_registry()
         trust_registry.set_trust_level(peer_id, trust_level)
 
-        logger.info(f"User {user.id} set trust level for {peer_id}: {trust_level}")
+        logger.info(
+            f"User {user.id} set trust level for {peer_id}: {trust_level}"
+        )
 
         event_bus.emit_event(
             topic="federation.trust.updated",

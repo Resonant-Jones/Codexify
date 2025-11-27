@@ -22,7 +22,10 @@ def test_dev_defaults_instantiates(monkeypatch):
 
 def test_dev_gemini_without_keys_warns(monkeypatch, capsys):
     s = get_settings_no_env(
-        ENV="development", AI_BACKEND="gemini", GENAI_API_KEY=None, GOOGLE_API_KEY=None
+        ENV="development",
+        AI_BACKEND="gemini",
+        GENAI_API_KEY=None,
+        GOOGLE_API_KEY=None,
     )
     warn_if_missing_keys(s)
     out = capsys.readouterr().out
@@ -31,7 +34,9 @@ def test_dev_gemini_without_keys_warns(monkeypatch, capsys):
 
 def test_prod_groq_missing_key_raises(monkeypatch):
     with pytest.raises(ValueError):
-        get_settings_no_env(ENV="production", AI_BACKEND="groq", GROQ_API_KEY=None)
+        get_settings_no_env(
+            ENV="production", AI_BACKEND="groq", GROQ_API_KEY=None
+        )
 
 
 @pytest.mark.parametrize(
@@ -57,7 +62,9 @@ def test_prod_gemini_accepts_either_key(monkeypatch, genai, google):
 
 
 def test_dev_openai_missing_key_warns(monkeypatch, capsys):
-    s = get_settings_no_env(ENV="development", AI_BACKEND="openai", OPENAI_API_KEY=None)
+    s = get_settings_no_env(
+        ENV="development", AI_BACKEND="openai", OPENAI_API_KEY=None
+    )
     warn_if_missing_keys(s)
     out = capsys.readouterr().out
     assert "missing openai api key" in out.lower()

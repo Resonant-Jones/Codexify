@@ -17,7 +17,9 @@ from typing import Any, Callable, Optional
 logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover - optional dependency
-    from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
+    from apscheduler.schedulers.background import (
+        BackgroundScheduler,  # type: ignore
+    )
 except Exception:  # pragma: no cover - gracefully degrade when missing
     BackgroundScheduler = None  # type: ignore[misc,assignment]
 
@@ -36,7 +38,7 @@ class _GuardianScheduler:
     """Singleton-style scheduler facade."""
 
     def __init__(self) -> None:
-        self._scheduler: Optional[Any] = None
+        self._scheduler: Any | None = None
 
         if BackgroundScheduler is not None:
             try:
@@ -44,7 +46,9 @@ class _GuardianScheduler:
                 self._scheduler.start()
                 logger.info("[scheduler] BackgroundScheduler started")
             except Exception:  # pragma: no cover - defensive logging
-                logger.exception("[scheduler] Failed to start APScheduler background scheduler")
+                logger.exception(
+                    "[scheduler] Failed to start APScheduler background scheduler"
+                )
                 self._scheduler = None
         else:
             logger.warning(
@@ -54,7 +58,9 @@ class _GuardianScheduler:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def add_job(self, func: Callable[..., Any], trigger: str, *args: Any, **kwargs: Any) -> Any:
+    def add_job(
+        self, func: Callable[..., Any], trigger: str, *args: Any, **kwargs: Any
+    ) -> Any:
         """Add a job to the underlying scheduler.
 
         When APScheduler is available we delegate directly to the real scheduler.
@@ -81,7 +87,11 @@ class _GuardianScheduler:
 
         thread = threading.Thread(target=_runner, daemon=True)
         thread.start()
-        logger.info('Executed fallback job "%s" immediately (trigger=%s)', job_id, trigger)
+        logger.info(
+            'Executed fallback job "%s" immediately (trigger=%s)',
+            job_id,
+            trigger,
+        )
         return _FallbackJob(job_id)
 
 

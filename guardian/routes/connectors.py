@@ -14,6 +14,7 @@ import os
 import random
 import time
 from typing import Any, Callable, Dict, List, Optional
+
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -28,10 +29,15 @@ logger = logging.getLogger(__name__)
 
 # Import shared dependencies from core module (avoids circular imports)
 try:
+    from guardian.connectors.github import sync_repo
     from guardian.core import event_bus
     from guardian.core.chat_db import ChatDB
-    from guardian.core.dependencies import chatlog_db, require_api_key, PG_DSN, _jsonify
-    from guardian.connectors.github import sync_repo
+    from guardian.core.dependencies import (
+        PG_DSN,
+        _jsonify,
+        chatlog_db,
+        require_api_key,
+    )
 except ImportError as e:
     logger.warning(f"[connectors] Import warning: {e}")
     chatlog_db = None
@@ -138,7 +144,7 @@ def _calculate_backoff_delay(
         Delay in seconds with jitter applied
     """
     # Calculate exponential delay: base * (multiplier ^ attempt)
-    delay = base_delay * (multiplier ** attempt)
+    delay = base_delay * (multiplier**attempt)
 
     # Cap at max_delay
     delay = min(delay, max_delay)
@@ -212,7 +218,9 @@ def _serialize_connector_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
 def _get_connector_by_name(name: str) -> Dict[str, Any]:
     cfg = chatlog_db.get_connector_config(name)
     if not cfg:
-        raise HTTPException(status_code=404, detail={"error": "Connector not found"})
+        raise HTTPException(
+            status_code=404, detail={"error": "Connector not found"}
+        )
     last_run = chatlog_db.get_last_connector_run(cfg["id"])
     cfg["last_run"] = last_run
     return cfg
@@ -224,7 +232,9 @@ def _validate_connector_settings(type_: str, settings: Dict[str, Any]) -> None:
     if missing:
         raise HTTPException(
             status_code=400,
-            detail={"error": f"Missing required settings: {', '.join(missing)}"},
+            detail={
+                "error": f"Missing required settings: {', '.join(missing)}"
+            },
         )
 
 
@@ -246,7 +256,10 @@ def _emit_connector_event(config: Dict[str, Any], run: Dict[str, Any]) -> None:
 
 async def _schedule_github_sync(config: Dict[str, Any]) -> None:
     if config.get("type") != "github":
-        logger.info("[connectors] sync skipped for unsupported type %s", config.get("type"))
+        logger.info(
+            "[connectors] sync skipped for unsupported type %s",
+            config.get("type"),
+        )
         return
     loop = asyncio.get_running_loop()
     loop.create_task(_run_github_sync(config))
@@ -260,7 +273,9 @@ async def _run_github_sync(config: Dict[str, Any]) -> None:
     owner = str(settings.get("owner") or "")
     repo = str(settings.get("repo") or "")
     if not owner or not repo:
-        logger.error("[connectors] missing owner/repo for %s", str(config.get("name")))
+        logger.error(
+            "[connectors] missing owner/repo for %s", str(config.get("name"))
+        )
         return
     token = os.getenv("GITHUB_TOKEN")
     loop = asyncio.get_running_loop()
@@ -295,7 +310,10 @@ async def _run_github_sync(config: Dict[str, Any]) -> None:
         _emit_connector_event(config, run)
     except Exception as exc:  # pragma: no cover - network failure logging
         logger.exception(
-            "[connectors] github sync failed for %s/%s: %s", str(owner), str(repo), exc
+            "[connectors] github sync failed for %s/%s: %s",
+            str(owner),
+            str(repo),
+            exc,
         )
         finished = datetime.datetime.now(datetime.timezone.utc).isoformat()
         run = await _run_db(
@@ -315,7 +333,9 @@ def _ingest_github_for_config(connector_name: str) -> dict:
     """
     dsn = os.environ.get("DATABASE_URL") or PG_DSN
     if not dsn:
-        raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
+        raise HTTPException(
+            status_code=500, detail="DATABASE_URL not configured"
+        )
 
     conn = psycopg2.connect(dsn)
     conn.autocommit = False
@@ -357,7 +377,11 @@ def _ingest_github_for_config(connector_name: str) -> dict:
     inserted = 0
     for r in rows:
         try:
-            payload = json.loads(r["payload"]) if isinstance(r["payload"], str) else (r["payload"] or {})
+            payload = (
+                json.loads(r["payload"])
+                if isinstance(r["payload"], str)
+                else (r["payload"] or {})
+            )
         except Exception:
             # Skip malformed rows but continue ingesting others
             continue
@@ -380,7 +404,11 @@ def _ingest_github_for_config(connector_name: str) -> dict:
             "state": (payload or {}).get("state"),
             "number": (payload or {}).get("number"),
             "author": ((payload or {}).get("user") or {}).get("login"),
-            "labels": [lbl.get("name") for lbl in (payload or {}).get("labels", []) if isinstance(lbl, dict)],
+            "labels": [
+                lbl.get("name")
+                for lbl in (payload or {}).get("labels", [])
+                if isinstance(lbl, dict)
+            ],
             "created_at": (payload or {}).get("created_at"),
             "updated_at": (payload or {}).get("updated_at"),
         }
@@ -398,7 +426,10 @@ def _ingest_github_for_config(connector_name: str) -> dict:
         inserted += cur.rowcount
 
     # Telemetry counts
-    cur.execute("SELECT COUNT(*) AS n FROM raw_documents WHERE config_id=%s", (cfg["id"],))
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM raw_documents WHERE config_id=%s",
+        (cfg["id"],),
+    )
     raw_total = int(cur.fetchone()["n"])
     cur.execute("SELECT COUNT(*) AS n FROM memory_entries WHERE silo='github'")
     mem_total = int(cur.fetchone()["n"])
@@ -409,13 +440,20 @@ def _ingest_github_for_config(connector_name: str) -> dict:
     # Durable event for SSE (emit after commit so readers can see the rows)
     event_bus.emit_event(
         "memory.ingest",
-        {"source": "github", "connector": connector_name, "inserted": inserted}
+        {"source": "github", "connector": connector_name, "inserted": inserted},
     )
     logger.info(
         "[ingest] completed github ingest name=%s inserted=%s raw_total=%s mem_total=%s",
-        connector_name, inserted, raw_total, mem_total
+        connector_name,
+        inserted,
+        raw_total,
+        mem_total,
     )
-    return {"inserted": inserted, "raw_total": raw_total, "mem_total": mem_total}
+    return {
+        "inserted": inserted,
+        "raw_total": raw_total,
+        "mem_total": mem_total,
+    }
 
 
 async def _connector_worker(stop_event: asyncio.Event) -> None:
@@ -440,13 +478,15 @@ async def _connector_worker(stop_event: asyncio.Event) -> None:
 
             try:
                 # Attempt to fetch connector configs with DB access
-                configs = await _run_db(chatlog_db.list_connector_configs, "github")
+                configs = await _run_db(
+                    chatlog_db.list_connector_configs, "github"
+                )
 
                 # Reset backoff on successful DB access
                 if consecutive_failures > 0:
                     logger.info(
                         "[connectors] DB access recovered after %d failures",
-                        consecutive_failures
+                        consecutive_failures,
                     )
                     consecutive_failures = 0
                     current_backoff_delay = BACKOFF_INITIAL_DELAY
@@ -454,11 +494,12 @@ async def _connector_worker(stop_event: asyncio.Event) -> None:
                 # Handle empty configs case
                 if not configs:
                     _CONNECTOR_WORKER_STATS["empty_config_cycles"] += 1
-                    logger.debug("[connectors] no github configs found, sleeping")
+                    logger.debug(
+                        "[connectors] no github configs found, sleeping"
+                    )
                     try:
                         await asyncio.wait_for(
-                            stop_event.wait(),
-                            timeout=CONNECTOR_SYNC_INTERVAL
+                            stop_event.wait(), timeout=CONNECTOR_SYNC_INTERVAL
                         )
                     except asyncio.TimeoutError:
                         continue
@@ -490,7 +531,9 @@ async def _connector_worker(stop_event: asyncio.Event) -> None:
 
                 # Calculate backoff delay with jitter
                 current_backoff_delay = _calculate_backoff_delay(
-                    attempt=min(consecutive_failures - 1, MAX_CONSECUTIVE_FAILURES)
+                    attempt=min(
+                        consecutive_failures - 1, MAX_CONSECUTIVE_FAILURES
+                    )
                 )
 
                 logger.warning(
@@ -514,8 +557,7 @@ async def _connector_worker(stop_event: asyncio.Event) -> None:
                 # Wait with backoff before retry
                 try:
                     await asyncio.wait_for(
-                        stop_event.wait(),
-                        timeout=current_backoff_delay
+                        stop_event.wait(), timeout=current_backoff_delay
                     )
                 except asyncio.TimeoutError:
                     continue  # Retry after backoff
@@ -527,8 +569,7 @@ async def _connector_worker(stop_event: asyncio.Event) -> None:
         raise
     finally:
         logger.info(
-            "[connectors] worker stopped (stats: %s)",
-            _CONNECTOR_WORKER_STATS
+            "[connectors] worker stopped (stats: %s)", _CONNECTOR_WORKER_STATS
         )
 
 
@@ -552,11 +593,17 @@ def create_connector(cfg: ConnectorCreate):
     """Create a new connector configuration."""
     cfg_type = cfg.type.lower()
     if cfg_type not in CONNECTOR_REGISTRY:
-        raise HTTPException(status_code=400, detail={"error": "Unsupported connector type"})
+        raise HTTPException(
+            status_code=400, detail={"error": "Unsupported connector type"}
+        )
     if chatlog_db.get_connector_config(cfg.name):
-        raise HTTPException(status_code=400, detail={"error": "Connector name already exists"})
+        raise HTTPException(
+            status_code=400, detail={"error": "Connector name already exists"}
+        )
     _validate_connector_settings(cfg_type, cfg.settings)
-    stored = chatlog_db.create_connector_config(cfg.name, cfg_type, cfg.settings)
+    stored = chatlog_db.create_connector_config(
+        cfg.name, cfg_type, cfg.settings
+    )
     stored["last_run"] = None
     return _serialize_connector_config(stored)
 
@@ -581,7 +628,9 @@ def patch_connector(connector_name: str, update: ConnectorUpdate):
 
 
 @router.post("/{connector_name}/config")
-def update_connector_fields(connector_name: str, payload: ConnectorConfigFields):
+def update_connector_fields(
+    connector_name: str, payload: ConnectorConfigFields
+):
     """Update specific configuration fields for a connector."""
     cfg = _get_connector_by_name(connector_name)
     merged = {**(cfg.get("settings") or {}), **payload.fields}
@@ -611,7 +660,9 @@ def connector_authorize_not_supported(connector_name: str):
     """OAuth authorization endpoint (not supported for current connectors)."""
     raise HTTPException(
         status_code=400,
-        detail={"error": "OAuth authorization is not supported for this connector"},
+        detail={
+            "error": "OAuth authorization is not supported for this connector"
+        },
     )
 
 
@@ -636,7 +687,9 @@ def api_ingest_connector(name: str, api_key: str = Depends(require_api_key)):
     try:
         logger.info("[ingest] API request received for connector=%s", name)
         result = _ingest_github_for_config(name)
-        logger.info("[ingest] API ingest done for connector=%s -> %s", name, result)
+        logger.info(
+            "[ingest] API ingest done for connector=%s -> %s", name, result
+        )
         return {"ok": True, **result}
     except HTTPException:
         raise

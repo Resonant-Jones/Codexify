@@ -11,22 +11,23 @@ Tests cover:
 - Dynamic search ranking with trust
 """
 
-import pytest
-import tempfile
 import math
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
+
+from guardian.federation.trust_engine import (
+    TRUST_EVENTS,
+    TrustEngine,
+    get_trust_engine,
+)
 from guardian.federation.trust_registry import (
     TrustRecord,
     TrustRegistry,
     get_trust_registry,
-)
-from guardian.federation.trust_engine import (
-    TrustEngine,
-    TRUST_EVENTS,
-    get_trust_engine,
 )
 
 

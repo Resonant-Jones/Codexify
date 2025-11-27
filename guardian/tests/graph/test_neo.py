@@ -2,7 +2,7 @@ import pytest
 from neomodel import db
 
 from guardian.graph.connection import connect_neo4j
-from guardian.graph.models import UserNode, MessageNode, ThreadNode
+from guardian.graph.models import MessageNode, ThreadNode, UserNode
 
 
 @pytest.mark.integration

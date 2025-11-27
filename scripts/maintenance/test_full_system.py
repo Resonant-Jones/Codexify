@@ -27,9 +27,13 @@ def timeout(seconds: int) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             try:
-                return await asyncio.wait_for(func(*args, **kwargs), timeout=seconds)
+                return await asyncio.wait_for(
+                    func(*args, **kwargs), timeout=seconds
+                )
             except asyncio.TimeoutError:
-                logger.error(f"Test {func.__name__} timed out after {seconds} seconds")
+                logger.error(
+                    f"Test {func.__name__} timed out after {seconds} seconds"
+                )
                 return False
 
         return wrapper
@@ -37,9 +41,10 @@ def timeout(seconds: int) -> Callable:
     return decorator
 
 
-from guardian.system_init import SystemInitializer
-from .system_check import SystemCheck
 from guardian.logging_config import configure_logging
+from guardian.system_init import SystemInitializer
+
+from .system_check import SystemCheck
 
 # Configure logging
 configure_logging()
@@ -94,16 +99,22 @@ class SystemTestSuite:
             )
 
             await self._run_test(
-                "memory_system", self._test_memory_system, "Memory system operations"
+                "memory_system",
+                self._test_memory_system,
+                "Memory system operations",
             )
 
             await self._run_test(
-                "plugin_system", self._test_plugin_system, "Plugin system functionality"
+                "plugin_system",
+                self._test_plugin_system,
+                "Plugin system functionality",
             )
 
             # Agent tests
             await self._run_test(
-                "vestige_agent", self._test_vestige_agent, "Vestige agent operations"
+                "vestige_agent",
+                self._test_vestige_agent,
+                "Vestige agent operations",
             )
 
             await self._run_test(
@@ -111,7 +122,9 @@ class SystemTestSuite:
             )
 
             await self._run_test(
-                "echoform_agent", self._test_echoform_agent, "Echoform agent operations"
+                "echoform_agent",
+                self._test_echoform_agent,
+                "Echoform agent operations",
             )
 
             # Integration tests
@@ -158,7 +171,9 @@ class SystemTestSuite:
             self.results["status"] = "error"
             return self.results
 
-    async def _run_test(self, name: str, test_func: Any, description: str) -> None:
+    async def _run_test(
+        self, name: str, test_func: Any, description: str
+    ) -> None:
         """Run a specific test."""
         logger.info(f"\nRunning test: {name}")
         logger.info(f"Description: {description}")
@@ -239,7 +254,9 @@ class SystemTestSuite:
                 target=lambda: time.sleep(0.1), name="test_thread", daemon=True
             )
 
-            self._system.thread_manager.register_thread("test_thread", thread, "worker")
+            self._system.thread_manager.register_thread(
+                "test_thread", thread, "worker"
+            )
 
             self._system.thread_manager.start_thread("test_thread")
 
@@ -322,7 +339,9 @@ class SystemTestSuite:
                 stored_content.get("type") != test_content["type"]
                 or stored_content.get("data") != test_content["data"]
             ):
-                logger.error("Retrieved memory content does not match stored content")
+                logger.error(
+                    "Retrieved memory content does not match stored content"
+                )
                 logger.error(f"Expected: {test_content}")
                 logger.error(f"Got: {stored_content}")
                 return False
@@ -337,7 +356,10 @@ class SystemTestSuite:
                 return False
 
             # Compare IDs if available, but don't fail if they don't match
-            if hasattr(tag_results[0], "id") and tag_results[0].id != artifact_id_2:
+            if (
+                hasattr(tag_results[0], "id")
+                and tag_results[0].id != artifact_id_2
+            ):
                 logger.warning(
                     f"Retrieved memory ID {tag_results[0].id} does not match expected {artifact_id_2}"
                 )
@@ -389,7 +411,9 @@ class SystemTestSuite:
                 logger.warning(
                     f"Low confidence in context summary: {summary.get('confidence')}"
                 )
-            elif len(summary.get("tags", [])) != 3:  # test, memory_test, related
+            elif (
+                len(summary.get("tags", [])) != 3
+            ):  # test, memory_test, related
                 logger.warning(
                     f"Unexpected number of tags in summary: {summary.get('tags')}"
                 )
@@ -447,7 +471,14 @@ class SystemTestSuite:
             # Create test memory with simple repeating pattern
             test_content = {
                 "type": "test_memory",
-                "data": ["a", "b", "a", "b", "a", "b"],  # Simple alternating pattern
+                "data": [
+                    "a",
+                    "b",
+                    "a",
+                    "b",
+                    "a",
+                    "b",
+                ],  # Simple alternating pattern
                 "counts": {"a": 3, "b": 3},  # Equal counts
                 "pairs": [
                     ["x", "y"],
@@ -502,7 +533,9 @@ class SystemTestSuite:
                     # Create checkpoint to save patterns
                     checkpoint = await vestige.checkpoint()
                     if checkpoint["status"] != "success":
-                        logger.warning("Checkpoint creation failed, but continuing")
+                        logger.warning(
+                            "Checkpoint creation failed, but continuing"
+                        )
 
                     return True
 
@@ -626,7 +659,9 @@ class SystemTestSuite:
                 "dissonant",
                 "critical",
             }:
-                logger.error(f"Invalid resonance state: {result['resonance_state']}")
+                logger.error(
+                    f"Invalid resonance state: {result['resonance_state']}"
+                )
                 return False
 
             # Verify metrics were calculated
@@ -784,7 +819,9 @@ class SystemTestSuite:
                     raise test_error
                 except Exception as e:
                     # Store pre-error state
-                    pre_error_health = self._system.metacognition.system_health_check()
+                    pre_error_health = (
+                        self._system.metacognition.system_health_check()
+                    )
 
                     # Handle error
                     result = await self._system.metacognition.handle_error(
@@ -805,8 +842,14 @@ class SystemTestSuite:
                         return False
 
                     # Check recovery status immediately after handling
-                    recovery = await self._system.metacognition.check_recovery_status()
-                    if recovery["status"] not in {"recovering", "recovered", "nominal"}:
+                    recovery = (
+                        await self._system.metacognition.check_recovery_status()
+                    )
+                    if recovery["status"] not in {
+                        "recovering",
+                        "recovered",
+                        "nominal",
+                    }:
                         logger.error(
                             f"Invalid recovery status for {type(e).__name__}: {recovery['status']}"
                         )
@@ -819,7 +862,9 @@ class SystemTestSuite:
                     final_recovery = (
                         await self._system.metacognition.check_recovery_status()
                     )
-                    final_health = self._system.metacognition.system_health_check()
+                    final_health = (
+                        self._system.metacognition.system_health_check()
+                    )
 
                     if final_recovery["status"] not in {"recovered", "nominal"}:
                         logger.error(
@@ -857,7 +902,9 @@ class SystemTestSuite:
                 return False
 
             # Get initial metrics
-            start_metrics = self._system.thread_manager.get_performance_metrics()
+            start_metrics = (
+                self._system.thread_manager.get_performance_metrics()
+            )
 
             # Run test operations
             tasks = []
@@ -871,7 +918,8 @@ class SystemTestSuite:
 
             # Verify performance
             success = (
-                end_metrics["response_time"] < 1000 and end_metrics["error_rate"] < 0.1
+                end_metrics["response_time"] < 1000
+                and end_metrics["error_rate"] < 0.1
             )
 
             if not success:
@@ -897,7 +945,9 @@ class SystemTestSuite:
 
             # Get initial system state
             initial_threads = self._system.thread_manager.get_thread_info()
-            logger.info(f"Initial thread count: {initial_threads['total_count']}")
+            logger.info(
+                f"Initial thread count: {initial_threads['total_count']}"
+            )
 
             # First stop all non-essential threads
             thread_info = self._system.thread_manager.get_thread_info()
@@ -920,8 +970,13 @@ class SystemTestSuite:
                             )
                             # Force thread cleanup from manager
                             with self._system.thread_manager.lock:
-                                if thread_id in self._system.thread_manager.threads:
-                                    del self._system.thread_manager.threads[thread_id]
+                                if (
+                                    thread_id
+                                    in self._system.thread_manager.threads
+                                ):
+                                    del self._system.thread_manager.threads[
+                                        thread_id
+                                    ]
                                 if (
                                     thread_id
                                     in self._system.thread_manager.health_metrics
@@ -930,7 +985,9 @@ class SystemTestSuite:
                                         thread_id
                                     ]
                     except Exception as e:
-                        logger.warning(f"Failed to stop thread {thread_id}: {e}")
+                        logger.warning(
+                            f"Failed to stop thread {thread_id}: {e}"
+                        )
 
             # Short wait for thread cleanup
             await asyncio.sleep(0.2)
@@ -950,7 +1007,9 @@ class SystemTestSuite:
             }
 
             if active_non_daemon:
-                logger.warning(f"Non-daemon threads still active: {active_non_daemon}")
+                logger.warning(
+                    f"Non-daemon threads still active: {active_non_daemon}"
+                )
                 # Don't fail the test for daemon threads
 
             return True
@@ -990,7 +1049,9 @@ class SystemTestSuite:
                 return
 
             # Process with Vestige
-            await vestige.process_memory(memory_id, {"context": "performance_test"})
+            await vestige.process_memory(
+                memory_id, {"context": "performance_test"}
+            )
 
             # Make routing decision with Axis
             await axis.make_decision(

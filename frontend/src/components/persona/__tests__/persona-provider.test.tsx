@@ -39,4 +39,3 @@ test("setMemoryTags updater adds and removes without duplicates", async () => {
   await u.click(screen.getByText("remove-alpha"));
   expect(tags().textContent).toBe("");
 });
-

@@ -36,7 +36,10 @@ def prompt_for_aliases(record_keys, canonical_keys):
     print("\nFinal alias map:")
     for src, dest in alias_map.items():
         print(f"  {src} → {dest}")
-    save = input("\nSave this alias map for future use? [y/N]: ").strip().lower() == "y"
+    save = (
+        input("\nSave this alias map for future use? [y/N]: ").strip().lower()
+        == "y"
+    )
     path = None
     if save:
         path = input(
@@ -61,7 +64,9 @@ def apply_alias_map(records, alias_map):
 
 def prompt_for_sanctum_name():
     print("\nNo parent page specified for your Codex.")
-    print("Would you like to create a new home base for your Guardian's archives?")
+    print(
+        "Would you like to create a new home base for your Guardian's archives?"
+    )
     name = input(
         "What shall we name your new sanctum? (press Enter for ‘Guardian Root’): "
     ).strip()
@@ -78,7 +83,9 @@ def prompt_for_db_name(default_title):
 
 
 def prompt_for_page_id():
-    print("\n⚠️  Notion API requires a parent page for all new pages/databases.")
+    print(
+        "\n⚠️  Notion API requires a parent page for all new pages/databases."
+    )
     print(
         "Create a 'Guardian Home' page in Notion, share it with your integration, then paste its Page ID below."
     )
@@ -110,7 +117,9 @@ def load_field_map(fieldmap_path):
 
 def save_field_map(fieldmap, path):
     export_map = {
-        k: v["column"] if not v["type"] else {"column": v["column"], "type": v["type"]}
+        k: v["column"]
+        if not v["type"]
+        else {"column": v["column"], "type": v["type"]}
         for k, v in fieldmap.items()
     }
     with open(path, "w") as f:
@@ -144,9 +153,14 @@ def prompt_for_fieldmap(record_keys, notion_columns):
         fieldmap[rk] = {"column": dest, "type": col_type}
     print("\nFinal mapping:")
     for src, v in fieldmap.items():
-        print(f"  {src} -> {v['column']}" + (f" [{v['type']}]" if v["type"] else ""))
+        print(
+            f"  {src} -> {v['column']}"
+            + (f" [{v['type']}]" if v["type"] else "")
+        )
     save = (
-        input("\nSave this field mapping for future use? [y/N]: ").strip().lower()
+        input("\nSave this field mapping for future use? [y/N]: ")
+        .strip()
+        .lower()
         == "y"
     )
     path = None
@@ -199,7 +213,9 @@ def export_notion_database_to_json(db_id, notion_token, out_file):
             if v["type"] == "title":
                 flat[k] = v["title"][0]["plain_text"] if v["title"] else ""
             elif v["type"] == "rich_text":
-                flat[k] = v["rich_text"][0]["plain_text"] if v["rich_text"] else ""
+                flat[k] = (
+                    v["rich_text"][0]["plain_text"] if v["rich_text"] else ""
+                )
             elif v["type"] == "date":
                 flat[k] = v["date"]["start"] if v["date"] else ""
             elif v["type"] == "number":
@@ -244,14 +260,17 @@ def get_or_create_page(client, parent_title, notion_token):
             res["object"] == "page"
             and "properties" in res
             and "title" in res["properties"]
-            and res["properties"]["title"]["title"][0]["plain_text"] == parent_title
+            and res["properties"]["title"]["title"][0]["plain_text"]
+            == parent_title
         ):
             print(f"Found existing Notion page: {parent_title}")
             return res["id"]
     # If not found, create at workspace root
     page = client.pages.create(
         parent={"type": "workspace", "workspace": True},
-        properties={"title": [{"type": "text", "text": {"content": parent_title}}]},
+        properties={
+            "title": [{"type": "text", "text": {"content": parent_title}}]
+        },
     )
     print(f"Created new Notion page: {parent_title}")
     return page["id"]
@@ -264,14 +283,18 @@ def add_records_to_notion_database(records, db_id, notion_token, fieldmap=None):
     for record in records:
         props = {}
         rec_map = (
-            fieldmap if fieldmap else {k: {"column": k, "type": None} for k in record}
+            fieldmap
+            if fieldmap
+            else {k: {"column": k, "type": None} for k in record}
         )
         for k, v in record.items():
             mapped = rec_map.get(k, {"column": k, "type": None})
             col = mapped["column"]
             col_type = mapped["type"]
             if col == "Title":
-                props[col] = {"title": [{"type": "text", "text": {"content": str(v)}}]}
+                props[col] = {
+                    "title": [{"type": "text", "text": {"content": str(v)}}]
+                }
             else:
                 # LLM NOTE: Notion API expects date properties in the form {"date": {"start": ...}} and blank dates must not be included.
                 # Prefer type hint, else guess
@@ -290,7 +313,9 @@ def add_records_to_notion_database(records, db_id, notion_token, fieldmap=None):
                         props[col] = {"date": {"start": str(v)}}
                 else:
                     props[col] = {
-                        "rich_text": [{"type": "text", "text": {"content": str(v)}}]
+                        "rich_text": [
+                            {"type": "text", "text": {"content": str(v)}}
+                        ]
                     }
         client.pages.create(parent={"database_id": db_id}, properties=props)
     print(f"Seeded database with {len(records)} records.")
@@ -334,7 +359,9 @@ def codexify_database_cli_wrapper():
         "--with-template", action="store_true", help="Include a page template."
     )
     parser_create.add_argument(
-        "--template", default=None, help="Path to markdown file for custom template."
+        "--template",
+        default=None,
+        help="Path to markdown file for custom template.",
     )
     parser_create.add_argument(
         "--seed",
@@ -355,7 +382,9 @@ def codexify_database_cli_wrapper():
         help="Path to a JSON alias map (user alias to canonical field).",
     )
     parser_create.add_argument(
-        "--edit-aliases", action="store_true", help="Prompt to edit or preview aliases."
+        "--edit-aliases",
+        action="store_true",
+        help="Prompt to edit or preview aliases.",
     )
 
     parser_export = subparsers.add_parser(
@@ -393,10 +422,14 @@ def codexify_database_cli_wrapper():
         help="Prompt to save alias/field mapping after mapping wizard.",
     )
     parser_import_notion.add_argument(
-        "--aliasmap", default=None, help="Path to a JSON alias map to use (or create)."
+        "--aliasmap",
+        default=None,
+        help="Path to a JSON alias map to use (or create).",
     )
     parser_import_notion.add_argument(
-        "--fieldmap", default=None, help="Path to a JSON field map to use (or create)."
+        "--fieldmap",
+        default=None,
+        help="Path to a JSON field map to use (or create).",
     )
     parser_import_notion.add_argument(
         "--verbose", action="store_true", help="Show extra debugging info."
@@ -459,7 +492,9 @@ def codexify_database_cli_wrapper():
                 title = ""
                 try:
                     title = (
-                        db["title"][0]["plain_text"] if db["title"] else "(Untitled)"
+                        db["title"][0]["plain_text"]
+                        if db["title"]
+                        else "(Untitled)"
                     )
                 except Exception:
                     title = "(Untitled)"
@@ -491,10 +526,14 @@ def codexify_database_cli_wrapper():
                 for k, v in props.items():
                     t = v["type"]
                     if t == "title":
-                        flat[k] = v["title"][0]["plain_text"] if v["title"] else ""
+                        flat[k] = (
+                            v["title"][0]["plain_text"] if v["title"] else ""
+                        )
                     elif t == "rich_text":
                         flat[k] = (
-                            v["rich_text"][0]["plain_text"] if v["rich_text"] else ""
+                            v["rich_text"][0]["plain_text"]
+                            if v["rich_text"]
+                            else ""
                         )
                     elif t == "date":
                         flat[k] = v["date"]["start"] if v["date"] else ""
@@ -635,7 +674,9 @@ def codexify_database_cli_wrapper():
                 for idx, rec in enumerate(mapped_records):
                     db.insert_record(rec)
                     if (idx + 1) % 25 == 0:
-                        print(f"  Imported {idx+1}/{len(mapped_records)} records...")
+                        print(
+                            f"  Imported {idx+1}/{len(mapped_records)} records..."
+                        )
                     imported += 1
                 print(
                     f"\n✅ Import complete! {imported} records imported into Guardian DB."
@@ -682,7 +723,9 @@ def codexify_database_cli_wrapper():
             try:
                 records = json.load(f)
             except Exception as e:
-                raise CodexifyError(f"❌ Could not parse JSON in {args.records}: {e}")
+                raise CodexifyError(
+                    f"❌ Could not parse JSON in {args.records}: {e}"
+                )
         if not isinstance(records, list) or not all(
             isinstance(r, dict) for r in records
         ):
@@ -717,13 +760,17 @@ def codexify_database_cli_wrapper():
         template_md = None
         if args.template:
             if not os.path.exists(args.template):
-                raise CodexifyError(f"❌ Template file not found: {args.template}")
+                raise CodexifyError(
+                    f"❌ Template file not found: {args.template}"
+                )
             with open(args.template) as f:
                 template_md = f.read()
 
         client = Client(auth=args.token)
         if args.parent_title:
-            parent_page_id = get_or_create_page(client, args.parent_title, args.token)
+            parent_page_id = get_or_create_page(
+                client, args.parent_title, args.token
+            )
         elif args.parent_id:
             parent_page_id = args.parent_id
         else:
@@ -734,12 +781,12 @@ def codexify_database_cli_wrapper():
             else:
                 # Let user name the new page
                 sanctum_name = prompt_for_sanctum_name()
-                parent_page_id = get_or_create_page(client, sanctum_name, args.token)
+                parent_page_id = get_or_create_page(
+                    client, sanctum_name, args.token
+                )
 
         # Prompt user for DB name if not provided (always after parent_page_id is set)
-        default_db_title = (
-            f"Guardian Codex {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        )
+        default_db_title = f"Guardian Codex {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
         db_title = args.db_title or prompt_for_db_name(default_db_title)
 
         try:
@@ -826,7 +873,9 @@ def markdown_to_notion_blocks(md_text):
             level = node["level"]
             text = (
                 "".join(
-                    child.get("text", "") if isinstance(child, dict) else str(child)
+                    child.get("text", "")
+                    if isinstance(child, dict)
+                    else str(child)
                     for child in node.get("children", [])
                 )
                 if "children" in node
@@ -838,7 +887,9 @@ def markdown_to_notion_blocks(md_text):
                     "type": block_type,
                     "block": {
                         block_type: {
-                            "rich_text": [{"type": "text", "text": {"content": text}}]
+                            "rich_text": [
+                                {"type": "text", "text": {"content": text}}
+                            ]
                         }
                     },
                 }
@@ -851,11 +902,15 @@ def markdown_to_notion_blocks(md_text):
                 ordered = node["attrs"].get("ordered", False)
             for item in node["children"]:
                 block_type = (
-                    "bulleted_list_item" if not ordered else "numbered_list_item"
+                    "bulleted_list_item"
+                    if not ordered
+                    else "numbered_list_item"
                 )
                 text = (
                     "".join(
-                        child.get("text", "") if isinstance(child, dict) else str(child)
+                        child.get("text", "")
+                        if isinstance(child, dict)
+                        else str(child)
                         for child in item.get("children", [])
                     )
                     if "children" in item
@@ -880,7 +935,10 @@ def markdown_to_notion_blocks(md_text):
                     "block": {
                         "code": {
                             "rich_text": [
-                                {"type": "text", "text": {"content": node["text"]}}
+                                {
+                                    "type": "text",
+                                    "text": {"content": node["text"]},
+                                }
                             ],
                             "language": node.get("info") or "plain text",
                         }
@@ -890,7 +948,9 @@ def markdown_to_notion_blocks(md_text):
         elif node["type"] == "block_quote":
             text = (
                 "".join(
-                    child.get("text", "") if isinstance(child, dict) else str(child)
+                    child.get("text", "")
+                    if isinstance(child, dict)
+                    else str(child)
                     for child in node.get("children", [])
                 )
                 if "children" in node
@@ -901,7 +961,9 @@ def markdown_to_notion_blocks(md_text):
                     "type": "quote",
                     "block": {
                         "quote": {
-                            "rich_text": [{"type": "text", "text": {"content": text}}]
+                            "rich_text": [
+                                {"type": "text", "text": {"content": text}}
+                            ]
                         }
                     },
                 }
@@ -912,7 +974,9 @@ def markdown_to_notion_blocks(md_text):
                 checked = item.get("checked", False)
                 text = (
                     "".join(
-                        child.get("text", "") if isinstance(child, dict) else str(child)
+                        child.get("text", "")
+                        if isinstance(child, dict)
+                        else str(child)
                         for child in item.get("children", [])
                     )
                     if "children" in item
@@ -934,7 +998,9 @@ def markdown_to_notion_blocks(md_text):
         elif node["type"] == "paragraph":
             text = (
                 "".join(
-                    child.get("text", "") if isinstance(child, dict) else str(child)
+                    child.get("text", "")
+                    if isinstance(child, dict)
+                    else str(child)
                     for child in node.get("children", [])
                 )
                 if "children" in node
@@ -945,7 +1011,9 @@ def markdown_to_notion_blocks(md_text):
                     "type": "paragraph",
                     "block": {
                         "paragraph": {
-                            "rich_text": [{"type": "text", "text": {"content": text}}]
+                            "rich_text": [
+                                {"type": "text", "text": {"content": text}}
+                            ]
                         }
                     },
                 }
@@ -987,7 +1055,9 @@ def field_to_property(field, value):
         # Notion API expects {"start": ...}
         return {"date": {"start": str(value)}}
     else:
-        return {"rich_text": [{"type": "text", "text": {"content": str(value)}}]}
+        return {
+            "rich_text": [{"type": "text", "text": {"content": str(value)}}]
+        }
 
 
 def build_notion_db_properties_from_fieldmap(fieldmap, sample_record):
@@ -1052,9 +1122,7 @@ def create_notion_database_from_records(
     """
     client = Client(auth=notion_token)
     if not db_title:
-        db_title = (
-            f"Guardian Codex {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        )
+        db_title = f"Guardian Codex {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
     # Use fieldmap (if supplied) to define schema, else infer
     # LLM NOTE: Notion API is strict. For date columns, property must be type "date". No fallback to text.
@@ -1093,7 +1161,9 @@ def create_notion_database_from_records(
             )
         )
         template_block = {
-            "name": [{"type": "text", "text": {"content": "Guardian Template"}}],
+            "name": [
+                {"type": "text", "text": {"content": "Guardian Template"}}
+            ],
             "is_default": True,
             "template_id": "guardian-template",
             "children": flatten_notion_blocks(blocks),
@@ -1132,7 +1202,9 @@ def extract_fragments_from_entry(entry_path, fragments_path):
         ):
             result = {}
             result["properties"] = {}
-            result["properties"]["Name"] = {"title": [{"text": {"content": line}}]}
+            result["properties"]["Name"] = {
+                "title": [{"text": {"content": line}}]
+            }
             fragments.append(
                 {
                     "content": line,
@@ -1164,16 +1236,24 @@ def extract_fragments_from_entry(entry_path, fragments_path):
 def main():
     parser = argparse.ArgumentParser(description="Codexify CLI Tool")
     parser.add_argument(
-        "--init", action="store_true", help="Initialize Codexify folder structure"
+        "--init",
+        action="store_true",
+        help="Initialize Codexify folder structure",
     )
-    parser.add_argument("--new-entry", metavar="TITLE", help="Create a new Codex entry")
-    parser.add_argument("--tags", nargs="*", default=[], help="Tags for the entry")
+    parser.add_argument(
+        "--new-entry", metavar="TITLE", help="Create a new Codex entry"
+    )
+    parser.add_argument(
+        "--tags", nargs="*", default=[], help="Tags for the entry"
+    )
     parser.add_argument(
         "--extract-fragments",
         metavar="ENTRY",
         help="Extract fragments from an entry markdown file",
     )
-    parser.add_argument("--path", default="./codexify", help="Target Codexify path")
+    parser.add_argument(
+        "--path", default="./codexify", help="Target Codexify path"
+    )
 
     args = parser.parse_args()
 

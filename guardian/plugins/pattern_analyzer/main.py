@@ -132,7 +132,11 @@ class PatternAnalyzer:
             repeated = [c for c in set(contents) if contents.count(c) > 1]
             metrics = self.calculate_pattern_metrics(
                 [
-                    {"sequence": [r], "frequency": contents.count(r), "confidence": 0.8}
+                    {
+                        "sequence": [r],
+                        "frequency": contents.count(r),
+                        "confidence": 0.8,
+                    }
                     for r in repeated
                 ]
             )
@@ -230,7 +234,9 @@ class PatternAnalyzer:
 
             # Analyze different pattern types
             for pattern_type in self.config["pattern_types"]:
-                patterns = self._analyze_pattern_type(pattern_type, recent_memories)
+                patterns = self._analyze_pattern_type(
+                    pattern_type, recent_memories
+                )
 
                 # Generate codex entries for new patterns
                 for pattern in patterns:
@@ -263,7 +269,9 @@ class PatternAnalyzer:
 
         return patterns
 
-    def _analyze_behavioral_patterns(self, memories: List[Any]) -> List[Pattern]:
+    def _analyze_behavioral_patterns(
+        self, memories: List[Any]
+    ) -> List[Pattern]:
         """Analyze behavioral patterns in system operations."""
         patterns: List[Pattern] = []
 
@@ -328,12 +336,18 @@ class PatternAnalyzer:
 
         return patterns
 
-    def _build_dependency_graph(self, memories: List[Any]) -> Dict[str, List[str]]:
+    def _build_dependency_graph(
+        self, memories: List[Any]
+    ) -> Dict[str, List[str]]:
         """Placeholder for building component dependency graph."""
-        logger.warning("PatternAnalyzer._build_dependency_graph is a placeholder.")
+        logger.warning(
+            "PatternAnalyzer._build_dependency_graph is a placeholder."
+        )
         return {}
 
-    def _analyze_structural_patterns(self, memories: List[Any]) -> List[Pattern]:
+    def _analyze_structural_patterns(
+        self, memories: List[Any]
+    ) -> List[Pattern]:
         """Analyze structural patterns in system components."""
         patterns: List[Pattern] = []
 
@@ -359,7 +373,9 @@ class PatternAnalyzer:
 
         return patterns
 
-    def _analyze_relational_patterns(self, memories: List[Any]) -> List[Pattern]:
+    def _analyze_relational_patterns(
+        self, memories: List[Any]
+    ) -> List[Pattern]:
         """Analyze relational patterns between system elements."""
         patterns: List[Pattern] = []
 
@@ -401,7 +417,9 @@ class PatternAnalyzer:
 
         return sequences
 
-    def _is_repeated_sequence(self, sequence: List[Any], memories: List[Any]) -> bool:
+    def _is_repeated_sequence(
+        self, sequence: List[Any], memories: List[Any]
+    ) -> bool:
         """Check if a sequence repeats in memories."""
         seq_str = self._sequence_to_string(sequence)
         mem_str = self._sequence_to_string(memories)
@@ -412,7 +430,8 @@ class PatternAnalyzer:
     def _sequence_to_string(self, sequence: List[Any]) -> str:
         """Convert sequence to string representation."""
         return ",".join(
-            str(getattr(m, "content", {}).get("operation_type", "")) for m in sequence
+            str(getattr(m, "content", {}).get("operation_type", ""))
+            for m in sequence
         )
 
     def _calculate_sequence_confidence(self, sequence: List[Any]) -> float:
@@ -424,9 +443,9 @@ class PatternAnalyzer:
         length_factor = min(len(sequence) / 10.0, 1.0)
 
         # Consider memory confidence
-        confidence_avg = sum(getattr(m, "confidence", 0.0) for m in sequence) / len(
-            sequence
-        )
+        confidence_avg = sum(
+            getattr(m, "confidence", 0.0) for m in sequence
+        ) / len(sequence)
 
         return (length_factor + confidence_avg) / 2.0
 
@@ -451,14 +470,18 @@ class PatternAnalyzer:
         for memory in memories:
             if hasattr(memory, "timestamp"):
                 interval_start = memory.timestamp.replace(
-                    minute=memory.timestamp.minute // 5 * 5, second=0, microsecond=0
+                    minute=memory.timestamp.minute // 5 * 5,
+                    second=0,
+                    microsecond=0,
                 )
                 interval_key = interval_start.isoformat()
                 intervals.setdefault(interval_key, []).append(memory)
 
         return intervals
 
-    def _find_periodic_events(self, memories: List[Any]) -> Dict[str, List[Any]]:
+    def _find_periodic_events(
+        self, memories: List[Any]
+    ) -> Dict[str, List[Any]]:
         """Find periodic events in memories."""
         periodic: Dict[str, List[Any]] = {}
 
@@ -499,7 +522,9 @@ class PatternAnalyzer:
 
         # Check if intervals are consistent
         avg_interval = sum(intervals) / len(intervals)
-        variance = sum((i - avg_interval) ** 2 for i in intervals) / len(intervals)
+        variance = sum((i - avg_interval) ** 2 for i in intervals) / len(
+            intervals
+        )
 
         # Low variance indicates periodicity
         return variance < (avg_interval * 0.2)
@@ -537,7 +562,9 @@ class PatternAnalyzer:
                 "pattern": pattern.to_dict(),
                 "analysis": self._generate_pattern_analysis(pattern),
                 "implications": self._generate_pattern_implications(pattern),
-                "recommendations": self._generate_pattern_recommendations(pattern),
+                "recommendations": self._generate_pattern_recommendations(
+                    pattern
+                ),
             }
 
             # Store in codex
@@ -565,7 +592,9 @@ class PatternAnalyzer:
             },
         }
 
-    def _generate_pattern_implications(self, pattern: Pattern) -> List[Dict[str, Any]]:
+    def _generate_pattern_implications(
+        self, pattern: Pattern
+    ) -> List[Dict[str, Any]]:
         """Generate implications of the pattern."""
         implications = []
 
@@ -612,14 +641,20 @@ class PatternAnalyzer:
 
         # Performance optimization recommendations
         if pattern.pattern_type == "behavioral":
-            recommendations.extend(self._generate_behavioral_recommendations(pattern))
+            recommendations.extend(
+                self._generate_behavioral_recommendations(pattern)
+            )
 
         # Resource management recommendations
         elif pattern.pattern_type == "structural":
-            recommendations.extend(self._generate_structural_recommendations(pattern))
+            recommendations.extend(
+                self._generate_structural_recommendations(pattern)
+            )
 
         # Monitoring recommendations
-        recommendations.extend(self._generate_monitoring_recommendations(pattern))
+        recommendations.extend(
+            self._generate_monitoring_recommendations(pattern)
+        )
 
         return recommendations
 
@@ -638,7 +673,9 @@ class PatternAnalyzer:
         if len(self.patterns) > self.config["max_patterns"]:
             # Sort by confidence and keep top patterns
             sorted_patterns = sorted(
-                self.patterns.items(), key=lambda x: x[1].confidence, reverse=True
+                self.patterns.items(),
+                key=lambda x: x[1].confidence,
+                reverse=True,
             )
             self.patterns = dict(sorted_patterns[: self.config["max_patterns"]])
 
@@ -652,7 +689,7 @@ def init_plugin() -> bool:
     try:
         # Load configuration
         plugin_dir = Path(__file__).parent
-        with open(plugin_dir / "plugin.json", "r") as f:
+        with open(plugin_dir / "plugin.json") as f:
             config = json.load(f)
 
         # Create and start analyzer
@@ -680,7 +717,7 @@ def get_metadata() -> Dict[str, Any]:
     """Return plugin metadata."""
     try:
         plugin_dir = Path(__file__).parent
-        with open(plugin_dir / "plugin.json", "r") as f:
+        with open(plugin_dir / "plugin.json") as f:
             return json.load(f)
     except Exception as e:
         logger.error(f"Failed to load metadata: {e}")
@@ -698,7 +735,10 @@ def health_check() -> Dict[str, Any]:
 
         age = datetime.now(UTC) - analyzer.last_analysis
         if age > timedelta(seconds=analyzer.config["analysis_interval"] * 2):
-            return {"status": "warning", "message": f"Analysis is delayed: {age}"}
+            return {
+                "status": "warning",
+                "message": f"Analysis is delayed: {age}",
+            }
 
         return {
             "status": "healthy",

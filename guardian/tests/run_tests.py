@@ -16,7 +16,8 @@ from typing import Any, Dict, List, Optional
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,11 @@ class TestResult:
     """Represents a test execution result."""
 
     def __init__(
-        self, name: str, status: str, duration: float, error: Optional[str] = None
+        self,
+        name: str,
+        status: str,
+        duration: float,
+        error: Optional[str] = None,
     ):
         self.name = name
         self.status = status
@@ -76,7 +81,9 @@ class TestReport:
         return {
             "summary": self.summary,
             "execution_time": {
-                "start": self.start_time.isoformat() if self.start_time else None,
+                "start": self.start_time.isoformat()
+                if self.start_time
+                else None,
                 "end": self.end_time.isoformat() if self.end_time else None,
                 "duration": self.total_duration,
             },
@@ -138,7 +145,10 @@ class TestRunner:
                     logger.error(f"Failed to run {module_name}: {e}")
                     self.report.add_result(
                         TestResult(
-                            name=module_name, status="error", duration=0.0, error=str(e)
+                            name=module_name,
+                            status="error",
+                            duration=0.0,
+                            error=str(e),
                         )
                     )
         finally:

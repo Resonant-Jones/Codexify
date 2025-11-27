@@ -24,7 +24,9 @@ class Embedder:
         self._model = None
         if self.backend == "local":
             try:
-                from sentence_transformers import SentenceTransformer  # type: ignore
+                from sentence_transformers import (
+                    SentenceTransformer,  # type: ignore
+                )
 
                 model_name = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
                 self._model = SentenceTransformer(model_name)

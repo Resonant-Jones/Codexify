@@ -14,7 +14,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, call
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
@@ -99,12 +99,18 @@ class TestCLIMigrateCommand:
         # Mock Neo4j
         mock_driver = MagicMock()
         mock_graph_db.driver.return_value = mock_driver
-        mock_import_neo4j.return_value = (1, 1, 2)  # threads, messages, relationships
+        mock_import_neo4j.return_value = (
+            1,
+            1,
+            2,
+        )  # threads, messages, relationships
 
         # Mock Chroma
         mock_chroma_client = MagicMock()
         mock_collection = MagicMock()
-        mock_chroma_client.get_or_create_collection.return_value = mock_collection
+        mock_chroma_client.get_or_create_collection.return_value = (
+            mock_collection
+        )
         mock_chromadb.PersistentClient.return_value = mock_chroma_client
 
         # Mock embeddings
@@ -112,12 +118,13 @@ class TestCLIMigrateCommand:
 
         # Import and run
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
         result = runner.invoke(
             cli_migrate.app,
-            ["migrate", str(sample_export_file), "--skip-embeddings"]
+            ["migrate", str(sample_export_file), "--skip-embeddings"],
         )
 
         # Should succeed
@@ -144,6 +151,7 @@ class TestCLIMigrateCommand:
         mock_import_neo4j.return_value = (1, 1, 2)
 
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
@@ -152,26 +160,28 @@ class TestCLIMigrateCommand:
             [
                 "migrate",
                 str(sample_export_file),
-                "--batch-size", "10",
-                "--skip-embeddings"
-            ]
+                "--batch-size",
+                "10",
+                "--skip-embeddings",
+            ],
         )
 
         assert result.exit_code == 0
         # Verify batch size was set in environment
         import os
+
         # Note: This might not work exactly as expected due to subprocess isolation
         # but tests the CLI interface
 
     def test_migrate_missing_file(self, cli_env):
         """Test migrate with non-existent file."""
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
         result = runner.invoke(
-            cli_migrate.app,
-            ["migrate", "/nonexistent/file.json"]
+            cli_migrate.app, ["migrate", "/nonexistent/file.json"]
         )
 
         # Should fail due to missing file
@@ -197,12 +207,13 @@ class TestCLIMigrateCommand:
         monkeypatch.chdir(tmp_path)
 
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
         result = runner.invoke(
             cli_migrate.app,
-            ["migrate", str(sample_export_file), "--skip-embeddings"]
+            ["migrate", str(sample_export_file), "--skip-embeddings"],
         )
 
         assert result.exit_code == 0
@@ -212,7 +223,7 @@ class TestCLIMigrateCommand:
         assert summary_file.exists()
 
         # Verify summary content
-        with open(summary_file, 'r') as f:
+        with open(summary_file) as f:
             summaries = json.load(f)
             assert isinstance(summaries, list)
             assert len(summaries) > 0
@@ -253,6 +264,7 @@ class TestCLIValidateCommand:
         mock_chromadb.PersistentClient.return_value = mock_client
 
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
@@ -260,7 +272,10 @@ class TestCLIValidateCommand:
 
         assert result.exit_code == 0
         assert "validation" in result.output.lower()
-        assert "passed" in result.output.lower() or "successful" in result.output.lower()
+        assert (
+            "passed" in result.output.lower()
+            or "successful" in result.output.lower()
+        )
 
     @patch("scripts.chatgpt_import.cli_migrate.GraphDatabase")
     def test_validate_command_neo4j_failure(
@@ -272,13 +287,17 @@ class TestCLIValidateCommand:
         mock_graph_db.driver.side_effect = Exception("Connection failed")
 
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
         result = runner.invoke(cli_migrate.app, ["validate"])
 
         assert result.exit_code == 1
-        assert "failed" in result.output.lower() or "error" in result.output.lower()
+        assert (
+            "failed" in result.output.lower()
+            or "error" in result.output.lower()
+        )
 
 
 class TestCLIHistoryCommand:
@@ -289,6 +308,7 @@ class TestCLIHistoryCommand:
         monkeypatch.chdir(tmp_path)
 
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
@@ -323,10 +343,11 @@ class TestCLIHistoryCommand:
             },
         ]
 
-        with open(summary_file, 'w') as f:
+        with open(summary_file, "w") as f:
             json.dump(summaries, f)
 
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
@@ -356,10 +377,11 @@ class TestCLIHistoryCommand:
             for i in range(1, 6)  # 5 migrations
         ]
 
-        with open(summary_file, 'w') as f:
+        with open(summary_file, "w") as f:
             json.dump(summaries, f)
 
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
@@ -384,12 +406,12 @@ class TestCLIErrorHandling:
         mock_graph_db.driver.side_effect = Exception("Connection refused")
 
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
         result = runner.invoke(
-            cli_migrate.app,
-            ["migrate", str(sample_export_file)]
+            cli_migrate.app, ["migrate", str(sample_export_file)]
         )
 
         assert result.exit_code == 1
@@ -408,12 +430,12 @@ class TestCLIErrorHandling:
         mock_load.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
 
         from typer.testing import CliRunner
+
         from scripts.chatgpt_import import cli_migrate
 
         runner = CliRunner()
         result = runner.invoke(
-            cli_migrate.app,
-            ["migrate", str(sample_export_file)]
+            cli_migrate.app, ["migrate", str(sample_export_file)]
         )
 
         assert result.exit_code == 1
@@ -432,24 +454,40 @@ class TestCLIIntegration:
         )
 
         assert result.returncode == 0
-        assert "codexify" in result.stdout.lower() or "migration" in result.stdout.lower()
+        assert (
+            "codexify" in result.stdout.lower()
+            or "migration" in result.stdout.lower()
+        )
 
     def test_cli_migrate_help(self):
         """Test that migrate --help works."""
         result = subprocess.run(
-            [sys.executable, "scripts/chatgpt_import/cli_migrate.py", "migrate", "--help"],
+            [
+                sys.executable,
+                "scripts/chatgpt_import/cli_migrate.py",
+                "migrate",
+                "--help",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
         )
 
         assert result.returncode == 0
-        assert "import" in result.stdout.lower() or "conversation" in result.stdout.lower()
+        assert (
+            "import" in result.stdout.lower()
+            or "conversation" in result.stdout.lower()
+        )
 
     def test_cli_validate_help(self):
         """Test that validate --help works."""
         result = subprocess.run(
-            [sys.executable, "scripts/chatgpt_import/cli_migrate.py", "validate", "--help"],
+            [
+                sys.executable,
+                "scripts/chatgpt_import/cli_migrate.py",
+                "validate",
+                "--help",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
@@ -461,14 +499,22 @@ class TestCLIIntegration:
     def test_cli_history_help(self):
         """Test that history --help works."""
         result = subprocess.run(
-            [sys.executable, "scripts/chatgpt_import/cli_migrate.py", "history", "--help"],
+            [
+                sys.executable,
+                "scripts/chatgpt_import/cli_migrate.py",
+                "history",
+                "--help",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
         )
 
         assert result.returncode == 0
-        assert "history" in result.stdout.lower() or "migration" in result.stdout.lower()
+        assert (
+            "history" in result.stdout.lower()
+            or "migration" in result.stdout.lower()
+        )
 
 
 class TestSummaryLogging:
@@ -486,11 +532,13 @@ class TestSummaryLogging:
             "elapsed_seconds": 60.5,
         }
 
-        summary_file = save_migration_summary(stats, output_dir=tmp_path / "logs")
+        summary_file = save_migration_summary(
+            stats, output_dir=tmp_path / "logs"
+        )
 
         assert summary_file.exists()
 
-        with open(summary_file, 'r') as f:
+        with open(summary_file) as f:
             summaries = json.load(f)
             assert isinstance(summaries, list)
             assert len(summaries) == 1
@@ -512,7 +560,7 @@ class TestSummaryLogging:
 
         summary_file = logs_dir / "migration_summary.json"
 
-        with open(summary_file, 'r') as f:
+        with open(summary_file) as f:
             summaries = json.load(f)
             assert len(summaries) == 2
             assert summaries[0]["threads"] == 5

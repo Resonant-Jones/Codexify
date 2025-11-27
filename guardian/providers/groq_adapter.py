@@ -36,7 +36,9 @@ class GroqChat(ChatProvider):
         )
         return r.choices[0].message.content or ""
 
-    def stream(self, prompt: str, model: Optional[str] = None, **kw) -> Iterator[str]:
+    def stream(
+        self, prompt: str, model: Optional[str] = None, **kw
+    ) -> Iterator[str]:
         model = model or _DEFAULT
         s = self.client.chat.completions.create(
             model=model,

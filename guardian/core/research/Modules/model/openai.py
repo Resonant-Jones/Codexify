@@ -41,7 +41,9 @@ class OpenAI(Model):
         pass
 
     def get_llm_config(self):
-        return LLMConfig(provider="openai/" + self.model, api_token=self.api_key)
+        return LLMConfig(
+            provider="openai/" + self.model, api_token=self.api_key
+        )
 
     def get_client(self):
         return self.client

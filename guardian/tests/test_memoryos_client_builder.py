@@ -1,6 +1,4 @@
 import pytest
-
-
 from memoryos import utils
 
 
@@ -19,7 +17,9 @@ def test_build_llm_client_openai(monkeypatch):
 
     monkeypatch.setattr(utils, "OpenAIClient", DummyOpenAI)
 
-    client = utils.build_llm_client("openai", api_key="abc", base_url="https://example")
+    client = utils.build_llm_client(
+        "openai", api_key="abc", base_url="https://example"
+    )
 
     assert isinstance(client, DummyOpenAI)
     assert captured == {"api_key": "abc", "base_url": "https://example"}

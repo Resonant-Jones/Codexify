@@ -55,7 +55,9 @@ class TestCollaborationManager:
         assert "user1" in message["active_users"]
 
     @pytest.mark.asyncio
-    async def test_connect_multiple_clients_same_doc(self, collab_manager, mock_ws):
+    async def test_connect_multiple_clients_same_doc(
+        self, collab_manager, mock_ws
+    ):
         """Test connecting multiple clients to the same document."""
         ws1 = AsyncMock()
         ws2 = AsyncMock()
@@ -309,6 +311,7 @@ class TestCollaborationWebSocket:
 def event_loop():
     """Create an event loop for async tests."""
     import asyncio
+
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()

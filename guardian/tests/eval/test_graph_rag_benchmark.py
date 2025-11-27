@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from guardian.eval.run_graph_rag_benchmark import run_prompt
 from guardian.core.config import Settings
+from guardian.eval.run_graph_rag_benchmark import run_prompt
 
 
 @pytest.mark.asyncio
@@ -20,7 +20,8 @@ async def test_run_prompt_with_graph(monkeypatch, tmp_path: Path):
         fake_get_graph_context,
     )
     monkeypatch.setattr(
-        "guardian.eval.run_graph_rag_benchmark.chat_with_ai", lambda messages, **kw: "answer"
+        "guardian.eval.run_graph_rag_benchmark.chat_with_ai",
+        lambda messages, **kw: "answer",
     )
 
     settings = Settings(GUARDIAN_ENABLE_GRAPH_CONTEXT=True)
@@ -49,7 +50,8 @@ async def test_run_prompt_without_graph(monkeypatch):
         fake_get_graph_context,
     )
     monkeypatch.setattr(
-        "guardian.eval.run_graph_rag_benchmark.chat_with_ai", lambda messages, **kw: "answer"
+        "guardian.eval.run_graph_rag_benchmark.chat_with_ai",
+        lambda messages, **kw: "answer",
     )
 
     settings = Settings(GUARDIAN_ENABLE_GRAPH_CONTEXT=False)

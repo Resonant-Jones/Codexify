@@ -20,10 +20,9 @@ import json
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, call
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
-
 
 # Add scripts directory to path for import
 SCRIPT_DIR = Path(__file__).parent.parent.parent / "scripts" / "chatgpt_import"
@@ -55,7 +54,9 @@ def sample_chatgpt_export():
                     "message": {
                         "id": "msg-2",
                         "author": {"role": "assistant", "name": "Assistant"},
-                        "content": {"parts": ["I'm doing great! How can I help you?"]},
+                        "content": {
+                            "parts": ["I'm doing great! How can I help you?"]
+                        },
                         "create_time": 1234567895.0,
                     },
                     "parent": "msg-1",
@@ -260,7 +261,9 @@ class TestNeo4jImport:
         assert mock_session.run.called
 
     @patch("import_chatgpt.tqdm")
-    def test_import_creates_thread_nodes(self, mock_tqdm, sample_chatgpt_export):
+    def test_import_creates_thread_nodes(
+        self, mock_tqdm, sample_chatgpt_export
+    ):
         """Test that thread nodes are created."""
         from import_chatgpt import import_to_neo4j
 
@@ -278,7 +281,9 @@ class TestNeo4jImport:
         assert len(thread_calls) > 0
 
     @patch("import_chatgpt.tqdm")
-    def test_import_creates_message_nodes(self, mock_tqdm, sample_chatgpt_export):
+    def test_import_creates_message_nodes(
+        self, mock_tqdm, sample_chatgpt_export
+    ):
         """Test that message nodes are created."""
         from import_chatgpt import import_to_neo4j
 
@@ -323,7 +328,9 @@ class TestNeo4jImport:
         mock_driver = MagicMock()
         mock_driver.session.return_value.__enter__.return_value = mock_session
 
-        threads, messages, relationships = import_to_neo4j(mock_driver, export_with_empty)
+        threads, messages, relationships = import_to_neo4j(
+            mock_driver, export_with_empty
+        )
 
         # Thread should be created, but no messages
         assert threads == 1
@@ -345,7 +352,9 @@ class TestChromaImport:
             MagicMock(embedding=[0.1, 0.2, 0.3]),
             MagicMock(embedding=[0.4, 0.5, 0.6]),
         ]
-        mock_openai_client.embeddings.create.return_value = mock_embedding_response
+        mock_openai_client.embeddings.create.return_value = (
+            mock_embedding_response
+        )
 
         # Mock Chroma collection
         mock_collection = MagicMock()
@@ -354,7 +363,10 @@ class TestChromaImport:
         mock_tqdm.return_value = [[("msg-1", "text1"), ("msg-2", "text2")]]
 
         successful, failed = import_embeddings_to_chroma(
-            mock_openai_client, mock_collection, sample_chatgpt_export, batch_size=5
+            mock_openai_client,
+            mock_collection,
+            sample_chatgpt_export,
+            batch_size=5,
         )
 
         assert successful == 2
@@ -363,13 +375,17 @@ class TestChromaImport:
         assert mock_collection.add.called
 
     @patch("import_chatgpt.tqdm")
-    def test_import_embeddings_handles_failure(self, mock_tqdm, sample_chatgpt_export):
+    def test_import_embeddings_handles_failure(
+        self, mock_tqdm, sample_chatgpt_export
+    ):
         """Test embeddings import handles API failures gracefully."""
         from import_chatgpt import import_embeddings_to_chroma
 
         # Mock OpenAI client to raise error
         mock_openai_client = MagicMock()
-        mock_openai_client.embeddings.create.side_effect = Exception("API Error")
+        mock_openai_client.embeddings.create.side_effect = Exception(
+            "API Error"
+        )
 
         mock_collection = MagicMock()
 
@@ -377,7 +393,10 @@ class TestChromaImport:
         mock_tqdm.return_value = [[("msg-1", "text1")]]
 
         successful, failed = import_embeddings_to_chroma(
-            mock_openai_client, mock_collection, sample_chatgpt_export, batch_size=5
+            mock_openai_client,
+            mock_collection,
+            sample_chatgpt_export,
+            batch_size=5,
         )
 
         assert successful == 0
@@ -433,13 +452,17 @@ class TestFullImport:
             MagicMock(embedding=[0.1] * 1536),
             MagicMock(embedding=[0.2] * 1536),
         ]
-        mock_openai_client.embeddings.create.return_value = mock_embedding_response
+        mock_openai_client.embeddings.create.return_value = (
+            mock_embedding_response
+        )
         mock_openai.return_value = mock_openai_client
 
         # Mock Chroma
         mock_chroma_client = MagicMock()
         mock_collection = MagicMock()
-        mock_chroma_client.get_or_create_collection.return_value = mock_collection
+        mock_chroma_client.get_or_create_collection.return_value = (
+            mock_collection
+        )
         mock_chromadb.PersistentClient.return_value = mock_chroma_client
 
         # Import and run
@@ -454,7 +477,9 @@ class TestFullImport:
         assert mock_chromadb.PersistentClient.called
 
     @patch("import_chatgpt.GraphDatabase")
-    def test_import_fails_on_missing_file(self, mock_graph_db, mock_env, monkeypatch):
+    def test_import_fails_on_missing_file(
+        self, mock_graph_db, mock_env, monkeypatch
+    ):
         """Test import fails gracefully when export file missing."""
         # Point to non-existent file
         monkeypatch.setenv("CHATGPT_EXPORT_FILE", "/nonexistent/file.json")
@@ -523,7 +548,9 @@ class TestIdempotency:
             # All node and relationship operations should use MERGE
             if "Thread" in query or "Message" in query or "Author" in query:
                 assert "MERGE" in query or "MATCH" in query
-                assert "CREATE " not in query  # Note space to avoid matching CREATE INDEX
+                assert (
+                    "CREATE " not in query
+                )  # Note space to avoid matching CREATE INDEX
 
 
 if __name__ == "__main__":

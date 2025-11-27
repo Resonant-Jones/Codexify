@@ -4,12 +4,12 @@ from __future__ import annotations
 from datetime import datetime
 
 from neomodel import (
-    StructuredNode,
-    StringProperty,
-    UniqueIdProperty,
     DateTimeProperty,
-    RelationshipTo,
     RelationshipFrom,
+    RelationshipTo,
+    StringProperty,
+    StructuredNode,
+    UniqueIdProperty,
 )
 
 

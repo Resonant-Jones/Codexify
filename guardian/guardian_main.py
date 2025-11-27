@@ -20,18 +20,17 @@ guardian.guardian_main` or via the console script defined in
 `pyproject.toml`.
 """
 
+# Import Imprint Zero helpers; provide a compatibility shim if missing
 import json
+import json as _json
+import logging as _logging
 import os
 from pathlib import Path
+from pathlib import Path as _Path
 from typing import Any, Dict, List, Optional, Tuple  # added for type hints
 
 import typer
 from rich import print
-
-# Import Imprint Zero helpers; provide a compatibility shim if missing
-import json as _json
-import logging as _logging
-from pathlib import Path as _Path
 
 _logger = _logging.getLogger(__name__)
 _PROMPTS_DIR = _Path(__file__).parent / "prompts"
@@ -48,6 +47,7 @@ DEFAULT_PROMPT_TEXT = (
     "- Symbolic Continuity\n"
     "- Foresight-as-default\n"
 )
+
 
 def _compose_structured_prompt(data: dict) -> str:
     """
@@ -68,7 +68,9 @@ def _compose_structured_prompt(data: dict) -> str:
         if isinstance(value, str):
             # Allow multi-line strings; split into lines
             lines = [
-                line.strip() for line in value.strip().splitlines() if line.strip()
+                line.strip()
+                for line in value.strip().splitlines()
+                if line.strip()
             ]
             if len(lines) <= 1:
                 return f"{indent}{value.strip()}\n" if value.strip() else ""
@@ -119,14 +121,17 @@ def _compose_structured_prompt(data: dict) -> str:
     final = "".join(parts).rstrip() + "\n"
     return final
 
+
 class ImprintZeroConfigError(Exception):
     pass
+
 
 def _resolve_base(config_path: str | None) -> _Path:
     if config_path:
         p = _Path(config_path)
         return p if p.is_dir() else p.parent
     return _PROMPTS_DIR
+
 
 def load_prompt(config_path: str | None = None) -> str:
     base = _resolve_base(config_path)
@@ -160,7 +165,9 @@ def load_prompt(config_path: str | None = None) -> str:
                     if composed.strip():
                         return composed
                 except Exception as e:
-                    _logger.warning("Failed to compose structured prompt: %s", e)
+                    _logger.warning(
+                        "Failed to compose structured prompt: %s", e
+                    )
 
             # Case 3: fallback to pretty JSON text for visibility
             try:
@@ -169,6 +176,7 @@ def load_prompt(config_path: str | None = None) -> str:
                 return str(data)
 
     return DEFAULT_PROMPT_TEXT
+
 
 def load_prompt_json(config_path: str | None = None) -> dict:
     base = _resolve_base(config_path)
@@ -251,7 +259,9 @@ def dump_graceful_failure():
 @app.command()
 def create_project(
     name: str = typer.Argument(..., help="Project name."),
-    description: Optional[str] = typer.Option(None, help="Project description."),
+    description: Optional[str] = typer.Option(
+        None, help="Project description."
+    ),
 ):
     """Create a new project folder."""
     try:
@@ -354,7 +364,9 @@ def init_threads_table_cmd():
 def create_thread_cmd(
     project: str = typer.Argument(..., help="Project name."),
     title: str = typer.Argument(..., help="Thread title."),
-    user_id: Optional[str] = typer.Option(None, help="User ID creating the thread."),
+    user_id: Optional[str] = typer.Option(
+        None, help="User ID creating the thread."
+    ),
 ):
     """Create a new thread in a project."""
     try:
@@ -393,7 +405,9 @@ def list_child_threads(
     try:
         child_threads = threads_module.list_child_threads(parent_thread_id)
         if not child_threads:
-            print("[yellow]No child threads found for this parent thread.[/yellow]")
+            print(
+                "[yellow]No child threads found for this parent thread.[/yellow]"
+            )
         else:
             for thread in child_threads:
                 id, title, user_id, created_at = thread
@@ -532,7 +546,9 @@ def codemap_summary():
         if len(keys) > 10:
             print(f"... (+{len(keys) - 10} more)")
     elif isinstance(fixed, dict) and not fixed:
-        print("[yellow]Codemap is present but empty after normalization.[/yellow]")
+        print(
+            "[yellow]Codemap is present but empty after normalization.[/yellow]"
+        )
     else:
         print(
             "[yellow]Codemap not found or unreadable. Run `generate-codemap` first.[/yellow]"
@@ -557,7 +573,10 @@ def codemap_query(
         help="Embedding backend required by MemoryOS (e.g., openai, local).",
     ),
     user_id: str = typer.Option(
-        "default_user", "--user-id", "-u", help="User ID for the MemoryOS session."
+        "default_user",
+        "--user-id",
+        "-u",
+        help="User ID for the MemoryOS session.",
     ),
     api_key: str = typer.Option(
         "your-api-key",
@@ -668,9 +687,15 @@ def codemap_query(
 
 @app.command()
 def create_conversation(
-    thread_id: int = typer.Argument(..., help="Thread ID the conversation belongs to."),
-    user_id: str = typer.Argument(..., help="User ID initiating the conversation."),
-    title: str = typer.Option(None, help="Optional title for the conversation."),
+    thread_id: int = typer.Argument(
+        ..., help="Thread ID the conversation belongs to."
+    ),
+    user_id: str = typer.Argument(
+        ..., help="User ID initiating the conversation."
+    ),
+    title: str = typer.Option(
+        None, help="Optional title for the conversation."
+    ),
     parent_id: int = typer.Option(
         None, help="Optional parent conversation ID (for threaded lineage)."
     ),
@@ -680,7 +705,9 @@ def create_conversation(
         convo_id = conversations_module.create_conversation(
             thread_id, user_id, title, parent_id
         )
-        print(f"[green]Conversation created successfully with ID {convo_id}.[/green]")
+        print(
+            f"[green]Conversation created successfully with ID {convo_id}.[/green]"
+        )
     except Exception as e:
         print(f"[red]Failed to create conversation: {e}[/red]")
 
@@ -691,7 +718,9 @@ def list_conversations_by_thread(
 ):
     """List all conversations within a given thread."""
     try:
-        conversations = conversations_module.list_conversations_by_thread(thread_id)
+        conversations = conversations_module.list_conversations_by_thread(
+            thread_id
+        )
         if not conversations:
             print("[yellow]No conversations found in this thread.[/yellow]")
         else:
@@ -711,7 +740,9 @@ def show_conversation_lineage(
 ):
     """Show the parent lineage of a given conversation."""
     try:
-        lineage = conversations_module.show_conversation_lineage(conversation_id)
+        lineage = conversations_module.show_conversation_lineage(
+            conversation_id
+        )
         if not lineage:
             print("[yellow]No lineage found for this conversation.[/yellow]")
         else:

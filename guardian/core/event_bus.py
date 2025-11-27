@@ -12,8 +12,8 @@ from guardian.core.chat_db import ChatDB
 
 logger = logging.getLogger(__name__)
 
-_store: Optional[ChatDB] = None
-_fallback_emitter: Optional[Callable[[str, Dict[str, Any]], None]] = None  # type: ignore[name-defined]
+_store: ChatDB | None = None
+_fallback_emitter: Callable[[str, dict[str, Any]], None] | None = None  # type: ignore[name-defined]
 
 
 @dataclass
@@ -24,7 +24,7 @@ class _Subscriber:
     queue: asyncio.Queue
 
 
-_subscribers: List[_Subscriber] = []
+_subscribers: list[_Subscriber] = []
 
 
 def configure_event_store(store: ChatDB) -> None:
@@ -39,14 +39,16 @@ def configure_event_store(store: ChatDB) -> None:
     logger.info("[outbox] event store configured (%s)", type(store).__name__)
 
 
-def configure_fallback_emitter(emitter: Callable[[str, Dict[str, Any]], None]) -> None:
+def configure_fallback_emitter(
+    emitter: Callable[[str, dict[str, Any]], None]
+) -> None:
     """Register an in-memory fallback emitter used when no store is configured."""
     global _fallback_emitter
     _fallback_emitter = emitter
 
 
 def emit_event(
-    topic: str, payload: Dict[str, Any], *, tenant_id: str = "default"
+    topic: str, payload: dict[str, Any], *, tenant_id: str = "default"
 ) -> None:
     """Persist an event or fall back to the in-memory hub."""
     if _store is not None:
@@ -65,14 +67,16 @@ def emit_event(
             )
 
 
-def fetch_events_after(last_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+def fetch_events_after(last_id: int, limit: int = 100) -> list[dict[str, Any]]:
     """Return events whose IDs are greater than ``last_id`` ordered ascending."""
     if _store is None:
         return []
     return _store.list_events_after(last_id, limit)
 
 
-def delete_events_through(last_id: int, tenant_id: Optional[str] = None) -> None:
+def delete_events_through(
+    last_id: int, tenant_id: str | None = None
+) -> None:
     """Delete events with IDs less than or equal to ``last_id`` from the store."""
     if _store is None:
         return
@@ -110,7 +114,9 @@ def unsubscribe_in_memory(queue: asyncio.Queue) -> None:
             break
 
 
-def _publish_in_memory(topic: str, payload: Dict[str, Any], tenant_id: str) -> None:
+def _publish_in_memory(
+    topic: str, payload: dict[str, Any], tenant_id: str
+) -> None:
     """Send an event payload to all in-memory subscribers."""
 
     if not _subscribers:
@@ -118,7 +124,7 @@ def _publish_in_memory(topic: str, payload: Dict[str, Any], tenant_id: str) -> N
 
     message = {"type": topic, "data": payload, "tenant_id": tenant_id}
 
-    stale: List[_Subscriber] = []
+    stale: list[_Subscriber] = []
     for subscriber in list(_subscribers):
         try:
             subscriber.loop.call_soon_threadsafe(

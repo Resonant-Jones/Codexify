@@ -30,16 +30,20 @@ class NullChatlog:
         return []
 
 
-def load_benchmark(path: Path) -> Dict[str, Any]:
+def load_benchmark(path: Path) -> dict[str, Any]:
     try:
         import yaml  # type: ignore
     except ImportError as exc:  # pragma: no cover - fallback path
-        raise RuntimeError("PyYAML is required to load benchmark specs") from exc
+        raise RuntimeError(
+            "PyYAML is required to load benchmark specs"
+        ) from exc
     with path.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-def build_prompt(question: str, context: Dict[str, Any]) -> List[Dict[str, str]]:
+def build_prompt(
+    question: str, context: dict[str, Any]
+) -> list[dict[str, str]]:
     parts = []
     for sem in context.get("semantic", []):
         parts.append(f"SEMANTIC: {sem}")
@@ -53,7 +57,9 @@ def build_prompt(question: str, context: Dict[str, Any]) -> List[Dict[str, str]]
     return [{"role": "user", "content": prompt_text}]
 
 
-async def run_prompt(prompt_spec: Dict[str, Any], settings: Settings, mode: str) -> Dict[str, Any]:
+async def run_prompt(
+    prompt_spec: dict[str, Any], settings: Settings, mode: str
+) -> dict[str, Any]:
     start = time.time()
     broker = ContextBroker(
         chatlog_db=NullChatlog(),
@@ -91,9 +97,17 @@ async def main():
         type=Path,
         default=Path(__file__).parent / "benchmarks" / "graph_rag.yaml",
     )
-    parser.add_argument("--with-graph", action="store_true", help="Run with graph context only")
-    parser.add_argument("--without-graph", action="store_true", help="Run without graph context only")
-    parser.add_argument("--compare", action="store_true", help="Run both modes for comparison")
+    parser.add_argument(
+        "--with-graph", action="store_true", help="Run with graph context only"
+    )
+    parser.add_argument(
+        "--without-graph",
+        action="store_true",
+        help="Run without graph context only",
+    )
+    parser.add_argument(
+        "--compare", action="store_true", help="Run both modes for comparison"
+    )
     args = parser.parse_args()
 
     spec = load_benchmark(args.benchmark)
@@ -104,7 +118,7 @@ async def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"graph_rag_{timestamp}.jsonl"
 
-    modes: List[str] = []
+    modes: list[str] = []
     if args.compare or (not args.with_graph and not args.without_graph):
         modes = ["with-graph", "without-graph"]
     else:

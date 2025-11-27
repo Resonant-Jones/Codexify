@@ -1,10 +1,11 @@
-import os
-import json
 import hashlib
-from pathlib import Path
-from datetime import datetime, timezone
-import subprocess
 import importlib
+import json
+import os
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+
 
 class CodexifyFSManifest:
     def __init__(self, base_dir=None):
@@ -41,7 +42,11 @@ class CodexifyFSManifest:
 
         # Check for gpg binary
         try:
-            subprocess.run(["gpg", "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            subprocess.run(
+                ["gpg", "--version"],
+                capture_output=True,
+                check=True,
+            )
             gpg_available = True
         except (subprocess.CalledProcessError, FileNotFoundError):
             gpg_available = False
@@ -50,26 +55,33 @@ class CodexifyFSManifest:
             try:
                 result = subprocess.run(
                     ["gpg", "--verify", str(sig_file), str(file_path)],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    capture_output=True,
                 )
-                verified = (result.returncode == 0)
+                verified = result.returncode == 0
                 signer = None
-                verified_at = datetime.now(timezone.utc).isoformat() if verified else None
+                verified_at = (
+                    datetime.now(timezone.utc).isoformat() if verified else None
+                )
                 method = "gpg"
                 if verified:
                     # Attempt to extract signer from stderr output
                     stderr_output = result.stderr.decode(errors="ignore")
                     for line in stderr_output.splitlines():
                         if line.startswith("gpg: Good signature from"):
-                            signer = line.partition("gpg: Good signature from")[2].strip().strip('"')
+                            signer = (
+                                line.partition("gpg: Good signature from")[2]
+                                .strip()
+                                .strip('"')
+                            )
                             break
                 return {
                     "verified": verified,
                     "signer": signer,
                     "verified_at": verified_at,
                     "method": method,
-                    "signature_file": str(sig_file.relative_to(self.base_dir)) if sig_file else None,
+                    "signature_file": str(sig_file.relative_to(self.base_dir))
+                    if sig_file
+                    else None,
                 }
             except Exception:
                 return {
@@ -77,7 +89,9 @@ class CodexifyFSManifest:
                     "signer": None,
                     "verified_at": None,
                     "method": "gpg",
-                    "signature_file": str(sig_file.relative_to(self.base_dir)) if sig_file else None,
+                    "signature_file": str(sig_file.relative_to(self.base_dir))
+                    if sig_file
+                    else None,
                 }
         else:
             # fallback to pgpy
@@ -90,10 +104,14 @@ class CodexifyFSManifest:
                         "signer": None,
                         "verified_at": None,
                         "method": "pgpy",
-                        "signature_file": str(sig_file.relative_to(self.base_dir)) if sig_file else None,
+                        "signature_file": str(
+                            sig_file.relative_to(self.base_dir)
+                        )
+                        if sig_file
+                        else None,
                     }
 
-                with open(trusted_key_path, "r") as key_file:
+                with open(trusted_key_path) as key_file:
                     pubkey_data = key_file.read()
                 pubkey, _ = pgpy.PGPKey.from_blob(pubkey_data)
 
@@ -104,15 +122,25 @@ class CodexifyFSManifest:
 
                 verified = pubkey.verify(file_data, signature)
                 verified_bool = bool(verified)
-                verified_at = datetime.now(timezone.utc).isoformat() if verified_bool else None
-                signer = pubkey.userids[0].name if verified_bool and pubkey.userids else None
+                verified_at = (
+                    datetime.now(timezone.utc).isoformat()
+                    if verified_bool
+                    else None
+                )
+                signer = (
+                    pubkey.userids[0].name
+                    if verified_bool and pubkey.userids
+                    else None
+                )
 
                 return {
                     "verified": verified_bool,
                     "signer": signer,
                     "verified_at": verified_at,
                     "method": "pgpy",
-                    "signature_file": str(sig_file.relative_to(self.base_dir)) if sig_file else None,
+                    "signature_file": str(sig_file.relative_to(self.base_dir))
+                    if sig_file
+                    else None,
                 }
             except Exception:
                 return {
@@ -120,7 +148,9 @@ class CodexifyFSManifest:
                     "signer": None,
                     "verified_at": None,
                     "method": "pgpy",
-                    "signature_file": str(sig_file.relative_to(self.base_dir)) if sig_file else None,
+                    "signature_file": str(sig_file.relative_to(self.base_dir))
+                    if sig_file
+                    else None,
                 }
 
     def _file_metadata(self, file_path: Path):
@@ -140,21 +170,25 @@ class CodexifyFSManifest:
             self.verified_count += 1
         else:
             # Also include method, signer, verified_at even if not verified for completeness
-            provenance.update({
-                "signer": sig_verification.get("signer"),
-                "verified_at": sig_verification.get("verified_at"),
-                "method": sig_verification.get("method"),
-            })
+            provenance.update(
+                {
+                    "signer": sig_verification.get("signer"),
+                    "verified_at": sig_verification.get("verified_at"),
+                    "method": sig_verification.get("method"),
+                }
+            )
 
         return {
             "path": str(rel_path),
             "name": file_path.stem,
             "ext": file_path.suffix,
             "size": stat.st_size,
-            "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            "modified": datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat(),
             "category": file_path.parent.name,
             "sha256": sha_hash,
-            "provenance": provenance
+            "provenance": provenance,
         }
 
     def scan_dir(self, directory: Path):
@@ -182,8 +216,12 @@ class CodexifyFSManifest:
             "sandbox": sandbox,
         }
         total_files = len(tools) + len(skills) + len(sandbox)
-        print(f"[CodexifyFS] Indexed {len(tools)} tools, {len(skills)} skills, {len(sandbox)} sandbox entries with metadata + provenance.")
-        print(f"[CodexifyFS] Verified {self.verified_count} of {total_files} files with signatures.")
+        print(
+            f"[CodexifyFS] Indexed {len(tools)} tools, {len(skills)} skills, {len(sandbox)} sandbox entries with metadata + provenance."
+        )
+        print(
+            f"[CodexifyFS] Verified {self.verified_count} of {total_files} files with signatures."
+        )
         return manifest
 
     def save_manifest(self):
@@ -192,8 +230,10 @@ class CodexifyFSManifest:
             json.dump(manifest, f, indent=2)
         print(f"[CodexifyFS] Manifest written to {self.manifest_path}")
 
+
 def load_manifest():
     return CodexifyFSManifest().generate_manifest()
+
 
 if __name__ == "__main__":
     manifest = CodexifyFSManifest()

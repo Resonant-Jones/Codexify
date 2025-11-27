@@ -42,9 +42,15 @@ def build_drive_service(logger=None):
         cpath = Path(creds_json)
         if cpath.exists() and is_service_account(cpath):
             if logger:
-                logger.info("Drive auth: using Service Account at %s", str(cpath))
-            creds = SACredentials.from_service_account_file(str(cpath), scopes=SCOPES)
-            return build("drive", "v3", credentials=creds, cache_discovery=False)
+                logger.info(
+                    "Drive auth: using Service Account at %s", str(cpath)
+                )
+            creds = SACredentials.from_service_account_file(
+                str(cpath), scopes=SCOPES
+            )
+            return build(
+                "drive", "v3", credentials=creds, cache_discovery=False
+            )
         # Else: OAuth path — token.json must exist
         if token_json.exists():
             if logger:
@@ -53,8 +59,12 @@ def build_drive_service(logger=None):
                     str(token_json),
                     str(cpath),
                 )
-            creds = OAuthCredentials.from_authorized_user_file(str(token_json), SCOPES)
-            return build("drive", "v3", credentials=creds, cache_discovery=False)
+            creds = OAuthCredentials.from_authorized_user_file(
+                str(token_json), SCOPES
+            )
+            return build(
+                "drive", "v3", credentials=creds, cache_discovery=False
+            )
         raise RuntimeError(
             "OAuth token not found at %s. Run /codexify/oauth-begin first."
             % str(token_json)
@@ -67,7 +77,9 @@ def build_drive_service(logger=None):
                 "Drive auth: using OAuth token at %s (no client secret provided)",
                 str(token_json),
             )
-        creds = OAuthCredentials.from_authorized_user_file(str(token_json), SCOPES)
+        creds = OAuthCredentials.from_authorized_user_file(
+            str(token_json), SCOPES
+        )
         return build("drive", "v3", credentials=creds, cache_discovery=False)
     raise RuntimeError(
         "No Drive credentials. Set GOOGLE_APPLICATION_CREDENTIALS or provide token.json at %s"

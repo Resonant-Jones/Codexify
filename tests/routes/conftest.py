@@ -135,13 +135,15 @@ def mock_auth():
 @pytest.fixture
 def mock_require_api_key(mock_auth):
     """Mock the require_api_key dependency function."""
+
     def _mock_require_api_key(api_key: str = None):
         return mock_auth
+
     return _mock_require_api_key
 
 
 @pytest.fixture
-def sample_thread_data() -> Dict[str, Any]:
+def sample_thread_data() -> dict[str, Any]:
     """Sample thread payload for testing."""
     return {
         "title": "Test Thread",
@@ -152,7 +154,7 @@ def sample_thread_data() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def sample_project_data() -> Dict[str, Any]:
+def sample_project_data() -> dict[str, Any]:
     """Sample project payload for testing."""
     return {
         "name": "Test Project",
@@ -174,17 +176,26 @@ def test_client(mock_db, mock_auth, monkeypatch, tmp_path):
             with patch("guardian.core.dependencies.chatlog_db", mock_db):
                 with patch("guardian.routes.chat.chatlog_db", mock_db):
                     with patch("guardian.routes.projects.chatlog_db", mock_db):
-                        with patch("guardian.routes.memory.chatlog_db", mock_db):
-                            with patch("guardian.guardian_api.event_bus") as mock_event_bus:
+                        with patch(
+                            "guardian.routes.memory.chatlog_db", mock_db
+                        ):
+                            with patch(
+                                "guardian.guardian_api.event_bus"
+                            ) as mock_event_bus:
                                 mock_event_bus.emit_event.return_value = None
 
-                                from guardian.guardian_api import app, require_api_key
+                                from guardian.guardian_api import (
+                                    app,
+                                    require_api_key,
+                                )
 
                                 # Override the dependency injection for require_api_key
                                 def mock_require_api_key_override():
                                     return mock_auth
 
-                                app.dependency_overrides[require_api_key] = mock_require_api_key_override
+                                app.dependency_overrides[
+                                    require_api_key
+                                ] = mock_require_api_key_override
 
                                 client = TestClient(app)
                                 yield client

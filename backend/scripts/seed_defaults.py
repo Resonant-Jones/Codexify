@@ -16,19 +16,26 @@ Environment:
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
-import logging
 from contextlib import contextmanager
 
 logger = logging.getLogger("seed_defaults")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 # --- DB connect helpers ------------------------------------------------------
 
+
 def _is_pg(dsn: str | None) -> bool:
-    return bool(dsn and (dsn.startswith("postgres://") or dsn.startswith("postgresql://")))
+    return bool(
+        dsn
+        and (dsn.startswith("postgres://") or dsn.startswith("postgresql://"))
+    )
+
 
 def _connect_pg(dsn: str):
     """
@@ -48,11 +55,14 @@ def _connect_pg(dsn: str):
 
         return psycopg2.connect(dsn)
 
+
 def _connect_sqlite(path: str):
     import sqlite3
+
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 @contextmanager
 def _cursor(conn):
@@ -66,7 +76,9 @@ def _cursor(conn):
     finally:
         cur.close()
 
+
 # --- Introspection utilities -------------------------------------------------
+
 
 def table_exists(conn, table: str, schema: str = "public") -> bool:
     """Return True if table exists; supports Postgres and SQLite."""
@@ -94,6 +106,7 @@ def table_exists(conn, table: str, schema: str = "public") -> bool:
             )
             return cur.fetchone() is not None
 
+
 def wait_for_table(conn, table: str, timeout_sec: int = 20) -> bool:
     """Poll until `table` exists or timeout elapses."""
     deadline = time.time() + timeout_sec
@@ -103,7 +116,9 @@ def wait_for_table(conn, table: str, timeout_sec: int = 20) -> bool:
         time.sleep(0.5)
     return table_exists(conn, table)
 
+
 # --- Idempotent upserts ------------------------------------------------------
+
 
 def ensure_project(conn, name: str, description: str = "") -> None:
     """Insert a project row if one with the same name isn't present."""
@@ -136,7 +151,9 @@ def ensure_project(conn, name: str, description: str = "") -> None:
                 (name, description, name),
             )
 
+
 # --- Main --------------------------------------------------------------------
+
 
 def main() -> int:
     dsn = os.getenv("DATABASE_URL")
@@ -159,12 +176,16 @@ def main() -> int:
     try:
         # Ensure Alembic created 'projects' before we try to seed it
         if not wait_for_table(conn, "projects", timeout_sec=20):
-            logger.warning("[Seed] 'projects' table not found after wait; skipping seeding.")
+            logger.warning(
+                "[Seed] 'projects' table not found after wait; skipping seeding."
+            )
             return 0
 
         # Seed: default “Loose Threads” project (idempotent)
         logger.info("[Seed] Ensuring default project exists...")
-        ensure_project(conn, "Loose Threads", "Default bucket for unassigned threads")
+        ensure_project(
+            conn, "Loose Threads", "Default bucket for unassigned threads"
+        )
         logger.info("[Seed] Default project ensured.")
 
         # You can add more idempotent ensures here (e.g., initial connectors) as needed.
@@ -179,6 +200,7 @@ def main() -> int:
             conn.close()
         except Exception:
             pass
+
 
 if __name__ == "__main__":
     sys.exit(main())

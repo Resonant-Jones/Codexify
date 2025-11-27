@@ -1,11 +1,24 @@
 """Shared test fixtures for collaboration realtime tests."""
 
 import os
-import pytest
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, DateTime, Boolean, JSON, ForeignKey, func
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
+
+import pytest
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    func,
+)
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
 # Set environment variables early to avoid issues
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
@@ -26,7 +39,9 @@ class CollaborationPermission(Base):
     can_edit = Column(Boolean, server_default="false", nullable=False)
     can_comment = Column(Boolean, server_default="true", nullable=False)
     granted_by = Column(String(255), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class SharedLink(Base):
@@ -36,7 +51,9 @@ class SharedLink(Base):
     target_id = Column(String(36), nullable=False)
     token = Column(String(64), unique=True, nullable=False)
     expires_at = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class CollaborationAuditLog(Base):
@@ -46,7 +63,9 @@ class CollaborationAuditLog(Base):
     user_id = Column(String(255))
     action = Column(String(64), nullable=False)
     payload = Column(JSON)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    timestamp = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 @pytest.fixture(scope="function")
@@ -54,7 +73,9 @@ def db_engine():
     """Create a Postgres-backed database for testing."""
     db_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
     if not db_url:
-        pytest.skip("TEST_DATABASE_URL or DATABASE_URL must be set for realtime DB tests")
+        pytest.skip(
+            "TEST_DATABASE_URL or DATABASE_URL must be set for realtime DB tests"
+        )
     engine = create_engine(db_url, future=True)
 
     # Create only the test tables

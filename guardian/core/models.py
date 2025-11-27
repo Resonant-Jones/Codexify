@@ -1,12 +1,12 @@
 # guardian/core/models.py
 """Alembic-facing registry of SQLAlchemy metadata."""
 
+import logging
 from datetime import datetime
 from importlib import import_module
-import logging
 from typing import Any, Dict, Iterable
 
-from sqlalchemy import DateTime, JSON, MetaData, String, func, Integer
+from sqlalchemy import JSON, DateTime, Integer, MetaData, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,9 @@ def _load_modules(modules: Iterable[str]) -> None:
         try:
             import_module(dotted)
         except ModuleNotFoundError as exc:
-            logger.debug("Skipping optional Postgres model module %s: %s", dotted, exc)
+            logger.debug(
+                "Skipping optional Postgres model module %s: %s", dotted, exc
+            )
 
 
 _load_modules(

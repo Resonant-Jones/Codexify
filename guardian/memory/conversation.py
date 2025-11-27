@@ -80,7 +80,7 @@ class Conversation:
     def load(cls, path: str) -> Optional["Conversation"]:
         """Load conversation from JSON file."""
         try:
-            with open(path, "r") as f:
+            with open(path) as f:
                 data = json.load(f)
             return cls.from_dict(data)
         except Exception as e:
@@ -142,7 +142,9 @@ class ConversationManager:
         path = self._get_conversation_path(conversation_id)
         return Conversation.load(path)
 
-    def create_child_conversation(self, parent_id: str) -> Optional[Conversation]:
+    def create_child_conversation(
+        self, parent_id: str
+    ) -> Optional[Conversation]:
         """
         Create a child conversation from a parent.
 

@@ -10,12 +10,13 @@ Implements a sophisticated trust scoring system based on:
 Trust levels influence federation decisions, search result ranking, and access privileges.
 """
 
-import logging
 import json
+import logging
 import math
-from typing import Dict, Optional, Any
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Dict, Optional
+
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -118,14 +119,18 @@ class TrustRegistry:
         # Keep simple trust dict for backward compatibility
         self.trust = (initial_trust or DEFAULT_TRUST_LEVELS).copy()
         self.last_updated: Dict[str, datetime] = {}
-        if load_existing and initial_trust is None and self.path != Path(":memory:"):
+        if (
+            load_existing
+            and initial_trust is None
+            and self.path != Path(":memory:")
+        ):
             self._load()
 
     def _load(self) -> None:
         """Load trust records from persistent storage."""
         if self.path.exists():
             try:
-                with open(self.path, "r") as f:
+                with open(self.path) as f:
                     data = json.load(f)
 
                 for node_id, record_data in data.get("records", {}).items():
@@ -133,11 +138,17 @@ class TrustRegistry:
                         record = TrustRecord(**record_data)
                         self.records[node_id] = record
                     except Exception as e:
-                        logger.warning(f"Failed to load trust record for {node_id}: {e}")
+                        logger.warning(
+                            f"Failed to load trust record for {node_id}: {e}"
+                        )
 
-                logger.info(f"Loaded trust records for {len(self.records)} peers")
+                logger.info(
+                    f"Loaded trust records for {len(self.records)} peers"
+                )
             except Exception as e:
-                logger.error(f"Failed to load trust registry from {self.path}: {e}")
+                logger.error(
+                    f"Failed to load trust registry from {self.path}: {e}"
+                )
 
     def _save(self) -> None:
         """Save trust records to persistent storage."""
@@ -203,7 +214,9 @@ class TrustRegistry:
             ValueError: If trust_level is outside [0.0, 1.0]
         """
         if not 0.0 <= trust_level <= 1.0:
-            raise ValueError(f"Trust level must be between 0.0 and 1.0, got {trust_level}")
+            raise ValueError(
+                f"Trust level must be between 0.0 and 1.0, got {trust_level}"
+            )
 
         self.trust[peer_id] = trust_level
         self.last_updated[peer_id] = datetime.now(timezone.utc)
@@ -280,7 +293,9 @@ class TrustRegistry:
             # Slowly reduce violations
             violations = record.get_metric("violations")
             if violations > 0:
-                record.set_metric("violations", violations * (1.0 - decay_rate * 0.5))
+                record.set_metric(
+                    "violations", violations * (1.0 - decay_rate * 0.5)
+                )
 
             # Recompute trust score
             self.compute_trust_score(node_id)
@@ -343,7 +358,9 @@ class TrustRegistry:
             "exported_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    def import_snapshot(self, snapshot: Dict[str, Any], merge: bool = True) -> None:
+    def import_snapshot(
+        self, snapshot: Dict[str, Any], merge: bool = True
+    ) -> None:
         """Import a trust registry snapshot.
 
         Args:
@@ -365,7 +382,9 @@ class TrustRegistry:
                     else:
                         self.records[node_id] = record
                 except Exception as e:
-                    logger.warning(f"Failed to import record for {node_id}: {e}")
+                    logger.warning(
+                        f"Failed to import record for {node_id}: {e}"
+                    )
 
             logger.info(f"Imported snapshot with {len(self.records)} records")
             self._save()
@@ -422,7 +441,9 @@ def calculate_result_score(
     return min(1.0, score)  # Cap at 1.0
 
 
-def calculate_recency_factor(minutes_ago: int, max_age_minutes: int = 1440) -> float:
+def calculate_recency_factor(
+    minutes_ago: int, max_age_minutes: int = 1440
+) -> float:
     """Calculate recency factor for a result based on age.
 
     Older results get lower scores. Results older than max_age get 0.0.

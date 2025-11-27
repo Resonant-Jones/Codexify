@@ -4,11 +4,12 @@ Tests the /api/sensors/state endpoint, EventBus event emission/retrieval,
 and system metric collection with proper schema validation.
 """
 
-import pytest
 import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
 from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 @pytest.fixture
@@ -18,7 +19,9 @@ def mock_event_store():
     mock.events = []
     mock.next_id = 1
 
-    def append_event(topic: str, payload: Dict[str, Any], tenant_id: str = "default"):
+    def append_event(
+        topic: str, payload: Dict[str, Any], tenant_id: str = "default"
+    ):
         """Append event to store."""
         event = {
             "id": mock.next_id,
@@ -31,7 +34,9 @@ def mock_event_store():
         mock.next_id += 1
         return event["id"]
 
-    def list_events_after(last_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+    def list_events_after(
+        last_id: int, limit: int = 100
+    ) -> List[Dict[str, Any]]:
         """List events after ID."""
         return [e for e in mock.events if e["id"] > last_id][:limit]
 
@@ -75,7 +80,9 @@ def event_bus_context(mock_event_store):
     """Provide an in-memory event bus with mock storage."""
     subscribers = []
 
-    async def publish(topic: str, payload: Dict[str, Any], tenant_id: str = "default"):
+    async def publish(
+        topic: str, payload: Dict[str, Any], tenant_id: str = "default"
+    ):
         """Emit event to storage and subscribers."""
         # Store event
         event_id = mock_event_store.append_event(topic, payload, tenant_id)
@@ -110,7 +117,9 @@ def event_bus_context(mock_event_store):
             except ValueError:
                 pass
 
-    def fetch_events_after(last_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+    def fetch_events_after(
+        last_id: int, limit: int = 100
+    ) -> List[Dict[str, Any]]:
         """Fetch events from storage."""
         return mock_event_store.list_events_after(last_id, limit)
 
@@ -132,7 +141,12 @@ class TestSensorMetricsStructure:
         metrics = await mock_system_monitor.check_health()
 
         # Verify all required fields are present
-        required_fields = ["cpu_percent", "memory_percent", "thread_count", "timestamp"]
+        required_fields = [
+            "cpu_percent",
+            "memory_percent",
+            "thread_count",
+            "timestamp",
+        ]
         for field in required_fields:
             assert field in metrics, f"Missing required field: {field}"
 
@@ -154,7 +168,9 @@ class TestSensorMetricsStructure:
         assert "memory_percent" in metrics
         memory = metrics["memory_percent"]
         assert isinstance(memory, (int, float))
-        assert 0 <= memory <= 100, f"Memory percent should be 0-100, got {memory}"
+        assert (
+            0 <= memory <= 100
+        ), f"Memory percent should be 0-100, got {memory}"
 
     @pytest.mark.asyncio
     async def test_sensor_metrics_thread_count(self, mock_system_monitor):
@@ -201,7 +217,9 @@ class TestSensorMetricsStructure:
         assert 0 <= disk <= 100, f"Disk percent should be 0-100, got {disk}"
 
     @pytest.mark.asyncio
-    async def test_sensor_metrics_reproducible_values(self, mock_system_monitor):
+    async def test_sensor_metrics_reproducible_values(
+        self, mock_system_monitor
+    ):
         """Test that mocked metrics are reproducible."""
         metrics1 = await mock_system_monitor.check_health()
         metrics2 = await mock_system_monitor.check_health()
@@ -230,9 +248,7 @@ class TestEventBusEmission:
     async def test_event_emission_basic(self, event_bus_context):
         """Test basic event emission."""
         await event_bus_context["publish"](
-            topic="test.event",
-            payload={"message": "test"},
-            tenant_id="default"
+            topic="test.event", payload={"message": "test"}, tenant_id="default"
         )
 
         # Verify event was stored
@@ -247,9 +263,7 @@ class TestEventBusEmission:
 
         for topic in topics:
             await event_bus_context["publish"](
-                topic=topic,
-                payload={"id": topic},
-                tenant_id="default"
+                topic=topic, payload={"id": topic}, tenant_id="default"
             )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -262,9 +276,7 @@ class TestEventBusEmission:
         payload = {"message": "test", "data": {"nested": "value"}}
 
         await event_bus_context["publish"](
-            topic="system.update",
-            payload=payload,
-            tenant_id="default"
+            topic="system.update", payload=payload, tenant_id="default"
         )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -287,9 +299,7 @@ class TestEventBusEmission:
         """Test that event IDs are sequential."""
         for i in range(5):
             await event_bus_context["publish"](
-                topic=f"event.{i}",
-                payload={},
-                tenant_id="default"
+                topic=f"event.{i}", payload={}, tenant_id="default"
             )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -302,15 +312,11 @@ class TestEventBusEmission:
     async def test_event_tenant_isolation(self, event_bus_context):
         """Test that events are tenant-aware."""
         await event_bus_context["publish"](
-            topic="tenant.event",
-            payload={"tenant": "a"},
-            tenant_id="tenant-a"
+            topic="tenant.event", payload={"tenant": "a"}, tenant_id="tenant-a"
         )
 
         await event_bus_context["publish"](
-            topic="tenant.event",
-            payload={"tenant": "b"},
-            tenant_id="tenant-b"
+            topic="tenant.event", payload={"tenant": "b"}, tenant_id="tenant-b"
         )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -319,15 +325,15 @@ class TestEventBusEmission:
         assert events[1]["tenant_id"] == "tenant-b"
 
     @pytest.mark.asyncio
-    async def test_system_update_event(self, event_bus_context, mock_system_monitor):
+    async def test_system_update_event(
+        self, event_bus_context, mock_system_monitor
+    ):
         """Test system.update event emission with sensor data."""
         metrics = await mock_system_monitor.check_health()
 
         # Emit system update event
         await event_bus_context["publish"](
-            topic="system.update",
-            payload=metrics,
-            tenant_id="default"
+            topic="system.update", payload=metrics, tenant_id="default"
         )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -348,9 +354,7 @@ class TestEventRetrieval:
         # Emit 5 events
         for i in range(5):
             await event_bus_context["publish"](
-                topic=f"event.{i}",
-                payload={},
-                tenant_id="default"
+                topic=f"event.{i}", payload={}, tenant_id="default"
             )
 
         # Fetch after ID 2 (should get events 3, 4, 5)
@@ -364,9 +368,7 @@ class TestEventRetrieval:
         # Emit 10 events
         for i in range(10):
             await event_bus_context["publish"](
-                topic=f"event.{i}",
-                payload={},
-                tenant_id="default"
+                topic=f"event.{i}", payload={}, tenant_id="default"
             )
 
         # Fetch after ID 0 with limit 3
@@ -386,9 +388,7 @@ class TestEventRetrieval:
         # Emit events in order
         for i in range(5):
             await event_bus_context["publish"](
-                topic=f"event.{i}",
-                payload={"order": i},
-                tenant_id="default"
+                topic=f"event.{i}", payload={"order": i}, tenant_id="default"
             )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -403,9 +403,7 @@ class TestEventRetrieval:
         # Emit initial events (will have IDs 1, 2, 3)
         for i in range(3):
             await event_bus_context["publish"](
-                topic=f"event.{i}",
-                payload={},
-                tenant_id="default"
+                topic=f"event.{i}", payload={}, tenant_id="default"
             )
 
         # Simulate client checkpoint at ID 2
@@ -414,9 +412,7 @@ class TestEventRetrieval:
         # Emit more events (will have IDs 4, 5)
         for i in range(3, 5):
             await event_bus_context["publish"](
-                topic=f"event.{i}",
-                payload={},
-                tenant_id="default"
+                topic=f"event.{i}", payload={}, tenant_id="default"
             )
 
         # Fetch events since checkpoint
@@ -437,13 +433,11 @@ class TestEventSynchronization:
             "thread_id": 1,
             "message_id": 42,
             "role": "assistant",
-            "content": "Hello"
+            "content": "Hello",
         }
 
         await event_bus_context["publish"](
-            topic="message.created",
-            payload=event_payload,
-            tenant_id="default"
+            topic="message.created", payload=event_payload, tenant_id="default"
         )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -456,13 +450,11 @@ class TestEventSynchronization:
         event_payload = {
             "thread_id": 1,
             "title": "Updated Title",
-            "updated_at": datetime.now().isoformat()
+            "updated_at": datetime.now().isoformat(),
         }
 
         await event_bus_context["publish"](
-            topic="thread.updated",
-            payload=event_payload,
-            tenant_id="default"
+            topic="thread.updated", payload=event_payload, tenant_id="default"
         )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -475,13 +467,11 @@ class TestEventSynchronization:
         event_payload = {
             "connector": "slack",
             "status": "success",
-            "synced_count": 10
+            "synced_count": 10,
         }
 
         await event_bus_context["publish"](
-            topic="connector.sync",
-            payload=event_payload,
-            tenant_id="default"
+            topic="connector.sync", payload=event_payload, tenant_id="default"
         )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -494,13 +484,11 @@ class TestEventSynchronization:
         event_payload = {
             "source": "github",
             "connector": "github-org",
-            "inserted": 5
+            "inserted": 5,
         }
 
         await event_bus_context["publish"](
-            topic="memory.ingest",
-            payload=event_payload,
-            tenant_id="default"
+            topic="memory.ingest", payload=event_payload, tenant_id="default"
         )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -520,9 +508,7 @@ class TestEventSynchronization:
 
         for topic, payload in events:
             await event_bus_context["publish"](
-                topic=topic,
-                payload=payload,
-                tenant_id="default"
+                topic=topic, payload=payload, tenant_id="default"
             )
 
         stored_events = event_bus_context["fetch_events_after"](0)
@@ -534,7 +520,7 @@ class TestEventSynchronization:
             "message.created",
             "message.created",
             "thread.updated",
-            "system.update"
+            "system.update",
         ]
 
 
@@ -542,16 +528,16 @@ class TestSystemMetricCollection:
     """Test system metric collection patterns."""
 
     @pytest.mark.asyncio
-    async def test_periodic_metric_emission(self, event_bus_context, mock_system_monitor):
+    async def test_periodic_metric_emission(
+        self, event_bus_context, mock_system_monitor
+    ):
         """Test periodic metric collection and emission."""
         intervals = 3
 
         for i in range(intervals):
             metrics = await mock_system_monitor.check_health()
             await event_bus_context["publish"](
-                topic="system.update",
-                payload=metrics,
-                tenant_id="default"
+                topic="system.update", payload=metrics, tenant_id="default"
             )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -559,21 +545,26 @@ class TestSystemMetricCollection:
         assert all(e["topic"] == "system.update" for e in events)
 
     @pytest.mark.asyncio
-    async def test_metric_payload_schema(self, event_bus_context, mock_system_monitor):
+    async def test_metric_payload_schema(
+        self, event_bus_context, mock_system_monitor
+    ):
         """Test that metric payload matches expected schema."""
         metrics = await mock_system_monitor.check_health()
 
         await event_bus_context["publish"](
-            topic="system.update",
-            payload=metrics,
-            tenant_id="default"
+            topic="system.update", payload=metrics, tenant_id="default"
         )
 
         events = event_bus_context["fetch_events_after"](0)
         payload = events[0]["payload"]
 
         # Verify schema
-        expected_fields = ["cpu_percent", "memory_percent", "thread_count", "timestamp"]
+        expected_fields = [
+            "cpu_percent",
+            "memory_percent",
+            "thread_count",
+            "timestamp",
+        ]
         for field in expected_fields:
             assert field in payload, f"Missing field in metric: {field}"
 
@@ -596,7 +587,9 @@ class TestSystemMetricCollection:
         assert cpu_alert is True
 
     @pytest.mark.asyncio
-    async def test_metric_trend_tracking(self, event_bus_context, mock_system_monitor):
+    async def test_metric_trend_tracking(
+        self, event_bus_context, mock_system_monitor
+    ):
         """Test tracking metric trends over time."""
         cpu_values = [20.0, 25.5, 30.0, 35.5, 40.0]
 
@@ -605,9 +598,7 @@ class TestSystemMetricCollection:
             metrics = await mock_system_monitor.check_health()
 
             await event_bus_context["publish"](
-                topic="system.update",
-                payload=metrics,
-                tenant_id="default"
+                topic="system.update", payload=metrics, tenant_id="default"
             )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -618,7 +609,9 @@ class TestSystemMetricCollection:
         assert cpu_trend == cpu_values
 
     @pytest.mark.asyncio
-    async def test_event_count_in_metrics(self, event_bus_context, mock_system_monitor):
+    async def test_event_count_in_metrics(
+        self, event_bus_context, mock_system_monitor
+    ):
         """Test that event queue size is tracked in metrics."""
         # Simulate event queue building up
         mock_system_monitor.event_queue_size.return_value = 5
@@ -629,9 +622,7 @@ class TestSystemMetricCollection:
 
         # Emit as system update
         await event_bus_context["publish"](
-            topic="system.update",
-            payload=metrics,
-            tenant_id="default"
+            topic="system.update", payload=metrics, tenant_id="default"
         )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -642,7 +633,9 @@ class TestDiagnosticContextIntegration:
     """Test diagnostic mode context with sensor data."""
 
     @pytest.mark.asyncio
-    async def test_diagnostic_context_bundle_with_sensors(self, mock_system_monitor):
+    async def test_diagnostic_context_bundle_with_sensors(
+        self, mock_system_monitor
+    ):
         """Test that diagnostic context includes sensor snapshot."""
         # Simulate ContextBroker diagnostic mode context
         metrics = await mock_system_monitor.check_health()
@@ -651,7 +644,7 @@ class TestDiagnosticContextIntegration:
             "messages": [{"role": "user", "content": "test"}],
             "semantic": [{"text": "semantic match", "score": 0.95}],
             "memory": [{"text": "memory item", "score": 0.87}],
-            "sensors": metrics
+            "sensors": metrics,
         }
 
         # Verify all components present
@@ -671,7 +664,7 @@ class TestDiagnosticContextIntegration:
         context_bundle = {
             "messages": [{"role": "user", "content": "test"}],
             "semantic": [{"text": "semantic match", "score": 0.95}],
-            "memory": [{"text": "memory item", "score": 0.87}]
+            "memory": [{"text": "memory item", "score": 0.87}],
         }
 
         # Sensors should not be present in deep mode
@@ -682,7 +675,7 @@ class TestDiagnosticContextIntegration:
         """Test that normal mode context excludes memory and sensors."""
         context_bundle = {
             "messages": [{"role": "user", "content": "test"}],
-            "semantic": [{"text": "semantic match", "score": 0.95}]
+            "semantic": [{"text": "semantic match", "score": 0.95}],
         }
 
         # Memory and sensors should not be present
@@ -699,9 +692,7 @@ class TestEventStreamResilience:
         # Emit initial batch (IDs 1-5)
         for i in range(5):
             await event_bus_context["publish"](
-                topic=f"event.{i}",
-                payload={},
-                tenant_id="default"
+                topic=f"event.{i}", payload={}, tenant_id="default"
             )
 
         # Client checkpoints at ID 3
@@ -711,9 +702,7 @@ class TestEventStreamResilience:
         # New events arrive (IDs 6-8)
         for i in range(5, 8):
             await event_bus_context["publish"](
-                topic=f"event.{i}",
-                payload={},
-                tenant_id="default"
+                topic=f"event.{i}", payload={}, tenant_id="default"
             )
 
         # Client resumes from checkpoint
@@ -730,9 +719,7 @@ class TestEventStreamResilience:
 
         for i in range(event_count):
             await event_bus_context["publish"](
-                topic="high.volume",
-                payload={"seq": i},
-                tenant_id="default"
+                topic="high.volume", payload={"seq": i}, tenant_id="default"
             )
 
         # Fetch all events
@@ -745,13 +732,16 @@ class TestEventStreamResilience:
     @pytest.mark.asyncio
     async def test_event_filtering_by_topic(self, event_bus_context):
         """Test filtering events by topic pattern."""
-        topics = ["system.update", "message.created", "system.update", "thread.updated"]
+        topics = [
+            "system.update",
+            "message.created",
+            "system.update",
+            "thread.updated",
+        ]
 
         for topic in topics:
             await event_bus_context["publish"](
-                topic=topic,
-                payload={},
-                tenant_id="default"
+                topic=topic, payload={}, tenant_id="default"
             )
 
         events = event_bus_context["fetch_events_after"](0)
@@ -761,5 +751,7 @@ class TestEventStreamResilience:
         assert len(system_events) == 2
 
         # Filter message events
-        message_events = [e for e in events if e["topic"].startswith("message.")]
+        message_events = [
+            e for e in events if e["topic"].startswith("message.")
+        ]
         assert len(message_events) == 1

@@ -31,7 +31,9 @@ class GeminiChat(ChatProvider):
         r = g.generate_content(prompt, **kw)
         return getattr(r, "text", "") or ""
 
-    def stream(self, prompt: str, model: Optional[str] = None, **kw) -> Iterator[str]:
+    def stream(
+        self, prompt: str, model: Optional[str] = None, **kw
+    ) -> Iterator[str]:
         model = model or _DEFAULT
         g = genai.GenerativeModel(model)
         for ev in g.generate_content(prompt, stream=True, **kw):

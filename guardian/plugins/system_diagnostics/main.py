@@ -158,7 +158,9 @@ class SystemDiagnostics:
             try:
                 # Try get_thread_info first (for test compatibility), then fallback to health_check
                 if hasattr(self.diagnostics.thread_manager, "get_thread_info"):
-                    thread_info = self.diagnostics.thread_manager.get_thread_info()
+                    thread_info = (
+                        self.diagnostics.thread_manager.get_thread_info()
+                    )
                     active_threads = thread_info.get("active_count", 0)
                     dead_threads = thread_info.get("dead_count", 0)
                     monitored_threads_info = {
@@ -166,13 +168,20 @@ class SystemDiagnostics:
                         "dead_count": dead_threads,
                     }
                 else:
-                    health_check_report = self.diagnostics.thread_manager.health_check()
+                    health_check_report = (
+                        self.diagnostics.thread_manager.health_check()
+                    )
                     active_threads, dead_threads = 0, 0
-                    monitored_threads_info = health_check_report.get("threads", {})
+                    monitored_threads_info = health_check_report.get(
+                        "threads", {}
+                    )
 
                     for _, tinfo in monitored_threads_info.items():
                         if isinstance(tinfo, dict):
-                            if tinfo.get("status") in ("running", "initializing"):
+                            if tinfo.get("status") in (
+                                "running",
+                                "initializing",
+                            ):
                                 active_threads += 1
                             elif tinfo.get("status") in ("error", "stopped"):
                                 dead_threads += 1
@@ -185,7 +194,9 @@ class SystemDiagnostics:
                     except Exception:
                         return False
 
-                status = "healthy" if _lt(dead_threads, threshold) else "warning"
+                status = (
+                    "healthy" if _lt(dead_threads, threshold) else "warning"
+                )
 
                 result = DiagnosticResult(
                     check_type="threads",
@@ -213,13 +224,23 @@ class SystemDiagnostics:
             try:
                 plugin_info = await self.diagnostics._check_plugins()
                 unhealthy = len(
-                    [p for p in plugin_info["plugins"] if p["status"] != "healthy"]
+                    [
+                        p
+                        for p in plugin_info["plugins"]
+                        if p["status"] != "healthy"
+                    ]
                 )
-                threshold = self.diagnostics.config.get("max_unhealthy_plugins", 2)
+                threshold = self.diagnostics.config.get(
+                    "max_unhealthy_plugins", 2
+                )
                 status = "healthy" if unhealthy < threshold else "warning"
 
                 result = DiagnosticResult(
-                    "plugins", status, unhealthy, threshold, metadata=plugin_info
+                    "plugins",
+                    status,
+                    unhealthy,
+                    threshold,
+                    metadata=plugin_info,
                 )
                 self.history.append(result)
                 self._trim_history()
@@ -236,7 +257,11 @@ class SystemDiagnostics:
             try:
                 agent_info = await self.diagnostics._check_agents()
                 unhealthy = len(
-                    [a for a in agent_info["agents"] if a["status"] != "healthy"]
+                    [
+                        a
+                        for a in agent_info["agents"]
+                        if a["status"] != "healthy"
+                    ]
                 )
                 threshold = 0
                 status = "healthy" if unhealthy == 0 else "critical"
@@ -259,7 +284,9 @@ class SystemDiagnostics:
             try:
                 perf_info = await self.diagnostics._check_performance()
                 response_time = perf_info["avg_response_time"]
-                threshold = self.diagnostics.config.get("max_response_time", 1000)
+                threshold = self.diagnostics.config.get(
+                    "max_response_time", 1000
+                )
 
                 def _lt(a, b):
                     try:
@@ -267,10 +294,16 @@ class SystemDiagnostics:
                     except (TypeError, ValueError):
                         return False
 
-                status = "healthy" if _lt(response_time, threshold) else "warning"
+                status = (
+                    "healthy" if _lt(response_time, threshold) else "warning"
+                )
 
                 result = DiagnosticResult(
-                    "performance", status, response_time, threshold, metadata=perf_info
+                    "performance",
+                    status,
+                    response_time,
+                    threshold,
+                    metadata=perf_info,
                 )
                 self.history.append(result)
                 self._trim_history()
@@ -336,7 +369,9 @@ class SystemDiagnostics:
             return {
                 "plugins": plugins,
                 "total": len(plugins),
-                "healthy": len([p for p in plugins if p["status"] == "healthy"]),
+                "healthy": len(
+                    [p for p in plugins if p["status"] == "healthy"]
+                ),
                 "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as e:
@@ -496,7 +531,9 @@ class SystemDiagnostics:
                 self.last_check = datetime.now(UTC)
 
                 # Trim results to max history
-                while len(self.check_results) > self.config.get("max_history", 100):
+                while len(self.check_results) > self.config.get(
+                    "max_history", 100
+                ):
                     self.check_results.pop(0)
 
                 # Sleep for the configured interval

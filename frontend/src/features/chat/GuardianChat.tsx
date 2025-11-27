@@ -40,7 +40,7 @@ function emitThreadsRefresh(kind: string, detail: Record<string, any> = {}) {
 
 /**
  * Consciousness container for Guardian chat conversations.
- * 
+ *
  * This component forms the heart-space where human and AI consciousness
  * intersect through threaded conversations. It manages the temporal flow
  * of messages, the lifecycle of conversation threads, and the spatial
@@ -97,7 +97,7 @@ export function GuardianChat({
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
     try {
-      const response = await api.post(`/api/chat/${tid}/complete`, {}, { params: { depth } });
+      const response = await api.post(`/api/chat/${tid}/complete`, { depth_mode: depth });
       console.log(`[guardian] Completing with depth=${depth}`);
 
       // Capture RAG trace for diagnostics/memory browser
@@ -204,7 +204,7 @@ export function GuardianChat({
   const handleSendMessage = (text: string) => {
     /**
      * Inject human consciousness into the thread's awareness stream.
-     * 
+     *
      * When no thread exists, this creates a new conversation consciousness
      * container and establishes the temporal message flow. The provisional
      * title becomes the thread's identity in the distributed awareness network.

@@ -62,7 +62,7 @@ class PluginHost:
         """Load plugin manifest file."""
         if os.path.exists(self.manifest_path):
             try:
-                with open(self.manifest_path, "r") as f:
+                with open(self.manifest_path) as f:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"Failed to load plugin manifest: {e}")
@@ -145,12 +145,16 @@ class PluginHost:
                         break
 
             if not plugin_class:
-                raise PluginValidationError(f"No Plugin class found in {plugin_file}")
+                raise PluginValidationError(
+                    f"No Plugin class found in {plugin_file}"
+                )
 
             return plugin_class
 
         except Exception as e:
-            raise PluginValidationError(f"Failed to load plugin {plugin_name}: {e}")
+            raise PluginValidationError(
+                f"Failed to load plugin {plugin_name}: {e}"
+            )
 
     def activate_plugin(self, plugin_name: str) -> None:
         """
@@ -166,7 +170,9 @@ class PluginHost:
             # Load plugin class
             plugin_class = self.load_plugin(plugin_name)
             if not plugin_class:
-                raise PluginActivationError(f"Failed to load plugin: {plugin_name}")
+                raise PluginActivationError(
+                    f"Failed to load plugin: {plugin_name}"
+                )
 
             # Instantiate plugin
             plugin = plugin_class()
@@ -181,7 +187,9 @@ class PluginHost:
             logger.info(f"Activated plugin: {plugin_name} v{plugin.version}")
 
         except Exception as e:
-            raise PluginActivationError(f"Failed to activate {plugin_name}: {e}")
+            raise PluginActivationError(
+                f"Failed to activate {plugin_name}: {e}"
+            )
 
     def deactivate_plugin(self, plugin_name: str) -> None:
         """
@@ -220,7 +228,9 @@ class PluginHost:
             "name": plugin.name,
             "version": plugin.version,
             "description": plugin.description,
-            "status": "active" if self.plugin_states.get(plugin_name) else "inactive",
+            "status": "active"
+            if self.plugin_states.get(plugin_name)
+            else "inactive",
         }
 
     def list_plugins(self) -> List[Dict[str, Any]]:

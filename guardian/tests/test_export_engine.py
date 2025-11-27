@@ -41,7 +41,9 @@ def test_export_json_basic():
 @patch("notion_client.Client")
 def test_export_to_notion_mock(client_mock):
     mock_instance = client_mock.return_value
-    mock_instance.pages.create.return_value = {"url": "https://notion.so/fake-page"}
+    mock_instance.pages.create.return_value = {
+        "url": "https://notion.so/fake-page"
+    }
 
     records = [{"timestamp": "now", "command": "test"}]
     result = export_to_notion(

@@ -8,7 +8,9 @@ from typing import Any
 from . import VectorStore
 
 
-def get_vector_store(*, store_name: str | None = None, **kwargs: Any) -> VectorStore:
+def get_vector_store(
+    *, store_name: str | None = None, **kwargs: Any
+) -> VectorStore:
     """Instantiate the configured vector store backend.
 
     Args:
@@ -23,7 +25,9 @@ def get_vector_store(*, store_name: str | None = None, **kwargs: Any) -> VectorS
         ValueError: If the backend name is unknown.
     """
 
-    configured = (store_name or os.getenv("VECTOR_STORE", "pgvector")).strip().lower()
+    configured = (
+        (store_name or os.getenv("VECTOR_STORE", "pgvector")).strip().lower()
+    )
 
     if configured == "pgvector":
         from .pgvector_store import PGVectorStore

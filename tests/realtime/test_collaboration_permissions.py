@@ -1,17 +1,19 @@
 """Tests for collaboration permissions, token auth, and audit logging."""
 
-import pytest
 import hashlib
 from datetime import datetime
+
+import pytest
 from sqlalchemy.orm import Session
+
+from guardian.realtime.collaboration import manager
 
 # Import test models from conftest
 from tests.realtime.conftest import (
-    CollaborationPermission,
     CollaborationAuditLog,
+    CollaborationPermission,
     SharedLink,
 )
-from guardian.realtime.collaboration import manager
 
 
 @pytest.fixture
@@ -103,9 +105,7 @@ class TestPermissionVerification:
         assert perms["can_edit"] is False
         assert perms["can_comment"] is True
 
-    def test_verify_access_with_invalid_token(
-        self, db_session: Session
-    ):
+    def test_verify_access_with_invalid_token(self, db_session: Session):
         """Invalid token should not grant access."""
         is_authorized, perms = manager.verify_access(
             "doc-456", "unknown_user", "invalid_token", db_session
@@ -139,16 +139,16 @@ class TestAuditLogging:
         )
 
         # Verify event was logged
-        logs = db_session.query(CollaborationAuditLog).filter(
-            CollaborationAuditLog.document_id == "doc-789"
-        ).all()
+        logs = (
+            db_session.query(CollaborationAuditLog)
+            .filter(CollaborationAuditLog.document_id == "doc-789")
+            .all()
+        )
         assert len(logs) >= 1
         assert logs[0].action == "presence.join"
         assert logs[0].user_id == "user1"
 
-    def test_log_update_event_with_content_hash(
-        self, db_session: Session
-    ):
+    def test_log_update_event_with_content_hash(self, db_session: Session):
         """Should log update events with content hash."""
         content = "test content"
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
@@ -162,9 +162,11 @@ class TestAuditLogging:
         )
 
         # Verify event was logged
-        logs = db_session.query(CollaborationAuditLog).filter(
-            CollaborationAuditLog.action == "update"
-        ).all()
+        logs = (
+            db_session.query(CollaborationAuditLog)
+            .filter(CollaborationAuditLog.action == "update")
+            .all()
+        )
         assert len(logs) >= 1
         assert logs[0].payload["content_hash"] == content_hash
 
@@ -179,9 +181,11 @@ class TestAuditLogging:
         )
 
         # Verify event was logged
-        logs = db_session.query(CollaborationAuditLog).filter(
-            CollaborationAuditLog.action == "update_denied"
-        ).all()
+        logs = (
+            db_session.query(CollaborationAuditLog)
+            .filter(CollaborationAuditLog.action == "update_denied")
+            .all()
+        )
         assert len(logs) >= 1
         assert logs[0].payload["reason"] == "insufficient_permissions"
 
@@ -196,9 +200,11 @@ class TestAuditLogging:
         )
 
         # Verify event was logged
-        logs = db_session.query(CollaborationAuditLog).filter(
-            CollaborationAuditLog.action == "access_denied"
-        ).all()
+        logs = (
+            db_session.query(CollaborationAuditLog)
+            .filter(CollaborationAuditLog.action == "access_denied")
+            .all()
+        )
         assert len(logs) >= 1
         assert logs[0].user_id == "unauthorized_user"
 
@@ -213,9 +219,11 @@ class TestAuditLogging:
         )
 
         # Verify event was logged
-        logs = db_session.query(CollaborationAuditLog).filter(
-            CollaborationAuditLog.action == "presence.leave"
-        ).all()
+        logs = (
+            db_session.query(CollaborationAuditLog)
+            .filter(CollaborationAuditLog.action == "presence.leave")
+            .all()
+        )
         assert len(logs) >= 1
 
     def test_audit_log_has_timestamp(self, db_session: Session):
@@ -230,9 +238,11 @@ class TestAuditLogging:
         )
         after = datetime.utcnow()
 
-        logs = db_session.query(CollaborationAuditLog).filter(
-            CollaborationAuditLog.action == "presence.join"
-        ).all()
+        logs = (
+            db_session.query(CollaborationAuditLog)
+            .filter(CollaborationAuditLog.action == "presence.join")
+            .all()
+        )
         assert len(logs) >= 1
         # Timestamp should be between before and after (accounting for DB defaults)
         assert logs[0].timestamp is not None

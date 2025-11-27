@@ -14,7 +14,7 @@ def test_memory_analyzer_query_method():
     print("Testing Memory Analyzer query method...")
 
     # Read the file and check for the correct method call
-    with open("guardian/plugins/memory_analyzer/main.py", "r") as f:
+    with open("guardian/plugins/memory_analyzer/main.py") as f:
         content = f.read()
 
     # Should have query_memory, not query_memories
@@ -22,7 +22,9 @@ def test_memory_analyzer_query_method():
         print("✅ Memory Analyzer: query_memory method used correctly")
         return True
     else:
-        print("❌ Memory Analyzer: Still using query_memories or missing query_memory")
+        print(
+            "❌ Memory Analyzer: Still using query_memories or missing query_memory"
+        )
         return False
 
 
@@ -30,7 +32,7 @@ def test_pattern_analyzer_health_check():
     """Test that PatternAnalyzer has health_check method"""
     print("Testing Pattern Analyzer health_check method...")
 
-    with open("guardian/plugins/pattern_analyzer/main.py", "r") as f:
+    with open("guardian/plugins/pattern_analyzer/main.py") as f:
         content = f.read()
 
     # Should have health_check method
@@ -46,7 +48,7 @@ def test_system_diagnostics_thread_info():
     """Test that SystemDiagnostics uses correct thread metadata"""
     print("Testing System Diagnostics thread metadata...")
 
-    with open("guardian/plugins/system_diagnostics/main.py", "r") as f:
+    with open("guardian/plugins/system_diagnostics/main.py") as f:
         content = f.read()
 
     # Should have "threads": monitored_threads_info, not "thread_info": thread_info
@@ -66,7 +68,7 @@ def test_system_diagnostics_test_fixes():
     print("Testing System Diagnostics test fixes...")
 
     with open(
-        "guardian/plugins/system_diagnostics/tests/test_system_diagnostics.py", "r"
+        "guardian/plugins/system_diagnostics/tests/test_system_diagnostics.py",
     ) as f:
         content = f.read()
 
@@ -89,8 +91,7 @@ def test_memory_analyzer_test_mocks():
     print("Testing Memory Analyzer test mocks...")
 
     with open(
-        "guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py", "r"
-    ) as f:
+        "guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py") as f:
         content = f.read()
 
     # Should have query_memory mocks, not query_memories
@@ -161,7 +162,9 @@ def main():
         print("\nSummary of fixes applied:")
         print("1. ✅ Memory Analyzer: Fixed query_memories → query_memory")
         print("2. ✅ Pattern Analyzer: Added health_check() method")
-        print("3. ✅ System Diagnostics: Fixed thread_info → monitored_threads_info")
+        print(
+            "3. ✅ System Diagnostics: Fixed thread_info → monitored_threads_info"
+        )
         print(
             "4. ✅ System Diagnostics Tests: Fixed metadata assertions and retry loop"
         )

@@ -13,6 +13,8 @@ import { useBreakpoint } from "./useBreakpoint";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
+import useImprintZero from "@/imprint/useImprintZero";
+import ImprintZeroToast from "@/imprint/ImprintZeroToast";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -30,6 +32,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const { subscribe } = useLiveEvents();
   const { wallpaperUrl } = useWallpaperUrl();
+  const imprintZero = useImprintZero();
   // Workspace panel toggle event listener
   React.useEffect(() => {
     const onToggleWorkspace = () => {
@@ -508,6 +511,15 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         boxSizing: "border-box",
       }}
     >
+        {imprintZero.proposal && (
+          <ImprintZeroToast
+            proposal={imprintZero.proposal}
+            onAccept={(override) => imprintZero.accept(override)}
+            onReject={() => imprintZero.reject()}
+            onEditAccept={(text) => imprintZero.accept(text)}
+          />
+        )}
+
         {/* Sidebar */}
         {isSidebarOpen && (
           <>
@@ -571,6 +583,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             disabled={chatDisabled}
           >
             <PromptLibraryPortal />
+            {(imprintZero.status?.system_prompt_meta?.warnings?.length || 0) > 0 && (
+              <div
+                className="mx-4 mt-3 rounded-lg border px-3 py-2 text-xs"
+                style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+              >
+                {(imprintZero.status?.system_prompt_meta?.warnings || []).join(" ")}
+              </div>
+            )}
             {showWorkspacePanel && (
               <div className="absolute inset-0 z-[110] pointer-events-auto">
                 <div className="absolute right-0 top-0 h-full w-[min(420px,90vw)] bg-black/50 backdrop-blur-md border-l border-white/10 shadow-2xl overflow-hidden">

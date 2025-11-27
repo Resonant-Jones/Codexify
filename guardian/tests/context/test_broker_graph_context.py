@@ -26,9 +26,17 @@ async def test_graph_context_flag_off(monkeypatch):
             return [{"kind": "graph-fact", "text": "should-not-appear"}]
 
     settings = Settings(GUARDIAN_ENABLE_GRAPH_CONTEXT=False)
-    broker = TestBroker(DummyChatlog(), DummyVector(), settings=settings, memory_store=None, sensors=None)
+    broker = TestBroker(
+        DummyChatlog(),
+        DummyVector(),
+        settings=settings,
+        memory_store=None,
+        sensors=None,
+    )
 
-    bundle, trace = await broker.assemble(thread_id=1, query="hi", user_id="demo")
+    bundle, trace = await broker.assemble(
+        thread_id=1, query="hi", user_id="demo"
+    )
     assert calls["graph"] == 0
     assert bundle.get("graph") == []
     assert trace["graph"] == []
@@ -38,12 +46,22 @@ async def test_graph_context_flag_off(monkeypatch):
 async def test_graph_context_flag_on(monkeypatch):
     class TestBroker(ContextBroker):
         async def _get_graph_context(self, **kwargs):
-            return [{"kind": "graph-fact", "text": "from-graph", "source": "neo4j"}]
+            return [
+                {"kind": "graph-fact", "text": "from-graph", "source": "neo4j"}
+            ]
 
     settings = Settings(GUARDIAN_ENABLE_GRAPH_CONTEXT=True)
-    broker = TestBroker(DummyChatlog(), DummyVector(), settings=settings, memory_store=None, sensors=None)
+    broker = TestBroker(
+        DummyChatlog(),
+        DummyVector(),
+        settings=settings,
+        memory_store=None,
+        sensors=None,
+    )
 
-    bundle, trace = await broker.assemble(thread_id=1, query="hi", user_id="demo")
+    bundle, trace = await broker.assemble(
+        thread_id=1, query="hi", user_id="demo"
+    )
     assert bundle.get("graph")
     assert bundle["graph"][0]["text"] == "from-graph"
     assert trace["graph"]
@@ -56,8 +74,16 @@ async def test_graph_context_failure_soft(monkeypatch):
             raise RuntimeError("boom")
 
     settings = Settings(GUARDIAN_ENABLE_GRAPH_CONTEXT=True)
-    broker = TestBroker(DummyChatlog(), DummyVector(), settings=settings, memory_store=None, sensors=None)
+    broker = TestBroker(
+        DummyChatlog(),
+        DummyVector(),
+        settings=settings,
+        memory_store=None,
+        sensors=None,
+    )
 
-    bundle, trace = await broker.assemble(thread_id=1, query="hi", user_id="demo")
+    bundle, trace = await broker.assemble(
+        thread_id=1, query="hi", user_id="demo"
+    )
     assert bundle.get("graph") == []
     assert trace["graph"] == []

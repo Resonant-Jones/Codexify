@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from fastapi import HTTPException
@@ -28,10 +28,14 @@ class TestCreateThreadShare:
     @patch("guardian.routes.share.secrets.token_urlsafe")
     @patch("guardian.routes.share.uuid.uuid4")
     @patch("guardian.routes.share.event_bus.emit_event")
-    def test_create_thread_share_success(self, mock_emit, mock_uuid, mock_token, mock_models, mock_db):
+    def test_create_thread_share_success(
+        self, mock_emit, mock_uuid, mock_token, mock_models, mock_db
+    ):
         """Test successful creation of thread share link returns token."""
         # Setup
-        mock_uuid.return_value = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        mock_uuid.return_value = uuid.UUID(
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        )
         mock_token.return_value = "test_secure_token_12345"
         mock_session = MagicMock()
         mock_db.get_session.return_value.__enter__.return_value = mock_session
@@ -42,7 +46,9 @@ class TestCreateThreadShare:
         mock_thread.title = "Test Thread"
 
         mock_chat_thread_query = MagicMock()
-        mock_chat_thread_query.filter_by.return_value.first.return_value = mock_thread
+        mock_chat_thread_query.filter_by.return_value.first.return_value = (
+            mock_thread
+        )
 
         # Setup model mocks
         mock_models.ChatThread = MagicMock()
@@ -59,11 +65,12 @@ class TestCreateThreadShare:
         share.configure_db(mock_db)
 
         # Execute
-        from guardian.routes.share import create_share_link, CreateShareRequest
+        from guardian.routes.share import CreateShareRequest, create_share_link
 
         request = CreateShareRequest(target_type="thread", target_id=1)
 
         import asyncio
+
         result = asyncio.run(create_share_link(request))
 
         # Verify
@@ -86,10 +93,14 @@ class TestCreateThreadShare:
     @patch("guardian.routes.share.secrets.token_urlsafe")
     @patch("guardian.routes.share.uuid.uuid4")
     @patch("guardian.routes.share.event_bus.emit_event")
-    def test_create_thread_share_with_expiry(self, mock_emit, mock_uuid, mock_token, mock_models, mock_db):
+    def test_create_thread_share_with_expiry(
+        self, mock_emit, mock_uuid, mock_token, mock_models, mock_db
+    ):
         """Test creating share link with expiry sets expires_at timestamp."""
         # Setup
-        mock_uuid.return_value = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        mock_uuid.return_value = uuid.UUID(
+            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        )
         mock_token.return_value = "token_with_expiry"
 
         mock_session = MagicMock()
@@ -101,7 +112,9 @@ class TestCreateThreadShare:
         mock_thread.title = "Expiring Thread"
 
         mock_chat_thread_query = MagicMock()
-        mock_chat_thread_query.filter_by.return_value.first.return_value = mock_thread
+        mock_chat_thread_query.filter_by.return_value.first.return_value = (
+            mock_thread
+        )
 
         # Setup model mocks
         mock_models.ChatThread = MagicMock()
@@ -117,11 +130,14 @@ class TestCreateThreadShare:
         share.configure_db(mock_db)
 
         # Execute
-        from guardian.routes.share import create_share_link, CreateShareRequest
+        from guardian.routes.share import CreateShareRequest, create_share_link
 
-        request = CreateShareRequest(target_type="thread", target_id=2, expires_in_days=7)
+        request = CreateShareRequest(
+            target_type="thread", target_id=2, expires_in_days=7
+        )
 
         import asyncio
+
         result = asyncio.run(create_share_link(request))
 
         # Verify
@@ -134,11 +150,12 @@ class TestCreateThreadShare:
         """Test creating share with invalid target_type raises 400."""
         share.configure_db(mock_db)
 
-        from guardian.routes.share import create_share_link, CreateShareRequest
+        from guardian.routes.share import CreateShareRequest, create_share_link
 
         request = CreateShareRequest(target_type="invalid", target_id=1)
 
         import asyncio
+
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(create_share_link(request))
 
@@ -166,11 +183,12 @@ class TestCreateThreadShare:
 
         share.configure_db(mock_db)
 
-        from guardian.routes.share import create_share_link, CreateShareRequest
+        from guardian.routes.share import CreateShareRequest, create_share_link
 
         request = CreateShareRequest(target_type="thread", target_id=999)
 
         import asyncio
+
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(create_share_link(request))
 
@@ -181,10 +199,14 @@ class TestCreateThreadShare:
     @patch("guardian.routes.share.secrets.token_urlsafe")
     @patch("guardian.routes.share.uuid.uuid4")
     @patch("guardian.routes.share.event_bus.emit_event")
-    def test_create_document_share_success(self, mock_emit, mock_uuid, mock_token, mock_models, mock_db):
+    def test_create_document_share_success(
+        self, mock_emit, mock_uuid, mock_token, mock_models, mock_db
+    ):
         """Test successful creation of document share link."""
         # Setup
-        mock_uuid.return_value = uuid.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+        mock_uuid.return_value = uuid.UUID(
+            "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        )
         mock_token.return_value = "doc_token_12345"
         mock_session = MagicMock()
         mock_db.get_session.return_value.__enter__.return_value = mock_session
@@ -194,7 +216,9 @@ class TestCreateThreadShare:
         mock_document.id = "doc-uuid-1234"
 
         mock_generated_query = MagicMock()
-        mock_generated_query.filter_by.return_value.first.return_value = mock_document
+        mock_generated_query.filter_by.return_value.first.return_value = (
+            mock_document
+        )
 
         # Setup model mocks
         mock_models.ChatThread = MagicMock()
@@ -212,11 +236,12 @@ class TestCreateThreadShare:
         share.configure_db(mock_db)
 
         # Execute
-        from guardian.routes.share import create_share_link, CreateShareRequest
+        from guardian.routes.share import CreateShareRequest, create_share_link
 
         request = CreateShareRequest(target_type="document", target_id=1)
 
         import asyncio
+
         result = asyncio.run(create_share_link(request))
 
         # Verify
@@ -254,11 +279,12 @@ class TestCreateThreadShare:
 
         share.configure_db(mock_db)
 
-        from guardian.routes.share import create_share_link, CreateShareRequest
+        from guardian.routes.share import CreateShareRequest, create_share_link
 
         request = CreateShareRequest(target_type="document", target_id=999)
 
         import asyncio
+
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(create_share_link(request))
 
@@ -271,7 +297,9 @@ class TestRetrieveSharedContent:
 
     @patch("guardian.routes.share.models")
     @patch("guardian.routes.share.event_bus.emit_event")
-    def test_retrieve_thread_share_success(self, mock_emit, mock_models, mock_db):
+    def test_retrieve_thread_share_success(
+        self, mock_emit, mock_models, mock_db
+    ):
         """Test successful retrieval of shared thread content."""
         mock_session = MagicMock()
         mock_db.get_session.return_value.__enter__.return_value = mock_session
@@ -296,7 +324,9 @@ class TestRetrieveSharedContent:
         mock_thread.updated_at = datetime(2025, 1, 2, 10, 0, 0)
 
         mock_chat_thread_query = MagicMock()
-        mock_chat_thread_query.filter_by.return_value.first.return_value = mock_thread
+        mock_chat_thread_query.filter_by.return_value.first.return_value = (
+            mock_thread
+        )
 
         # Mock messages
         mock_msg1 = MagicMock()
@@ -312,7 +342,10 @@ class TestRetrieveSharedContent:
         mock_msg2.created_at = datetime(2025, 1, 1, 10, 5, 0)
 
         mock_message_query = MagicMock()
-        mock_message_query.filter_by.return_value.order_by.return_value.all.return_value = [mock_msg1, mock_msg2]
+        mock_message_query.filter_by.return_value.order_by.return_value.all.return_value = [
+            mock_msg1,
+            mock_msg2,
+        ]
 
         # Setup model mocks
         mock_models.SharedLink = MagicMock()
@@ -335,9 +368,10 @@ class TestRetrieveSharedContent:
         share.configure_db(mock_db)
 
         # Execute
+        import asyncio
+
         from guardian.routes.share import retrieve_share_content
 
-        import asyncio
         result = asyncio.run(retrieve_share_content("test_token"))
 
         # Verify
@@ -385,9 +419,10 @@ class TestRetrieveSharedContent:
 
         share.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.share import retrieve_share_content
 
-        import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(retrieve_share_content("expired_token"))
 
@@ -415,9 +450,10 @@ class TestRetrieveSharedContent:
 
         share.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.share import retrieve_share_content
 
-        import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(retrieve_share_content("invalid_token"))
 
@@ -426,7 +462,9 @@ class TestRetrieveSharedContent:
 
     @patch("guardian.routes.share.models")
     @patch("guardian.routes.share.event_bus.emit_event")
-    def test_retrieve_document_share_success(self, mock_emit, mock_models, mock_db):
+    def test_retrieve_document_share_success(
+        self, mock_emit, mock_models, mock_db
+    ):
         """Test successful retrieval of shared document content."""
         mock_session = MagicMock()
         mock_db.get_session.return_value.__enter__.return_value = mock_session
@@ -443,7 +481,16 @@ class TestRetrieveSharedContent:
         mock_share_query.filter_by.return_value.first.return_value = mock_share
 
         # Mock generated document
-        mock_document = MagicMock(spec=['id', 'title', 'content', 'format', 'created_at', 'updated_at'])
+        mock_document = MagicMock(
+            spec=[
+                "id",
+                "title",
+                "content",
+                "format",
+                "created_at",
+                "updated_at",
+            ]
+        )
         mock_document.id = "doc-id-1234"
         mock_document.title = "Shared Doc"
         mock_document.content = "Document content here"
@@ -452,7 +499,9 @@ class TestRetrieveSharedContent:
         mock_document.updated_at = datetime(2025, 1, 2, 10, 0, 0)
 
         mock_generated_query = MagicMock()
-        mock_generated_query.filter_by.return_value.first.return_value = mock_document
+        mock_generated_query.filter_by.return_value.first.return_value = (
+            mock_document
+        )
 
         # Setup model mocks
         mock_models.SharedLink = MagicMock()
@@ -471,17 +520,22 @@ class TestRetrieveSharedContent:
 
         # Make the document instance check work
         isinstance_original = isinstance
+
         def isinstance_mock(obj, classinfo):
-            if obj is mock_document and classinfo.__name__ == 'GeneratedDocument':
+            if (
+                obj is mock_document
+                and classinfo.__name__ == "GeneratedDocument"
+            ):
                 return True
             return isinstance_original(obj, classinfo)
 
         share.configure_db(mock_db)
 
         # Execute
+        import asyncio
+
         from guardian.routes.share import retrieve_share_content
 
-        import asyncio
         result = asyncio.run(retrieve_share_content("doc_token"))
 
         # Verify
@@ -526,9 +580,10 @@ class TestRetrieveSharedContent:
 
         share.configure_db(mock_db)
 
+        import asyncio
+
         from guardian.routes.share import retrieve_share_content
 
-        import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(retrieve_share_content("orphaned_token"))
 

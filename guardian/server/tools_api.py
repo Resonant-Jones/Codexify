@@ -35,7 +35,9 @@ def call(payload: ToolCall):
             try:
                 req = SaveEntryRequest(**(payload.arguments or {}))
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Invalid arguments: {e}")
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid arguments: {e}"
+                )
             result = save_entry(req)
             return {"ok": True, "result": result}
         if payload.name == "codexify.confirm_and_save":
@@ -53,7 +55,9 @@ def call(payload: ToolCall):
                 }
                 req = SaveEntryRequest(**req_data)
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Invalid arguments: {e}")
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid arguments: {e}"
+                )
             result = save_entry(req)
             if not confirm:
                 return {
@@ -99,7 +103,11 @@ def call(payload: ToolCall):
                     required = bool(getattr(p, "required", False))
                     default = getattr(p, "default", None)
                     params.append(
-                        {"name": pname, "required": required, "default": default}
+                        {
+                            "name": pname,
+                            "required": required,
+                            "default": default,
+                        }
                     )
                 expected = params
         except Exception:
@@ -107,7 +115,10 @@ def call(payload: ToolCall):
 
         # Log server-side traceback for debugging
         logger.error(
-            "/tools/call error for %s: %s\n%s", payload.name, e, traceback.format_exc()
+            "/tools/call error for %s: %s\n%s",
+            payload.name,
+            e,
+            traceback.format_exc(),
         )
 
         detail: Dict[str, Any] = {"error": str(e)}

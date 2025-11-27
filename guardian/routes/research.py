@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from guardian.research import perform_research  # Ensure this function exists and works
+from guardian.research import (  # Ensure this function exists and works
+    perform_research,
+)
 
 router = APIRouter()
 

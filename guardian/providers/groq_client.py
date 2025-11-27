@@ -21,11 +21,15 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
 class GroqChatClient:
-    def __init__(self, api_url: str = GROQ_API_URL, api_key: str = GROQ_API_KEY):
+    def __init__(
+        self, api_url: str = GROQ_API_URL, api_key: str = GROQ_API_KEY
+    ):
         self.api_url = api_url
         self.api_key = api_key
 
-    def __call__(self, prompt: str, model: str = "llama-3.1-70b-versatile") -> str:
+    def __call__(
+        self, prompt: str, model: str = "llama-3.1-70b-versatile"
+    ) -> str:
         """Synchronous call to Groq chat completions."""
         model_name = model.split(":", 1)[-1]
         headers = {
@@ -37,7 +41,9 @@ class GroqChatClient:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.2,
         }
-        resp = requests.post(self.api_url, headers=headers, json=body, timeout=60)
+        resp = requests.post(
+            self.api_url, headers=headers, json=body, timeout=60
+        )
         resp.raise_for_status()
         data = resp.json()
         return data["choices"][0]["message"]["content"]

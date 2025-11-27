@@ -35,7 +35,9 @@ def list_threads(api_key: str = Depends(require_api_key)) -> Dict[str, Any]:
     delegated to the underlying chatlog_db implementation.
     """
     if chatlog_db is None:
-        raise HTTPException(status_code=500, detail="chatlog_db not initialized")
+        raise HTTPException(
+            status_code=500, detail="chatlog_db not initialized"
+        )
     try:
         items: List[Dict[str, Any]] = chatlog_db.list_threads()  # type: ignore[attr-defined]
     except Exception as exc:
@@ -62,7 +64,9 @@ def create_thread(
     integer ``thread_id`` is returned and that the route is not 404.
     """
     if chatlog_db is None:
-        raise HTTPException(status_code=500, detail="chatlog_db not initialized")
+        raise HTTPException(
+            status_code=500, detail="chatlog_db not initialized"
+        )
     # Reuse the provided title as a simple summary; lineage APIs do not inspect
     # these fields deeply in the current test suite.
     summary = (body.title or "New Thread").strip()
@@ -75,5 +79,7 @@ def create_thread(
             project_id=body.project_id,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to create thread: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create thread: {exc}"
+        )
     return {"thread_id": tid}

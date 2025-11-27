@@ -1,10 +1,10 @@
 ---
-version: 1.0  
-author: Codex (Resonant Constructs)  
-created: 2025-10-27  
-category: maintenance  
-type: archival  
-status: active  
+version: 1.0
+author: Codex (Resonant Constructs)
+created: 2025-10-27
+category: maintenance
+type: archival
+status: active
 ---
 
 ## PCX_LEGACY_001 – Legacy Archival Protocol

@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, Optional
 
+
 def _base_codexify_system_prompt() -> str:
     """
     Immutable core: your liability-bearing, non-user-editable rules.
@@ -16,6 +17,7 @@ def _base_codexify_system_prompt() -> str:
         "- Treat the user as the owner of their data, but respect legal and safety constraints.\n"
         "- Optimize for software engineering workflows: clarity, structure, traceability.\n"
     )
+
 
 def _imprint_zero_style_block(user_id: str) -> str:
     """
@@ -33,7 +35,9 @@ def _imprint_zero_style_block(user_id: str) -> str:
 
     name = imprint.get("guardian_name")
     if name:
-        parts.append(f"Address the user as '{imprint.get('preferred_name', 'friend')}'.")
+        parts.append(
+            f"Address the user as '{imprint.get('preferred_name', 'friend')}'."
+        )
         parts.append(f"Present yourself as '{name}', their Guardian.")
 
     style = imprint.get("style")
@@ -47,7 +51,12 @@ def _imprint_zero_style_block(user_id: str) -> str:
     if not parts:
         return ""
 
-    return "User-style guidance (from Imprint_Zero):\n" + "\n".join(f"- {p}" for p in parts) + "\n"
+    return (
+        "User-style guidance (from Imprint_Zero):\n"
+        + "\n".join(f"- {p}" for p in parts)
+        + "\n"
+    )
+
 
 def _user_persona_block(user_id: str, project_id: Optional[int]) -> str:
     """
@@ -69,6 +78,7 @@ def _user_persona_block(user_id: str, project_id: Optional[int]) -> str:
         f"{instructions}\n"
     )
 
+
 def _depth_block(depth: str) -> str:
     if depth == "shallow":
         return "Prioritize speed over exhaustive analysis.\n"
@@ -76,6 +86,7 @@ def _depth_block(depth: str) -> str:
         return "Favor deep, multi-step reasoning and rich explanations.\n"
     # normal
     return "Balance speed and depth.\n"
+
 
 def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
     """
@@ -86,12 +97,17 @@ def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
         return ""
     hints = []
     if bundle.get("documents"):
-        hints.append("You may have access to retrieved documents relevant to the query.")
+        hints.append(
+            "You may have access to retrieved documents relevant to the query."
+        )
     if bundle.get("graph"):
-        hints.append("You may have access to knowledge graph nodes and relationships.")
+        hints.append(
+            "You may have access to knowledge graph nodes and relationships."
+        )
     if not hints:
         return ""
     return "Context hints:\n" + "\n".join(f"- {h}" for h in hints) + "\n"
+
 
 def get_guardian_system_prompt(
     user_id: str,

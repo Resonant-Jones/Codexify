@@ -21,7 +21,8 @@ from guardian.threads_structure.thread_manager import ThreadManager
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,10 @@ class TestAgentsAndPlugins(unittest.TestCase):
         """Set up test-specific resources for each test method."""
         # Ensure artifacts.json is clean for CodexAwareness
         artifact_path = (
-            Path(__file__).parent.parent / "guardian" / "memory" / "artifacts.json"
+            Path(__file__).parent.parent
+            / "guardian"
+            / "memory"
+            / "artifacts.json"
         )
         if artifact_path.exists():
             artifact_path.unlink()
@@ -75,7 +79,9 @@ class TestAgentsAndPlugins(unittest.TestCase):
         )
 
         # Process memory
-        result = await self.vestige.process_memory(memory_id, {"context": "test"})
+        result = await self.vestige.process_memory(
+            memory_id, {"context": "test"}
+        )
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["memory_id"], memory_id)
@@ -233,14 +239,21 @@ class TestAgentsAndPlugins(unittest.TestCase):
                     "value": "immediate_processing",
                     "confidence": 0.8,
                 },
-                {"id": "strategy_2", "value": "delayed_processing", "confidence": 0.6},
+                {
+                    "id": "strategy_2",
+                    "value": "delayed_processing",
+                    "confidence": 0.6,
+                },
             ],
         )
 
         # 3. Assess system resonance
         # Corrected system_state structure for assess_resonance
         mock_system_state_for_resonance = {
-            "resources": {"cpu": {"utilization": 0.6}, "memory": {"utilization": 0.5}},
+            "resources": {
+                "cpu": {"utilization": 0.6},
+                "memory": {"utilization": 0.5},
+            },
             "errors": {
                 "total_operations": 1,  # Provide a non-zero total_operations
                 "error_count": 0,
@@ -271,10 +284,16 @@ class TestAgentsAndPlugins(unittest.TestCase):
         try:
             # Test Vestige: Expects an error status for a non-existent memory ID, but should not crash.
             vestige_result = await self.vestige.process_memory(
-                "non_existent_memory_for_health_check", {"context": "health_check"}
+                "non_existent_memory_for_health_check",
+                {"context": "health_check"},
             )
-            if not isinstance(vestige_result, dict) or "status" not in vestige_result:
-                logger.error("Vestige health check failed: Invalid response format.")
+            if (
+                not isinstance(vestige_result, dict)
+                or "status" not in vestige_result
+            ):
+                logger.error(
+                    "Vestige health check failed: Invalid response format."
+                )
                 return False
             # For this health check, Vestige returning an error for a missing ID is "healthy" agent behavior.
             # The key is that it processed the request and returned a valid error structure.
@@ -283,8 +302,17 @@ class TestAgentsAndPlugins(unittest.TestCase):
             # Test Axis: Expects success for a valid basic decision.
             axis_result = await self.axis.make_decision(
                 DecisionType.ROUTING,
-                {"destination": "health_check_dest", "payload": {"data": "sample"}},
-                [{"id": "route_default", "value": "default_action", "confidence": 0.9}],
+                {
+                    "destination": "health_check_dest",
+                    "payload": {"data": "sample"},
+                },
+                [
+                    {
+                        "id": "route_default",
+                        "value": "default_action",
+                        "confidence": 0.9,
+                    }
+                ],
             )
             if (
                 not isinstance(axis_result, dict)
@@ -303,7 +331,10 @@ class TestAgentsAndPlugins(unittest.TestCase):
                 },
                 "errors": {"total_operations": 0, "error_count": 0},
                 "performance": {"response_time": 0, "throughput": 0},
-                "coherence": {"component_alignment": 1.0, "state_consistency": 1.0},
+                "coherence": {
+                    "component_alignment": 1.0,
+                    "state_consistency": 1.0,
+                },
             }
             echoform_result = await self.echoform.assess_resonance(
                 mock_empty_system_state

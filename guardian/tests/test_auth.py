@@ -13,7 +13,7 @@ VALID_KEY = os.getenv("GUARDIAN_API_KEY", "invalid-by-default")
         ("/chat", "post"),
         ("/chat/stream", "get"),
     ],
-) 
+)
 def test_requires_api_key(path, method, client):
     # 1) no header -> 401
     r = getattr(client, method)(path, json={"prompt": "hello"})
@@ -25,7 +25,9 @@ def test_requires_api_key(path, method, client):
     r = getattr(client, method)(
         path, headers={"X-API-Key": "wrong"}, json={"prompt": "hello"}
     )
-    assert r.status_code == 401, f"Bad-key {method.upper()} {path} should be 401"
+    assert (
+        r.status_code == 401
+    ), f"Bad-key {method.upper()} {path} should be 401"
 
     # 3) correct key -> not 401 (200/stream)
     if method == "post":

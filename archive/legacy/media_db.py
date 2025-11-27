@@ -45,9 +45,13 @@ class MediaDB:
 
     def __init__(self, db_path: str | None = None):
         # `db_path` kept for API compatibility; if it looks like a DSN, allow it.
-        dsn_from_arg = db_path if (db_path and db_path.startswith("postgres")) else None
+        dsn_from_arg = (
+            db_path if (db_path and db_path.startswith("postgres")) else None
+        )
         self.dsn = (
-            dsn_from_arg or os.getenv("GUARDIAN_DB_URL") or os.getenv("DATABASE_URL")
+            dsn_from_arg
+            or os.getenv("GUARDIAN_DB_URL")
+            or os.getenv("DATABASE_URL")
         )
         if not self.dsn:
             raise RuntimeError(
@@ -79,13 +83,21 @@ class MediaDB:
                 VALUES
                     (%s, %s, %s, %s, %s, %s, %s, now(), now())
                 """,
-                (image_id, project_id, thread_id, user_id, src_url, prompt, model),
+                (
+                    image_id,
+                    project_id,
+                    thread_id,
+                    user_id,
+                    src_url,
+                    prompt,
+                    model,
+                ),
             )
         return image_id
 
     def get_generated_images_by_project(
         self, project_id: str, include_deleted: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         base = (
             "SELECT id, project_id, thread_id, user_id, src_url, prompt, model, created_at, updated_at "
             "FROM generated_images WHERE project_id = %s"
@@ -100,7 +112,7 @@ class MediaDB:
 
     def get_generated_images_by_thread(
         self, thread_id: str, include_deleted: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         base = (
             "SELECT id, project_id, thread_id, user_id, src_url, prompt, model, created_at, updated_at "
             "FROM generated_images WHERE thread_id = %s"
@@ -157,7 +169,7 @@ class MediaDB:
 
     def get_uploaded_images_by_project(
         self, project_id: str, include_deleted: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         base = (
             "SELECT id, project_id, thread_id, user_id, src_url, filename, filesize, mime_type, created_at, updated_at "
             "FROM uploaded_images WHERE project_id = %s"
@@ -172,7 +184,7 @@ class MediaDB:
 
     def get_uploaded_images_by_mime_type(
         self, mime_type: str, include_deleted: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         base = (
             "SELECT id, project_id, thread_id, user_id, src_url, filename, filesize, mime_type, created_at, updated_at "
             "FROM uploaded_images WHERE mime_type = %s"
@@ -214,13 +226,22 @@ class MediaDB:
                 VALUES
                     (%s, %s, %s, %s, %s, %s, %s, %s, now(), now())
                 """,
-                (doc_id, project_id, thread_id, user_id, title, content, format, model),
+                (
+                    doc_id,
+                    project_id,
+                    thread_id,
+                    user_id,
+                    title,
+                    content,
+                    format,
+                    model,
+                ),
             )
         return doc_id
 
     def get_generated_documents_by_project(
         self, project_id: str, include_deleted: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         base = (
             "SELECT id, project_id, thread_id, user_id, title, content, format, model, created_at, updated_at "
             "FROM generated_documents WHERE project_id = %s"
@@ -235,7 +256,7 @@ class MediaDB:
 
     def get_generated_documents_by_format(
         self, format: str, include_deleted: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         base = (
             "SELECT id, project_id, thread_id, user_id, title, content, format, model, created_at, updated_at "
             "FROM generated_documents WHERE format = %s"
@@ -267,7 +288,7 @@ class MediaDB:
         filesize: int,
         mime_type: str,
         src_url: str,
-        parsed_text: Optional[str] = None,
+        parsed_text: str | None = None,
     ) -> str:
         doc_id = str(uuid4())
         with self._connect() as conn, conn.cursor() as cur:
@@ -294,7 +315,7 @@ class MediaDB:
 
     def get_uploaded_documents_by_project(
         self, project_id: str, include_deleted: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         base = (
             "SELECT id, project_id, thread_id, user_id, filename, filesize, mime_type, src_url, parsed_text, created_at, updated_at "
             "FROM uploaded_documents WHERE project_id = %s"
@@ -309,7 +330,7 @@ class MediaDB:
 
     def search_uploaded_documents(
         self, search_query: str, include_deleted: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search uploaded documents by parsed text content using Postgres FTS (english)."""
         base = (
             "SELECT id, project_id, thread_id, user_id, filename, filesize, mime_type, src_url, parsed_text, created_at, updated_at "
@@ -334,10 +355,10 @@ class MediaDB:
 
     # ==================== Utility Functions ====================
 
-    def get_media_stats(self, project_id: str) -> Dict[str, Any]:
+    def get_media_stats(self, project_id: str) -> dict[str, Any]:
         """Get media statistics for a project."""
         with self._connect() as conn, conn.cursor() as cur:
-            stats: Dict[str, Any] = {}
+            stats: dict[str, Any] = {}
 
             cur.execute(
                 "SELECT COUNT(*) AS count FROM generated_images WHERE project_id = %s AND deleted_at IS NULL",
@@ -385,7 +406,7 @@ class MediaDB:
 
 
 # Singleton instance for the app
-_media_db_instance: Optional[MediaDB] = None
+_media_db_instance: MediaDB | None = None
 
 
 def get_media_db(db_path: str = "guardian.db") -> MediaDB:
@@ -395,7 +416,9 @@ def get_media_db(db_path: str = "guardian.db") -> MediaDB:
     """
     global _media_db_instance
     if _media_db_instance is None:
-        dsn_override = db_path if (db_path and db_path.startswith("postgres")) else None
+        dsn_override = (
+            db_path if (db_path and db_path.startswith("postgres")) else None
+        )
         _media_db_instance = MediaDB(db_path=dsn_override)
     return _media_db_instance
 

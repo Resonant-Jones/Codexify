@@ -47,12 +47,14 @@ class MemoryStore:
             )
             conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_timestamp 
+                CREATE INDEX IF NOT EXISTS idx_timestamp
                 ON memories(timestamp)
             """
             )
 
-    @lru_cache_safe(maxsize=1000, expire=300)  # Cache 1000 results for 5 minutes
+    @lru_cache_safe(
+        maxsize=1000, expire=300
+    )  # Cache 1000 results for 5 minutes
     def query_by_time(
         self,
         start_time: Optional[str] = None,
@@ -100,7 +102,9 @@ class MemoryStore:
             ]
 
     @memoize_to_disk(expire=3600)  # Cache for 1 hour
-    def query_by_tags(self, tags: List[str], limit: int = 100) -> List[Dict[str, Any]]:
+    def query_by_tags(
+        self, tags: List[str], limit: int = 100
+    ) -> List[Dict[str, Any]]:
         """
         Query memories by tags.
 
@@ -113,7 +117,7 @@ class MemoryStore:
         """
         placeholders = ",".join("?" * len(tags))
         query = """
-            SELECT * FROM memories 
+            SELECT * FROM memories
             WHERE tags LIKE ?
             ORDER BY timestamp DESC
             LIMIT ?
@@ -149,7 +153,7 @@ class MemoryStore:
             List[Dict[str, Any]]: Matching memories
         """
         query = """
-            SELECT * FROM memories 
+            SELECT * FROM memories
             WHERE content LIKE ?
             ORDER BY timestamp DESC
             LIMIT ?

@@ -3,12 +3,12 @@ from pathlib import Path
 
 
 def load_file(path):
-    with open(path, "r") as f:
+    with open(path) as f:
         return f.read().strip()
 
 
 def load_json(path):
-    with open(path, "r") as f:
+    with open(path) as f:
         return json.load(f)
 
 
@@ -52,9 +52,13 @@ if __name__ == "__main__":
         description="Assemble identity-based prompt for local LLM inference."
     )
     parser.add_argument("actor", help="Name of the actor (e.g., gregorios)")
-    parser.add_argument("--goal", help="Optional current goal or task", default=None)
+    parser.add_argument(
+        "--goal", help="Optional current goal or task", default=None
+    )
     parser.add_argument("--dir", help="Base actors directory", default="actors")
     args = parser.parse_args()
 
-    result = assemble_prompt(args.actor, actors_dir=args.dir, current_goal=args.goal)
+    result = assemble_prompt(
+        args.actor, actors_dir=args.dir, current_goal=args.goal
+    )
     print(result)

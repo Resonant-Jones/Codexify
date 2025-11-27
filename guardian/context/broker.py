@@ -46,15 +46,19 @@ class ContextBroker:
             if vector_store is not None:
                 self.memory_retriever = MemoryOSRetriever(vector_store)
         except Exception as exc:
-            logger.debug("[ContextBroker] Memory retriever init failed: %s", exc)
-        logger.info("[ContextBroker] Initialized with MemoryOS semantic retriever")
+            logger.debug(
+                "[ContextBroker] Memory retriever init failed: %s", exc
+            )
+        logger.info(
+            "[ContextBroker] Initialized with MemoryOS semantic retriever"
+        )
 
     async def assemble(
         self,
         thread_id: int,
         query: str,
         *,
-        depth: str = "normal",
+        depth_mode: str = "normal",
         n_messages: int = 6,
         k_semantic: int = 4,
         k_memory: int = 5,
@@ -66,7 +70,7 @@ class ContextBroker:
         Args:
             thread_id: ID of the chat thread
             query: Query string for semantic search
-            depth: Retrieval depth ("shallow", "normal", "deep", "diagnostic")
+            depth_mode: Retrieval depth ("shallow", "normal", "deep", "diagnostic")
             n_messages: Number of recent messages to fetch
             k_semantic: Number of semantic results to fetch
             k_memory: Number of memory results to fetch
@@ -88,19 +92,20 @@ class ContextBroker:
                 - "graph": List of {node_id, kind, text}
         """
         # Normalize depth
-        depth = str(depth or "normal").strip().lower()
+        depth = str(depth_mode or "normal").strip().lower()
 
         context: Dict[str, Any] = {}
 
-        # Always include recent messages
+                # Always include recent messages
         try:
-            if hasattr(self.chatlog, 'last_messages'):
-                messages = await self._fetch_messages(thread_id, n_messages)
-            else:
-                messages = []
+            messages = await self._fetch_messages(thread_id, n_messages)
             context["messages"] = messages
         except Exception as e:
-            logger.warning(f"Failed to fetch messages for thread {thread_id}: {e}")
+            logger.warning(
+                "[ContextBroker] Failed to fetch messages for thread %s: %s",
+                thread_id,
+                e,
+            )
             context["messages"] = []
 
         # Always include semantic search (for all depths except "shallow")
@@ -155,7 +160,9 @@ class ContextBroker:
         # Include federated context if requested
         if federated:
             try:
-                federated_results = await self._search_federated(query, k_semantic)
+                federated_results = await self._search_federated(
+                    query, k_semantic
+                )
                 context["federated"] = federated_results
             except Exception as e:
                 logger.warning(f"Failed to fetch federated context: {e}")
@@ -166,9 +173,11 @@ class ContextBroker:
             "documents": [
                 {
                     "id": str(item.get("id", "")),
-                    "title": str(item.get("metadata", {}).get("filename", "unknown")),
+                    "title": str(
+                        item.get("metadata", {}).get("filename", "unknown")
+                    ),
                     "score": float(item.get("score", 0.0)),
-                    "snippet": str(item.get("text", ""))[:100] + "..."
+                    "snippet": str(item.get("text", ""))[:100] + "...",
                 }
                 for item in context.get("semantic", [])
             ],
@@ -176,30 +185,64 @@ class ContextBroker:
                 {
                     "node_id": str(item.get("message_id", "")),
                     "kind": str(item.get("kind", "unknown")),
-                    "text": str(item.get("text", ""))[:100] + "..."
+                    "text": str(item.get("text", ""))[:100] + "...",
                 }
                 for item in context.get("graph", [])
-            ]
+            ],
         }
+
+        try:
+            logger.info(
+                "[ContextBroker] thread=%s depth=%s messages=%s semantic=%s memory=%s graph=%s",
+                thread_id,
+                depth,
+                len(context.get("messages", [])),
+                len(context.get("semantic", [])),
+                len(context.get("memory", []))
+                if "memory" in context
+                else 0,
+                len(context.get("graph", [])),
+            )
+        except Exception:
+            pass
 
         return context, rag_trace
 
-    async def _fetch_messages(self, thread_id: int, n: int) -> List[Dict[str, Any]]:
-        """Fetch recent messages from a thread."""
-        if hasattr(self.chatlog, 'last_messages'):
-            result = self.chatlog.last_messages(thread_id, n=n)
-            # Handle both sync and async returns
-            if hasattr(result, '__await__'):
-                return await result
-            return result if isinstance(result, list) else []
-        return []
+    async def _fetch_messages(
+        self, thread_id: int, n: int
+    ) -> List[Dict[str, Any]]:
+        """Fetch recent messages from a thread.
 
-    async def _search_semantic(self, query: str, k: int) -> List[Dict[str, Any]]:
+        Uses chatlog.last_messages when available, otherwise falls back to
+        chatlog.list_messages(thread_id, limit=n, offset=0).
+        """
+        # Preferred: use last_messages if adapter provides it (ordered newest→oldest)
+        if hasattr(self.chatlog, "last_messages"):
+            result = self.chatlog.last_messages(thread_id, n=n)
+        # Fallback for adapters that only expose list_messages (e.g., ChatDB/PgDB)
+        elif hasattr(self.chatlog, "list_messages"):
+            result = self.chatlog.list_messages(
+                thread_id,
+                limit=n,
+                offset=0,
+            )
+        else:
+            return []
+
+        # Handle both sync and async returns
+        if hasattr(result, "__await__"):
+            result = await result
+
+        return result if isinstance(result, list) else []
+
+    async def _search_semantic(
+        self, query: str, k: int
+    ) -> List[Dict[str, Any]]:
         """Search for semantic matches via vector store."""
-        if hasattr(self.vector, 'search'):
+        if hasattr(self.vector, "search"):
             result = self.vector.search(query, k=k)
             # Handle both sync and async returns
-            if hasattr(result, '__await__'):
+            if hasattr(result, "__await__"):
                 return await result
             return result if isinstance(result, list) else []
         return []
@@ -213,7 +256,9 @@ class ContextBroker:
         try:
             # Primary: Use MemoryOS semantic retriever for RAG-based memory recall
             if self.memory_retriever:
-                memory_results = await self.memory_retriever.retrieve(query, limit=k)
+                memory_results = await self.memory_retriever.retrieve(
+                    query, limit=k
+                )
                 logger.debug(
                     f"[ContextBroker] Retrieved {len(memory_results)} memory chunks "
                     f"via MemoryOSRetriever"
@@ -223,11 +268,11 @@ class ContextBroker:
             logger.warning(f"[ContextBroker] MemoryOS retriever failed: {e}")
 
             # Fallback: Use legacy memory_store if available
-            if self.memory and hasattr(self.memory, 'search_related'):
+            if self.memory and hasattr(self.memory, "search_related"):
                 try:
                     result = self.memory.search_related(query, limit=k)
                     # Handle both sync and async returns
-                    if hasattr(result, '__await__'):
+                    if hasattr(result, "__await__"):
                         result = await result
                     if isinstance(result, list):
                         logger.debug(
@@ -244,15 +289,17 @@ class ContextBroker:
 
     async def _snapshot_sensors(self) -> Dict[str, Any]:
         """Snapshot current system sensors state."""
-        if self.sensors and hasattr(self.sensors, 'snapshot'):
+        if self.sensors and hasattr(self.sensors, "snapshot"):
             result = self.sensors.snapshot()
             # Handle both sync and async returns
-            if hasattr(result, '__await__'):
+            if hasattr(result, "__await__"):
                 return await result
             return result if isinstance(result, dict) else {}
         return {}
 
-    async def _search_federated(self, query: str, k: int) -> List[Dict[str, Any]]:
+    async def _search_federated(
+        self, query: str, k: int
+    ) -> List[Dict[str, Any]]:
         """Search for context from federated peer nodes.
 
         This method calls the federated context search API if available.
@@ -283,7 +330,7 @@ class ContextBroker:
         """Fetch lightweight graph context for a thread/user pair."""
         try:
             from guardian.graph.connection import connect_neo4j
-            from guardian.graph.models import ThreadNode, MessageNode, UserNode
+            from guardian.graph.models import MessageNode, ThreadNode, UserNode
         except Exception as exc:  # pragma: no cover - optional dependency
             logger.debug("[ContextBroker] Graph modules unavailable: %s", exc)
             return []
@@ -292,7 +339,11 @@ class ContextBroker:
             connect_neo4j()
             snippets: List[Dict[str, Any]] = []
 
-            thread = ThreadNode.nodes.get_or_none(thread_id=str(thread_id)) if thread_id else None
+            thread = (
+                ThreadNode.nodes.get_or_none(thread_id=str(thread_id))
+                if thread_id
+                else None
+            )
             if thread and hasattr(thread.messages, "all"):
                 msgs = thread.messages.all()
                 for msg in msgs:
@@ -305,7 +356,9 @@ class ContextBroker:
                     try:
                         sender = msg.user.single()
                         if sender:
-                            snippet["user_id"] = getattr(sender, "user_id", None)
+                            snippet["user_id"] = getattr(
+                                sender, "user_id", None
+                            )
                     except Exception:
                         pass
                     snippets.append(snippet)

@@ -2,6 +2,7 @@
 
 from prefect import task
 
+
 @task
 def clean_rows(raw_rows):
     # Simple example: skip header row

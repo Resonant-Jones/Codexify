@@ -14,7 +14,8 @@ from guardian.metacognition import MetacognitionEngine
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,9 @@ class VestigeAgent:
     Maintains long-term memory coherence and identifies patterns.
     """
 
-    def __init__(self, codex: CodexAwareness, metacognition: MetacognitionEngine):
+    def __init__(
+        self, codex: CodexAwareness, metacognition: MetacognitionEngine
+    ):
         self.codex = codex
         self.metacognition = metacognition
         self.patterns: List[MemoryPattern] = []
@@ -139,7 +142,9 @@ class VestigeAgent:
             query = "type:memory_analysis"
             if time_window:
                 start, end = time_window
-                query += f" timestamp:[{start.isoformat()} TO {end.isoformat()}]"
+                query += (
+                    f" timestamp:[{start.isoformat()} TO {end.isoformat()}]"
+                )
 
             memories = self.codex.query_memory(query=query, min_confidence=0.5)
 
@@ -150,7 +155,9 @@ class VestigeAgent:
             patterns.extend(temporal_patterns)
 
             # Relationship pattern analysis
-            relationship_patterns = self._analyze_relationship_patterns(memories)
+            relationship_patterns = self._analyze_relationship_patterns(
+                memories
+            )
             patterns.extend(relationship_patterns)
 
             # Content pattern analysis for each memory
@@ -171,13 +178,17 @@ class VestigeAgent:
 
             # If no patterns were found or verified, return a base unclassified pattern
             if not verified_patterns:
-                logger.warning("No patterns detected, returning unclassified pattern")
+                logger.warning(
+                    "No patterns detected, returning unclassified pattern"
+                )
                 return [
                     MemoryPattern(
                         pattern_type="unclassified",
                         confidence=0.3,
                         artifacts=(
-                            [str(m.id) for m in memories] if memories else ["unknown"]
+                            [str(m.id) for m in memories]
+                            if memories
+                            else ["unknown"]
                         ),
                         metadata={
                             "memory_count": len(memories),
@@ -205,7 +216,11 @@ class VestigeAgent:
 
     def _find_related_patterns(self, memory: Any) -> List[MemoryPattern]:
         """Find patterns related to a memory artifact."""
-        return [pattern for pattern in self.patterns if memory.id in pattern.artifacts]
+        return [
+            pattern
+            for pattern in self.patterns
+            if memory.id in pattern.artifacts
+        ]
 
     async def _analyze_patterns(
         self,
@@ -218,7 +233,9 @@ class VestigeAgent:
 
         # Content pattern analysis
         if hasattr(memory, "content"):
-            content_patterns = self._analyze_content_patterns(memory.content, context)
+            content_patterns = self._analyze_content_patterns(
+                memory.content, context
+            )
             patterns.extend(content_patterns)
 
         # Temporal pattern analysis
@@ -228,7 +245,9 @@ class VestigeAgent:
 
         # Relationship pattern analysis
         if related_patterns:
-            relationship_patterns = self._analyze_relationship_patterns([memory])
+            relationship_patterns = self._analyze_relationship_patterns(
+                [memory]
+            )
             patterns.extend(relationship_patterns)
 
         return patterns
@@ -310,7 +329,8 @@ class VestigeAgent:
         if not isinstance(d, dict) or not d:
             return 0
         return 1 + max(
-            self._get_dict_depth(v) if isinstance(v, dict) else 0 for v in d.values()
+            self._get_dict_depth(v) if isinstance(v, dict) else 0
+            for v in d.values()
         )
 
     def _analyze_sequence(self, seq: List) -> Optional[MemoryPattern]:
@@ -331,13 +351,17 @@ class VestigeAgent:
                 metadata={
                     "length": len(seq),
                     "unique_elements": len(element_counts),
-                    "repetitions": {k: v for k, v in element_counts.items() if v > 1},
+                    "repetitions": {
+                        k: v for k, v in element_counts.items() if v > 1
+                    },
                 },
             )
 
         return None
 
-    def _analyze_temporal_patterns(self, memories: List[Any]) -> List[MemoryPattern]:
+    def _analyze_temporal_patterns(
+        self, memories: List[Any]
+    ) -> List[MemoryPattern]:
         """Analyze temporal patterns in memories."""
         patterns: List[MemoryPattern] = []
 
@@ -352,23 +376,30 @@ class VestigeAgent:
         # Check for periodic patterns
         intervals = []
         for i in range(1, len(sorted_memories)):
-            interval = getattr(sorted_memories[i], "timestamp", datetime.min) - getattr(
-                sorted_memories[i - 1], "timestamp", datetime.min
-            )
+            interval = getattr(
+                sorted_memories[i], "timestamp", datetime.min
+            ) - getattr(sorted_memories[i - 1], "timestamp", datetime.min)
             intervals.append(interval.total_seconds())
 
         if intervals:
             # Check for regular intervals
             avg_interval = sum(intervals) / len(intervals)
-            variance = sum((i - avg_interval) ** 2 for i in intervals) / len(intervals)
+            variance = sum((i - avg_interval) ** 2 for i in intervals) / len(
+                intervals
+            )
 
-            if variance < avg_interval * 0.1:  # Low variance indicates regularity
+            if (
+                variance < avg_interval * 0.1
+            ):  # Low variance indicates regularity
                 patterns.append(
                     MemoryPattern(
                         pattern_type="periodic",
                         confidence=0.9,
                         artifacts=[str(m.id) for m in memories],
-                        metadata={"interval": avg_interval, "variance": variance},
+                        metadata={
+                            "interval": avg_interval,
+                            "variance": variance,
+                        },
                     )
                 )
 
@@ -439,7 +470,10 @@ class VestigeAgent:
             # Perform epistemic check
             check_result = self.metacognition.reflect_on_decision(
                 intent=f"verify_pattern_{pattern.pattern_type}",
-                context={"pattern": pattern.to_dict(), "artifacts": pattern.artifacts},
+                context={
+                    "pattern": pattern.to_dict(),
+                    "artifacts": pattern.artifacts,
+                },
                 available_functions=["pattern_verification"],
             )
 
@@ -450,7 +484,9 @@ class VestigeAgent:
 
         return patterns
 
-    def _update_relationships(self, memory: Any, patterns: List[MemoryPattern]) -> None:
+    def _update_relationships(
+        self, memory: Any, patterns: List[MemoryPattern]
+    ) -> None:
         """Update memory relationships based on patterns."""
         related_artifacts = set()
 
@@ -485,7 +521,9 @@ class VestigeAgent:
             checkpoint_data = {
                 "timestamp": datetime.now(UTC).isoformat(),
                 "pattern_count": len(self.patterns),
-                "verified_patterns": len([p for p in self.patterns if p.verified]),
+                "verified_patterns": len(
+                    [p for p in self.patterns if p.verified]
+                ),
                 "active_analyses": list(self.active_analyses),
             }
 
@@ -521,7 +559,9 @@ if __name__ == "__main__":
 
     # Example memory processing
     async def test_processing():
-        result = await vestige.process_memory("test_memory", {"context": "test"})
+        result = await vestige.process_memory(
+            "test_memory", {"context": "test"}
+        )
         print(f"Processing result: {result}")
 
     # Run test

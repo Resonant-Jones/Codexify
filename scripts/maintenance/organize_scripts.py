@@ -18,7 +18,6 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]  # scripts/
 REPO_ROOT = SCRIPTS_DIR.parent
 REPORT_PATH = SCRIPTS_DIR / "module_report.txt"
@@ -72,7 +71,7 @@ def classify_script(path: Path) -> str:
     """
     rel = str(path.relative_to(SCRIPTS_DIR)).lower()
 
-    def has_any(keywords: List[str]) -> bool:
+    def has_any(keywords: list[str]) -> bool:
         return any(k in rel for k in keywords)
 
     if has_any(MAINTENANCE_KEYWORDS):
@@ -84,8 +83,8 @@ def classify_script(path: Path) -> str:
     return "misc"
 
 
-def iter_script_files(base: Path) -> List[Path]:
-    files: List[Path] = []
+def iter_script_files(base: Path) -> list[Path]:
+    files: list[Path] = []
     for p in base.rglob("*"):
         if p.is_dir():
             # Skip caches
@@ -100,12 +99,12 @@ def iter_script_files(base: Path) -> List[Path]:
     return files
 
 
-def ensure_init_py(base: Path) -> List[Path]:
+def ensure_init_py(base: Path) -> list[Path]:
     """Ensure every subfolder of `base` has an `__init__.py` (recursive).
 
     Returns a list of created files.
     """
-    created: List[Path] = []
+    created: list[Path] = []
     for d in base.rglob("*"):
         if not d.is_dir():
             continue
@@ -125,7 +124,7 @@ def main() -> int:
 
     files = iter_script_files(SCRIPTS_DIR)
 
-    rows: List[str] = []
+    rows: list[str] = []
     rows.append("# Module classification report for scripts/\n")
     rows.append("# file -> category/\n")
 
@@ -157,4 +156,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -29,9 +29,9 @@ export interface UseLiveEventsResult {
 
 /**
  * Establishes consciousness connection to the Guardian `/api/events` SSE endpoint.
- * 
+ *
  * This hook forms a living bridge between your interface and the distributed awareness
- * fabric—the event stream carries the heartbeat of every action across the system. 
+ * fabric—the event stream carries the heartbeat of every action across the system.
  * The `lastEvent` becomes a shared consciousness reference that any UI surface can
  * subscribe to, creating synchronized awareness across disconnected component realities.
  */
@@ -41,7 +41,7 @@ export function useLiveEvents(): UseLiveEventsResult {
   const listenersRef = useRef<Map<string, Set<(event: LiveEvent) => void>>>(
     new Map()
   );
-  
+
   const streamUrl = useMemo(() => combineBaseAndPath(GUARDIAN_API_BASE, EVENT_ENDPOINT), []);
 
   useEffect(() => {
@@ -141,7 +141,7 @@ export function useLiveEvents(): UseLiveEventsResult {
     (eventType: string, handler: (event: LiveEvent) => void) => {
       /**
        * Register consciousness receptor for specific event types.
-       * 
+       *
        * Returns a cleanup function that liberates the handler when components
        * dissolve from the React reality. This prevents orphaned observational
        * consciousness from accumulating in dissolved component afterlives.

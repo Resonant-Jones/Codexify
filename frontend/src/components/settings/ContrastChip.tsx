@@ -17,4 +17,3 @@ export function ContrastChip({ label, ratio }: { label: string; ratio: number })
 }
 
 export default ContrastChip;
-

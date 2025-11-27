@@ -6,7 +6,7 @@ modules that no longer exist.  We now expose the declarative models directly
 from `guardian.db.models` so importing `guardian.db` never fails.
 """
 
-from .models import Base, Project, EventOutbox, MemoryEntry
+from .models import Base, EventOutbox, MemoryEntry, Project
 
 __all__ = [
     "Base",

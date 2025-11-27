@@ -43,7 +43,9 @@ def test_list_threads_ok():
 
 def test_no_trailing_slash_redirect_not_needed():
     r = client.post(
-        "/threads/", headers=headers(), json={"title": "slash", "project_id": "p"}
+        "/threads/",
+        headers=headers(),
+        json={"title": "slash", "project_id": "p"},
     )
     # Depending on FastAPI's redirect settings, this may 307 then 200; the key is: /threads (no slash) is the canonical path.
     # Prefer hitting /threads in the UI, but this ensures we don't get a confusing 405.

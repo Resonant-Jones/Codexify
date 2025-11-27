@@ -36,7 +36,9 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
 
     base_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
     if not base_url:
-        pytest.skip("TEST_DATABASE_URL or DATABASE_URL environment variable required")
+        pytest.skip(
+            "TEST_DATABASE_URL or DATABASE_URL environment variable required"
+        )
 
     admin_url = _admin_database_url(base_url)
     db_name = f"codexify_migrate_{uuid.uuid4().hex[:12]}"
@@ -44,7 +46,9 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
 
     try:
         admin_conn = psycopg.connect(admin_url, autocommit=True)
-    except Exception as exc:  # pragma: no cover - environment-specific availability
+    except (
+        Exception
+    ) as exc:  # pragma: no cover - environment-specific availability
         pytest.skip(f"Unable to connect to admin database: {exc}")
     try:
         with admin_conn.cursor() as cur:
@@ -55,8 +59,8 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
     finally:
         admin_conn.close()
 
-    from alembic.config import Config
     from alembic import command
+    from alembic.config import Config
 
     cfg_path = tmp_path / "alembic.ini"
     cfg_path.write_text(Path("backend/alembic.ini").read_text())

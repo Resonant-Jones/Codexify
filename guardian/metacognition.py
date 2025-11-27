@@ -26,7 +26,8 @@ from guardian.threads_structure.thread_manager import (  # We'll create this nex
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class MetacognitionEngine:
     def load_agent_registry(self) -> Dict[str, Any]:
         """Load the current agent registry."""
         try:
-            with open(self.registry_path, "r") as f:
+            with open(self.registry_path) as f:
                 return json.load(f)
         except Exception as e:
             logger.error(f"Failed to load agent registry: {e}")
@@ -171,7 +172,10 @@ class MetacognitionEngine:
         return "nominal"
 
     def reflect_on_decision(
-        self, intent: str, context: Dict[str, Any], available_functions: List[str]
+        self,
+        intent: str,
+        context: Dict[str, Any],
+        available_functions: List[str],
     ) -> Dict[str, Any]:
         """
         Perform comprehensive reflection on a pending decision.
@@ -186,7 +190,9 @@ class MetacognitionEngine:
         """
         # Perform epistemic self-check
         epistemic_check = epistemic_self_check(
-            intent=intent, available_functions=available_functions, context=context
+            intent=intent,
+            available_functions=available_functions,
+            context=context,
         )
 
         # Query relevant memories
@@ -235,9 +241,9 @@ class MetacognitionEngine:
 
         # Consider relevant memories
         if relevant_memories:
-            memory_confidence = sum(m.confidence for m in relevant_memories) / len(
-                relevant_memories
-            )
+            memory_confidence = sum(
+                m.confidence for m in relevant_memories
+            ) / len(relevant_memories)
             confidence_score = (confidence_score + memory_confidence) / 2
             factors.append(f"Memory confidence: {memory_confidence:.2f}")
 
@@ -251,7 +257,9 @@ class MetacognitionEngine:
         recommendations = []
         if confidence_score < 0.7:
             if not relevant_memories:
-                recommendations.append("Gather more relevant historical context")
+                recommendations.append(
+                    "Gather more relevant historical context"
+                )
             if not required_agents.issubset(set(active_agents)):
                 recommendations.append("Ensure all required agents are active")
 
@@ -330,7 +338,9 @@ class MetacognitionEngine:
         """
         try:
             # Check affected components
-            affected_components = self._identify_affected_components(error, context)
+            affected_components = self._identify_affected_components(
+                error, context
+            )
 
             # Attempt recovery for each component
             recovery_actions = []
@@ -438,7 +448,9 @@ class MetacognitionEngine:
 
             if recovery_memories:
                 latest_recovery = recovery_memories[0].content
-                recovery_time = datetime.fromisoformat(latest_recovery["timestamp"])
+                recovery_time = datetime.fromisoformat(
+                    latest_recovery["timestamp"]
+                )
                 current_time = datetime.now(UTC)
 
                 if (
@@ -466,7 +478,11 @@ class MetacognitionEngine:
             }
 
     def store_decision_outcome(
-        self, intent: str, outcome: Dict[str, Any], confidence: float, tags: List[str]
+        self,
+        intent: str,
+        outcome: Dict[str, Any],
+        confidence: float,
+        tags: List[str],
     ) -> str:
         """
         Store the outcome of a decision for future reference.

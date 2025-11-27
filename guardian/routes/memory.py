@@ -10,7 +10,8 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Body, Depends, Query, HTTPException, Header
+
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -50,6 +51,7 @@ def get_current_user(
     """
     return x_user_id or "default"
 
+
 # Memory retention configuration
 MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
 EPHEMERAL_MEMORY: List[Dict[str, Any]] = []
@@ -57,7 +59,9 @@ EPHEMERAL_MEMORY: List[Dict[str, Any]] = []
 # Prune expired midterm memories at startup
 try:
     # Use timezone-aware UTC timestamps to avoid deprecation warnings
-    cutoff = (datetime.now(datetime.UTC) - timedelta(days=MEMORY_RETENTION_DAYS)).isoformat()
+    cutoff = (
+        datetime.now(datetime.UTC) - timedelta(days=MEMORY_RETENTION_DAYS)
+    ).isoformat()
     pruned = chatlog_db.prune_midterm(cutoff)
     if pruned:
         logger.info("[memory] pruned %d expired midterm entries", pruned)
@@ -105,11 +109,15 @@ def memory_list(
         )
     if silo == "ephemeral":
         # Filter ephemeral memory by user_id
-        user_items = [e for e in EPHEMERAL_MEMORY if e.get("user_id") == current_user]
+        user_items = [
+            e for e in EPHEMERAL_MEMORY if e.get("user_id") == current_user
+        ]
         items = user_items[offset : offset + limit]
         return {"ok": True, "count": len(user_items), "entries": items}
     # Filter database memories by user_id
-    items = chatlog_db.list_memories(silo, user_id=current_user, limit=limit, offset=offset)
+    items = chatlog_db.list_memories(
+        silo, user_id=current_user, limit=limit, offset=offset
+    )
     count = chatlog_db.count_memories(silo, user_id=current_user)
     return {"ok": True, "count": count, "entries": items}
 
@@ -158,15 +166,20 @@ def memory_create(
 
     # Ensure chatlog_db is initialized even if bind_dependencies was not called
     if chatlog_db is None:
-        from guardian.core.dependencies import init_database, chatlog_db as core_chatlog_db
+        from guardian.core.dependencies import chatlog_db as core_chatlog_db
+        from guardian.core.dependencies import init_database
 
         init_database()
         if core_chatlog_db is None:
             raise RuntimeError("chatlog_db is not initialised")
         globals()["chatlog_db"] = core_chatlog_db
 
-    eid = chatlog_db.add_memory(current_user, silo, content, tags=tags, pinned=pinned)
-    chatlog_db.write_audit_log("create", "memory_entry", str(eid), user_id=current_user)
+    eid = chatlog_db.add_memory(
+        current_user, silo, content, tags=tags, pinned=pinned
+    )
+    chatlog_db.write_audit_log(
+        "create", "memory_entry", str(eid), user_id=current_user
+    )
     return {"ok": True, "id": eid}
 
 
@@ -280,6 +293,7 @@ def memory_delete(
 
 # Additional memory endpoints
 
+
 @router.get("/health/memory", tags=["Health"])
 def health_memory(current_user: str = Depends(get_current_user)):
     """
@@ -299,8 +313,12 @@ def health_memory(current_user: str = Depends(get_current_user)):
         "ok": True,
         "silos": {
             "ephemeral": user_ephemeral_count,
-            "midterm": chatlog_db.count_memories("midterm", user_id=current_user),
-            "longterm": chatlog_db.count_memories("longterm", user_id=current_user),
+            "midterm": chatlog_db.count_memories(
+                "midterm", user_id=current_user
+            ),
+            "longterm": chatlog_db.count_memories(
+                "longterm", user_id=current_user
+            ),
         },
     }
 
@@ -405,7 +423,9 @@ def search(
     return results
 
 
-@search_router.get("/history", summary="Retrieve history entries with optional filters")
+@search_router.get(
+    "/history", summary="Retrieve history entries with optional filters"
+)
 def history(
     limit: int = Query(
         10, ge=1, le=100, description="Maximum number of entries to return"
@@ -413,7 +433,8 @@ def history(
     tag: Optional[str] = Query(None, description="Filter by tag"),
     agent: Optional[str] = Query(None, description="Filter by agent"),
     start_date: Optional[str] = Query(
-        None, description="Filter entries from this date (inclusive), format YYYY-MM-DD"
+        None,
+        description="Filter entries from this date (inclusive), format YYYY-MM-DD",
     ),
     end_date: Optional[str] = Query(
         None,
@@ -530,7 +551,9 @@ def log_entry(entry: LogEntry, current_user: str = Depends(get_current_user)):
 
 
 @log_router.post("/summarize", summary="Store a summary entry")
-def summarize_entry(entry: SummaryEntry, current_user: str = Depends(get_current_user)):
+def summarize_entry(
+    entry: SummaryEntry, current_user: str = Depends(get_current_user)
+):
     """
     Store a summary related to a parent entry in the Guardian memory database for the authenticated user.
 
@@ -554,5 +577,7 @@ def summarize_entry(entry: SummaryEntry, current_user: str = Depends(get_current
         logger.info(f"Summary entry stored for parent_id {entry.parent_id}")
     except Exception as e:
         logger.error(f"Failed to store summary entry: {e}")
-        raise HTTPException(status_code=500, detail="Failed to store summary entry")
+        raise HTTPException(
+            status_code=500, detail="Failed to store summary entry"
+        )
     return {"result": "Summary stored!", "timestamp": timestamp}

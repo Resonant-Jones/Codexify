@@ -31,7 +31,9 @@ def is_compatible(device_str, requirement):
 
 
 def get_compatible_models(registry):
-    logger.debug(f"Evaluating compatible models for device: {get_device_specs()}")
+    logger.debug(
+        f"Evaluating compatible models for device: {get_device_specs()}"
+    )
     device = get_device_specs()
     compatible = []
 

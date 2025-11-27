@@ -25,16 +25,20 @@ class AdapterSpec(BaseModel):
     """Specification for a plug adapter."""
 
     name: str = Field(..., description="Adapter name")
-    allowed_scopes: List[str] = Field(..., description="Data scopes")
-    can_pull: bool = Field(False, description="Whether adapter can pull from AuraAPI")
-    can_push: bool = Field(False, description="Whether adapter can push outbound")
+    allowed_scopes: list[str] = Field(..., description="Data scopes")
+    can_pull: bool = Field(
+        False, description="Whether adapter can pull from AuraAPI"
+    )
+    can_push: bool = Field(
+        False, description="Whether adapter can push outbound"
+    )
 
 
 class AdapterRegistry:
     """Registry for plug adapters."""
 
     def __init__(self) -> None:
-        self._adapters: Dict[str, AdapterSpec] = {}
+        self._adapters: dict[str, AdapterSpec] = {}
 
     def register(self, spec: AdapterSpec) -> None:
         """Register a new adapter."""

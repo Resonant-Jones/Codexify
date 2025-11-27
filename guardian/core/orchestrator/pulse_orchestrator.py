@@ -48,7 +48,9 @@ try:
 
     _HAVE_PEBBLE = True
 except Exception:  # ImportError or runtime issues
-    from concurrent.futures import ProcessPoolExecutor as ProcessPool  # type: ignore
+    from concurrent.futures import (
+        ProcessPoolExecutor as ProcessPool,  # type: ignore
+    )
 
     _HAVE_PEBBLE = False
 
@@ -125,7 +127,9 @@ def orchestrate(command: dict):
     # Handle the 'run_model' action separately as it has a unique setup.
     if action == "run_model":
         try:
-            from guardian.core.orchestrator.model_loader import load_model_backend
+            from guardian.core.orchestrator.model_loader import (
+                load_model_backend,
+            )
 
             prompt = params.get("prompt", "")
             model = load_model_backend("default")
@@ -192,7 +196,9 @@ def orchestrate(command: dict):
                             args=[agent_function, params],
                             timeout=effective_timeout,
                         )
-                        result = future.result()  # Blocks until completion or timeout
+                        result = (
+                            future.result()
+                        )  # Blocks until completion or timeout
                     except TimeoutError:
                         if action == "run_foresight":
                             jitter = 0.2 + random.random() * 0.3
@@ -308,6 +314,9 @@ async def health_check():
 # To run: uvicorn guardian.core.orchestrator.pulse_orchestrator:app --reload
 # Example usage for testing
 if __name__ == "__main__":
-    test_command = {"action": "trigger_ritual", "params": {"name": "evening_grounding"}}
+    test_command = {
+        "action": "trigger_ritual",
+        "params": {"name": "evening_grounding"},
+    }
     result = orchestrate(test_command)
     print(json.dumps(result, indent=2))

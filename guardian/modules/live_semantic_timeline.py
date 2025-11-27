@@ -38,7 +38,7 @@ class SemanticTimeline:
 
     def __init__(self, ttl_seconds: int = 86_400) -> None:
         self.ttl_seconds = ttl_seconds
-        self._events: List[TimelineEvent] = []
+        self._events: list[TimelineEvent] = []
         self._lock = Lock()
 
     def add_event(self, event: TimelineEvent) -> None:
@@ -47,15 +47,19 @@ class SemanticTimeline:
             self._events.append(event)
             self._discard_old_locked()
 
-    def query(self, keyword: str, limit: int = 10) -> List[TimelineEvent]:
+    def query(self, keyword: str, limit: int = 10) -> list[TimelineEvent]:
         """Return recent events containing the keyword."""
         with self._lock:
             self._discard_old_locked()
             matched = [
-                e for e in self._events if keyword.lower() in e.narrative.lower()
+                e
+                for e in self._events
+                if keyword.lower() in e.narrative.lower()
             ]
             return matched[-limit:]
 
     def _discard_old_locked(self) -> None:
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self.ttl_seconds)
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=self.ttl_seconds
+        )
         self._events = [e for e in self._events if e.timestamp > cutoff]

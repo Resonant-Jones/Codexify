@@ -8,21 +8,21 @@ Tests cover:
 - Error handling (expired tokens, invalid signatures, rate limiting)
 """
 
-import pytest
 import secrets
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
+import pytest
 
+from guardian.federation.manager import FederationManager, RelaySession
 from guardian.federation.manifest import (
     NodeManifest,
     generate_keypair,
     sign_manifest,
     verify_manifest,
 )
-from guardian.federation.manager import FederationManager, RelaySession
-from guardian.routes.federation import configure_federation, SessionRequestBody
+from guardian.routes.federation import SessionRequestBody, configure_federation
 
 
 class TestManifestSigningAndVerification:
@@ -357,10 +357,18 @@ class TestFederationManager:
 
         # First 10 requests should pass
         for i in range(10):
-            assert manager.check_rate_limit("node-beta", limit=10, window_seconds=60) is True
+            assert (
+                manager.check_rate_limit(
+                    "node-beta", limit=10, window_seconds=60
+                )
+                is True
+            )
 
         # 11th request should fail
-        assert manager.check_rate_limit("node-beta", limit=10, window_seconds=60) is False
+        assert (
+            manager.check_rate_limit("node-beta", limit=10, window_seconds=60)
+            is False
+        )
 
     def test_get_active_relay_count(self):
         """Test counting active relay sessions."""

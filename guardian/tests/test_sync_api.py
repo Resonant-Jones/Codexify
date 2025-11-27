@@ -24,5 +24,8 @@ def test_post_event_idempotent_persona_set(tmp_path, monkeypatch):
     r2 = client.post("/api/sync/event", json=body)
     assert r1.status_code == 200
     assert r2.status_code == 200
-    assert r1.json().get("idempotent") in (True, False)  # first may be not idempotent
+    assert r1.json().get("idempotent") in (
+        True,
+        False,
+    )  # first may be not idempotent
     assert r2.json().get("idempotent") is True

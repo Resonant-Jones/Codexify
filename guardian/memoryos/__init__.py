@@ -7,7 +7,7 @@ class Memoryos:
         retrieval_queue_capacity=50,
         mid_term_heat_threshold=5.0,
         llm_model="gpt-4",
-        **kwargs
+        **kwargs,
     ):
         # Core config with safe defaults
         self.short_term_capacity = short_term_capacity

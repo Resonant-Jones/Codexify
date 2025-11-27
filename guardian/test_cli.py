@@ -36,7 +36,9 @@ def test_dump_imprint_zero_prompt_text(mock_imprint_zero: MagicMock):
     mock_imprint_zero.return_value = mock_instance
 
     runner = CliRunner()
-    result = runner.invoke(_load_cli(), ["imprint-zero", "dump-imprint-zero-prompt"])
+    result = runner.invoke(
+        _load_cli(), ["imprint-zero", "dump-imprint-zero-prompt"]
+    )
 
     assert result.exit_code == 0
     assert "--- System Prompt ---" in result.output
@@ -58,7 +60,8 @@ def test_dump_imprint_zero_prompt_json(mock_imprint_zero: MagicMock):
 
     runner = CliRunner()
     result = runner.invoke(
-        _load_cli(), ["imprint-zero", "dump-imprint-zero-prompt", "--json-output"]
+        _load_cli(),
+        ["imprint-zero", "dump-imprint-zero-prompt", "--json-output"],
     )
 
     assert result.exit_code == 0
@@ -83,14 +86,20 @@ def test_cli_dump_end_to_end(
     # Create dummy prompt files
     system_prompt_content = "CLI E2E System Prompt"
     scaffold_content = "CLI E2E Question Scaffold"
-    (prompt_dir / "imprint_zero_system_prompt.md").write_text(system_prompt_content)
-    (prompt_dir / "imprint_zero_question_scaffold.md").write_text(scaffold_content)
+    (prompt_dir / "imprint_zero_system_prompt.md").write_text(
+        system_prompt_content
+    )
+    (prompt_dir / "imprint_zero_question_scaffold.md").write_text(
+        scaffold_content
+    )
 
     # Point settings to our temporary directory
     mock_settings.PROMPT_DIR_PATH = str(prompt_dir)
 
     runner = CliRunner()
-    result = runner.invoke(_load_cli(), ["imprint-zero", "dump-imprint-zero-prompt"])
+    result = runner.invoke(
+        _load_cli(), ["imprint-zero", "dump-imprint-zero-prompt"]
+    )
 
     assert result.exit_code == 0
     assert system_prompt_content in result.output

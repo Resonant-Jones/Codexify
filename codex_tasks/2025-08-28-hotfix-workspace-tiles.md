@@ -121,4 +121,3 @@ Don’t touch this if --chip-bg already exists and looks correct elsewhere.
  • No “React already declared” errors; no PreviewTile import remains in WorkspacePane.tsx.
 
 When finished, print a one-paragraph summary of what you changed and where.
-

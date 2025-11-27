@@ -26,18 +26,20 @@ chatlog_db: ChatDB | None = None
 _orm_db = None  # Optional ORM session provider; when unavailable, documents list falls back to []
 
 
-def _collect_thread_documents(thread_id: int) -> List[Dict[str, Any]]:
+def _collect_thread_documents(thread_id: int) -> list[dict[str, Any]]:
     """Return documents linked to a thread via ThreadDocument relations.
 
     Safe fallback: returns [] on errors.
     """
-    docs: List[Dict[str, Any]] = []
+    docs: list[dict[str, Any]] = []
     if _orm_db is None:
         return []
     try:
         with _orm_db.get_session() as session:  # type: ignore[union-attr]
             # Verify thread exists (best effort)
-            thr = session.query(models.ChatThread).filter_by(id=thread_id).first()
+            thr = (
+                session.query(models.ChatThread).filter_by(id=thread_id).first()
+            )
             if not thr:
                 return []
             links = (
@@ -59,7 +61,9 @@ def _collect_thread_documents(thread_id: int) -> List[Dict[str, Any]]:
                         "id": str(doc.id),
                         "title": doc.title,
                         "relation": link.relation,
-                        "created_at": link.created_at.isoformat() if link.created_at else None,
+                        "created_at": link.created_at.isoformat()
+                        if link.created_at
+                        else None,
                     }
                 )
     except Exception as e:  # pragma: no cover – defensive
@@ -69,11 +73,13 @@ def _collect_thread_documents(thread_id: int) -> List[Dict[str, Any]]:
 
 
 @router.get("/api/workspace/{thread_id}")
-def workspace_state(thread_id: int) -> Dict[str, Any]:
+def workspace_state(thread_id: int) -> dict[str, Any]:
     """Return workspace data for a thread: metadata, linked documents, diagnostics."""
     try:
         if chatlog_db is None:
-            raise HTTPException(status_code=500, detail="workspace_not_configured")
+            raise HTTPException(
+                status_code=500, detail="workspace_not_configured"
+            )
         thr = chatlog_db.get_chat_thread(thread_id)
         if not thr:
             raise HTTPException(status_code=404, detail="Thread not found")

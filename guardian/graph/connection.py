@@ -22,9 +22,16 @@ def connect_neo4j() -> None:
         or "bolt://localhost:7687"
     )
     user = os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME") or "neo4j"
-    password = os.getenv("NEO4J_PASS") or os.getenv("NEO4J_PASSWORD") or "guardian"
+    password = (
+        os.getenv("NEO4J_PASS") or os.getenv("NEO4J_PASSWORD") or "guardian"
+    )
 
-    if user and password and "@" not in bolt_url and bolt_url.startswith("bolt://"):
+    if (
+        user
+        and password
+        and "@" not in bolt_url
+        and bolt_url.startswith("bolt://")
+    ):
         bolt_url = bolt_url.replace("bolt://", f"bolt://{user}:{password}@", 1)
 
     db.set_connection(url=bolt_url)

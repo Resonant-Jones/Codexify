@@ -64,7 +64,9 @@ class ElevenLabsProvider(TTSProvider):
             response.raise_for_status()
 
             voices_data = response.json()
-            self._voices = [voice["voice_id"] for voice in voices_data["voices"]]
+            self._voices = [
+                voice["voice_id"] for voice in voices_data["voices"]
+            ]
             return self._voices
 
         except requests.exceptions.HTTPError as e:
@@ -106,7 +108,10 @@ class ElevenLabsProvider(TTSProvider):
                 json={
                     "text": text,
                     "model_id": "eleven_monolingual_v1",
-                    "voice_settings": {"stability": 0.5, "similarity_boost": 0.5},
+                    "voice_settings": {
+                        "stability": 0.5,
+                        "similarity_boost": 0.5,
+                    },
                 },
             )
             response.raise_for_status()
@@ -139,7 +144,8 @@ class ElevenLabsProvider(TTSProvider):
         """
         try:
             response = requests.get(
-                f"{self.API_BASE}/voices/{voice_id}", headers=self._get_headers()
+                f"{self.API_BASE}/voices/{voice_id}",
+                headers=self._get_headers(),
             )
             response.raise_for_status()
 

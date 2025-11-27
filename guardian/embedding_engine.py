@@ -30,7 +30,7 @@ from typing import List
 EMBEDDER = "dummy"  # Options: "dummy", "gpt_oss", "nomic"
 
 
-def _dummy_embedding(text: str, dim: int = 768) -> List[float]:
+def _dummy_embedding(text: str, dim: int = 768) -> list[float]:
     """
     Deterministic dummy embedding based on a hash of the input text.
     Returns a list of ``dim`` floats in the range [0, 1).
@@ -43,7 +43,7 @@ def _dummy_embedding(text: str, dim: int = 768) -> List[float]:
     return [rng.random() for _ in range(dim)]
 
 
-def get_embedding(text: str) -> List[float]:
+def get_embedding(text: str) -> list[float]:
     """
     Public API – returns an embedding vector for ``text``.
     Returns a deterministic dummy vector if ``EMBEDDER`` is set to

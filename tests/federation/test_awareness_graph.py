@@ -9,12 +9,13 @@ Tests cover:
 """
 
 import json
-import pytest
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from guardian.federation.graph_model import GraphNode, GraphEdge, GraphSnapshot
+import pytest
+
+from guardian.federation.graph_model import GraphEdge, GraphNode, GraphSnapshot
 from guardian.federation.graph_store import GraphStore, get_graph_store
 
 
@@ -191,7 +192,9 @@ class TestGraphStore:
 
             # Create and populate first store
             store1 = GraphStore(path=path)
-            node = GraphNode(id="persistent", type="document", label="Persistent Doc")
+            node = GraphNode(
+                id="persistent", type="document", label="Persistent Doc"
+            )
             store1.upsert_node(node)
 
             # Create new store from same path
@@ -226,10 +229,20 @@ class TestGraphStore:
         temp_store.upsert_node(node1)
         temp_store.upsert_node(node2)
 
-        edge1 = GraphEdge(source="document:a", target="document:b", relation="refs", weight=1.0)
+        edge1 = GraphEdge(
+            source="document:a",
+            target="document:b",
+            relation="refs",
+            weight=1.0,
+        )
         temp_store.add_edge(edge1)
 
-        edge2 = GraphEdge(source="document:a", target="document:b", relation="refs", weight=5.0)
+        edge2 = GraphEdge(
+            source="document:a",
+            target="document:b",
+            relation="refs",
+            weight=5.0,
+        )
         temp_store.add_edge(edge2)
 
         assert len(temp_store.graph["edges"]) == 1
@@ -247,19 +260,29 @@ class TestGraphStore:
 
         # Add edges
         edges = [
-            GraphEdge(source="document:doc-1", target="thread:thread-1", relation="in"),
-            GraphEdge(source="user:user-1", target="document:doc-1", relation="authored"),
+            GraphEdge(
+                source="document:doc-1", target="thread:thread-1", relation="in"
+            ),
+            GraphEdge(
+                source="user:user-1",
+                target="document:doc-1",
+                relation="authored",
+            ),
         ]
         for edge in edges:
             temp_store.add_edge(edge)
 
         # Query outgoing neighbors from doc-1
-        out_neighbors = temp_store.query_neighbors("document:doc-1", direction="out")
+        out_neighbors = temp_store.query_neighbors(
+            "document:doc-1", direction="out"
+        )
         assert len(out_neighbors) == 1
         assert out_neighbors[0].id == "thread-1"
 
         # Query incoming neighbors to doc-1
-        in_neighbors = temp_store.query_neighbors("document:doc-1", direction="in")
+        in_neighbors = temp_store.query_neighbors(
+            "document:doc-1", direction="in"
+        )
         assert len(in_neighbors) == 1
         assert in_neighbors[0].id == "user-1"
 
@@ -273,9 +296,21 @@ class TestGraphStore:
         temp_store.upsert_node(node3)
 
         edges = [
-            GraphEdge(source="document:doc-1", target="document:doc-2", relation="derived_from"),
-            GraphEdge(source="document:doc-1", target="document:doc-2", relation="mirrors"),
-            GraphEdge(source="user:user-1", target="document:doc-1", relation="authored"),
+            GraphEdge(
+                source="document:doc-1",
+                target="document:doc-2",
+                relation="derived_from",
+            ),
+            GraphEdge(
+                source="document:doc-1",
+                target="document:doc-2",
+                relation="mirrors",
+            ),
+            GraphEdge(
+                source="user:user-1",
+                target="document:doc-1",
+                relation="authored",
+            ),
         ]
         for edge in edges:
             temp_store.add_edge(edge)
@@ -339,9 +374,15 @@ class TestGraphStore:
             temp_store.upsert_node(node)
 
         edges = [
-            GraphEdge(source="document:a", target="document:b", relation="refs"),
-            GraphEdge(source="document:b", target="document:c", relation="refs"),
-            GraphEdge(source="document:c", target="document:d", relation="refs"),
+            GraphEdge(
+                source="document:a", target="document:b", relation="refs"
+            ),
+            GraphEdge(
+                source="document:b", target="document:c", relation="refs"
+            ),
+            GraphEdge(
+                source="document:c", target="document:d", relation="refs"
+            ),
         ]
         for edge in edges:
             temp_store.add_edge(edge)
@@ -358,7 +399,9 @@ class TestGraphStore:
         temp_store.upsert_node(node1)
         temp_store.upsert_node(node2)
 
-        edge = GraphEdge(source="document:a", target="document:b", relation="refs")
+        edge = GraphEdge(
+            source="document:a", target="document:b", relation="refs"
+        )
         temp_store.add_edge(edge)
 
         assert len(temp_store.graph["nodes"]) == 2
@@ -426,9 +469,21 @@ class TestGraphStore:
             temp_store.upsert_node(node)
 
         edges = [
-            GraphEdge(source="document:doc-1", target="document:doc-2", relation="refs"),
-            GraphEdge(source="user:user-1", target="document:doc-1", relation="authored"),
-            GraphEdge(source="user:user-1", target="document:doc-2", relation="authored"),
+            GraphEdge(
+                source="document:doc-1",
+                target="document:doc-2",
+                relation="refs",
+            ),
+            GraphEdge(
+                source="user:user-1",
+                target="document:doc-1",
+                relation="authored",
+            ),
+            GraphEdge(
+                source="user:user-1",
+                target="document:doc-2",
+                relation="authored",
+            ),
         ]
         for edge in edges:
             temp_store.add_edge(edge)
@@ -451,7 +506,9 @@ class TestGraphSnapshot:
             "document:1": GraphNode(id="1", type="document", label="Doc 1"),
         }
         edges = [
-            GraphEdge(source="document:1", target="document:2", relation="refs"),
+            GraphEdge(
+                source="document:1", target="document:2", relation="refs"
+            ),
         ]
 
         snapshot = GraphSnapshot(nodes=nodes, edges=edges)
@@ -462,7 +519,9 @@ class TestGraphSnapshot:
     def test_snapshot_serialization(self):
         """Test snapshot JSON serialization."""
         node = GraphNode(id="1", type="document", label="Doc 1")
-        edge = GraphEdge(source="document:1", target="document:2", relation="refs")
+        edge = GraphEdge(
+            source="document:1", target="document:2", relation="refs"
+        )
         snapshot = GraphSnapshot(nodes={"document:1": node}, edges=[edge])
 
         json_str = snapshot.model_dump_json()
@@ -488,8 +547,12 @@ class TestGraphIntegration:
     def test_complete_workflow(self, temp_store):
         """Test a complete graph workflow."""
         # Create entities
-        doc = GraphNode(id="article-1", type="document", label="Research Article")
-        thread = GraphNode(id="discussion-1", type="thread", label="Discussion Thread")
+        doc = GraphNode(
+            id="article-1", type="document", label="Research Article"
+        )
+        thread = GraphNode(
+            id="discussion-1", type="thread", label="Discussion Thread"
+        )
         user1 = GraphNode(id="alice", type="user", label="Alice")
         user2 = GraphNode(id="bob", type="user", label="Bob")
 
@@ -547,7 +610,9 @@ class TestGraphIntegration:
             store2 = GraphStore(path=path2)
 
             # Node 1 creates entities
-            doc = GraphNode(id="shared-doc", type="document", label="Shared Document")
+            doc = GraphNode(
+                id="shared-doc", type="document", label="Shared Document"
+            )
             store1.upsert_node(doc)
 
             # Node 1 exports snapshot

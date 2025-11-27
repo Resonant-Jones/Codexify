@@ -9,24 +9,25 @@ Tests cover:
 - Result deduplication and scoring formulas
 """
 
-import pytest
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from guardian.federation.graph_model import GraphNode, GraphEdge
+import pytest
+
+from guardian.federation.graph_model import GraphEdge, GraphNode
 from guardian.federation.graph_store import GraphStore
+from guardian.federation.manifest import NodeManifest
 from guardian.federation.trust_registry import (
     TrustRegistry,
-    calculate_result_score,
     calculate_recency_factor,
+    calculate_result_score,
 )
-from guardian.federation.manifest import NodeManifest
 from guardian.routes.federation_context import (
+    PeerInfo,
     SearchRequest,
     SearchResult,
-    PeerInfo,
     _search_local,
     _search_peers,
 )
@@ -102,28 +103,38 @@ class TestScoringFormula:
     def test_calculate_result_score_basic(self):
         """Test basic score calculation."""
         # Similarity only (no trust or recency boost)
-        score = calculate_result_score(similarity=1.0, trust_level=0.0, recency=0.0)
+        score = calculate_result_score(
+            similarity=1.0, trust_level=0.0, recency=0.0
+        )
         assert score == pytest.approx(0.7)  # 1.0 * 0.7
 
     def test_calculate_result_score_with_trust(self):
         """Test score with trust weight."""
-        score = calculate_result_score(similarity=1.0, trust_level=1.0, recency=0.0)
+        score = calculate_result_score(
+            similarity=1.0, trust_level=1.0, recency=0.0
+        )
         assert score == pytest.approx(0.9)  # 1.0 * 0.7 + 1.0 * 0.2
 
     def test_calculate_result_score_with_recency(self):
         """Test score with recency weight."""
-        score = calculate_result_score(similarity=1.0, trust_level=0.0, recency=1.0)
+        score = calculate_result_score(
+            similarity=1.0, trust_level=0.0, recency=1.0
+        )
         assert score == pytest.approx(0.8)  # 1.0 * 0.7 + 1.0 * 0.1
 
     def test_calculate_result_score_all_weights(self):
         """Test score with all weights at 1.0."""
-        score = calculate_result_score(similarity=1.0, trust_level=1.0, recency=1.0)
+        score = calculate_result_score(
+            similarity=1.0, trust_level=1.0, recency=1.0
+        )
         assert score == pytest.approx(1.0)  # 0.7 + 0.2 + 0.1
 
     def test_calculate_result_score_capped_at_one(self):
         """Test that score is capped at 1.0."""
         # If individual factors sum to > 1.0, cap at 1.0
-        score = calculate_result_score(similarity=1.5, trust_level=1.5, recency=1.5)
+        score = calculate_result_score(
+            similarity=1.5, trust_level=1.5, recency=1.5
+        )
         assert score <= 1.0
 
     def test_calculate_recency_factor_recent(self):
@@ -171,10 +182,14 @@ class TestLocalSearch:
     async def test_search_local_no_results(self, temp_graph_store):
         """Test search with no matching nodes."""
         # Patch get_graph_store to return our test store
-        with patch("guardian.routes.federation_context.get_graph_store") as mock_get:
+        with patch(
+            "guardian.routes.federation_context.get_graph_store"
+        ) as mock_get:
             mock_get.return_value = temp_graph_store
 
-            results = await _search_local("nonexistent", limit=5, include_graph=True)
+            results = await _search_local(
+                "nonexistent", limit=5, include_graph=True
+            )
             assert len(results) == 0
 
     @pytest.mark.asyncio
@@ -188,7 +203,9 @@ class TestLocalSearch:
         )
         temp_graph_store.upsert_node(node)
 
-        with patch("guardian.routes.federation_context.get_graph_store") as mock_get:
+        with patch(
+            "guardian.routes.federation_context.get_graph_store"
+        ) as mock_get:
             mock_get.return_value = temp_graph_store
 
             results = await _search_local("Python", limit=5, include_graph=True)
@@ -206,10 +223,14 @@ class TestLocalSearch:
         )
         temp_graph_store.upsert_node(node)
 
-        with patch("guardian.routes.federation_context.get_graph_store") as mock_get:
+        with patch(
+            "guardian.routes.federation_context.get_graph_store"
+        ) as mock_get:
             mock_get.return_value = temp_graph_store
 
-            results = await _search_local("machine learning", limit=5, include_graph=True)
+            results = await _search_local(
+                "machine learning", limit=5, include_graph=True
+            )
             assert len(results) == 1
             assert "machine learning" in str(results[0].metadata)
 
@@ -225,7 +246,9 @@ class TestLocalSearch:
             )
             temp_graph_store.upsert_node(node)
 
-        with patch("guardian.routes.federation_context.get_graph_store") as mock_get:
+        with patch(
+            "guardian.routes.federation_context.get_graph_store"
+        ) as mock_get:
             mock_get.return_value = temp_graph_store
 
             results = await _search_local("python", limit=3, include_graph=True)
@@ -241,7 +264,9 @@ class TestLocalSearch:
         )
         temp_graph_store.upsert_node(node)
 
-        with patch("guardian.routes.federation_context.get_graph_store") as mock_get:
+        with patch(
+            "guardian.routes.federation_context.get_graph_store"
+        ) as mock_get:
             mock_get.return_value = temp_graph_store
 
             results = await _search_local(
@@ -258,7 +283,9 @@ class TestPeerSearch:
     @pytest.mark.asyncio
     async def test_search_peers_no_relays(self):
         """Test peer search with no active relays."""
-        with patch("guardian.routes.federation_context.manager") as mock_manager:
+        with patch(
+            "guardian.routes.federation_context.manager"
+        ) as mock_manager:
             mock_manager.active_relays = {}
             results = await _search_peers("query", limit=5)
             assert len(results) == 0
@@ -266,7 +293,9 @@ class TestPeerSearch:
     @pytest.mark.asyncio
     async def test_search_peers_no_search_capability(self):
         """Test peer search when peer doesn't support search."""
-        with patch("guardian.routes.federation_context.manager") as mock_manager:
+        with patch(
+            "guardian.routes.federation_context.manager"
+        ) as mock_manager:
             # Setup relay with peer that lacks search capability
             mock_relay = MagicMock()
             mock_relay.is_expired.return_value = False
@@ -424,10 +453,14 @@ class TestPeerInfo:
         PeerInfo(node_id="peer", relay_endpoint="ws://peer", trust_level=1.0)
 
         with pytest.raises(ValueError):
-            PeerInfo(node_id="peer", relay_endpoint="ws://peer", trust_level=-0.1)
+            PeerInfo(
+                node_id="peer", relay_endpoint="ws://peer", trust_level=-0.1
+            )
 
         with pytest.raises(ValueError):
-            PeerInfo(node_id="peer", relay_endpoint="ws://peer", trust_level=1.1)
+            PeerInfo(
+                node_id="peer", relay_endpoint="ws://peer", trust_level=1.1
+            )
 
 
 class TestResultRanking:
@@ -492,7 +525,9 @@ class TestResultRanking:
                 trust = registry.get_trust_level(result.peer)
             else:
                 trust = 1.0
-            result.score = calculate_result_score(result.score, trust_level=trust)
+            result.score = calculate_result_score(
+                result.score, trust_level=trust
+            )
 
         # Local result (trust=1.0) should now rank higher
         sorted_results = sorted(results, key=lambda r: r.score, reverse=True)
@@ -592,7 +627,9 @@ class TestIntegration:
             for node in nodes:
                 store.upsert_node(node)
 
-            with patch("guardian.routes.federation_context.get_graph_store") as mock:
+            with patch(
+                "guardian.routes.federation_context.get_graph_store"
+            ) as mock:
                 mock.return_value = store
 
                 # Search for python
@@ -604,5 +641,7 @@ class TestIntegration:
 
                 # Should find python-related nodes
                 assert len(results) >= 2
-                python_results = [r for r in results if "python" in r.label.lower()]
+                python_results = [
+                    r for r in results if "python" in r.label.lower()
+                ]
                 assert len(python_results) > 0

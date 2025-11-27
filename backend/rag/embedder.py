@@ -5,7 +5,8 @@ Embedder Module
 Wrapper around CodexifyEmbedder for embedding documents and texts.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 from guardian.runtime.embed.embedder import CodexifyEmbedder
 
 

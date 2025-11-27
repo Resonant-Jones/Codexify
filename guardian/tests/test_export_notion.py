@@ -54,6 +54,10 @@ def test_export_to_notion():
         raise ValueError("NOTION_API_KEY not set in environment or .env file!")
 
     url = export_to_notion(
-        records, parent_id, notion_token, format="md", title="Guardian Export Test"
+        records,
+        parent_id,
+        notion_token,
+        format="md",
+        title="Guardian Export Test",
     )
     print("Exported to Notion! Page URL:", url)

@@ -35,8 +35,12 @@ async def test_rate_limiting():
     await asyncio.gather(*tasks)
 
     # Verify rate limiting
-    intervals = [call_times[i + 1] - call_times[i] for i in range(len(call_times) - 1)]
-    assert all(interval >= 0.5 for interval in intervals), f"Intervals: {intervals}"
+    intervals = [
+        call_times[i + 1] - call_times[i] for i in range(len(call_times) - 1)
+    ]
+    assert all(
+        interval >= 0.5 for interval in intervals
+    ), f"Intervals: {intervals}"
 
 
 @pytest.mark.asyncio
@@ -66,7 +70,9 @@ async def test_debounce():
     # Should only be called once with last value
     assert call_count == 1, f"Expected 1 call but got {call_count}"
     assert last_value == 4, f"Expected last value 4 but got {last_value}"
-    assert all(v is None for v in values[:-1]), "Intermediate calls should return None"
+    assert all(
+        v is None for v in values[:-1]
+    ), "Intermediate calls should return None"
     assert values[-1] == 4, "Final call should return last value"
 
 
@@ -96,9 +102,12 @@ async def test_throttle():
 
     if len(call_times) > 1:
         intervals = [
-            call_times[i + 1] - call_times[i] for i in range(len(call_times) - 1)
+            call_times[i + 1] - call_times[i]
+            for i in range(len(call_times) - 1)
         ]
-        assert all(interval >= 0.5 for interval in intervals), f"Intervals: {intervals}"
+        assert all(
+            interval >= 0.5 for interval in intervals
+        ), f"Intervals: {intervals}"
 
 
 @pytest.mark.asyncio
@@ -146,8 +155,12 @@ async def test_debounce_cancellation():
     results = await asyncio.gather(task1, task2, task3)
 
     # Only the last call should execute
-    assert call_count == 1, f"Should only execute once, got {call_count} executions"
-    assert all(r is None for r in results[:-1]), "Cancelled calls should return None"
+    assert (
+        call_count == 1
+    ), f"Should only execute once, got {call_count} executions"
+    assert all(
+        r is None for r in results[:-1]
+    ), "Cancelled calls should return None"
     assert results[-1] == 1, "Last call should return result"
 
 

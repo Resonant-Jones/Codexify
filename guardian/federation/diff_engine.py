@@ -5,12 +5,12 @@ multiple nodes to maintain consistent document state through
 versioned patches and deterministic merging.
 """
 
+import difflib
 import hashlib
+import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional, List
-import difflib
-import json
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -149,7 +149,9 @@ class DiffEngine:
                 from patch_ng import PatchFile
 
                 patch_file = PatchFile(patch_text.split("\n"))
-                result = patch_file.apply(content.split("\n"), list(range(len(content.split("\n")))))
+                result = patch_file.apply(
+                    content.split("\n"), list(range(len(content.split("\n"))))
+                )
 
                 if result:
                     return "\n".join(result[0])
@@ -163,8 +165,12 @@ class DiffEngine:
 
             # Find and skip headers
             idx = 0
-            while idx < len(patch_lines) and not patch_lines[idx].startswith("@@"):
-                if patch_lines[idx].startswith("---") or patch_lines[idx].startswith("+++"):
+            while idx < len(patch_lines) and not patch_lines[idx].startswith(
+                "@@"
+            ):
+                if patch_lines[idx].startswith("---") or patch_lines[
+                    idx
+                ].startswith("+++"):
                     idx += 1
                 else:
                     idx += 1
@@ -253,7 +259,9 @@ class DiffEngine:
 
         return merged, version
 
-    def verify_diff(self, diff: DiffEntry, expected_content: Optional[str] = None) -> bool:
+    def verify_diff(
+        self, diff: DiffEntry, expected_content: Optional[str] = None
+    ) -> bool:
         """Verify a diff's content hash matches expected state.
 
         Args:

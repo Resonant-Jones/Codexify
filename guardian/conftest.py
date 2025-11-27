@@ -1,20 +1,21 @@
 # Ensure package-relative import works when running pytest from the repo root
-from pathlib import Path
 import sys
+from pathlib import Path
+
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 # Avoid importing the FastAPI app at import-time to keep non-API tests light
 import os
-from urllib.parse import urlparse
-import pytest
-from dotenv import load_dotenv
 
 # Import the correct FastAPI app for tests
 import socket
 from urllib.parse import urlparse
-import os
+
+import pytest
+from dotenv import load_dotenv
+
 # Load environment variables for pytest
 load_dotenv()
 # Hint to config loader that we're in a test context and dummy fallbacks are allowed
@@ -156,7 +157,9 @@ def _internet():
 
 
 def pytest_collection_modifyitems(config, items):
-    config.addinivalue_line("markers", "net: test requires external network access")
+    config.addinivalue_line(
+        "markers", "net: test requires external network access"
+    )
     config.addinivalue_line(
         "markers", "skip(reason): mark test to be skipped with a reason"
     )
@@ -285,7 +288,12 @@ def neo4j_driver():
         pytest.skip("Neo4j driver not installed; skipping graph tests.")
         return
 
-    bolt = os.getenv("BOLT_URL") or os.getenv("NEO4J_BOLT_URL") or os.getenv("NEO4J_URI") or "bolt://localhost:7687"
+    bolt = (
+        os.getenv("BOLT_URL")
+        or os.getenv("NEO4J_BOLT_URL")
+        or os.getenv("NEO4J_URI")
+        or "bolt://localhost:7687"
+    )
     parsed = urlparse(bolt)
 
     # Default creds from env if not embedded in URL
@@ -313,7 +321,9 @@ def neo4j_driver():
 
 
 class DummyClient:
-    def chat_completion(self, *, model, messages, temperature=0.7, max_tokens=1500):
+    def chat_completion(
+        self, *, model, messages, temperature=0.7, max_tokens=1500
+    ):
         return "ok"
 
     def tokenize(self, text: str):
@@ -341,7 +351,10 @@ def _force_dummy_llm(monkeypatch, dummy_client):
 
         if hasattr(mem, "_build_llm_client_from_env"):
             monkeypatch.setattr(
-                mem, "_build_llm_client_from_env", lambda: dummy_client, raising=False
+                mem,
+                "_build_llm_client_from_env",
+                lambda: dummy_client,
+                raising=False,
             )
     except Exception:
         pass

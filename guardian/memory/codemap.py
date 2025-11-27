@@ -30,13 +30,15 @@ def load_codemap() -> Dict:
         project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
         codemap_path = os.path.join(project_root, "codemap.json")
 
-        with open(codemap_path, "r") as f:
+        with open(codemap_path) as f:
             codemap = json.load(f)
             logger.info(f"Successfully loaded codemap from {codemap_path}")
             return codemap
 
     except FileNotFoundError:
-        logger.error(f"codemap.json file not found at project root: {codemap_path}")
+        logger.error(
+            f"codemap.json file not found at project root: {codemap_path}"
+        )
     except json.JSONDecodeError as e:
         logger.error(f"Error decoding codemap.json: {e}")
     except Exception as e:
@@ -78,19 +80,24 @@ def query_codemap(term: str, codemap: Optional[Dict] = None) -> CodemapResult:
 
         # Perform case-insensitive substring matching on key and description
         if term in key.lower() or term in info.get("description", "").lower():
-
             results.append(
                 {
                     "file": info.get("file", "Unknown"),
                     "line": info.get("line", "N/A"),
-                    "description": info.get("description", "No description available"),
+                    "description": info.get(
+                        "description", "No description available"
+                    ),
                 }
             )
 
     # Sort results by filename and line number for consistent output
     results.sort(key=lambda x: (x["file"], x.get("line", 0)))
 
-    return results if results else [{"message": f"No matches found for term: {term}"}]
+    return (
+        results
+        if results
+        else [{"message": f"No matches found for term: {term}"}]
+    )
 
 
 def format_results(results: CodemapResult, explain: bool = False) -> str:
@@ -141,7 +148,7 @@ class CodemapService:
 
         if codemap_path:
             try:
-                with open(codemap_path, "r") as f:
+                with open(codemap_path) as f:
                     self._codemap = json.load(f)
             except Exception:
                 self._codemap = load_codemap()

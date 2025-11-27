@@ -43,7 +43,9 @@ def test_ingest_chatgpt_export_creates_threads_and_messages(monkeypatch):
         }
     ]
 
-    stats = ingest_chatgpt_export(json.dumps(export).encode("utf-8"), user_id="tester")
+    stats = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"), user_id="tester"
+    )
 
     assert stats["threads"] == 1
     assert stats["messages"] == 2

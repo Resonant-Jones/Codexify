@@ -2,7 +2,11 @@ import argparse
 import json
 import pickle
 
-from ..export_engine import export_to_gdrive, import_from_gdrive, import_from_icloud
+from ..export_engine import (
+    export_to_gdrive,
+    import_from_gdrive,
+    import_from_icloud,
+)
 from ..flows.sync_gsuite_to_notion import sync_gsuite_to_notion
 
 
@@ -39,7 +43,9 @@ def cli_import_icloud(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Guardian CLI: Digital Archive Nexus")
+    parser = argparse.ArgumentParser(
+        description="Guardian CLI: Digital Archive Nexus"
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     # Google Drive Export
@@ -53,7 +59,10 @@ def main():
         "--format", type=str, default="md", help="Export format (md, json, csv)"
     )
     exp_gd.add_argument(
-        "--folder", type=str, default=None, help="Google Drive folder ID (optional)"
+        "--folder",
+        type=str,
+        default=None,
+        help="Google Drive folder ID (optional)",
     )
     exp_gd.add_argument(
         "--token",
@@ -71,12 +80,17 @@ def main():
         "--query", type=str, default=None, help="Search string for file names"
     )
     imp_gd.add_argument(
-        "--folder", type=str, default=None, help="Google Drive folder ID (optional)"
+        "--folder",
+        type=str,
+        default=None,
+        help="Google Drive folder ID (optional)",
     )
     imp_gd.add_argument(
         "--token", type=str, default="token.pickle", help="Path to token.pickle"
     )
-    imp_gd.add_argument("--out", type=str, default="/tmp", help="Download directory")
+    imp_gd.add_argument(
+        "--out", type=str, default="/tmp", help="Download directory"
+    )
     imp_gd.set_defaults(func=cli_import_gdrive)
 
     # iCloud Import
@@ -84,10 +98,16 @@ def main():
         "import_icloud", help="Import files from iCloud Guardian Exports"
     )
     imp_ic.add_argument(
-        "--pattern", type=str, default="*", help="File glob pattern, e.g., '*.md'"
+        "--pattern",
+        type=str,
+        default="*",
+        help="File glob pattern, e.g., '*.md'",
     )
     imp_ic.add_argument(
-        "--subfolder", type=str, default="Guardian Exports", help="iCloud subfolder"
+        "--subfolder",
+        type=str,
+        default="Guardian Exports",
+        help="iCloud subfolder",
     )
     imp_ic.set_defaults(func=cli_import_icloud)
 

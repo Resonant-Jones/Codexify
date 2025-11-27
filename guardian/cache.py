@@ -54,7 +54,9 @@ def hash_args(*args: Any, **kwargs: Any) -> str:
     return hashlib.sha256(serialized.encode()).hexdigest()
 
 
-def memoize_to_disk(expire: int = CacheConfig.DEFAULT_EXPIRE) -> Callable[[F], F]:
+def memoize_to_disk(
+    expire: int = CacheConfig.DEFAULT_EXPIRE,
+) -> Callable[[F], F]:
     """
     Decorator for disk-persistent JSONL caching with input hashing.
 

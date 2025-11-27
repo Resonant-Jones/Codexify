@@ -73,10 +73,10 @@ async def embed_endpoint(payload: EmbedRequest) -> dict[str, Any]:
             md.update(payload.metadata)
         if payload.tags:
             md["tags"] = list(payload.tags)
-            
+
         # VectorStore handles embedding internally now
         vector_store.add_texts([{"text": payload.text, "meta": md}])
-        
+
         return {"message": "Embedding stored successfully", "metadata": md}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -50,7 +50,9 @@ def create_chroma_client(directory: str | None) -> ClientAPI:
     return chromadb.Client(settings=settings)
 
 
-def iter_embeddings(engine: Engine, batch_size: int) -> Iterable[list[dict[str, Any]]]:
+def iter_embeddings(
+    engine: Engine, batch_size: int
+) -> Iterable[list[dict[str, Any]]]:
     query = text(
         "SELECT id, vector, metadata, namespace FROM embeddings ORDER BY namespace"
     )
@@ -65,9 +67,12 @@ def iter_embeddings(engine: Engine, batch_size: int) -> Iterable[list[dict[str, 
                 rows.append(
                     {
                         "id": row.id,
-                        "vector": list(row.vector) if row.vector is not None else [],
+                        "vector": list(row.vector)
+                        if row.vector is not None
+                        else [],
                         "metadata": dict(row.metadata or {}),
-                        "namespace": (row.namespace or DEFAULT_NAMESPACE) or DEFAULT_NAMESPACE,
+                        "namespace": (row.namespace or DEFAULT_NAMESPACE)
+                        or DEFAULT_NAMESPACE,
                     }
                 )
             yield rows
@@ -75,7 +80,9 @@ def iter_embeddings(engine: Engine, batch_size: int) -> Iterable[list[dict[str, 
 
 def migrate(args: argparse.Namespace) -> None:
     if not args.database_url:
-        raise SystemExit("DATABASE_URL must be provided via --database-url or environment")
+        raise SystemExit(
+            "DATABASE_URL must be provided via --database-url or environment"
+        )
 
     engine = create_engine(args.database_url, future=True)
     client = create_chroma_client(args.chroma_directory)
@@ -90,7 +97,9 @@ def migrate(args: argparse.Namespace) -> None:
             for record in batch:
                 namespace = record["namespace"] or DEFAULT_NAMESPACE
                 collection_name = f"{args.collection_prefix}_{namespace}"
-                collection = client.get_or_create_collection(name=collection_name)
+                collection = client.get_or_create_collection(
+                    name=collection_name
+                )
                 metadata = dict(record["metadata"])
                 metadata.setdefault("namespace", namespace)
                 try:
@@ -109,7 +118,9 @@ def migrate(args: argparse.Namespace) -> None:
             if imported and imported % 250 == 0:
                 print(f"Imported {imported} embeddings so far...")
     except SQLAlchemyError as exc:
-        raise SystemExit(f"Database error while exporting embeddings: {exc}") from exc
+        raise SystemExit(
+            f"Database error while exporting embeddings: {exc}"
+        ) from exc
 
     print("Migration completed.")
     print(f"Total imported: {imported}")

@@ -12,7 +12,7 @@ def _default_token_path() -> Path:
     return Path(__file__).resolve().parents[2] / "secrets" / "token.json"
 
 
-def _resolve_paths() -> Tuple[Optional[Path], Path]:
+def _resolve_paths() -> tuple[Path | None, Path]:
     creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     token_env = os.environ.get("GDRIVE_OAUTH_TOKEN")
     token_path = Path(token_env) if token_env else _default_token_path()
@@ -63,7 +63,9 @@ def ensure_oauth_credentials() -> str:
     creds = None
     if token_path.exists():
         try:
-            creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+            creds = Credentials.from_authorized_user_file(
+                str(token_path), SCOPES
+            )
         except Exception:
             creds = None
     if creds and creds.expired and getattr(creds, "refresh_token", None):
@@ -79,7 +81,9 @@ def ensure_oauth_credentials() -> str:
             raise RuntimeError(
                 "OAuth client secret missing. Set GOOGLE_APPLICATION_CREDENTIALS to your client_secret JSON."
             )
-        flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), SCOPES)
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(creds_path), SCOPES
+        )
         # local server flow opens browser
         creds = flow.run_local_server(port=0)
         token_path.write_text(creds.to_json())

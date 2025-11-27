@@ -15,6 +15,7 @@ def _ensure_groq_key(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "groq")
     try:
         import guardian.routes.chat as chat_module
+
         chat_module.llm_settings.LLM_PROVIDER = "groq"
         chat_module.llm_settings.LLM_MODEL = "moonshotai-kimi-k2-instruct-9050"
     except Exception:
@@ -24,7 +25,9 @@ def _ensure_groq_key(monkeypatch):
 class TestChatThreadsPost:
     """Tests for POST /chat/threads endpoint."""
 
-    def test_create_thread_success(self, test_client, mock_db, sample_thread_data):
+    def test_create_thread_success(
+        self, test_client, mock_db, sample_thread_data
+    ):
         """Test successful thread creation returns 200 with thread data."""
         response = test_client.post("/chat/threads", json=sample_thread_data)
 
@@ -49,14 +52,17 @@ class TestChatThreadsPost:
         assert call_kwargs["title"] == "New Chat"
         assert call_kwargs["user_id"] == "default"
 
-    @pytest.mark.xfail(reason="Real DB counter vs mock ID - harmless difference")
+    @pytest.mark.xfail(
+        reason="Real DB counter vs mock ID - harmless difference"
+    )
     def test_create_thread_reuses_recent_empty(self, test_client, mock_db):
         """Test thread creation reuses recent empty thread for same user."""
         mock_db.get_recent_thread.return_value = {"id": 42, "title": "Recent"}
         mock_db.count_messages.return_value = 0
 
         response = test_client.post(
-            "/chat/threads", json={"user_id": "test_user", "title": "New Thread"}
+            "/chat/threads",
+            json={"user_id": "test_user", "title": "New Thread"},
         )
 
         assert response.status_code == 200
@@ -128,7 +134,11 @@ class TestChatMessagesPost:
 
     def test_post_message_success(self, test_client, mock_db):
         """Test successful message posting returns 200 with message data."""
-        payload = {"role": "user", "content": "Hello, world!", "user_id": "test_user"}
+        payload = {
+            "role": "user",
+            "content": "Hello, world!",
+            "user_id": "test_user",
+        }
 
         response = test_client.post("/chat/1/messages", json=payload)
 
@@ -138,7 +148,9 @@ class TestChatMessagesPost:
         assert "message" in data
         assert data["message"]["role"] == "user"
         assert data["message"]["content"] == "Hello, world!"
-        mock_db.create_message.assert_called_once_with(1, "user", "Hello, world!")
+        mock_db.create_message.assert_called_once_with(
+            1, "user", "Hello, world!"
+        )
 
     def test_post_message_missing_role(self, test_client, mock_db):
         """Test message posting without role returns 400."""
@@ -281,7 +293,7 @@ class TestChatCompletePost:
             assert response.status_code == 200
             # Verify only valid messages were passed to completion
             call_args = mock_groq.call_args[0][0]
-            assert len(call_args) == 2  # Only 2 valid messages
+            assert len(call_args) == 3  # 1 system + 2 valid messages
 
     def test_complete_groq_error(self, test_client, mock_db):
         """Test completion handles Groq errors gracefully."""
@@ -290,12 +302,46 @@ class TestChatCompletePost:
         ]
 
         with patch("guardian.routes.chat._groq_complete") as mock_groq:
-            mock_groq.side_effect = HTTPException(status_code=502, detail="Groq error")
+            mock_groq.side_effect = HTTPException(
+                status_code=502, detail="Groq error"
+            )
 
             response = test_client.post("/chat/1/complete", json={})
 
             assert response.status_code == 502
             assert "LLM backend error" in response.json()["detail"]
+
+    def test_api_complete_returns_context_bundle(
+        self, test_client, mock_db, monkeypatch
+    ):
+        """Ensure /api/chat/* alias returns assistant message and context bundle."""
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello there"}
+        ]
+
+        class FakeBroker:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def assemble(self, thread_id, query, depth_mode, user_id=None):
+                return (
+                    {"messages": [{"role": "user", "content": query}], "semantic": ["sem"]},
+                    {"documents": [], "graph": []},
+                )
+
+        monkeypatch.setattr("guardian.routes.chat.ContextBroker", FakeBroker)
+
+        with patch("guardian.routes.chat._groq_complete") as mock_groq:
+            mock_groq.return_value = "Assistant reply"
+
+            response = test_client.post(
+                "/api/chat/1/complete", json={"depth_mode": "normal"}
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["message"]["content"] == "Assistant reply"
+            assert data["context"].get("semantic") == ["sem"]
 
 
 class TestChatMessageDelete:
@@ -321,7 +367,9 @@ class TestChatMessageDelete:
 class TestChatThreadBranchPost:
     """Tests for POST /chat/{thread_id}/branch endpoint."""
 
-    @pytest.mark.xfail(reason="Real DB counter vs mock ID - harmless difference")
+    @pytest.mark.xfail(
+        reason="Real DB counter vs mock ID - harmless difference"
+    )
     def test_branch_thread_success(self, test_client, mock_db, api_headers):
         """Test successful thread branching returns 200 with new thread."""
         mock_db.get_chat_thread.return_value = {
@@ -340,14 +388,18 @@ class TestChatThreadBranchPost:
             "parent_id": 1,
         }
 
-        response = test_client.post("/chat/1/branch", json={}, headers=api_headers)
+        response = test_client.post(
+            "/chat/1/branch", json={}, headers=api_headers
+        )
 
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == 2
         assert data["parent_id"] == 1
 
-    def test_branch_thread_with_custom_title(self, test_client, mock_db, api_headers):
+    def test_branch_thread_with_custom_title(
+        self, test_client, mock_db, api_headers
+    ):
         """Test branching with custom title."""
         mock_db.get_chat_thread.return_value = {
             "id": 1,
@@ -366,7 +418,9 @@ class TestChatThreadBranchPost:
         }
 
         response = test_client.post(
-            "/chat/1/branch", json={"title": "Custom Branch"}, headers=api_headers
+            "/chat/1/branch",
+            json={"title": "Custom Branch"},
+            headers=api_headers,
         )
 
         assert response.status_code == 200
@@ -377,7 +431,9 @@ class TestChatThreadBranchPost:
         """Test branching non-existent thread returns 404."""
         mock_db.get_chat_thread.return_value = None
 
-        response = test_client.post("/chat/999/branch", json={}, headers=api_headers)
+        response = test_client.post(
+            "/chat/999/branch", json={}, headers=api_headers
+        )
 
         assert response.status_code == 404
         data = response.json()
@@ -387,7 +443,9 @@ class TestChatThreadBranchPost:
 class TestChatThreadPatch:
     """Tests for PATCH /chat/{thread_id} endpoint."""
 
-    def test_update_thread_title_success(self, test_client, mock_db, api_headers):
+    def test_update_thread_title_success(
+        self, test_client, mock_db, api_headers
+    ):
         """Test successful thread title update returns 200."""
         response = test_client.patch(
             "/chat/1", json={"title": "Updated Title"}, headers=api_headers
@@ -432,7 +490,9 @@ class TestChatThreadPatch:
 
         assert response.status_code == 404
 
-    def test_update_thread_empty_payload(self, test_client, mock_db, api_headers):
+    def test_update_thread_empty_payload(
+        self, test_client, mock_db, api_headers
+    ):
         """Test updating thread with empty payload returns 400."""
         response = test_client.patch("/chat/1", json={}, headers=api_headers)
 
@@ -490,8 +550,12 @@ class TestApiChatAlias:
         resp = test_client.post("/api/chat/999/complete", json={})
         assert resp.status_code == 404
 
-    def test_api_chat_complete_missing_config(self, test_client, mock_db, monkeypatch):
-        monkeypatch.setattr("guardian.routes.chat.llm_settings.GROQ_API_KEY", None)
+    def test_api_chat_complete_missing_config(
+        self, test_client, mock_db, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "guardian.routes.chat.llm_settings.GROQ_API_KEY", None
+        )
         resp = test_client.post("/api/chat/1/complete", json={})
         assert resp.status_code == 400
         assert "LLM unavailable" in resp.json()["detail"]

@@ -25,4 +25,3 @@ test("nav -> Settings persists and restores on next mount", async () => {
   // Should still show appearance controls without navigating
   expect(screen.getByRole("button", { name: /^light$/i })).toBeInTheDocument();
 });
-
