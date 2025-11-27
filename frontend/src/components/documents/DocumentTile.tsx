@@ -1,7 +1,8 @@
 import * as React from "react";
 import clsx from "clsx";
-import { FileText } from "lucide-react";
+import { BookOpen, FileText } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
+import { ExtColors } from "@/types/ui";
 
 export type DocumentFile = {
   name: string;
@@ -47,12 +48,24 @@ function getExt(name: string): string {
 }
 
 function readExtColors(): Record<string, string> {
-  if (typeof window === "undefined") return { pdf: "#ef4444", md: "#6366f1", txt: "#06b6d4", sketch: "#f59e0b" };
+  const defaults: ExtColors = {
+    pdf: "#ef4444",
+    md: "#6366f1",
+    txt: "#06b6d4",
+    sketch: "#f59e0b",
+    doc: "#0ea5e9",
+    docx: "#2563eb",
+    jpeg: "#d946ef",
+    png: "#06b6d4",
+    codex: "#22c55e",
+  };
+  if (typeof window === "undefined") return defaults;
   try {
     const raw = localStorage.getItem("cfy.extColors");
-    return raw ? JSON.parse(raw) : { pdf: "#ef4444", md: "#6366f1", txt: "#06b6d4", sketch: "#f59e0b" };
+    const parsed = raw ? JSON.parse(raw) : {};
+    return { ...defaults, ...parsed };
   } catch {
-    return { pdf: "#ef4444", md: "#6366f1", txt: "#06b6d4", sketch: "#f59e0b" };
+    return defaults;
   }
 }
 
@@ -61,6 +74,7 @@ export default function DocumentTile({ file, onClick, className }: Props) {
   const ext = (file.ext || getExt(file.name) || "").toLowerCase();
   const bannerColor = extColors[ext] || "#6B7280"; // fallback gray
   const onColor = contrastRatio(bannerColor, "#ffffff") >= 4.5 ? "#ffffff" : "#111827";
+  const Icon = ext === "codex" ? BookOpen : FileText;
 
   const content = (
     <div className="relative flex aspect-[3/4] w-full flex-col">
@@ -68,7 +82,7 @@ export default function DocumentTile({ file, onClick, className }: Props) {
         <img src={file.thumb} alt={file.name} className="absolute inset-0 h-full w-full object-cover" />
       ) : (
         <div className="absolute inset-0 grid place-items-center">
-          <FileText className="h-7 w-7" style={{ color: bannerColor }} />
+          <Icon className="h-7 w-7" style={{ color: bannerColor }} />
         </div>
       )}
       <div className="mt-auto">

@@ -41,6 +41,8 @@ import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
+import { DocumentLike } from "@/types/documents";
+import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import { LegacyThreadsModal } from "@/components/modals/LegacyThreadsModal";
 import { LegacyThreadsProvider } from "@/contexts/LegacyThreadsContext";
 import ToastPortal from "@/components/ui/ToastPortal";
@@ -389,13 +391,25 @@ export default function AppShell({}: PropsWithChildren) {
      - `activeDoc`: Which document is open in the workspace.
      - `openDocInPlace`: Helper to open a doc and reveal the workspace pane.
      ───────────────────────────────────────────────────────────────────────────── */
-  type DocItem = { name: string; ext: keyof ExtColors; mock?: boolean };
+  type DocItem = DocumentLike & { ext: keyof ExtColors };
+  function normalizeDoc(raw: any, idx = 0): DocItem {
+    const title = raw?.title || raw?.name || "Untitled";
+    return {
+      id: raw?.id || raw?.document_id || `${title}-${raw?.ext || "md"}-${idx}`,
+      name: raw?.name || title,
+      title,
+      ext: (raw?.ext || raw?.extension || "md") as keyof ExtColors,
+      type: raw?.type === "codex_entry" ? "codex_entry" : "file",
+      mock: Boolean(raw?.mock),
+      createdAt: raw?.createdAt || raw?.created_at,
+    };
+  }
   const [documents, setDocuments] = useState<DocItem[]>(() => {
     const def: DocItem[] = [
-      { name: "Covenant", ext: "pdf", mock: true },
-      { name: "Roadmap", ext: "md", mock: true },
-      { name: "Vision", ext: "txt", mock: true },
-      { name: "Design", ext: "sketch", mock: true },
+      normalizeDoc({ id: "mock-covenant", name: "Covenant", ext: "pdf", mock: true }),
+      normalizeDoc({ id: "mock-roadmap", name: "Roadmap", ext: "md", mock: true }),
+      normalizeDoc({ id: "mock-vision", name: "Vision", ext: "txt", mock: true }),
+      normalizeDoc({ id: "mock-design", name: "Design", ext: "sketch", mock: true }),
     ];
     if (typeof window === "undefined") return def;
     try {
@@ -406,7 +420,8 @@ export default function AppShell({}: PropsWithChildren) {
         return def;
       }
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : def;
+      if (!Array.isArray(parsed)) return def;
+      return parsed.map((d: any, idx: number) => normalizeDoc(d, idx)) as DocItem[];
     } catch {
       return def;
     }
@@ -416,6 +431,31 @@ export default function AppShell({}: PropsWithChildren) {
       localStorage.setItem("cfy.documents", JSON.stringify(documents));
     }
   }, [documents]);
+  const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const entries = await listCodexEntries();
+        if (!cancelled) setCodexEntries(entries);
+      } catch (err) {
+        console.warn("[codex] failed to load entries", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const codexDocs = useMemo<DocItem[]>(() => codexEntries.map((e, idx) => ({
+    id: e.id || `codex-${idx}`,
+    name: e.title,
+    title: e.title,
+    ext: (e.ext || "codex") as keyof ExtColors,
+    type: "codex_entry",
+    createdAt: e.created_at,
+    mock: false,
+  })), [codexEntries]);
+  const allDocuments = useMemo<DocItem[]>(() => [...codexDocs, ...documents], [codexDocs, documents]);
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   // Utility: parse a number from unknown input, fall back & clamp to [0,1]
   function safeNumber(val: unknown, fallback: number): number {
@@ -563,9 +603,9 @@ export default function AppShell({}: PropsWithChildren) {
      ───────────────────────────────────────────────────────────────────────────── */
   const styleVars = {
     /* === GENERAL LAYOUT TOKENS === */
-    "--radius-micro": "12px",                 // chips, inputs, pills
-    "--radius-tile": "19px",                  // cards, tiles, panels
-    "--card-radius": "19px",    // pointer used by components (explicit for clarity)
+    "--radius-micro": "8px",                 // chips, inputs, pills
+    "--radius-tile": "20px",                  // cards, tiles, panels
+    "--card-radius": "20px",    // pointer used by components (explicit for clarity)
     "--edge-chrome": "6px",                     // Outer padding (PWA safe zone)
     "--shell-gap": "16px",                      // Gap between cards or columns
     "--pill-pad-y": "11px", // Vertical padding for the navigation pill dock (controls thickness)
@@ -632,6 +672,7 @@ export default function AppShell({}: PropsWithChildren) {
     txt:   "#8B5CF6", // violet
     docx:  "#2563EB", // blue
     jpeg:  "#D946EF", // fuchsia
+    codex: "#22C55E", // green for Codex entries
   };
   const [extColors, setExtColors] = useState<ExtColors>(() => {
     // Merge any saved colors with explicit defaults, so new keys get sensible values
@@ -705,8 +746,15 @@ export default function AppShell({}: PropsWithChildren) {
     return () => window.removeEventListener("storage", onStorage);
   }, [gallery, documents]);
 
-  const deleteDocument = useCallback((name: string, ext: string) => {
-    setDocuments((prev) => prev.filter((d) => !(d.name === name && d.ext === (ext as any))));
+  const deleteDocument = useCallback((doc: DocumentLike) => {
+    if (doc.type === "codex_entry") return;
+    setDocuments((prev) =>
+      prev.filter(
+        (d) =>
+          d.type === "codex_entry" ||
+          (d.id !== doc.id && !(d.title === doc.title && d.ext === doc.ext))
+      )
+    );
   }, []);
   const deleteGalleryItem = useCallback((src: string) => {
     setGallery((prev) => prev.filter((g) => g.src !== src));
@@ -715,9 +763,14 @@ export default function AppShell({}: PropsWithChildren) {
   // Provide delete undo for documents
   useEffect(() => {
     const onDel = (e: Event) => {
-      const d = (e as CustomEvent).detail || {};
-      const name = d.name; const ext = d.ext;
-      const removed = documents.find((x) => x.name === name && x.ext === ext);
+      const detail = (e as CustomEvent).detail || {};
+      const doc = detail.doc ? normalizeDoc(detail.doc) : null;
+      if (!doc) return;
+      const removed = documents.find(
+        (x) =>
+          x.id === doc.id ||
+          ((x.title === doc.title || x.name === doc.name) && x.ext === doc.ext)
+      );
       if (!removed) return;
       try {
         window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Document deleted", actionLabel: "Undo", onAction: () => {
@@ -734,7 +787,7 @@ export default function AppShell({}: PropsWithChildren) {
     const onAdd = (e: Event) => {
       const items = (e as CustomEvent).detail?.items || [];
       if (!Array.isArray(items) || items.length === 0) return;
-      setDocuments((prev) => [...items, ...prev]);
+      setDocuments((prev) => [...items.map((item: any, idx: number) => normalizeDoc(item, idx)), ...prev]);
     };
     window.addEventListener("cfy:documents:add", onAdd as EventListener);
     return () => window.removeEventListener("cfy:documents:add", onAdd as EventListener);
@@ -755,7 +808,11 @@ export default function AppShell({}: PropsWithChildren) {
   const galleryUploader = useUploader({
     tag: "upload",
     onImages: (items) => setGallery((prev) => [...items, ...prev]),
-    onDocuments: (items) => setDocuments((prev) => [...items, ...prev]),
+    onDocuments: (items) =>
+      setDocuments((prev) => [
+        ...(items || []).map((item: any, idx: number) => normalizeDoc(item, idx)),
+        ...prev,
+      ]),
     onAnyUpload: () => {},
   });
   // Labs: optional feature flags
@@ -774,7 +831,7 @@ export default function AppShell({}: PropsWithChildren) {
   const openLegacy = useCallback(() => setLegacyOpen(true), []);
   const closeLegacy = useCallback(() => setLegacyOpen(false), []);
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
-  const [activeDoc, setActiveDoc] = useState<string | null>(null);
+  const [activeDoc, setActiveDoc] = useState<DocumentLike | null>(null);
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
@@ -854,29 +911,20 @@ export default function AppShell({}: PropsWithChildren) {
     setVisionBusySrc(null);
   }
   // Helper to open a document and reveal the workspace
-  const openDocInPlace = (name: string, ext: string) => {
-    setActiveDoc(`${name}.${ext}`);
+  const openDocInPlace = (doc: DocumentLike) => {
+    setActiveDoc(doc);
     setWorkspaceOpen(true);
   };
-  const openDocInThread = (name: string, ext: string) => {
-    const fullName = `${name}.${ext}`;
-    setActiveDoc(fullName);
+  const openDocInThread = (doc: DocumentLike) => {
+    setActiveDoc(doc);
     setWorkspaceOpen(true);
     setView("guardian");
-    setPrefill(`Let's review "${fullName}".`);
+    const displayName = doc.ext ? `${doc.title}.${doc.ext}` : doc.title;
+    setPrefill(`Let's review "${displayName}".`);
   };
-  const openDocFromWorkspace = (doc: string) => {
+  const openDocFromWorkspace = (doc: DocumentLike | null) => {
     if (!doc) return;
-    const lastDot = doc.lastIndexOf(".");
-    if (lastDot === -1) {
-      setActiveDoc(doc);
-      setWorkspaceOpen(true);
-      setView("guardian");
-      return;
-    }
-    const base = doc.slice(0, lastDot);
-    const extension = doc.slice(lastDot + 1);
-    openDocInThread(base, extension);
+    openDocInThread(doc);
   };
   const createThreadFromDashboard = useCallback(async () => {
     const userId = userName || "default";
@@ -1006,10 +1054,10 @@ export default function AppShell({}: PropsWithChildren) {
         } as React.CSSProperties}
       >
       {/* Global outer glass skin */}
-      <div className="absolute inset-0 -z-10 pointer-events-none rounded-[20px] overflow-hidden">
+      <div className="absolute inset-0 -z-10 pointer-events-none rounded-[var(--viewport-radius)] overflow-hidden">
         <RefractiveGlassCard
           wallpaperUrl={activeWallpaper}
-          className="w-full h-full rounded-[20px]"
+          className="w-full h-full rounded-[var(--viewport-radius)]"
           style={{ background: "transparent", border: "none" }}
           intensity={0.008}
           aberration={0}
@@ -1205,7 +1253,7 @@ export default function AppShell({}: PropsWithChildren) {
                         >
                           <div className="p-[var(--card-pad)]">
                             <DocumentsView
-                              documents={documents}
+                              documents={allDocuments}
                               extColors={extColors}
                               onDocumentClick={openDocInPlace}
                               onOpenInThread={openDocInThread}
@@ -1579,7 +1627,7 @@ export default function AppShell({}: PropsWithChildren) {
           />
           <form
             onSubmit={handleProjectSubmit}
-            className="relative z-[1201] w-[min(480px,90vw)] rounded-2xl border p-6 flex flex-col gap-4 shadow-xl"
+            className="relative z-[1201] w-[min(480px,90vw)] rounded-[var(--card-radius)] border p-6 flex flex-col gap-4 shadow-xl"
             style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}
           >
             <div>
@@ -1600,7 +1648,7 @@ export default function AppShell({}: PropsWithChildren) {
                   value={projectModalName}
                   onChange={(event) => setProjectModalName(event.target.value)}
                   placeholder="e.g., Research, Launch Prep…"
-                  className="rounded-xl"
+                  className="rounded-[var(--tile-radius)]"
                   style={{ background: "transparent", borderColor: "var(--panel-border)", color: "var(--text)" }}
                   disabled={projectModalSaving}
                   autoFocus
@@ -1615,7 +1663,7 @@ export default function AppShell({}: PropsWithChildren) {
                   value={projectModalIcon}
                   onChange={(event) => setProjectModalIcon(event.target.value)}
                   placeholder="📁"
-                  className="rounded-xl"
+                  className="rounded-[var(--tile-radius)]"
                   style={{ background: "transparent", borderColor: "var(--panel-border)", color: "var(--text)" }}
                   disabled={projectModalSaving}
                 />
@@ -1677,7 +1725,7 @@ export default function AppShell({}: PropsWithChildren) {
           aria-label="Legacy Threads"
         >
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeLegacy} />
-          <div className="relative z-[1201] w-[min(920px,95vw)] max-h-[85vh] overflow-hidden rounded-2xl border shadow-xl"
+          <div className="relative z-[1201] w-[min(920px,95vw)] max-h-[85vh] overflow-hidden rounded-[var(--card-radius)] border shadow-xl"
                style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}>
             <LegacyThreadsModal
               onClose={closeLegacy}

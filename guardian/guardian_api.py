@@ -123,6 +123,7 @@ from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
 from guardian.routes.chat import router as chat_router
 from guardian.routes.chat import simple_chat_router
+from guardian.routes.codex import router as codex_router
 from guardian.routes.codexify_router import router as codexify_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
@@ -323,6 +324,7 @@ app.include_router(connectors_router)
 app.include_router(media_router, prefix="/api/media")
 app.include_router(tools_router)
 app.include_router(exports_router)
+app.include_router(codex_router)
 app.include_router(codexify_router)
 app.include_router(migration.router)
 
