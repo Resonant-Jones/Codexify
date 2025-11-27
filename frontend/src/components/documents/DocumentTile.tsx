@@ -71,15 +71,16 @@ function readExtColors(): Record<string, string> {
 
 export default function DocumentTile({ file, onClick, className }: Props) {
   const extColors = React.useMemo(readExtColors, []);
-  const ext = (file.ext || getExt(file.name) || "").toLowerCase();
+  const fileName = file?.name || "Untitled";
+  const ext = (file?.ext || getExt(fileName) || "").toLowerCase();
   const bannerColor = extColors[ext] || "#6B7280"; // fallback gray
   const onColor = contrastRatio(bannerColor, "#ffffff") >= 4.5 ? "#ffffff" : "#111827";
   const Icon = ext === "codex" ? BookOpen : FileText;
 
   const content = (
     <div className="relative flex aspect-[3/4] w-full flex-col">
-      {file.thumb ? (
-        <img src={file.thumb} alt={file.name} className="absolute inset-0 h-full w-full object-cover" />
+      {file?.thumb ? (
+        <img src={file.thumb} alt={fileName} className="absolute inset-0 h-full w-full object-cover" />
       ) : (
         <div className="absolute inset-0 grid place-items-center">
           <Icon className="h-7 w-7" style={{ color: bannerColor }} />
@@ -87,8 +88,8 @@ export default function DocumentTile({ file, onClick, className }: Props) {
       )}
       <div className="mt-auto">
         <div className="flex h-11 items-center px-2 text-xs" style={{ background: bannerColor, color: onColor }}>
-          <div className="flex-1 truncate" title={file.name}>
-            {file.name}
+          <div className="flex-1 truncate" title={fileName}>
+            {fileName}
           </div>
           {ext && <div className="ml-2 font-semibold uppercase opacity-90">.{ext}</div>}
         </div>
@@ -109,7 +110,7 @@ export default function DocumentTile({ file, onClick, className }: Props) {
         )}
         style={{ padding: 0 }}
         onClick={onClick}
-        aria-label={file.name}
+        aria-label={fileName}
       >
         {content}
       </TileShell>
@@ -117,7 +118,7 @@ export default function DocumentTile({ file, onClick, className }: Props) {
   }
 
   return (
-    <TileShell className={baseClasses} style={{ padding: 0 }} aria-label={file.name}>
+    <TileShell className={baseClasses} style={{ padding: 0 }} aria-label={fileName}>
       {content}
     </TileShell>
   );
