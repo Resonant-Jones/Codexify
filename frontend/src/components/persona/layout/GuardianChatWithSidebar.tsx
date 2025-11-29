@@ -30,9 +30,17 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const bp = useBreakpoint();
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
-  const { subscribe } = useLiveEvents();
+  const [threadsLoaded, setThreadsLoaded] = React.useState(false);
+  const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
   const imprintZero = useImprintZero();
+
+  const resolveRouteThreadId = React.useCallback((): string | null => {
+    if (typeof window === "undefined") return null;
+    const match = window.location.pathname.match(/\/chat\/(\d+)/);
+    if (match && match[1]) return match[1];
+    return null;
+  }, []);
   // Workspace panel toggle event listener
   React.useEffect(() => {
     const onToggleWorkspace = () => {
@@ -69,6 +77,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const projectVal = raw.project_id ?? raw.projectId ?? null;
       const parentVal = raw.parent_id ?? raw.parentId ?? null;
       const archivedVal = raw.archived_at ?? raw.archivedAt ?? null;
+      const metadata = raw.metadata ?? raw.meta ?? null;
       return {
         id: String(rawId),
         title,
@@ -82,6 +91,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         projectId: projectVal != null ? String(projectVal) : null,
         parentId: parentVal != null ? String(parentVal) : null,
         archivedAt: archivedVal ? String(archivedVal) : null,
+        metadata: metadata,
       };
     },
     [guardianName, userName]
@@ -92,17 +102,32 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const res = await api.post("/chat/threads", {
         title: "New Chat",
         user_id: userName || "default",
-        projectId: null, // placeholder for future project linkage
+        projectId: null, // TODO: future project linkage
         personaId: null, // placeholder for persona tracking
         tags: [],        // placeholder for codex linkages
       });
       const payload = res?.data?.thread ?? {};
       const id = res?.data?.id ?? payload?.id;
+
       if (id == null) return null;
+
+      const idStr = String(id);
       const mapped = mapThreadRecord({ id, title: payload?.title ?? "New Chat", lastMessage: "" });
+
       if (!mapped) return null;
+
       setThreads((prev) => [mapped, ...prev]);
-      setActiveId(mapped.id);
+      setActiveId(idStr);
+
+      // Navigate
+      if (typeof window !== "undefined") {
+        window.history.pushState({}, "", `/chat/${idStr}`);
+        // Dispatch refresh for sidebar
+        window.dispatchEvent(new CustomEvent("cfy:threads:refresh", {
+          detail: { kind: "create", id: idStr }
+        }));
+      }
+
       return mapped;
     } catch (err) {
       console.warn("[guardian] failed to create thread", err);
@@ -176,10 +201,13 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         : Array.isArray(data)
         ? data
         : [];
+
+      // If empty, create new chat
       if (!rawList.length) {
         await handleNewChat();
         return;
       }
+
       const mapped = rawList.map(mapThreadRecord).filter(Boolean);
       // Deduplicate by thread id
       const dedupedMap = new Map<string, Thread>();
@@ -187,18 +215,37 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         if (thread && thread.id) dedupedMap.set(thread.id, thread);
       }
       const visible = Array.from(dedupedMap.values()).filter((t) => !t.archivedAt);
+
       setThreads(visible);
+
+      // Only set activeId if we don't have one, or if the URL dictates it
       setActiveId((prev) => {
+        const routeId = resolveRouteThreadId();
+        if (routeId && visible.some((t) => t.id === routeId)) {
+          return routeId;
+        }
+        // If we have a previous ID and it's still in the list, KEEP IT
         if (prev && visible.some((t) => t.id === prev)) {
           return prev;
         }
+        // Otherwise default to first
         return visible[0] ? visible[0].id : null;
       });
     } catch (err) {
       console.warn("[guardian] failed to load threads", err);
-      await handleNewChat();
+      // Only create new chat if we really have nothing
+      if (threads.length === 0) {
+        await handleNewChat();
+      }
+    } finally {
+      setThreadsLoaded(true);
     }
-  }, [handleNewChat, mapThreadRecord]);
+  }, [handleNewChat, mapThreadRecord, resolveRouteThreadId]); // Remove threads dependency to avoid loops
+
+  // Initial load only
+  React.useEffect(() => {
+    void loadThreads();
+  }, [loadThreads]);
 
   const handleBranchThread = React.useCallback(
     async (threadId: number, options?: { title?: string }) => {
@@ -217,12 +264,12 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           return [mapped, ...filtered];
         });
         setActiveId(mapped.id);
-        void loadThreads();
+        // No need to reload all threads
       } catch (err) {
         console.warn("[guardian] failed to branch thread", err);
       }
     },
-    [mapThreadRecord, loadThreads]
+    [mapThreadRecord]
   );
 
   const handleArchiveThread = React.useCallback(
@@ -235,30 +282,59 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           if (filtered.length === prev.length) {
             return prev;
           }
-          setActiveId((current) => {
-            if (current === idStr) {
-              return filtered[0]?.id ?? null;
-            }
-            return current;
-          });
+          // If we archived the active thread, switch to another
+          if (activeId === idStr) {
+             const next = filtered[0]?.id ?? null;
+             setActiveId(next);
+             if (next && typeof window !== "undefined") {
+                window.history.pushState({}, "", `/chat/${next}`);
+             }
+          }
           return filtered;
         });
-        void loadThreads();
       } catch (err) {
         console.warn("[guardian] failed to archive thread", err);
       }
     },
-    [loadThreads]
+    [activeId]
   );
+
+  const handleSelectThread = React.useCallback((id: string) => {
+    setActiveId(id);
+    if (typeof window !== "undefined") {
+      window.history.pushState({}, "", `/chat/${id}`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+  }, []);
 
 
   // Guarantee at least one thread exists and is active (on mount or when threads/activeId changes)
   React.useEffect(() => {
-    if ((!threads || threads.length === 0) || !activeId) {
-      // If no threads or no active thread, create one and set active
-      handleNewChat();
+    if (!threadsLoaded) return;
+    if (!threads || threads.length === 0) {
+      // If no threads or no active thread after load, create one and set active
+      void handleNewChat();
+      return;
     }
-  }, [threads, activeId, handleNewChat]);
+    if (!activeId) {
+      setActiveId(threads[0]?.id ?? null);
+    }
+  }, [threadsLoaded, threads.length, activeId, handleNewChat]); // Depend on length, not array identity
+
+  React.useEffect(() => {
+    const onPopstate = () => {
+      const routeId = resolveRouteThreadId();
+      if (!routeId) return;
+      setActiveId((prev) => (prev === routeId ? prev : routeId));
+      if (threadsLoaded && !threads.some((t) => t.id === routeId)) {
+        void loadThreads();
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("popstate", onPopstate);
+      return () => window.removeEventListener("popstate", onPopstate);
+    }
+  }, [loadThreads, resolveRouteThreadId, threads, threadsLoaded]);
 
   const activeThread = React.useMemo(() => {
     // Always return a usable thread object for GuardianChat
@@ -345,19 +421,22 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         void embedPrompt(text, "chat");
       }
 
-      // Best-effort graph hook; safe to fail until the route exists
-      try {
-        await api.post("/neo/graph-message", {
-          role: "user",
-          content: text,
-          threadId: numericThreadId,
-          userName,
-          guardianName,
-          source: "chat",
-          tags: isLikelyPrompt(text) ? ["prompt"] : [],
-        });
-      } catch (err) {
-        console.warn("[guardian] failed to graph user message", err);
+      // Gated graph hook
+      const ENABLE_NEO_GRAPH = false;
+      if (ENABLE_NEO_GRAPH) {
+        try {
+          await api.post("/neo/graph-message", {
+            role: "user",
+            content: text,
+            threadId: numericThreadId,
+            userName,
+            guardianName,
+            source: "chat",
+            tags: isLikelyPrompt(text) ? ["prompt"] : [],
+          });
+        } catch (err) {
+          console.warn("[guardian] failed to graph user message", err);
+        }
       }
 
       // Mark our optimistic message as sent
@@ -402,11 +481,13 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           : "";
       setThreads((prev) => {
         if (!prev.length) {
+          // If we have no threads, we might need to load them
           void loadThreads();
           return prev;
         }
         const idx = prev.findIndex((t) => t.id === threadId);
         if (idx === -1) {
+          // New thread we don't know about? Load to be safe, or ignore
           void loadThreads();
           return prev;
         }
@@ -427,25 +508,55 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     const offThreadUpdated = subscribe("thread.updated", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
       console.info("[live] thread.updated", payload);
-      void loadThreads();
+      // Update local state instead of full reload
+      const tid = payload?.id ?? payload?.thread_id;
+      if (!tid) return;
+      const idStr = String(tid);
+      setThreads(prev => prev.map(t => {
+        if (t.id !== idStr) return t;
+        return {
+             ...t,
+             title: payload.title ?? t.title,
+             // Update other fields if present
+        };
+      }));
     });
 
     const offThreadCreated = subscribe("thread.created", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
       console.info("[live] thread.created", payload);
-      void loadThreads();
+      // Insert new thread at top
+      const mapped = mapThreadRecord(payload);
+      if (mapped) {
+          setThreads(prev => {
+              if (prev.some(t => t.id === mapped.id)) return prev;
+              return [mapped, ...prev];
+          });
+      } else {
+          void loadThreads();
+      }
     });
 
     const offThreadBranched = subscribe("thread.branch", (event) => {
       const payload = (event.data as any)?.child ?? event.data;
       console.info("[live] thread.branch", payload);
-      void loadThreads();
+      const mapped = mapThreadRecord(payload);
+      if (mapped) {
+          setThreads(prev => [mapped, ...prev]);
+      } else {
+          void loadThreads();
+      }
     });
 
     const offThreadArchived = subscribe("thread.archived", (event) => {
       const payload = (event.data as any)?.thread ?? event.data;
       console.info("[live] thread.archived", payload);
-      void loadThreads();
+      const tid = payload?.id;
+      if (tid) {
+          setThreads(prev => prev.filter(t => t.id !== String(tid)));
+      } else {
+          void loadThreads();
+      }
     });
 
     return () => {
@@ -455,19 +566,18 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       offThreadBranched();
       offThreadArchived();
     };
-  }, [subscribe, loadThreads, activeId]);
+  }, [subscribe, loadThreads, activeId, mapThreadRecord]);
 
   const sidebarSurfaceStyle = useMemo(
     () => ({
-      ["--panel-bg" as any]: "color-mix(in oklab, var(--panel-bg) 98%, rgba(8,12,20,0.96))",
-      ["--panel-border" as any]: "color-mix(in oklab, var(--panel-border) 85%, transparent)",
+      background: "var(--panel-bg)",
+      borderRight: "1px solid var(--panel-border)",
     }),
     []
   );
   const chatSurfaceStyle = useMemo(
     () => ({
-      ["--panel-bg" as any]: "color-mix(in oklab, var(--panel-bg) 98%, rgba(8,12,20,0.96))",
-      ["--panel-border" as any]: "color-mix(in oklab, var(--panel-border) 85%, transparent)",
+      background: "var(--panel-bg)",
     }),
     []
   );
@@ -490,10 +600,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         refractiveFallback
         shimmerMode="subtle"
         liquidBezelWidth={3}
-        className={clsx("flex flex-col h-full w-full box-border", className)}
+        className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)}
         hoverPop={!disabled}
         ariaLabel={disabled ? "panel disabled" : undefined}
-        style={panelStyle}
+        style={{
+          borderRadius: "var(--card-radius)",
+          border: "1px solid var(--panel-border)",
+          ...panelStyle,
+        }}
       >
         {children}
       </FrameCard>
@@ -501,9 +615,9 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   };
 
   return (
-    <div className="flex h-full w-full box-border overflow-hidden">
+    <div className="flex h-full w-full min-h-0 box-border overflow-hidden">
    <div
-      className="relative grid h-full w-full max-w-[1500px] box-border items-stretch mx-auto overflow-hidden"
+      className="relative grid h-full w-full max-w-[1500px] min-h-0 box-border items-stretch mx-auto overflow-hidden"
       style={{
         gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
         gap: "8px",
@@ -533,7 +647,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             )}
             <div
               className={clsx(
-                "h-full w-full overflow-hidden box-border",
+                "h-full w-full min-h-0 overflow-hidden box-border",
                 sidebarWrapperClass && isDesktopLayout ? undefined : undefined
               )}
               style={{
@@ -561,7 +675,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   <SidebarRoot
                     threads={threads}
                     activeId={activeId}
-                    onSelect={setActiveId}
+                    onSelect={handleSelectThread}
                     onNewChat={handleNewChatImmediate}
                   />
                 </PanelShell>
@@ -571,14 +685,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         )}
         {/* Chat Panel */}
         <div
-          className="h-full w-full overflow-hidden box-border"
+          className="h-full w-full min-h-0 overflow-hidden box-border"
           style={{
             gridColumn: isSidebarOpen ? 2 : "1 / span 2",
             gridRow: "1",
           }}
         >
           <PanelShell
-            className="h-full w-full overflow-hidden box-border"
+            className="h-full w-full min-h-0 overflow-hidden box-border rounded-[var(--card-radius)]"
             surfaceStyle={chatSurfaceStyle}
             disabled={chatDisabled}
           >
@@ -617,6 +731,13 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
               onBranchThread={handleBranchThread}
               onArchiveThread={handleArchiveThread}
               onSidebarToggle={toggleSidebar}
+              isSidebarVisible={isSidebarVisible}
+              onBack={() => {
+                setActiveId(null);
+                if (typeof window !== "undefined") {
+                  window.history.pushState({}, "", "/guardian");
+                }
+              }}
               bare
             />
           </PanelShell>
@@ -704,7 +825,7 @@ function PromptLibraryPortal() {
   const categories = Array.from(new Set(unpinned.map(i => i.category).filter(Boolean))) as string[];
   return (
     <div className="absolute inset-0 z-[120] pointer-events-none" aria-hidden={!open}>
-      <div className="absolute bottom-20 right-6 w-[min(520px,96vw)] max-h-[50vh] overflow-hidden rounded-2xl border pointer-events-auto"
+      <div className="absolute bottom-20 right-6 w-[min(520px,96vw)] max-h-[50vh] overflow-hidden rounded-[var(--card-radius)] border pointer-events-auto"
            style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)", boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
         <div className="flex items-center justify-between gap-2 px-3 py-2 border-b" style={{ borderColor: "var(--panel-border)" }}>
           <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>Prompt Library</div>
