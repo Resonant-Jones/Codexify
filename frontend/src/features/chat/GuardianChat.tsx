@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { debounce } from "lodash-es";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronRight, MoreVertical, Plus, Sparkles, Layers } from "lucide-react";
+import { ChevronRight, MoreVertical, Plus, Sparkles, Layers, SquareStack, ArrowLeft } from "lucide-react";
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
@@ -58,6 +58,8 @@ export function GuardianChat({
   onBranchThread,
   onArchiveThread,
   onSidebarToggle,
+  isSidebarVisible = true,
+  onBack,
   bare = false,
 }: {
   guardianName: string;
@@ -71,6 +73,8 @@ export function GuardianChat({
   onBranchThread?: (threadId: number, options?: { title?: string }) => Promise<void> | void;
   onArchiveThread?: (threadId: number) => Promise<void> | void;
   onSidebarToggle?: () => void;
+  isSidebarVisible?: boolean;
+  onBack?: () => void;
   bare?: boolean;
 }) {
   // RAG depth selector: User's control of perceptual awareness
@@ -92,7 +96,7 @@ export function GuardianChat({
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? "New Chat");
   const triggerReload = useMemo(() => debounce(() => setChatReloadVersion((v) => v + 1), 300), []);
-  const { subscribe } = useLiveEvents();
+  const { subscribe } = useLiveEvents({ passive: true });
 
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
@@ -157,17 +161,8 @@ export function GuardianChat({
     }
   }, [activeThread?.id, activeThread?.title, currentThreadId]);
 
-  // Live event integration for real-time updates
+  // Live event integration for real-time updates (no forced refetch — ChatView listens for message events)
   useEffect(() => {
-    const offMessage = subscribe("message.created", (event) => {
-      const payload = (event.data as any)?.data ?? event.data;
-      const incomingId = Number(payload?.thread_id ?? payload?.threadId ?? payload?.id);
-      console.info("[live] message.created", payload);
-      if (Number.isFinite(incomingId) && effectiveThreadId != null && incomingId === effectiveThreadId) {
-        triggerReload();
-      }
-    });
-
     const offThread = subscribe("thread.updated", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
       const incomingId = Number(payload?.thread_id ?? payload?.threadId ?? payload?.id);
@@ -177,23 +172,24 @@ export function GuardianChat({
         if (typeof updatedTitle === "string" && updatedTitle.trim().length > 0) {
           setThreadTitle(updatedTitle);
         }
-        triggerReload();
       }
     });
 
     return () => {
-      offMessage();
       offThread();
     };
-  }, [effectiveThreadId, triggerReload, subscribe]);
+  }, [effectiveThreadId, subscribe]);
 
   // Auto-thread creation handler
   const handleThreadCreated = (threadId: number, title?: string) => {
     setCurrentThreadId(threadId);
-    if (title && title.trim().length > 0) {
-      setThreadTitle(title);
-    }
-    setChatReloadVersion((prev) => prev + 1);
+
+    const nextTitle = (title && title.trim().length > 0) ? title.trim() : "New Chat";
+    setThreadTitle(nextTitle);
+
+    // Notify other panes that a new thread exists so sidebars can update immediately
+    emitThreadsRefresh("create", { id: String(threadId), title: nextTitle });
+
     // Update URL to reflect the new thread
     if (typeof window !== "undefined") {
       window.history.replaceState({}, "", `/chat/${threadId}`);
@@ -267,8 +263,6 @@ export function GuardianChat({
     }
   };
 
-  const chatViewKey = effectiveThreadId != null ? `${effectiveThreadId}:${chatReloadVersion}` : `no-thread:${chatReloadVersion}`;
-
   // Depth selector labels with consciousness metaphors
   const depthLabels: Record<DepthMode, string> = {
     shallow: "Shallow",
@@ -294,6 +288,7 @@ export function GuardianChat({
             className="icon-inline"
             aria-label="RAG depth selector"
             title={`Depth: ${depthLabels[depth]} - ${depthDescriptions[depth]}`}
+            style={{ borderRadius: "var(--radius-micro)" }}
           >
             <Layers className="h-5 w-5" />
           </button>
@@ -320,15 +315,30 @@ export function GuardianChat({
 
       <TraceButton threadId={effectiveThreadId} />
 
-      <button type="button" className="icon-inline" aria-label="New chat" onClick={onNewChat}>
+      <button type="button" className="icon-inline" aria-label="New chat" onClick={onNewChat} style={{ borderRadius: "var(--radius-micro)" }}>
         <Plus className="h-5 w-5" />
       </button>
-      <button type="button" className="icon-inline" aria-label="Prompt inspiration">
+      <button
+        type="button"
+        className="icon-inline"
+        aria-label="Prompt inspiration"
+        onClick={() => console.info("Guardian header settings click – TODO wire actions")}
+        style={{ borderRadius: "var(--radius-micro)" }}
+      >
         <Sparkles className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        className="icon-inline"
+        aria-label="Toggle workspace"
+        onClick={onWorkspaceToggle}
+        style={{ borderRadius: "var(--radius-micro)" }}
+      >
+        <SquareStack className="h-5 w-5" />
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" className="icon-inline" aria-label="Thread actions">
+          <button type="button" className="icon-inline" aria-label="Thread actions" style={{ borderRadius: "var(--radius-micro)" }}>
             <MoreVertical className="h-5 w-5" />
           </button>
         </DropdownMenuTrigger>
@@ -344,11 +354,9 @@ export function GuardianChat({
               emitThreadsRefresh("rename", { id: String(effectiveThreadId), title });
               try {
                 await api.patch(`/api/chat/${effectiveThreadId}`, { title });
-                triggerReload();
               } catch (e) {
                 console.warn(e);
                 alert("Rename failed.");
-                triggerReload();
               }
             }}
           >
@@ -381,7 +389,6 @@ export function GuardianChat({
               try {
                 await api.patch(`/api/chat/${effectiveThreadId}`, { project_id: pid });
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
-                triggerReload();
               } catch (e) {
                 console.warn(e);
                 alert("Assign failed.");
@@ -396,7 +403,6 @@ export function GuardianChat({
               try {
                 await api.patch(`/api/chat/${effectiveThreadId}`, { project_id: null });
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: null });
-                triggerReload();
               } catch (e) {
                 console.warn(e);
                 alert("Eject failed.");
@@ -452,32 +458,72 @@ export function GuardianChat({
   );
 
   const body = (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        className="flex items-center justify-between gap-2 px-4 py-3"
-        style={{ borderBottom: "1px solid var(--panel-border)" }}
+    <div className="relative flex h-full min-h-0 flex-1 flex-col">
+      {/*
+        Z-Index Layer Stack:
+        - Background/Glass: -10
+        - Message content: 1 (default)
+        - Composer: 10
+        - Header: 20
+        - Dropdowns/Modals: 9999
+      */}
+      <header
+        className="relative flex items-center justify-between gap-2 px-4 py-3"
+        style={{
+          background: "var(--panel-bg)",
+          borderBottom: "1px solid var(--panel-border)",
+          position: "sticky",
+          top: 0,
+          zIndex: 20,
+          color: "var(--text)",
+        }}
       >
-        <div className="flex items-center gap-2">
+        {/* Left section: mobile back + desktop chevron */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"
-            className="icon-inline"
-            aria-label="Toggle sidebar"
-            onClick={onSidebarToggle}
-            disabled={!onSidebarToggle}
+            className="icon-inline md:hidden"
+            aria-label="Back to list"
+            onClick={() => onBack?.()}
+            style={{ borderRadius: "var(--radius-micro)" }}
           >
-            <ChevronRight className="h-5 w-5 rotate-180" />
+            <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="truncate font-semibold" style={{ color: "var(--text)" }}>
-            {threadTitle}
-          </div>
+          {onSidebarToggle && (
+            <button
+              type="button"
+              className="icon-inline hidden md:flex"
+              aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
+              onClick={onSidebarToggle}
+              disabled={!onSidebarToggle}
+              style={{ borderRadius: "var(--radius-micro)" }}
+            >
+              <ChevronRight
+                className={`h-5 w-5 transition-transform duration-200 ${
+                  isSidebarVisible ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+          )}
         </div>
-        {headerActions}
-      </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-[var(--card-pad)] pb-[var(--card-pad)]">
+        {/* Center section: absolutely centered title */}
+        <div
+          className="absolute left-1/2 -translate-x-1/2 truncate font-semibold max-w-[50%]"
+          style={{ color: "var(--text)" }}
+        >
+          {threadTitle}
+        </div>
+
+        {/* Right section: header actions */}
+        <div className="flex items-center gap-1 justify-end flex-shrink-0">
+          {headerActions}
+        </div>
+      </header>
+
+      <div className="flex-1 min-h-0 px-[var(--card-pad)] flex">
         {effectiveThreadId != null ? (
           <ChatView
-            key={chatViewKey}
             threadId={effectiveThreadId}
             guardianName={guardianName}
             reloadVersion={chatReloadVersion}
@@ -489,7 +535,14 @@ export function GuardianChat({
         )}
       </div>
 
-      <div className="shrink-0 px-[var(--card-pad)] pb-3 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+      <div
+        className="shrink-0 px-[3px] pb-[3px]"
+        style={{
+          position: "sticky",
+          bottom: 0,
+          zIndex: 10
+        }}
+      >
         <Composer
           onSend={handleSendMessage}
           prefill={externalPrefill ?? prefill}
