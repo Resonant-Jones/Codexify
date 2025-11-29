@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, useLayoutEffect } from "react";
 import { useChat } from "@/features/chat/useChat";
 import ChatBubble from "@/features/chat/components/ChatBubble";
 import ContextMenu from "@/components/ui/ContextMenu";
+import { useLiveEvents } from "@/hooks/useLiveEvents";
 
 export function ChatView({
   threadId,
@@ -13,18 +14,74 @@ export function ChatView({
   /** parent‑supplied bump to force a reload, e.g. when a new message is posted */
   reloadVersion?: number;
 }) {
-  const { messages, loadMessages, loading, error, hasMore } = useChat();
+  const { messages, loadMessages, appendMessage, loading, error, hasMore } = useChat();
   const containerRef = useRef<HTMLDivElement>(null);
   const initialScrollRef = useRef(true);
+  const [hasOverflow, setHasOverflow] = useState(false);
+  const scrollMeasuredRef = useRef(false);
+  const { subscribe } = useLiveEvents();
+
+  const ingestIncoming = useCallback(
+    (payload: any) => {
+      if (!payload) return;
+      const tid = Number(payload.thread_id ?? payload.threadId ?? payload.thread?.id);
+      if (!Number.isFinite(tid) || tid !== threadId) return;
+      appendMessage(threadId, payload);
+    },
+    [appendMessage, threadId]
+  );
 
   useEffect(() => {
     initialScrollRef.current = true;
     loadMessages(threadId, 50, 0, false);
   }, [threadId, reloadVersion, loadMessages]);
 
+  // Live updates: append message for active thread without refetching
+  useEffect(() => {
+    const offMessage = subscribe("message.created", (event) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      ingestIncoming(payload);
+    });
+    const onLocal = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      ingestIncoming(detail.message ?? detail);
+    };
+    window.addEventListener("cfy:chat:message", onLocal as EventListener);
+    return () => {
+      offMessage();
+      window.removeEventListener("cfy:chat:message", onLocal as EventListener);
+    };
+  }, [ingestIncoming, subscribe]);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const overflowing = el.scrollHeight > el.clientHeight + 1;
+    setHasOverflow(overflowing);
+  }, [messages.length]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+
+    // On initial load, try to restore saved scroll position
+    if (initialScrollRef.current && typeof window !== "undefined") {
+      try {
+        const saved = sessionStorage.getItem(`chat-scroll-${threadId}`);
+        if (saved) {
+          requestAnimationFrame(() => {
+            if (containerRef.current) {
+              containerRef.current.scrollTop = parseInt(saved, 10);
+            }
+          });
+          initialScrollRef.current = false;
+          return;
+        }
+      } catch {}
+    }
+
+    // Otherwise, auto-scroll to bottom when near bottom
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (initialScrollRef.current || nearBottom) {
       requestAnimationFrame(() => {
@@ -34,11 +91,21 @@ export function ChatView({
       });
       initialScrollRef.current = false;
     }
-  }, [messages]);
+  }, [messages, threadId]);
 
   const onScroll = async () => {
     const el = containerRef.current;
-    if (!el || loading || !hasMore) return;
+    if (!el) return;
+
+    // Save scroll position
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem(`chat-scroll-${threadId}`, String(el.scrollTop));
+      } catch {}
+    }
+
+    // Infinite scroll at top
+    if (loading || !hasMore) return;
     if (el.scrollTop === 0) {
       const prevHeight = el.scrollHeight;
       await loadMessages(threadId, 50, messages.length, true);
@@ -80,7 +147,17 @@ export function ChatView({
       ref={containerRef}
       onScroll={onScroll}
       data-testid="chat-container"
-      className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[var(--card-pad)] pb-[96px]"
+      className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-3"
+      style={
+        hasOverflow
+          ? {
+              maskImage:
+                "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
+              WebkitMaskImage:
+                "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
+            }
+          : undefined
+      }
     >
       <div className="space-y-3">
         {messages.map((m, index) => (
@@ -108,14 +185,12 @@ export function ChatView({
                       ? Date.parse(m.created_at)
                       : Date.now(),
               }}
-              isMe={m.role === "user"}
-              guardianName={guardianName || "Guardian"}
+              isGuardian={m.role !== "user"}
             />
           </div>
         ))}
         {loading && <div className="text-xs opacity-70" data-testid="chat-loading">Loading…</div>}
         {error && <div className="text-xs text-red-500" data-testid="chat-error">{error}</div>}
-        <div aria-hidden className="h-[96px] shrink-0" />
       </div>
       {menu && (
         <ContextMenu
