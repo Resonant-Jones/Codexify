@@ -82,6 +82,23 @@ class TestChatThreadsPost:
         call_kwargs = mock_db.create_chat_thread.call_args[1]
         assert call_kwargs["project_id"] == 5
 
+    def test_create_thread_with_metadata(self, test_client, mock_db):
+        """Test thread creation with metadata dict to verify psycopg Json() adapter fix."""
+        metadata = {
+            "source": "test",
+            "tags": ["important", "urgent"],
+            "count": 42,
+        }
+        response = test_client.post(
+            "/chat/threads",
+            json={"title": "Test", "metadata": metadata},
+        )
+
+        assert response.status_code == 200
+        mock_db.create_chat_thread.assert_called_once()
+        call_kwargs = mock_db.create_chat_thread.call_args[1]
+        assert call_kwargs["metadata"] == metadata
+
     def test_create_thread_db_error(self, test_client, mock_db):
         """Test thread creation handles database errors gracefully."""
         mock_db.create_chat_thread.side_effect = Exception("Database error")
@@ -323,9 +340,14 @@ class TestChatCompletePost:
             def __init__(self, *args, **kwargs):
                 pass
 
-            async def assemble(self, thread_id, query, depth_mode, user_id=None):
+            async def assemble(
+                self, thread_id, query, depth_mode, user_id=None
+            ):
                 return (
-                    {"messages": [{"role": "user", "content": query}], "semantic": ["sem"]},
+                    {
+                        "messages": [{"role": "user", "content": query}],
+                        "semantic": ["sem"],
+                    },
                     {"documents": [], "graph": []},
                 )
 
