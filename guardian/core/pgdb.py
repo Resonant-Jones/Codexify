@@ -22,6 +22,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 import psycopg
 from psycopg import errors as pg_errors
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
@@ -53,8 +54,14 @@ def _to_json(value):
     Transforms Python objects into a format PostgreSQL can safely store and retrieve
     without losing the subtle temporal and numerical properties of your data's soul.
     """
-    # In psycopg3, JSON is handled natively; just return the value and psycopg handles serialization
-    return json.dumps(value, default=_json_default)
+    # In psycopg3, JSON must be wrapped with Json() adapter for JSONB
+    if value is None:
+        return None
+    # Use Json() wrapper so psycopg can adapt Python dicts/lists to JSONB
+    # The _json_default serializer handles datetime, Decimal, etc.
+    return Json(
+        value, dumps=lambda obj: json.dumps(obj, default=_json_default)
+    )
 
 
 class PgDB(ChatDB):
@@ -271,6 +278,14 @@ class PgDB(ChatDB):
                 row["parent_id"] = int(parent)
             except (TypeError, ValueError):
                 pass
+        metadata = row.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                row["metadata"] = json.loads(metadata)
+            except Exception:
+                pass
+        elif metadata is None:
+            row["metadata"] = {}
         return row
 
     # ---- chat_threads --------------------------------------------------
@@ -283,19 +298,21 @@ class PgDB(ChatDB):
         parent_id: int | None = None,
         is_diary: bool = False,
         exclude_from_identity: bool = False,
+        metadata: dict | None = None,
     ) -> dict[str, Any]:
         """Manifest a new conversation thread in the distributed consciousness.
 
         Each thread becomes a living archive of conversational moments. The optional
         project_id and parent_id parameters link this thread to larger organizational
         consciousness and hierarchical conversation flows."""
+        metadata = metadata or {}
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, created_at, updated_at
+                    INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, created_at, updated_at
                     """,
                     (
                         user_id,
@@ -305,6 +322,7 @@ class PgDB(ChatDB):
                         parent_id,
                         is_diary,
                         exclude_from_identity,
+                        _to_json(metadata),
                     ),
                 )
                 row = cur.fetchone()
@@ -322,7 +340,9 @@ class PgDB(ChatDB):
         parent_id: int | None = None,
         is_diary: bool = False,
         exclude_from_identity: bool = False,
+        metadata: dict | None = None,
     ) -> dict[str, Any]:
+        metadata = metadata or {}
         existing = self.get_chat_thread(thread_id)
         if existing:
             return existing
@@ -330,10 +350,10 @@ class PgDB(ChatDB):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO NOTHING
-                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, created_at, updated_at
+                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, created_at, updated_at
                     """,
                     (
                         thread_id,
@@ -344,6 +364,7 @@ class PgDB(ChatDB):
                         parent_id,
                         is_diary,
                         exclude_from_identity,
+                        _to_json(metadata),
                     ),
                 )
                 row = cur.fetchone()
@@ -360,7 +381,7 @@ class PgDB(ChatDB):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
+                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
                     FROM chat_threads
                     WHERE user_id = %s
                     ORDER BY created_at DESC
@@ -391,7 +412,7 @@ class PgDB(ChatDB):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
+                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
                     FROM chat_threads
                     WHERE id = %s
                     """,
@@ -419,7 +440,7 @@ class PgDB(ChatDB):
             params.append(project_id)
 
         query = (
-            "SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at "
+            "SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at "
             "FROM chat_threads"
         )
         if clauses:
@@ -491,7 +512,7 @@ class PgDB(ChatDB):
                     UPDATE chat_threads
                     SET archived_at = %s, updated_at = %s
                     WHERE id = %s
-                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
+                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
                     """,
                     (now, now, thread_id),
                 )
@@ -513,7 +534,7 @@ class PgDB(ChatDB):
                     UPDATE chat_threads
                     SET archived_at = NULL, updated_at = %s
                     WHERE id = %s
-                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
+                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
                     """,
                     (now, thread_id),
                 )
@@ -703,7 +724,7 @@ class PgDB(ChatDB):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, created_at, updated_at
+                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
                     FROM chat_threads
                     WHERE parent_id = %s
                     """,
@@ -1404,9 +1425,7 @@ class PgDB(ChatDB):
             raise RuntimeError("Connector run not found")
         return dict(row)
 
-    def get_last_connector_run(
-        self, config_id: int
-    ) -> dict[str, Any] | None:
+    def get_last_connector_run(self, config_id: int) -> dict[str, Any] | None:
         with self._connect() as conn:
             self._ensure_connector_tables(conn)
             with conn.cursor() as cur:
@@ -1727,7 +1746,7 @@ def fetch_threads_for_user(
             cur.execute(
                 """
                 SELECT id, user_id, title, summary, project_id, parent_id,
-                       archived_at, created_at, updated_at
+                       archived_at, metadata, created_at, updated_at
                 FROM chat_threads
                 WHERE user_id = %s
                 ORDER BY updated_at DESC, id DESC
