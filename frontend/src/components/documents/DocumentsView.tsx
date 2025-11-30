@@ -2,7 +2,6 @@ import React, { useMemo, useState } from "react";
 import DocumentTile from "@/components/documents/DocumentTile";
 import ContextMenu from "@/components/ui/ContextMenu";
 import useUploader from "@/hooks/useUploader";
-import FrameCard from "@/components/surface/FrameCard";
 import { ExtColors } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 
@@ -15,6 +14,17 @@ interface DocumentsViewProps {
   defaultBehavior?: "workspace" | "thread";
 }
 
+/**
+ * DocumentsView
+ * 
+ * Structure:
+ * - FrameCard wrapper (glass + bezel)
+ *   - Header (title + pill tabs)
+ *   - Content area (scrollable grid of documents)
+ *   - Footer (upload UI + controls)
+ * 
+ * Layout principle: fill parent completely, no internal card nesting
+ */
 export default function DocumentsView({
   documents,
   extColors: _extColors,
@@ -26,12 +36,11 @@ export default function DocumentsView({
   const [behavior, setBehavior] = useState<"workspace" | "thread">(defaultBehavior);
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [menu, setMenu] = useState<{x:number;y:number;doc?:DocumentLike}|null>(null);
+  
   const uploader = useUploader({
     tag: "upload",
     onImages: () => {},
     onDocuments: (items) => {
-      // Let the parent wire in the state update via onDeleteDocument? Not ideal.
-      // We dispatch a custom event so AppShell can listen and update.
       const normalized = (items || []).map((item: any, idx: number) => ({
         ...item,
         id: item?.id || item?.name || `upload-${idx}`,
@@ -54,6 +63,7 @@ export default function DocumentsView({
   };
 
   const docItems = useMemo(() => (hideMocks ? (documents ?? []).filter(d => !d.mock) : (documents ?? [])), [documents, hideMocks]);
+  
   const pills = [
     { key: "workspace" as const, label: "Open in Workspace" },
     { key: "thread" as const, label: "Open in Thread" },
@@ -61,32 +71,40 @@ export default function DocumentsView({
 
   return (
     <section className="flex h-full w-full min-h-0 flex-col overflow-hidden">
-      <div className="flex-1 min-h-0 p-[var(--board-edge)]">
-        <FrameCard
-          refractiveFallback
-          shimmerMode="subtle"
-          className="flex h-full w-full flex-col gap-4 px-[var(--card-pad)] py-[var(--card-pad)] rounded-[var(--card-radius)]"
-          style={{ color: "var(--text)" }}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] pb-3">
-            <div className="text-lg font-semibold">Documents</div>
-            <div className="glass-pill h-auto py-[3px] px-[6px]">
-              {pills.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  className="pill-tab text-xs"
-                  data-state={behavior === key ? "active" : undefined}
-                  onClick={() => setBehavior(key)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+      {/* Content lives directly in the parent card; avoid nested rims */}
+      <div className="flex h-full w-full flex-col min-h-0 overflow-hidden px-[var(--card-pad)] pb-[var(--card-pad)]">
+        {/* Header: Title + Controls */}
+        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] py-4">
+          <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>Documents</h2>
+          <div className="glass-pill h-auto py-[3px] px-[6px]">
+            {pills.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                className="pill-tab text-xs"
+                data-state={behavior === key ? "active" : undefined}
+                onClick={() => setBehavior(key)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
+        </div>
 
-          <div className="min-h-0 flex-1 overflow-auto" onDrop={uploader.onDrop} onDragOver={uploader.onDragOver}>
-            <div className="grid auto-rows-[minmax(112px,auto)] grid-cols-[repeat(auto-fit,minmax(132px,1fr))] gap-4 justify-items-center pb-1">
+        {/* Content Area: Scrollable document grid */}
+        <div 
+          className="flex-1 min-h-0 overflow-auto py-4"
+          onDrop={uploader.onDrop}
+          onDragOver={uploader.onDragOver}
+        >
+          {docItems.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-sm opacity-70" style={{ color: "var(--muted)" }}>
+                No documents yet. Drag files here or use the button below to get started.
+              </div>
+            </div>
+          ) : (
+            <div className="grid auto-rows-[minmax(112px,auto)] grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-4 pb-2">
               {docItems.map((d) => {
                 const key = d.id || `${d.title}.${d.ext}`;
                 const isCodex = d.type === "codex_entry";
@@ -105,7 +123,14 @@ export default function DocumentsView({
                       onClick={() => handleDocumentClick(d)}
                     />
                     {d.mock && (
-                      <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
+                      <span 
+                        className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border"
+                        style={{ 
+                          background: "rgba(255,255,255,0.2)",
+                          color: "#111",
+                          borderColor: "rgba(255,255,255,0.5)"
+                        }}
+                      >
                         Mock
                       </span>
                     )}
@@ -113,44 +138,67 @@ export default function DocumentsView({
                 );
               })}
             </div>
-          </div>
+          )}
+        </div>
 
-          <div className="flex items-center justify-between gap-2 pt-3 text-xs opacity-80">
-            <div>Drag & drop files here, or</div>
-            <button type="button" className="underline" onClick={uploader.pick}>Choose files</button>
-            <div className="ml-auto flex items-center gap-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={hideMocks} onChange={(e) => { setHideMocks(e.target.checked); try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {} }} />
-                Hide Mock Items
-              </label>
-            </div>
+        {/* Footer: Upload controls */}
+        <div className="flex-shrink-0 flex items-center justify-between gap-2 border-t border-[var(--panel-border)] py-4 text-xs" style={{ color: "var(--muted)" }}>
+          <div className="flex items-center gap-2">
+            <span>Drag & drop files here, or</span>
+            <button 
+              type="button" 
+              className="underline hover:opacity-80"
+              onClick={uploader.pick}
+            >
+              choose files
+            </button>
           </div>
-
-          {menu && (
-            <ContextMenu
-              x={menu.x}
-              y={menu.y}
-              onClose={() => setMenu(null)}
-              items={[
-                ...(menu.doc && onDeleteDocument ? [{
-                  label: "Delete",
-                  onClick: () => {
-                    const ev = new CustomEvent("cfy:documents:delete", { detail: { doc: menu.doc } });
-                    try { window.dispatchEvent(ev); } catch {}
-                    onDeleteDocument(menu.doc!);
-                  },
-                }] : []),
-                { label: hideMocks ? "Show Mock Items" : "Hide Mock Items", onClick: () => { const v = !hideMocks; setHideMocks(v); try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {} } },
-              ]}
+          <label className="flex items-center gap-2 cursor-pointer hover:opacity-80">
+            <input 
+              type="checkbox" 
+              checked={hideMocks} 
+              onChange={(e) => {
+                setHideMocks(e.target.checked);
+                try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {}
+              }}
             />
-          )}
+            <span>Hide Mock Items</span>
+          </label>
+        </div>
 
-          {behavior === "thread" && !onOpenInThread && (
-            <div className="text-xs opacity-70">
-              Configure a thread handler to open documents directly in chat.
-            </div>
-          )}
-        </FrameCard>
+        {/* Context Menu */}
+        {menu && (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            onClose={() => setMenu(null)}
+            items={[
+              ...(menu.doc && onDeleteDocument ? [{
+                label: "Delete",
+                onClick: () => {
+                  const ev = new CustomEvent("cfy:documents:delete", { detail: { doc: menu.doc } });
+                  try { window.dispatchEvent(ev); } catch {}
+                  onDeleteDocument(menu.doc!);
+                },
+              }] : []),
+              { 
+                label: hideMocks ? "Show Mock Items" : "Hide Mock Items", 
+                onClick: () => { 
+                  const v = !hideMocks;
+                  setHideMocks(v);
+                  try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {}
+                }
+              },
+            ]}
+          />
+        )}
+
+        {/* Info message */}
+        {behavior === "thread" && !onOpenInThread && (
+          <div className="flex-shrink-0 py-3 text-xs opacity-70 border-t border-[var(--panel-border)]" style={{ color: "var(--muted)" }}>
+            Configure a thread handler to open documents directly in chat.
+          </div>
+        )}
       </div>
     </section>
   );
