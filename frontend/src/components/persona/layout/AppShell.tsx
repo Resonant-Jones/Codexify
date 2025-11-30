@@ -1045,7 +1045,7 @@ export default function AppShell({}: PropsWithChildren) {
         Changing --bezel allows live tuning of the glass thickness throughout the UI without code edits.
       */}
       <div
-        className="w-screen h-screen flex flex-col min-h-0 bg-transparent box-border overflow-hidden"
+        className="flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
         style={{
           /* baseline viewport guardrails */
           minWidth: "608px",
@@ -1081,7 +1081,7 @@ export default function AppShell({}: PropsWithChildren) {
         />
       </div>
       <div
-        className={`relative h-full w-full isolate flex flex-col overflow-hidden py-[var(--edge-chrome)] mx-auto ${resolved === "dark" ? "dark" : ""}`}
+        className={`relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden py-[var(--edge-chrome)] mx-auto ${resolved === "dark" ? "dark" : ""}`}
         style={{
           ...backgroundStyle,
           ...styleVars,
@@ -1183,30 +1183,30 @@ export default function AppShell({}: PropsWithChildren) {
           - Documents
           - Settings
          ───────────────────────────────────────────────────────────────────────────── */}
- <div className="relative z-10 isolate flex flex-col flex-1 min-h-0 overflow-hidden items-stretch justify-center">
-   <div
-     className="flex-1 h-full min-h-0 flex"
-     style={{
-      paddingTop: "var(--page-gutter-top)",   // always-on gutter under the pill dock
-      paddingRight: "var(--page-pad)",        // mode-dependent
-      paddingBottom: "var(--page-pad)",       // mode-dependent
-      paddingLeft: "var(--page-pad)",         // mode-dependent
-    }}
-   >
-     {view === "documents" && (
-       <div
-         className="isolate"
-         style={{
-           "--radius": "var(--card-radius)",
-           "--frame": "1px",
-           "--bezel": "var(--bezel, 6px)",
-           "--rim": "1px",
-           "--gutter": "16px",
-           "--card-pad": "10px",
-           "--min-h": "clamp(520px, 70vh, 1000px)",
-           borderRadius: "var(--card-radius)",
-         } as React.CSSProperties}
-       >
+      <div className="relative z-10 isolate flex flex-col flex-1 min-h-0 overflow-hidden items-stretch">
+        <div
+          className="flex-1 h-full min-h-0 flex overflow-hidden"
+          style={{
+            paddingTop: "var(--page-gutter-top)",   // always-on gutter under the pill dock
+            paddingRight: "var(--page-pad)",        // mode-dependent
+            paddingBottom: "var(--page-pad)",       // mode-dependent
+            paddingLeft: "var(--page-pad)",         // mode-dependent
+          }}
+        >
+          {view === "documents" && (
+            <div
+              className="isolate"
+              style={{
+                "--radius": "var(--card-radius)",
+                "--frame": "1px",
+                "--bezel": "var(--bezel, 6px)",
+                "--rim": "1px",
+                "--gutter": "16px",
+                "--card-pad": "10px",
+                "--min-h": "clamp(520px, 70vh, 1000px)",
+                borderRadius: "var(--card-radius)",
+              } as React.CSSProperties}
+            >
               <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
                 {/* LIST COLUMN (left) */}
                 <div
