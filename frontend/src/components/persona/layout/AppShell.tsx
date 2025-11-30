@@ -1243,10 +1243,13 @@ export default function AppShell({}: PropsWithChildren) {
 
                 {/* WORKSPACE COLUMN (right) */}
                 {workspaceOpen && (
-                  <div
-                    className="rounded-[var(--radius)] shrink-0 overflow-visible"
+                  <FrameCard
+                    fill
+                    refractiveFallback
+                    shimmerMode="subtle"
+                    className="shrink-0 overflow-hidden"
                     style={{
-                  padding: "var(--board-edge)",
+                      padding: "var(--board-edge)",
                       width: "var(--w, var(--workspace-w))",
                       maxWidth: "var(--max-w, none)",
                       minWidth: "var(--min-w, 0)",
@@ -1257,68 +1260,25 @@ export default function AppShell({}: PropsWithChildren) {
                       ["--w"]: docsLayout.workspaceW,
                       ["--flex"]: "0 0 var(--w)",
                       ["--min-h"]: "clamp(520px, 70vh, 1000px)",
-                      borderRadius: "var(--card-radius)"
                     }}
                   >
-                    <div
-                      className="rounded-[var(--radius)]"
-                      style={{
-                        background: "var(--chip-bg)",
-                      padding: "var(--frame)",
-                      border: "var(--bezel, 6px) solid var(--panel-bezel)",
-                        borderRadius: "var(--card-radius)"
-                      }}
-                    >
-                      <div
-                        className="rounded-[var(--radius)]"
+                    <div className="relative h-full w-full min-h-0 overflow-hidden">
+                      <button
+                        onClick={() => setWorkspaceOpen(false)}
+                        className="absolute top-2 right-2 z-10 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
                         style={{
-                          background:
-                            "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))",
-                          padding: "var(--rim)",
-                          borderRadius: "var(--card-radius)"
+                          borderColor: "var(--panel-border)",
+                          color: "var(--muted)",
+                          background: "var(--panel-bg)",
                         }}
+                        aria-label="Close workspace"
+                        title="Close"
                       >
-                        <div className="relative rounded-[var(--radius)] h-full">
-                          <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                            <RefractiveGlassCard
-                              wallpaperUrl={activeWallpaper}
-                              className="w-full h-full rounded-[var(--radius)]"
-                              style={{ background: "transparent", border: "none" }}
-                              intensity={0.006}
-                              aberration={0}
-                            />
-                          </div>
-                          <div
-                            className="rounded-[var(--radius)] overflow-hidden relative h-full"
-                            style={{
-                              clipPath: "inset(0 round var(--radius))",
-                              background: "var(--panel-bg)",
-                            border: "1px solid var(--panel-border)",
-                              boxShadow:
-                                "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)",
-                              filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))",
-                              borderRadius: "var(--card-radius)"
-                            }}
-                          >
-                            <button
-                              onClick={() => setWorkspaceOpen(false)}
-                              className="absolute top-2 right-2 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
-                              style={{
-                                borderColor: "var(--panel-border)",
-                                color: "var(--muted)",
-                                background: "var(--panel-bg)",
-                              }}
-                              aria-label="Close workspace"
-                              title="Close"
-                            >
-                              ×
-                            </button>
-                            <WorkspacePane activeDoc={activeDoc} onOpenInThread={openDocFromWorkspace} />
-                          </div>
-                        </div>
-                      </div>
+                        ×
+                      </button>
+                      <WorkspacePane activeDoc={activeDoc} onOpenInThread={openDocFromWorkspace} />
                     </div>
-                  </div>
+                  </FrameCard>
                 )}
               </div>
             </div>
@@ -1463,20 +1423,15 @@ export default function AppShell({}: PropsWithChildren) {
                               aberration={0}
                             />
                           </div>
-                          <div
-                            className="rounded-[var(--radius)] overflow-hidden relative h-full"
-                            style={{
-                              background: "var(--panel-bg)",
-                              border: "1px solid var(--panel-border)",
-                              boxShadow:
-                                "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)",
-                              filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))",
-                              borderRadius: "var(--card-radius)"
-                            }}
+                          <FrameCard
+                            fill
+                            refractiveFallback
+                            shimmerMode="subtle"
+                            className="relative h-full w-full min-h-0 overflow-hidden"
                           >
                             <button
                               onClick={() => setWorkspaceOpen(false)}
-                              className="absolute top-2 right-2 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
+                              className="absolute top-2 right-2 z-10 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
                               style={{
                                 borderColor: "var(--panel-border)",
                                 color: "var(--muted)",
@@ -1488,7 +1443,7 @@ export default function AppShell({}: PropsWithChildren) {
                               ×
                             </button>
                             <WorkspacePane activeDoc={activeDoc} onOpenInThread={openDocFromWorkspace} />
-                          </div>
+                          </FrameCard>
                         </div>
                       </div>
                     </div>
