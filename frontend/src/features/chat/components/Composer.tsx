@@ -20,10 +20,34 @@ export function Composer({
   isSending?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
-  const [value, setValue] = useState("");
+
+  // Initialize with saved draft if available
+  const [value, setValue] = useState(() => {
+    if (threadId && typeof window !== "undefined") {
+      try {
+        const saved = sessionStorage.getItem(`composer-draft-${threadId}`);
+        if (saved) return saved;
+      } catch {}
+    }
+    return "";
+  });
+
   const [internalSending, setInternalSending] = useState(false);
   const [showImgGen, setShowImgGen] = useState(false);
   const effectiveSending = isSending ?? internalSending;
+
+  // Auto-save draft to sessionStorage
+  useEffect(() => {
+    if (threadId && typeof window !== "undefined") {
+      try {
+        if (value.trim()) {
+          sessionStorage.setItem(`composer-draft-${threadId}`, value);
+        } else {
+          sessionStorage.removeItem(`composer-draft-${threadId}`);
+        }
+      } catch {}
+    }
+  }, [value, threadId]);
 
   const uploader = useUploader({
     tag: "chat",
@@ -58,41 +82,56 @@ export function Composer({
     try {
       await onSend(v);
       setValue("");
+      // Clear the draft from storage after successful send
+      if (threadId && typeof window !== "undefined") {
+        try {
+          sessionStorage.removeItem(`composer-draft-${threadId}`);
+        } catch {}
+      }
     } finally {
       setInternalSending(false);
     }
   }
   return (
     <>
-      <div className="flex items-center gap-2 mb-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <ProviderSelect />
+        {/* Reserved space for future controls (e.g., depth selector / RAG controls) */}
+        <div className="flex items-center gap-1" />
       </div>
+
       <div
-        className="flex items-center gap-1.5 rounded-2xl border p-2"
-        style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}
+        className="flex items-end gap-2 rounded-2xl border p-2 shadow-sm"
+        style={{
+          background: "var(--panel-bg)",
+          borderColor: "var(--panel-border)"
+        }}
         onDrop={uploader.onDrop}
         onDragOver={uploader.onDragOver}
       >
-        <button
-          type="button"
-          aria-label="Attach files"
-          title="Attach files"
-          onClick={uploader.pick}
-          className="grid place-items-center h-9 w-9 rounded-lg flex-shrink-0 transition-colors hover:bg-white/10"
-          style={{ color: "var(--text)" }}
-        >
-          <Paperclip className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Generate image"
-          title="Generate image"
-          onClick={() => setShowImgGen(true)}
-          className="grid place-items-center h-9 w-9 rounded-lg flex-shrink-0 transition-colors hover:bg-white/10"
-          style={{ color: "var(--text)" }}
-        >
-          <ImagePlus className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            aria-label="Attach files"
+            title="Attach files"
+            onClick={uploader.pick}
+            className="icon-inline h-10 w-10"
+            style={{ borderRadius: "var(--radius-micro)" }}
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Generate image"
+            title="Generate image"
+            onClick={() => setShowImgGen(true)}
+            className="icon-inline h-10 w-10"
+            style={{ borderRadius: "var(--radius-micro)" }}
+          >
+            <ImagePlus className="h-4 w-4" />
+          </button>
+        </div>
+
         <Textarea
           ref={ref}
           value={value}
@@ -105,7 +144,7 @@ export function Composer({
               send();
             }
           }}
-          className="min-h-[40px] max-h-44 resize-none border-0 bg-transparent px-2 py-1 flex-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          className="min-h-[44px] max-h-44 flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2"
           style={{ color: "var(--text)", outlineColor: "var(--accent-weak)" }}
         />
         <Button
@@ -113,15 +152,16 @@ export function Composer({
           onClick={send}
           disabled={effectiveSending || !value.trim()}
           size="icon"
-          className="h-9 w-9 grid place-items-center flex-shrink-0 rounded-lg transition-colors"
+          className="h-11 w-11 grid place-items-center rounded-full shadow-sm disabled:opacity-60"
           style={{
-            background: effectiveSending || !value.trim() ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.12)",
-            color: "var(--text)",
-            cursor: effectiveSending || !value.trim() ? "not-allowed" : "pointer"
+            background: "var(--accent-strong)",
+            color: "var(--pill-active-text, #fff)",
+            outlineColor: "var(--accent-weak)",
           }}
         >
           <Send className="h-4 w-4" />
         </Button>
+        </div>
       </div>
       <ImageGenModal open={showImgGen} onOpenChange={setShowImgGen} />
     </>
