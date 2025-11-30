@@ -19,7 +19,7 @@ export function ChatView({
   const initialScrollRef = useRef(true);
   const [hasOverflow, setHasOverflow] = useState(false);
   const scrollMeasuredRef = useRef(false);
-  const { subscribe } = useLiveEvents();
+  const { subscribe } = useLiveEvents({ passive: true });
 
   const ingestIncoming = useCallback(
     (payload: any) => {
@@ -147,7 +147,7 @@ export function ChatView({
       ref={containerRef}
       onScroll={onScroll}
       data-testid="chat-container"
-      className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-3"
+      className="h-full overflow-y-auto overscroll-contain px-[var(--card-pad)] pb-[96px]"
       style={
         hasOverflow
           ? {
