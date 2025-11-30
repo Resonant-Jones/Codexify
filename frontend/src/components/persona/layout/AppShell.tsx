@@ -1225,62 +1225,20 @@ export default function AppShell({}: PropsWithChildren) {
                     borderRadius: "var(--card-radius)"
                   }}
                 >
-                  <div
-                    className="rounded-[var(--radius)]"
-                    style={{
-                      background: "var(--chip-bg)",
-                      padding: "var(--frame)",
-                      border: "var(--bezel, 6px) solid var(--panel-bezel)",
-                      borderRadius: "var(--card-radius)"
-                    }}
+                  <FrameCard
+                    fill
+                    refractiveFallback
+                    shimmerMode="subtle"
+                    className="h-full w-full min-h-0 flex flex-col overflow-hidden"
                   >
-                    <div
-                      className="rounded-[var(--radius)]"
-                      style={{
-                        background:
-                          "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))",
-                        padding: "var(--rim)",
-                        borderRadius: "var(--card-radius)"
-                      }}
-                    >
-                      <div className="relative rounded-[var(--radius)] h-full">
-                        {/* glass behind content */}
-                        <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                          <RefractiveGlassCard
-                            wallpaperUrl={activeWallpaper}
-                            className="w-full h-full rounded-[var(--radius)]"
-                            style={{ background: "transparent", border: "none" }}
-                            intensity={0.006}
-                            aberration={0}
-                          />
-                        </div>
-
-                        {/* clipped panel surface */}
-                        <div
-                          className="rounded-[var(--radius)] overflow-hidden relative"
-                          style={{
-                            clipPath: "inset(0 round var(--radius))",
-                            background: "var(--panel-bg)",
-                          border: "1px solid var(--panel-border)",
-                            boxShadow:
-                              "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)",
-                            filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))",
-                            borderRadius: "var(--card-radius)"
-                          }}
-                        >
-                          <div className="p-[var(--card-pad)]">
-                            <DocumentsView
-                              documents={allDocuments}
-                              extColors={extColors}
-                              onDocumentClick={openDocInPlace}
-                              onOpenInThread={openDocInThread}
-                              onDeleteDocument={deleteDocument}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    <DocumentsView
+                      documents={allDocuments}
+                      extColors={extColors}
+                      onDocumentClick={openDocInPlace}
+                      onOpenInThread={openDocInThread}
+                      onDeleteDocument={deleteDocument}
+                    />
+                  </FrameCard>
                 </div>
 
                 {/* WORKSPACE COLUMN (right) */}
