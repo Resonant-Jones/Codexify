@@ -147,7 +147,7 @@ export function ChatView({
       ref={containerRef}
       onScroll={onScroll}
       data-testid="chat-container"
-      className="h-full overflow-y-auto overscroll-contain px-[var(--card-pad)] pb-[96px]"
+      className="h-full overflow-y-auto overscroll-contain px-[var(--card-pad)] pt-3 pb-[96px]"
       style={
         hasOverflow
           ? {

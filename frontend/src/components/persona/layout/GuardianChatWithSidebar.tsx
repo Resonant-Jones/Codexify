@@ -695,50 +695,54 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             surfaceStyle={chatSurfaceStyle}
             disabled={chatDisabled}
           >
-            <PromptLibraryPortal />
-            {(imprintZero.status?.system_prompt_meta?.warnings?.length || 0) > 0 && (
-              <div
-                className="mx-4 mt-3 rounded-lg border px-3 py-2 text-xs"
-                style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
-              >
-                {(imprintZero.status?.system_prompt_meta?.warnings || []).join(" ")}
-              </div>
-            )}
-            {showWorkspacePanel && (
-              <div className="absolute inset-0 z-[110] pointer-events-auto">
-                <div className="absolute right-0 top-0 h-full w-[min(420px,90vw)] bg-black/50 backdrop-blur-md border-l border-white/10 shadow-2xl overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
-                    <div className="text-sm font-semibold text-white">Workspace</div>
-                    <button onClick={() => setShowWorkspacePanel(false)} className="text-white/70 hover:text-white">×</button>
-                  </div>
-                  <div className="p-4 text-white text-xs overflow-auto h-[calc(100%-42px)]">
-                    <p>Workspace tools coming soon…</p>
-                    <p>Prompt Library, Notes, File Viewer, Context Inspector, etc.</p>
+            <div className="flex h-full min-h-0 flex-col">
+              <PromptLibraryPortal />
+              {(imprintZero.status?.system_prompt_meta?.warnings?.length || 0) > 0 && (
+                <div
+                  className="mx-4 mt-3 rounded-lg border px-3 py-2 text-xs"
+                  style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                >
+                  {(imprintZero.status?.system_prompt_meta?.warnings || []).join(" ")}
+                </div>
+              )}
+              {showWorkspacePanel && (
+                <div className="absolute inset-0 z-[110] pointer-events-auto">
+                  <div className="absolute right-0 top-0 h-full w-[min(420px,90vw)] bg-black/50 backdrop-blur-md border-l border-white/10 shadow-2xl overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+                      <div className="text-sm font-semibold text-white">Workspace</div>
+                      <button onClick={() => setShowWorkspacePanel(false)} className="text-white/70 hover:text-white">×</button>
+                    </div>
+                    <div className="p-4 text-white text-xs overflow-auto h-[calc(100%-42px)]">
+                      <p>Workspace tools coming soon…</p>
+                      <p>Prompt Library, Notes, File Viewer, Context Inspector, etc.</p>
+                    </div>
                   </div>
                 </div>
+              )}
+              <div className="flex-1 min-h-0 flex flex-col">
+                <GuardianChat
+                  guardianName={guardianName}
+                  userName={userName}
+                  prefill={prefill}
+                  onPrefillConsumed={onPrefillConsumed}
+                  onWorkspaceToggle={onWorkspaceToggle}
+                  activeThread={activeThread}
+                  onSendMessage={handleSendMessage}
+                  onNewChat={handleNewChatImmediate}
+                  onBranchThread={handleBranchThread}
+                  onArchiveThread={handleArchiveThread}
+                  onSidebarToggle={toggleSidebar}
+                  isSidebarVisible={isSidebarVisible}
+                  onBack={() => {
+                    setActiveId(null);
+                    if (typeof window !== "undefined") {
+                      window.history.pushState({}, "", "/guardian");
+                    }
+                  }}
+                  bare
+                />
               </div>
-            )}
-            <GuardianChat
-              guardianName={guardianName}
-              userName={userName}
-              prefill={prefill}
-              onPrefillConsumed={onPrefillConsumed}
-              onWorkspaceToggle={onWorkspaceToggle}
-              activeThread={activeThread}
-              onSendMessage={handleSendMessage}
-              onNewChat={handleNewChatImmediate}
-              onBranchThread={handleBranchThread}
-              onArchiveThread={handleArchiveThread}
-              onSidebarToggle={toggleSidebar}
-              isSidebarVisible={isSidebarVisible}
-              onBack={() => {
-                setActiveId(null);
-                if (typeof window !== "undefined") {
-                  window.history.pushState({}, "", "/guardian");
-                }
-              }}
-              bare
-            />
+            </div>
           </PanelShell>
         </div>
       </div>

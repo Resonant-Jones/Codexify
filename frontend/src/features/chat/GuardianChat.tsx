@@ -521,7 +521,8 @@ export function GuardianChat({
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 px-[var(--card-pad)] flex">
+      {/* Messages region */}
+      <div className="flex-1 min-h-0 flex flex-col">
         {effectiveThreadId != null ? (
           <ChatView
             threadId={effectiveThreadId}
@@ -529,19 +530,19 @@ export function GuardianChat({
             reloadVersion={chatReloadVersion}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm opacity-70" style={{ color: "var(--muted)" }}>
+          <div
+            className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
+            style={{ color: "var(--muted)" }}
+          >
             No thread selected.
           </div>
         )}
       </div>
 
+      {/* Composer rail */}
       <div
-        className="shrink-0 px-[3px] pb-[3px]"
-        style={{
-          position: "sticky",
-          bottom: 0,
-          zIndex: 10
-        }}
+        className="shrink-0 border-t px-[var(--card-pad)] pb-5 pt-3"
+        style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)" }}
       >
         <Composer
           onSend={handleSendMessage}
@@ -558,7 +559,7 @@ export function GuardianChat({
 
   if (bare) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-full min-h-0 flex-col">
         {body}
       </div>
     );
