@@ -43,8 +43,6 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
-import { LegacyThreadsModal } from "@/components/modals/LegacyThreadsModal";
-import { LegacyThreadsProvider } from "@/contexts/LegacyThreadsContext";
 import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
 import ContextMenu from "@/components/ui/ContextMenu";
@@ -703,12 +701,21 @@ export default function AppShell({}: PropsWithChildren) {
         localStorage.setItem("cfy.gallery", JSON.stringify(def));
         return def;
       }
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : def;
     } catch { return def; }
   });
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("cfy.gallery", JSON.stringify(gallery));
+    if (typeof window === "undefined") return;
+    // Keep a compact copy in storage; trim on quota errors to avoid crashes when large data URLs are present.
+    const compact = (gallery || []).filter((g) => g && g.src).slice(0, 200);
+    try {
+      localStorage.setItem("cfy.gallery", JSON.stringify(compact));
+    } catch (err) {
+      console.warn("[gallery] failed to persist gallery; trimming cache", err);
+      try {
+        localStorage.setItem("cfy.gallery", JSON.stringify(compact.slice(0, 50)));
+      } catch {}
     }
   }, [gallery]);
 
@@ -801,7 +808,18 @@ export default function AppShell({}: PropsWithChildren) {
     const onAdd = (e: Event) => {
       const items = (e as CustomEvent).detail?.items || [];
       if (!Array.isArray(items) || items.length === 0) return;
-      setGallery((prev) => [...items, ...prev]);
+      setGallery((prev) => {
+        const seen = new Set<string>();
+        const merged = [...items, ...prev].filter((g: any) => {
+          const key = g?.src || g?.id;
+          if (!key) return false;
+          const sk = String(key);
+          if (seen.has(sk)) return false;
+          seen.add(sk);
+          return true;
+        });
+        return merged;
+      });
     };
     window.addEventListener("cfy:gallery:add", onAdd as EventListener);
     return () => window.removeEventListener("cfy:gallery:add", onAdd as EventListener);
@@ -810,7 +828,19 @@ export default function AppShell({}: PropsWithChildren) {
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",
-    onImages: (items) => setGallery((prev) => [...items, ...prev]),
+    onImages: (items) =>
+      setGallery((prev) => {
+        const seen = new Set<string>();
+        const merged = [...items, ...prev].filter((g: any) => {
+          const key = g?.src || g?.id;
+          if (!key) return false;
+          const sk = String(key);
+          if (seen.has(sk)) return false;
+          seen.add(sk);
+          return true;
+        });
+        return merged;
+      }),
     onDocuments: (items) =>
       setDocuments((prev) => [
         ...(items || []).map((item: any, idx: number) => normalizeDoc(item, idx)),
@@ -818,21 +848,6 @@ export default function AppShell({}: PropsWithChildren) {
       ]),
     onAnyUpload: () => {},
   });
-  // Labs: optional feature flags
-  const [showLegacyThreads, setShowLegacyThreads] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("cfy.showLegacyThreads") === "true";
-  });
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("cfy.showLegacyThreads", String(showLegacyThreads));
-    }
-  }, [showLegacyThreads]);
-
-  // Legacy modal state
-  const [legacyOpen, setLegacyOpen] = useState(false);
-  const openLegacy = useCallback(() => setLegacyOpen(true), []);
-  const closeLegacy = useCallback(() => setLegacyOpen(false), []);
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
   const [activeDoc, setActiveDoc] = useState<DocumentLike | null>(null);
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
@@ -1024,14 +1039,13 @@ export default function AppShell({}: PropsWithChildren) {
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
-    <LegacyThreadsProvider value={{ enabled: showLegacyThreads, isOpen: legacyOpen, open: openLegacy, close: closeLegacy }}>
     <>
       {/*
         --bezel: Visual margin between the refractive glass and the opaque content surface.
         Changing --bezel allows live tuning of the glass thickness throughout the UI without code edits.
       */}
       <div
-        className="w-screen h-screen flex flex-col bg-transparent box-border overflow-hidden"
+        className="w-screen h-screen flex flex-col min-h-0 bg-transparent box-border overflow-hidden"
         style={{
           /* baseline viewport guardrails */
           minWidth: "608px",
@@ -1169,7 +1183,7 @@ export default function AppShell({}: PropsWithChildren) {
           - Documents
           - Settings
          ───────────────────────────────────────────────────────────────────────────── */}
- <div className="relative z-10 isolate flex flex-col flex-1 h-full min-h-0 overflow-hidden items-stretch justify-center">
+ <div className="relative z-10 isolate flex flex-col flex-1 min-h-0 overflow-hidden items-stretch justify-center">
    <div
      className="flex-1 h-full min-h-0 flex"
      style={{
@@ -1603,8 +1617,6 @@ export default function AppShell({}: PropsWithChildren) {
                                   setExtColors={setExtColors}
                                   dashboardThreadRows={dashboardThreadRows}
                                   setDashboardThreadRows={setDashboardThreadRows}
-                                  showLegacyThreads={showLegacyThreads}
-                                  setShowLegacyThreads={setShowLegacyThreads}
                                   ingestionEnabled={ingestionEnabled}
                                   setIngestionEnabled={setIngestionEnabled}
                                 />
@@ -1720,32 +1732,7 @@ export default function AppShell({}: PropsWithChildren) {
           ]}
         />
       )}
-      {legacyOpen && (
-        <div
-          className="fixed inset-0 z-[1200] flex items-center justify-center px-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Legacy Threads"
-        >
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeLegacy} />
-          <div className="relative z-[1201] w-[min(920px,95vw)] max-h-[85vh] overflow-hidden rounded-[var(--card-radius)] border shadow-xl"
-               style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}>
-            <LegacyThreadsModal
-              onClose={closeLegacy}
-              onFork={(threadId?: string) => {
-                try {
-                  window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { kind: "success", message: "Forked legacy thread" } }));
-                } catch {}
-                setView("guardian");
-                setPrefill(`Fork legacy thread ${threadId ?? ""} into a new conversation.`);
-                closeLegacy();
-              }}
-            />
-          </div>
-        </div>
-      )}
       </div>
     </>
-    </LegacyThreadsProvider>
   );
 }
