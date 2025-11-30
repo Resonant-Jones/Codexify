@@ -1325,79 +1325,58 @@ export default function AppShell({}: PropsWithChildren) {
           )}
           {view === "gallery" && (
             <>
-            <div className="isolate" style={{ "--radius": "var(--card-radius)", "--frame": "1px", "--bezel": "var(--bezel, 6px)", "--rim": "1px", "--gutter": "6px", "--card-pad": "10px", "--min-h": "clamp(520px, 70vh, 1000px)", borderRadius: "var(--card-radius)" } as React.CSSProperties}>
-              <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
-                <div
-                  className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
-                  style={{
-                    padding: "var(--board-edge)",
-                    width: "var(--w, auto)",
-                    maxWidth: "var(--max-w, none)",
-                    minWidth: "var(--min-w, 0)",
-                    height: "var(--h, auto)",
-                    minHeight: "var(--min-h, 0)",
-                    maxHeight: "var(--max-h, none)",
-                    flex: "var(--flex, 1 1 0%)",
-                    "--flex": "1 1 0%",
-                    "--min-h": "clamp(520px, 70vh, 1000px)",
-                    borderRadius: "var(--card-radius)"
-                  }}
-                >
-                  <div className="rounded-[var(--radius)]" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel, 6px) solid var(--panel-bezel)", borderRadius: "var(--card-radius)" }}>
-                    <div className="rounded-[var(--radius)]" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)", borderRadius: "var(--card-radius)" }}>
-                      <div className="relative rounded-[var(--radius)] h-full">
-                        <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                          <RefractiveGlassCard
-                            wallpaperUrl={activeWallpaper}
-                            className="w-full h-full rounded-[var(--radius)]"
-                            style={{ background: "transparent", border: "none" }}
-                            intensity={0.008}
-                            aberration={0}
-                          />
-                        </div>
-                        <div className="min-h-0 h-full overflow-hidden rounded-[var(--radius)]" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))", borderRadius: "var(--card-radius)" }}>
-                          <div className="p-[var(--card-pad)] min-h-0 h-full overflow-auto">
-                            <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Gallery</div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--gutter)]" onDrop={galleryUploader.onDrop} onDragOver={galleryUploader.onDragOver}>
-                              {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => (
-                                <div key={g.src || i} className="relative aspect-square rounded-[var(--radius)] overflow-hidden" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))", borderRadius: "var(--card-radius)" }}
-                                  onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: g.src }); }}
-                                >
-                                  <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
-                                  {visionBusySrc === g.src && (
-                                    <div className="absolute inset-0 grid place-items-center bg-black/40">
-                                      <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
-                                    </div>
-                                  )}
-                                  {/* Context menu is handled at container-level via onContextMenu on parent wrapper below */}
-                                  {g.mock && (
-                                    <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
-                                      Mock
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                            <div className="flex items-center justify-between gap-2 pt-3 text-xs opacity-80">
-                              <div>Drag & drop images or documents here, or</div>
-                              <button type="button" className="underline" onClick={galleryUploader.pick}>Choose files</button>
-                              <button type="button" className="underline ml-2" onClick={() => setShowImgGenGallery(true)}>Generate Image</button>
-                              <div className="ml-auto flex items-center gap-2">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                  <input type="checkbox" checked={hideMocks} onChange={(e) => { setHideMocks(e.target.checked); try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {} }} />
-                                  Hide Mock Items
-                                </label>
-                              </div>
-                            </div>
+              <FrameCard
+                fill
+                refractiveFallback
+                shimmerMode="subtle"
+                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+              >
+                <div className="flex h-full min-h-0 flex-col p-[var(--card-pad)]">
+                  <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Gallery</div>
+                  <div
+                    className="grid auto-rows-[minmax(140px,1fr)] grid-cols-2 gap-[var(--gutter)] md:grid-cols-3 xl:grid-cols-4 flex-1 min-h-0 overflow-auto"
+                    onDrop={galleryUploader.onDrop}
+                    onDragOver={galleryUploader.onDragOver}
+                  >
+                    {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => (
+                      <div
+                        key={g.src || i}
+                        className="relative aspect-square rounded-[var(--radius)] overflow-hidden border"
+                        style={{
+                          background: "var(--panel-bg)",
+                          borderColor: "var(--panel-border)",
+                          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)",
+                        }}
+                        onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: g.src }); }}
+                      >
+                        <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
+                        {visionBusySrc === g.src && (
+                          <div className="absolute inset-0 grid place-items-center bg-black/40">
+                            <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
                           </div>
-                        </div>
+                        )}
+                        {g.mock && (
+                          <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
+                            Mock
+                          </span>
+                        )}
                       </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 pt-3 text-xs opacity-80">
+                    <div>Drag & drop images or documents here, or</div>
+                    <button type="button" className="underline" onClick={galleryUploader.pick}>Choose files</button>
+                    <button type="button" className="underline ml-2" onClick={() => setShowImgGenGallery(true)}>Generate Image</button>
+                    <div className="ml-auto flex items-center gap-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={hideMocks} onChange={(e) => { setHideMocks(e.target.checked); try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {} }} />
+                        Hide Mock Items
+                      </label>
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-            <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
+              </FrameCard>
+              <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
             </>
           )}
           {view === "guardian" && (
@@ -1519,75 +1498,48 @@ export default function AppShell({}: PropsWithChildren) {
             </div>
           )}
           {view === "settings" && (
-            <div
-              className="flex-1 h-full isolate"
-              style={{ "--radius": "var(--card-radius)", "--frame": "1px", "--bezel": "var(--bezel, 6px)", "--rim": "1px", borderRadius: "var(--card-radius)" } as React.CSSProperties}
+            <FrameCard
+              fill
+              refractiveFallback
+              shimmerMode="subtle"
+              className="flex-1 h-full w-full min-h-0 flex flex-col overflow-hidden"
             >
-              <div className="flex-1 h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
-                <div
-                  className="min-w-0 flex-1 min-h-0 h-full flex flex-col overflow-visible rounded-[var(--radius)]"
-                  style={{
-                    padding: "var(--board-edge)",
-                    flex: settingsLayout.flex,
-                    maxWidth: settingsLayout.maxWidth,
-                    borderRadius: "var(--card-radius)"
-                  }}
-                >
-                  <div className="rounded-[var(--radius)] flex-1 flex flex-col overflow-hidden" style={{ background: "var(--chip-bg)", padding: "var(--frame)", border: "var(--bezel, 6px) solid var(--panel-bezel)", borderRadius: "var(--card-radius)" }}>
-                    <div className="rounded-[var(--radius)] flex-1 flex flex-col overflow-hidden" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))", padding: "var(--rim)", borderRadius: "var(--card-radius)" }}>
-                      <div className="relative rounded-[var(--radius)] flex-1 flex flex-col overflow-hidden">
-                        <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                          <RefractiveGlassCard
-                            wallpaperUrl={activeWallpaper}
-                            className="w-full h-full rounded-[var(--radius)]"
-                            style={{ background: "transparent", border: "none" }}
-                            intensity={0.006}
-                            aberration={0}
-                          />
-                        </div>
-                        <div className="min-h-0 w-full rounded-[var(--radius)] overflow-hidden flex-1 flex flex-col" style={{ background: "var(--panel-bg)", border: "1px solid var(--panel-border)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 17px rgba(0,0,0,0.18)", filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.25))", borderRadius: "var(--card-radius)" }}>
-                          <div className="min-h-0 h-full w-full overflow-auto p-[var(--card-pad)] flex-1 flex flex-col">
-                            <div className="max-w-5xl mr-auto w-full">
-                              <ErrorBoundary>
-                                <SettingsView
-                                  mode={mode}
-                                  setMode={setMode}
-                                  guardianName={guardianName}
-                                  setGuardianName={setGuardianName}
-                                  userName={userName}
-                                  setUserName={setUserName}
-                                  role={role}
-                                  setRole={setRole}
-                                  notes={notes}
-                                  setNotes={setNotes}
-                                  baseColor={baseColor}
-                                  setBaseColor={setBaseColor}
-                                  depth={depth}
-                                  setDepth={setDepth}
-                                  fade={fade}
-                                  setFade={setFade}
-                                  resolved={resolved}
-                                  systemPrompt={systemPrompt}
-                                  setSystemPrompt={setSystemPrompt}
-                                  wallpaper={wallpaper}
-                                  setWallpaper={setWallpaper}
-                                  extColors={extColors}
-                                  setExtColors={setExtColors}
-                                  dashboardThreadRows={dashboardThreadRows}
-                                  setDashboardThreadRows={setDashboardThreadRows}
-                                  ingestionEnabled={ingestionEnabled}
-                                  setIngestionEnabled={setIngestionEnabled}
-                                />
-                              </ErrorBoundary>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+              <div className="min-h-0 h-full w-full overflow-auto p-[var(--card-pad)] flex-1 flex flex-col">
+                <div className="max-w-5xl mr-auto w-full">
+                  <ErrorBoundary>
+                    <SettingsView
+                      mode={mode}
+                      setMode={setMode}
+                      guardianName={guardianName}
+                      setGuardianName={setGuardianName}
+                      userName={userName}
+                      setUserName={setUserName}
+                      role={role}
+                      setRole={setRole}
+                      notes={notes}
+                      setNotes={setNotes}
+                      baseColor={baseColor}
+                      setBaseColor={setBaseColor}
+                      depth={depth}
+                      setDepth={setDepth}
+                      fade={fade}
+                      setFade={setFade}
+                      resolved={resolved}
+                      systemPrompt={systemPrompt}
+                      setSystemPrompt={setSystemPrompt}
+                      wallpaper={wallpaper}
+                      setWallpaper={setWallpaper}
+                      extColors={extColors}
+                      setExtColors={setExtColors}
+                      dashboardThreadRows={dashboardThreadRows}
+                      setDashboardThreadRows={setDashboardThreadRows}
+                      ingestionEnabled={ingestionEnabled}
+                      setIngestionEnabled={setIngestionEnabled}
+                    />
+                  </ErrorBoundary>
                 </div>
               </div>
-            </div>
+            </FrameCard>
           )}
         </div>
       </div>
