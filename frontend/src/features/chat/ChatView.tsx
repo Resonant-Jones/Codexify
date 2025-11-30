@@ -8,11 +8,12 @@ export function ChatView({
   threadId,
   guardianName,
   reloadVersion = 0,
+  className,
 }: {
   threadId: number;
   guardianName?: string;
-  /** parent‑supplied bump to force a reload, e.g. when a new message is posted */
   reloadVersion?: number;
+  className?: string;
 }) {
   const { messages, loadMessages, appendMessage, loading, error, hasMore } = useChat();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -20,6 +21,9 @@ export function ChatView({
   const [hasOverflow, setHasOverflow] = useState(false);
   const scrollMeasuredRef = useRef(false);
   const { subscribe } = useLiveEvents({ passive: true });
+  const PAGE_SIZE = 100;
+
+
 
   const ingestIncoming = useCallback(
     (payload: any) => {
@@ -33,7 +37,7 @@ export function ChatView({
 
   useEffect(() => {
     initialScrollRef.current = true;
-    loadMessages(threadId, 50, 0, false);
+    loadMessages(threadId, PAGE_SIZE, 0, false);
   }, [threadId, reloadVersion, loadMessages]);
 
   // Live updates: append message for active thread without refetching
@@ -108,7 +112,7 @@ export function ChatView({
     if (loading || !hasMore) return;
     if (el.scrollTop === 0) {
       const prevHeight = el.scrollHeight;
-      await loadMessages(threadId, 50, messages.length, true);
+      await loadMessages(threadId, PAGE_SIZE, messages.length, true);
       requestAnimationFrame(() => {
         if (containerRef.current) {
           containerRef.current.scrollTop = containerRef.current.scrollHeight - prevHeight;
@@ -143,54 +147,56 @@ export function ChatView({
   }
 
   return (
-    <div
-      ref={containerRef}
-      onScroll={onScroll}
-      data-testid="chat-container"
-      className="h-full overflow-y-auto overscroll-contain px-[var(--card-pad)] pt-3 pb-[96px]"
-      style={
-        hasOverflow
-          ? {
-              maskImage:
-                "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
-              WebkitMaskImage:
-                "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
-            }
-          : undefined
-      }
-    >
-      <div className="space-y-3">
-        {messages.map((m, index) => (
-          <div
-            data-testid="chat-message"
-            key={m.id ?? `${m.role}-${m.created_at ?? index}`}
-            className="max-w-full"
-            onContextMenu={(e) => {
-              e.preventDefault();
-              const content = String(m.content ?? "");
-              if (!content.trim()) return;
-              setMenu({ x: e.clientX, y: e.clientY, text: content });
-            }}
-          >
-            <ChatBubble
-              message={{
-                id: String(m.id ?? `${m.role}-${m.created_at ?? index}`),
-                authorId: m.role === "user" ? "me" : "bot",
-                authorName: m.role === "user" ? "You" : (guardianName || "Guardian"),
-                content: m.content ?? "",
-                createdAt:
-                  typeof m.created_at === "number"
-                    ? m.created_at
-                    : typeof m.created_at === "string"
-                      ? Date.parse(m.created_at)
-                      : Date.now(),
+    <div className="relative h-full w-full overflow-hidden">
+      <div
+        ref={containerRef}
+        onScroll={onScroll}
+        data-testid="chat-container"
+        className={`h-full w-full overflow-y-auto overscroll-contain px-[var(--card-pad)] ${className || ""}`}
+        style={
+          hasOverflow
+            ? {
+                maskImage:
+                  "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
+                WebkitMaskImage:
+                  "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
+              }
+            : undefined
+        }
+      >
+        <div className="space-y-3">
+          {messages.map((m, index) => (
+            <div
+              data-testid="chat-message"
+              key={m.id ?? `${m.role}-${m.created_at ?? index}`}
+              className="max-w-full"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                const content = String(m.content ?? "");
+                if (!content.trim()) return;
+                setMenu({ x: e.clientX, y: e.clientY, text: content });
               }}
-              isGuardian={m.role !== "user"}
-            />
-          </div>
-        ))}
-        {loading && <div className="text-xs opacity-70" data-testid="chat-loading">Loading…</div>}
-        {error && <div className="text-xs text-red-500" data-testid="chat-error">{error}</div>}
+            >
+              <ChatBubble
+                message={{
+                  id: String(m.id ?? `${m.role}-${m.created_at ?? index}`),
+                  authorId: m.role === "user" ? "me" : "bot",
+                  authorName: m.role === "user" ? "You" : (guardianName || "Guardian"),
+                  content: m.content ?? "",
+                  createdAt:
+                    typeof m.created_at === "number"
+                      ? m.created_at
+                      : typeof m.created_at === "string"
+                        ? Date.parse(m.created_at)
+                        : Date.now(),
+                }}
+                isGuardian={m.role !== "user"}
+              />
+            </div>
+          ))}
+          {loading && <div className="text-xs opacity-70" data-testid="chat-loading">Loading…</div>}
+          {error && <div className="text-xs text-red-500" data-testid="chat-error">{error}</div>}
+        </div>
       </div>
       {menu && (
         <ContextMenu
