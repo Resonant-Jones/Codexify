@@ -615,8 +615,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   };
 
   return (
-    <div className="flex h-full w-full min-h-0 box-border overflow-hidden">
-   <div
+    <div
       className="relative grid h-full w-full max-w-[1500px] min-h-0 box-border items-stretch mx-auto overflow-hidden"
       style={{
         gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
@@ -743,7 +742,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           </PanelShell>
         </div>
       </div>
-    </div>
   );
 }
 
