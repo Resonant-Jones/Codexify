@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Paperclip, ImagePlus } from "lucide-react";
 import useUploader from "@/hooks/useUploader";
-import { ProviderSelect } from "@/components/ProviderSelect";
+
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 
 export function Composer({
@@ -94,73 +94,75 @@ export function Composer({
   }
   return (
     <>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <ProviderSelect />
-        {/* Reserved space for future controls (e.g., depth selector / RAG controls) */}
-        <div className="flex items-center gap-1" />
-      </div>
+      <div className="flex flex-col h-full w-full min-h-[140px] p-[4px]">
+        <div className="flex flex-col h-full w-full rounded-[var(--tile-radius)] px-[4px] py-[4px]">
+          <div className="flex flex-col flex-1 w-full px-[8px] py-[6px] gap-2">
+            <Textarea
+              ref={ref}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder="Write a message…"
+              onPaste={onPaste}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !effectiveSending) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              className="w-full min-h-[96px] resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
+              style={{ color: "var(--text)" }}
+            />
 
-      <div
-        className="flex items-end gap-2 rounded-2xl border p-2 shadow-sm"
-        style={{
-          background: "var(--panel-bg)",
-          borderColor: "var(--panel-border)"
-        }}
-        onDrop={uploader.onDrop}
-        onDragOver={uploader.onDragOver}
-      >
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label="Attach files"
-            title="Attach files"
-            onClick={uploader.pick}
-            className="icon-inline h-10 w-10"
-            style={{ borderRadius: "var(--radius-micro)" }}
-          >
-            <Paperclip className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Generate image"
-            title="Generate image"
-            onClick={() => setShowImgGen(true)}
-            className="icon-inline h-10 w-10"
-            style={{ borderRadius: "var(--radius-micro)" }}
-          >
-            <ImagePlus className="h-4 w-4" />
-          </button>
-        </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label="Attach files"
+                  title="Attach files"
+                  onClick={uploader.pick}
+                  className="inline-flex items-center justify-center h-9 w-9 opacity-70 hover:opacity-100 transition-opacity"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    boxShadow: "none",
+                    outline: "none",
+                  }}
+                >
+                  <Paperclip className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Generate image"
+                  title="Generate image"
+                  onClick={() => setShowImgGen(true)}
+                  className="inline-flex items-center justify-center h-9 w-9 opacity-70 hover:opacity-100 transition-opacity"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    boxShadow: "none",
+                    outline: "none",
+                  }}
+                >
+                  <ImagePlus className="h-5 w-5" />
+                </button>
+              </div>
 
-        <Textarea
-          ref={ref}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Write a message…"
-          onPaste={onPaste}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !effectiveSending) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          className="min-h-[44px] max-h-44 flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2"
-          style={{ color: "var(--text)", outlineColor: "var(--accent-weak)" }}
-        />
-        <Button
-          type="button"
-          onClick={send}
-          disabled={effectiveSending || !value.trim()}
-          size="icon"
-          className="h-11 w-11 grid place-items-center rounded-full shadow-sm disabled:opacity-60"
-          style={{
-            background: "var(--accent-strong)",
-            color: "var(--pill-active-text, #fff)",
-            outlineColor: "var(--accent-weak)",
-          }}
-        >
-          <Send className="h-4 w-4" />
-        </Button>
+              <Button
+                type="button"
+                onClick={send}
+                disabled={effectiveSending || !value.trim()}
+                size="sm"
+                className="h-9 px-5 rounded-full disabled:opacity-50 font-medium text-sm transition-opacity"
+                style={{
+                  background: "var(--accent-strong)",
+                  color: "#fff",
+                  boxShadow: "none",
+                }}
+              >
+                Send
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
       <ImageGenModal open={showImgGen} onOpenChange={setShowImgGen} />
