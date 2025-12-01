@@ -147,12 +147,12 @@ export function ChatView({
   }
 
   return (
-    <div className="relative flex flex-col h-full w-full min-h-0">
+    <div className="absolute inset-0">
       <div
         ref={containerRef}
         onScroll={onScroll}
         data-testid="chat-container"
-        className={`flex-1 min-h-0 overflow-y-auto overscroll-contain px-[var(--card-pad)] ${className || ""}`}
+        className={`h-full w-full overflow-y-auto overscroll-contain px-[var(--card-pad)] ${className || ""}`}
         style={
           hasOverflow
             ? {

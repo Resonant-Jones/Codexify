@@ -244,7 +244,7 @@ export default function FrameCard({
         }
         .fc-root[data-selected="true"] .fc-liquid { --fc-accent: var(--accent-strong); }
 
-        /* Inner content face: perfectly rounded and clipped */
+        /* Inner content face: scroll-safe, compositor-safe */
         .fc-inner {
           position: relative;
           margin: var(--liquid-bezel-w, 3px);
@@ -253,7 +253,7 @@ export default function FrameCard({
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,0.06),
             inset 0 -10px 24px rgba(0,0,0,0.18);
-          overflow: hidden; /* content respects radius */
+          overflow: visible; /* allow scroll containers and absolute children */
           flex: 1;
           min-height: 0;
           display: flex;
