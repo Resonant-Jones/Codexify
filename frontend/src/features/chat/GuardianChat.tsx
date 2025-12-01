@@ -10,6 +10,7 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { setTrace } from "@/state/contextTrace";
 import TraceButton from "./components/TraceButton";
+import { ProviderSelect } from "@/components/ProviderSelect";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -280,6 +281,9 @@ export function GuardianChat({
 
   const headerActions = (
     <div className="flex items-center gap-1">
+      {/* Provider Selector (Moved from Composer) */}
+      <ProviderSelect />
+
       {/* RAG Depth Selector */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -458,23 +462,13 @@ export function GuardianChat({
   );
 
   const body = (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col">
-      {/*
-        Z-Index Layer Stack:
-        - Background/Glass: -10
-        - Message content: 1 (default)
-        - Composer: 10
-        - Header: 20
-        - Dropdowns/Modals: 9999
-      */}
+    <div className="flex h-full w-full min-h-0 flex-col bg-transparent">
+      {/* Header - Flex Item (Sticky behavior handled by layout if needed, but flex is safer for resizing) */}
       <header
-        className="relative flex items-center justify-between gap-2 px-4 py-3"
+        className="shrink-0 z-20 flex items-center justify-between gap-2 px-4 py-3"
         style={{
           background: "var(--panel-bg)",
           borderBottom: "1px solid var(--panel-border)",
-          position: "sticky",
-          top: 0,
-          zIndex: 20,
           color: "var(--text)",
         }}
       >
@@ -507,7 +501,7 @@ export function GuardianChat({
           )}
         </div>
 
-        {/* Center section: absolutely centered title */}
+        {/* Center section: centered title */}
         <div
           className="absolute left-1/2 -translate-x-1/2 truncate font-semibold max-w-[50%]"
           style={{ color: "var(--text)" }}
@@ -521,13 +515,14 @@ export function GuardianChat({
         </div>
       </header>
 
-      {/* Messages region */}
-      <div className="flex-1 min-h-0 flex flex-col">
+      {/* Messages region - Flex 1, scrolls independently */}
+      <div className="flex-1 min-h-0 overflow-hidden relative">
         {effectiveThreadId != null ? (
           <ChatView
             threadId={effectiveThreadId}
             guardianName={guardianName}
             reloadVersion={chatReloadVersion}
+            className="h-full w-full pb-[180px]" // Large padding for floating workspace composer
           />
         ) : (
           <div
@@ -539,20 +534,27 @@ export function GuardianChat({
         )}
       </div>
 
-      {/* Composer rail */}
+      {/* Composer rail - Floating Workspace Island */}
       <div
-        className="shrink-0 border-t px-[var(--card-pad)] pb-5 pt-3"
-        style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)" }}
+        className="absolute bottom-[6px] left-[6px] right-[6px] z-20 rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200"
+        style={{
+          borderColor: "var(--panel-border)",
+          background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
+          minHeight: "140px",
+          maxHeight: "60vh",
+        }}
       >
-        <Composer
-          onSend={handleSendMessage}
-          prefill={externalPrefill ?? prefill}
-          onPrefillConsumed={() => {
-            setExternalPrefill(undefined);
-            onPrefillConsumed?.();
-          }}
-          threadId={effectiveThreadId ?? undefined}
-        />
+        <div className="flex-1 flex flex-col p-4">
+          <Composer
+            onSend={handleSendMessage}
+            prefill={externalPrefill ?? prefill}
+            onPrefillConsumed={() => {
+              setExternalPrefill(undefined);
+              onPrefillConsumed?.();
+            }}
+            threadId={effectiveThreadId ?? undefined}
+          />
+        </div>
       </div>
     </div>
   );
@@ -571,7 +573,7 @@ export function GuardianChat({
       className="flex-1 min-h-0 min-w-0 flex flex-col h-full overflow-hidden"
       hoverPop
     >
-      <div className="relative flex h-full w-full">
+      <div className="relative flex h-full w-full min-h-0">
         {body}
       </div>
     </FrameCard>
