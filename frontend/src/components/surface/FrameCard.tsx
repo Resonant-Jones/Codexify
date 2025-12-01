@@ -143,7 +143,7 @@ export default function FrameCard({
 
   return (
     <div
-      className={clsx("fc-root relative box-border overflow-hidden", className)}
+      className={clsx("fc-root relative rounded-[var(--card-radius)] border bg-[var(--panel-bg)] p-4 shadow-sm", className)}
       style={rootStyle}
       role="group"
       aria-label={ariaLabel}
@@ -167,11 +167,22 @@ export default function FrameCard({
         />
       )}
 
-      {/* Inner content face */}
-      <div className="fc-inner relative">{children}</div>
+      {/* Inner content face (scroll-safe wrapper) */}
+      <div className="fc-inner-clip">
+        <div className="fc-inner relative">{children}</div>
+      </div>
 
       {/* Strict CSS (scoped) */}
       <style>{`
+        .fc-inner-clip {
+          position: relative;
+          flex: 1 1 auto;
+          min-height: 0;
+          border-radius: inherit;
+          overflow: visible;
+          display: flex;
+          flex-direction: column;
+        }
         .fc-root {
           border-radius: var(--card-radius, 19px); /* reads 19px via AppShell */
           isolation: isolate; /* prevent backdrop bleed */
@@ -180,7 +191,7 @@ export default function FrameCard({
           height: 100%;
           width: 100%;
           box-sizing: border-box;
-          overflow: hidden;
+          overflow: visible;
           min-height: 0;
         }
         .fc-inner {
@@ -190,6 +201,7 @@ export default function FrameCard({
           flex: 1 1 auto;
           min-height: 0;
           box-sizing: border-box;
+          padding: 8px;
         }
         .fc-bezel,
         .fc-liquid,
