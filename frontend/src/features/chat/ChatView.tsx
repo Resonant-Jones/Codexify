@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, useLayoutEffect } from "react";
+import clsx from "clsx";
 import { useChat } from "@/features/chat/useChat";
 import ChatBubble from "@/features/chat/components/ChatBubble";
 import ContextMenu from "@/components/ui/ContextMenu";
@@ -9,11 +10,13 @@ export function ChatView({
   guardianName,
   reloadVersion = 0,
   className,
+  bottomPadding = 0,
 }: {
   threadId: number;
   guardianName?: string;
   reloadVersion?: number;
   className?: string;
+  bottomPadding?: number;
 }) {
   const { messages, loadMessages, appendMessage, loading, error, hasMore } = useChat();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -146,23 +149,27 @@ export function ChatView({
     } catch {}
   }
 
+  const shouldMask = hasOverflow && bottomPadding > 0;
+  const scrollStyle: React.CSSProperties = {
+    ...(bottomPadding > 0 ? { paddingBottom: bottomPadding } : {}),
+    ...(shouldMask
+      ? {
+          maskImage:
+            "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
+        }
+      : {}),
+  };
+
   return (
-    <div className="absolute inset-0">
+    <div className={clsx("flex flex-col h-full w-full min-h-0", className)}>
       <div
         ref={containerRef}
         onScroll={onScroll}
         data-testid="chat-container"
-        className={`h-full w-full overflow-y-auto overscroll-contain px-[var(--card-pad)] ${className || ""}`}
-        style={
-          hasOverflow
-            ? {
-                maskImage:
-                  "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
-                WebkitMaskImage:
-                  "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
-              }
-            : undefined
-        }
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[var(--card-pad)]"
+        style={scrollStyle}
       >
         <div className="space-y-3">
           {messages.map((m, index) => (
@@ -194,8 +201,16 @@ export function ChatView({
               />
             </div>
           ))}
-          {loading && <div className="text-xs opacity-70" data-testid="chat-loading">Loading…</div>}
-          {error && <div className="text-xs text-red-500" data-testid="chat-error">{error}</div>}
+          {loading && (
+            <div className="text-xs opacity-70" data-testid="chat-loading">
+              Loading…
+            </div>
+          )}
+          {error && (
+            <div className="text-xs text-red-500" data-testid="chat-error">
+              {error}
+            </div>
+          )}
         </div>
       </div>
       {menu && (
