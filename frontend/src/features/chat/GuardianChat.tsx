@@ -98,6 +98,7 @@ export function GuardianChat({
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? "New Chat");
   const triggerReload = useMemo(() => debounce(() => setChatReloadVersion((v) => v + 1), 300), []);
   const { subscribe } = useLiveEvents({ passive: true });
+  // Helper: ask backend to complete the thread and then refresh
 
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
@@ -462,7 +463,7 @@ export function GuardianChat({
   );
 
   const body = (
-    <div className="flex h-full w-full min-h-0 flex-col bg-transparent">
+    <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
       {/* Header - Flex Item (Sticky behavior handled by layout if needed, but flex is safer for resizing) */}
       <header
         className="shrink-0 z-20 flex items-center justify-between gap-2 px-4 py-3"
@@ -516,13 +517,14 @@ export function GuardianChat({
       </header>
 
       {/* Messages region - Flex 1, scrolls independently */}
-      <div className="flex-1 min-h-0 overflow-hidden relative">
+      <div className="flex-1 min-h-0 relative overflow-hidden">
         {effectiveThreadId != null ? (
           <ChatView
             threadId={effectiveThreadId}
             guardianName={guardianName}
             reloadVersion={chatReloadVersion}
-            className="h-full w-full pb-[180px]" // Large padding for floating workspace composer
+            className="h-full w-full"
+            bottomPadding={160}
           />
         ) : (
           <div
@@ -534,9 +536,9 @@ export function GuardianChat({
         )}
       </div>
 
-      {/* Composer rail - Floating Workspace Island */}
+      {/* Composer rail - Footer workspace island */}
       <div
-        className="absolute bottom-[6px] left-[6px] right-[6px] z-20 rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200"
+        className="shrink-0 z-20 mx-[6px] mt-2 rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-clip transition-all duration-200"
         style={{
           borderColor: "var(--panel-border)",
           background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
@@ -561,19 +563,22 @@ export function GuardianChat({
 
   if (bare) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
-        {body}
-      </div>
+      <>
+        {/* Keep this container non-scrollable so ChatView owns the scroll and the composer stays pinned */}
+        <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
+          {body}
+        </div>
+      </>
     );
   }
 
   return (
     <FrameCard
       fill={false}
-      className="flex-1 min-h-0 min-w-0 flex flex-col h-full overflow-hidden"
+      className="flex-1 min-h-0 min-w-0 flex flex-col h-full"
       hoverPop
     >
-      <div className="relative flex h-full w-full min-h-0">
+      <div className="relative flex flex-col w-full flex-1 min-h-0 overflow-hidden">
         {body}
       </div>
     </FrameCard>
