@@ -6,7 +6,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src", "vite-env.d.ts", "main.tsx", "App.tsx", "persona"],
   "exclude": ["**/__tests__/**"]

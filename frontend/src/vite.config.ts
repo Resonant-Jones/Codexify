@@ -10,6 +10,8 @@ const PROXY_TARGET =
   process.env.VITE_BACKEND_URL ||
   'http://localhost:8888';
 
+const IS_DEV = process.env.NODE_ENV !== 'production';
+
 export default defineConfig({
   root: resolve(__dirname),
 
@@ -36,6 +38,7 @@ export default defineConfig({
       },
     },
     VitePWA({
+      disable: IS_DEV,
       registerType: 'autoUpdate',
       manifest: {
         name: 'Codexify',
@@ -69,7 +72,7 @@ export default defineConfig({
 
   resolve: {
     alias: {
-      '@': resolve(__dirname),
+      '@': resolve(__dirname, "src"),
     },
     dedupe: ['react', 'react-dom'],
   },
@@ -135,22 +138,36 @@ export default defineConfig({
         rewrite: (p) => p.replace(/^\/api\//, '/'),
       },
 
-      // General API: pass-through /api/* exactly as-is (no rewrite)
-      '^/api(?=/|$)': {
+      // General API: /api/* -> backend /*  (drop /api prefix)
+      '/api': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
         headers: {
           'X-API-Key': API_KEY,
         },
+
+        // /api/codex/entries -> /codex/entries
+        // /api/memory/...    -> /memory/...
+        rewrite: (p) => p.replace(/^\/api/, ''),
+
+        // Let Vite serve source files itself instead of proxying them
+        bypass: (req) => {
+          if (req.url && /\.(ts|tsx|js|jsx)(\?.*)?$/.test(req.url)) {
+            return req.url;
+          }
+        },
+
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {
-            try { proxyReq.setHeader('X-API-Key', API_KEY); } catch {}
+            try {
+              proxyReq.setHeader('X-API-Key', API_KEY);
+            } catch {}
           });
           proxy.on('error', (err) => {
             console.error('[vite-proxy] /api error:', err?.message || err);
           });
-        }
+        },
       },
 
       // Convenience routes so you can open docs directly via Vite dev server
