@@ -8,7 +8,7 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./*"]
     }
   },
   "include": ["src", "vite-env.d.ts", "main.tsx", "App.tsx", "persona"],
