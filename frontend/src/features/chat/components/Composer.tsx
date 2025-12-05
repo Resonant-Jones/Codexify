@@ -94,9 +94,10 @@ export function Composer({
   }
   return (
     <>
-      <div className="flex flex-col h-full w-full min-h-[140px] p-[4px]">
-        <div className="flex flex-col h-full w-full rounded-[var(--tile-radius)] px-[4px] py-[4px]">
-          <div className="flex flex-col flex-1 w-full px-[8px] py-[6px] gap-2">
+      <div className="flex flex-col flex-1 w-full p-[4px]">
+        <div className="flex flex-col flex-1 w-full rounded-[var(--tile-radius)] p-[4px]">
+          {/* Content Rectangle - Textarea area */}
+          <div className="flex-1 flex flex-col px-[12px] pt-[8px] pb-[6px]">
             <Textarea
               ref={ref}
               value={value}
@@ -112,56 +113,57 @@ export function Composer({
               className="w-full min-h-[96px] resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
               style={{ color: "var(--text)" }}
             />
+          </div>
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label="Attach files"
-                  title="Attach files"
-                  onClick={uploader.pick}
-                  className="inline-flex items-center justify-center h-9 w-9 opacity-70 hover:opacity-100 transition-opacity"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    boxShadow: "none",
-                    outline: "none",
-                  }}
-                >
-                  <Paperclip className="h-5 w-5" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Generate image"
-                  title="Generate image"
-                  onClick={() => setShowImgGen(true)}
-                  className="inline-flex items-center justify-center h-9 w-9 opacity-70 hover:opacity-100 transition-opacity"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    boxShadow: "none",
-                    outline: "none",
-                  }}
-                >
-                  <ImagePlus className="h-5 w-5" />
-                </button>
-              </div>
-
-              <Button
+          {/* Toolbar Row - Bottom controls */}
+          <div className="flex items-center justify-between px-[8px] pb-[6px]">
+            <div className="flex items-center gap-2">
+              <button
                 type="button"
-                onClick={send}
-                disabled={effectiveSending || !value.trim()}
-                size="sm"
-                className="h-9 px-5 rounded-full disabled:opacity-50 font-medium text-sm transition-opacity"
+                aria-label="Attach files"
+                title="Attach files"
+                onClick={uploader.pick}
+                className="inline-flex items-center justify-center h-9 w-9 opacity-70 hover:opacity-100 transition-opacity"
                 style={{
-                  background: "var(--accent-strong)",
-                  color: "#fff",
+                  background: "none",
+                  border: "none",
                   boxShadow: "none",
+                  outline: "none",
                 }}
               >
-                Send
-              </Button>
+                <Paperclip className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Generate image"
+                title="Generate image"
+                onClick={() => setShowImgGen(true)}
+                className="inline-flex items-center justify-center h-9 w-9 opacity-70 hover:opacity-100 transition-opacity"
+                style={{
+                  background: "none",
+                  border: "none",
+                  boxShadow: "none",
+                  outline: "none",
+                }}
+              >
+                <ImagePlus className="h-5 w-5" />
+              </button>
             </div>
+
+            <Button
+              type="button"
+              onClick={send}
+              disabled={effectiveSending || !value.trim()}
+              size="sm"
+              className="h-9 px-5 mr-[8px] rounded-full disabled:opacity-50 font-medium text-sm transition-opacity"
+              style={{
+                background: "var(--accent-strong)",
+                color: "#fff",
+                boxShadow: "none",
+              }}
+            >
+              Send
+            </Button>
           </div>
         </div>
       </div>

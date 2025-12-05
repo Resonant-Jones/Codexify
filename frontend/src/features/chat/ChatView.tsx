@@ -88,9 +88,9 @@ export function ChatView({
       } catch {}
     }
 
-    // Otherwise, auto-scroll to bottom when near bottom
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (initialScrollRef.current || nearBottom) {
+    // Otherwise, auto-scroll to bottom only when explicitly at bottom
+    const atBottom = Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop) < 24;
+    if (initialScrollRef.current || atBottom) {
       requestAnimationFrame(() => {
         if (containerRef.current) {
           containerRef.current.scrollTop = containerRef.current.scrollHeight;
