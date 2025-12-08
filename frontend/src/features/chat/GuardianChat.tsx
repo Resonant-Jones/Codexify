@@ -309,7 +309,7 @@ export function GuardianChat({
               }}
               className={depth === d ? "bg-accent" : ""}
             >
-              <div className="flex flex-col gap-0.5">
+              <div className="flex flex-col flex-1 min-h-0">
                 <div className="font-medium">{depthLabels[d]}</div>
                 <div className="text-xs opacity-70">{depthDescriptions[d]}</div>
               </div>
@@ -517,13 +517,13 @@ export function GuardianChat({
       </header>
 
       {/* Messages region - Flex 1, scrolls independently */}
-      <div className="flex-1 min-h-0 relative overflow-hidden">
+      <div className="relative flex flex-col flex-1 min-h-0 overflow-clip">
         {effectiveThreadId != null ? (
           <ChatView
             threadId={effectiveThreadId}
             guardianName={guardianName}
             reloadVersion={chatReloadVersion}
-            className="h-full w-full"
+            className="flex flex-col flex-1 min-h-0"
             bottomPadding={160}
           />
         ) : (
@@ -546,7 +546,7 @@ export function GuardianChat({
           maxHeight: "60vh",
         }}
       >
-        <div className="flex-1 flex flex-col p-4">
+        <div className="flex flex-col p-4">
           <Composer
             onSend={handleSendMessage}
             prefill={externalPrefill ?? prefill}
@@ -565,7 +565,7 @@ export function GuardianChat({
     return (
       <>
         {/* Keep this container non-scrollable so ChatView owns the scroll and the composer stays pinned */}
-        <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="relative flex flex-col flex-1 min-h-0 overflow-clip">
           {body}
         </div>
       </>
@@ -574,11 +574,10 @@ export function GuardianChat({
 
   return (
     <FrameCard
-      fill={false}
       className="flex-1 min-h-0 min-w-0 flex flex-col h-full"
       hoverPop
     >
-      <div className="relative flex flex-col w-full flex-1 min-h-0 overflow-hidden">
+      <div className="relative flex flex-col w-full h-full">
         {body}
       </div>
     </FrameCard>
