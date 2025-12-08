@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState, useLayoutEffect } from "react";
-import clsx from "clsx";
 import { useChat } from "@/features/chat/useChat";
 import ChatBubble from "@/features/chat/components/ChatBubble";
 import ContextMenu from "@/components/ui/ContextMenu";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { cn } from "@/lib/utils";
 
 export function ChatView({
   threadId,
@@ -151,7 +151,7 @@ export function ChatView({
 
   const shouldMask = hasOverflow && bottomPadding > 0;
   const scrollStyle: React.CSSProperties = {
-    ...(bottomPadding > 0 ? { paddingBottom: bottomPadding } : {}),
+    paddingBottom: bottomPadding ?? 0,
     ...(shouldMask
       ? {
           maskImage:
@@ -163,55 +163,58 @@ export function ChatView({
   };
 
   return (
-    <div className={clsx("flex flex-col h-full w-full min-h-0", className)}>
+    <div
+      className={cn(
+        "flex flex-col flex-1 min-h-0 overflow-hidden",
+        className
+      )}
+    >
       <div
         ref={containerRef}
         onScroll={onScroll}
         data-testid="chat-container"
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[var(--card-pad)]"
+        className="flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 space-y-4"
         style={scrollStyle}
       >
-        <div className="space-y-3">
-          {messages.map((m, index) => (
-            <div
-              data-testid="chat-message"
-              key={m.id ?? `${m.role}-${m.created_at ?? index}`}
-              className="max-w-full"
-              onContextMenu={(e) => {
-                e.preventDefault();
-                const content = String(m.content ?? "");
-                if (!content.trim()) return;
-                setMenu({ x: e.clientX, y: e.clientY, text: content });
+        {messages.map((m, index) => (
+          <div
+            data-testid="chat-message"
+            key={m.id ?? `${m.role}-${m.created_at ?? index}`}
+            className="max-w-full"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              const content = String(m.content ?? "");
+              if (!content.trim()) return;
+              setMenu({ x: e.clientX, y: e.clientY, text: content });
+            }}
+          >
+            <ChatBubble
+              message={{
+                id: String(m.id ?? `${m.role}-${m.created_at ?? index}`),
+                authorId: m.role === "user" ? "me" : "bot",
+                authorName: m.role === "user" ? "You" : (guardianName || "Guardian"),
+                content: m.content ?? "",
+                createdAt:
+                  typeof m.created_at === "number"
+                    ? m.created_at
+                    : typeof m.created_at === "string"
+                      ? Date.parse(m.created_at)
+                      : Date.now(),
               }}
-            >
-              <ChatBubble
-                message={{
-                  id: String(m.id ?? `${m.role}-${m.created_at ?? index}`),
-                  authorId: m.role === "user" ? "me" : "bot",
-                  authorName: m.role === "user" ? "You" : (guardianName || "Guardian"),
-                  content: m.content ?? "",
-                  createdAt:
-                    typeof m.created_at === "number"
-                      ? m.created_at
-                      : typeof m.created_at === "string"
-                        ? Date.parse(m.created_at)
-                        : Date.now(),
-                }}
-                isGuardian={m.role !== "user"}
-              />
-            </div>
-          ))}
-          {loading && (
-            <div className="text-xs opacity-70" data-testid="chat-loading">
-              Loading…
-            </div>
-          )}
-          {error && (
-            <div className="text-xs text-red-500" data-testid="chat-error">
-              {error}
-            </div>
-          )}
-        </div>
+              isGuardian={m.role !== "user"}
+            />
+          </div>
+        ))}
+        {loading && (
+          <div className="text-xs opacity-70" data-testid="chat-loading">
+            Loading…
+          </div>
+        )}
+        {error && (
+          <div className="text-xs text-red-500" data-testid="chat-error">
+            {error}
+          </div>
+        )}
       </div>
       {menu && (
         <ContextMenu
