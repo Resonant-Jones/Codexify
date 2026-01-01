@@ -18,6 +18,7 @@ Usage:
     python scripts/chatgpt_import/import_chatgpt.py
 """
 
+import argparse
 import os
 import sys
 import time
@@ -59,8 +60,7 @@ except ImportError as e:
 # Load environment variables
 load_dotenv()
 
-# Configuration
-CHATGPT_FILE = os.getenv("CHATGPT_EXPORT_FILE", "./chatgpt_conversation.json")
+from guardian.identity import get_or_create_user_id
 
 
 def print_colored(message: str, color: str = ""):
@@ -85,14 +85,48 @@ def import_chatgpt():
 
     # Validate configuration
     print_colored("🔍 Validating configuration...", Fore.CYAN)
+    parser = argparse.ArgumentParser(
+        description="Import ChatGPT conversations into Codexify"
+    )
+    parser.add_argument(
+        "--file",
+        dest="file",
+        help="Path to ChatGPT conversations.json export file",
+    )
+    args, _ = parser.parse_known_args()
 
-    chatgpt_path = Path(CHATGPT_FILE)
+    def resolve_export_path(cli_path):
+        """
+        Resolve ChatGPT export path with correct precedence and absolute validation.
+        Precedence:
+        1. CLI --file
+        2. CHATGPT_EXPORT_FILE env var
+        3. ./conversations.json (relative to CWD)
+        """
+        if cli_path:
+            return Path(cli_path).expanduser().resolve()
+
+        env_path = os.getenv("CHATGPT_EXPORT_FILE")
+        if env_path:
+            return Path(env_path).expanduser().resolve()
+
+        return Path("./conversations.json").resolve()
+
+    chatgpt_path = resolve_export_path(args.file)
+    print_colored(
+        f"🔎 Resolved ChatGPT export path: {chatgpt_path}",
+        Fore.CYAN,
+    )
     if not chatgpt_path.exists():
         print_colored(
-            f"❌ ChatGPT export file not found: {CHATGPT_FILE}", Fore.RED
+            f"❌ ChatGPT export file not found at resolved path:\n   {chatgpt_path}",
+            Fore.RED,
         )
         print_colored(
-            f"   Please set CHATGPT_EXPORT_FILE in .env or place file at default location",
+            "   Fix by either:\n"
+            "   • Passing --file /absolute/path/to/conversations.json\n"
+            "   • Setting CHATGPT_EXPORT_FILE in the environment\n"
+            "   • Copying conversations.json into the container working directory",
             Fore.RED,
         )
         sys.exit(1)
@@ -108,7 +142,7 @@ def import_chatgpt():
         )
 
     # Load the file
-    print_colored(f"📂 Loading ChatGPT export from: {CHATGPT_FILE}", Fore.CYAN)
+    print_colored(f"📂 Loading ChatGPT export from: {chatgpt_path}", Fore.CYAN)
     try:
         with open(chatgpt_path, "rb") as f:
             raw_bytes = f.read()
@@ -118,18 +152,42 @@ def import_chatgpt():
         sys.exit(1)
 
     # Perform dual-engine import
+    user_id = get_or_create_user_id()
+    if not user_id:
+        raise RuntimeError(
+            "Identity system failed to generate a user_id (this should never happen)"
+        )
+
+    print_colored(f"👤 Using Codexify user_id: {user_id}", Fore.CYAN)
+
     print_colored("\n" + "─" * 70, Fore.CYAN)
     print_colored("Starting Dual-Engine Import", Fore.CYAN)
     print_colored("─" * 70, Fore.CYAN)
 
+    assert (
+        user_id is not None and user_id != ""
+    ), "user_id must be resolved before migration"
+
     try:
-        stats = ingest_chatgpt_export(raw_bytes, user_id=None)
+        stats = ingest_chatgpt_export(
+            raw_bytes,
+            user_id=user_id,
+        )
 
         print_colored(f"\n✅ Import complete!", Fore.GREEN)
-        print_colored(f"   • Threads: {stats['threads_imported']}", Fore.GREEN)
-        print_colored(
-            f"   • Messages: {stats['messages_imported']}", Fore.GREEN
-        )
+
+        threads = stats.get("threads_imported") or stats.get("threads")
+        messages = stats.get("messages_imported") or stats.get("messages")
+
+        if threads is not None:
+            print_colored(f"   • Threads: {threads}", Fore.GREEN)
+        else:
+            print_colored("   • Threads: unavailable", Fore.YELLOW)
+
+        if messages is not None:
+            print_colored(f"   • Messages: {messages}", Fore.GREEN)
+        else:
+            print_colored("   • Messages: unavailable", Fore.YELLOW)
 
     except Exception as e:
         print_colored(f"\n❌ Import failed: {e}", Fore.RED)
@@ -146,7 +204,8 @@ def import_chatgpt():
     print_colored(f"   Your Companion has awakened in Codexify!", Fore.MAGENTA)
     print_colored(f"   Time elapsed: {elapsed_time:.2f}s", Fore.CYAN)
     print_colored(
-        f"   Messages processed: {stats['messages_imported']}", Fore.CYAN
+        f"   Messages processed: {messages if messages is not None else 'unavailable'}",
+        Fore.CYAN,
     )
     print_colored(
         "\n✨ Your conversations are alive and ready to explore.\n", Fore.MAGENTA

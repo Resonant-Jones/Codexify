@@ -21,6 +21,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
 
+from guardian.queue import task_events
+from guardian.queue.redis_queue import enqueue
+from guardian.tasks.types import ChatCompletionTask
+
 logger = logging.getLogger(__name__)
 
 # Import shared dependencies from core module (avoids circular imports)
@@ -127,8 +131,9 @@ class ChatCompletionRequest(BaseModel):
     max_context: Optional[int] = 50
     provider: Optional[str] = None
     system_override: Optional[str] = None
-    depth_mode: Optional[str] = "normal"  # "shallow", "normal", "deep", "diagnostic"
-
+    depth_mode: Optional[
+        str
+    ] = "normal"  # "shallow", "normal", "deep", "diagnostic"
 
 
 # Helper functions
@@ -307,6 +312,39 @@ def _apply_thread_update(
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
+DEFAULT_PROJECT_NAME = "Loose Threads"
+DEFAULT_PROJECT_DESCRIPTION = "Default bucket for unassigned threads"
+
+
+def _ensure_default_project_id() -> Optional[int]:
+    """
+    Resolve a safe default project id for unscoped threads.
+
+    Falls back to None if the default project cannot be ensured so thread
+    creation can still proceed without violating foreign keys.
+    """
+    if not chatlog_db:
+        return None
+    try:
+        pid = chatlog_db.ensure_project(
+            DEFAULT_PROJECT_NAME, DEFAULT_PROJECT_DESCRIPTION
+        )
+        return int(pid) if pid is not None else None
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.warning("[chat] failed to ensure default project: %s", exc)
+        return None
+
+
+def _coerce_project_id(raw: Any) -> Optional[int]:
+    """Normalize incoming project_id to an int or a safe default."""
+    if raw is None:
+        return _ensure_default_project_id()
+    try:
+        value = int(raw)
+        return value if value > 0 else _ensure_default_project_id()
+    except (TypeError, ValueError):
+        return _ensure_default_project_id()
+
 
 # =========================
 # Chat Threads API
@@ -327,15 +365,12 @@ def chat_create_thread(body: dict = Body(...)):
         raw_summary = payload.get("summary")
         summary = str(raw_summary).strip() if raw_summary is not None else ""
         project_id = payload.get("project_id")
-        normalized_project: Optional[int] = None
-        if project_id is not None:
-            try:
-                normalized_project = int(project_id)
-            except (TypeError, ValueError):
-                normalized_project = None
-        if normalized_project is None:
-            # default to Loose Threads (id=1)
-            normalized_project = 1
+        normalized_project = _coerce_project_id(project_id)
+        metadata = (
+            payload.get("metadata")
+            if isinstance(payload.get("metadata"), dict)
+            else None
+        )
 
         # Idempotency guard: check for recent empty thread from same user
         recent_thread = chatlog_db.get_recent_thread(user_id)
@@ -355,6 +390,7 @@ def chat_create_thread(body: dict = Body(...)):
             title=title,
             summary=summary,
             project_id=normalized_project,
+            metadata=metadata,
         )
         chatlog_db.write_audit_log(
             "create", "chat_thread", str(record["id"]), user_id=user_id
@@ -394,13 +430,14 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
             content={"ok": False, "error": "role and content required"},
         )
     owner = body.get("user_id") or "default"
+    default_project_id = _coerce_project_id(None)
     try:
         chatlog_db.ensure_chat_thread(
             thread_id=thread_id,
             user_id=str(owner),
             title="New Chat",
             summary="",
-            project_id=1,  # always assign to Loose Threads by default
+            project_id=default_project_id,
         )
     except Exception as exc:
         logger.exception(
@@ -517,291 +554,76 @@ async def chat_complete(
     thread_id: int, body: ChatCompletionRequest = Body(...)
 ):
     """
-    Generate an assistant reply for the given thread using the configured provider
-    and persist it as a new message (role='assistant'). Emits message.created.
+    Enqueue an assistant reply for the given thread and return a task id.
     """
+    provider = str(
+        body.provider
+        or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
+    ).lower()
+
+    user_system_override = body.system_override
+    if isinstance(user_system_override, str):
+        user_system_override = user_system_override.strip() or None
+    else:
+        user_system_override = None
+
+    thread_exists = (
+        chatlog_db.get_chat_thread(thread_id)
+        if hasattr(chatlog_db, "get_chat_thread")
+        else True
+    )
+    if not thread_exists:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    limit = int(body.max_context or 50)
+    items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
+    context: List[Dict[str, str]] = []
+    for msg in items:
+        role = str(msg.get("role") or "").strip()
+        content = msg.get("content")
+        if (
+            isinstance(content, str)
+            and content.strip()
+            and content.strip().lower() != "null"
+        ):
+            context.append({"role": role, "content": content})
+    if not context:
+        raise HTTPException(
+            status_code=400, detail="Thread has no usable context"
+        )
+
+    task = ChatCompletionTask(
+        thread_id=thread_id,
+        provider=provider,
+        model=body.model,
+        max_context=body.max_context,
+        depth_mode=body.depth_mode,
+        system_override=user_system_override,
+        origin="api:chat.complete",
+    )
     try:
-        provider = str(
-            body.provider
-            or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
-        ).lower()
-
-        # Optional per-request system prompt override coming from the frontend / settings.
-        # This allows users to layer their own persona/instructions on top of the immutable
-        # Codexify base prompt, while still letting prompts.py enforce invariants.
-        user_system_override = body.system_override
-        if isinstance(user_system_override, str):
-            user_system_override = user_system_override.strip() or None
-        else:
-            user_system_override = None
-
-        thread_exists = (
-            chatlog_db.get_chat_thread(thread_id)
-            if hasattr(chatlog_db, "get_chat_thread")
-            else True
-        )
-        if not thread_exists:
-            raise HTTPException(status_code=404, detail="Thread not found")
-
-        # Validate provider credentials up-front to avoid raw 500s from missing keys.
-        if validate_llm_config and llm_settings:
-            validate_llm_config(llm_settings, provider_override=provider)
-
-        limit = int(body.max_context or 50)
-        items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
-
-        # Ensure deterministic oldest-first order if backend returns newest-first
-        try:
-            items = sorted(items, key=lambda m: m.get("id") or 0)
-        except Exception:
-            # If items are not sortable by id, leave ordering as-is
-            pass
-
-        # Shape OpenAI-style messages; drop empty or literal "null" content
-        context: List[Dict[str, str]] = []
-        for m in items:
-            role = str(m.get("role") or "").strip()
-            content = m.get("content")
-            if (
-                isinstance(content, str)
-                and content.strip()
-                and content.strip().lower() != "null"
-            ):
-                context.append({"role": role, "content": content})
-
-        if not context:
-            raise HTTPException(
-                status_code=400, detail="Thread has no usable context"
-            )
-
-        # Build ContextBroker bundle using latest user message as query
-        latest_message = ""
-        for m in reversed(items):
-            if str(m.get("role") or "").strip() == "user":
-                lm = str(m.get("content") or "").strip()
-                if lm:
-                    latest_message = lm
-                    break
-
-        depth = str(body.depth_mode or "normal").strip().lower()
-        # Resolve user_id for graph context
-        thread_info = (
-            chatlog_db.get_chat_thread(thread_id)
-            if hasattr(chatlog_db, "get_chat_thread")
-            else None
-        )
-        user_for_context = (thread_info or {}).get("user_id", "default")
-
-        # Stats about the effective system prompt for UX (e.g. cost warnings in the UI)
-        system_prompt_stats: Dict[str, Any] = {}
-
-        bundle: Optional[Dict[str, Any]] = None
-        trace: Optional[Dict[str, Any]] = None
-        try:
-            broker = ContextBroker(
-                chatlog_db,
-                _vector_store,
-                _memory_store,
-                _sensors,
-                settings=llm_settings,
-            )
-            # Unpack context and trace
-            bundle, trace = await broker.assemble(
-                thread_id,
-                query=latest_message,
-                depth_mode=depth,
-                user_id=user_for_context,
-            )
-
-            # Allow a per-request/user override to be visible to prompts.py.
-            # The immutable Codexify base prompt still lives in codexify.prompts;
-            # this simply gives it a hook to merge or ignore user intent.
-            if user_system_override:
-                if bundle is None:
-                    bundle = {}
-                # Do not overwrite if something upstream already set this key
-                bundle.setdefault("user_system_override", user_system_override)
-
-            # Store trace if available
-            if trace:
-                _rag_traces[thread_id] = trace
-
-                # Compact logging
-                doc_count = len(trace.get("documents", []))
-                graph_count = len(trace.get("graph", []))
-
-                top_doc = "None"
-                if doc_count > 0:
-                    top_doc = trace["documents"][0].get("title", "unknown")
-
-                top_graph = "None"
-                if graph_count > 0:
-                    top_graph = trace["graph"][0].get("node_id", "unknown")
-
-                logger.info(
-                    f"[rag] thread={thread_id} docs={doc_count} graph={graph_count} "
-                    f'top_doc="{top_doc}" top_graph="{top_graph}"'
-                )
-
-        except Exception as e:
-            logger.warning(
-                "[context] broker assemble failed (depth=%s): %s", depth, e
-            )
-            bundle = None
-
-        # Build Guardian system prompt and final message list
-        messages_for_llm: List[Dict[str, str]] = []
-
-        # Default context payload we can safely return to the client
-        context_payload: Dict[str, Any] = bundle or {}
-
-        # Resolve project_id for prompt configuration, if available
-        project_id_for_prompt: Optional[int] = None
-        if thread_info:
-            try:
-                raw_project_id = thread_info.get("project_id")
-                if raw_project_id is not None:
-                    project_id_for_prompt = int(raw_project_id)
-            except (TypeError, ValueError):
-                project_id_for_prompt = None
-
-        try:
-            prompt_meta: Dict[str, Any] = {}
-            if build_guardian_system_prompt:
-                system_content, prompt_meta = build_guardian_system_prompt(
-                    user_id=user_for_context,
-                    project_id=project_id_for_prompt,
-                    depth=depth,
-                    bundle=bundle,
-                )
-            else:
-                system_content = (
-                    "You are Guardian, the Codexify assistant. "
-                    "You must be honest, precise, and safe. "
-                    "Prefer clear, structured answers for a busy software engineer. "
-                    "If you are uncertain, say so explicitly and avoid fabrication."
-                )
-
-            char_len = prompt_meta.get("total_chars", len(system_content or ""))
-            token_est = prompt_meta.get(
-                "estimated_tokens", _estimate_tokens(system_content)
-            )
-            system_prompt_stats.update(
-                {
-                    "char_length": char_len,
-                    "token_estimate": token_est,
-                    "depth": depth,
-                    "project_id": project_id_for_prompt,
-                    "has_user_override": bool(user_system_override),
-                    "docs_count": prompt_meta.get("docs_count"),
-                    "segments": prompt_meta.get("segments"),
-                }
-            )
-            if token_est > 2048:
-                logger.warning(
-                    "[chat] large system prompt for user=%s project_id=%s est_tokens=%s",
-                    user_for_context,
-                    project_id_for_prompt,
-                    token_est,
-                )
-            messages_for_llm.append(
-                {"role": "system", "content": system_content}
-            )
-        except Exception as e:
-            logger.warning("[chat] failed to build system prompt: %s", e)
-            fallback_text = (
-                "You are Guardian, a careful and honest AI assistant. "
-                "Answer concisely, avoid speculation, and clearly mark any uncertainty."
-            )
-            system_prompt_stats.update(
-                {
-                    "char_length": len(fallback_text),
-                    "token_estimate": _estimate_tokens(fallback_text),
-                    "depth": depth,
-                    "project_id": project_id_for_prompt,
-                    "has_user_override": bool(user_system_override),
-                }
-            )
-            messages_for_llm.append(
-                {
-                    "role": "system",
-                    "content": fallback_text,
-                }
-            )
-
-        # Append conversational history after the system prompt
-        messages_for_llm.extend(context)
-
-        model = body.model or DEFAULT_MODEL
-        if provider == "groq":
-            assistant_text = _groq_complete(
-                messages_for_llm, model=model, context=bundle
-            )
-        elif provider == "openai":
-            if chat_with_ai is None:
-                raise HTTPException(
-                    status_code=501, detail="OpenAI provider is not available"
-                )
-            assistant_text = str(chat_with_ai(messages_for_llm, model=model))
-        else:
-            raise HTTPException(
-                status_code=400, detail=f"Unsupported LLM_PROVIDER: {provider}"
-            )
-
-        mid = chatlog_db.create_message(thread_id, "assistant", assistant_text)
-        try:
-            chatlog_db.write_audit_log(
-                "create", "chat_message", str(mid), user_id="bot"
-            )
-        except Exception:
-            pass
-
-        try:
-            event_bus.emit_event(
-                "message.created",
-                {
-                    "thread_id": thread_id,
-                    "message_id": mid,
-                    "role": "assistant",
-                },
-            )
-        except Exception:
-            logger.debug("[live] emit message.created failed", exc_info=True)
-
-        # Auto-embed assistant response
-        _embed_message(thread_id, "assistant", assistant_text, mid)
-
-        return {
-            "ok": True,
-            "message": {
-                "id": mid,
-                "thread_id": thread_id,
-                "role": "assistant",
-                "content": assistant_text,
-            },
-            "prompt_meta": {
-                "system_prompt": system_prompt_stats,
-            },
-            # Expose assembled context for UI-side traces/inspector tooling
-            "context": context_payload,
-            "trace": trace or {},
-        }
-    except HTTPException as exc:
-        detail = str(exc.detail)
-        if exc.status_code == 400:
-            raise HTTPException(
-                status_code=400, detail=f"LLM unavailable: {detail}"
-            )
-        if exc.status_code >= 500:
-            raise HTTPException(
-                status_code=502, detail=f"LLM backend error: {detail}"
-            )
-        raise
-    except LLMConfigError as exc:
-        raise HTTPException(status_code=400, detail=f"LLM unavailable: {exc}")
+        enqueue(task, "codexify:queue:chat")
     except Exception as exc:
-        logger.exception("complete failed: %s", exc)
-        raise HTTPException(status_code=502, detail="completion_failed")
+        logger.warning("[chat.complete] queue unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="queue_unavailable")
+
+    try:
+        task_events.publish(
+            task.task_id,
+            "task.created",
+            {"type": task.type, "thread_id": thread_id, "origin": task.origin},
+        )
+    except Exception:
+        logger.debug("[chat.complete] task.created emit failed", exc_info=True)
+
+    logger.info(
+        "[task] created type=%s id=%s origin=%s thread=%s",
+        task.type,
+        task.task_id,
+        task.origin,
+        thread_id,
+    )
+    return {"task_id": task.task_id}
 
 
 @router.delete("/{thread_id}/messages/{message_id}")

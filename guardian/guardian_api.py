@@ -60,6 +60,9 @@ from guardian.core.dependencies import (
     init_services,
     require_api_key,
 )
+from guardian.queue import task_events
+from guardian.queue.redis_queue import enqueue
+from guardian.tasks.types import WarmupTask
 
 # Optional Neo4j for graph endpoint
 try:
@@ -230,6 +233,69 @@ async def app_lifespan(app: FastAPI):
             logger.error(
                 "[connectors] Unable to initialize connector tables: %s", exc
             )
+
+    # Enqueue warm-up task for local models (fire-and-forget)
+    try:
+        local_llm_model = os.getenv("LOCAL_LLM_MODEL") or getattr(
+            settings, "LOCAL_LLM_MODEL", None
+        )
+        local_embed_model = (
+            os.getenv("LOCAL_EMBED_MODEL")
+            or os.getenv("LOCAL_EMBEDDING_MODEL")
+            or getattr(settings, "LOCAL_EMBEDDING_MODEL", None)
+        )
+
+        def _norm_model(name: Optional[str]) -> str:
+            return str(name or "").strip().lower()
+
+        embed_models = {
+            _norm_model(local_embed_model),
+            _norm_model(os.getenv("LOCAL_EMBED_MODEL")),
+            _norm_model(os.getenv("LOCAL_EMBEDDING_MODEL")),
+            _norm_model(os.getenv("LOCAL_EMBEDDER_MODEL")),
+            _norm_model(os.getenv("EMBEDDING_MODEL")),
+            _norm_model(os.getenv("CODEXIFY_LOCAL_MODEL")),
+            _norm_model(getattr(settings, "LOCAL_EMBEDDING_MODEL", None)),
+        }
+        embed_models.discard("")
+
+        models = []
+        seen = set()
+        for candidate in (local_llm_model, local_embed_model):
+            norm = _norm_model(candidate)
+            if not norm:
+                continue
+            if norm in embed_models:
+                logger.info(
+                    "[startup] skipping embedding-only warmup model=%s",
+                    candidate,
+                )
+                continue
+            if norm in seen:
+                continue
+            seen.add(norm)
+            models.append(candidate)
+        if models:
+            task = WarmupTask(
+                models=list(dict.fromkeys(models)), origin="startup"
+            )
+            enqueue(task, "codexify:queue:system")
+            try:
+                task_events.publish(
+                    task.task_id,
+                    "task.created",
+                    {"type": task.type, "origin": task.origin},
+                )
+            except Exception:
+                logger.debug("[startup] warmup task.created emit failed")
+            logger.info(
+                "[task] created type=%s id=%s origin=%s",
+                task.type,
+                task.task_id,
+                task.origin,
+            )
+    except Exception as exc:
+        logger.warning("[startup] warmup enqueue failed: %s", exc)
 
     logger.info("[startup] Guardian API ready")
 
@@ -415,6 +481,75 @@ async def stream_events(
 
             # Poll interval
             await asyncio.sleep(OUTBOX_POLL_INTERVAL)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.get("/api/tasks/{task_id}/events", tags=["Tasks"])
+async def stream_task_events(
+    request: Request,
+    task_id: str,
+    last_id_query: str = Query("0-0", alias="last_id"),
+    last_event_id_header: Optional[str] = Header(None, alias="Last-Event-ID"),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    Stream task events from Redis by task_id as Server-Sent Events.
+
+    - Resumes from `last_id` query param or `Last-Event-ID` header.
+    - Emits a `retry: 3000` hint on connect.
+    - Stops streaming on task completion, failure, or cancellation.
+    """
+    from starlette.responses import StreamingResponse
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        last_id = str(last_event_id_header or last_id_query or "0-0")
+        if "-" not in last_id:
+            last_id = "0-0"
+        yield "retry: 3000\n\n"
+
+        heartbeat_elapsed = 0.0
+        heartbeat_interval = 15.0
+        block_ms = int(os.getenv("TASK_EVENT_BLOCK_MS", "15000"))
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            try:
+                events = await asyncio.to_thread(
+                    task_events.read_events,
+                    task_id,
+                    last_id,
+                    block_ms=block_ms,
+                    count=100,
+                )
+            except Exception as exc:
+                logger.warning("[task-events] read failed: %s", exc)
+                await asyncio.sleep(1)
+                continue
+
+            if events:
+                for ev_id, ev in events:
+                    data_str = json.dumps(ev.get("data") or {}, default=str)
+                    yield f"id: {ev_id}\n"
+                    yield f"event: {ev.get('type') or 'task.event'}\n"
+                    yield f"data: {data_str}\n\n"
+                    last_id = ev_id
+
+                    if ev.get("type") in (
+                        "task.completed",
+                        "task.cancelled",
+                        "task.failed",
+                    ):
+                        return
+
+                heartbeat_elapsed = 0.0
+            else:
+                heartbeat_elapsed += block_ms / 1000.0
+                if heartbeat_elapsed >= heartbeat_interval:
+                    yield ": ping\n\n"
+                    heartbeat_elapsed = 0.0
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

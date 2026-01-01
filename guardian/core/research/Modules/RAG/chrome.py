@@ -8,7 +8,7 @@ from chromadb.utils.embedding_functions.ollama_embedding_function import (
 class VectorSearch:
     def __init__(
         self,
-        model: str = "nomic-embed-text:latest",
+        model: str = "library2/embeddinggemma:300m-bf16",
         name="new_collection",
         path: str = "./db",
     ):

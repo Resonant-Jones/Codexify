@@ -14,12 +14,23 @@ class Settings(BaseSettings):
     )
 
     LLM_PROVIDER: str = Field(
-        default="groq",
-        description="The LLM provider to use ('groq', 'openai').",
+        default="local",
+        description="The LLM provider to use ('local', 'groq', 'openai').",
+    )
+    ALLOW_CLOUD_PROVIDERS: bool = Field(
+        default=False,
+        description=(
+            "Safety switch: when false, cloud providers (openai/groq) are disallowed and local must be used. "
+            "Set to true only if you intentionally want cloud fallback."
+        ),
     )
     LLM_MODEL: str = Field(
-        default="moonshotai-kimi-k2-instruct-9050",
+        default="library2/ministral-3:8b",
         description="Model identifier to pass to the selected LLM provider.",
+    )
+    DEFAULT_LOCAL_MODEL: str = Field(
+        default="library2/ministral-3:8b",
+        description="Default chat model for local (Ollama) completions.",
     )
     DEFAULT_OPENAI_MODEL: str = Field(
         default="gpt-4o",
@@ -30,16 +41,47 @@ class Settings(BaseSettings):
         description="Default chat model for Groq completions.",
     )
     EMBEDDER_PROVIDER: str = Field(
-        default="local",
-        description="The embedding provider to use ('local', 'openai').",
+        default="local_api",
+        description=(
+            "Embedding provider (currently fixed for users): 'local_api' (Ollama via LOCAL_BASE_URL). "
+            "Advanced override only: set to 'openai' via env for emergency fallback."
+        ),
     )
     EMBEDDING_MODEL: str = Field(
-        default="text-embedding-3-small",
-        description="The embedding model to use (e.g., 'text-embedding-3-small', 'text-embedding-3-large').",
+        default="library2/embeddinggemma:300m-bf16",
+        description=(
+            "Embedding model identifier passed to the selected EMBEDDER_PROVIDER. "
+            "Examples: 'library2/embeddinggemma:300m-bf16' (local_api), 'text-embedding-3-small' (openai)."
+        ),
     )
-    LOCAL_EMBEDDER_MODEL: str = Field(
-        default="all-MiniLM-L6-v2",
-        description="The local embedding model to use (e.g., 'all-MiniLM-L6-v2', 'all-mpnet-base-v2').",
+    LLM_FALLBACK_ORDER: list[str] = Field(
+        default_factory=lambda: ["local", "openai", "groq"],
+        description=(
+            "Provider failover order for chat completions. Used by retry/fallback logic to attempt local first, then cloud providers."
+        ),
+    )
+    # NOTE: We keep only *defaults* here. A UI model selector should usually query the
+    # local provider (e.g., Ollama) for installed models rather than hard-coding a full
+    # catalog in config.
+    # --- Local (Ollama OpenAI-compatible) routing ---
+    LOCAL_BASE_URL: str = Field(
+        default="http://192.168.4.225:11434/v1",
+        description="Base URL for the local OpenAI-compatible API (e.g., Ollama ).",
+    )
+    LOCAL_API_KEY: str = Field(
+        default="local",
+        description="API key placeholder for the local OpenAI-compatible API (often ignored by Ollama).",
+    )
+    LOCAL_LLM_MODEL: str = Field(
+        default="library2/ministral-3:8b",
+        description="Local chat model identifier for Ollama.",
+    )
+    LOCAL_EMBEDDING_MODEL: str = Field(
+        default="library2/embeddinggemma:300m-bf16",
+        description=(
+            "Local embedding model identifier for Ollama. "
+            "This is the single supported embedding path for now (no swappable embedders yet)."
+        ),
     )
     GROQ_API_KEY: str | None = Field(
         default=None, description="API key for Groq."
@@ -60,6 +102,30 @@ class Settings(BaseSettings):
     )
     AGENT_TIMEOUT_SECONDS: int = Field(
         default=30, description="Timeout in seconds for agent execution."
+    )
+    PROVIDER_MAX_RETRIES: int = Field(
+        default=3,
+        description="Max retry attempts for provider requests (applies to local/openai/groq).",
+    )
+    PROVIDER_RETRY_BASE_SECONDS: float = Field(
+        default=0.5,
+        description="Base delay for exponential backoff retries (seconds).",
+    )
+    PROVIDER_RETRY_MAX_SECONDS: float = Field(
+        default=8.0,
+        description="Maximum delay between retries (seconds).",
+    )
+    PROVIDER_RETRY_JITTER_SECONDS: float = Field(
+        default=0.2,
+        description="Random jitter added to retry sleep to avoid thundering herd (seconds).",
+    )
+    LLM_REQUEST_TIMEOUT_SECONDS: int = Field(
+        default=60,
+        description="Timeout for individual LLM completion requests (seconds).",
+    )
+    EMBEDDING_REQUEST_TIMEOUT_SECONDS: int = Field(
+        default=30,
+        description="Timeout for individual embedding requests (seconds).",
     )
     PROMPT_DIR_PATH: str | None = Field(
         default=None,
@@ -104,17 +170,32 @@ def validate_llm_config(
         (provider_override or settings.LLM_PROVIDER or "").strip().lower()
     )
 
+    if provider == "local":
+        if not settings.LOCAL_BASE_URL:
+            raise LLMConfigError("LOCAL_BASE_URL is not configured")
+        return
+
     if provider == "openai":
+        if not settings.ALLOW_CLOUD_PROVIDERS:
+            raise LLMConfigError(
+                "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
+            )
         if not settings.OPENAI_API_KEY:
             raise LLMConfigError("OPENAI_API_KEY is not configured")
         return
 
     if provider == "groq":
+        if not settings.ALLOW_CLOUD_PROVIDERS:
+            raise LLMConfigError(
+                "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
+            )
         if not settings.GROQ_API_KEY:
             raise LLMConfigError("GROQ_API_KEY is not configured")
         return
 
-    raise LLMConfigError(f"Unsupported LLM_PROVIDER: {provider or '<empty>'}")
+    raise LLMConfigError(
+        f"Unsupported LLM_PROVIDER: {provider or '<empty>'} (expected one of: local, groq, openai)"
+    )
 
 
 def get_settings() -> Settings:
