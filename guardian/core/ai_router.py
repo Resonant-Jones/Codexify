@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -17,6 +18,13 @@ def _resolve_settings(settings: Optional[Settings]) -> Settings:
 
 
 def _default_model_for_provider(provider: str, settings: Settings) -> str:
+    if provider == "local":
+        return (
+            settings.LOCAL_LLM_MODEL
+            or settings.DEFAULT_LOCAL_MODEL
+            or settings.LLM_MODEL
+            or ""
+        )
     if provider == "groq":
         return settings.LLM_MODEL or settings.DEFAULT_GROQ_MODEL
     if provider == "openai":
@@ -44,6 +52,8 @@ def chat_with_ai(
     )
     target_model = model or _default_model_for_provider(provider_name, settings)
 
+    if provider_name == "local":
+        return call_local(messages, target_model, settings=settings)
     if provider_name == "groq":
         return call_groq(messages, target_model, settings=settings)
     if provider_name == "openai":
@@ -57,6 +67,119 @@ def chat_with_ai(
     raise HTTPException(
         status_code=400, detail=f"Unsupported LLM provider: {provider_name}"
     )
+
+
+def _resolve_local_base(settings: Settings) -> str:
+    base_url = (settings.LOCAL_BASE_URL or "").strip()
+    if not base_url:
+        raise HTTPException(
+            status_code=400, detail="LOCAL_BASE_URL is not configured"
+        )
+    base_url = base_url.rstrip("/")
+    if base_url.endswith("/v1"):
+        return base_url
+    return f"{base_url}/v1"
+
+
+def call_local(
+    messages,
+    model: str,
+    *,
+    settings: Optional[Settings] = None,
+    max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+):
+    settings = _resolve_settings(settings)
+    api_key = settings.LOCAL_API_KEY or "local"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7 if temperature is None else float(temperature),
+    }
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
+    base_url = _resolve_local_base(settings)
+    url = f"{base_url}/chat/completions"
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.exception("Local backend error")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+def stream_local(
+    messages,
+    model: str,
+    *,
+    settings: Optional[Settings] = None,
+    max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+):
+    settings = _resolve_settings(settings)
+    api_key = settings.LOCAL_API_KEY or "local"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7 if temperature is None else float(temperature),
+        "stream": True,
+    }
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
+    base_url = _resolve_local_base(settings)
+    url = f"{base_url}/chat/completions"
+    timeout = getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 60)
+
+    try:
+        with requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            stream=True,
+            timeout=timeout,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                if line.startswith("data:"):
+                    data = line[5:].strip()
+                else:
+                    data = line.strip()
+                if not data:
+                    continue
+                if data == "[DONE]":
+                    break
+                try:
+                    payload = json.loads(data)
+                except Exception:
+                    continue
+                try:
+                    choice = payload.get("choices", [{}])[0]
+                    delta = choice.get("delta") or {}
+                    token = (
+                        delta.get("content")
+                        or choice.get("message", {}).get("content")
+                        or choice.get("text")
+                    )
+                    if token:
+                        yield token
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.exception("Local backend stream error")
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 def call_groq(messages, model: str, *, settings: Optional[Settings] = None):

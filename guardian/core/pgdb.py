@@ -59,9 +59,7 @@ def _to_json(value):
         return None
     # Use Json() wrapper so psycopg can adapt Python dicts/lists to JSONB
     # The _json_default serializer handles datetime, Decimal, etc.
-    return Json(
-        value, dumps=lambda obj: json.dumps(obj, default=_json_default)
-    )
+    return Json(value, dumps=lambda obj: json.dumps(obj, default=_json_default))
 
 
 class PgDB(ChatDB):
@@ -307,28 +305,43 @@ class PgDB(ChatDB):
         consciousness and hierarchical conversation flows."""
         metadata = metadata or {}
         with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, created_at, updated_at
-                    """,
-                    (
-                        user_id,
-                        title,
-                        summary,
-                        project_id,
-                        parent_id,
-                        is_diary,
-                        exclude_from_identity,
-                        _to_json(metadata),
-                    ),
-                )
-                row = cur.fetchone()
-                if not row:
-                    raise RuntimeError("Failed to create chat thread")
-                return self._normalize_thread(dict(row))
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, created_at, updated_at
+                        """,
+                        (
+                            user_id,
+                            title,
+                            summary,
+                            project_id,
+                            parent_id,
+                            is_diary,
+                            exclude_from_identity,
+                            _to_json(metadata),
+                        ),
+                    )
+                    row = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                # Backward-compatible insert for older schemas that do not yet
+                # include parent/archival/metadata columns.
+                conn.rollback()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO chat_threads (user_id, title, summary, project_id)
+                        VALUES (%s, %s, %s, %s)
+                        RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                        """,
+                        (user_id, title, summary, project_id),
+                    )
+                    row = cur.fetchone()
+            if not row:
+                raise RuntimeError("Failed to create chat thread")
+            return self._normalize_thread(dict(row))
 
     def ensure_chat_thread(
         self,
@@ -347,27 +360,41 @@ class PgDB(ChatDB):
         if existing:
             return existing
         with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (id) DO NOTHING
-                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, created_at, updated_at
-                    """,
-                    (
-                        thread_id,
-                        user_id,
-                        title,
-                        summary,
-                        project_id,
-                        parent_id,
-                        is_diary,
-                        exclude_from_identity,
-                        _to_json(metadata),
-                    ),
-                )
-                row = cur.fetchone()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO NOTHING
+                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, created_at, updated_at
+                        """,
+                        (
+                            thread_id,
+                            user_id,
+                            title,
+                            summary,
+                            project_id,
+                            parent_id,
+                            is_diary,
+                            exclude_from_identity,
+                            _to_json(metadata),
+                        ),
+                    )
+                    row = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO chat_threads (id, user_id, title, summary, project_id)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO NOTHING
+                        RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                        """,
+                        (thread_id, user_id, title, summary, project_id),
+                    )
+                    row = cur.fetchone()
         if existing := self.get_chat_thread(thread_id):
             return existing
         if row:
@@ -378,21 +405,36 @@ class PgDB(ChatDB):
     def get_recent_thread(self, user_id: str):
         """Return the most recently‑updated thread for a user (or None)."""
         with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
-                    FROM chat_threads
-                    WHERE user_id = %s
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """,
-                    (user_id,),
-                )
-                row = cur.fetchone()
-                if not row:
-                    return None
-                thread = self._normalize_thread(dict(row))
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        FROM chat_threads
+                        WHERE user_id = %s
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (user_id,),
+                    )
+                    row = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, user_id, title, summary, project_id, created_at, updated_at
+                        FROM chat_threads
+                        WHERE user_id = %s
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (user_id,),
+                    )
+                    row = cur.fetchone()
+            if not row:
+                return None
+            thread = self._normalize_thread(dict(row))
 
             with conn.cursor() as cur:
                 cur.execute(
@@ -409,17 +451,30 @@ class PgDB(ChatDB):
     def get_chat_thread(self, thread_id: int):
         """Return a single thread row by id (or None)."""
         with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
-                    FROM chat_threads
-                    WHERE id = %s
-                    """,
-                    (thread_id,),
-                )
-                row = cur.fetchone()
-                return self._normalize_thread(dict(row)) if row else None
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        FROM chat_threads
+                        WHERE id = %s
+                        """,
+                        (thread_id,),
+                    )
+                    row = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, user_id, title, summary, project_id, created_at, updated_at
+                        FROM chat_threads
+                        WHERE id = %s
+                        """,
+                        (thread_id,),
+                    )
+                    row = cur.fetchone()
+            return self._normalize_thread(dict(row)) if row else None
 
     def list_chat_threads(
         self,
@@ -449,10 +504,23 @@ class PgDB(ChatDB):
         params.extend([limit, offset])
 
         with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(query, params)
-                rows = cur.fetchall()
-                return [self._normalize_thread(dict(row)) for row in rows]
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(query, params)
+                    rows = cur.fetchall()
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                query = (
+                    "SELECT id, user_id, title, summary, project_id, created_at, updated_at "
+                    "FROM chat_threads"
+                )
+                if clauses:
+                    query += " WHERE " + " AND ".join(clauses)
+                query += " ORDER BY updated_at DESC, id DESC LIMIT %s OFFSET %s"
+                with conn.cursor() as cur:
+                    cur.execute(query, params)
+                    rows = cur.fetchall()
+            return [self._normalize_thread(dict(row)) for row in rows]
 
     def count_chat_threads(self) -> int:
         with self._connect() as conn:
@@ -506,17 +574,31 @@ class PgDB(ChatDB):
     def archive_thread(self, thread_id: int) -> dict[str, Any] | None:
         now = datetime.now(timezone.utc)
         with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE chat_threads
-                    SET archived_at = %s, updated_at = %s
-                    WHERE id = %s
-                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
-                    """,
-                    (now, now, thread_id),
-                )
-                row = cur.fetchone()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE chat_threads
+                        SET archived_at = %s, updated_at = %s
+                        WHERE id = %s
+                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        """,
+                        (now, now, thread_id),
+                    )
+                    row = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE chat_threads
+                        SET archived_at = %s, updated_at = %s
+                        WHERE id = %s
+                        RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                        """,
+                        (now, now, thread_id),
+                    )
+                    row = cur.fetchone()
         if not row:
             return None
         return self._normalize_thread(dict(row))
@@ -528,17 +610,31 @@ class PgDB(ChatDB):
         """
         now = datetime.now(timezone.utc)
         with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE chat_threads
-                    SET archived_at = NULL, updated_at = %s
-                    WHERE id = %s
-                    RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
-                    """,
-                    (now, thread_id),
-                )
-                row = cur.fetchone()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE chat_threads
+                        SET archived_at = NULL, updated_at = %s
+                        WHERE id = %s
+                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        """,
+                        (now, thread_id),
+                    )
+                    row = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE chat_threads
+                        SET archived_at = NULL, updated_at = %s
+                        WHERE id = %s
+                        RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                        """,
+                        (now, thread_id),
+                    )
+                    row = cur.fetchone()
         if not row:
             return None
         return self._normalize_thread(dict(row))
@@ -721,17 +817,30 @@ class PgDB(ChatDB):
     def get_child_threads(self, parent_id: int):
         """Return child threads whose parent_id = given id (works for chat_threads)."""
         with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
-                    FROM chat_threads
-                    WHERE parent_id = %s
-                    """,
-                    (parent_id,),
-                )
-                rows = cur.fetchall()
-                return [self._normalize_thread(dict(row)) for row in rows]
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        FROM chat_threads
+                        WHERE parent_id = %s
+                        """,
+                        (parent_id,),
+                    )
+                    rows = cur.fetchall()
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, user_id, title, summary, project_id, created_at, updated_at
+                        FROM chat_threads
+                        WHERE parent_id = %s
+                        """,
+                        (parent_id,),
+                    )
+                    rows = cur.fetchall()
+            return [self._normalize_thread(dict(row)) for row in rows]
 
     def get_thread_summary(self, thread_id: int):
         """Return only the summary field for a thread (or None)."""
