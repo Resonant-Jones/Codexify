@@ -48,9 +48,13 @@ class TestChatThreadsPost:
         assert data["ok"] is True
         # Should use default title "New Chat"
         mock_db.create_chat_thread.assert_called_once()
+        mock_db.ensure_project.assert_called_once_with(
+            "Loose Threads", "Default bucket for unassigned threads"
+        )
         call_kwargs = mock_db.create_chat_thread.call_args[1]
         assert call_kwargs["title"] == "New Chat"
         assert call_kwargs["user_id"] == "default"
+        assert call_kwargs["project_id"] == mock_db.ensure_project.return_value
 
     @pytest.mark.xfail(
         reason="Real DB counter vs mock ID - harmless difference"
@@ -78,9 +82,25 @@ class TestChatThreadsPost:
         )
 
         assert response.status_code == 200
+        mock_db.ensure_project.assert_not_called()
         mock_db.create_chat_thread.assert_called_once()
         call_kwargs = mock_db.create_chat_thread.call_args[1]
         assert call_kwargs["project_id"] == 5
+
+    def test_create_thread_with_invalid_project_id_falls_back_default(
+        self, test_client, mock_db
+    ):
+        """Non-numeric project ids should fall back to the default project."""
+        response = test_client.post(
+            "/chat/threads", json={"title": "Test", "project_id": "abc"}
+        )
+
+        assert response.status_code == 200
+        mock_db.ensure_project.assert_called_once_with(
+            "Loose Threads", "Default bucket for unassigned threads"
+        )
+        call_kwargs = mock_db.create_chat_thread.call_args[1]
+        assert call_kwargs["project_id"] == mock_db.ensure_project.return_value
 
     def test_create_thread_with_metadata(self, test_client, mock_db):
         """Test thread creation with metadata dict to verify psycopg Json() adapter fix."""
@@ -205,7 +225,15 @@ class TestChatMessagesPost:
         response = test_client.post("/chat/1/messages", json=payload)
 
         assert response.status_code == 200
+        mock_db.ensure_project.assert_called_once_with(
+            "Loose Threads", "Default bucket for unassigned threads"
+        )
         mock_db.ensure_chat_thread.assert_called_once()
+        ensure_kwargs = mock_db.ensure_chat_thread.call_args.kwargs
+        assert (
+            ensure_kwargs.get("project_id")
+            == mock_db.ensure_project.return_value
+        )
 
 
 class TestChatMessagesGet:
