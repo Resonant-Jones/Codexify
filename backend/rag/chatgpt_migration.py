@@ -9,12 +9,17 @@ logger = logging.getLogger(__name__)
 
 
 def ingest_chatgpt_export(
-    content: bytes, user_id: str = "default"
+    content: bytes, user_id: Optional[str] = None
 ) -> Dict[str, int]:
     """
     Ingest a ChatGPT export (JSON bytes) into the database and vector store.
     Returns stats: {"threads": count, "messages": count}.
     """
+    if not user_id:
+        raise ValueError(
+            "ingest_chatgpt_export requires a valid user_id (got None or empty)"
+        )
+
     chatlog_db = dependencies.chatlog_db
     _vector_store = dependencies._vector_store
 
@@ -46,6 +51,10 @@ def ingest_chatgpt_export(
 
     for conv in data:
         try:
+            if not user_id:
+                raise RuntimeError(
+                    "User identity lost during ChatGPT import loop"
+                )
             # Extract thread metadata
             title = conv.get("title") or "Imported Chat"
 
@@ -141,4 +150,7 @@ def ingest_chatgpt_export(
             logger.error(f"Failed to import conversation: {e}")
             continue
 
-    return {"threads": threads_count, "messages": messages_count}
+    return {
+        "threads_imported": threads_count,
+        "messages_imported": messages_count,
+    }

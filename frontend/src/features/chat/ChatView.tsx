@@ -22,6 +22,7 @@ export function ChatView({
   const containerRef = useRef<HTMLDivElement>(null);
   const initialScrollRef = useRef(true);
   const [hasOverflow, setHasOverflow] = useState(false);
+  const [zenMode, setZenMode] = React.useState(false);
   const scrollMeasuredRef = useRef(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const PAGE_SIZE = 100;
@@ -165,7 +166,7 @@ export function ChatView({
   return (
     <div
       className={cn(
-        "flex flex-col flex-1 min-h-0 overflow-hidden",
+        "flex flex-col h-full min-h-0",
         className
       )}
     >
@@ -173,7 +174,8 @@ export function ChatView({
         ref={containerRef}
         onScroll={onScroll}
         data-testid="chat-container"
-        className="flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 space-y-4"
+        data-debug-scroll
+        className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain px-4 space-y-4"
         style={scrollStyle}
       >
         {messages.map((m, index) => (

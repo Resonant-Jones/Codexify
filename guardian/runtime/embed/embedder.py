@@ -85,7 +85,12 @@ class CodexifyEmbedder:
                 raise RuntimeError(
                     "OpenAI client not installed. `pip install openai>=1.0`"
                 )
-            self._client = OpenAI()
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key or api_key.lower() in ("", "local", "none", "null"):
+                raise RuntimeError(
+                    "OPENAI_API_KEY is not set to a valid value while use_openai=True"
+                )
+            self._client = OpenAI(api_key=api_key)
         else:
             if SentenceTransformer is None:
                 raise RuntimeError("sentence-transformers not installed.")

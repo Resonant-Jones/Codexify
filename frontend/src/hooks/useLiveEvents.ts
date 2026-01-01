@@ -15,6 +15,11 @@ const DEFAULT_EVENT_TYPES = [
   "connector.sync",
 ];
 
+// Coalesce rapid SSE bursts into a single React update.
+const LAST_EVENT_DEBOUNCE_MS = 50;
+// Debounce connected state changes to prevent rapid flapping
+const CONNECTED_DEBOUNCE_MS = 200;
+
 export interface LiveEvent {
   id: string | null;
   type: string;
@@ -35,19 +40,79 @@ export interface UseLiveEventsResult {
  * The `lastEvent` becomes a shared consciousness reference that any UI surface can
  * subscribe to, creating synchronized awareness across disconnected component realities.
  */
-export function useLiveEvents(): UseLiveEventsResult {
+export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEventsResult {
+  const { passive = false } = options;
   const [connected, setConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null);
   const listenersRef = useRef<Map<string, Set<(event: LiveEvent) => void>>>(
     new Map()
   );
+  const connectedRef = useRef(false);
+  const lastEventRef = useRef<LiveEvent | null>(null);
+  const isUnmountedRef = useRef(false);
+  const pendingLastEventRef = useRef<LiveEvent | null>(null);
+  const lastEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingConnectedRef = useRef<boolean | null>(null);
 
   const streamUrl = useMemo(() => combineBaseAndPath(GUARDIAN_API_BASE, EVENT_ENDPOINT), []);
+
+  // Debounced connected state update to prevent rapid flapping
+  const flushConnected = useCallback(() => {
+    if (isUnmountedRef.current) return;
+    const next = pendingConnectedRef.current;
+    if (next !== null && connectedRef.current !== next) {
+      connectedRef.current = next;
+      setConnected(next);
+    }
+    pendingConnectedRef.current = null;
+  }, []);
+
+  const updateConnected = useCallback((next: boolean) => {
+    if (isUnmountedRef.current) return;
+    // If the value hasn't changed from current ref, no-op
+    if (connectedRef.current === next && pendingConnectedRef.current === null) {
+      return;
+    }
+    pendingConnectedRef.current = next;
+    // Clear any pending timer
+    if (connectedTimerRef.current) {
+      clearTimeout(connectedTimerRef.current);
+    }
+    // Debounce the state update to prevent rapid flapping
+    connectedTimerRef.current = setTimeout(() => {
+      connectedTimerRef.current = null;
+      flushConnected();
+    }, CONNECTED_DEBOUNCE_MS);
+  }, [flushConnected]);
+
+  const flushLastEvent = useCallback(() => {
+    if (isUnmountedRef.current) return;
+    const payload = pendingLastEventRef.current;
+    if (payload) {
+      setLastEvent(payload);
+    }
+  }, []);
+
+  const scheduleLastEventUpdate = useCallback(
+    (payload: LiveEvent) => {
+      pendingLastEventRef.current = payload;
+      if (lastEventTimerRef.current) {
+        clearTimeout(lastEventTimerRef.current);
+      }
+      lastEventTimerRef.current = setTimeout(() => {
+        lastEventTimerRef.current = null;
+        flushLastEvent();
+      }, LAST_EVENT_DEBOUNCE_MS);
+    },
+    [flushLastEvent]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
+    isUnmountedRef.current = false;
 
     // Build absolute URL + resume from server outbox
     const lastId = (() => {
@@ -85,8 +150,11 @@ export function useLiveEvents(): UseLiveEventsResult {
       try {
         if (payload.id) localStorage.setItem("cfy.events.lastId", String(payload.id));
       } catch {}
-      setConnected(true);
-      setLastEvent(payload);
+      lastEventRef.current = payload;
+      updateConnected(true);
+      if (!passive) {
+        scheduleLastEventUpdate(payload);
+      }
       console.debug("[SSE] event", payload);
       const listeners = listenersRef.current;
       const specific = listeners.get(payload.type);
@@ -103,13 +171,13 @@ export function useLiveEvents(): UseLiveEventsResult {
 
     const handleOpen = () => {
       if (isCancelled) return;
-      setConnected(true);
+      updateConnected(true);
       console.info(`[SSE] Connected to ${streamUrl}`);
     };
 
     const handleError = (evt: Event) => {
       if (isCancelled) return;
-      setConnected(false);
+      updateConnected(false);
       console.warn("[SSE] connection issue", evt);
     };
 
@@ -122,10 +190,19 @@ export function useLiveEvents(): UseLiveEventsResult {
     });
 
     return () => {
-      if (!isCancelled) {
-        setConnected(false);
-      }
       isCancelled = true;
+      isUnmountedRef.current = true;
+      // Clear debounce timers to prevent state updates after unmount
+      if (lastEventTimerRef.current) {
+        clearTimeout(lastEventTimerRef.current);
+        lastEventTimerRef.current = null;
+      }
+      if (connectedTimerRef.current) {
+        clearTimeout(connectedTimerRef.current);
+        connectedTimerRef.current = null;
+      }
+      pendingLastEventRef.current = null;
+      pendingConnectedRef.current = null;
       listenersRef.current.clear();
       DEFAULT_EVENT_TYPES.forEach((eventName) => {
         eventSource.removeEventListener(eventName, handleEvent as EventListener);
@@ -135,7 +212,9 @@ export function useLiveEvents(): UseLiveEventsResult {
       eventSource.onerror = null;
       eventSource.close();
     };
-  }, [streamUrl]);
+    // Note: updateConnected and scheduleLastEventUpdate are intentionally omitted from deps
+    // as they are stable refs and including them would cause unnecessary reconnections
+  }, [passive, streamUrl]);
 
   const subscribe = useCallback(
     (eventType: string, handler: (event: LiveEvent) => void) => {
@@ -162,5 +241,9 @@ export function useLiveEvents(): UseLiveEventsResult {
     []
   );
 
-  return { connected, lastEvent, subscribe };
+  return {
+    connected,
+    lastEvent: passive ? lastEventRef.current : lastEvent,
+    subscribe,
+  };
 }
