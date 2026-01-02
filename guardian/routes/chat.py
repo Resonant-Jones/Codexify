@@ -85,7 +85,9 @@ except Exception:  # pragma: no cover - defensive import guard
 
 # Optional prompt helpers for system / persona layering
 try:  # pragma: no cover - prompts are optional in some deployments
-    from codexify.system_prompt_builder import build_guardian_system_prompt
+    from guardian.cognition.system_prompt_builder import (
+        build_guardian_system_prompt,
+    )
 except Exception:
     build_guardian_system_prompt = None
 

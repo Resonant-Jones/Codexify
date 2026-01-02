@@ -30,7 +30,9 @@ CONCURRENCY = int(os.getenv("CHAT_WORKER_CONCURRENCY", "2"))
 
 
 try:  # pragma: no cover - prompts are optional in some deployments
-    from codexify.system_prompt_builder import build_guardian_system_prompt
+    from guardian.cognition.system_prompt_builder import (
+        build_guardian_system_prompt,
+    )
 except Exception:  # pragma: no cover - optional dependency
     build_guardian_system_prompt = None
 
