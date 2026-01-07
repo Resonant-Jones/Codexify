@@ -27,18 +27,22 @@ def _ensure_root() -> Path:
     return CODEX_ROOT
 
 
-def _parse_datetime(value: Optional[str], fallback: Optional[datetime] = None) -> Optional[datetime]:
+def _parse_datetime(
+    value: str | None, fallback: datetime | None = None
+) -> datetime | None:
     if not value:
         return fallback
     try:
-        cleaned = value.replace("Z", "+00:00") if isinstance(value, str) else value
+        cleaned = (
+            value.replace("Z", "+00:00") if isinstance(value, str) else value
+        )
         dt = datetime.fromisoformat(cleaned)
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except Exception:
         return fallback
 
 
-def _split_frontmatter(raw: str) -> Tuple[dict, str]:
+def _split_frontmatter(raw: str) -> tuple[dict, str]:
     """Split a markdown document into (frontmatter_dict, body)."""
     if not raw.startswith("---"):
         return {}, raw
@@ -77,8 +81,14 @@ def _parse_entry(path: Path, include_body: bool = False) -> CodexEntry:
     raw_text = path.read_text(encoding="utf-8")
     fm, body = _split_frontmatter(raw_text)
 
-    created_at = _parse_datetime(fm.get("created_at"), fallback=datetime.fromtimestamp(path.stat().st_ctime, tz=timezone.utc))
-    updated_at = _parse_datetime(fm.get("updated_at"), fallback=datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc))
+    created_at = _parse_datetime(
+        fm.get("created_at"),
+        fallback=datetime.fromtimestamp(path.stat().st_ctime, tz=timezone.utc),
+    )
+    updated_at = _parse_datetime(
+        fm.get("updated_at"),
+        fallback=datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc),
+    )
 
     message_ids = fm.get("message_ids") or []
     if not isinstance(message_ids, list):
@@ -94,7 +104,9 @@ def _parse_entry(path: Path, include_body: bool = False) -> CodexEntry:
         thread_id=fm.get("thread_id"),
         message_ids=[str(m) for m in message_ids if m],
         author_id=fm.get("author"),
-        heat_score=None if fm.get("heat_score") is None else float(fm.get("heat_score")),
+        heat_score=None
+        if fm.get("heat_score") is None
+        else float(fm.get("heat_score")),
         frontmatter=fm,
         body=body if include_body else None,
     )
@@ -106,9 +118,11 @@ def _iter_entry_paths() -> Iterable[Path]:
     return root.glob("**/*.cdx")
 
 
-def list_codex_entries() -> List[CodexEntry]:
+def list_codex_entries() -> list[CodexEntry]:
     """List all Codex entries without loading their bodies."""
-    entries = [_parse_entry(path, include_body=False) for path in _iter_entry_paths()]
+    entries = [
+        _parse_entry(path, include_body=False) for path in _iter_entry_paths()
+    ]
     return sorted(
         entries,
         key=lambda e: e.created_at or datetime.now(timezone.utc),
@@ -116,7 +130,7 @@ def list_codex_entries() -> List[CodexEntry]:
     )
 
 
-def find_entry_path(entry_id: str) -> Optional[Path]:
+def find_entry_path(entry_id: str) -> Path | None:
     for path in _iter_entry_paths():
         if _entry_id(path) == entry_id or path.stem == entry_id:
             return path
@@ -139,7 +153,7 @@ def read_codex_body(entry: CodexEntry) -> str:
     return reloaded.body or ""
 
 
-def read_raw_entry(entry_id: str) -> Tuple[CodexEntry, str]:
+def read_raw_entry(entry_id: str) -> tuple[CodexEntry, str]:
     """Return (entry, raw file contents) for export."""
     path = find_entry_path(entry_id)
     if not path:
@@ -147,4 +161,3 @@ def read_raw_entry(entry_id: str) -> Tuple[CodexEntry, str]:
     content = path.read_text(encoding="utf-8")
     entry = _parse_entry(path, include_body=True)
     return entry, content
-

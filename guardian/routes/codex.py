@@ -15,7 +15,7 @@ from guardian.codex.service import (
 router = APIRouter()
 
 
-def _iso(dt) -> Optional[str]:
+def _iso(dt) -> str | None:
     return dt.isoformat() if dt else None
 
 
@@ -38,7 +38,7 @@ def _summary_payload(entry) -> dict:
 
 
 @router.get("/api/codex/entries", tags=["codex"])
-async def codex_entries() -> List[dict]:
+async def codex_entries() -> list[dict]:
     entries = list_codex_entries()
     return [_summary_payload(e) for e in entries]
 
@@ -70,4 +70,3 @@ async def export_codex_entry(entry_id: str):
         "Content-Type": "text/markdown; charset=utf-8",
     }
     return Response(content=raw, media_type="text/markdown", headers=headers)
-

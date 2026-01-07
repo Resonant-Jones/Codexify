@@ -14,12 +14,11 @@ class CodexEntry:
     title: str
     path: Path
     ext: str = "codex"
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    thread_id: Optional[str] = None
-    message_ids: List[str] = field(default_factory=list)
-    author_id: Optional[str] = None
-    heat_score: Optional[float] = None
-    body: Optional[str] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    thread_id: str | None = None
+    message_ids: list[str] = field(default_factory=list)
+    author_id: str | None = None
+    heat_score: float | None = None
+    body: str | None = None
     frontmatter: dict = field(default_factory=dict)
-
