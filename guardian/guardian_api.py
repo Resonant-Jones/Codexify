@@ -114,6 +114,7 @@ from guardian.realtime import collaboration
 from guardian.routes import (
     admin,
     agent,
+    backfill,
     documents,
     federation,
     health,
@@ -239,24 +240,12 @@ async def app_lifespan(app: FastAPI):
         local_llm_model = os.getenv("LOCAL_LLM_MODEL") or getattr(
             settings, "LOCAL_LLM_MODEL", None
         )
-        local_embed_model = (
-            os.getenv("LOCAL_EMBED_MODEL")
-            or os.getenv("LOCAL_EMBEDDING_MODEL")
-            or getattr(settings, "LOCAL_EMBEDDING_MODEL", None)
-        )
+        local_embed_model = os.getenv("LOCAL_EMBED_MODEL")
 
         def _norm_model(name: Optional[str]) -> str:
             return str(name or "").strip().lower()
 
-        embed_models = {
-            _norm_model(local_embed_model),
-            _norm_model(os.getenv("LOCAL_EMBED_MODEL")),
-            _norm_model(os.getenv("LOCAL_EMBEDDING_MODEL")),
-            _norm_model(os.getenv("LOCAL_EMBEDDER_MODEL")),
-            _norm_model(os.getenv("EMBEDDING_MODEL")),
-            _norm_model(os.getenv("CODEXIFY_LOCAL_MODEL")),
-            _norm_model(getattr(settings, "LOCAL_EMBEDDING_MODEL", None)),
-        }
+        embed_models = {_norm_model(local_embed_model)}
         embed_models.discard("")
 
         models = []
@@ -375,6 +364,7 @@ app.include_router(imprint_router)
 app.include_router(system_prompt_router)
 app.include_router(system_docs_router)
 app.include_router(iddb_router)
+app.include_router(backfill.router)
 
 # Core feature routers
 app.include_router(threads.router)

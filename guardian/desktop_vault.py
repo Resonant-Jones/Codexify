@@ -1,5 +1,5 @@
 """
-Desktop Vault module for Codexify: ThreadSpace.
+Desktop Vault module for Codexify: Codexify.
 
 Provides AES‑256‑GCM encryption/decryption of the
 user’s IDDB (SQLite file) and handles re‑keying,

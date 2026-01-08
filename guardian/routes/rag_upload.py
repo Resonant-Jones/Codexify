@@ -16,9 +16,10 @@ logger = logging.getLogger(__name__)
 
 # RAG modules import
 try:
+    from codexify.rag.enhanced_rag import EnhancedRAG
+
     from backend.rag.embedder import Embedder
     from backend.rag.parser import parse_chat_history
-    from codexify.rag.enhanced_rag import EnhancedRAG
 
     RAG_AVAILABLE = True
 except Exception as e:

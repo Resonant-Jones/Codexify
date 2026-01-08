@@ -26,13 +26,7 @@ def _is_embedding_model(model: str) -> bool:
     norm = str(model or "").strip().lower()
     if not norm:
         return False
-    candidates = [
-        os.getenv("LOCAL_EMBED_MODEL"),
-        os.getenv("LOCAL_EMBEDDING_MODEL"),
-        os.getenv("LOCAL_EMBEDDER_MODEL"),
-        os.getenv("EMBEDDING_MODEL"),
-        os.getenv("CODEXIFY_LOCAL_MODEL"),
-    ]
+    candidates = [os.getenv("LOCAL_EMBED_MODEL")]
     for candidate in candidates:
         if norm == str(candidate or "").strip().lower():
             return True

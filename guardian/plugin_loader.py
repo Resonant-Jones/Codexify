@@ -3,7 +3,7 @@ from datetime import UTC
 """
 Plugin Loader Module
 -----------------
-Handles dynamic loading, validation, and management of Threadspace plugins.
+Handles dynamic loading, validation, and management of Codexify plugins.
 Maintains the plugin manifest and ensures proper plugin lifecycle management.
 """
 

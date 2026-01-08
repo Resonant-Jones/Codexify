@@ -47,9 +47,7 @@ def _format_doc(
     }
 
 
-def sync_repo(
-    owner: str, repo: str, token: str | None
-) -> list[dict[str, Any]]:
+def sync_repo(owner: str, repo: str, token: str | None) -> list[dict[str, Any]]:
     """Return a list of JSON documents (issues + pull requests)."""
     base = f"{API_ROOT}/repos/{owner}/{repo}"
     results: list[dict[str, Any]] = []

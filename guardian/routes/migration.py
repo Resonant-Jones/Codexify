@@ -39,8 +39,8 @@ async def upload_chatgpt_export(
         content = await file.read()
         stats = ingest_chatgpt_export(content, user_id=user_id)
         return MigrationStats(
-            threads_imported=stats["threads"],
-            messages_imported=stats["messages"],
+            threads_imported=stats["threads_imported"],
+            messages_imported=stats["messages_imported"],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

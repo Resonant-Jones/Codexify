@@ -222,28 +222,33 @@ def _apply_thread_update(
     archived_present = "archived" in payload
     archived_requested = payload.get("archived") if archived_present else None
 
-    has_field_updates = (
-        any(
-            field is not None
-            for field in (
-                title_value if "title" in payload else None,
-                summary_value if "summary" in payload else None,
-                project_value if project_present else None,
-            )
-        )
-        or project_present
-        and payload.get("project_id") is None
-    )
+    changes: Dict[str, Any] = {}
+    if "title" in payload and title_value is not None:
+        current_title = (existing.get("title") or "").strip()
+        if title_value != current_title:
+            changes["title"] = title_value
+    if "summary" in payload and summary_value is not None:
+        current_summary = (existing.get("summary") or "").strip()
+        if summary_value != current_summary:
+            changes["summary"] = summary_value
+    if project_present:
+        current_project = existing.get("project_id")
+        if project_value != current_project:
+            changes["project_id"] = project_value
+
+    has_field_updates = bool(changes)
 
     if not has_field_updates and not archived_present:
-        raise HTTPException(status_code=400, detail="No valid fields to update")
+        # No semantic deltas requested; return the current state without emitting.
+        return existing
 
     if has_field_updates:
         updated = chatlog_db.update_thread(
             thread_id,
-            title=title_value if "title" in payload else None,
-            summary=(summary_value if "summary" in payload else None),
-            project_id=project_value if project_present else None,
+            title=changes.get("title"),
+            summary=changes.get("summary"),
+            project_id=changes.get("project_id"),
+            project_id_set=project_present,
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Thread not found")
@@ -262,16 +267,19 @@ def _apply_thread_update(
         event_bus.emit_event(
             "thread.updated",
             {
+                "thread_id": refreshed.get("id"),
+                "title": refreshed.get("title"),
+                "summary": refreshed.get("summary"),
+                "project_id": refreshed.get("project_id"),
+                "archived_at": refreshed.get("archived_at"),
                 "thread": refreshed,
-                "changes": {
-                    key: payload.get(key) for key in updated_field_keys
-                },
+                "changes": changes,
             },
         )
         logger.info(
             "[threads] updated thread_id=%s fields=%s",
             thread_id,
-            updated_field_keys or list(payload.keys()),
+            list(changes.keys()) or updated_field_keys or list(payload.keys()),
         )
 
     if archived_requested is True:
@@ -511,20 +519,25 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
             user_id_str = str(owner)
             message_text = content
 
-            neo_user, _ = UserNode.get_or_create(
+            neo_user = UserNode.get_or_create(
                 {"user_id": user_id_str, "name": user_id_str}
             )
-            neo_thread, _ = ThreadNode.get_or_create(
-                {"thread_id": thread_id_str}
-            )
+            if isinstance(neo_user, list):
+                neo_user = neo_user[0]
 
-            neo_msg, _ = MessageNode.get_or_create(
+            neo_thread = ThreadNode.get_or_create({"thread_id": thread_id_str})
+            if isinstance(neo_thread, list):
+                neo_thread = neo_thread[0]
+
+            neo_msg = MessageNode.get_or_create(
                 {
                     "message_id": message_id,
                     "content": message_text,
                     "created_at": datetime.utcnow(),
                 }
             )
+            if isinstance(neo_msg, list):
+                neo_msg = neo_msg[0]
 
             neo_msg.user.connect(neo_user)
             neo_msg.thread.connect(neo_thread)
