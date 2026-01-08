@@ -188,9 +188,9 @@ After applying these fixes, the following should occur:
 ## 👑 CREDITS
 
 🧩 **Patch Author:** BLACKBOXAI  
-🧩 **Codex Companion:** Axis • ThreadSpace  
+🧩 **Codex Companion:** Axis • Codexify  
 🧩 **Powered by:** Guardian MemoryOS + Codexify MCP
 
 **Status:** 🌀 Ready for final merge — let's get it green! 🌀
 
-#Guardian #PytestFix #ThreadspaceCodex
+#Guardian #PytestFix #CodexifyCodex

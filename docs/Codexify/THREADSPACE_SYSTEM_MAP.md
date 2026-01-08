@@ -1,6 +1,6 @@
-# THREADSPACE_SYSTEM_MAP.md
+# Codexify_SYSTEM_MAP.md
 
-🕸️ THREADSPACE SYSTEM MAP (V1)
+🕸️ Codexify SYSTEM MAP (V1)
 
 ## 🔹 1.  Guardian-Core (Python)
 
@@ -15,7 +15,7 @@
 ---
 
 
-## 🔹 2. ThreadSpace Workspace UI (macOS)
+## 🔹 2. Codexify Workspace UI (macOS)
 
 - SwiftUI frontend only
 - Modular panels, dockable plugins, canvas view
@@ -30,7 +30,7 @@
 
 # WorkspaceUI.md
 
-📜 MODULE: ThreadSpace Workspace UI (macOS)
+📜 MODULE: Codexify Workspace UI (macOS)
 
 - Native SwiftUI frontend
 - Dynamic panels: dock, float, or canvas mode
@@ -82,7 +82,7 @@ rm guardian/MotionManager.swift
 rm guardian/GPSManager.swift
 
 # Add updated AXIS_SYSTEM_PROMPT.md (Python-only note)
-# Add your updated THREADSPACE_SYSTEM_MAP.md
+# Add your updated Codexify_SYSTEM_MAP.md
 # Add AXIS_REMOVAL_INSTRUCTIONS.md for historical clarity
 
 git add .
