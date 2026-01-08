@@ -19,7 +19,7 @@ def test_retrieve_simple(tmp_path, monkeypatch):
     vs.add_texts(
         [
             {
-                "text": "ThreadSpace is the experiential layer.",
+                "text": "Codexify is the experiential layer.",
                 "meta": {"src": "demo"},
             },
             {"text": "PulseOS handles orchestration.", "meta": {"src": "demo"}},

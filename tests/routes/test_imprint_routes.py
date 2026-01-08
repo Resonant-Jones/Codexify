@@ -141,7 +141,13 @@ def test_system_prompt_summary():
 def test_system_docs_toggle():
     app = make_app()
     client = TestClient(app)
-    doc = SimpleNamespace(id=5, title="Doc", scope="user", is_enabled=True, content="System doc content")
+    doc = SimpleNamespace(
+        id=5,
+        title="Doc",
+        scope="user",
+        is_enabled=True,
+        content="System doc content",
+    )
     with patch.object(
         imprint_routes.system_doc_store,
         "list_docs_with_links",

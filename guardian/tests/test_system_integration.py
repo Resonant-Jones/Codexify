@@ -1,7 +1,7 @@
 """
 System Integration Tests
 ----------------------
-Verifies that all Threadspace components work together correctly.
+Verifies that all Codexify components work together correctly.
 Tests core functionality, self-awareness, and system coherence.
 """
 
@@ -71,7 +71,7 @@ class TestWorkerThread(threading.Thread):
 
 class SystemIntegrationTest(unittest.TestCase):
     """
-    Integration tests for the Threadspace system.
+    Integration tests for the Codexify system.
     Tests component interaction and system coherence.
     """
 
