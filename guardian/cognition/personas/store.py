@@ -40,9 +40,7 @@ def _set_session_factory(factory: sessionmaker) -> None:
     _SessionFactory = factory
 
 
-def get_active_persona(
-    user_id: str, project_id: int | None
-) -> Persona | None:
+def get_active_persona(user_id: str, project_id: int | None) -> Persona | None:
     """Return the active persona for (user_id, project_id), if any."""
     Session = _get_session_factory()
     with Session() as session:

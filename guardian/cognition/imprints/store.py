@@ -41,9 +41,7 @@ def _set_session_factory(factory: sessionmaker) -> None:
     _SessionFactory = factory
 
 
-def get_active_imprint(
-    user_id: str, project_id: int | None
-) -> Imprint | None:
+def get_active_imprint(user_id: str, project_id: int | None) -> Imprint | None:
     """Return the active imprint for (user_id, project_id), if any."""
     Session = _get_session_factory()
     with Session() as session:
