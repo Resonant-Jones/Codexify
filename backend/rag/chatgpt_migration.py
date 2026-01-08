@@ -1,3 +1,5 @@
+"""ChatGPT export migration into Postgres and the vector store."""
+
 import json
 import logging
 from datetime import datetime
@@ -80,10 +82,11 @@ def ingest_chatgpt_export(
 
                 author = message.get("author", {})
                 role = author.get("role") or message.get("role")
-                content_parts = message.get("content", {}).get("parts", [])
+                content = message.get("content") or {}
+                content_parts = content.get("parts") or []
                 create_time = message.get("create_time")
 
-                if not content_parts or not role:
+                if not role:
                     continue
 
                 text_content = ""
@@ -91,7 +94,15 @@ def ingest_chatgpt_export(
                     if isinstance(part, str):
                         text_content += part
                     elif isinstance(part, dict):
-                        pass
+                        part_text = part.get("text")
+                        if isinstance(part_text, str):
+                            text_content += part_text
+
+                if not text_content.strip():
+                    # Some exports store code/tool output under content.text.
+                    fallback_text = content.get("text")
+                    if isinstance(fallback_text, str):
+                        text_content = fallback_text
 
                 if not text_content.strip():
                     continue

@@ -205,6 +205,46 @@ services:
       echo "[Migrator] Seed script completed."
       echo "[Migrator] Done."
 
+  chatgpt-migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    profiles:
+      - cli
+    entrypoint: ["python", "scripts/chatgpt_import/import_chatgpt.py"]
+    environment:
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      EMBEDDER_PROVIDER: "local"
+      EMBEDDING_BACKEND: "local"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      # Ensure seed/init code can construct an OpenAI client even when running local-first
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
+      CODEXIFY_USE_OPENAI: "0"
+    volumes:
+      - ./codexify:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - ./scripts:/app/scripts
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      # Mount data directory for conversations.json
+      - ./data:/data
+      # Mount conversations.json directly if present
+      - ./conversations.json:/app/conversations.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    restart: "no"
+
   backend:
     build:
       context: .
@@ -217,11 +257,13 @@ services:
       retries: 30
     env_file: .env
     volumes:
+      - ./conversations.json:/app/conversations.json:ro
       - ./codexify:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
-      - ./models:/models:ro
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./.chroma:/app/.chroma
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
       GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
@@ -391,7 +433,7 @@ services:
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
-      - ./models:/models:ro
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: unless-stopped
     command:
       - sh
@@ -430,7 +472,7 @@ services:
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
-      - ./models:/models:ro
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: unless-stopped
     command:
       - sh
@@ -439,6 +481,81 @@ services:
         echo "[worker-chat] Starting chat worker..."
         ln -snf /app/codexify /app/Codexify
         exec python -m guardian.workers.chat_worker
+
+  embedding-backfill:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      REDIS_URL: redis://redis:6379/0
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
+      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
+    volumes:
+      - ./codexify:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - hf_cache:/root/.cache/huggingface
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./.chroma:/app/.chroma
+    restart: "no"
+    command:
+      - sh
+      - -lc
+      - |
+        echo "[embedding-backfill] Starting embedding backfill..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.embedding_backfill_worker
+
+  graph-backfill:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      graph-init:
+        condition: service_completed_successfully
+      migrator:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      NEO4J_BOLT_URL: bolt://neo4j:codexify@neo4j:7687
+    volumes:
+      - ./codexify:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+    restart: "no"
+    command:
+      - sh
+      - -lc
+      - |
+        echo "[graph-backfill] Starting graph backfill..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.graph_backfill_worker
 
   frontend:
     build:
