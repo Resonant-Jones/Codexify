@@ -114,7 +114,7 @@ class SystemCheck:
         env_path = self.root_dir / ".env.template"
         if env_path.exists():
             required_vars = [
-                "THREADSPACE_ENV",
+                "Codexify_ENV",
                 "LOG_LEVEL",
                 "SYSTEM_NAME",
                 "PLUGIN_DIR",

@@ -143,6 +143,16 @@ graph TB
 
 ---
 
+## ✅ Coherence Contract
+
+Codexify treats **meaning** as the only valid trigger for downstream updates.
+
+- **Identity vs Meaning**: Object identity, timestamps, or empty payloads are not meaningful changes.
+- **Eventual Consistency Boundaries**: SSE/outbox events are authoritative for live UI; API fetches reconcile drift.
+- **Semantic Guards > Debounce**: Prefer explicit equality checks at producers/consumers over throttle hacks.
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -182,6 +192,16 @@ make dev
 # - Frontend dev server (port 5173)
 ```
 
+### Backfill Workers (Embeddings + Graph)
+
+Backfill workers run as one-shot services at startup and exit when complete.
+They never block API startup and are safe to re-run.
+
+- Automatic startup: `embedding-backfill` and `graph-backfill` run on `docker compose up`
+- Manual run: `docker compose run --rm embedding-backfill` or `docker compose run --rm graph-backfill`
+- Status: `GET /backfill/status` (API) or `python -m guardian.cli backfill:status`
+- No-work behavior: logs a clear `no_work` exit reason and exits 0
+
 ### 3. Verify Installation
 
 ```bash
@@ -195,18 +215,25 @@ open http://localhost:5173
 open http://localhost:8888/docs
 ```
 
-### 4. Run Migrations
+### 4. Database Migrations (Canonical Workflow)
 
-Migrations run automatically via the `migrator` service in Docker Compose. To run manually:
+Migrations run automatically via the `migrator` service in Docker Compose. When running Alembic manually, **always run it via Docker**; the backend container is the canonical execution environment.
+
+Correct commands (run from the repo root):
 
 ```bash
-# Inside backend container
-docker-compose exec backend alembic upgrade head
-
-# Or locally (requires PostgreSQL running)
-cd backend
-alembic upgrade head
+docker compose exec backend alembic -c backend/alembic.ini current
+docker compose exec backend alembic -c backend/alembic.ini history
+docker compose exec backend alembic -c backend/alembic.ini upgrade head
 ```
+
+Incorrect command (will fail):
+
+```bash
+alembic current
+```
+
+Why it fails: running bare `alembic` on the host does not load `backend/alembic.ini`, so Alembic cannot find `script_location` and exits with `No 'script_location' key found in configuration`.
 
 ### 5. Create Your First Chat
 
@@ -220,6 +247,44 @@ curl -X POST http://localhost:8888/api/threads \
   -H "Content-Type: application/json" \
   -d '{"user_id": "user_123", "title": "My First Chat"}'
 ```
+
+---
+
+## 📥 ChatGPT Migration
+
+Bring your ChatGPT conversation history into Codexify with a simple upload.
+
+### Quick Migration (UI - Recommended)
+
+1. Export your data from [ChatGPT Settings → Data Controls](https://chat.openai.com/settings)
+2. Extract `conversations.json` from the downloaded archive
+3. Open Codexify UI at <http://localhost:5173>
+4. Go to **Settings → Import** and upload your file
+
+Your conversations appear immediately and become searchable as embeddings are created.
+
+### CLI Migration (Advanced)
+
+For automation or headless environments:
+
+```bash
+# Place your export in the data/ directory
+mkdir -p data && cp conversations.json data/
+
+# Run the migration
+docker compose run --rm --profile cli chatgpt-migrate --file /data/conversations.json
+```
+
+### API Migration
+
+```bash
+curl -X POST http://localhost:8888/upload-chatgpt-export \
+  -H "X-User-Id: me" \
+  -H "X-Api-Key: ${GUARDIAN_API_KEY}" \
+  -F "file=@./conversations.json"
+```
+
+For detailed instructions, troubleshooting, and advanced options, see the [ChatGPT Migration Guide](docs/CHATGPT_MIGRATION_GUIDE.md).
 
 ---
 

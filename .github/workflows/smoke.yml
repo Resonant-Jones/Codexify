@@ -1,6 +1,6 @@
 name: nightly-smoke
 on:
-  schedule: [{cron: "0 3 * * *"}]   # 03:00 UTC nightly
+  # schedule: [{cron: "0 3 * * *"}]   # 03:00 UTC nightly (disabled)
   workflow_dispatch:                # allow manual re-runs
 jobs:
   smoke:
