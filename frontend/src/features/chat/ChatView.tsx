@@ -1,3 +1,6 @@
+/**
+ * ChatView - renders message history with scroll/stream coherence.
+ */
 import React, { useCallback, useEffect, useRef, useState, useLayoutEffect } from "react";
 import { useChat } from "@/features/chat/useChat";
 import ChatBubble from "@/features/chat/components/ChatBubble";

@@ -22,6 +22,16 @@ type PanelShellProps = React.PropsWithChildren<{
   disabled?: boolean;
 }>;
 
+const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
+  return a.id === b.id
+    && a.title === b.title
+    && a.lastMessage === b.lastMessage
+    && (a.unread ?? 0) === (b.unread ?? 0)
+    && (a.projectId ?? null) === (b.projectId ?? null)
+    && (a.parentId ?? null) === (b.parentId ?? null)
+    && (a.archivedAt ?? null) === (b.archivedAt ?? null);
+};
+
 
 export default function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillConsumed, onWorkspaceToggle }) {
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(true);
@@ -498,6 +508,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           lastMessage: content || target.lastMessage,
           unread,
         };
+        const shouldMove = idx > 0;
+        if (!shouldMove && sameThreadSnapshot(target, updated)) {
+          return prev;
+        }
         const next = prev.slice();
         next.splice(idx, 1);
         next.unshift(updated);
@@ -509,17 +523,27 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const payload = (event.data as any)?.data ?? event.data;
       console.info("[live] thread.updated", payload);
       // Update local state instead of full reload
-      const tid = payload?.id ?? payload?.thread_id;
+      const threadPayload = payload?.thread ?? payload;
+      const tid = threadPayload?.id ?? threadPayload?.thread_id ?? payload?.thread_id;
       if (!tid) return;
       const idStr = String(tid);
-      setThreads(prev => prev.map(t => {
-        if (t.id !== idStr) return t;
-        return {
-             ...t,
-             title: payload.title ?? t.title,
-             // Update other fields if present
-        };
-      }));
+      setThreads((prev) => {
+        let touched = false;
+        const next = prev.map((t) => {
+          if (t.id !== idStr) return t;
+          const updated = {
+            ...t,
+            title: threadPayload?.title ?? t.title,
+            projectId: threadPayload?.project_id ?? threadPayload?.projectId ?? t.projectId,
+            archivedAt: threadPayload?.archived_at ?? threadPayload?.archivedAt ?? t.archivedAt,
+          };
+          if (!sameThreadSnapshot(t, updated)) {
+            touched = true;
+          }
+          return updated;
+        });
+        return touched ? next : prev;
+      });
     });
 
     const offThreadCreated = subscribe("thread.created", (event) => {
@@ -542,7 +566,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       console.info("[live] thread.branch", payload);
       const mapped = mapThreadRecord(payload);
       if (mapped) {
-          setThreads(prev => [mapped, ...prev]);
+          setThreads((prev) => {
+            if (prev.some((t) => t.id === mapped.id)) return prev;
+            return [mapped, ...prev];
+          });
       } else {
           void loadThreads();
       }
@@ -553,7 +580,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       console.info("[live] thread.archived", payload);
       const tid = payload?.id;
       if (tid) {
-          setThreads(prev => prev.filter(t => t.id !== String(tid)));
+          setThreads((prev) => {
+            const next = prev.filter((t) => t.id !== String(tid));
+            return next.length === prev.length ? prev : next;
+          });
       } else {
           void loadThreads();
       }
