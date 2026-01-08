@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from codexify.system_docs import store as system_doc_store
+from guardian.cognition.system_docs import store as system_doc_store
 from guardian.db.models import Base, SystemDoc, SystemDocLink
 
 

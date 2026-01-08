@@ -1,3 +1,5 @@
+"""Tests for the durable events outbox and SSE replay."""
+
 import asyncio
 import importlib
 import json
@@ -23,7 +25,13 @@ def test_events_outbox_replay_and_cleanup(tmp_path, monkeypatch):
 
     with TestClient(ga.app) as client:
         event_bus.emit_event(
-            "message.created", {"thread_id": 1, "content": "hi"}
+            "message.created",
+            {
+                "thread_id": 1,
+                "message_id": 1,
+                "role": "user",
+                "content": "hi",
+            },
         )
 
         received = None
@@ -54,7 +62,20 @@ def test_events_outbox_replay_and_cleanup(tmp_path, monkeypatch):
                 if received is not None:
                     break
 
-        assert received == {"thread_id": 1, "content": "hi"}
+        assert received == {
+            "thread_id": 1,
+            "message_id": 1,
+            "role": "user",
+            "content": "hi",
+            "created_at": None,
+            "message": {
+                "id": 1,
+                "thread_id": 1,
+                "role": "user",
+                "content": "hi",
+                "created_at": None,
+            },
+        }
         remaining = ga.chatlog_db.list_events_after(0, limit=10)
         assert remaining == []
 

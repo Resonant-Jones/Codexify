@@ -66,10 +66,10 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
     cfg_path.write_text(Path("backend/alembic.ini").read_text())
     cfg = Config(str(cfg_path))
     cfg.set_main_option("sqlalchemy.url", temp_url)
-    cfg.set_main_option("script_location", "guardian/db/migrations")
+    cfg.set_main_option("script_location", "backend/migrations")
     # Ensure Alembic can find scripts even when ini is copied to tmp
     repo_root = Path(__file__).resolve().parents[1]
-    migrations_dir = repo_root / "guardian" / "db" / "migrations"
+    migrations_dir = repo_root / "backend" / "migrations"
     cfg.set_main_option("script_location", str(migrations_dir))
     monkeypatch.setenv("DATABASE_URL", temp_url)
 
