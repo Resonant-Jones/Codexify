@@ -15,6 +15,8 @@ import memoryos.prompts as prompts
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+from guardian.utils.embed_paths import resolve_local_embed_model
+
 
 # ---- Common LLM Client Protocol ----
 @runtime_checkable
@@ -187,11 +189,23 @@ def ensure_directory_exists(path):
 _model_cache = {}
 
 
-def get_embedding(text, model_name="all-MiniLM-L6-v2"):
-    if model_name not in _model_cache:
-        logger.info(f"Loading sentence transformer model: {model_name}")
-        _model_cache[model_name] = SentenceTransformer(model_name)
-    model = _model_cache[model_name]
+def get_embedding(text, model_name: str | None = None):
+    if model_name:
+        logger.warning(
+            "[memoryos] model override ignored; use LOCAL_EMBED_MODEL"
+        )
+    resolved_model = resolve_local_embed_model(ValueError)
+    if resolved_model not in _model_cache:
+        logger.info("Loading sentence transformer model: %s", resolved_model)
+        try:
+            _model_cache[resolved_model] = SentenceTransformer(
+                resolved_model, local_files_only=True
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
+            ) from exc
+    model = _model_cache[resolved_model]
     embedding = model.encode([text], convert_to_numpy=True)[0]
     return embedding
 

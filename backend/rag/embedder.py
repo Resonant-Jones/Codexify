@@ -8,11 +8,12 @@ Local semantic embedder that combines SentenceTransformers with a vector store.
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+
+from guardian.utils.embed_paths import resolve_local_embed_model
 
 try:
     from sentence_transformers import SentenceTransformer  # type: ignore
@@ -31,9 +32,6 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.getenv("CODEXIFY_LOCAL_MODEL") or os.getenv(
-    "LOCAL_EMBED_MODEL"
-)
 DEFAULT_STORE = "faiss"
 
 
@@ -68,21 +66,27 @@ class LocalSemanticEmbedder:
         chroma_path: str = "./.chroma",
         collection: str = "codexify_vault",
     ) -> None:
-        self.model_name = model or DEFAULT_MODEL
-        if not self.model_name or not os.path.isdir(self.model_name):
-            raise RuntimeError(
-                f"LOCAL_EMBED_MODEL must point to a local directory, got: {self.model_name}"
+        if model:
+            logger.warning(
+                "[embedder] model override ignored; use LOCAL_EMBED_MODEL"
             )
+        self.model_name = resolve_local_embed_model()
+        logger.info("[embedder] local embedding model=%s", self.model_name)
         self.store = (store or DEFAULT_STORE).strip().lower()
         self.chroma_path = chroma_path
         self.collection = collection
 
         if SentenceTransformer is None:
             raise RuntimeError("sentence-transformers not installed.")
-        self._model = SentenceTransformer(
-            self.model_name,
-            local_files_only=True,
-        )
+        try:
+            self._model = SentenceTransformer(
+                self.model_name,
+                local_files_only=True,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
+            ) from exc
 
         self._index = None
         self._index_dim: int | None = None
