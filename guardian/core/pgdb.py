@@ -543,6 +543,7 @@ class PgDB(ChatDB):
         title: str | None = None,
         summary: str | None = None,
         project_id: int | None = None,
+        project_id_set: bool = False,
     ):
         """Patch fields on a thread and return the updated row."""
         fields: list[str] = []
@@ -553,7 +554,7 @@ class PgDB(ChatDB):
         if summary is not None:
             fields.append("summary = %s")
             params.append(summary)
-        if project_id is not None:
+        if project_id_set:
             fields.append("project_id = %s")
             params.append(project_id)
 

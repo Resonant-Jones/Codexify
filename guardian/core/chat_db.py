@@ -1,3 +1,5 @@
+"""Abstract chat database interface shared by SQL backends."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -111,6 +113,7 @@ class ChatDB(ABC):
         title: str | None = None,
         summary: str | None = None,
         project_id: int | None = None,
+        project_id_set: bool = False,
     ) -> bool:
         """Update a chat thread.
 
@@ -119,6 +122,7 @@ class ChatDB(ABC):
             title (Optional[str], optional): The new title. Defaults to None.
             summary (Optional[str], optional): The new summary. Defaults to None.
             project_id (Optional[int], optional): The new project ID. Defaults to None.
+            project_id_set (bool, optional): True to set project_id even when None.
 
         Returns:
             None
@@ -736,9 +740,7 @@ class ChatDB(ABC):
         """Update a connector run with completion data."""
 
     @abstractmethod
-    def get_last_connector_run(
-        self, config_id: int
-    ) -> dict[str, Any] | None:
+    def get_last_connector_run(self, config_id: int) -> dict[str, Any] | None:
         """Return the most recent run for a connector."""
 
     @abstractmethod

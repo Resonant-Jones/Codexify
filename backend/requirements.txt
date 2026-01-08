@@ -607,7 +607,11 @@ scipy==1.16.2
     #   alphashape
     #   scikit-learn
     #   sentence-transformers
-sentence-transformers==5.1.2
+sentence-transformers==5.2.0
+    # via
+    #   -r requirements/ai.in
+    #   sentence-transformers[torch]
+sentence-transformers[torch]==5.2.0
     # via -r requirements/ai.in
 shapely==2.1.2
     # via
