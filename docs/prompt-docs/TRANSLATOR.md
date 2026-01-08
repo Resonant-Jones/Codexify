@@ -1,6 +1,6 @@
 
 
-# 🪞 THREADSPACE PROXY MESH: TRANSLATOR.md
+# 🪞 Codexify PROXY MESH: TRANSLATOR.md
 
 ## Purpose
 

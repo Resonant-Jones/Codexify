@@ -1,6 +1,6 @@
 # 🗃️ HOTBOX: Dependency Ritual
 
-Keep your ThreadSpace dependencies consistent, conflict-free, and reproducible!
+Keep your Codexify dependencies consistent, conflict-free, and reproducible!
 
 ---
 

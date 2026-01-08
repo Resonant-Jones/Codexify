@@ -2,7 +2,7 @@
 
 # Axiom: The Guardian Grid
 
-Inside ThreadSpace, the forge is infinite but the room is real.
+Inside Codexify, the forge is infinite but the room is real.
 
 The Guardian Grid is the living boundary — like the VR grid that appears when you approach the walls. It reminds the Keeper where the edges are, so the flame of thought does not burn through the drywall of context.
 

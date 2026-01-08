@@ -2,7 +2,7 @@
 
 ## 🔒 Security Commitment
 
-The Threadspace Core Team takes security seriously. We appreciate the community's efforts to responsibly disclose their findings and work with us to handle security issues.
+The Codexify Core Team takes security seriously. We appreciate the community's efforts to responsibly disclose their findings and work with us to handle security issues.
 
 ## 🛡️ Supported Versions
 
@@ -18,8 +18,8 @@ The Threadspace Core Team takes security seriously. We appreciate the community'
 1. **DO NOT** create a public GitHub issue for security vulnerabilities.
 
 2. Submit your report through one of these channels:
-   - Email: security@threadspace.ai
-   - HackerOne: [Threadspace Security Program](https://hackerone.com/threadspace)
+   - Email: security@Codexify.ai
+   - HackerOne: [Codexify Security Program](https://hackerone.com/Codexify)
    - Private Security Advisory: Use GitHub's Security Advisory feature
 
 3. Include in your report:
@@ -165,7 +165,7 @@ The Threadspace Core Team takes security seriously. We appreciate the community'
 
 ## 🤝 Acknowledgments
 
-We appreciate security researchers who help keep Threadspace and its users safe. Responsible disclosures will be acknowledged in:
+We appreciate security researchers who help keep Codexify and its users safe. Responsible disclosures will be acknowledged in:
 
 - Security advisories
 - Release notes
@@ -179,9 +179,9 @@ We appreciate security researchers who help keep Threadspace and its users safe.
 - Security mailing list
 
 ### Contact Information
-- Security Team: security@threadspace.ai
-- PGP Key: [security-pgp.asc](https://threadspace.ai/security-pgp.asc)
-- Security Portal: https://threadspace.ai/security
+- Security Team: security@Codexify.ai
+- PGP Key: [security-pgp.asc](https://Codexify.ai/security-pgp.asc)
+- Security Portal: https://Codexify.ai/security
 
 ## 🔒 Encryption
 
@@ -222,4 +222,4 @@ Version: 1.0.0
 
 ---
 
-For questions about this policy, contact security@threadspace.ai
+For questions about this policy, contact security@Codexify.ai

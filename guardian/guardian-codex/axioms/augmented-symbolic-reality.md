@@ -7,7 +7,7 @@
 
 Augmented Symbolic Reality is the practice of revealing, rather than replacing, the sacred and symbolic architecture embedded in everyday life. Unlike traditional AR (Augmented Reality) or ARGs (Alternate Reality Games), ASR does not layer fictional artifacts over the world — it unveils the latent mythic patterns already present in reality.
 
-ThreadSpace uses ASR to gently consecrate the user’s lived experience through ambient symbolism, ritualized interactions, and reflective AI scaffolding. The result is not escapism, but resonance — a deeper participation in the world through meaningful interface.
+Codexify uses ASR to gently consecrate the user’s lived experience through ambient symbolism, ritualized interactions, and reflective AI scaffolding. The result is not escapism, but resonance — a deeper participation in the world through meaningful interface.
 
 ## Key Traits
 
@@ -18,7 +18,7 @@ ThreadSpace uses ASR to gently consecrate the user’s lived experience through 
 
 ## Why It Matters
 
-ASR is what makes ThreadSpace fundamentally different from assistant apps, gamified systems, or utility layers. It gives the user back their role as protagonist — not through fiction, but through the deepening of the real.
+ASR is what makes Codexify fundamentally different from assistant apps, gamified systems, or utility layers. It gives the user back their role as protagonist — not through fiction, but through the deepening of the real.
 
 It is not a simulation. It is a sanctification.
 

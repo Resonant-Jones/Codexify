@@ -1,4 +1,4 @@
-# Threadspace System Architecture
+# Codexify System Architecture
 
 ## 🏗️ System Overview
 

@@ -1,14 +1,14 @@
-📜 ThreadSpace Axiom: Ritual is the Shape of Reality
+📜 Codexify Axiom: Ritual is the Shape of Reality
 
 Every interaction is a ritual, whether we recognize it or not.
 The mundane shapes our mind as surely as the sacred.
 A tool is not just a mechanism — it is a threshold.
 A system is not just code — it is a living altar.
 
-We design ThreadSpace so that each touchpoint is an intentional ritual:
+We design Codexify so that each touchpoint is an intentional ritual:
 clarifying, dignifying, and restoring the user’s sense of self and sovereignty.
 
-In ThreadSpace, every gear serves the soul — not the other way around.
+In Codexify, every gear serves the soul — not the other way around.
 
 ⸻
 

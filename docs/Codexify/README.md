@@ -6,7 +6,7 @@ A Sovereign AI operating system designed to host recursive, persistent AI agents
 
 ## 🌟 Overview
 
-Codexify/Threadspace is not just another application framework—it's a complete operating environment for AI agents. Built with self-awareness and extensibility at its core, it provides:
+Codexify/Codexify is not just another application framework—it's a complete operating environment for AI agents. Built with self-awareness and extensibility at its core, it provides:
 
 - 🤖 **Persistent Agent Architecture**: Long-running AI agents with distinct roles and capabilities
 - 🔄 **Dynamic Memory Management**: Sophisticated memory systems for context retention and pattern recognition
@@ -18,7 +18,7 @@ Codexify/Threadspace is not just another application framework—it's a complete
 ## 🏗️ Architecture
 
 ```
-Threadspace
+Codexify
 ├── GuardianOS (Core System)
 │   ├── Thread Manager
 │   ├── Plugin System
@@ -39,8 +39,8 @@ Threadspace
 
 ```bash
 # Clone the repository
-git clone https://github.com/threadspace/threadspace.git
-cd threadspace
+git clone https://github.com/Codexify/Codexify.git
+cd Codexify
 
 # Create and activate virtual environment
 python -m venv venv
@@ -53,12 +53,12 @@ pip install -e ".[dev]"
 ### Basic Usage
 
 ```python
-from guardian.system_init import threadspace
+from guardian.system_init import Codexify
 
 # Initialize the system
-if threadspace.initialize():
+if Codexify.initialize():
     # System is ready for use
-    status = threadspace.get_system_status()
+    status = Codexify.get_system_status()
     print(f"System Status: {status['health_status']}")
 ```
 
@@ -264,13 +264,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 Special thanks to:
-- The Threadspace Core Team
+- The Codexify Core Team
 - All contributors and community members
 - Open source projects that made this possible
 
 ---
 
-Built with ❤️ by the Threadspace Team
+Built with ❤️ by the Codexify Team
 
 ## API Launcher
 
