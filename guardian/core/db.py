@@ -318,6 +318,7 @@ class _PostgresGuardianDB:
         title: Optional[str] = None,
         summary: Optional[str] = None,
         project_id: Optional[int] = None,
+        project_id_set: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Update thread fields."""
         with self.get_session() as session:
@@ -329,7 +330,7 @@ class _PostgresGuardianDB:
                 thread.title = title
             if summary is not None:
                 thread.summary = summary
-            if project_id is not None:
+            if project_id_set:
                 thread.project_id = project_id
 
             session.commit()
