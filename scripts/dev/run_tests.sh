@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sovereign ThreadSpace Test Runner
+# Sovereign Codexify Test Runner
 set -e
 
 echo "🔍 Setting PYTHONPATH to project root..."

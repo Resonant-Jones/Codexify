@@ -1,4 +1,4 @@
-# Threadspace Makefile
+# Codexify Makefile
 
 .PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build
 
