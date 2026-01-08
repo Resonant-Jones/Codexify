@@ -115,9 +115,7 @@ def require_auth(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     authorization: str | None = Header(default=None, alias="Authorization"),
     gc_session: str | None = Cookie(default=None, alias="gc_session"),
-    x_guardian_key: str | None = Header(
-        default=None, alias="X-Guardian-Key"
-    ),
+    x_guardian_key: str | None = Header(default=None, alias="X-Guardian-Key"),
 ) -> str:
     """
     FastAPI dependency enforcing that a request is authenticated.

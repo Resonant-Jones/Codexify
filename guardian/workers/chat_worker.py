@@ -337,6 +337,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "thread_id": task.thread_id,
                     "message_id": mid,
                     "role": "assistant",
+                    "content": assistant_text,
                 },
             )
         except Exception:

@@ -1,7 +1,7 @@
 """
 Metacognition Module
 ------------------
-Central integration point for Threadspace's self-awareness capabilities.
+Central integration point for Codexify's self-awareness capabilities.
 Coordinates between CodexAwareness, EpistemicSelfCheck, and AgentRegistry
 to provide unified metacognitive functions.
 
