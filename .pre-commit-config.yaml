@@ -52,7 +52,27 @@ repos:
     rev: v1.3.0
     hooks:
     -   id: mypy
-        args: [--ignore-missing-imports]
+        args: [--ignore-missing-imports, --explicit-package-bases]
+        # Explicit package bases prevents "Source file found twice" error
+        # when repo root has __init__.py but guardian/ is the actual package
+        # Exclude directories that have spurious __init__.py or aren't valid package names
+        exclude: |
+            (?x)(
+                ^\.github/|
+                ^GitHub/|
+                ^requirements/|
+                ^data/|
+                ^flows/|
+                ^codex_memory/|
+                ^frontend/|
+                ^venv/|
+                ^\.venv/|
+                ^__init__\.py$|
+                guardian-codex/|
+                ^backend/wait_for_db\.py$|
+                ^backend/migrations/|
+                ^guardian/codexify/
+            )
         # If you want type stubs later, add them explicitly here instead of using types-all, e.g.:
         # additional_dependencies:
         # - types-requests
@@ -63,6 +83,7 @@ repos:
     hooks:
     -   id: bandit
         args: [-ll, -r]
+        additional_dependencies: [pbr]
 
 -   repo: https://github.com/asottile/pyupgrade
     rev: v3.4.0

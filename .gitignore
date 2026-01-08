@@ -115,3 +115,4 @@ chatgpt_conversation.json
 
 .chroma/
 .chroma_test/
+models/
