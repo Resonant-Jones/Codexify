@@ -6,17 +6,21 @@ Development and debugging endpoints for inspecting system state.
 These endpoints are intended for local development and debugging only.
 """
 
+import json
 import logging
+import os
 
 from fastapi import APIRouter
 
 from guardian.agent_task_queue import enqueue_agent_task, get_task_status
 from guardian.plugins.plugin_loader import load_all_manifests
+from guardian.queue.redis_queue import get_redis_client
 from guardian.tools.state_inspector import get_codexify_state
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dev", tags=["Devtools"])
+RESULT_STORE = os.environ.get("AGENT_RESULT_STORE", "codexify:agent_results")
 
 
 @router.get("/state/{thread_id}")
@@ -94,3 +98,21 @@ def get_delegate_task_status(task_id: str):
     """
     status = get_task_status(task_id)
     return {"task_id": task_id, "status": status or "unknown"}
+
+
+@router.get("/results/{task_id}")
+def get_task_result(task_id: str):
+    """
+    Get the result of a delegated task from the result store.
+
+    Args:
+        task_id: The task identifier
+
+    Returns:
+        Result payload if available, otherwise pending status
+    """
+    client = get_redis_client()
+    raw = client.hget(RESULT_STORE, task_id)
+    if not raw:
+        return {"status": "pending"}
+    return json.loads(raw)
