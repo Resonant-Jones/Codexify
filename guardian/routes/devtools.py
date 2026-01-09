@@ -9,10 +9,12 @@ These endpoints are intended for local development and debugging only.
 import json
 import logging
 import os
+from typing import Optional
 
 from fastapi import APIRouter
 
 from guardian.agent_task_queue import enqueue_agent_task, get_task_status
+from guardian.guardian_loop import guardian_loop
 from guardian.plugins.plugin_loader import load_all_manifests
 from guardian.queue.redis_queue import get_redis_client
 from guardian.tools.state_inspector import get_codexify_state
@@ -83,6 +85,14 @@ def delegate_agent_task(agent: str, prompt: str, thread_id: str):
     )
     task_id = enqueue_agent_task(agent, prompt, thread_id)  # type: ignore[arg-type]
     return {"task_id": task_id}
+
+
+@router.post("/guardian_loop/{thread_id}")
+def run_guardian_loop(thread_id: str, autonomy: Optional[str] = "propose_only"):
+    """
+    Run a single Guardian loop pass for a thread.
+    """
+    return guardian_loop(thread_id, autonomy)
 
 
 @router.get("/task/{task_id}/status")
