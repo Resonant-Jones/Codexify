@@ -646,7 +646,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   return (
     <div
-      className="relative grid h-full w-full max-w-[1500px] min-h-0 box-border items-stretch mx-auto overflow-hidden"
+      className="relative grid h-full w-full max-w-[1500px] min-h-0 box-border items-stretch mx-auto"
       style={{
         gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
         gap: "8px",
@@ -714,14 +714,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         )}
         {/* Chat Panel */}
         <div
-          className="h-full w-full min-h-0 overflow-hidden box-border"
+          className="flex h-full w-full min-h-0 flex-col box-border"
           style={{
             gridColumn: isSidebarOpen ? 2 : "1 / span 2",
             gridRow: "1",
           }}
         >
           <PanelShell
-            className="h-full w-full min-h-0 overflow-hidden box-border rounded-[var(--card-radius)]"
+            className="h-full w-full min-h-0 box-border rounded-[var(--card-radius)]"
             surfaceStyle={chatSurfaceStyle}
             disabled={chatDisabled}
           >
