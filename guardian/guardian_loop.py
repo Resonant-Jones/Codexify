@@ -8,7 +8,7 @@ optionally enqueues them, and logs actions for later audit integration.
 
 import logging
 import os
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg
 
@@ -21,12 +21,46 @@ from guardian.tools.state_inspector import get_codexify_state
 
 logger = logging.getLogger(__name__)
 
+
 def _resolve_event_log_dsn() -> Optional[str]:
     return (
         PG_DSN
         or os.getenv("GUARDIAN_DATABASE_URL")
         or os.getenv("DATABASE_URL")
     )
+
+
+def _fetch_timeline_events(thread_id: str) -> list[dict[str, Any]]:
+    dsn = _resolve_event_log_dsn()
+    if not dsn:
+        logger.debug("[guardian_loop] timeline fetch skipped (no DB DSN)")
+        return []
+    try:
+        with psycopg.connect(dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT ts, event_type, origin, summary, payload
+                    FROM guardian_event_log
+                    WHERE thread_id = %s
+                    ORDER BY ts ASC
+                    """,
+                    (thread_id,),
+                )
+                rows = cur.fetchall()
+        return [
+            {
+                "ts": row[0],
+                "type": row[1],
+                "origin": row[2],
+                "summary": row[3],
+                "payload": row[4],
+            }
+            for row in rows
+        ]
+    except Exception as exc:
+        logger.warning("[guardian_loop] timeline fetch failed: %s", exc)
+        return []
 
 
 def _log_guardian_event(
@@ -65,7 +99,12 @@ def _log_guardian_event(
         logger.warning("[guardian_loop] event log failed: %s", exc)
 
 
-def guardian_loop(thread_id: str, autonomy: str = "propose_only") -> dict:
+def guardian_loop(
+    thread_id: str,
+    autonomy: str = "propose_only",
+    *,
+    _reentered: bool = False,
+) -> dict:
     """
     Run Guardian loop pass against a thread.
 
@@ -127,5 +166,38 @@ def guardian_loop(thread_id: str, autonomy: str = "propose_only") -> dict:
             task_id=task_id,
             status=status,
         )
+
+    if autonomy == "auto" and not _reentered:
+        timeline = _fetch_timeline_events(thread_id)
+        last_action = next(
+            (
+                e
+                for e in reversed(timeline)
+                if e["type"] in {"result_injected", "autonomy_decision"}
+            ),
+            None,
+        )
+        if last_action and last_action["type"] == "result_injected":
+            dsn = _resolve_event_log_dsn()
+            if dsn:
+                try:
+                    with psycopg.connect(dsn) as conn:
+                        log_guardian_event_db(
+                            conn,
+                            persona_tag="guardian",
+                            thread_id=thread_id,
+                            event_type="loop_reentry",
+                            origin="guardian_loop",
+                            summary="Re-entered loop after state change",
+                            payload={"trigger": last_action},
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "[guardian_loop] loop reentry log failed: %s", exc
+                    )
+            logger.info(
+                "[guardian_loop] reentering loop after result injection"
+            )
+            guardian_loop(thread_id, autonomy="auto", _reentered=True)
 
     return {"thread_id": thread_id, "autonomy": autonomy, "results": results}
