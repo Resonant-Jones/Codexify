@@ -21,6 +21,8 @@ from guardian.tools.state_inspector import get_codexify_state
 
 logger = logging.getLogger(__name__)
 
+MAX_LOOP_DEPTH = 3
+
 
 def _resolve_event_log_dsn() -> Optional[str]:
     return (
@@ -102,14 +104,25 @@ def _log_guardian_event(
 def guardian_loop(
     thread_id: str,
     autonomy: str = "propose_only",
-    *,
-    _reentered: bool = False,
+    depth: int = 0,
 ) -> dict:
     """
     Run Guardian loop pass against a thread.
 
     autonomy: "propose_only" | "auto" (default: propose_only)
     """
+    if depth > MAX_LOOP_DEPTH:
+        print(
+            f"[Guardian] Max recursion depth {MAX_LOOP_DEPTH} reached. Halting loop."
+        )
+        return {
+            "thread_id": thread_id,
+            "autonomy": autonomy,
+            "results": [],
+            "reentered": False,
+            "depth": depth,
+        }
+
     state = get_codexify_state(thread_id)
     proposed_tasks = []
 
@@ -167,7 +180,8 @@ def guardian_loop(
             status=status,
         )
 
-    if autonomy == "auto" and not _reentered:
+    reentered = False
+    if autonomy == "auto":
         timeline = _fetch_timeline_events(thread_id)
         last_action = next(
             (
@@ -177,7 +191,11 @@ def guardian_loop(
             ),
             None,
         )
-        if last_action and last_action["type"] == "result_injected":
+        if (
+            last_action
+            and last_action["type"] == "result_injected"
+            and depth < MAX_LOOP_DEPTH
+        ):
             dsn = _resolve_event_log_dsn()
             if dsn:
                 try:
@@ -188,8 +206,13 @@ def guardian_loop(
                             thread_id=thread_id,
                             event_type="loop_reentry",
                             origin="guardian_loop",
-                            summary="Re-entered loop after state change",
-                            payload={"trigger": last_action},
+                            summary=(
+                                "Re-entered loop at depth " f"{depth + 1}"
+                            ),
+                            payload={
+                                "trigger": last_action,
+                                "depth": depth + 1,
+                            },
                         )
                 except Exception as exc:
                     logger.warning(
@@ -198,6 +221,17 @@ def guardian_loop(
             logger.info(
                 "[guardian_loop] reentering loop after result injection"
             )
-            guardian_loop(thread_id, autonomy="auto", _reentered=True)
+            reentered = True
+            guardian_loop(
+                thread_id,
+                autonomy="auto",
+                depth=depth + 1,
+            )
 
-    return {"thread_id": thread_id, "autonomy": autonomy, "results": results}
+    return {
+        "thread_id": thread_id,
+        "autonomy": autonomy,
+        "results": results,
+        "reentered": reentered,
+        "depth": depth,
+    }
