@@ -13,6 +13,7 @@ import os
 import uuid
 from typing import Any, Dict, Literal, Optional
 
+from guardian.audio.tts_trigger import trigger_tts_if_available
 from guardian.queue.redis_queue import dequeue, enqueue, get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -140,4 +141,12 @@ def inject_result_to_thread(task_id: str) -> bool:
 
     # TODO: Replace with actual thread manager write
     print(f"[THREAD:{thread_id}] SYSTEM: {content}")
+    trigger_tts_if_available(
+        content,
+        metadata={
+            "task_id": task_id,
+            "thread_id": thread_id,
+            "source": "plugin_result",
+        },
+    )
     return True
