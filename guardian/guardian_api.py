@@ -115,6 +115,7 @@ from guardian.routes import (
     admin,
     agent,
     backfill,
+    devtools,
     documents,
     federation,
     health,
@@ -383,6 +384,7 @@ app.include_router(exports_router)
 app.include_router(codex_router)
 app.include_router(codexify_router)
 app.include_router(migration.router)
+app.include_router(devtools.router)
 
 logger.info("[routers] All routers included")
 
