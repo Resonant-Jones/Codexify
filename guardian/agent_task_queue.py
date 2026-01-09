@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 AGENT_TASK_QUEUE = os.environ.get("AGENT_TASK_QUEUE", "codexify:agent_tasks")
 AGENT_TASK_STATUS_PREFIX = "codexify:agent_task_status:"
+RESULT_STORE = os.environ.get("AGENT_RESULT_STORE", "codexify:agent_results")
 
 
 def enqueue_agent_task(
@@ -124,3 +125,19 @@ def update_task_status(task_id: str, status: str) -> None:
     """
     _set_task_status(task_id, status)
     logger.debug("[agent_task_queue] task=%s status=%s", task_id, status)
+
+
+def inject_result_to_thread(task_id: str) -> bool:
+    """Fetch completed agent result and inject into thread as a system message."""
+    client = get_redis_client()
+    raw = client.hget(RESULT_STORE, task_id)
+    if not raw:
+        return False
+
+    result_obj = json.loads(raw)
+    thread_id = result_obj["thread_id"]
+    content = result_obj["result"]
+
+    # TODO: Replace with actual thread manager write
+    print(f"[THREAD:{thread_id}] SYSTEM: {content}")
+    return True
