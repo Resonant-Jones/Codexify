@@ -65,6 +65,20 @@ def _fetch_timeline_events(thread_id: str) -> list[dict[str, Any]]:
         return []
 
 
+def get_loop_state_snapshot(thread_id: str) -> dict:
+    from guardian.tools.state_inspector import get_codexify_state
+
+    state = get_codexify_state(thread_id)
+    return {
+        "messages_loaded": state.get("messages_loaded"),
+        "persona_attached": state.get("persona_attached"),
+        "context_bundle": state.get("context_bundle"),
+        "documents_linked": state.get("documents_linked"),
+        "images_linked": state.get("images_linked"),
+        "agent_targets": state.get("agent_targets"),
+    }
+
+
 def _log_guardian_event(
     *,
     thread_id: str,
@@ -123,6 +137,7 @@ def guardian_loop(
             "depth": depth,
         }
 
+    pre_state = get_loop_state_snapshot(thread_id)
     state = get_codexify_state(thread_id)
     proposed_tasks = []
 
@@ -180,22 +195,10 @@ def guardian_loop(
             status=status,
         )
 
+    post_state = get_loop_state_snapshot(thread_id)
     reentered = False
-    if autonomy == "auto":
-        timeline = _fetch_timeline_events(thread_id)
-        last_action = next(
-            (
-                e
-                for e in reversed(timeline)
-                if e["type"] in {"result_injected", "autonomy_decision"}
-            ),
-            None,
-        )
-        if (
-            last_action
-            and last_action["type"] == "result_injected"
-            and depth < MAX_LOOP_DEPTH
-        ):
+    if autonomy == "auto" and depth < MAX_LOOP_DEPTH:
+        if pre_state != post_state:
             dsn = _resolve_event_log_dsn()
             if dsn:
                 try:
@@ -207,11 +210,13 @@ def guardian_loop(
                             event_type="loop_reentry",
                             origin="guardian_loop",
                             summary=(
-                                "Re-entered loop at depth " f"{depth + 1}"
+                                "Re-entered loop due to state diff at depth "
+                                f"{depth + 1}"
                             ),
                             payload={
-                                "trigger": last_action,
                                 "depth": depth + 1,
+                                "pre_state": pre_state,
+                                "post_state": post_state,
                             },
                         )
                 except Exception as exc:
@@ -227,6 +232,26 @@ def guardian_loop(
                 autonomy="auto",
                 depth=depth + 1,
             )
+        else:
+            dsn = _resolve_event_log_dsn()
+            if dsn:
+                try:
+                    with psycopg.connect(dsn) as conn:
+                        log_guardian_event_db(
+                            conn,
+                            persona_tag="guardian",
+                            thread_id=thread_id,
+                            event_type="loop_halt_no_diff",
+                            origin="guardian_loop",
+                            summary=(
+                                "Guardian loop halted — no context delta detected"
+                            ),
+                            payload={"depth": depth, "state": pre_state},
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "[guardian_loop] loop halt log failed: %s", exc
+                    )
 
     return {
         "thread_id": thread_id,
