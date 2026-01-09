@@ -13,7 +13,11 @@ import os
 import uuid
 from typing import Any, Dict, Literal, Optional
 
+import psycopg
+
 from guardian.audio.tts_trigger import trigger_tts_if_available
+from guardian.core.dependencies import get_database_dsn
+from guardian.db.guardian_event_log import log_guardian_event
 from guardian.queue.redis_queue import dequeue, enqueue, get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -128,6 +132,33 @@ def update_task_status(task_id: str, status: str) -> None:
     logger.debug("[agent_task_queue] task=%s status=%s", task_id, status)
 
 
+def _log_event(
+    *,
+    thread_id: str,
+    event_type: str,
+    origin: str,
+    summary: str,
+    payload: Optional[Dict[str, Any]] = None,
+) -> None:
+    dsn = get_database_dsn()
+    if not dsn:
+        logger.debug("[agent_task_queue] event log skipped (no DB DSN)")
+        return
+    try:
+        with psycopg.connect(dsn) as conn:
+            log_guardian_event(
+                conn=conn,
+                persona_tag="guardian",
+                thread_id=thread_id,
+                event_type=event_type,
+                origin=origin,
+                summary=summary,
+                payload=payload,
+            )
+    except Exception as exc:
+        logger.warning("[agent_task_queue] event log failed: %s", exc)
+
+
 def inject_result_to_thread(task_id: str) -> bool:
     """Fetch completed agent result and inject into thread as a system message."""
     client = get_redis_client()
@@ -141,7 +172,17 @@ def inject_result_to_thread(task_id: str) -> bool:
 
     # TODO: Replace with actual thread manager write
     print(f"[THREAD:{thread_id}] SYSTEM: {content}")
-    trigger_tts_if_available(
+    _log_event(
+        thread_id=thread_id,
+        event_type="result_injected",
+        origin="plugin_result",
+        summary="Injected plugin result into thread as system message",
+        payload={
+            "task_id": task_id,
+            "content": content,
+        },
+    )
+    tts_success = trigger_tts_if_available(
         content,
         metadata={
             "task_id": task_id,
@@ -149,4 +190,20 @@ def inject_result_to_thread(task_id: str) -> bool:
             "source": "plugin_result",
         },
     )
+    if tts_success:
+        _log_event(
+            thread_id=thread_id,
+            event_type="tts_spoken",
+            origin="guardian_tts",
+            summary="Spoke plugin result aloud",
+            payload={"task_id": task_id},
+        )
+    else:
+        _log_event(
+            thread_id=thread_id,
+            event_type="tts_skipped",
+            origin="guardian_tts",
+            summary="TTS skipped (no plugin or failure)",
+            payload={"task_id": task_id},
+        )
     return True
