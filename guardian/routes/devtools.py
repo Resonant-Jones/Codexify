@@ -12,6 +12,7 @@ import os
 from typing import Optional
 
 from fastapi import APIRouter
+import psycopg
 
 from guardian.agent_task_queue import (
     enqueue_agent_task,
@@ -21,6 +22,7 @@ from guardian.agent_task_queue import (
 from guardian.guardian_loop import guardian_loop
 from guardian.plugins.plugin_loader import load_all_manifests
 from guardian.queue.redis_queue import get_redis_client
+from guardian.core.dependencies import get_database_dsn
 from guardian.tools.state_inspector import get_codexify_state
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,39 @@ def run_guardian_loop(thread_id: str, autonomy: Optional[str] = "propose_only"):
 def inject_result(task_id: str):
     success = inject_result_to_thread(task_id)
     return {"status": "ok" if success else "not_found"}
+
+
+@router.get("/timeline/{thread_id}")
+def get_timeline(thread_id: str):
+    dsn = get_database_dsn()
+    if not dsn:
+        logger.warning("[devtools] timeline skipped (no DB DSN)")
+        return {"thread_id": thread_id, "events": []}
+
+    with psycopg.connect(dsn) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ts, event_type, origin, summary, payload
+                FROM guardian_event_log
+                WHERE thread_id = %s
+                ORDER BY ts ASC
+                """,
+                (thread_id,),
+            )
+            rows = cur.fetchall()
+
+    events = [
+        {
+            "ts": str(row[0]),
+            "type": row[1],
+            "origin": row[2],
+            "summary": row[3],
+            "payload": row[4],
+        }
+        for row in rows
+    ]
+    return {"thread_id": thread_id, "events": events}
 
 
 @router.get("/task/{task_id}/status")
