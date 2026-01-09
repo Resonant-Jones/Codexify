@@ -517,7 +517,7 @@ export function GuardianChat({
       </header>
 
       {/* Messages region - Flex 1, scrolls independently */}
-      <div className="relative flex flex-col flex-1 min-h-0 overflow-clip">
+      <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
         {effectiveThreadId != null ? (
           <ChatView
             threadId={effectiveThreadId}
@@ -564,8 +564,8 @@ export function GuardianChat({
   if (bare) {
     return (
       <>
-        {/* Keep this container non-scrollable so ChatView owns the scroll and the composer stays pinned */}
-        <div className="relative flex flex-col flex-1 min-h-0 overflow-clip">
+        {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
+        <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
           {body}
         </div>
       </>
