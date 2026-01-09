@@ -24,11 +24,16 @@ class PluginManifest(BaseModel):
     id: str = Field(..., description="Unique plugin identifier")
     name: str = Field(..., description="Human-readable plugin name")
     entrypoint: str = Field(
-        ..., description="Plugin entrypoint URL (e.g., 'http://localhost:8080/rpc')"
+        ...,
+        description="Plugin entrypoint URL (e.g., 'http://localhost:8080/rpc')",
     )
     permissions: List[str] = Field(
         default_factory=list,
         description="Required permissions (e.g., 'threads.read', 'document.write')",
+    )
+    capabilities: Optional[List[str]] = Field(
+        default_factory=list,
+        description="Declared capabilities (e.g., 'tts', 'speakable', 'audio')",
     )
     ui_panel: Optional[bool] = Field(
         default=False, description="Whether the plugin renders a UI panel"
@@ -46,6 +51,7 @@ class PluginManifest(BaseModel):
                 "name": "Codex Plugin",
                 "entrypoint": "http://localhost:8081/rpc",
                 "permissions": ["threads.read", "document.write"],
+                "capabilities": [],
                 "ui_panel": True,
                 "ui_position": "right",
             }

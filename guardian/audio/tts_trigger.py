@@ -5,25 +5,28 @@ TTS Trigger
 Discovery-aware trigger for local TTS plugins (if available).
 """
 
-import os
+from typing import Optional
 
 import requests
 
-# Known TTS plugins: "chatterbox", "lfm25", etc.
-DEFAULT_TTS_PLUGIN = os.environ.get("TTS_PLUGIN_ID", "chatterbox")
-# TODO: Replace hardcoded TTS_PLUGIN_ENDPOINTS with plugin manifest lookup
-TTS_PLUGIN_ENDPOINTS = {
-    "chatterbox": "http://localhost:7101/speak",
-    "lfm25": "http://localhost:7200/voice",
-}
+from guardian.plugins.plugin_loader import load_all_manifests
 
 
-def trigger_tts_if_available(text: str, metadata: dict = {}) -> bool:
-    plugin_id = DEFAULT_TTS_PLUGIN
-    endpoint = TTS_PLUGIN_ENDPOINTS.get(plugin_id)
+def get_tts_plugin_endpoint() -> Optional[str]:
+    for plugin in load_all_manifests():
+        if "tts" in (plugin.capabilities or []):
+            return plugin.entrypoint.rstrip("/") + "/speak"
+    return None
+
+
+def trigger_tts_if_available(
+    text: str, metadata: Optional[dict] = None
+) -> bool:
+    metadata = metadata or {}
+    endpoint = get_tts_plugin_endpoint()
 
     if not endpoint:
-        print(f"[TTS] No endpoint defined for plugin {plugin_id}")
+        print("[TTS] No TTS plugin discovered in manifest.")
         return False
 
     try:
