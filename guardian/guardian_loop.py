@@ -6,17 +6,63 @@ Scaffolds a Guardian loop pass that inspects state, proposes repair tasks,
 optionally enqueues them, and logs actions for later audit integration.
 """
 
+import logging
+import os
 from typing import Optional
 
+import psycopg
+
 from guardian.agent_task_queue import enqueue_agent_task
+from guardian.core.dependencies import PG_DSN
+from guardian.db.guardian_event_log import (
+    log_guardian_event as log_guardian_event_db,
+)
 from guardian.tools.state_inspector import get_codexify_state
 
+logger = logging.getLogger(__name__)
 
-def log_guardian_event(
-    *, thread_id: str, prompt: str, result: str, reason: str
+def _resolve_event_log_dsn() -> Optional[str]:
+    return (
+        PG_DSN
+        or os.getenv("GUARDIAN_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+    )
+
+
+def _log_guardian_event(
+    *,
+    thread_id: str,
+    event_type: str,
+    summary: str,
+    prompt: str,
+    reason: str,
+    task_id: Optional[str],
+    status: str,
 ) -> None:
-    # TODO: Store to event graph or audit trail
-    print(f"[LOG] Guardian reason: {reason} -> {prompt} ({result})")
+    dsn = _resolve_event_log_dsn()
+    if not dsn:
+        logger.debug("[guardian_loop] event log skipped (no DB DSN)")
+        return
+
+    payload = {
+        "prompt": prompt,
+        "reason": reason,
+        "task_id": task_id,
+        "status": status,
+    }
+    try:
+        with psycopg.connect(dsn) as conn:
+            log_guardian_event_db(
+                conn,
+                persona_tag="guardian",
+                event_type=event_type,
+                summary=summary,
+                origin="guardian_loop",
+                thread_id=thread_id,
+                payload=payload,
+            )
+    except Exception as exc:
+        logger.warning("[guardian_loop] event log failed: %s", exc)
 
 
 def guardian_loop(thread_id: str, autonomy: str = "propose_only") -> dict:
@@ -66,11 +112,20 @@ def guardian_loop(thread_id: str, autonomy: str = "propose_only") -> dict:
                 "prompt": task["prompt"],
             }
         )
-        log_guardian_event(
+        event_type = "proposal" if status == "proposed" else "autonomy_decision"
+        summary = (
+            "Proposed guardian task"
+            if status == "proposed"
+            else "Enqueued guardian task"
+        )
+        _log_guardian_event(
             thread_id=thread_id,
+            event_type=event_type,
+            summary=summary,
             prompt=task["prompt"],
-            result=status,
             reason=task["reason"],
+            task_id=task_id,
+            status=status,
         )
 
     return {"thread_id": thread_id, "autonomy": autonomy, "results": results}
