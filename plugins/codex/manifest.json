@@ -1,0 +1,8 @@
+{
+  "id": "codex",
+  "name": "Codex Plugin",
+  "entrypoint": "http://localhost:8081/rpc",
+  "permissions": ["threads.read", "document.write"],
+  "ui_panel": true,
+  "ui_position": "right"
+}

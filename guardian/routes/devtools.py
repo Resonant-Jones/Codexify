@@ -10,6 +10,7 @@ import logging
 
 from fastapi import APIRouter
 
+from guardian.plugins.plugin_loader import load_all_manifests
 from guardian.tools.state_inspector import get_codexify_state
 
 logger = logging.getLogger(__name__)
@@ -39,3 +40,18 @@ def get_dev_state(thread_id: str):
         "[devtools] state inspection requested for thread=%s", thread_id
     )
     return get_codexify_state(thread_id)
+
+
+@router.get("/plugins")
+def list_plugins():
+    """
+    List all registered plugins.
+
+    Scans the plugins directory for manifest.json files and returns
+    the parsed plugin manifests.
+
+    Returns:
+        List of plugin manifest dictionaries
+    """
+    logger.info("[devtools] plugin list requested")
+    return [manifest.model_dump() for manifest in load_all_manifests()]
