@@ -10,18 +10,18 @@ Usage:
     python scripts/agent_task_worker.py
 """
 
+import json
 import logging
 import os
 import sys
 import time
+from uuid import uuid4
 
 # Add project root to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from guardian.agent_task_queue import (
-    dequeue_agent_task,
-    update_task_status,
-)
+from guardian.agent_task_queue import AGENT_TASK_QUEUE, update_task_status  # noqa: E402
+from guardian.queue.redis_queue import get_redis_client  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,75 +29,71 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+RESULT_STORE = os.environ.get("AGENT_RESULT_STORE", "codexify:agent_results")
 
-def process_task(task: dict) -> None:
+
+def run_agent_stub(agent: str, prompt: str) -> str:
     """
-    Process a single agent task.
+    Simulate agent execution and return a placeholder response.
 
     Args:
-        task: Task payload from queue
+        agent: Agent identifier (codex, claude, etc.)
+        prompt: Prompt payload to echo back
     """
-    task_id = task.get("task_id", "unknown")
-    agent = task.get("agent", "unknown")
-    prompt = task.get("prompt", "")
-    thread_id = task.get("thread_id", "unknown")
-
-    logger.info(
-        "🧠 Processing task: agent=%s thread=%s task_id=%s",
-        agent,
-        thread_id,
-        task_id,
-    )
-
-    update_task_status(task_id, "running")
-
-    try:
-        # TODO: Route to actual agent implementation
-        # For now, simulate agent execution
-        if agent == "codex":
-            # TODO: Call Codex/OpenAI API
-            logger.info("  → Routing to Codex agent...")
-            time.sleep(2)  # Simulate processing
-            result = f"[Codex stub] Processed: {prompt[:50]}..."
-
-        elif agent == "claude":
-            # TODO: Call Claude/Anthropic API
-            logger.info("  → Routing to Claude agent...")
-            time.sleep(2)  # Simulate processing
-            result = f"[Claude stub] Processed: {prompt[:50]}..."
-
-        else:
-            logger.warning("  → Unknown agent: %s", agent)
-            result = f"Unknown agent: {agent}"
-
-        update_task_status(task_id, "completed")
-        logger.info("✅ Completed: task_id=%s result=%s", task_id, result[:100])
-
-    except Exception as e:
-        update_task_status(task_id, "failed")
-        logger.error("❌ Failed: task_id=%s error=%s", task_id, e)
+    agent_name = agent or "unknown"
+    return f"[{agent_name.upper()}] simulated response to: {prompt}"
 
 
 def run_worker() -> None:
     """Main worker loop."""
     logger.info("🔄 Agent Task Worker started...")
-    logger.info("   Queue: %s", os.environ.get("AGENT_TASK_QUEUE", "codexify:agent_tasks"))
-    logger.info("   Redis: %s", os.environ.get("REDIS_URL", "redis://localhost:6379"))
+    logger.info("   Queue: %s", AGENT_TASK_QUEUE)
+    logger.info(
+        "   Redis: %s", os.environ.get("REDIS_URL", "redis://localhost:6379")
+    )
+    logger.info("   Result store: %s", RESULT_STORE)
+
+    redis_client = get_redis_client()
 
     while True:
+        task_id: str | None = None
         try:
-            task = dequeue_agent_task(block=True, timeout=30)
+            _, raw = redis_client.blpop(AGENT_TASK_QUEUE)
+            task = json.loads(raw)
+            # Ensure we always have a stable identifier for status/result writes.
+            task_id = task.get("task_id") or str(uuid4())
+            agent = str(task.get("agent") or "unknown")
+            prompt = task.get("prompt", "")
+            thread_id = task.get("thread_id", "unknown")
 
-            if task is None:
-                # Timeout, continue waiting
-                continue
+            logger.info(
+                "🧠 Running agent task: %s on thread %s", agent, thread_id
+            )
+            update_task_status(task_id, "running")
 
-            process_task(task)
+            result = run_agent_stub(agent, prompt)
+
+            redis_client.hset(
+                RESULT_STORE,
+                task_id,
+                json.dumps(
+                    {
+                        "result": result,
+                        "status": "done",
+                        "thread_id": thread_id,
+                        "agent": agent,
+                    }
+                ),
+            )
+            update_task_status(task_id, "completed")
+            logger.info("✅ Task %s complete", task_id)
 
         except KeyboardInterrupt:
             logger.info("🛑 Worker stopped by user")
             break
         except Exception as e:
+            if task_id:
+                update_task_status(task_id, "failed")
             logger.error("Worker error: %s", e)
             time.sleep(1)  # Brief pause before retry
 
