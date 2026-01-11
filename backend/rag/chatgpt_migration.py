@@ -142,11 +142,13 @@ def ingest_chatgpt_export(
                             "thread_id": thread_id,
                             "role": msg["role"],
                             "message_id": mid,
-                            "timestamp": datetime.utcfromtimestamp(
-                                msg["timestamp"]
-                            ).isoformat()
-                            if msg["timestamp"]
-                            else datetime.utcnow().isoformat(),
+                            "timestamp": (
+                                datetime.utcfromtimestamp(
+                                    msg["timestamp"]
+                                ).isoformat()
+                                if msg["timestamp"]
+                                else datetime.utcnow().isoformat()
+                            ),
                             "source": "chatgpt_import",
                         }
                         _vector_store.add_texts(
