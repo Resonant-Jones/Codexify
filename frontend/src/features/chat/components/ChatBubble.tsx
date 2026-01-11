@@ -29,20 +29,29 @@ export function ChatBubble({ message, isGuardian }: { message: Message; isGuardi
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
-              code({node, inline, className, children, ...props}: any) {
-                return !inline ? (
-                  <div className="overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2 my-2">
-                    <code className={className} {...props}>
+              code({ node, inline, className, children, ...props }: any) {
+                if (inline) {
+                  return (
+                    <code className="rounded bg-black/10 dark:bg-black/30 px-1 py-0.5" {...props}>
                       {children}
                     </code>
-                  </div>
-                ) : (
-                  <code className="rounded bg-black/10 dark:bg-black/30 px-1 py-0.5" {...props}>
+                  );
+                }
+
+                // For fenced/indented code blocks, react-markdown renders: <pre><code/></pre>.
+                // IMPORTANT: do not return a <div> here, or you can trip React validateDOMNesting.
+                return (
+                  <code className={className} {...props}>
                     {children}
                   </code>
                 );
               },
-              p: ({children}) => <p className="mb-2 last:mb-0">{children}</p>,
+              pre: ({ children }) => (
+                <pre className="overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2 my-2">
+                  {children}
+                </pre>
+              ),
+              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
               ul: ({children}) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
               ol: ({children}) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
               a: ({href, children}) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">{children}</a>,

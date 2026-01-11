@@ -106,13 +106,12 @@ export default defineConfig({
       },
 
       // Compatibility bridges: map some legacy '/api/*' routes to unprefixed backend paths
-      // Chat
+      // Chat (backend serves /api/chat/*)
       '^/api/chat(?=/|$)': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
         headers: { 'X-API-Key': API_KEY },
-        rewrite: (p) => p.replace(/^\/api\/chat/, '/chat'),
       },
       // Threads alias (/api/threads -> /threads, /api/thread -> /thread)
       '^/api/threads(?=/|$)': {
@@ -138,7 +137,17 @@ export default defineConfig({
         rewrite: (p) => p.replace(/^\/api\//, '/'),
       },
 
-      // General API: /api/* -> backend /*  (drop /api prefix)
+      // Some clients build URLs as `${base}/api/...` where base is already `/api`.
+      // Collapse `/api/api/*` -> `/api/*` to avoid 404s.
+      '^/api/api(?=/|$)': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'X-API-Key': API_KEY },
+        rewrite: (p) => p.replace(/^\/api\/api/, '/api'),
+      },
+
+      // General API: /api/* -> backend /api/* (do not rewrite; backend serves /api/*)
       '/api': {
         target: PROXY_TARGET,
         changeOrigin: true,
@@ -146,10 +155,6 @@ export default defineConfig({
         headers: {
           'X-API-Key': API_KEY,
         },
-
-        // /api/codex/entries -> /codex/entries
-        // /api/memory/...    -> /memory/...
-        rewrite: (p) => p.replace(/^\/api/, ''),
 
         // Let Vite serve source files itself instead of proxying them
         bypass: (req) => {
