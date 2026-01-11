@@ -569,9 +569,9 @@ async def list_images(
                     "filename": img.filename,
                     "mime_type": img.mime_type,
                     "filesize": img.filesize,
-                    "created_at": img.created_at.isoformat()
-                    if img.created_at
-                    else None,
+                    "created_at": (
+                        img.created_at.isoformat() if img.created_at else None
+                    ),
                 }
                 for img in images
             ],
@@ -612,9 +612,9 @@ async def list_documents(
                     "filename": doc.filename,
                     "mime_type": doc.mime_type,
                     "filesize": doc.filesize,
-                    "created_at": doc.created_at.isoformat()
-                    if doc.created_at
-                    else None,
+                    "created_at": (
+                        doc.created_at.isoformat() if doc.created_at else None
+                    ),
                 }
                 for doc in documents
             ],

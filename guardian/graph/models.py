@@ -1,4 +1,5 @@
 """Neo4j graph models for chat logging and RAG context."""
+
 from __future__ import annotations
 
 from datetime import datetime

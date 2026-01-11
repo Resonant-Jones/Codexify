@@ -4,6 +4,7 @@ Imprint storage helpers.
 Provides minimal CRUD helpers for Imprint_Zero data with the invariant that
 only one imprint may be active for a given (user_id, project_id) pair.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

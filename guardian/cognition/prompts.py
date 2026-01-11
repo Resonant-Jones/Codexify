@@ -5,6 +5,7 @@ System prompt assembly with a small, immutable core plus optional
 Imprint_Zero, persona, system-doc, and RAG hint blocks. All storage lookups
 are expected to be handled by the caller (see system_prompt_builder.py).
 """
+
 from typing import Any, Dict, Optional
 
 

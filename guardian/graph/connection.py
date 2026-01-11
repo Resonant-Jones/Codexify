@@ -1,4 +1,5 @@
 """Centralized Neo4j connection helper for neomodel."""
+
 from __future__ import annotations
 
 import os

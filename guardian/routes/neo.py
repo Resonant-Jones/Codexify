@@ -4,6 +4,7 @@ Neo4j Graph Logging Routes
 
 Provides a safe stub for message graph logging that always responds with 200.
 """
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 

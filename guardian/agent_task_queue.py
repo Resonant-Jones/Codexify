@@ -100,7 +100,9 @@ def get_task_status(task_id: str) -> Optional[str]:
         status = client.get(f"{AGENT_TASK_STATUS_PREFIX}{task_id}")
         return status if status else None
     except Exception as e:
-        logger.warning("[agent_task_queue] failed to get status for %s: %s", task_id, e)
+        logger.warning(
+            "[agent_task_queue] failed to get status for %s: %s", task_id, e
+        )
         return None
 
 
@@ -117,7 +119,9 @@ def _set_task_status(task_id: str, status: str, ttl: int = 86400) -> None:
         client = get_redis_client()
         client.setex(f"{AGENT_TASK_STATUS_PREFIX}{task_id}", ttl, status)
     except Exception as e:
-        logger.warning("[agent_task_queue] failed to set status for %s: %s", task_id, e)
+        logger.warning(
+            "[agent_task_queue] failed to set status for %s: %s", task_id, e
+        )
 
 
 def update_task_status(task_id: str, status: str) -> None:

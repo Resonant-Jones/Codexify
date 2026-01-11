@@ -261,9 +261,11 @@ async def get_thread_documents(thread_id: int) -> dict[str, Any]:
                             "id": doc.id,
                             "title": doc.title,
                             "relation": link.relation,
-                            "created_at": link.created_at.isoformat()
-                            if link.created_at
-                            else None,
+                            "created_at": (
+                                link.created_at.isoformat()
+                                if link.created_at
+                                else None
+                            ),
                         }
                     )
                 else:

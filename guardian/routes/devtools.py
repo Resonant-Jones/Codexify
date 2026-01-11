@@ -11,18 +11,18 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter
 import psycopg
+from fastapi import APIRouter
 
 from guardian.agent_task_queue import (
     enqueue_agent_task,
     get_task_status,
     inject_result_to_thread,
 )
+from guardian.core.dependencies import get_database_dsn
 from guardian.guardian_loop import guardian_loop
 from guardian.plugins.plugin_loader import load_all_manifests
 from guardian.queue.redis_queue import get_redis_client
-from guardian.core.dependencies import get_database_dsn
 from guardian.tools.state_inspector import get_codexify_state
 
 logger = logging.getLogger(__name__)

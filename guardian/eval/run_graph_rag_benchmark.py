@@ -4,6 +4,7 @@ Run a simple KG vs RAG benchmark locally.
 Example:
     poetry run python -m guardian.eval.run_graph_rag_benchmark --compare
 """
+
 from __future__ import annotations
 
 import argparse
