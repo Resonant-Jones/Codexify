@@ -45,16 +45,22 @@ def test_proposal_and_accept_flow():
     assert data["imprint_draft"]["id"] == 1
     assert "persona_draft" in data
 
-    with patch.object(
-        imprint_routes.imprint_store,
-        "get_imprint_by_id",
-        return_value=draft_imprint,
-    ), patch.object(
-        imprint_routes.imprint_store,
-        "activate_imprint",
-        return_value=active_imprint,
-    ), patch.object(
-        imprint_routes.persona_store, "set_persona", return_value=persona_obj
+    with (
+        patch.object(
+            imprint_routes.imprint_store,
+            "get_imprint_by_id",
+            return_value=draft_imprint,
+        ),
+        patch.object(
+            imprint_routes.imprint_store,
+            "activate_imprint",
+            return_value=active_imprint,
+        ),
+        patch.object(
+            imprint_routes.persona_store,
+            "set_persona",
+            return_value=persona_obj,
+        ),
     ):
         resp = client.post("/api/imprint/accept", json={"imprint_id": 1})
     assert resp.status_code == 200
@@ -83,16 +89,22 @@ def test_accept_with_user_override_marks_source_user():
         id=9, body="override persona", source="user", is_active=True
     )
 
-    with patch.object(
-        imprint_routes.imprint_store,
-        "get_imprint_by_id",
-        return_value=draft_imprint,
-    ), patch.object(
-        imprint_routes.imprint_store,
-        "activate_imprint",
-        return_value=active_imprint,
-    ), patch.object(
-        imprint_routes.persona_store, "set_persona", return_value=persona_obj
+    with (
+        patch.object(
+            imprint_routes.imprint_store,
+            "get_imprint_by_id",
+            return_value=draft_imprint,
+        ),
+        patch.object(
+            imprint_routes.imprint_store,
+            "activate_imprint",
+            return_value=active_imprint,
+        ),
+        patch.object(
+            imprint_routes.persona_store,
+            "set_persona",
+            return_value=persona_obj,
+        ),
     ):
         resp = client.post(
             "/api/imprint/accept",

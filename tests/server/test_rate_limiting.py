@@ -99,7 +99,11 @@ def test_cors_headers_present(test_client):
     headers_lower = {k.lower(): v for k, v in response.headers.items()}
     assert (
         "access-control-allow-origin" in headers_lower
-        or response.status_code in [200, 405]
+        or response.status_code
+        in [
+            200,
+            405,
+        ]
     )
 
 
