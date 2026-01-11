@@ -204,15 +204,17 @@ class _PostgresGuardianDB:
                 "summary": thread.summary,
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
-                "archived_at": thread.archived_at.isoformat()
-                if thread.archived_at
-                else None,
-                "created_at": thread.created_at.isoformat()
-                if thread.created_at
-                else None,
-                "updated_at": thread.updated_at.isoformat()
-                if thread.updated_at
-                else None,
+                "archived_at": (
+                    thread.archived_at.isoformat()
+                    if thread.archived_at
+                    else None
+                ),
+                "created_at": (
+                    thread.created_at.isoformat() if thread.created_at else None
+                ),
+                "updated_at": (
+                    thread.updated_at.isoformat() if thread.updated_at else None
+                ),
             }
 
     def ensure_chat_thread(
@@ -286,15 +288,17 @@ class _PostgresGuardianDB:
                 "summary": thread.summary,
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
-                "archived_at": thread.archived_at.isoformat()
-                if thread.archived_at
-                else None,
-                "created_at": thread.created_at.isoformat()
-                if thread.created_at
-                else None,
-                "updated_at": thread.updated_at.isoformat()
-                if thread.updated_at
-                else None,
+                "archived_at": (
+                    thread.archived_at.isoformat()
+                    if thread.archived_at
+                    else None
+                ),
+                "created_at": (
+                    thread.created_at.isoformat() if thread.created_at else None
+                ),
+                "updated_at": (
+                    thread.updated_at.isoformat() if thread.updated_at else None
+                ),
             }
 
     def get_recent_thread(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -590,12 +594,12 @@ class _PostgresGuardianDB:
                 "content": entry.content,
                 "tags": entry.tags,
                 "pinned": entry.pinned,
-                "created_at": entry.created_at.isoformat()
-                if entry.created_at
-                else None,
-                "updated_at": entry.updated_at.isoformat()
-                if entry.updated_at
-                else None,
+                "created_at": (
+                    entry.created_at.isoformat() if entry.created_at else None
+                ),
+                "updated_at": (
+                    entry.updated_at.isoformat() if entry.updated_at else None
+                ),
             }
 
     def update_memory(
@@ -691,12 +695,12 @@ class _PostgresGuardianDB:
                 "name": config.name,
                 "type": config.type,
                 "settings": config.config,
-                "created_at": config.created_at.isoformat()
-                if config.created_at
-                else None,
-                "updated_at": config.updated_at.isoformat()
-                if config.updated_at
-                else None,
+                "created_at": (
+                    config.created_at.isoformat() if config.created_at else None
+                ),
+                "updated_at": (
+                    config.updated_at.isoformat() if config.updated_at else None
+                ),
             }
 
     def create_connector_config(
@@ -717,12 +721,12 @@ class _PostgresGuardianDB:
                 "name": config.name,
                 "type": config.type,
                 "settings": config.config,
-                "created_at": config.created_at.isoformat()
-                if config.created_at
-                else None,
-                "updated_at": config.updated_at.isoformat()
-                if config.updated_at
-                else None,
+                "created_at": (
+                    config.created_at.isoformat() if config.created_at else None
+                ),
+                "updated_at": (
+                    config.updated_at.isoformat() if config.updated_at else None
+                ),
             }
 
     def update_connector_config(
@@ -744,12 +748,16 @@ class _PostgresGuardianDB:
                 "name": connector.name,
                 "type": connector.type,
                 "settings": connector.config,
-                "created_at": connector.created_at.isoformat()
-                if connector.created_at
-                else None,
-                "updated_at": connector.updated_at.isoformat()
-                if connector.updated_at
-                else None,
+                "created_at": (
+                    connector.created_at.isoformat()
+                    if connector.created_at
+                    else None
+                ),
+                "updated_at": (
+                    connector.updated_at.isoformat()
+                    if connector.updated_at
+                    else None
+                ),
             }
 
     def create_connector_run(

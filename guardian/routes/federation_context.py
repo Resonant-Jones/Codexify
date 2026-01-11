@@ -181,9 +181,11 @@ async def _search_local(
                         node_type=node.type,
                         label=node.label,
                         score=min(score, 1.0),
-                        summary=node.metadata.get("description")
-                        if node.metadata
-                        else None,
+                        summary=(
+                            node.metadata.get("description")
+                            if node.metadata
+                            else None
+                        ),
                         metadata=node.metadata or {},
                     )
                 )

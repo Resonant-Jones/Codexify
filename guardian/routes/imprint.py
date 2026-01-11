@@ -1,6 +1,7 @@
 """
 Imprint_Zero routes: proposal, acceptance, status, and system prompt summary.
 """
+
 from __future__ import annotations
 
 import logging

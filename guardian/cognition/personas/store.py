@@ -3,6 +3,7 @@ Persona storage helpers.
 
 Maintains user-editable persona prompts with an active flag per (user, project).
 """
+
 from __future__ import annotations
 
 from datetime import datetime

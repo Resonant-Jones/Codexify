@@ -4,6 +4,7 @@ System document storage helpers.
 System docs are long-form, optionally scoped documents that can be attached
 to a user's configuration and included in the system prompt.
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Tuple

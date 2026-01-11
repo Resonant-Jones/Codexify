@@ -4,6 +4,7 @@ Lightweight user settings store.
 For now this is an in-memory shim to gate identity writes by memory_mode and diary settings.
 In production, replace with durable persistence.
 """
+
 from __future__ import annotations
 
 from typing import Dict

@@ -40,7 +40,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -389,9 +389,29 @@ app.include_router(devtools.router)
 logger.info("[routers] All routers included")
 
 
+
 # =========================
 # Unique Endpoints (Not in Routers)
 # =========================
+
+
+# Compatibility aliases for legacy codex routes
+@app.get("/codex/entries", include_in_schema=False)
+def codex_entries_compat():
+    """Compatibility alias for legacy clients; redirect to the canonical /api route."""
+    return RedirectResponse(url="/api/codex/entries")
+
+
+@app.get("/codex/entries/{entry_id}", include_in_schema=False)
+def codex_entry_compat(entry_id: str):
+    """Compatibility alias for legacy clients; redirect to the canonical /api route."""
+    return RedirectResponse(url=f"/api/codex/entries/{entry_id}")
+
+
+@app.get("/codex/entries/{entry_id}/export", include_in_schema=False)
+def codex_entry_export_compat(entry_id: str):
+    """Compatibility alias for legacy clients; redirect to the canonical /api route."""
+    return RedirectResponse(url=f"/api/codex/entries/{entry_id}/export")
 
 
 @app.get("/api/events", tags=["Events"])

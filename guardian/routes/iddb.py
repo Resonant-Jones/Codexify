@@ -3,6 +3,7 @@ Identity/Memory settings routes.
 
 Thin wrapper over guardian.cognition.user_settings.store.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict

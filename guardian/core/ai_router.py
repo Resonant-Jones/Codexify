@@ -108,7 +108,7 @@ def call_local(
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
-        data = response.json()
+        data = json.loads(response.content.decode("utf-8"))
         return data["choices"][0]["message"]["content"]
     except Exception as e:
         logger.exception("Local backend error")
@@ -150,9 +150,10 @@ def stream_local(
             timeout=timeout,
         ) as response:
             response.raise_for_status()
-            for line in response.iter_lines(decode_unicode=True):
-                if not line:
+            for raw_line in response.iter_lines(decode_unicode=False):
+                if not raw_line:
                     continue
+                line = raw_line.decode("utf-8", errors="replace")
                 if line.startswith("data:"):
                     data = line[5:].strip()
                 else:

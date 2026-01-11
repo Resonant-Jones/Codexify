@@ -32,7 +32,9 @@ def load_all_manifests() -> List[PluginManifest]:
     manifests: List[PluginManifest] = []
 
     if not PLUGIN_DIR.exists():
-        logger.warning("[plugin_loader] Plugin directory not found: %s", PLUGIN_DIR)
+        logger.warning(
+            "[plugin_loader] Plugin directory not found: %s", PLUGIN_DIR
+        )
         return manifests
 
     for manifest_file in PLUGIN_DIR.glob("*/manifest.json"):
@@ -52,7 +54,9 @@ def load_all_manifests() -> List[PluginManifest]:
             )
         except Exception as e:
             logger.error(
-                "[plugin_loader] Failed to load manifest %s: %s", manifest_file, e
+                "[plugin_loader] Failed to load manifest %s: %s",
+                manifest_file,
+                e,
             )
 
     logger.info("[plugin_loader] Loaded %d plugin(s)", len(manifests))
