@@ -84,6 +84,16 @@ groq-code-cli/
 node_modules/.vite/
 dist/
 
+# Frontend debug/test artifacts (local-only)
+frontend/src/playwright-report/
+frontend/src/playwright-report/**
+frontend/src/screenshots/guardian-chat__*.png
+frontend/src/screenshots/guardian-chat-panel__*.png
+frontend/src/screenshots/guardian-chat*.png
+frontend/src/screenshots/guardian-chat-panel*.png
+frontend/src/screenshots/layout/
+frontend/src/screenshots/layout/**
+
 # --- allow Vitest files in src ---
 !src/**/__tests__/
 !src/**/__tests__/**
