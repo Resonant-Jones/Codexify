@@ -23,7 +23,10 @@ import requests
 # Add project root to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from guardian.agent_task_queue import AGENT_TASK_QUEUE, update_task_status  # noqa: E402
+from guardian.agent_task_queue import (  # noqa: E402
+    AGENT_TASK_QUEUE,
+    update_task_status,
+)
 from guardian.plugins.plugin_loader import load_all_manifests  # noqa: E402
 from guardian.plugins.plugin_manifest import PluginManifest  # noqa: E402
 from guardian.queue.redis_queue import get_redis_client  # noqa: E402
@@ -46,7 +49,11 @@ def load_plugins() -> None:
     global PLUGIN_BY_ID
     manifests = load_all_manifests()
     PLUGIN_BY_ID = {m.id: m for m in manifests}
-    logger.info("📦 Loaded %d plugin(s): %s", len(PLUGIN_BY_ID), list(PLUGIN_BY_ID.keys()))
+    logger.info(
+        "📦 Loaded %d plugin(s): %s",
+        len(PLUGIN_BY_ID),
+        list(PLUGIN_BY_ID.keys()),
+    )
 
 
 def route_task_to_plugin(agent: str, prompt: str, thread_id: str) -> str:
@@ -68,7 +75,9 @@ def route_task_to_plugin(agent: str, prompt: str, thread_id: str) -> str:
         logger.warning(error_msg)
         return error_msg
 
-    logger.info("  → Routing to plugin: %s at %s", plugin.name, plugin.entrypoint)
+    logger.info(
+        "  → Routing to plugin: %s at %s", plugin.name, plugin.entrypoint
+    )
 
     try:
         resp = requests.post(
@@ -85,15 +94,21 @@ def route_task_to_plugin(agent: str, prompt: str, thread_id: str) -> str:
 
         if resp.status_code == 200:
             result = resp.json().get("result", "[EMPTY]")
-            logger.info("  ← Plugin returned result (%d chars)", len(str(result)))
+            logger.info(
+                "  ← Plugin returned result (%d chars)", len(str(result))
+            )
             return result
         else:
-            error_msg = f"[ERROR] {agent} plugin returned status {resp.status_code}"
+            error_msg = (
+                f"[ERROR] {agent} plugin returned status {resp.status_code}"
+            )
             logger.error(error_msg)
             return error_msg
 
     except requests.exceptions.Timeout:
-        error_msg = f"[ERROR] Plugin '{agent}' timed out after {PLUGIN_TIMEOUT}s"
+        error_msg = (
+            f"[ERROR] Plugin '{agent}' timed out after {PLUGIN_TIMEOUT}s"
+        )
         logger.error(error_msg)
         return error_msg
     except requests.exceptions.ConnectionError as e:
@@ -125,7 +140,9 @@ def run_worker() -> None:
     """Main worker loop."""
     logger.info("🔄 Agent Task Worker started...")
     logger.info("   Queue: %s", AGENT_TASK_QUEUE)
-    logger.info("   Redis: %s", os.environ.get("REDIS_URL", "redis://localhost:6379"))
+    logger.info(
+        "   Redis: %s", os.environ.get("REDIS_URL", "redis://localhost:6379")
+    )
     logger.info("   Result store: %s", RESULT_STORE)
     logger.info("   Plugin timeout: %ds", PLUGIN_TIMEOUT)
 

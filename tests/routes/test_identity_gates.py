@@ -68,14 +68,17 @@ def test_identity_updates_allowed_light_mode():
         get_chat_thread=lambda tid: thread
     )
     try:
-        with patch.object(
-            imprint_routes.user_settings_store,
-            "get_user_settings",
-            return_value={"memory_mode": "light"},
-        ), patch.object(
-            imprint_routes.imprint_store,
-            "save_imprint",
-            return_value=draft_imprint,
+        with (
+            patch.object(
+                imprint_routes.user_settings_store,
+                "get_user_settings",
+                return_value={"memory_mode": "light"},
+            ),
+            patch.object(
+                imprint_routes.imprint_store,
+                "save_imprint",
+                return_value=draft_imprint,
+            ),
         ):
             resp = client.post("/api/imprint/proposal", json={"thread_id": 1})
     finally:
