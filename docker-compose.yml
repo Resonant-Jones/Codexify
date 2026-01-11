@@ -83,6 +83,10 @@ services:
       - -lc
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
       GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       ENABLE_BLIP_MODEL: "false"   # keep migrations light (no model loading)
@@ -102,108 +106,101 @@ services:
       db:
         condition: service_healthy
     restart: "no"
-    command: |
-      set -euo pipefail
+    command:
+      - |
+        set -eu
+        (set -o pipefail) 2>/dev/null && set -o pipefail || true
 
-      echo "[Migrator] Wiring Codexify -> codexify (case alias)"
-      ln -snf /app/codexify /app/Codexify
-      python - <<'PY'
-      import codexify
-      print("[Migrator] codexify resolves to:", getattr(codexify, "__file__", "<namespace>"))
-      PY
+        echo "[Migrator] Wiring Codexify -> codexify (case alias)"
+        ln -snf /app/codexify /app/Codexify
+        python - <<'PY'
+        import codexify
+        print("[Migrator] codexify resolves to:", getattr(codexify, "__file__", "<namespace>"))
+        PY
 
-      echo "[Migrator] DATABASE_URL=${DATABASE_URL:-<unset>}"
+        echo "[Migrator] DATABASE_URL=$$DATABASE_URL"
 
-      echo "[Migrator] Alembic heads (sanity check):"
-      alembic --raiseerr -c backend/alembic.ini heads || true
+        echo "[Migrator] Alembic heads (sanity check):"
+        alembic --raiseerr -c backend/alembic.ini heads || true
 
-      echo "[Migrator] Running Alembic migrations..."
-      alembic --raiseerr -c backend/alembic.ini upgrade head
+        echo "[Migrator] Running Alembic migrations..."
+        alembic --raiseerr -c backend/alembic.ini upgrade head
 
-      echo "[Migrator] Verifying required tables + alembic_version..."
+        echo "[Migrator] Verifying required tables + alembic_version..."
 
-      python - <<'PY'
-      import os
-      from sqlalchemy import create_engine, text
+        python - <<'PY'
+        import os
+        from sqlalchemy import create_engine, text
 
-      url = os.environ.get("DATABASE_URL")
-      if not url:
-          raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
+        url = os.environ.get("DATABASE_URL")
+        if not url:
+            raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
 
-      en = create_engine(url)
+        en = create_engine(url)
 
-      required = [
-          "public.alembic_version",
-          "public.projects",
-          "public.chat_threads",
-          "public.chat_messages",
-          "public.imprints",
-          "public.system_docs",
-          "public.system_doc_links",
-          "public.events_outbox",
-      ]
+        required = [
+            "public.alembic_version",
+            "public.projects",
+            "public.chat_threads",
+            "public.chat_messages",
+            "public.imprints",
+            "public.system_docs",
+            "public.system_doc_links",
+            "public.events_outbox",
+        ]
 
-      with en.begin() as conn:
-          missing = []
-          for t in required:
-              reg = conn.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar()
-              if reg is None:
-                  missing.append(t)
+        with en.begin() as conn:
+            missing = []
+            for t in required:
+                reg = conn.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar()
+                if reg is None:
+                    missing.append(t)
 
-          if missing:
-              tables = conn.execute(text("""
-                  SELECT table_schema || '.' || table_name
-                  FROM information_schema.tables
-                  WHERE table_type = 'BASE TABLE'
-                  ORDER BY 1
-              """)).fetchall()
+            if missing:
+                tables = conn.execute(text("""
+                    SELECT table_schema || '.' || table_name
+                    FROM information_schema.tables
+                    WHERE table_type = 'BASE TABLE'
+                    ORDER BY 1
+                """)).fetchall()
 
-              table_list = "\n  - ".join([r[0] for r in tables]) if tables else "<none>"
-              raise SystemExit(
-                  "[Migrator] ERROR: schema missing required tables:\n  - "
-                  + "\n  - ".join(missing)
-                  + "\n\n[Migrator] Existing tables:\n  - "
-                  + table_list
-              )
+                table_list = "\n  - ".join([r[0] for r in tables]) if tables else "<none>"
+                raise SystemExit(
+                    "[Migrator] ERROR: schema missing required tables:\n  - "
+                    + "\n  - ".join(missing)
+                    + "\n\n[Migrator] Existing tables:\n  - "
+                    + table_list
+                )
 
-          ver = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+            ver = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
 
-      print(f"[Migrator] OK: alembic_version={ver}")
-      PY
+        print(f"[Migrator] OK: alembic_version={ver}")
+        PY
 
-      echo "[Migrator] Post-migration schema guard: ensure chat_threads.metadata exists..."
+        echo "[Migrator] Post-migration schema guard: ensure chat_threads.metadata exists..."
 
-      python - <<'PY'
-      import os
-      from sqlalchemy import create_engine, text
+        python - <<'PY'
+        import os
+        from sqlalchemy import create_engine, text
 
-      url = os.environ.get("DATABASE_URL")
-      if not url:
-          raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
+        url = os.environ.get("DATABASE_URL")
+        if not url:
+            raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
 
-      en = create_engine(url)
-      with en.begin() as conn:
-          conn.execute(text("""
-      DO $$
-      BEGIN
-        IF EXISTS (
-          SELECT 1
-          FROM information_schema.tables
-          WHERE table_schema = 'public' AND table_name = 'chat_threads'
-        ) THEN
-          ALTER TABLE chat_threads
-            ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
-        END IF;
-      END $$;
-      """))
+        en = create_engine(url)
+        with en.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE IF EXISTS chat_threads "
+                "ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;"
+            ))
 
-      print("[Migrator] Post-migration schema guard complete.")
-      PY
+        print("[Migrator] Post-migration schema guard complete.")
+        PY
 
-      echo "[Migrator] Running seed script (should be idempotent)..."
-      python backend/scripts/seed_defaults.py
-      echo "[Migrator] Seed script completed."
-      echo "[Migrator] Done."
+        echo "[Migrator] Running seed script (should be idempotent)..."
+        python backend/scripts/seed_defaults.py
+        echo "[Migrator] Seed script completed."
+        echo "[Migrator] Done."
 
   chatgpt-migrate:
     build:
@@ -215,6 +212,10 @@ services:
     entrypoint: ["python", "scripts/chatgpt_import/import_chatgpt.py"]
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
       GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       LLM_PROVIDER: "local"
@@ -266,6 +267,10 @@ services:
       - ./.chroma:/app/.chroma
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
       GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       PORT: "8888"
@@ -383,8 +388,7 @@ services:
                     FROM information_schema.tables
                     WHERE table_type = 'BASE TABLE'
                     ORDER BY 1
-                """
-                )).fetchall()
+                """)).fetchall()
                 table_list = "\n  - ".join([r[0] for r in tables]) if tables else "<none>"
                 raise SystemExit(
                     "[Backend] ERROR: schema missing required tables:\n  - "
@@ -409,6 +413,9 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
+    entrypoint:
+      - sh
+      - -lc
     depends_on:
       redis:
         condition: service_healthy
@@ -416,6 +423,10 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
       GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       LLM_PROVIDER: "local"
@@ -435,17 +446,21 @@ services:
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: unless-stopped
-    entrypoint: ["sh", "-lc"]
-    command: |
-      echo "[worker-warmup] Starting warm-up worker..."
-      ln -snf /app/codexify /app/Codexify
-      exec python -m guardian.workers.warmup_worker
+    command:
+      - |
+        set -e
+        echo "[worker-warmup] Starting warm-up worker..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.warmup_worker
 
   worker-chat:
     build:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
+    entrypoint:
+      - sh
+      - -lc
     depends_on:
       redis:
         condition: service_healthy
@@ -453,6 +468,10 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
       GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       LLM_PROVIDER: "local"
@@ -472,17 +491,23 @@ services:
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: unless-stopped
-    entrypoint: ["sh", "-lc"]
-    command: |
-      echo "[worker-chat] Starting chat worker..."
-      ln -snf /app/codexify /app/Codexify
-      exec python -m guardian.workers.chat_worker
+    command:
+      - |
+        set -e
+        echo "[worker-chat] Starting chat worker..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.chat_worker
 
   embedding-backfill:
     build:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
+    profiles:
+      - backfill
+    entrypoint:
+      - sh
+      - -lc
     depends_on:
       db:
         condition: service_healthy
@@ -490,6 +515,10 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
       GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       LLM_PROVIDER: "local"
@@ -514,9 +543,8 @@ services:
       - ./.chroma:/app/.chroma
     restart: "no"
     command:
-      - sh
-      - -lc
       - |
+        set -e
         echo "[embedding-backfill] Starting embedding backfill..."
         ln -snf /app/codexify /app/Codexify
         exec python -m guardian.workers.embedding_backfill_worker
@@ -526,6 +554,11 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
+    profiles:
+      - backfill
+    entrypoint:
+      - sh
+      - -lc
     depends_on:
       db:
         condition: service_healthy
@@ -537,6 +570,10 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
       GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       NEO4J_BOLT_URL: bolt://neo4j:codexify@neo4j:7687
@@ -553,9 +590,8 @@ services:
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: "no"
     command:
-      - sh
-      - -lc
       - |
+        set -e
         echo "[graph-backfill] Starting graph backfill..."
         ln -snf /app/codexify /app/Codexify
         exec python -m guardian.workers.graph_backfill_worker
