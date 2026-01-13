@@ -8,6 +8,7 @@ import { ImagePlus } from "lucide-react";
 import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
 import { MemoryBrowser } from "@/features/settings/diagnostics";
+import { ChatGPTImportModal } from "@/components/modals/ChatGPTImportModal";
 
 export function SettingsView({
   mode,
@@ -70,7 +71,8 @@ export function SettingsView({
   ingestionEnabled: boolean;
   setIngestionEnabled: (b: boolean) => void;
 }) {
-  const [tab, setTab] = useState<"appearance" | "system" | "connectors" | "diagnostics">("appearance");
+  const [tab, setTab] = useState<"appearance" | "system" | "connectors" | "data" | "diagnostics">("appearance");
+  const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
   const [name, setName] = useState(guardianName);
   const [uName, setUName] = useState(userName);
   const [uRole, setURole] = useState(role);
@@ -136,6 +138,9 @@ export function SettingsView({
           </Button>
           <Button type="button" variant={tab === "connectors" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("connectors")}>
             Connectors
+          </Button>
+          <Button type="button" variant={tab === "data" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("data")}>
+            Data
           </Button>
           <Button type="button" variant={tab === "diagnostics" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("diagnostics")}>
             Diagnostics
@@ -348,12 +353,38 @@ export function SettingsView({
           </div>
         )}
 
+        {tab === "data" && (
+          <div className="space-y-4">
+            <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
+              <div className="space-y-2">
+                <div className="text-sm font-semibold">ChatGPT Migration</div>
+                <p className="text-xs opacity-70 leading-relaxed">
+                  Import your full conversation history from ChatGPT. This process ingests your data into both the Knowledge Graph (for relationships) and the Vector Store (for semantic recall).
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={() => setChatGPTModalOpen(true)}
+                className="rounded-[var(--tile-radius,19px)] w-full"
+              >
+                Import from ChatGPT
+              </Button>
+            </div>
+          </div>
+        )}
+
         {tab === "diagnostics" && (
           <div className="space-y-4">
             <MemoryBrowser />
           </div>
         )}
       </div>
+
+      <ChatGPTImportModal
+        open={chatGPTModalOpen}
+        onOpenChange={setChatGPTModalOpen}
+        userName={userName}
+      />
     </div>
   );
 }
