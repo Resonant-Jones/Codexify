@@ -10,6 +10,7 @@ Handles:
 """
 
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -40,6 +41,7 @@ from guardian.db.models import (
     UploadedDocument,
     UploadedImage,
 )
+from guardian.image_gen.router import ImageGenRouter
 
 logger = logging.getLogger(__name__)
 
@@ -389,21 +391,44 @@ async def upload_document(
 )
 async def generate_image(request: ImageGenerationRequest):
     """
-    Track an AI-generated image.
+    Generate an image using the configured AI provider.
 
-    NOTE: This endpoint doesn't actually generate images (yet).
-    It's for tracking generated images in the database.
-    Actual generation should happen via DALL-E/Stable Diffusion providers.
+    Calls the image generation provider (OpenAI DALL-E, Stability AI, or local),
+    saves the generated image bytes to storage, and tracks in the database.
     """
-    # TODO: Integrate with actual image generation provider
-    # For now, this is a tracking endpoint only
-
     db = _get_db()
     image_id = str(uuid.uuid4())
 
-    # Placeholder: In production, this would call DALL-E/SD and get back an image URL
-    src_url = f"/media/generated/{image_id}.png"
+    try:
+        # Generate image using configured provider
+        image_bytes = ImageGenRouter.generate(
+            prompt=request.prompt,
+            model=request.model,
+        )
 
+        # Save image to storage with unique filename
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+        filename = f"generated_images/gen_{image_id[:8]}_{timestamp}.png"
+
+        src_url = storage.upload_file(
+            image_bytes, filename, content_type="image/png"
+        )
+
+        logger.info(f"Image generated: {request.prompt[:50]}... -> {src_url}")
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (missing provider config, etc.)
+        raise
+    except Exception as exc:
+        logger.exception(
+            f"Image generation failed: {request.prompt[:50]}... error={exc}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Image generation failed: {str(exc)}",
+        )
+
+    # Track generated image in database
     with db.get_session() as session:
         generated_image = GeneratedImage(
             id=image_id,
@@ -416,10 +441,6 @@ async def generate_image(request: ImageGenerationRequest):
         )
         session.add(generated_image)
         session.commit()
-
-    logger.info(
-        f"Image generation tracked: {request.prompt[:50]}... using {request.model}"
-    )
 
     return ImageGenerationResponse(
         id=image_id,
