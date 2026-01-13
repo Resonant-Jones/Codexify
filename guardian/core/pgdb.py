@@ -83,6 +83,7 @@ class PgDB(ChatDB):
         # connector_configs.schedule column. We detect this lazily and
         # degrade to a schedule-less projection instead of failing queries.
         self._connector_has_schedule = False
+        self._chat_messages_has_kind: bool | None = None
 
     def _normalize_dsn(self, dsn: str) -> str:
         """Coerce any SQLAlchemy-style DSN to plain psycopg-compatible URL."""
@@ -118,6 +119,29 @@ class PgDB(ChatDB):
             raise
         finally:
             session.close()
+
+    def _chat_messages_supports_kind(self) -> bool:
+        if self._chat_messages_has_kind is not None:
+            return self._chat_messages_has_kind
+        try:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'chat_messages'
+                          AND column_name = 'kind'
+                        """
+                    )
+                    self._chat_messages_has_kind = cur.fetchone() is not None
+        except Exception as exc:
+            logging.warning(
+                "[chat] unable to inspect chat_messages.kind column: %s", exc
+            )
+            self._chat_messages_has_kind = False
+        return self._chat_messages_has_kind
 
     # ---- internal helpers -------------------------------------------------
     def _ensure_sync_jobs_table(self, conn) -> None:
@@ -902,24 +926,39 @@ class PgDB(ChatDB):
         *,
         limit: int | None = None,
         offset: int | None = None,
+        exclude_kinds: list[str] | None = None,
     ):
         """Return messages for a thread ordered by created_at ASC."""
         limit_val = limit if limit is not None else 50
         offset_val = offset if offset is not None else 0
+        has_kind = False
+        if exclude_kinds:
+            has_kind = self._chat_messages_supports_kind()
+        columns = "id, thread_id, role, content, created_at"
+        if has_kind:
+            columns = f"{columns}, kind"
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT id, thread_id, role, content, created_at
-                    FROM chat_messages
-                    WHERE thread_id = %s
-                    ORDER BY created_at ASC, id ASC
-                    LIMIT %s OFFSET %s
-                    """,
-                    (thread_id, limit_val, offset_val),
-                )
+                query = [
+                    f"SELECT {columns}",
+                    "FROM chat_messages",
+                    "WHERE thread_id = %s",
+                ]
+                params: list[Any] = [thread_id]
+                if exclude_kinds and has_kind:
+                    query.append("AND (kind IS NULL OR kind NOT IN %s)")
+                    params.append(tuple(exclude_kinds))
+                query.append("ORDER BY created_at ASC, id ASC")
+                query.append("LIMIT %s OFFSET %s")
+                params.extend([limit_val, offset_val])
+                cur.execute(" ".join(query), params)
                 rows = cur.fetchall()
-                return [dict(row) for row in rows]
+                messages = [dict(row) for row in rows]
+        if exclude_kinds and not has_kind:
+            messages = [
+                row for row in messages if row.get("kind") not in exclude_kinds
+            ]
+        return messages
 
     def count_messages(self, thread_id: int):
         """Return integer count of messages for a thread."""

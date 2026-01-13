@@ -88,6 +88,8 @@ def call_local(
     settings: Optional[Settings] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    timeout: Optional[float] = None,
+    log_exceptions: bool = True,
 ):
     settings = _resolve_settings(settings)
     api_key = settings.LOCAL_API_KEY or "local"
@@ -104,14 +106,20 @@ def call_local(
         payload["max_tokens"] = int(max_tokens)
     base_url = _resolve_local_base(settings)
     url = f"{base_url}/chat/completions"
+    request_timeout = 30 if timeout is None else float(timeout)
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response = requests.post(
+            url, json=payload, headers=headers, timeout=request_timeout
+        )
         response.raise_for_status()
         data = json.loads(response.content.decode("utf-8"))
         return data["choices"][0]["message"]["content"]
     except Exception as e:
-        logger.exception("Local backend error")
+        if log_exceptions:
+            logger.exception("Local backend error")
+        else:
+            logger.warning("Local backend error: %s", e)
         raise HTTPException(status_code=502, detail=str(e))
 
 

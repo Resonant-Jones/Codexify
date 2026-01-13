@@ -20,6 +20,9 @@ QUEUE_NAME = os.getenv("WARMUP_QUEUE_NAME", "codexify:queue:system")
 MAX_RETRIES = int(os.getenv("WARMUP_MAX_RETRIES", "5"))
 BACKOFF_BASE_SECONDS = float(os.getenv("WARMUP_BACKOFF_BASE_SECONDS", "1.0"))
 BACKOFF_MAX_SECONDS = float(os.getenv("WARMUP_BACKOFF_MAX_SECONDS", "8.0"))
+LOCAL_WARMUP_TIMEOUT_SECONDS = float(
+    os.getenv("LOCAL_WARMUP_TIMEOUT_SECONDS", "45")
+)
 
 
 def _is_embedding_model(model: str) -> bool:
@@ -68,6 +71,8 @@ def _warm_model(task: WarmupTask, model: str) -> bool:
                 model=model,
                 max_tokens=1,
                 temperature=0.0,
+                timeout=LOCAL_WARMUP_TIMEOUT_SECONDS,
+                log_exceptions=False,
             )
             logger.info(
                 "[warmup] success task=%s model=%s", task.task_id, model

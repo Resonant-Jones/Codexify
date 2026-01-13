@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import create_engine, func, inspect, text
+from sqlalchemy import create_engine, func, inspect, or_, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -456,7 +456,12 @@ class _PostgresGuardianDB:
         with self.get_session() as session:
             query = session.query(ChatMessage).filter_by(thread_id=thread_id)
             if exclude_kinds:
-                query = query.filter(ChatMessage.kind.notin_(exclude_kinds))
+                query = query.filter(
+                    or_(
+                        ChatMessage.kind.is_(None),
+                        ChatMessage.kind.notin_(exclude_kinds),
+                    )
+                )
             messages = (
                 query.order_by(ChatMessage.event_at.asc(), ChatMessage.id.asc())
                 .limit(limit)

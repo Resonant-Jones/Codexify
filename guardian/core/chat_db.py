@@ -193,6 +193,7 @@ class ChatDB(ABC):
         *,
         limit: int = 50,
         offset: int = 0,
+        exclude_kinds: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """List messages in a thread.
 
@@ -200,6 +201,7 @@ class ChatDB(ABC):
             thread_id (int): The ID of the thread.
             limit (int, optional): The maximum number of messages. Defaults to 50.
             offset (int, optional): The offset. Defaults to 0.
+            exclude_kinds (list[str] | None, optional): Message kinds to omit.
 
         Returns:
             List[Dict[str, Any]]: A list of messages in the thread.
