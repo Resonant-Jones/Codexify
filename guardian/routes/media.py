@@ -11,7 +11,7 @@ Handles:
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import (
@@ -194,7 +194,7 @@ async def upload_image(
             filename=file.filename,
             filesize=filesize,
             mime_type=file.content_type,
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
         )
 
     except Exception as e:
@@ -242,7 +242,7 @@ async def delete_image(image_id: str):
             raise HTTPException(status_code=404, detail="Image not found")
 
         # Soft delete
-        image.deleted_at = datetime.utcnow()
+        image.deleted_at = datetime.now(timezone.utc)
         session.commit()
 
         logger.info(f"Image {image_id} soft-deleted")
@@ -351,7 +351,7 @@ async def upload_document(
                     "user_id": user_id,
                     "project_id": project_id,
                     "thread_id": thread_id,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
 
                 # Embed and index
@@ -369,7 +369,7 @@ async def upload_document(
             filesize=filesize,
             mime_type=file.content_type,
             parsed_text=parsed_text,
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
         )
 
     except Exception as e:
@@ -426,7 +426,7 @@ async def generate_image(request: ImageGenerationRequest):
         src_url=src_url,
         prompt=request.prompt,
         model=request.model,
-        created_at=datetime.utcnow().isoformat(),
+        created_at=datetime.now(timezone.utc).isoformat(),
     )
 
 
@@ -457,7 +457,7 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
         )
 
         # Generate unique filename
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
         filename = f"audio/tts_{timestamp}.wav"
 
         # Upload to storage

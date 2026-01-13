@@ -8,7 +8,7 @@ Includes memory pruning, search, and history retrieval.
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
@@ -158,8 +158,8 @@ def memory_create(
             "content": content,
             "tags": tags,
             "pinned": pinned,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         EPHEMERAL_MEMORY.append(entry)
         return {"ok": True, "entry": entry}
@@ -215,7 +215,7 @@ def memory_update(
                     e["tags"] = ",".join(body.get("tags", []) or [])
                 if "pinned" in body:
                     e["pinned"] = bool(body["pinned"])
-                e["updated_at"] = datetime.utcnow().isoformat()
+                e["updated_at"] = datetime.now(timezone.utc).isoformat()
                 return {"ok": True}
         return JSONResponse(
             status_code=404, content={"ok": False, "error": "not found"}
@@ -533,7 +533,7 @@ def log_entry(entry: LogEntry, current_user: str = Depends(get_current_user)):
     Returns:
         Confirmation message with timestamp
     """
-    timestamp = datetime.now().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     try:
         chatlog_db.insert_memory_event(
             content=entry.command,
@@ -564,7 +564,7 @@ def summarize_entry(
     Returns:
         Confirmation message with timestamp
     """
-    timestamp = datetime.now().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     try:
         chatlog_db.insert_memory_event(
             content=entry.summary,

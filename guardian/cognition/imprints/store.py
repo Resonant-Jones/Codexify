@@ -7,8 +7,8 @@ only one imprint may be active for a given (user_id, project_id) pair.
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Optional
+from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import sessionmaker
@@ -82,8 +82,8 @@ def save_imprint(
             grammar_prefs=fields.get("grammar_prefs") or {},
             metrics=fields.get("metrics") or {},
             heat_score=fields.get("heat_score"),
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
         session.add(imprint)
         session.commit()
@@ -110,11 +110,11 @@ def activate_imprint(imprint_id: int) -> Imprint:
                 Imprint.status == "active",
                 Imprint.id != imprint.id,
             )
-            .values(status="superseded", updated_at=datetime.utcnow())
+            .values(status="superseded", updated_at=datetime.now(timezone.utc))
         )
 
         imprint.status = "active"
-        imprint.updated_at = datetime.utcnow()
+        imprint.updated_at = datetime.now(timezone.utc)
         session.add(imprint)
         session.commit()
         session.refresh(imprint)
@@ -129,7 +129,7 @@ def supersede_imprint(imprint_id: int) -> Imprint | None:
         if not imprint:
             return None
         imprint.status = "superseded"
-        imprint.updated_at = datetime.utcnow()
+        imprint.updated_at = datetime.now(timezone.utc)
         session.add(imprint)
         session.commit()
         session.refresh(imprint)

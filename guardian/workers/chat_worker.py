@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any
 
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
@@ -18,6 +19,10 @@ from guardian.core.config import (
     LLMConfigError,
     get_settings,
     validate_llm_config,
+)
+from guardian.core.message_guard import (
+    EMPTY_ASSISTANT_FALLBACK,
+    guard_assistant_message_content,
 )
 from guardian.queue import task_events
 from guardian.queue.redis_queue import clear_cancelled, dequeue, is_cancelled
@@ -62,7 +67,7 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
             "thread_id": thread_id,
             "role": role,
             "message_id": message_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "chat",
         }
         dependencies._vector_store.add_texts([{"text": content, "meta": meta}])
@@ -115,10 +120,8 @@ async def _build_messages_for_llm(
     items = dependencies.chatlog_db.list_messages(
         thread_id, limit=limit, offset=0
     )
-    try:
+    with contextlib.suppress(Exception):
         items = sorted(items, key=lambda m: m.get("id") or 0)
-    except Exception:
-        pass
 
     context: list[dict[str, str]] = []
     for msg in items:
@@ -320,15 +323,27 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         return
 
     try:
+        assistant_text = guard_assistant_message_content(
+            "assistant",
+            assistant_text,
+            thread_id=task.thread_id,
+            origin="chat_worker",
+        )
+    except ValueError:
+        logger.warning(
+            "[chat-worker] blank assistant content replaced thread_id=%s",
+            task.thread_id,
+        )
+        assistant_text = EMPTY_ASSISTANT_FALLBACK
+
+    try:
         mid = dependencies.chatlog_db.create_message(
             task.thread_id, "assistant", assistant_text
         )
-        try:
+        with contextlib.suppress(Exception):
             dependencies.chatlog_db.write_audit_log(
                 "create", "chat_message", str(mid), user_id="bot"
             )
-        except Exception:
-            pass
 
         try:
             event_bus.emit_event(

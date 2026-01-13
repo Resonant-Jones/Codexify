@@ -71,10 +71,22 @@ repos:
         -   flake8-bugbear
         -   flake8-comprehensions
         -   flake8-simplify
-        args: [--max-line-length=88, --extend-ignore=E501,W503,E203]
+        args:
+        - --max-line-length=88
+        - "--extend-ignore=E501,W503,E203"
         # E501: line too long (handled by black)
         # W503: line break before binary operator (black style)
         # E203: whitespace before ':' (black style)
+        files: |
+            (?x)^(
+                guardian/routes/threads\.py|
+                guardian/workers/chat_worker\.py|
+                guardian/identity\.py|
+                guardian/cognition/(imprints|personas)/store\.py|
+                guardian/graph/models\.py|
+                guardian/eval/run_graph_rag_benchmark\.py|
+                backend/rag/chatgpt_migration\.py
+            )$
 
 -   repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.3.0

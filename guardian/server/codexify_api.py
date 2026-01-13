@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -493,8 +493,8 @@ def save_entry(req: SaveEntryRequest):
             return safe[:80]
 
         ext = req.format if req.format in ("md", "txt", "html") else "md"
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        time_str = datetime.now().strftime("%H-%M-%S")
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        time_str = datetime.now(timezone.utc).strftime("%H-%M-%S")
         slug = _sanitize(req.title)
         tmpl = os.environ.get("CODEXIFY_FILENAME_TEMPLATE", "")
         if tmpl:

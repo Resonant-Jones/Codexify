@@ -137,6 +137,7 @@ from guardian.routes.imprint import router as imprint_router
 from guardian.routes.imprint import system_docs_router, system_prompt_router
 from guardian.routes.media import router as media_router
 from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
+from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import ensure_loose_threads_project
 from guardian.routes.projects import router as projects_router
 from guardian.routes.tools import router as tools_router
@@ -371,6 +372,7 @@ app.include_router(backfill.router)
 app.include_router(threads.router)
 app.include_router(projects_router)
 app.include_router(memory.router)
+app.include_router(personal_facts_router)
 app.include_router(agent.router, prefix="/agent")
 app.include_router(research.router, prefix="/research")
 app.include_router(documents.router)
@@ -387,7 +389,6 @@ app.include_router(migration.router)
 app.include_router(devtools.router)
 
 logger.info("[routers] All routers included")
-
 
 
 # =========================

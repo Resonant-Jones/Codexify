@@ -6,8 +6,7 @@ Maintains user-editable persona prompts with an active flag per (user, project).
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import sessionmaker
@@ -73,7 +72,7 @@ def set_persona(
                 Persona.project_id == project_id,
                 Persona.is_active.is_(True),
             )
-            .values(is_active=False, updated_at=datetime.utcnow())
+            .values(is_active=False, updated_at=datetime.now(timezone.utc))
         )
 
         persona = Persona(
@@ -82,8 +81,8 @@ def set_persona(
             body=body,
             source=source,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
         session.add(persona)
         session.commit()

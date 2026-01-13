@@ -4,7 +4,7 @@ import base64
 import hashlib
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict
 
 from cryptography.hazmat.primitives import serialization
@@ -36,7 +36,9 @@ def _generate_identity() -> Dict:
 
     return {
         "user_id": f"user_{user_id}",
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.now(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
         "key_version": 1,
         "public_key": base64.b64encode(public_bytes).decode("utf-8"),
         "private_key": base64.b64encode(private_bytes).decode("utf-8"),

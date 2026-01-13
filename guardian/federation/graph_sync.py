@@ -234,9 +234,8 @@ async def _handle_diff_applied_event(payload: Dict[str, Any]) -> None:
                 doc_node.metadata = {}
             doc_node.metadata["latest_version"] = version
             doc_node.metadata["latest_diff_author"] = author
-            doc_node.metadata["last_diff_applied"] = datetime.now(
-                timezone.utc
-            ).isoformat()
+            now = datetime.now(timezone.utc)
+            doc_node.metadata["last_diff_applied"] = now.isoformat()
             store.upsert_node(doc_node)
 
             # If author is a node ID, create edge
