@@ -633,6 +633,9 @@ async def chat_complete(
         logger.warning("[chat.complete] queue unavailable: %s", exc)
         raise HTTPException(status_code=503, detail="queue_unavailable")
 
+    # Track latest task for debug endpoint
+    _thread_latest_task[thread_id] = task.task_id
+
     try:
         task_events.publish(
             task.task_id,
@@ -963,13 +966,48 @@ async def simple_chat_entrypoint(
 # This is ephemeral and per-process, which is fine for dev debugging.
 _rag_traces: Dict[int, Dict[str, Any]] = {}
 
+# Track latest task_id per thread for debug endpoint
+_thread_latest_task: Dict[int, str] = {}
+
+
+def _get_trace_from_task_events(task_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Poll task events stream to extract the trace from task.completed event.
+    Returns the trace dict if found, None otherwise.
+    """
+    try:
+        # Read task events, starting from beginning
+        events = task_events.read_events(task_id, "0", count=100, block_ms=1000)
+        for _, event in events:
+            if event.get("type") == "task.completed":
+                data = event.get("data", {})
+                trace = data.get("trace")
+                if trace:
+                    return trace
+        return None
+    except Exception as exc:
+        logger.debug("[chat] failed to read task events for trace: %s", exc)
+        return None
+
 
 @router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
 def get_latest_rag_trace(thread_id: int):
     """
     [DEV ONLY] Get the RAG trace for the last completion in this thread.
+
+    Attempts to read from task events if task_id is tracked,
+    falls back to in-memory cache otherwise.
     Returns empty arrays if no trace is available.
     """
+    # Try to get trace from task events if we have a recent task
+    task_id = _thread_latest_task.get(thread_id)
+    if task_id:
+        trace = _get_trace_from_task_events(task_id)
+        if trace:
+            _rag_traces[thread_id] = trace  # Cache it
+            return trace
+
+    # Fall back to in-memory cache
     trace = _rag_traces.get(thread_id)
     if not trace:
         return {"documents": [], "graph": []}
