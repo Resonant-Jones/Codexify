@@ -286,7 +286,7 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
-      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -431,7 +431,7 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
-      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -451,7 +451,7 @@ services:
         set -e
         echo "[worker-warmup] Starting warm-up worker..."
         ln -snf /app/codexify /app/Codexify
-        exec python -m guardian.workers.warmup_worker
+        exec python /app/guardian/workers/warmup_worker.py
 
   worker-chat:
     build:
@@ -476,7 +476,7 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
-      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -523,7 +523,7 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
-      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
