@@ -56,9 +56,33 @@ export function useUploader({
       if (!ext) continue;
       try {
         if (IMAGE_EXT.has(ext)) {
-          const data = await readAsDataUrl(f);
-          imgs.push({ src: data, prompt: f.name });
+          // POST to backend /api/media/upload/image
+          let uploadedImage: any = null;
+          try {
+            const formData = new FormData();
+            formData.append("file", f);
+            if (projectId) formData.append("project_id", String(projectId));
+
+            const uploadResp = await fetch("/api/media/upload/image", {
+              method: "POST",
+              body: formData,
+            });
+
+            if (uploadResp.ok) {
+              uploadedImage = await uploadResp.json();
+            } else {
+              throw new Error(`Image upload failed: ${uploadResp.status}`);
+            }
+          } catch {
+            totalFailed++;
+          }
+
+          // Use server response URL or fall back to local data URL
+          const imageUrl = uploadedImage?.src_url || (await readAsDataUrl(f));
+          imgs.push({ src: imageUrl, prompt: f.name });
+
           // data URL looks like data:mime;base64,XXXX
+          const data = await readAsDataUrl(f);
           const base64 = (data.split(",")[1] || "");
           ingestItems.push({ filename: f.name, mimeType: f.type || "image/*", fileBytes: base64, source: tag || "upload", tags: [] });
         } else if (DOC_EXT.has(ext)) {

@@ -1,8 +1,9 @@
 // src/components/gallery/GalleryView.tsx
-import React, { useContext, useMemo, useState } from "react";
+import React, { useContext, useMemo, useState, useEffect } from "react";
 import { ProjectContext } from "@/components/layout/ProjectContext";
 import PreviewTile from "@/components/gallery/PreviewTile";
 import FrameCard from "@/components/surface/FrameCard";
+import useUploader from "@/hooks/useUploader";
 import { X } from "lucide-react";
 
 export type GalleryItem = { src: string; prompt: string; project?: string };
@@ -28,11 +29,11 @@ const DEMO_GALLERY_ITEMS: GalleryItem[] = [
 ];
 
 type Props = {
-  items: GalleryItem[];
+  items?: GalleryItem[];
   onSelect: (prompt: string) => void;
 };
 
-const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
+const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   const ctx = useContext(ProjectContext);
   const projectId = ctx?.projectId ?? null;
 
@@ -41,10 +42,62 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
     return window.localStorage.getItem("cfy.hideMockGallery") !== "1";
   });
 
-  const visible = useMemo(
-    () => (projectId ? items.filter((i) => i.project === projectId) : items),
-    [items, projectId]
+  const [backendImages, setBackendImages] = useState<GalleryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Fetch images from backend on mount
+  useEffect(() => {
+    setIsLoading(true);
+    fetch("/api/media/images")
+      .then((resp) => {
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+      })
+      .then((data) => {
+        // Convert backend image objects to GalleryItem format
+        const images = Array.isArray(data.images)
+          ? data.images.map((img: any) => ({
+              src: img.src_url || img.url,
+              prompt: img.filename || "Untitled",
+              project: img.project_id,
+            }))
+          : [];
+        setBackendImages(images);
+      })
+      .catch(() => {
+        // Silently fail, fall back to demo gallery
+        setBackendImages([]);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, []);
+
+  // Merge prop items with backend images
+  const allItems = useMemo(
+    () => [...propItems, ...backendImages],
+    [propItems, backendImages]
   );
+
+  // Filter by project if needed
+  const visible = useMemo(
+    () => (projectId ? allItems.filter((i) => i.project === projectId) : allItems),
+    [allItems, projectId]
+  );
+
+  // Setup uploader for image uploads
+  const uploader = useUploader({
+    tag: "gallery",
+    projectId,
+    onImages: (newImages) => {
+      // Add newly uploaded images to the gallery
+      setBackendImages((prev) => [...prev, ...newImages]);
+    },
+    onDocuments: () => {},
+    onAnyUpload: () => {
+      try { localStorage.setItem("cfy.hasUserUpload", "true"); } catch {}
+    },
+  });
 
   // Compute which gallery items to show
   const hasRealGallery = visible && visible.length > 0;
@@ -52,6 +105,14 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
     () => (hasRealGallery ? visible : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
     [visible, hasRealGallery, showDemoGallery]
   );
+
+  const handleDelete = async (item: GalleryItem) => {
+    // Try to delete from backend (if it's from backend)
+    // For now, just remove from local state
+    setBackendImages((prev) =>
+      prev.filter((img) => img.src !== item.src)
+    );
+  };
 
   const tileSize = 224;
 
@@ -82,10 +143,21 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
             </button>
           </div>
         )}
-        <div className="flex-1 min-h-0 overflow-auto pb-1">
+        <div
+          className="flex-1 min-h-0 overflow-auto pb-1"
+          onDrop={uploader.onDrop}
+          onDragOver={uploader.onDragOver}
+        >
           {galleryToRender.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-sm opacity-70">
-              No gallery images yet. Generate or upload to get started.
+            <div className="flex h-full items-center justify-center flex-col gap-3 text-sm opacity-70">
+              <div>No gallery images yet. Generate or upload to get started.</div>
+              <button
+                type="button"
+                onClick={uploader.pick}
+                className="text-xs underline hover:opacity-80"
+              >
+                Choose images to upload
+              </button>
             </div>
           ) : (
             <div
@@ -105,6 +177,19 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
               ))}
             </div>
           )}
+        </div>
+        <div className="flex-shrink-0 flex items-center justify-between gap-2 border-t border-[var(--panel-border)] py-3 text-xs" style={{ color: "var(--muted)" }}>
+          <div className="flex items-center gap-2">
+            <span>Drag & drop images here, or</span>
+            <button
+              type="button"
+              className="underline hover:opacity-80"
+              onClick={uploader.pick}
+            >
+              upload images
+            </button>
+          </div>
+          {isLoading && <span className="text-xs opacity-60">Loading...</span>}
         </div>
       </FrameCard>
     </div>
