@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -26,7 +26,9 @@ class ThreadCreatePayload(BaseModel):
 
 @router.get("/threads")
 @api_router.get("/threads")
-def list_threads(api_key: str = Depends(require_api_key)) -> Dict[str, Any]:
+def list_threads(
+    api_key: str = Depends(require_api_key),  # noqa: B008
+) -> Dict[str, Any]:
     """
     List legacy threads.
 
@@ -53,8 +55,8 @@ def list_threads(api_key: str = Depends(require_api_key)) -> Dict[str, Any]:
 @router.post("/threads")
 @api_router.post("/threads")
 def create_thread(
-    body: ThreadCreatePayload = Body(...),
-    api_key: str = Depends(require_api_key),
+    body: ThreadCreatePayload = Body(...),  # noqa: B008
+    api_key: str = Depends(require_api_key),  # noqa: B008
 ) -> Dict[str, Any]:
     """
     Create a legacy thread row and return its identifier.
@@ -73,7 +75,7 @@ def create_thread(
     try:
         tid: int = chatlog_db.create_thread(  # type: ignore[attr-defined]
             parent_thread_id=None,
-            session_id=f"threads:{datetime.utcnow().isoformat()}",
+            session_id="threads:" + datetime.now(timezone.utc).isoformat(),
             summary=summary,
             user_id="default",
             project_id=body.project_id,

@@ -786,7 +786,7 @@ def codexify_database_cli_wrapper():
                 )
 
         # Prompt user for DB name if not provided (always after parent_page_id is set)
-        default_db_title = f"Guardian Codex {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        default_db_title = f"Guardian Codex {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')}"
         db_title = args.db_title or prompt_for_db_name(default_db_title)
 
         try:
@@ -1122,7 +1122,7 @@ def create_notion_database_from_records(
     """
     client = Client(auth=notion_token)
     if not db_title:
-        db_title = f"Guardian Codex {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        db_title = f"Guardian Codex {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')}"
 
     # Use fieldmap (if supplied) to define schema, else infer
     # LLM NOTE: Notion API is strict. For date columns, property must be type "date". No fallback to text.
@@ -1285,7 +1285,7 @@ def ensure_structure(root):
 
 
 def create_entry(root, title, tags):
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(datetime.timezone.utc)
     entry_id = f"PCX-EP{now.strftime('%j')}-{now.strftime('%H%M')}"
     filename = os.path.join(root, "entries", f"{entry_id}.md")
     content = f"""# Codex Entry: {entry_id}

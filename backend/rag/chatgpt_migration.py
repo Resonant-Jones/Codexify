@@ -2,8 +2,8 @@
 
 import json
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Dict, Optional
 
 from guardian.core import dependencies
 
@@ -75,7 +75,7 @@ def ingest_chatgpt_export(
 
             # Linearize messages
             messages = []
-            for node_id, node in mapping.items():
+            for _node_id, node in mapping.items():
                 message = node.get("message")
                 if not message:
                     continue
@@ -143,11 +143,11 @@ def ingest_chatgpt_export(
                             "role": msg["role"],
                             "message_id": mid,
                             "timestamp": (
-                                datetime.utcfromtimestamp(
-                                    msg["timestamp"]
+                                datetime.fromtimestamp(
+                                    msg["timestamp"], timezone.utc
                                 ).isoformat()
                                 if msg["timestamp"]
-                                else datetime.utcnow().isoformat()
+                                else datetime.now(timezone.utc).isoformat()
                             ),
                             "source": "chatgpt_import",
                         }

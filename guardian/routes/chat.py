@@ -13,7 +13,7 @@ Frontend contract (primary calls today):
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -153,7 +153,7 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
             "thread_id": thread_id,
             "role": role,
             "message_id": message_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "chat",
         }
         _vector_store.add_texts([{"text": content, "meta": meta}])
@@ -533,7 +533,7 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
                 {
                     "message_id": message_id,
                     "content": message_text,
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                 }
             )
             if isinstance(neo_msg, list):
@@ -557,9 +557,20 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
 
 
 @router.get("/{thread_id}/messages")
-def chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
+def chat_list_messages(
+    thread_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    include_fact_evidence: bool = False,
+):
     """List messages for a chat thread."""
-    items = chatlog_db.list_messages(thread_id, limit=limit, offset=offset)
+    exclude_kinds = None if include_fact_evidence else ["fact_evidence"]
+    items = chatlog_db.list_messages(
+        thread_id,
+        limit=limit,
+        offset=offset,
+        exclude_kinds=exclude_kinds,
+    )
     total = chatlog_db.count_messages(thread_id)
     return {"ok": True, "total": total, "messages": items}
 
