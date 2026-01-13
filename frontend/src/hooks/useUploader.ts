@@ -17,11 +17,15 @@ export function useUploader({
   onDocuments,
   onAnyUpload,
   tag,
+  projectId,
+  threadId,
 }: {
   onImages: (items: { src: string; prompt: string; mock?: boolean }[]) => void;
-  onDocuments: (items: { name: string; ext: string; mock?: boolean; source?: string }[]) => void;
+  onDocuments: (items: { name: string; ext: string; mock?: boolean; source?: string; id?: string; filename?: string }[]) => void;
   onAnyUpload?: () => void;
   tag?: string; // optional source tag (e.g., "chat", "project:<id>")
+  projectId?: number | string;
+  threadId?: number | string;
 }) {
   const accept = ".pdf,.docx,.md,.txt,.png,.jpg,.jpeg,.webp";
 
@@ -66,7 +70,39 @@ export function useUploader({
               preview = txt.slice(0, 2000);
             } catch {}
           }
-          docs.push({ name: f.name.replace(/\.[^.]+$/, ""), ext: ext.replace(".", ""), source: tag });
+
+          // POST to backend /api/media/upload/document
+          let uploadedDoc: any = null;
+          try {
+            const formData = new FormData();
+            formData.append("file", f);
+            if (projectId) formData.append("project_id", String(projectId));
+            if (threadId) formData.append("thread_id", String(threadId));
+
+            const uploadResp = await fetch("/api/media/upload/document", {
+              method: "POST",
+              body: formData,
+            });
+
+            if (uploadResp.ok) {
+              uploadedDoc = await uploadResp.json();
+            } else {
+              throw new Error(`Upload failed: ${uploadResp.status}`);
+            }
+          } catch {
+            totalFailed++;
+          }
+
+          // Add to local docs list (either with server response or local fallback)
+          const docEntry = uploadedDoc?.document || {
+            name: f.name.replace(/\.[^.]+$/, ""),
+            ext: ext.replace(".", ""),
+            source: tag,
+            id: uploadedDoc?.id,
+            filename: f.name,
+          };
+          docs.push(docEntry);
+
           const data = await readAsDataUrl(f);
           const base64 = (data.split(",")[1] || "");
           ingestItems.push({ filename: f.name, mimeType: f.type || "application/octet-stream", fileBytes: base64, source: tag || "upload", tags: [] });
@@ -120,12 +156,27 @@ export function useUploader({
       if (docSuccess) summary.push(`${docSuccess} document${docSuccess > 1 ? "s" : ""}`);
       if (imgSuccess) summary.push(`${imgSuccess} image${imgSuccess > 1 ? "s" : ""}`);
 
+      let toastMessage = "";
+      let toastType: "success" | "error" = "success";
+
+      if (summary.length) {
+        toastMessage = `Uploaded ${summary.join(" and ")} successfully.`;
+        if (totalFailed > 0) {
+          toastMessage += ` (${totalFailed} failed)`;
+          toastType = "error";
+        }
+      } else if (totalFailed > 0) {
+        toastMessage = `All ${totalFailed} uploads failed.`;
+        toastType = "error";
+      } else {
+        toastMessage = "No files were processed.";
+        toastType = "error";
+      }
+
       window.dispatchEvent(new CustomEvent("cfy:toast", {
         detail: {
-          message: summary.length
-            ? `Uploaded ${summary.join(" and ")} successfully.`
-            : `All ${totalFailed} uploads failed.`,
-          type: summary.length ? "success" : "error"
+          message: toastMessage,
+          type: toastType
         }
       }));
     } catch {}
@@ -134,7 +185,7 @@ export function useUploader({
       localStorage.setItem("cfy.hasUserUpload", "true");
     } catch {}
     onAnyUpload?.();
-  }, [onImages, onDocuments, onAnyUpload, tag]);
+  }, [onImages, onDocuments, onAnyUpload, tag, projectId, threadId]);
 
   return {
     accept,
