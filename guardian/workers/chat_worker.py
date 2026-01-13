@@ -368,6 +368,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "message_id": mid,
                 "provider": provider,
                 "model": model,
+                "trace": trace or {},
             },
         )
         logger.info(
