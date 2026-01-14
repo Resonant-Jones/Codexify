@@ -946,8 +946,12 @@ class PgDB(ChatDB):
                 ]
                 params: list[Any] = [thread_id]
                 if exclude_kinds and has_kind:
-                    query.append("AND (kind IS NULL OR kind NOT IN %s)")
-                    params.append(tuple(exclude_kinds))
+                    # Postgres does not allow `NOT IN %s` with a single bound parameter.
+                    # Use array membership instead.
+                    query.append(
+                        "AND (kind IS NULL OR NOT (kind = ANY(%s::text[])))"
+                    )
+                    params.append(list(exclude_kinds))
                 query.append("ORDER BY created_at ASC, id ASC")
                 query.append("LIMIT %s OFFSET %s")
                 params.extend([limit_val, offset_val])
