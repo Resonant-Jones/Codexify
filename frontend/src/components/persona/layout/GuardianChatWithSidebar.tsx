@@ -34,8 +34,19 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
 
 
 export default function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillConsumed, onWorkspaceToggle }) {
-  const [isSidebarVisible, setIsSidebarVisible] = React.useState(true);
+  const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem("cfy.sidebarVisible");
+    return stored === null ? true : stored === "true";
+  });
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
+
+  // Persist sidebar visibility preference
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("cfy.sidebarVisible", String(isSidebarVisible));
+    } catch { /* ignore */ }
+  }, [isSidebarVisible]);
   const [showWorkspacePanel, setShowWorkspacePanel] = React.useState(false);
   const bp = useBreakpoint();
   const [threads, setThreads] = React.useState<Thread[]>([]);
@@ -648,10 +659,13 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     <div
       className="relative grid h-full w-full max-w-[1500px] min-h-0 overflow-hidden box-border items-stretch mx-auto"
       style={{
-        gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
+        gridTemplateColumns: isSidebarOpen
+          ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+          : "1fr",
         gap: "8px",
         padding: "0px",
         boxSizing: "border-box",
+        transition: "grid-template-columns 0.2s ease-out",
       }}
     >
         {imprintZero.proposal && (
@@ -706,6 +720,8 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                     activeId={activeId}
                     onSelect={handleSelectThread}
                     onNewChat={handleNewChatImmediate}
+                    onToggleCollapse={toggleSidebar}
+                    collapsed={!isSidebarOpen}
                   />
                 </PanelShell>
               </div>
@@ -716,7 +732,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         <div
           className="flex h-full w-full min-h-0 overflow-hidden flex-col box-border"
           style={{
-            gridColumn: isSidebarOpen ? 2 : "1 / span 2",
+            gridColumn: isSidebarOpen ? "2" : "1",
             gridRow: "1",
           }}
         >

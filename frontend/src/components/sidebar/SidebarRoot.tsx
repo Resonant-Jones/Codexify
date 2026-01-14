@@ -165,6 +165,16 @@ export default function SidebarRoot({
     }
   }, [tab]);
 
+  // Fix: Switch to "threads" tab whenever the active thread changes (user selected a thread),
+  // but preserve "projects" tab on initial mount if that was the last state.
+  const prevActiveId = React.useRef(activeId);
+  React.useEffect(() => {
+    if (prevActiveId.current !== activeId) {
+      setTab("threads");
+      prevActiveId.current = activeId;
+    }
+  }, [activeId]);
+
   const filteredThreads = React.useMemo(() => {
     if (!q) return displayThreads;
     const s = q.toLowerCase();
@@ -272,11 +282,12 @@ export default function SidebarRoot({
       )}
 
       <div
-        className="flex flex-col min-h-0 flex-1 gap-3 rounded-[calc(19px-3px)]"
+        className="flex flex-col min-h-0 flex-1 gap-3 rounded-[var(--card-radius)]"
         style={{
           background: "var(--panel-sheet, #1f1f1f)",
           border: "1px solid var(--panel-border, rgba(255,255,255,0.08))",
           color: "inherit",
+          overflow: "hidden",
         }}
       >
         <div className={clsx("flex items-center gap-[14px]", effectiveCollapsed ? "w-full px-2" : "w-full px-[5px]")}>
