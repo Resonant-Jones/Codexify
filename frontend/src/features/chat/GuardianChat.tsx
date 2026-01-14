@@ -5,6 +5,7 @@ import { ChevronRight, MoreVertical, Plus, Sparkles, Layers, SquareStack, ArrowL
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
+import useChat from "@/features/chat/useChat";
 import api from "@/lib/api";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
@@ -82,6 +83,9 @@ export function GuardianChat({
   const [depth, setDepth] = useState<DepthMode>("normal");
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
+  // Chat state management including completion tracking
+  const { completionState, startCompletion, endCompletion } = useChat();
+
   // Listen for external prefill requests (e.g., Prompt Library selection)
   useEffect(() => {
     const onPrefill = (e: Event) => {
@@ -99,12 +103,17 @@ export function GuardianChat({
   const triggerReload = useMemo(() => debounce(() => setChatReloadVersion((v) => v + 1), 300), []);
   const { subscribe } = useLiveEvents({ passive: true });
   // Helper: ask backend to complete the thread and then refresh
-
-  // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
     try {
       const response = await api.post(`/api/chat/${tid}/complete`, { depth_mode: depth });
       console.log(`[guardian] Completing with depth=${depth}`);
+
+      // Capture task_id for completion state tracking
+      const taskId = response?.data?.task_id;
+      if (taskId) {
+        console.debug(`[guardian] Starting completion tracking: task=${taskId}`);
+        startCompletion(tid, taskId);
+      }
 
       // Capture RAG trace for diagnostics/memory browser
       const ctx = response?.data?.context;
@@ -523,6 +532,8 @@ export function GuardianChat({
             threadId={effectiveThreadId}
             guardianName={guardianName}
             reloadVersion={chatReloadVersion}
+            completionState={completionState}
+            endCompletion={endCompletion}
             className="flex flex-col flex-1 min-h-0"
             bottomPadding={160}
           />
