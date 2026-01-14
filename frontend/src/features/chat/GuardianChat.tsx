@@ -549,7 +549,7 @@ export function GuardianChat({
 
       {/* Composer rail - Footer workspace island */}
       <div
-        className="shrink-0 z-20 mx-[6px] mt-2 rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-clip transition-all duration-200"
+        className="shrink-0 z-20 mx-[6px] mt-2 rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200"
         style={{
           borderColor: "var(--panel-border)",
           background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
