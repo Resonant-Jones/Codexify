@@ -39,6 +39,9 @@ os.environ.setdefault("OPENAI_API_KEY", "dummy")
 os.environ.setdefault("GEMINI_API_KEY", "dummy")
 os.environ.setdefault("GOOGLE_API_KEY", "dummy")
 
+# Force mock embeddings backend in tests to avoid loading local model files
+os.environ.setdefault("CODEXIFY_EMBEDDINGS_BACKEND", "mock")
+
 # ---- Simple secret masker for test logs ----
 import logging
 
