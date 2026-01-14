@@ -186,6 +186,60 @@ def main() -> int:
         ensure_project(
             conn, "Loose Threads", "Default bucket for unassigned threads"
         )
+
+        # Deduplicate "Loose Threads": Keep the one with ID=1 or the oldest, migrate threads, delete others.
+        try:
+            with _cursor(conn) as cur:
+                # Find all loose threads projects
+                if "psycopg" in conn.__class__.__module__:
+                    cur.execute(
+                        "SELECT id FROM projects WHERE name = 'Loose Threads' ORDER BY id ASC"
+                    )
+                else:
+                    cur.execute(
+                        "SELECT id FROM projects WHERE name = 'Loose Threads' ORDER BY id ASC"
+                    )
+
+                rows = cur.fetchall()
+                ids = [r[0] for r in rows]
+
+                if len(ids) > 1:
+                    logger.info(
+                        "[Seed] Found duplicate 'Loose Threads' projects: %s. Deduplicating...",
+                        ids,
+                    )
+                    # Prefer ID 1 if present, else the first one
+                    keep_id = 1 if 1 in ids else ids[0]
+                    remove_ids = [i for i in ids if i != keep_id]
+
+                    if remove_ids:
+                        placeholders = (
+                            ",".join(["%s"] * len(remove_ids))
+                            if "psycopg" in conn.__class__.__module__
+                            else ",".join(["?"] * len(remove_ids))
+                        )
+                        # Move threads
+                        logger.info(
+                            "[Seed] Migrating threads from projects %s to %s",
+                            remove_ids,
+                            keep_id,
+                        )
+                        query_move = f"UPDATE threads SET project_id = {keep_id} WHERE project_id IN ({placeholders})"
+                        # Note: Execute params must be tuple
+                        cur.execute(query_move, tuple(remove_ids))
+
+                        # Delete projects
+                        logger.info(
+                            "[Seed] Deleting duplicate projects %s", remove_ids
+                        )
+                        query_del = (
+                            f"DELETE FROM projects WHERE id IN ({placeholders})"
+                        )
+                        cur.execute(query_del, tuple(remove_ids))
+                        logger.info("[Seed] Deduplication complete.")
+        except Exception as e:
+            logger.warning("[Seed] Deduplication failed (non-critical): %s", e)
+
         logger.info("[Seed] Default project ensured.")
 
         # You can add more idempotent ensures here (e.g., initial connectors) as needed.

@@ -60,12 +60,23 @@ def ingest_chatgpt_export(
             # Extract thread metadata
             title = conv.get("title") or "Imported Chat"
 
+            # Resolve Loose Threads project ID (create if missing to avoid FK error)
+            loose_threads_id = 1
+            try:
+                loose_threads_id = chatlog_db.ensure_project(
+                    "Loose Threads", "Default bucket for unassigned threads"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to ensure Loose Threads project during migration, defaulting to 1: {e}"
+                )
+
             # Create thread
             thread_record = chatlog_db.create_chat_thread(
                 user_id=user_id,
                 title=title,
                 summary="Imported from ChatGPT",
-                project_id=1,  # Default to Loose Threads
+                project_id=loose_threads_id,
             )
             thread_id = thread_record["id"]
             threads_count += 1
