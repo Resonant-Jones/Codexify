@@ -6,6 +6,23 @@ import api from "@/lib/api";
 
 export type ChatMessage = { id: number; thread_id: number; role: string; content: string; created_at: string };
 
+/**
+ * Safely extract messages from API response.
+ * Handles both envelope format { ok, total, messages } and raw array format.
+ * Returns [messages, total] or null if response is invalid.
+ */
+export const parseMessagesResponse = (data: any): [ChatMessage[], number] | null => {
+  // Handle envelope format: { ok: true, messages: [...], total: number }
+  if (data?.ok && Array.isArray(data.messages)) {
+    return [data.messages, data.total ?? data.messages.length];
+  }
+  // Defensive fallback: raw array
+  if (Array.isArray(data)) {
+    return [data, data.length];
+  }
+  return null;
+};
+
 const normalizeMessage = (raw: any, fallbackThreadId?: number): ChatMessage | null => {
   if (!raw) return null;
   const base = raw.message && typeof raw.message === "object" ? raw.message : raw;
@@ -44,13 +61,32 @@ const equalMessageLists = (a: ChatMessage[], b: ChatMessage[]): boolean => {
   return true;
 };
 
+export type CompletionState = {
+  isCompleting: boolean;
+  activeTaskId: string | null;
+  activeThreadId: number | null;
+  startedAt: number | null;
+};
+
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [completionState, setCompletionState] = useState<CompletionState>({
+    isCompleting: false,
+    activeTaskId: null,
+    activeThreadId: null,
+    startedAt: null,
+  });
   const activeThreadRef = useRef<number | null>(null);
+  const lastRefreshRef = useRef<{ threadId: number; messageCount: number; timestamp: number }>({
+    threadId: 0,
+    messageCount: 0,
+    timestamp: 0,
+  });
+  const completionTimeoutRef = useRef<number | null>(null);
 
   const loadMessages = useCallback(async (threadId: number, limit = 50, offset = 0, append = false) => {
     activeThreadRef.current = threadId;
@@ -65,9 +101,10 @@ export function useChat() {
       if (activeThreadRef.current !== threadId) {
         return;
       }
-      if (res?.data?.ok && Array.isArray(res.data.messages)) {
-        const page = res.data.messages as ChatMessage[];
-        const tot = res.data.total ?? page.length;
+      const parsed = parseMessagesResponse(res?.data);
+      if (parsed) {
+        const [page, tot] = parsed;
+        console.debug(`[useChat] Loaded ${page.length} messages for thread ${threadId} (total: ${tot})`);
         setTotal((prev) => (prev === tot ? prev : tot));
         const nextHasMore = offset + page.length < tot;
         setHasMore((prev) => (prev === nextHasMore ? prev : nextHasMore));
@@ -133,7 +170,90 @@ export function useChat() {
     }
   }, []);
 
-  return { messages, total, loading, error, hasMore, loadMessages, appendMessage, sendMessage, deleteMessage };
+  const startCompletion = useCallback((threadId: number, taskId: string) => {
+    setCompletionState({
+      isCompleting: true,
+      activeTaskId: taskId,
+      activeThreadId: threadId,
+      startedAt: Date.now(),
+    });
+    console.debug(`[useChat] Started completion tracking: thread=${threadId}, task=${taskId}`);
+
+    // Clear any existing timeout
+    if (completionTimeoutRef.current !== null) {
+      window.clearTimeout(completionTimeoutRef.current);
+    }
+
+    // Set 30s timeout to auto-end completion if no event arrives
+    completionTimeoutRef.current = window.setTimeout(() => {
+      console.warn(`[useChat] Completion timeout reached (30s), clearing state`);
+      setCompletionState({
+        isCompleting: false,
+        activeTaskId: null,
+        activeThreadId: null,
+        startedAt: null,
+      });
+      completionTimeoutRef.current = null;
+    }, 30000);
+  }, []);
+
+  const endCompletion = useCallback(() => {
+    if (completionTimeoutRef.current !== null) {
+      window.clearTimeout(completionTimeoutRef.current);
+      completionTimeoutRef.current = null;
+    }
+    console.debug(`[useChat] Ended completion tracking`);
+    setCompletionState({
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    });
+  }, []);
+
+  const shouldRefresh = useCallback(
+    (threadId: number, currentMessageCount: number) => {
+      const last = lastRefreshRef.current;
+      const now = Date.now();
+
+      // Different thread - always refresh
+      if (last.threadId !== threadId) return true;
+
+      // Message count changed - refresh
+      if (last.messageCount !== currentMessageCount) return true;
+
+      // Debounce: Don't refresh if last refresh was < 500ms ago
+      if (now - last.timestamp < 500) return false;
+
+      return true;
+    },
+    []
+  );
+
+  const markRefreshed = useCallback((threadId: number, messageCount: number) => {
+    lastRefreshRef.current = {
+      threadId,
+      messageCount,
+      timestamp: Date.now(),
+    };
+  }, []);
+
+  return {
+    messages,
+    total,
+    loading,
+    error,
+    hasMore,
+    loadMessages,
+    appendMessage,
+    sendMessage,
+    deleteMessage,
+    completionState,
+    startCompletion,
+    endCompletion,
+    shouldRefresh,
+    markRefreshed,
+  };
 }
 
 export default useChat;
