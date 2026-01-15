@@ -12,6 +12,7 @@ from typing import Any
 
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from guardian.cognition.prompts import build_context_system_message
 from guardian.context.broker import ContextBroker
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import chat_with_ai, stream_local
@@ -222,6 +223,9 @@ async def _build_messages_for_llm(
         )
 
     messages_for_llm.append({"role": "system", "content": system_content})
+    context_message = build_context_system_message(bundle)
+    if context_message:
+        messages_for_llm.append({"role": "system", "content": context_message})
     messages_for_llm.extend(context)
 
     model = task.model

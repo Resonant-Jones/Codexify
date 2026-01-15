@@ -116,6 +116,87 @@ def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
     return "Context hints:\n" + "\n".join(f"- {h}" for h in hints) + "\n"
 
 
+def build_context_system_message(
+    bundle: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    """
+    Build a system message with concrete context from the ContextBroker bundle.
+    """
+    if not bundle:
+        return None
+
+    context_parts = []
+
+    if bundle.get("semantic"):
+        sem_parts = []
+        for item in bundle["semantic"]:
+            snippet = (
+                item.get("content")
+                or item.get("snippet")
+                or item.get("text")
+                or ""
+            )
+            if snippet:
+                sem_parts.append(f"- {snippet}")
+        if sem_parts:
+            context_parts.append(
+                "**Semantic Context:**\n" + "\n".join(sem_parts)
+            )
+
+    if bundle.get("memory"):
+        mem_parts = []
+        for item in bundle["memory"]:
+            txt = item.get("text") or item.get("content") or ""
+            if txt:
+                mem_parts.append(f"- {txt}")
+        if mem_parts:
+            context_parts.append("**Memory Context:**\n" + "\n".join(mem_parts))
+
+    if bundle.get("graph"):
+        graph_parts = []
+        for item in bundle["graph"]:
+            txt = item.get("text") or item.get("content") or ""
+            if txt:
+                graph_parts.append(f"- {txt}")
+        if graph_parts:
+            context_parts.append(
+                "**Graph Context:**\n" + "\n".join(graph_parts)
+            )
+
+    if bundle.get("federated"):
+        federated_parts = []
+        for item in bundle["federated"]:
+            txt = (
+                item.get("text")
+                or item.get("content")
+                or item.get("snippet")
+                or ""
+            )
+            if txt:
+                federated_parts.append(f"- {txt}")
+        if federated_parts:
+            context_parts.append(
+                "**Federated Context:**\n" + "\n".join(federated_parts)
+            )
+
+    if bundle.get("sensors"):
+        sensor_info = []
+        sensors = bundle["sensors"]
+        if sensors.get("timestamp"):
+            sensor_info.append(f"Timestamp: {sensors['timestamp']}")
+        if sensors.get("thread_count") is not None:
+            sensor_info.append(f"Active Threads: {sensors['thread_count']}")
+        if sensor_info:
+            context_parts.append("**System State:**\n" + "\n".join(sensor_info))
+
+    if not context_parts:
+        return None
+
+    return "You have access to the following context:\n\n" + "\n\n".join(
+        context_parts
+    )
+
+
 def get_guardian_system_prompt(
     *,
     user_id: str,
@@ -167,5 +248,6 @@ __all__ = [
     "_system_docs_block",
     "_depth_block",
     "_rag_hint_block",
+    "build_context_system_message",
     "get_guardian_system_prompt",
 ]
