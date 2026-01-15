@@ -362,7 +362,9 @@ def _coerce_project_id(raw: Any) -> Optional[int]:
 
 
 @router.post("/threads")
-def chat_create_thread(body: dict = Body(...)):
+def chat_create_thread(
+    body: dict = Body(...), api_key: str = Depends(require_api_key)
+):
     """Create a chat thread and return identifier metadata."""
     try:
         payload = body or {}
@@ -414,7 +416,7 @@ def chat_create_thread(body: dict = Body(...)):
 
 
 @router.get("/threads")
-def chat_list_threads():
+def chat_list_threads(api_key: str = Depends(require_api_key)):
     """Return the list of persisted chat threads."""
     try:
         threads = chatlog_db.list_chat_threads()
@@ -430,7 +432,11 @@ def chat_list_threads():
 
 
 @router.post("/{thread_id}/messages")
-def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
+def chat_post_message(
+    thread_id: int,
+    body: Dict[str, str] = Body(...),
+    api_key: str = Depends(require_api_key),
+):
     """Post a new message to a chat thread."""
     role = body.get("role")
     content = body.get("content", "").strip()
@@ -562,6 +568,7 @@ def chat_list_messages(
     limit: int = 50,
     offset: int = 0,
     include_fact_evidence: bool = False,
+    api_key: str = Depends(require_api_key),
 ):
     """List messages for a chat thread."""
     exclude_kinds = None if include_fact_evidence else ["fact_evidence"]
@@ -577,7 +584,9 @@ def chat_list_messages(
 
 @router.post("/{thread_id}/complete")
 async def chat_complete(
-    thread_id: int, body: ChatCompletionRequest = Body(...)
+    thread_id: int,
+    body: ChatCompletionRequest = Body(...),
+    api_key: str = Depends(require_api_key),
 ):
     """
     Enqueue an assistant reply for the given thread and return a task id.
@@ -656,7 +665,11 @@ async def chat_complete(
 
 
 @router.delete("/{thread_id}/messages/{message_id}")
-def chat_delete_message(thread_id: int, message_id: int):
+def chat_delete_message(
+    thread_id: int,
+    message_id: int,
+    api_key: str = Depends(require_api_key),
+):
     """Delete a message from a chat thread."""
     chatlog_db.delete_message(thread_id, message_id)
     chatlog_db.write_audit_log(
@@ -744,7 +757,11 @@ def update_thread(
 
 
 @router.patch("/threads/{thread_id}")
-def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
+def patch_thread(
+    thread_id: int,
+    body: Dict[str, object] = Body(...),
+    api_key: str = Depends(require_api_key),
+):
     """Alternative PATCH endpoint for thread updates (less strict validation)."""
     try:
         update = ThreadUpdate(**(body or {}))
@@ -767,7 +784,11 @@ def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
 
 
 @router.delete("/{thread_id}")
-def delete_thread(thread_id: int, force: bool = Query(False)):
+def delete_thread(
+    thread_id: int,
+    force: bool = Query(False),
+    api_key: str = Depends(require_api_key),
+):
     """Hard delete a thread regardless of archived state."""
     deleted = chatlog_db.delete_thread(thread_id, force=force)
     if not deleted:
@@ -991,7 +1012,9 @@ def _get_trace_from_task_events(task_id: str) -> Optional[Dict[str, Any]]:
 
 
 @router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
-def get_latest_rag_trace(thread_id: int):
+def get_latest_rag_trace(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
     """
     [DEV ONLY] Get the RAG trace for the last completion in this thread.
 
@@ -1059,39 +1082,56 @@ async def api_chat_root(
 
 
 @api_chat_router.post("/threads")
-def api_chat_create_thread(body: dict = Body(...)):
+def api_chat_create_thread(
+    body: dict = Body(...), api_key: str = Depends(require_api_key)
+):
     """Compat alias for POST /chat/threads used in tests."""
     return chat_create_thread(body)
 
 
 @api_chat_router.get("/threads")
-def api_chat_list_threads():
+def api_chat_list_threads(api_key: str = Depends(require_api_key)):
     """Compat alias for GET /chat/threads used in tests."""
     return chat_list_threads()
 
 
 @api_chat_router.post("/{thread_id}/messages")
-def api_chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
+def api_chat_post_message(
+    thread_id: int,
+    body: Dict[str, str] = Body(...),
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for POST /chat/{thread_id}/messages used in tests."""
     return chat_post_message(thread_id, body)
 
 
 @api_chat_router.get("/{thread_id}/messages")
-def api_chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
+def api_chat_list_messages(
+    thread_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for GET /chat/{thread_id}/messages used in tests."""
     return chat_list_messages(thread_id, limit, offset)
 
 
 @api_chat_router.post("/{thread_id}/complete")
 async def api_chat_complete(
-    thread_id: int, body: ChatCompletionRequest = Body(...)
+    thread_id: int,
+    body: ChatCompletionRequest = Body(...),
+    api_key: str = Depends(require_api_key),
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
     return await chat_complete(thread_id, body)
 
 
 @api_chat_router.delete("/{thread_id}/messages/{message_id}")
-def api_chat_delete_message(thread_id: int, message_id: int):
+def api_chat_delete_message(
+    thread_id: int,
+    message_id: int,
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for DELETE /chat/{thread_id}/messages/{message_id} used in tests."""
     return chat_delete_message(thread_id, message_id)
 
@@ -1117,12 +1157,20 @@ def api_update_thread(
 
 
 @api_chat_router.patch("/threads/{thread_id}")
-def api_patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
+def api_patch_thread(
+    thread_id: int,
+    body: Dict[str, object] = Body(...),
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for PATCH /chat/threads/{thread_id} used in tests."""
     return patch_thread(thread_id, body)
 
 
 @api_chat_router.delete("/threads/{thread_id}")
-def api_delete_thread(thread_id: int, force: bool = Query(False)):
+def api_delete_thread(
+    thread_id: int,
+    force: bool = Query(False),
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for DELETE /chat/threads/{thread_id} used in tests."""
     return delete_thread(thread_id, force)
