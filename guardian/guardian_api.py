@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
 from guardian.core.config import get_settings
+from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
     API_KEY,
     ENABLE_CONNECTOR_WORKER,
@@ -185,6 +186,18 @@ async def app_lifespan(app: FastAPI):
     memory.bind_dependencies(
         chatlog_db_instance=db, require_api_key_func=require_api_key
     )
+
+    guardian_db = None
+    try:
+        guardian_db = load_guardian_db_from_env()
+    except Exception as exc:
+        logger.warning("[startup] GuardianDB init failed: %s", exc)
+    if guardian_db:
+        documents.configure_db(guardian_db)
+        share.configure_db(guardian_db)
+        logger.info(
+            "[startup] GuardianDB configured for documents/share routes"
+        )
 
     # Configure durable outbox storage
     if ENABLE_OUTBOX:

@@ -1406,3 +1406,10 @@ class GuardianDB:
         GuardianDB APIs without having to re-declare each method.
         """
         return getattr(self._impl, name)
+
+
+def load_guardian_db_from_env() -> Optional[GuardianDB]:
+    db_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not db_url:
+        return None
+    return GuardianDB(db_url)
