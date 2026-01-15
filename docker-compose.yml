@@ -611,7 +611,7 @@ services:
     environment:
       # Ensure pnpm installs modules inside the container mount and skips heavy postinstall scripts
       VITE_PROXY_TARGET: http://backend:8888
-      VITE_GUARDIAN_API_KEY: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e
+      VITE_GUARDIAN_API_KEY: "${VITE_GUARDIAN_API_KEY:-}"
       # Local-first defaults for the UI (backend still enforces actual routing)
       # Match backend-supported provider id while still pointing at Ollama.
       VITE_DEFAULT_LLM_PROVIDER: "local"
