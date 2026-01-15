@@ -142,6 +142,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable using graph-derived context during completions.",
     )
+    GUARDIAN_DEV_MODE: bool = Field(
+        default=False,
+        description="Enable dev-only routes such as /dev/*.",
+    )
 
 
 # Create a singleton instance that can be imported across the application
