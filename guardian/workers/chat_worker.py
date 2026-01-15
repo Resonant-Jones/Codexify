@@ -18,6 +18,7 @@ from guardian.core.ai_router import chat_with_ai, stream_local
 from guardian.core.config import (
     LLMConfigError,
     get_settings,
+    is_cloud_provider,
     validate_llm_config,
 )
 from guardian.core.message_guard import (
@@ -90,6 +91,11 @@ async def _build_messages_for_llm(
         .strip()
         .lower()
     )
+
+    if is_cloud_provider(provider) and not settings.ALLOW_CLOUD_PROVIDERS:
+        raise LLMConfigError(
+            "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
+        )
 
     if validate_llm_config:
         try:
