@@ -15,11 +15,13 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from guardian.core.dependencies import require_api_key as core_require_api_key
+
 logger = logging.getLogger(__name__)
 
 # Import shared context (initialized via guardian.core.dependencies in app startup)
 chatlog_db = None
-require_api_key = lambda x: x
+require_api_key = core_require_api_key
 
 
 def bind_dependencies(*, chatlog_db_instance, require_api_key_func):
@@ -73,7 +75,11 @@ def _silo_valid(s: str) -> bool:
     return s in ("ephemeral", "midterm", "longterm")
 
 
-router = APIRouter(prefix="/api/memory", tags=["Memory"])
+router = APIRouter(
+    prefix="/api/memory",
+    tags=["Memory"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 class MemoryCreate(BaseModel):
@@ -324,7 +330,11 @@ def health_memory(current_user: str = Depends(get_current_user)):
 
 
 # GitHub-specific memory search
-github_router = APIRouter(prefix="/api/github", tags=["Memory", "GitHub"])
+github_router = APIRouter(
+    prefix="/api/github",
+    tags=["Memory", "GitHub"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @github_router.get("/search", summary="Search GitHub memory (github silo)")
@@ -383,7 +393,9 @@ def github_memory_search(
 
 
 # General search and history endpoints
-search_router = APIRouter(tags=["Memory"])
+search_router = APIRouter(
+    tags=["Memory"], dependencies=[Depends(require_api_key)]
+)
 
 
 @search_router.get("/search", summary="Search memory entries")
@@ -518,7 +530,7 @@ class SummaryEntry(BaseModel):
     agent: Optional[str] = "system"
 
 
-log_router = APIRouter(tags=["Memory"])
+log_router = APIRouter(tags=["Memory"], dependencies=[Depends(require_api_key)])
 
 
 @log_router.post("/log", summary="Log a command entry")
