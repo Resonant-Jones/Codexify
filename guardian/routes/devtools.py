@@ -12,14 +12,15 @@ import os
 from typing import Optional
 
 import psycopg
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
 from guardian.agent_task_queue import (
     enqueue_agent_task,
     get_task_status,
     inject_result_to_thread,
 )
-from guardian.core.dependencies import get_database_dsn
+from guardian.core.config import get_settings
+from guardian.core.dependencies import get_database_dsn, require_api_key
 from guardian.guardian_loop import guardian_loop
 from guardian.plugins.plugin_loader import load_all_manifests
 from guardian.queue.redis_queue import get_redis_client
@@ -27,7 +28,21 @@ from guardian.tools.state_inspector import get_codexify_state
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/dev", tags=["Devtools"])
+
+def _require_devtools_access(
+    api_key: str = Depends(require_api_key),
+) -> str:
+    settings = get_settings()
+    if not settings.GUARDIAN_DEV_MODE:
+        raise HTTPException(status_code=403, detail="Devtools disabled")
+    return api_key
+
+
+router = APIRouter(
+    prefix="/dev",
+    tags=["Devtools"],
+    dependencies=[Depends(_require_devtools_access)],
+)
 RESULT_STORE = os.environ.get("AGENT_RESULT_STORE", "codexify:agent_results")
 
 
