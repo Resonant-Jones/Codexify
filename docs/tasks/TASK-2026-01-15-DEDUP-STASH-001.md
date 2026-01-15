@@ -132,6 +132,14 @@ git status --porcelain
 rm -f .git/refs/.DS_Store
 git fsck --no-reflogs
 git status --porcelain
+git add docs/tasks/TASK-2026-01-15-DEDUP-STASH-001.md
+git add docs/tasks/TASK-2026-01-15-DEDUP-STASH-001.md
+git commit -m "chore(git): dedupe stashes and ignore :memory:"
+git fsck --no-reflogs
+git status --porcelain
+git add docs/tasks/TASK-2026-01-15-DEDUP-STASH-001.md
+git commit -m "docs(task): finalize TASK-2026-01-15-DEDUP-STASH-001 summary"
+git status --porcelain
 ```
 
 Tests
@@ -140,15 +148,15 @@ git fsck --no-reflogs
 # pass (dangling objects reported)
 
 git status --porcelain
-# (fill output: must be empty)
+# (empty)
 
 Post-task scope + cleanliness check
 
 git status --porcelain
-# (fill: must be empty)
+# (empty)
 
 Commit
- • Hash: TODO
+ • Hash: 423672f8
  • Message: chore(git): dedupe stashes and ignore :memory:
 
 ---
