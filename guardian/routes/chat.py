@@ -1051,9 +1051,11 @@ api_chat_router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
 
 @api_chat_router.post("")
-async def api_chat_root(body: ChatRequest):
+async def api_chat_root(
+    body: ChatRequest, api_key: str = Depends(require_api_key)
+):
     """Compat alias for POST /api/chat used by legacy frontend helper."""
-    return await simple_chat_entrypoint(body, api_key="api-bypass")
+    return await simple_chat_entrypoint(body, api_key=api_key)
 
 
 @api_chat_router.post("/threads")
