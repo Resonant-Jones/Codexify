@@ -151,9 +151,17 @@ class Settings(BaseSettings):
 # Create a singleton instance that can be imported across the application
 settings = Settings()
 
+CLOUD_LLM_PROVIDERS = {"openai", "groq"}
+
 
 class LLMConfigError(Exception):
     """Raised when LLM provider configuration is invalid."""
+
+
+def is_cloud_provider(provider: str | None) -> bool:
+    if not provider:
+        return False
+    return provider.strip().lower() in CLOUD_LLM_PROVIDERS
 
 
 def validate_llm_config(
