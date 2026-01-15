@@ -29,7 +29,7 @@ except ModuleNotFoundError:
 
     tools_router = APIRouter()
 from guardian.core import metrics
-from guardian.core.db import GuardianDB
+from guardian.core.db import load_guardian_db_from_env
 from guardian.routes.chat import api_chat_router
 from guardian.routes.chat import router as chat_router
 from guardian.routes.chat import simple_chat_router
@@ -106,15 +106,19 @@ app.include_router(api_projects_router)
 app.include_router(threads_router)
 app.include_router(api_threads_router)
 
-# Configure documents DB (Postgres only)
-try:
-    _db_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if _db_url:
-        _doc_db = GuardianDB(_db_url)
-        configure_documents_db(_doc_db)
-except Exception:
-    # Non-fatal for app startup; autosave endpoints will error if used
-    pass
+
+@app.on_event("startup")
+def configure_guardian_db() -> None:
+    logger = logging.getLogger(__name__)
+    try:
+        guardian_db = load_guardian_db_from_env()
+    except Exception as exc:
+        logger.warning("[startup] GuardianDB init failed: %s", exc)
+        return
+    if guardian_db:
+        configure_documents_db(guardian_db)
+        logger.info("[startup] GuardianDB configured for documents router")
+
 
 # --- Safe, readable pattern: mask sensitive basenames; strip dirs ---
 SENSITIVE_BASENAME_RE = re.compile(
