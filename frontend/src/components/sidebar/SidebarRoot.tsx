@@ -165,16 +165,6 @@ export default function SidebarRoot({
     }
   }, [tab]);
 
-  // Fix: Switch to "threads" tab whenever the active thread changes (user selected a thread),
-  // but preserve "projects" tab on initial mount if that was the last state.
-  const prevActiveId = React.useRef(activeId);
-  React.useEffect(() => {
-    if (prevActiveId.current !== activeId) {
-      setTab("threads");
-      prevActiveId.current = activeId;
-    }
-  }, [activeId]);
-
   const filteredThreads = React.useMemo(() => {
     if (!q) return displayThreads;
     const s = q.toLowerCase();
