@@ -88,6 +88,7 @@ export default function SidebarRoot({
   const [toast, setToast] = React.useState<ActiveToast | null>(null);
   const [showProjectModal, setShowProjectModal] = React.useState(false);
   const [savingProject, setSavingProject] = React.useState(false);
+  const [projectModalError, setProjectModalError] = React.useState<string | null>(null);
   const [collapsedLocal, setCollapsedLocal] = React.useState(false);
 
   const {
@@ -210,24 +211,29 @@ export default function SidebarRoot({
   const handleCreateProject = React.useCallback(
     async (data: { name: string; icon?: string; color?: string }) => {
       const name = data.name.trim();
-      if (!name) return;
+      if (!name) {
+        setProjectModalError("Project name is required.");
+        return;
+      }
       setSavingProject(true);
+      setProjectModalError(null);
       try {
         let created: Project | void | undefined;
         if (onCreateProject) {
           created = await onCreateProject(data);
         } else {
-          const resp = await api.post("/projects", { name, description: "" });
+          const icon = data.icon?.trim() || "📁";
+          const resp = await api.post("/projects", { name, icon, description: "" });
           const payload = resp?.data ?? {};
           const createdId = payload?.id ?? payload?.project_id;
           if (createdId) {
-            created = { id: String(createdId), name, icon: data.icon };
+            created = { id: String(createdId), name, icon };
           }
         }
         const newProj: Project =
           created && (created as any).id
             ? { id: String((created as any).id), name: (created as any).name ?? name, icon: (created as any).icon ?? data.icon }
-            : { id: `local-${Date.now()}`, name, icon: data.icon };
+            : { id: `local-${Date.now()}`, name, icon: data.icon?.trim() || "📁" };
 
         setProjectList((prev) => {
           const exists = prev.some((p) => p.id === newProj.id || p.name === newProj.name);
@@ -240,6 +246,13 @@ export default function SidebarRoot({
         setShowProjectModal(false);
         await refreshProjectsFromServer();
         setTimeout(() => { void refreshProjectsFromServer(); }, 600);
+      } catch (err: any) {
+        const message =
+          err?.response?.data?.message
+          || err?.response?.data?.detail
+          || err?.message
+          || "Failed to create project.";
+        setProjectModalError(message);
       } finally {
         setSavingProject(false);
       }
@@ -344,7 +357,10 @@ export default function SidebarRoot({
                 looseCount={effectiveLooseCount}
                 currentId={currentProjectId}
                 onPick={(id) => { setScope(id); setTab("threads"); }}
-                onOpenNewProject={() => setShowProjectModal(true)}
+                onOpenNewProject={() => {
+                  setProjectModalError(null);
+                  setShowProjectModal(true);
+                }}
                 className={clsx("flex-1 min-h-0 mt-[5px]", columnClass)}
               />
             ) : (
@@ -367,9 +383,14 @@ export default function SidebarRoot({
 
       <CreateProjectModal
         open={showProjectModal}
-        onClose={() => setShowProjectModal(false)}
+        onClose={() => {
+          if (savingProject) return;
+          setShowProjectModal(false);
+          setProjectModalError(null);
+        }}
         onCreateProject={handleCreateProject}
         isSaving={savingProject}
+        error={projectModalError}
       />
     </div>
   );
