@@ -10,4 +10,6 @@
 - Changed files: `guardian/routes/chat.py` (api_chat_root now depends on `require_api_key` instead of hardcoded bypass).
 - Tests: `pytest -v` (pass).
 - git status: `git status --porcelain` clean; no out-of-scope files.
-- Commit hash: `48d4747dd805891e3c7c74f62f9522149dc7dc8e`
+- Commit mode: two-phase
+- Implementation hash: `48d4747dd805891e3c7c74f62f9522149dc7dc8e`
+- Finalize-artifact hash: `b4a995018df3e044506fdab15a8e0d5f5db20fba`

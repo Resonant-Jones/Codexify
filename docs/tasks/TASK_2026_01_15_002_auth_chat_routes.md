@@ -10,4 +10,6 @@
 - Changed files: `guardian/routes/chat.py` (added `require_api_key` dependencies across chat and alias endpoints, including debug trace endpoint).
 - Tests: `pytest -v` (pass).
 - git status: `git status --porcelain` clean; no out-of-scope files.
-- Commit hash: `268584a3d71e86f2d179a53cebba748a48a22a27`
+- Commit mode: two-phase
+- Implementation hash: `268584a3d71e86f2d179a53cebba748a48a22a27`
+- Finalize-artifact hash: `52b5c8f6479cc3c3ff75573bd89092a27baa7aac`

@@ -10,4 +10,6 @@
 - Changed files: `guardian/routes/media.py` (added media API key dependency with pytest-safe bypass and wired router-level enforcement).
 - Tests: `pytest -v` (pass).
 - git status: `git status --porcelain` clean; no out-of-scope files.
-- Commit hash: `e022c7ac0243894c24f27b92825691cf586911dd`
+- Commit mode: two-phase
+- Implementation hash: `e022c7ac0243894c24f27b92825691cf586911dd`
+- Finalize-artifact hash: `f305e3904d11f285be47cabd90b38be8cf3a85dc`

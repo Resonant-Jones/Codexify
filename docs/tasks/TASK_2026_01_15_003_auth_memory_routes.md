@@ -10,4 +10,6 @@
 - Changed files: `guardian/routes/memory.py` (wired `require_api_key` into memory routers and imported core dependency).
 - Tests: `pytest -v` (pass).
 - git status: `git status --porcelain` clean; no out-of-scope files.
-- Commit hash: `3720288dec0fce1e76d907a9af339b78c8b3eeb9`
+- Commit mode: two-phase
+- Implementation hash: `3720288dec0fce1e76d907a9af339b78c8b3eeb9`
+- Finalize-artifact hash: `e2872f2a5f527a8e2ff8f80132010fde5f0d0d1d`

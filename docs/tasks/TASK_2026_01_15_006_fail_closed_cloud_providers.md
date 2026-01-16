@@ -10,4 +10,6 @@
 - Changed files: `guardian/workers/chat_worker.py` (fail closed when cloud provider requested), `guardian/core/config.py` (added cloud provider helper).
 - Tests: `pytest -v` (pass).
 - git status: `git status --porcelain` clean; no out-of-scope files.
-- Commit hash: `a1df5b2a7b2c71cab4b566240c91ec056b54f114`
+- Commit mode: two-phase
+- Implementation hash: `a1df5b2a7b2c71cab4b566240c91ec056b54f114`
+- Finalize-artifact hash: `1cadd1b8b1d90b1b94086120f07fa2eb533a0a85`
