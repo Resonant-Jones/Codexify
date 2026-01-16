@@ -1,12 +1,11 @@
-
-
 # Runner Protocol — Sequential Atomic Tasks
 
 ## Purpose
 This protocol is a strict execution harness for Codexify campaigns.
 
 It enforces:
-- **one task = one commit**
+- **one task = one change set** (atomic scope)
+- **commit mode is explicit per task**: one-commit or two-phase
 - **strict file scope** per task
 - **tests before commit**
 - **prompt + summary artifacts** recorded in `docs/tasks/`
@@ -18,9 +17,7 @@ A campaign file containing an ordered task list with, per task:
 - Allowed (primary) file list
 - Test loop command(s)
 - Commit message
-
-Example campaign path:
-- `docs/Campaign/CAMPAIGN_YYYY_MM_DD.md`
+- `Commit message template (must include TASK-ID)`
 
 ## Global Invariants
 1. **No scope creep**
@@ -40,7 +37,21 @@ Example campaign path:
      - Task Prompt
      - Summary (what changed, tests, git status, commit hash)
 
-5. **Clean tree between tasks**
+5. **Commit mode is explicit**
+   - Each task must declare its commit mode:
+     - **one-commit**: implementation + artifact summary are committed together.
+     - **two-phase**: commit #1 is the implementation; commit #2 updates only the task artifact to record the commit hashes and final summary.
+   - In **two-phase** mode, the task artifact Summary must record **both**:
+     - Implementation commit hash
+     - Finalize-artifact commit hash
+
+6. **Commit messages include TASK-ID**
+   - Every commit created by the runner must include the current task’s TASK-ID.
+   - Recommended formats:
+     - `<TASK-ID>: <short message>`
+     - `docs(task): finalize <TASK-ID> summary`
+
+7. **Clean tree between tasks**
    - `git status --porcelain` must be empty before moving to the next task.
 
 ## Per-Task Execution Loop
@@ -52,7 +63,8 @@ Print:
 - Allowed file list
 - Task artifact path
 - Test command(s)
-- Commit message
+- Commit message (must include TASK-ID)
+- Commit mode (one-commit | two-phase)
 
 ### 1) Preflight check
 Run:
@@ -93,14 +105,36 @@ Include:
 - Changed files + key functions/components
 - Test command(s) + pass/fail summary
 - `git status --porcelain` confirmation (no out-of-scope files)
-- Commit hash (after commit)
+- Commit mode (one-commit | two-phase)
+- Implementation commit hash
+- Finalize-artifact commit hash (two-phase only)
 
 ### 6) Stage + commit
 Stage **only**:
 - allowed files for this task
 - the task artifact file
 
-Then commit using the campaign’s commit message.
+Then commit according to the task’s declared commit mode.
+
+#### Commit mode: one-commit
+- Commit once using the campaign’s commit message template.
+- The commit message must include the TASK-ID (e.g., `<TASK-ID>: <message>`).
+
+#### Commit mode: two-phase
+1) **Implementation commit**
+   - Stage **only** the implementation changes (allowed code/config files). Do **not** include the task artifact yet unless the task explicitly requires it.
+   - Commit using the campaign’s commit message template, including the TASK-ID (e.g., `<TASK-ID>: <message>`).
+   - Capture the implementation commit hash.
+
+2) **Finalize-artifact commit**
+   - Update **only** the task artifact Summary to include:
+     - commit mode = two-phase
+     - implementation commit hash
+     - finalize-artifact commit hash (this commit)
+     - commands, tests, and git status confirmation
+   - Stage **only** the task artifact.
+   - Commit with a docs-only message, e.g.:
+     - `docs(task): finalize <TASK-ID> summary`
 
 ### 7) Post-commit clean check
 Run:
@@ -112,7 +146,8 @@ Must be empty before proceeding.
 ## Campaign Completion Output
 After the final task:
 - Print a list mapping `TASK-ID -> commit-hash`.
-- Do not run a re-audit unless explicitly instructed.
+  - If a task used **two-phase** mode, record both hashes as: `TASK-ID -> [impl_hash, finalize_hash]`.
+- If any task commit message is missing the TASK-ID, treat it as a protocol violation and stop in the next audit.
 
 ## Stop Conditions
 Stop immediately and report if:
@@ -122,3 +157,4 @@ Stop immediately and report if:
 
 ## Notes
 - This protocol is intentionally strict. It is designed to prevent "Franken-commits" and preserve auditability.
+- Two-phase mode exists to avoid the self-referential problem of embedding a commit hash inside an artifact that is itself part of the commit.
