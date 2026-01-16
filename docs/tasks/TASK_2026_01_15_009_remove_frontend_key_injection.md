@@ -10,4 +10,6 @@
 - Changed files: `docker-compose.yml` (removed hardcoded `VITE_GUARDIAN_API_KEY`), `frontend/src/main.tsx` (only reads `VITE_GUARDIAN_API_KEY` and updates diagnostics).
 - Tests: `pytest -v` (pass); `pnpm test` (pass).
 - git status: `git status --porcelain` clean; no out-of-scope files.
-- Commit hash: `b2bb22da8d3f2583bd904926da5a4b116b321c8e`
+- Commit mode: two-phase
+- Implementation hash: `b2bb22da8d3f2583bd904926da5a4b116b321c8e`
+- Finalize-artifact hash: `8033b0b1206adb63d2d000d55e47426de1e32efa`

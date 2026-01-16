@@ -10,4 +10,6 @@
 - Changed files: `guardian/routes/devtools.py` (devtools access dependency enforcing API key + dev mode), `guardian/core/config.py` (added `GUARDIAN_DEV_MODE` setting).
 - Tests: `pytest -v` (pass).
 - git status: `git status --porcelain` clean; no out-of-scope files.
-- Commit hash: `76346184e91c65a6d36aa5bb5a16ecbdebdec124`
+- Commit mode: two-phase
+- Implementation hash: `76346184e91c65a6d36aa5bb5a16ecbdebdec124`
+- Finalize-artifact hash: `a132237397b4fed4d77485b7ebb24ec3aee0563e`

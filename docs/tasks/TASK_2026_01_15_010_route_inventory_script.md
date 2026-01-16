@@ -10,4 +10,6 @@
 - Changed files: `scripts/list_routes.py` (new route inventory script).
 - Tests: `pytest -v` (pass).
 - git status: `git status --porcelain` clean; no out-of-scope files.
-- Commit hash: `15c870b8c8cb25476454577f503f3ca05b4d630e`
+- Commit mode: two-phase
+- Implementation hash: `15c870b8c8cb25476454577f503f3ca05b4d630e`
+- Finalize-artifact hash: `edbc5591b66e856eb35e5df34767b684054e9a8e`

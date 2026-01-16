@@ -10,4 +10,6 @@
 - Changed files: `guardian/core/db.py` (added env loader helper), `guardian/guardian_api.py` (startup wiring for documents/share), `guardian/server/app.py` (startup wiring for documents).
 - Tests: `pytest -v` (pass).
 - git status: `git status --porcelain` clean; no out-of-scope files.
-- Commit hash: `bf12fcb4489d144353d72e51d1d5037755343bad`
+- Commit mode: two-phase
+- Implementation hash: `bf12fcb4489d144353d72e51d1d5037755343bad`
+- Finalize-artifact hash: `63e65b4a31159b38dbd9da7af0e280cdd9face09`
