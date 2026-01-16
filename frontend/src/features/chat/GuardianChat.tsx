@@ -553,6 +553,8 @@ export function GuardianChat({
         style={{
           borderColor: "var(--panel-border)",
           background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
+          clipPath: "inset(0 round 24px)",
+          isolation: "isolate",
           minHeight: "140px",
           maxHeight: "60vh",
         }}
