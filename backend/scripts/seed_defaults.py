@@ -187,7 +187,7 @@ def main() -> int:
             conn, "Loose Threads", "Default bucket for unassigned threads"
         )
 
-        # Deduplicate "Loose Threads": Keep the one with ID=1 or the oldest, migrate threads, delete others.
+        # Deduplicate "Loose Threads": Keep the oldest, migrate threads, delete others.
         try:
             with _cursor(conn) as cur:
                 # Find all loose threads projects
@@ -208,8 +208,8 @@ def main() -> int:
                         "[Seed] Found duplicate 'Loose Threads' projects: %s. Deduplicating...",
                         ids,
                     )
-                    # Prefer ID 1 if present, else the first one
-                    keep_id = 1 if 1 in ids else ids[0]
+                    # Keep the oldest (lowest ID) as canonical.
+                    keep_id = ids[0]
                     remove_ids = [i for i in ids if i != keep_id]
 
                     if remove_ids:
