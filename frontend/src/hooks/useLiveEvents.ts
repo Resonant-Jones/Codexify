@@ -134,12 +134,18 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     })();
     const url = `${streamUrl}?last_id=${lastId}`;
 
+    // Only send an API key header when we actually have a key.
+    // Sending an empty X-API-Key causes noisy 401s and prevents proxy-based auth injection.
+    const headers: Record<string, string> = {
+      Accept: "text/event-stream",
+      "Cache-Control": "no-cache",
+    };
+    if (GUARDIAN_API_KEY) {
+      headers["X-API-Key"] = GUARDIAN_API_KEY;
+    }
+
     const eventSource = new GuardianEventSource(url, {
-      headers: {
-        "X-API-Key": GUARDIAN_API_KEY || "",
-        "Accept": "text/event-stream",
-        "Cache-Control": "no-cache",
-      },
+      headers,
       withCredentials: false,
     });
     let isCancelled = false;
