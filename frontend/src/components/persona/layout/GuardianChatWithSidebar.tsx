@@ -74,13 +74,20 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const isDesktopLayout = bp === "lg" || bp === "xl" || bp === "2xl";
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
 
+  const setSidebarOpen = React.useCallback(
+    (next: boolean) => {
+      if (isDesktopLayout) {
+        setIsSidebarVisible(next);
+      } else {
+        setIsMobileSidebarOpen(next);
+      }
+    },
+    [isDesktopLayout]
+  );
+
   const toggleSidebar = React.useCallback(() => {
-    if (isDesktopLayout) {
-      setIsSidebarVisible((prev) => !prev);
-    } else {
-      setIsMobileSidebarOpen((prev) => !prev);
-    }
-  }, [isDesktopLayout]);
+    setSidebarOpen(!isSidebarOpen);
+  }, [isSidebarOpen, setSidebarOpen]);
 
   React.useEffect(() => {
     if (isDesktopLayout && isMobileSidebarOpen) {
