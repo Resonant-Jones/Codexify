@@ -10,6 +10,30 @@ from guardian.core import dependencies
 logger = logging.getLogger(__name__)
 
 
+def _resolve_loose_threads_id(chatlog_db) -> int:
+    try:
+        return chatlog_db.ensure_project(
+            "Loose Threads", "Default bucket for unassigned threads"
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to ensure Loose Threads project during migration: %s",
+            e,
+        )
+    try:
+        projects = chatlog_db.list_projects()
+        candidates = [p for p in projects if p.get("name") == "Loose Threads"]
+        ids = [int(p["id"]) for p in candidates if p.get("id") is not None]
+        if ids:
+            return min(ids)
+    except Exception as e:
+        logger.warning(
+            "Failed to resolve Loose Threads project ID via list_projects: %s",
+            e,
+        )
+    raise RuntimeError("Unable to resolve Loose Threads project ID")
+
+
 def ingest_chatgpt_export(
     content: bytes, user_id: Optional[str] = None
 ) -> Dict[str, int]:
@@ -61,15 +85,7 @@ def ingest_chatgpt_export(
             title = conv.get("title") or "Imported Chat"
 
             # Resolve Loose Threads project ID (create if missing to avoid FK error)
-            loose_threads_id = 1
-            try:
-                loose_threads_id = chatlog_db.ensure_project(
-                    "Loose Threads", "Default bucket for unassigned threads"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to ensure Loose Threads project during migration, defaulting to 1: {e}"
-                )
+            loose_threads_id = _resolve_loose_threads_id(chatlog_db)
 
             # Create thread
             thread_record = chatlog_db.create_chat_thread(
