@@ -58,11 +58,12 @@ git commit -m "docs(task): finalize TASK-2026-01-17-002 summary"
 ```
 
 ## Summary
-- Changed files: _TBD_
+- Changed files: docker-compose.yml
 - Checks:
-  - `docker compose config -q`: _TBD_
-  - `docker compose exec -T frontend printenv | grep -E "^VITE_GUARDIAN_API_KEY="`: _TBD_
-- git status: _TBD_
+  - `docker compose config -q`: pass
+  - `docker compose up -d frontend`: pass
+  - `docker compose exec -T frontend printenv | grep -E "^VITE_GUARDIAN_API_KEY="`: `VITE_GUARDIAN_API_KEY=001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e`
+- git status: clean
 - Commit mode: two-phase
-- Implementation hash: _TBD_
-- Finalize-artifact hash: _TBD_
+- Implementation hash: 58fe9b5493ed998c0fd6f43c7ab540940ed8f943
+- Finalize-artifact hash: reported in final mapping
