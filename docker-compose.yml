@@ -608,6 +608,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
       - /app/src/node_modules
+    env_file: .env
     environment:
       # Ensure pnpm installs modules inside the container mount and skips heavy postinstall scripts
       VITE_PROXY_TARGET: http://backend:8888
