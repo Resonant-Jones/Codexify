@@ -10,25 +10,30 @@ from guardian.core import dependencies
 logger = logging.getLogger(__name__)
 
 
-def _resolve_loose_threads_id(chatlog_db) -> int:
+def _resolve_imports_project_id(chatlog_db) -> int:
     try:
         return chatlog_db.ensure_project(
-            "Loose Threads", "Default bucket for unassigned threads"
+            "Imports", "Default bucket for imported threads"
         )
     except Exception as e:
         logger.warning(
-            "Failed to ensure Loose Threads project during migration: %s",
+            "Failed to ensure Imports project during migration: %s",
             e,
         )
     try:
         projects = chatlog_db.list_projects()
-        candidates = [p for p in projects if p.get("name") == "Loose Threads"]
-        ids = [int(p["id"]) for p in candidates if p.get("id") is not None]
-        if ids:
-            return min(ids)
+        imports = [p for p in projects if p.get("name") == "Imports"]
+        imports_ids = [int(p["id"]) for p in imports if p.get("id") is not None]
+        if imports_ids:
+            return min(imports_ids)
+
+        legacy = [p for p in projects if p.get("name") == "Loose Threads"]
+        legacy_ids = [int(p["id"]) for p in legacy if p.get("id") is not None]
+        if legacy_ids:
+            return min(legacy_ids)
     except Exception as e:
         logger.warning(
-            "Failed to resolve Loose Threads project ID via list_projects: %s",
+            "Failed to resolve Imports/Loose Threads project ID via list_projects: %s",
             e,
         )
     raise RuntimeError("Unable to resolve Loose Threads project ID")
@@ -84,15 +89,15 @@ def ingest_chatgpt_export(
             # Extract thread metadata
             title = conv.get("title") or "Imported Chat"
 
-            # Resolve Loose Threads project ID (create if missing to avoid FK error)
-            loose_threads_id = _resolve_loose_threads_id(chatlog_db)
+            # Resolve Imports project ID (create if missing to avoid FK error)
+            imports_project_id = _resolve_imports_project_id(chatlog_db)
 
             # Create thread
             thread_record = chatlog_db.create_chat_thread(
                 user_id=user_id,
                 title=title,
                 summary="Imported from ChatGPT",
-                project_id=loose_threads_id,
+                project_id=imports_project_id,
             )
             thread_id = thread_record["id"]
             threads_count += 1
