@@ -727,8 +727,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                     activeId={activeId}
                     onSelect={handleSelectThread}
                     onNewChat={handleNewChatImmediate}
-                    onToggleCollapse={toggleSidebar}
-                    collapsed={!isSidebarOpen}
                   />
                 </PanelShell>
               </div>
@@ -785,7 +783,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   onBranchThread={handleBranchThread}
                   onArchiveThread={handleArchiveThread}
                   onSidebarToggle={toggleSidebar}
-                  isSidebarVisible={isSidebarVisible}
+                  isSidebarVisible={isSidebarOpen}
                   onBack={() => {
                     setActiveId(null);
                     if (typeof window !== "undefined") {
