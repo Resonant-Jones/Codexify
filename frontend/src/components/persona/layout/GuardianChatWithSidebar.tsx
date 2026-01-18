@@ -3,6 +3,7 @@
  * each lives inside its own glass shell while sharing data feeds for threads/projects/messages.
  */
 import React, { useMemo } from "react";
+import { createPortal } from "react-dom";
 import clsx from "clsx";
 import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
@@ -73,6 +74,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   const isDesktopLayout = bp === "lg" || bp === "xl" || bp === "2xl";
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
+  const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
 
   const setSidebarOpen = React.useCallback(
     (next: boolean) => {
@@ -85,6 +87,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     [isDesktopLayout]
   );
 
+  const closeSidebar = React.useCallback(() => {
+    setSidebarOpen(false);
+  }, [setSidebarOpen]);
+
   const toggleSidebar = React.useCallback(() => {
     setSidebarOpen(!isSidebarOpen);
   }, [isSidebarOpen, setSidebarOpen]);
@@ -94,6 +100,28 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       setIsMobileSidebarOpen(false);
     }
   }, [isDesktopLayout, isMobileSidebarOpen]);
+
+  React.useEffect(() => {
+    if (!isMobileOverlayActive || typeof document === "undefined") return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileOverlayActive]);
+
+  React.useEffect(() => {
+    if (!isMobileOverlayActive || typeof window === "undefined") return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isMobileOverlayActive, setSidebarOpen]);
 
   const mapThreadRecord = React.useCallback(
     (raw: any): Thread | null => {
@@ -633,6 +661,9 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const chatDisabled = !isDesktopLayout && isSidebarOpen;
 
   const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
+  const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  }, []);
 
   const PanelShell: React.FC<PanelShellProps> = ({ className, surfaceStyle, disabled, children }) => {
     const panelStyle: React.CSSProperties = {
@@ -660,19 +691,79 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     );
   };
 
+  const mobileOverlay = isMobileOverlayActive && typeof document !== "undefined"
+    ? createPortal(
+        <div
+          data-testid="mobile-sidebar-overlay"
+          className="fixed inset-0"
+          style={{ zIndex: 10000 }}
+        >
+          <div
+            data-testid="mobile-sidebar-scrim"
+            className="fixed inset-0"
+            style={{ background: "rgba(0,0,0,0.45)", zIndex: 10000 }}
+            role="button"
+            tabIndex={0}
+            onPointerDown={closeSidebar}
+            onClick={closeSidebar}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                closeSidebar();
+              }
+            }}
+          />
+          <aside
+            data-testid="mobile-sidebar-drawer"
+            className="fixed top-0 left-0 h-full overflow-hidden"
+            style={{ zIndex: 10001, width: "min(360px, 80vw)" }}
+            onPointerDown={stopDrawerEvent}
+            onClick={stopDrawerEvent}
+          >
+            <div className="relative h-full w-full min-h-0 min-w-0 box-border">
+              <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
+                <RefractiveGlassCard
+                  wallpaperUrl={wallpaperUrl}
+                  className="h-full w-full rounded-[var(--card-radius)]"
+                  style={{ background: "transparent", border: "none" }}
+                  intensity={0.006}
+                  aberration={0}
+                />
+              </div>
+              <div
+                data-layer="panel-shell"
+                className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
+              >
+                <PanelShell surfaceStyle={sidebarSurfaceStyle}>
+                  <SidebarRoot
+                    threads={threads}
+                    activeId={activeId}
+                    onSelect={handleSelectThread}
+                    onNewChat={handleNewChatImmediate}
+                  />
+                </PanelShell>
+              </div>
+            </div>
+          </aside>
+        </div>,
+        document.body
+      )
+    : null;
+
   return (
-    <div
-      className="relative grid h-full w-full max-w-[1500px] min-h-0 overflow-hidden box-border items-stretch mx-auto"
-      style={{
-        gridTemplateColumns: isDesktopLayout && isSidebarOpen
-          ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
-          : "1fr",
-        gap: "8px",
-        padding: "0px",
-        boxSizing: "border-box",
-        transition: "grid-template-columns 0.2s ease-out",
-      }}
-    >
+    <>
+      {mobileOverlay}
+      <div
+        className="relative grid h-full w-full max-w-[1500px] min-h-0 overflow-hidden box-border items-stretch mx-auto"
+        style={{
+          gridTemplateColumns: isDesktopLayout && isSidebarOpen
+            ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+            : "1fr",
+          gap: "8px",
+          padding: "0px",
+          boxSizing: "border-box",
+          transition: "grid-template-columns 0.2s ease-out",
+        }}
+      >
         {imprintZero.proposal && (
           <ImprintZeroToast
             proposal={imprintZero.proposal}
@@ -711,42 +802,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
               </PanelShell>
             </div>
           </div>
-        )}
-        {isSidebarOpen && !isDesktopLayout && (
-          <>
-            <button
-              type="button"
-              aria-label="Hide sidebar"
-              className="fixed inset-0 z-30 bg-black/45"
-              onClick={toggleSidebar}
-            />
-            <div className="fixed top-0 left-0 z-40 h-full w-[min(360px,90vw)] overflow-hidden">
-              <div className="relative h-full w-full min-h-0 min-w-0 box-border">
-                <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
-                  <RefractiveGlassCard
-                    wallpaperUrl={wallpaperUrl}
-                    className="h-full w-full rounded-[var(--card-radius)]"
-                    style={{ background: "transparent", border: "none" }}
-                    intensity={0.006}
-                    aberration={0}
-                  />
-                </div>
-                <div
-                  data-layer="panel-shell"
-                  className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
-                >
-                  <PanelShell surfaceStyle={sidebarSurfaceStyle}>
-                    <SidebarRoot
-                      threads={threads}
-                      activeId={activeId}
-                      onSelect={handleSelectThread}
-                      onNewChat={handleNewChatImmediate}
-                    />
-                  </PanelShell>
-                </div>
-              </div>
-            </div>
-          </>
         )}
         {/* Chat Panel */}
         <div
@@ -812,6 +867,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           </PanelShell>
         </div>
       </div>
+    </>
   );
 }
 
