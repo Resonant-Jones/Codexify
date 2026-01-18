@@ -128,3 +128,8 @@ chatgpt_conversation.json
 models/
 
 :memory:
+
+# Local runtime / secrets (DO NOT COMMIT)
+/data/credentials.json
+/data/token.pickle
+/data/trust_registry.json
