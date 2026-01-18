@@ -10,7 +10,6 @@ import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message } from "@/types/ui";
 import api from "@/lib/api";
-import { useBreakpoint } from "./useBreakpoint";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
@@ -49,7 +48,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     } catch { /* ignore */ }
   }, [isSidebarVisible]);
   const [showWorkspacePanel, setShowWorkspacePanel] = React.useState(false);
-  const bp = useBreakpoint();
+  const [isDesktopLayout, setIsDesktopLayout] = React.useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
+    return window.matchMedia("(min-width: 1024px)").matches;
+  });
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
@@ -72,7 +74,32 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     return () => window.removeEventListener('cfy:workspace:toggleWorkspacePanel', onToggleWorkspace);
   }, []);
 
-  const isDesktopLayout = bp === "lg" || bp === "xl" || bp === "2xl";
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const handleChange = (event?: MediaQueryListEvent) => {
+      if (event && typeof event.matches === "boolean") {
+        setIsDesktopLayout(event.matches);
+        return;
+      }
+      setIsDesktopLayout(mq.matches);
+    };
+    handleChange();
+    if (typeof mq.addEventListener === "function") {
+      mq.addEventListener("change", handleChange);
+      return () => {
+        mq.removeEventListener("change", handleChange);
+      };
+    }
+    if (typeof mq.addListener === "function") {
+      mq.addListener(handleChange);
+      return () => {
+        mq.removeListener(handleChange);
+      };
+    }
+    return undefined;
+  }, []);
+
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
 
