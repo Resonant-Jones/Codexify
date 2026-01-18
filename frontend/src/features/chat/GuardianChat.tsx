@@ -482,7 +482,7 @@ export function GuardianChat({
           color: "var(--text)",
         }}
       >
-        {/* Left section: mobile back + desktop chevron */}
+        {/* Left section: mobile back + chevron */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"
@@ -496,7 +496,7 @@ export function GuardianChat({
           {onSidebarToggle && (
             <button
               type="button"
-              className="icon-inline hidden md:flex"
+              className="icon-inline"
               aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
               onClick={onSidebarToggle}
               disabled={!onSidebarToggle}
