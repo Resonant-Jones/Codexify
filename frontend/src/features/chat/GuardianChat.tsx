@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { debounce } from "lodash-es";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronRight, MoreVertical, Plus, Sparkles, Layers, SquareStack, ArrowLeft } from "lucide-react";
+import { ChevronRight, MoreVertical, Plus, Sparkles, Layers, SquareStack } from "lucide-react";
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
@@ -61,7 +61,6 @@ export function GuardianChat({
   onArchiveThread,
   onSidebarToggle,
   isSidebarVisible = true,
-  onBack,
   bare = false,
 }: {
   guardianName: string;
@@ -484,15 +483,6 @@ export function GuardianChat({
       >
         {/* Left section: mobile back + chevron */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            type="button"
-            className="icon-inline md:hidden"
-            aria-label="Back to list"
-            onClick={() => onBack?.()}
-            style={{ borderRadius: "var(--radius-micro)" }}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
           {onSidebarToggle && (
             <button
               type="button"
