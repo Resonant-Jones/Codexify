@@ -40,10 +40,11 @@ A campaign file containing an ordered task list with, per task:
 5. **Commit mode is explicit**
    - Each task must declare its commit mode:
      - **one-commit**: implementation + artifact summary are committed together.
-     - **two-phase**: commit #1 is the implementation; commit #2 updates only the task artifact to record the commit hashes and final summary.
-   - In **two-phase** mode, the task artifact Summary must record **both**:
-     - Implementation commit hash
-     - Finalize-artifact commit hash
+     - **two-phase**: commit #1 is the implementation; commit #2 is a docs-only commit that finalizes the task artifact.
+   - In **two-phase** mode:
+     - The task artifact **must** record the **implementation commit hash**.
+     - The task artifact **may** omit the finalize-artifact hash (because a commit cannot embed its own hash without becoming self-referential).
+     - The runner **must** report both hashes in the campaign completion mapping as: `TASK-ID -> [impl_hash, finalize_hash]`.
 
 6. **Commit messages include TASK-ID**
    - Every commit created by the runner must include the current task’s TASK-ID.
@@ -107,7 +108,8 @@ Include:
 - `git status --porcelain` confirmation (no out-of-scope files)
 - Commit mode (one-commit | two-phase)
 - Implementation commit hash
-- Finalize-artifact commit hash (two-phase only)
+- Finalize-artifact commit hash (two-phase only; may be recorded as “reported in campaign mapping” if not embedded in-file)
+- Campaign mapping output requirement: in two-phase mode, output `TASK-ID -> [impl_hash, finalize_hash]`
 
 ### 6) Stage + commit
 Stage **only**:
@@ -130,10 +132,10 @@ Then commit according to the task’s declared commit mode.
    - Update **only** the task artifact Summary to include:
      - commit mode = two-phase
      - implementation commit hash
-     - finalize-artifact commit hash (this commit)
      - commands, tests, and git status confirmation
+     - finalize-artifact commit hash: `reported in campaign mapping` (optional to embed)
    - Stage **only** the task artifact.
-   - Commit with a docs-only message, e.g.:
+   - Commit with a docs-only message that includes the TASK-ID, e.g.:
      - `docs(task): finalize <TASK-ID> summary`
 
 ### 7) Post-commit clean check
@@ -157,4 +159,4 @@ Stop immediately and report if:
 
 ## Notes
 - This protocol is intentionally strict. It is designed to prevent "Franken-commits" and preserve auditability.
-- Two-phase mode exists to avoid the self-referential problem of embedding a commit hash inside an artifact that is itself part of the commit.
+- Two-phase mode avoids self-referential hashes by recording the implementation hash in-file and reporting the finalize hash in the campaign completion mapping.
