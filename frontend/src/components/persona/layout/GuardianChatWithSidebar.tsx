@@ -632,9 +632,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   const chatDisabled = !isDesktopLayout && isSidebarOpen;
 
-  const sidebarWrapperClass = isDesktopLayout
-    ? "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]"
-    : "absolute inset-0 z-30 flex h-full w-full";
+  const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
 
   const PanelShell: React.FC<PanelShellProps> = ({ className, surfaceStyle, disabled, children }) => {
     const panelStyle: React.CSSProperties = {
@@ -666,7 +664,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     <div
       className="relative grid h-full w-full max-w-[1500px] min-h-0 overflow-hidden box-border items-stretch mx-auto"
       style={{
-        gridTemplateColumns: isSidebarOpen
+        gridTemplateColumns: isDesktopLayout && isSidebarOpen
           ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
           : "1fr",
         gap: "8px",
@@ -685,50 +683,67 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         )}
 
         {/* Sidebar */}
-        {isSidebarOpen && (
-          <>
-            {!isDesktopLayout && (
-              <button
-                type="button"
-                aria-label="Hide sidebar"
-                className="absolute inset-0 z-20 bg-black/45"
-                onClick={toggleSidebar}
+        {isSidebarOpen && isDesktopLayout && (
+          <div
+            className={clsx("h-full w-full min-h-0 overflow-hidden box-border", sidebarWrapperClass)}
+            style={{ gridColumn: "1", gridRow: "1" }}
+          >
+            <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
+              <RefractiveGlassCard
+                wallpaperUrl={wallpaperUrl}
+                className="h-full w-full rounded-[var(--card-radius)]"
+                style={{ background: "transparent", border: "none" }}
+                intensity={0.006}
+                aberration={0}
               />
-            )}
+            </div>
             <div
-              className={clsx(
-                "h-full w-full min-h-0 overflow-hidden box-border",
-                sidebarWrapperClass && isDesktopLayout ? undefined : undefined
-              )}
-              style={{
-                gridColumn: "1",
-                gridRow: "1",
-                zIndex: isDesktopLayout ? undefined : 30,
-                position: isDesktopLayout ? "relative" : "absolute",
-                inset: !isDesktopLayout ? 0 : undefined,
-              }}
+              data-layer="panel-shell"
+              className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
             >
-              <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
-                <RefractiveGlassCard
-                  wallpaperUrl={wallpaperUrl}
-                  className="h-full w-full rounded-[var(--card-radius)]"
-                  style={{ background: "transparent", border: "none" }}
-                  intensity={0.006}
-                  aberration={0}
+              <PanelShell surfaceStyle={sidebarSurfaceStyle}>
+                <SidebarRoot
+                  threads={threads}
+                  activeId={activeId}
+                  onSelect={handleSelectThread}
+                  onNewChat={handleNewChatImmediate}
                 />
-              </div>
-              <div
-                data-layer="panel-shell"
-                className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
-              >
-                <PanelShell surfaceStyle={sidebarSurfaceStyle}>
-                  <SidebarRoot
-                    threads={threads}
-                    activeId={activeId}
-                    onSelect={handleSelectThread}
-                    onNewChat={handleNewChatImmediate}
+              </PanelShell>
+            </div>
+          </div>
+        )}
+        {isSidebarOpen && !isDesktopLayout && (
+          <>
+            <button
+              type="button"
+              aria-label="Hide sidebar"
+              className="fixed inset-0 z-30 bg-black/45"
+              onClick={toggleSidebar}
+            />
+            <div className="fixed top-0 left-0 z-40 h-full w-[min(360px,90vw)] overflow-hidden">
+              <div className="relative h-full w-full min-h-0 min-w-0 box-border">
+                <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
+                  <RefractiveGlassCard
+                    wallpaperUrl={wallpaperUrl}
+                    className="h-full w-full rounded-[var(--card-radius)]"
+                    style={{ background: "transparent", border: "none" }}
+                    intensity={0.006}
+                    aberration={0}
                   />
-                </PanelShell>
+                </div>
+                <div
+                  data-layer="panel-shell"
+                  className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
+                >
+                  <PanelShell surfaceStyle={sidebarSurfaceStyle}>
+                    <SidebarRoot
+                      threads={threads}
+                      activeId={activeId}
+                      onSelect={handleSelectThread}
+                      onNewChat={handleNewChatImmediate}
+                    />
+                  </PanelShell>
+                </div>
               </div>
             </div>
           </>
@@ -737,7 +752,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         <div
           className="flex h-full w-full min-h-0 overflow-hidden flex-col box-border"
           style={{
-            gridColumn: isSidebarOpen ? "2" : "1",
+            gridColumn: isDesktopLayout && isSidebarOpen ? "2" : "1",
             gridRow: "1",
           }}
         >
