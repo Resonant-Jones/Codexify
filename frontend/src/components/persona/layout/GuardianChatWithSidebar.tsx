@@ -40,6 +40,12 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     return stored === null ? true : stored === "true";
   });
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
+  const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const stored = window.localStorage.getItem("cfy.lastProjectId");
+    if (!stored || stored === "null") return null;
+    return stored;
+  });
 
   // Persist sidebar visibility preference
   React.useEffect(() => {
@@ -784,6 +790,8 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                     activeId={activeId}
                     onSelect={handleSelectThread}
                     onNewChat={handleNewChatImmediate}
+                    projectId={selectedProjectId}
+                    onProjectChange={setSelectedProjectId}
                   />
                 </PanelShell>
               </div>
@@ -843,6 +851,8 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   activeId={activeId}
                   onSelect={handleSelectThread}
                   onNewChat={handleNewChatImmediate}
+                  projectId={selectedProjectId}
+                  onProjectChange={setSelectedProjectId}
                 />
               </PanelShell>
             </div>

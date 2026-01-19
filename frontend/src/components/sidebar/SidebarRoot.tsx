@@ -285,6 +285,7 @@ export default function SidebarRoot({
               <button
                 role="tab"
                 className="pill-tab text-xs"
+                data-testid="sidebar-threads-tab"
                 data-state={tab === "threads" ? "active" : undefined}
                 onClick={() => setTab("threads")}
                 onKeyDown={(e) => {
@@ -296,6 +297,7 @@ export default function SidebarRoot({
               <button
                 role="tab"
                 className="pill-tab text-xs"
+                data-testid="sidebar-projects-tab"
                 data-state={tab === "projects" ? "active" : undefined}
                 onClick={() => setTab("projects")}
                 onKeyDown={(e) => {
