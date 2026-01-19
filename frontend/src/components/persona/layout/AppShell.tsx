@@ -1091,6 +1091,7 @@ export default function AppShell({}: PropsWithChildren) {
           boxSizing: "border-box",
         }}
       >
+      <div id="cfy-portal-root" />
       {/* {view === "dashboard" && (
         <RefractiveGlassCard
           wallpaperUrl={activeWallpaper}
