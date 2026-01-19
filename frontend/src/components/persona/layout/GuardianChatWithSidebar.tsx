@@ -722,16 +722,13 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     ? createPortal(
         <div
           data-testid="mobile-sidebar-overlay"
-          className="fixed inset-0"
-          style={{ zIndex: 10000 }}
+          style={{ position: "fixed", inset: 0, zIndex: 10000 }}
         >
           <div
             data-testid="mobile-sidebar-scrim"
-            className="fixed inset-0"
-            style={{ background: "rgba(0,0,0,0.45)", zIndex: 10000 }}
+            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }}
             role="button"
             tabIndex={0}
-            onPointerDown={closeSidebar}
             onClick={closeSidebar}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -741,8 +738,15 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           />
           <aside
             data-testid="mobile-sidebar-drawer"
-            className="fixed top-0 left-0 h-full overflow-hidden"
-            style={{ zIndex: 10001, width: "min(360px, 80vw)" }}
+            className="h-full overflow-hidden"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              height: "100%",
+              width: "min(360px, 90vw)",
+              zIndex: 10001,
+            }}
             onPointerDown={stopDrawerEvent}
             onClick={stopDrawerEvent}
           >
