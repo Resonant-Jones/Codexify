@@ -103,6 +103,20 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
 
+  // Portal target: mount inside the themed app shell so the overlay inherits
+  // the same CSS variables and theme context as the rest of the UI.
+  const portalTarget = React.useMemo(() => {
+    if (typeof document === "undefined") return null;
+    return (
+      document.getElementById("cfy-portal-root") ??
+      document.getElementById("app") ??
+      document.getElementById("root") ??
+      document.body ??
+      document.documentElement
+    );
+  }, []);
+
+
   const setSidebarOpen = React.useCallback(
     (next: boolean) => {
       if (isDesktopLayout) {
@@ -718,7 +732,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     );
   };
 
-  const mobileOverlay = isMobileOverlayActive && typeof document !== "undefined"
+  const mobileOverlay = isMobileOverlayActive && portalTarget
     ? createPortal(
         <div
           data-testid="mobile-sidebar-overlay"
@@ -776,7 +790,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             </div>
           </aside>
         </div>,
-        document.body
+        portalTarget
       )
     : null;
 
