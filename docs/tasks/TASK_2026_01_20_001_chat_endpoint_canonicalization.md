@@ -149,3 +149,52 @@ Acceptance Criteria
 ✅ Backend supports canonical path + legacy aliases without duplicating logic  
 ✅ Tests/lint pass  
 ✅ Working tree clean after finalize commit
+
+---
+
+## Naming and file placement conventions
+
+Codexify uses **dash-form IDs** and **underscore-form filenames**. This is intentional.
+
+### Task IDs vs task filenames
+
+- **TASK-ID format (dash form):** `TASK-YYYY-MM-DD-NNN_SLUG`
+  - Example: `TASK-2026-01-20-001_CHAT_ENDPOINT_CANONICALIZATION`
+
+- **Task prompt artifact filename (underscore form):** `docs/tasks/TASK_YYYY_MM_DD_NNN_<lowercase_slug>.md`
+  - Example: `docs/tasks/TASK_2026_01_20_001_chat_endpoint_canonicalization.md`
+
+Rules:
+- Task *filenames* always use underscores in the date and separators, and use a **lowercase** slug.
+- Task *IDs* inside the file stay in dash form.
+
+### Campaign IDs vs campaign filenames
+
+- **CAMPAIGN-ID format (dash form):** `CAMPAIGN-YYYY-MM-DD-NNN_SLUG`
+  - Example: `CAMPAIGN-2026-01-20-001_MVP_LOOP_CLOSURE_RAG`
+
+- **Campaign stack filename (underscore form):** `docs/Campaign/CAMPAIGN_YYYY_MM_DD.md`
+  - Example: `docs/Campaign/CAMPAIGN_2026_01_20.md`
+
+Rules:
+- Campaign files live under `docs/Campaign/` (capital C).
+- Campaign filenames use underscores and include the date; the active campaign is selected **inside** the file by CAMPAIGN-ID.
+
+### Untracked vs tracked renames
+
+- If a file is **untracked** and needs to be renamed to match conventions, use:
+  - `mv <old> <new>`
+  - then `git add <new>`
+
+- If a file is **already tracked**, use:
+  - `git mv <old> <new>`
+
+This avoids the common failure mode where `git mv` is attempted on an untracked file.
+
+### Shell command hygiene
+
+When copy/pasting commands, use ASCII hyphens:
+- ✅ `git status --porcelain`
+- ❌ `git status –porcelain` (en-dash)
+
+The en-dash version will break in shells and can create confusing false negatives.
