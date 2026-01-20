@@ -197,3 +197,29 @@ When copy/pasting commands, use ASCII hyphens:
 - ❌ `git status –porcelain` (en-dash)
 
 The en-dash version will break in shells and can create confusing false negatives.
+
+## Summary
+
+Canonical endpoint:
+- POST /api/chat/{thread_id}/complete (canonical base: /api/chat)
+
+Legacy endpoints and alias behavior:
+- /chat/* remains available and routes to the same handler functions.
+- /api/chat/debug/rag-trace/{thread_id}/latest aliases /chat/debug/rag-trace/{thread_id}/latest.
+
+Changes:
+- guardian/routes/chat.py: mark /api/chat as canonical and add the debug alias.
+- frontend/src/lib/api.ts: normalize /api prefix when baseURL already ends with /api.
+- frontend/src/features/chat/GuardianChat.tsx: switch hardcoded chat calls to /chat.
+
+Tests:
+- pytest -v (pass)
+- pnpm --dir frontend/src test (pass)
+- pnpm --dir frontend/src lint (pass with warnings: existing lint warnings)
+
+git status --porcelain:
+- docs/tasks/TASK_2026_01_20_001_chat_endpoint_canonicalization.md
+
+Commit mode: two-phase
+Implementation hash: 787cbd0d4d9445817bcb5fe743b6e9892c3347ac
+Finalize-artifact hash: reported in campaign mapping
