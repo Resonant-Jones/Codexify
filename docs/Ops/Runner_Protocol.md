@@ -13,7 +13,7 @@ It enforces:
 ## Inputs
 A campaign file containing an ordered task list with, per task:
 - Task ID + title
-- Task file path under `docs/tasks/…`
+- Task file path under `docs/tasks/…` (MUST use underscore naming: `TASK_YYYY_MM_DD_NNN_slug.md`)
 - Allowed (primary) file list
 - Test loop command(s)
 - Commit message
@@ -54,6 +54,21 @@ A campaign file containing an ordered task list with, per task:
 
 7. **Clean tree between tasks**
    - `git status --porcelain` must be empty before moving to the next task.
+
+8. **Canonical file naming (prevents scope + path ambiguity)**
+   - **Task artifacts** MUST use underscores and a lowercase slug:
+     - Directory: `docs/tasks/`
+     - Filename pattern: `TASK_YYYY_MM_DD_NNN_<lowercase_slug>.md`
+     - Example: `docs/tasks/TASK_2026_01_20_001_chat_endpoint_canonicalization.md`
+   - **Campaign files** SHOULD be visually distinct and consistent:
+     - Directory: `docs/Campaign/` (use the repo’s existing campaigns directory)
+     - Filename pattern: `CAMPAIGN_YYYY_MM_DD.md` (uppercase prefix)
+     - Example: `docs/Campaign/CAMPAIGN_2026_01_20.md`
+   - **Disallowed / non-canonical**: dash-separated task filenames like `TASK-2026-01-20-001_...md`.
+   - **Preflight enforcement**:
+     - If the campaign references a non-canonical task filename (dash style or wrong directory), **STOP** and report the mismatch.
+     - Do **not** auto-rename during an in-progress task (it can violate that task’s allowed-file list).
+     - The correct fix is a **docs-only** rename using `git mv` performed **before** starting the campaign (or as a separate docs task), e.g. renaming to the underscore pattern.
 
 ## Per-Task Execution Loop
 For each task in the campaign (in order):
@@ -156,6 +171,7 @@ Stop immediately and report if:
 - A task requires editing files outside its allowed list.
 - Tests cannot pass without violating scope.
 - The working tree becomes unexpectedly dirty.
+- A campaign references a non-canonical task artifact path/name (e.g., dash-style TASK filenames or wrong directory).
 
 ## Notes
 - This protocol is intentionally strict. It is designed to prevent "Franken-commits" and preserve auditability.
