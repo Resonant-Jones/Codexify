@@ -13,11 +13,11 @@ It enforces:
 ## Inputs
 A campaign file containing an ordered task list with, per task:
 - Task ID + title
-- Task file path under `docs/tasks/…` (MUST use underscore naming: `TASK_YYYY_MM_DD_NNN_slug.md`)
-- Allowed (primary) file list
-- Test loop command(s)
-- Commit message
-- `Commit message template (must include TASK-ID)`
+- Task file path under `docs/tasks/…` (MUST use underscore naming: `TASK_YYYY_MM_DD_NNN_<lowercase_slug>.md` and live in `docs/tasks/`)
+- Allowed (primary) file list (the only files the runner may modify for this task)
+- Test loop command(s) (must be copy/paste runnable)
+- Commit mode (one-commit | two-phase)
+- Commit message template (must include TASK-ID)
 
 ## Global Invariants
 1. **No scope creep**
@@ -61,14 +61,19 @@ A campaign file containing an ordered task list with, per task:
      - Filename pattern: `TASK_YYYY_MM_DD_NNN_<lowercase_slug>.md`
      - Example: `docs/tasks/TASK_2026_01_20_001_chat_endpoint_canonicalization.md`
    - **Campaign files** SHOULD be visually distinct and consistent:
-     - Directory: `docs/Campaign/` (use the repo’s existing campaigns directory)
+     - Directory: `docs/Campaign/` (note case: capital C in `Campaign`)
      - Filename pattern: `CAMPAIGN_YYYY_MM_DD.md` (uppercase prefix)
      - Example: `docs/Campaign/CAMPAIGN_2026_01_20.md`
+     - All campaign/task paths and filenames are **case-sensitive** on Linux containers; treat them as case-sensitive everywhere.
    - **Disallowed / non-canonical**: dash-separated task filenames like `TASK-2026-01-20-001_...md`.
    - **Preflight enforcement**:
      - If the campaign references a non-canonical task filename (dash style or wrong directory), **STOP** and report the mismatch.
      - Do **not** auto-rename during an in-progress task (it can violate that task’s allowed-file list).
      - The correct fix is a **docs-only** rename using `git mv` performed **before** starting the campaign (or as a separate docs task), e.g. renaming to the underscore pattern.
+
+9. Shell command hygiene (prevents copy/paste breakage)
+   - In all command snippets, use plain ASCII hyphens `-` for flags (e.g., `git status --porcelain`).
+   - Do not use typographic/en-dash characters like `–` in flags; they will break in shells.
 
 ## Per-Task Execution Loop
 For each task in the campaign (in order):
@@ -88,6 +93,7 @@ Run:
 git status --porcelain
 ```
 If anything is dirty, stop and report.
+Note: Use ASCII hyphens in commands; `git status –porcelain` (en-dash) is invalid.
 
 ### 2) Implement minimal change
 Edit only the allowed files.
@@ -172,6 +178,7 @@ Stop immediately and report if:
 - Tests cannot pass without violating scope.
 - The working tree becomes unexpectedly dirty.
 - A campaign references a non-canonical task artifact path/name (e.g., dash-style TASK filenames or wrong directory).
+- Any campaign/task filename/path mismatch due to dash-vs-underscore naming or directory case (e.g., `docs/campaign` vs `docs/Campaign`).
 
 ## Notes
 - This protocol is intentionally strict. It is designed to prevent "Franken-commits" and preserve auditability.
