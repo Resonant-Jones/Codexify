@@ -55,20 +55,19 @@ node_modules/
 dist/
 build/
 
+# Lockfiles: keep only the intentional roots
+# (Root workspace lockfile is tracked; nested lockfiles are never tracked.)
+**/src/pnpm-lock.yaml
+
 # TypeScript build info caches
+*.tsbuildinfo
 frontend/src/node_modules/.tmp/
-frontend/src/tsconfig.tsbuildinfo
-*.egg-info/
 
 # Frontend debug/test artifacts (local-only)
 frontend/src/playwright-report/
-frontend/src/playwright-report/**
-frontend/src/screenshots/guardian-chat__*.png
-frontend/src/screenshots/guardian-chat-panel__*.png
-frontend/src/screenshots/guardian-chat*.png
-frontend/src/screenshots/guardian-chat-panel*.png
-frontend/src/screenshots/layout/
-frontend/src/screenshots/layout/**
+frontend/src/test-results/
+frontend/src/screenshots/
+frontend/src/screenshots/**
 
 # --- Artifacts / tooling ---
 artifacts/
