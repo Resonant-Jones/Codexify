@@ -136,3 +136,16 @@ Acceptance Criteria
 ✅ Harness targets running frontend via http://frontend:5173 in Docker  
 ✅ Local Playwright workflow remains valid (localhost baseURL + optional webServer start)  
 ✅ Repo remains clean after finalize commit  
+
+Draft Summary (Blocked)
+- Status: blocked on required check `pnpm --dir frontend/src test`.
+- Failure: Vite could not resolve import "axios" from `frontend/src/lib/api.ts`, indicating missing deps outside the allowed file list.
+- Commands run (latest attempt):
+  - node -v
+  - pnpm -v
+  - uname -a
+  - pnpm install --force
+  - pnpm --dir frontend/src install --force
+  - pnpm --dir frontend/src test (failed with axios resolution error)
+- Scope note: dependency fixes likely require `frontend/src/package.json` and lockfile changes, which are not allowed in this task.
+- Working tree: reverted changes to `docker-compose.yml`, `frontend/src/playwright.config.ts`, and `.gitignore` before writing this draft.
