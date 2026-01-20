@@ -34,7 +34,7 @@ Requirements
 - Follow docs/Ops/Runner_Protocol.md two-phase commit pattern:
   - Commit A: implementation changes only
   - Commit B: docs task artifact only
-- Include TASK-ID in BOTH commit messages.
+  - Include TASK-ID in BOTH commit messages.
 - Commit hash paradox handling:
   - DO NOT use git commit --amend.
   - In the artifact doc, Finalize-artifact hash may be: (reported in final mapping)
@@ -43,9 +43,10 @@ Requirements
 Files allowed to edit (only)
 Backend (routing only):
 
-- guardian/app.py (or the backend entry/router registration file if different)
-- guardian/routes/chat.py (or equivalent chat route module)
-- guardian/routes/__init__.py (only if needed for router inclusion)
+- guardian/guardian_api.py (canonical backend entrypoint; router registration happens here)
+- guardian/server/app.py (only if the running server for your environment uses this entrypoint)
+- guardian/routes/chat.py
+- guardian/routes/__init__.py (only if required for router exports; avoid if not necessary)
 
 Frontend (client path only):
 
@@ -58,7 +59,7 @@ Docs:
 - docs/tasks/TASK_2026_01_20_001_chat_endpoint_canonicalization.md
 
 STOP CONDITION (scope integrity)
-If any of the above paths do not exist or the correct files differ, STOP and report:
+If any of the above paths do not exist in your checkout, STOP and report:
 
 - the closest matching file paths you found
 - what route(s) currently exist
@@ -96,18 +97,16 @@ E) Tests
 - If backend tests are sparse, add a lightweight unit/integration test for the router path mapping (canonical + alias calling same handler).
 
 Checks to run (required)
-Run these exactly and report pass/fail:
-
 1) Backend
 
 - pytest -v
 
-1) Frontend
+2) Frontend
 
 - pnpm --dir frontend/src test
 - pnpm --dir frontend/src lint
 
-1) Final repo state
+3) Final repo state
 
 - git status --porcelain  (must be empty after Commit B)
 
