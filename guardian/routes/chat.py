@@ -320,6 +320,7 @@ def _apply_thread_update(
     return refreshed
 
 
+# Legacy /chat routes; canonical base is /api/chat.
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 DEFAULT_PROJECT_NAME = "Loose Threads"
@@ -1064,11 +1065,11 @@ async def simple_chat_stream(
 
 
 # =========================
-# /api/chat/* Alias Endpoints (backward compatibility)
+# /api/chat/* Canonical Endpoints
 # =========================
 
-# These endpoints maintain backward compatibility with tests that expect
-# /api/chat/* paths by delegating to the canonical /chat/* implementations
+# These endpoints are the canonical chat API surface; /chat/* remains as a
+# legacy alias that delegates to the same handler functions.
 
 api_chat_router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
@@ -1124,6 +1125,14 @@ async def api_chat_complete(
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
     return await chat_complete(thread_id, body)
+
+
+@api_chat_router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
+def api_get_latest_rag_trace(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
+    """Compat alias for GET /chat/debug/rag-trace/{thread_id}/latest."""
+    return get_latest_rag_trace(thread_id, api_key=api_key)
 
 
 @api_chat_router.delete("/{thread_id}/messages/{message_id}")

@@ -10,4 +10,18 @@ const api = axios.create({
   timeout: 15000,
 });
 
+api.interceptors.request.use((config) => {
+  const baseURL = String(
+    config.baseURL ?? api.defaults.baseURL ?? ""
+  ).replace(/\/+$/, "");
+  if (
+    baseURL.endsWith("/api")
+    && typeof config.url === "string"
+    && config.url.startsWith("/api/")
+  ) {
+    config.url = config.url.replace(/^\/api/, "");
+  }
+  return config;
+});
+
 export default api;
