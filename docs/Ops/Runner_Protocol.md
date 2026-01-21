@@ -11,15 +11,30 @@ It enforces:
 - **prompt + summary artifacts** recorded in `docs/tasks/`
 
 ## Inputs
-A campaign file containing an ordered task list with, per task:
-- Task ID + title
-- Task file path under `docs/tasks/…` (MUST use underscore naming: `TASK_YYYY_MM_DD_NNN_<lowercase_slug>.md` and live in `docs/tasks/`)
+A campaign file containing an ordered task list. For each TASK, the campaign should provide enough information to execute safely.
+
+Minimum required fields per task (preferred):
+- TASK-ID + title
+- Goal / objective (1–3 sentences)
 - Allowed (primary) file list (the only files the runner may modify for this task)
 - Test loop command(s) (must be copy/paste runnable)
 - Commit mode (one-commit | two-phase)
-- Commit message template (must include TASK-ID)
+- Commit message template(s) (must include TASK-ID)
+
+Task artifact path rules:
+- The runner MUST use an underscore-named task artifact under `docs/tasks/`:
+  - `docs/tasks/TASK_YYYY_MM_DD_NNN_<lowercase_slug>.md`
+- The campaign MAY include the task artifact path explicitly.
+- If the campaign does NOT include the task artifact path, the runner MUST derive it from the TASK-ID + a lowercase slug.
 
 ## Global Invariants
+0. **Campaign → Task prompt generation is mandatory**
+   - The runner MUST NOT block simply because a task prompt file does not exist yet.
+   - If the task artifact file is missing, the runner MUST create it during the task (see Per-Task Execution Loop).
+   - The task artifact must include a “Task Prompt” section that is sourced from the campaign entry.
+   - If the campaign entry is missing required constraints (e.g., Allowed Files, Checks to Run, or Commit Mode), the runner MUST STOP and emit a **Blocker Prompt** (see “Blocker Prompt Template”) that reports exactly what is missing.
+   - The runner MUST NOT ask the user to “create the task prompt file” as a prerequisite. The runner either (a) derives the task prompt from the campaign entry, or (b) stops with a Blocker Prompt when the campaign entry is insufficient.
+
 1. **No scope creep**
    - Only edit files explicitly allowed by the current task.
    - If a change requires an additional file, stop and report.
@@ -67,13 +82,60 @@ A campaign file containing an ordered task list with, per task:
      - All campaign/task paths and filenames are **case-sensitive** on Linux containers; treat them as case-sensitive everywhere.
    - **Disallowed / non-canonical**: dash-separated task filenames like `TASK-2026-01-20-001_...md`.
    - **Preflight enforcement**:
-     - If the campaign references a non-canonical task filename (dash style or wrong directory), **STOP** and report the mismatch.
+     - If the campaign references a non-canonical task filename/path, the runner MUST prefer the canonical underscore-named path.
+       - If a safe canonical mapping is possible (same TASK-ID, slug can be derived), the runner should proceed using the canonical path and note the mapping in the task artifact.
+       - If a safe mapping is NOT possible, STOP and report the mismatch.
      - Do **not** auto-rename during an in-progress task (it can violate that task’s allowed-file list).
      - The correct fix is a **docs-only** rename using `git mv` performed **before** starting the campaign (or as a separate docs task), e.g. renaming to the underscore pattern.
 
 9. Shell command hygiene (prevents copy/paste breakage)
    - In all command snippets, use plain ASCII hyphens `-` for flags (e.g., `git status --porcelain`).
    - Do not use typographic/en-dash characters like `–` in flags; they will break in shells.
+
+## Blocker Prompt Template (Source of Truth)
+
+When any STOP condition triggers, the runner MUST output a single structured Blocker Prompt and then stop without editing files.
+
+Copy/paste template:
+
+```text
+<BLOCKER_PROMPT>
+RUN-ID: <run-id-or-unknown>
+CAMPAIGN-ID: <campaign-id>
+TASK-ID: <task-id>
+TASK-ARTIFACT: <docs/tasks/TASK_YYYY_MM_DD_NNN_slug.md>
+BRANCH: <git-branch>
+REPO-ROOT: <git-rev-parse--show-toplevel>
+SEVERITY: <stop|warning>
+
+STOP-REASON:
+- <one sentence>
+
+MISSING / CONFLICTING INPUTS:
+- <bullet list of the exact fields/files/commands that are missing or conflicting>
+
+EVIDENCE:
+- Command(s) run:
+  - <command>
+- Key output excerpt(s):
+  - <trimmed excerpt>
+
+ALLOWED OPTIONS:
+A) <option A phrased as an explicit instruction the user can choose>
+B) <option B>
+
+RECOMMENDED:
+- <one recommended option and why>
+
+WHAT I WILL DO NEXT (once resolved):
+- <1–3 bullet steps>
+</BLOCKER_PROMPT>
+```
+
+Notes:
+- The Blocker Prompt must be actionable: list *exactly* what the user must supply or change.
+- If the blocker is a file-scope mismatch, include the exact path(s) that must be added to Allowed Files.
+- If the blocker is a dirty tree, include `git status --porcelain` output.
 
 ## Per-Task Execution Loop
 For each task in the campaign (in order):
@@ -86,6 +148,7 @@ Print:
 - Test command(s)
 - Commit message (must include TASK-ID)
 - Commit mode (one-commit | two-phase)
+- If stopping, emit a Blocker Prompt (see “Blocker Prompt Template”).
 
 ### 1) Preflight check
 Run:
@@ -94,6 +157,25 @@ git status --porcelain
 ```
 If anything is dirty, stop and report.
 Note: Use ASCII hyphens in commands; `git status –porcelain` (en-dash) is invalid.
+
+### 1.5) Ensure task artifact exists (create if missing)
+
+After confirming a clean tree, ensure the task artifact file exists.
+
+- If the task artifact file does not exist, create it as a new file at the canonical underscore path.
+- Creating the task artifact file is considered in-scope for the current task.
+- Do not run tests or make implementation changes until the task artifact file exists.
+- The file must contain (at minimum) the following headings:
+
+  - `# <TASK-ID>: <title>`
+  - `## Task Prompt`
+  - `## Allowed Files`
+  - `## Checks to Run`
+  - `## Commit Mode`
+  - `## Commit Messages`
+  - `## Summary` (may be left as “TBD” until finalize)
+
+If the campaign does not specify Allowed Files, Checks to Run, or Commit Mode, STOP and emit a Blocker Prompt (see “Blocker Prompt Template”) reporting exactly what is missing.
 
 ### 2) Implement minimal change
 Edit only the allowed files.
@@ -113,7 +195,7 @@ Run the task’s test loop exactly as specified.
 - If passing requires touching a non-allowed file: stop and report.
 
 ### 5) Write task artifact
-Create/update the task file under `docs/tasks/…` with two sections:
+Update the task file under `docs/tasks/…` with two sections:
 
 #### Task Prompt
 Include the full Codexify Task Template prompt for this task:
@@ -177,8 +259,20 @@ Stop immediately and report if:
 - A task requires editing files outside its allowed list.
 - Tests cannot pass without violating scope.
 - The working tree becomes unexpectedly dirty.
-- A campaign references a non-canonical task artifact path/name (e.g., dash-style TASK filenames or wrong directory).
+- A campaign references a task artifact path/name that cannot be safely mapped to the canonical underscore format.
 - Any campaign/task filename/path mismatch due to dash-vs-underscore naming or directory case (e.g., `docs/campaign` vs `docs/Campaign`).
+- A STOP condition is hit and the runner fails to emit a Blocker Prompt using the “Blocker Prompt Template” above.
+
+## Defaults (only when campaign explicitly allows)
+The runner may apply defaults ONLY if the active campaign explicitly authorizes defaults.
+
+Suggested safe defaults:
+- Commit mode: two-phase
+- Commit message templates:
+  - Implementation: `<TASK-ID>: <short message>`
+  - Finalize: `docs(task): finalize <TASK-ID> summary`
+
+Defaults must NEVER be applied to “Allowed Files” or “Checks to Run”. Those must be specified by the campaign/task.
 
 ## Notes
 - This protocol is intentionally strict. It is designed to prevent "Franken-commits" and preserve auditability.
