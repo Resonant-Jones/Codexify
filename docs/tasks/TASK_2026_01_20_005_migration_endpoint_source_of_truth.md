@@ -124,3 +124,12 @@ Acceptance Criteria
 ✅ Router inclusion is correct in guardian/guardian_api.py (single source of truth)
 ✅ No /api/api drift introduced
 ✅ Tests pass; working tree clean
+
+## Summary
+- Added canonical `/api/upload-chatgpt-export` alias in `guardian/routes/migration.py` while keeping `/upload-chatgpt-export` as legacy.
+- Added route registration coverage in `tests/routes/test_migration_routes.py` with patched migration handler.
+- Tests: `pytest -v` (pass).
+- git status --porcelain: `docs/tasks/TASK_2026_01_20_005_migration_endpoint_source_of_truth.md`.
+- Commit mode: two-phase.
+- Implementation hash: `bf84819a7252df2f402b8ebb8a2e04740a98d1fd`.
+- Finalize-artifact hash: reported in campaign mapping.
