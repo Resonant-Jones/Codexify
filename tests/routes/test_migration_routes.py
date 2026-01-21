@@ -5,8 +5,16 @@ from __future__ import annotations
 from unittest.mock import patch
 
 
-def test_migration_endpoint_registered(test_client):
+def _post_export(test_client, path: str):
     files = {"file": ("export.json", b"[]", "application/json")}
+    return test_client.post(
+        path,
+        files=files,
+        headers={"X-User-Id": "test_user"},
+    )
+
+
+def test_migration_endpoint_registered(test_client):
     with patch(
         "guardian.routes.migration.ingest_chatgpt_export"
     ) as mock_ingest:
@@ -14,13 +22,13 @@ def test_migration_endpoint_registered(test_client):
             "threads_imported": 1,
             "messages_imported": 2,
         }
-        res = test_client.post(
-            "/api/upload-chatgpt-export",
-            files=files,
-            headers={"X-User-Id": "test_user"},
-        )
+        canonical = _post_export(test_client, "/api/upload-chatgpt-export")
+        legacy = _post_export(test_client, "/upload-chatgpt-export")
 
-    assert res.status_code == 200
-    data = res.json()
-    assert data["threads_imported"] == 1
-    assert data["messages_imported"] == 2
+    assert canonical.status_code == 200
+    assert legacy.status_code == 200
+
+    for res in (canonical, legacy):
+        data = res.json()
+        assert data["threads_imported"] == 1
+        assert data["messages_imported"] == 2
