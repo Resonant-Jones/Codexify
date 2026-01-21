@@ -94,3 +94,16 @@ Two-phase commits:
 - Confirmation of code changes.
 - Passing tests / checks summary (or explicit note if none apply).
 - Git commit hash(es).
+
+## Summary
+- Updated `frontend/src/tests/playwright/migration_e2e_import.spec.ts` to gate the upload while asserting processing state, treat `/api/events` as the resume scan and `/api/chat/threads` as the status poll after reload, and emit a toast on completion.
+- Tests:
+  - `pnpm --dir frontend/src test` (pass; baseline-browser-mapping warning)
+  - `pnpm --dir frontend/src lint` (warnings only)
+  - `pnpm --dir frontend/src exec playwright test migration_e2e_import.spec.ts` (pass)
+- `git status --porcelain`: clean after commits (Playwright artifacts restored to HEAD).
+- Commit mode: follow-up fix after prior two-phase.
+- Commit hashes:
+  - spec: e6e76956
+  - implementation: 0bede14d
+  - follow-up fix: 519b128e
