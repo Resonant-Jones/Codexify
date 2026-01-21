@@ -97,3 +97,11 @@ Capture Commit B hash.
 ✅ Automated test confirms non-404 for both canonical and legacy endpoints  
 ✅ `pytest -v` passes  
 ✅ Working tree clean after finalize commit
+
+## Summary
+- Updated `tests/routes/test_migration_routes.py` to assert both canonical and legacy migration routes return non-404 responses via the canonical app.
+- Tests: `pytest -v` (pass).
+- git status --porcelain: `docs/tasks/TASK_2026_01_20_006_register_migration_router.md`.
+- Commit mode: two-phase.
+- Implementation hash: `ff751f29ac7c66f2eaf9ef6055eadec808545a9c`.
+- Finalize-artifact hash: reported in campaign mapping.
