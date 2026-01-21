@@ -77,6 +77,15 @@ export function ChatGPTImportModal({
       setStatus("success");
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
+      try {
+        window.dispatchEvent(
+          new CustomEvent("cfy:threads:refresh", {
+            detail: { kind: "refresh", source: "chatgpt-import" },
+          })
+        );
+      } catch (eventErr) {
+        console.warn("[migration] thread refresh event failed", eventErr);
+      }
     } catch (err: any) {
       console.error("Migration error:", err);
       setStatus("error");
