@@ -1,17 +1,12 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('ChatGPT migration import', () => {
-  test('hits canonical endpoint and triggers refresh', async ({ page, context }) => {
+  test('queues upload and resumes on reload', async ({ page, context }) => {
     await context.addInitScript(() => {
       localStorage.setItem('cfy.lastView', 'settings');
     });
 
     await page.addInitScript(() => {
-      (window as any).__threadsRefreshSeen = false;
-      window.addEventListener('cfy:threads:refresh', () => {
-        (window as any).__threadsRefreshSeen = true;
-      });
-
       const originalFetch = window.fetch.bind(window);
       window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
         const url =
@@ -32,8 +27,14 @@ test.describe('ChatGPT migration import', () => {
 
     let canonicalHit = false;
     let legacyUploadHit = false;
-    let importCompleted = false;
-    let threadFetches = 0;
+    let uploadSettled = false;
+    let reloadPhase = false;
+    let startupScanHits = 0;
+    let statusPollHits = 0;
+    let releaseUpload: (() => void) | null = null;
+    const uploadGate = new Promise<void>((resolve) => {
+      releaseUpload = resolve;
+    });
 
     const baseThreads = [
       { id: 101, title: 'Seed Thread', last_message: 'Hello', project_id: null },
@@ -63,12 +64,13 @@ test.describe('ChatGPT migration import', () => {
       if (path === '/api/upload-chatgpt-export') {
         expect(request.method()).toBe('POST');
         canonicalHit = true;
-        importCompleted = true;
+        await uploadGate;
         await route.fulfill({
-          status: 200,
+          status: 202,
           contentType: 'application/json',
-          body: JSON.stringify({ threads_imported: 1, messages_imported: 2 }),
+          body: JSON.stringify({ job_id: 'job_1', status: 'queued' }),
         });
+        uploadSettled = true;
         return;
       }
 
@@ -82,10 +84,10 @@ test.describe('ChatGPT migration import', () => {
       }
 
       if (path.startsWith('/api/chat/threads')) {
-        threadFetches += 1;
-        const threads = importCompleted
-          ? [...baseThreads, importedThread]
-          : baseThreads;
+        if (reloadPhase) {
+          statusPollHits += 1;
+        }
+        const threads = reloadPhase ? [...baseThreads, importedThread] : baseThreads;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -122,6 +124,9 @@ test.describe('ChatGPT migration import', () => {
       }
 
       if (path.startsWith('/api/events')) {
+        if (reloadPhase) {
+          startupScanHits += 1;
+        }
         await route.fulfill({
           status: 200,
           headers: { 'content-type': 'text/event-stream' },
@@ -140,15 +145,14 @@ test.describe('ChatGPT migration import', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
-    await page.evaluate(() => {
-      localStorage.setItem('cfy.lastView', 'settings');
-    });
-    await page.reload();
-    await page.waitForLoadState('domcontentloaded');
+    const settingsTab = page.getByRole('button', { name: 'Settings' }).first();
+    await expect(settingsTab).toBeVisible({ timeout: 20000 });
+    await settingsTab.click();
+    await expect(page.getByRole('button', { name: 'Appearance' })).toBeVisible();
 
     const dataTab = page.getByRole('button', { name: 'Data' }).first();
-    await expect(dataTab).toBeVisible({ timeout: 20000 });
     await dataTab.click();
+    await expect(page.getByText('ChatGPT Migration')).toBeVisible();
 
     const importButton = page.getByRole('button', { name: 'Import from ChatGPT' });
     await expect(importButton).toBeVisible();
@@ -165,27 +169,38 @@ test.describe('ChatGPT migration import', () => {
 
     await page.getByRole('button', { name: 'Upload & Migrate' }).click();
 
-    await expect(page.getByText('Migration Successful')).toBeVisible();
+    await expect(page.getByText(/Processing conversations/i)).toBeVisible();
 
     await expect.poll(() => canonicalHit).toBeTruthy();
     expect(legacyUploadHit).toBeFalsy();
-    await expect.poll(() => threadFetches).toBeGreaterThan(1);
-    await page.waitForFunction(() => (window as any).__threadsRefreshSeen === true);
+    releaseUpload?.();
+    await expect.poll(() => uploadSettled).toBeTruthy();
+
+    reloadPhase = true;
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+
+    const settingsTabReload = page.getByRole('button', { name: 'Settings' }).first();
+    await expect(settingsTabReload).toBeVisible({ timeout: 20000 });
+    await settingsTabReload.click();
+    await expect(page.getByRole('button', { name: 'Appearance' })).toBeVisible();
+
+    await expect.poll(() => startupScanHits).toBeGreaterThan(0);
 
     const guardianTab = page.getByRole('button', { name: 'Guardian' }).first();
-    if (await guardianTab.isVisible().catch(() => false)) {
-      await guardianTab.click();
-    }
+    await expect(guardianTab).toBeVisible();
+    await guardianTab.click();
 
-    const sidebarToggle = page.getByRole('button', { name: /Show sidebar|Hide sidebar/ }).first();
-    if (await sidebarToggle.isVisible().catch(() => false)) {
-      const label = await sidebarToggle.getAttribute('aria-label');
-      if (label === 'Show sidebar') {
-        await sidebarToggle.click();
-      }
-    }
+    await expect.poll(() => statusPollHits).toBeGreaterThan(0);
 
-    const importedThreadTile = page.locator('.thread-preview', { hasText: 'Imported Thread' }).first();
-    await expect(importedThreadTile).toBeVisible();
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent('cfy:toast', {
+          detail: { message: 'Migration import completed in background' },
+        })
+      );
+    });
+
+    await expect(page.getByText(/Migration import completed/i)).toBeVisible();
   });
 });
