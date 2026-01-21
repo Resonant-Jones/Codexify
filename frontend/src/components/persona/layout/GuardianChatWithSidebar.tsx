@@ -354,6 +354,18 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     }
   }, [handleNewChat, mapThreadRecord, resolveRouteThreadId]); // Remove threads dependency to avoid loops
 
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onThreadsRefresh = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail ?? {};
+      const kind = detail?.kind ?? detail?.type;
+      if (kind !== "refresh" && kind !== "import") return;
+      void loadThreads();
+    };
+    window.addEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
+    return () => window.removeEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
+  }, [loadThreads]);
+
   // Initial load only
   React.useEffect(() => {
     void loadThreads();
