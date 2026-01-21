@@ -25,8 +25,8 @@ After a successful ChatGPT import, automatically trigger a threads refresh so th
 
 ### Files allowed to edit (only)
 
-- `frontend/src/views/SettingsView.tsx`
-- `frontend/src/components/settings/ChatGPTImportModal.tsx`
+- `frontend/src/features/settings/SettingsView.tsx`
+- `frontend/src/components/modals/ChatGPTImportModal.tsx`
 - `frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx`
 - `frontend/src/components/persona/hooks/useThreads.ts`
 - `frontend/src/lib/events.ts`
