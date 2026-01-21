@@ -276,11 +276,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   async function embedPrompt(text: string, source: string) {
     try {
-      await fetch('/embed', {
+      const resp = await fetch('/embed', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text, tags: ['prompt'], metadata: { source } }),
       });
+      if (!resp.ok) {
+        throw new Error(`embed failed: ${resp.status}`);
+      }
       // Also append to local prompt cache for prompt library UI
       try {
         const key = 'cfy.prompts';
@@ -289,8 +292,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         const next = [{ text, ts: Date.now() }, ...Array.isArray(arr) ? arr : []].slice(0, 200);
         localStorage.setItem(key, JSON.stringify(next));
       } catch {}
+      try {
+        window.dispatchEvent(new CustomEvent('cfy:toast', { detail: { kind: 'success', message: 'Saved to Prompt Library' } }));
+      } catch {}
     } catch (err) {
       console.warn('[prompt] embed failed', err);
+      try {
+        window.dispatchEvent(new CustomEvent('cfy:toast', { detail: { kind: 'error', message: 'Prompt embedding failed' } }));
+      } catch {}
     }
   }
 
