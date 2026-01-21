@@ -25,6 +25,7 @@ class MigrationStats(BaseModel):
 from backend.rag.chatgpt_migration import ingest_chatgpt_export
 
 
+@router.post("/api/upload-chatgpt-export", response_model=MigrationStats)
 @router.post("/upload-chatgpt-export", response_model=MigrationStats)
 async def upload_chatgpt_export(
     file: UploadFile = File(...),
@@ -33,7 +34,9 @@ async def upload_chatgpt_export(
 ):
     """
     Import a ChatGPT export file (JSON).
-    Creates threads and messages in the database and embeds them in the vector store.
+
+    Canonical path: /api/upload-chatgpt-export
+    Legacy alias: /upload-chatgpt-export
     """
     try:
         content = await file.read()
