@@ -3,9 +3,10 @@ import React from "react";
 import DocumentGenModal, {
   DocumentGenInput,
 } from "./components/DocumentGenModal";
-import { Button } from "./components/ui/button";
 import AppShell from "./components/persona/layout/AppShell";
 import { TopBar } from "./components/TopBar";
+import { Button } from "./components/ui/button";
+import api from "./lib/api";
 import EventsConsole from "./pages/EventsConsole";
 import { SharePage } from "./pages/SharePage";
 
@@ -21,6 +22,19 @@ import { SharePage } from "./pages/SharePage";
  */
 
 const TUNE_ENABLED = (import.meta as any)?.env?.DEV || (import.meta as any)?.env?.VITE_TUNE === "1";
+
+const DOC_GEN_EXT_MAP: Record<string, string> = {
+  markdown: "md",
+  plain: "txt",
+};
+
+function getActiveThreadId(): number | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/chat\/(\d+)/);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isFinite(id) ? id : null;
+}
 
 function isTuneRoute() {
   if (typeof window === "undefined") return false;
@@ -100,16 +114,97 @@ export default function App() {
   );
 
   const handleDocGenSubmit = React.useCallback(
-    (input: DocumentGenInput) => {
+    async (input: DocumentGenInput) => {
       setDocGenDraft(input);
+      const threadId = getActiveThreadId();
+      if (!threadId) {
+        try {
+          window.dispatchEvent(
+            new CustomEvent("cfy:toast", {
+              detail: {
+                kind: "error",
+                message: "Open a chat thread before generating a document.",
+              },
+            })
+          );
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
       try {
-        window.dispatchEvent(
-          new CustomEvent("cfy:toast", {
-            detail: { message: "Document draft captured" },
-          })
-        );
-      } catch {
-        // ignore
+        const payload = {
+          thread_id: threadId,
+          title: input.title.trim() || undefined,
+          prompt: input.prompt,
+          format: input.format,
+        };
+        const response = await api.post("/documents/generate", payload);
+        const data = response?.data ?? {};
+        const documentId = data.document_id ?? data.id;
+        if (!documentId) {
+          throw new Error("Missing generated document id.");
+        }
+        const resolvedTitle =
+          (data.title || input.title).trim() || "Generated document";
+        const resolvedFormat = String(
+          data.format || input.format || "markdown"
+        ).toLowerCase();
+        const ext = DOC_GEN_EXT_MAP[resolvedFormat] || "md";
+        const doc = {
+          id: documentId,
+          title: resolvedTitle,
+          ext,
+          type: "file",
+        };
+        try {
+          window.dispatchEvent(
+            new CustomEvent("cfy:documents:add", {
+              detail: { items: [doc] },
+            })
+          );
+        } catch {
+          // ignore
+        }
+        try {
+          window.dispatchEvent(
+            new CustomEvent("cfy:documents:open", { detail: { doc } })
+          );
+        } catch {
+          // ignore
+        }
+        try {
+          window.dispatchEvent(
+            new CustomEvent("cfy:toast", {
+              detail: { message: "Document generated." },
+            })
+          );
+        } catch {
+          // ignore
+        }
+      } catch (err: unknown) {
+        const fallback = "Failed to generate document.";
+        const maybeErr =
+          err && typeof err === "object"
+            ? (err as {
+                response?: { data?: { detail?: string } };
+                message?: string;
+              })
+            : null;
+        const message =
+          maybeErr?.response?.data?.detail ||
+          maybeErr?.message ||
+          fallback;
+        try {
+          window.dispatchEvent(
+            new CustomEvent("cfy:toast", {
+              detail: { kind: "error", message },
+            })
+          );
+        } catch {
+          // ignore
+        }
       }
     },
     []
