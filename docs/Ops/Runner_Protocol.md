@@ -277,3 +277,12 @@ Defaults must NEVER be applied to “Allowed Files” or “Checks to Run”. Th
 ## Notes
 - This protocol is intentionally strict. It is designed to prevent "Franken-commits" and preserve auditability.
 - Two-phase mode avoids self-referential hashes by recording the implementation hash in-file and reporting the finalize hash in the campaign completion mapping.
+
+
+---
+
+In `docs/Campaign/CAMPAIGN_2026_01_20.md`, in the section `## CAMPAIGN_2026_01_20_004_MVP_LOOP_CLOSURE_DOCUMENT_GENERATION` under `### TASK-2026-01-20-013_DOCUMENT_GEN_MODAL_UI`, update the `Files allowed to edit (only)` list by removing the non-existent sidebar file and adding the correct one:
+
+- Delete the bullet line `- frontend/src/components/Sidebar.tsx` if present.
+- Ensure there is a bullet line `- frontend/src/components/SidebarRoot.tsx` in the allowed files list.
+- Leave the `- frontend/src/components/AppShell.tsx` line unchanged.
