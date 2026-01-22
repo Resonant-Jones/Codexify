@@ -21,6 +21,9 @@ export function ImprintZeroToast({ proposal, onAccept, onReject, onEditAccept }:
           "fixed right-4 top-4 z-[200] w-[min(360px,90vw)] rounded-xl border shadow-lg backdrop-blur",
           "bg-[var(--panel-bg,#111827)] border-[var(--panel-border,rgba(255,255,255,0.1))]"
         )}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
       >
         <div className="flex items-start gap-3 p-3">
           <div className="mt-0.5 rounded-full bg-[var(--accent-weak,#334155)]/40 p-1.5 text-[var(--text,#f8fafc)]">
