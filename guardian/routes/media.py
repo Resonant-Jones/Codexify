@@ -46,7 +46,9 @@ from guardian.db.models import (
 )
 from guardian.image_gen.router import ImageGenRouter
 from guardian.services.document_parsers import (
+    DocxTextExtractionError,
     PdfTextExtractionError,
+    extract_docx_text,
     extract_pdf_text,
 )
 
@@ -343,6 +345,20 @@ async def upload_document(
             except Exception as exc:
                 logger.warning(
                     "PDF extraction errored for %s: %s", file.filename, exc
+                )
+        elif (
+            file.content_type
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ):
+            try:
+                parsed_text = extract_docx_text(file_data)
+            except DocxTextExtractionError as exc:
+                logger.warning(
+                    "DOCX extraction failed for %s: %s", file.filename, exc
+                )
+            except Exception as exc:
+                logger.warning(
+                    "DOCX extraction errored for %s: %s", file.filename, exc
                 )
 
         # Save to database
