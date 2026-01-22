@@ -42,4 +42,11 @@ Add a deterministic test proving upload -> parse -> chunk -> embed -> retrieve f
 - Commit B (finalize artifact): TASK-2026-01-20-012_DOCUMENT_UPLOAD_RETRIEVAL_TEST: finalize task summary
 
 ## Summary
-TBD
+- Updated `guardian/routes/media.py` to chunk parsed document text before embedding and attach chunk metadata.
+- Added `guardian/tests/test_document_upload_retrieval.py` to prove upload → parse → chunk → embed → retrieve with faked vector store/embeddings.
+- Tests: `pytest -v` (560 passed, 1 skipped, 33 xfailed, 11 xpassed), `pytest -v guardian/tests/test_document_upload_retrieval.py` (1 passed; explicit run because pytest.ini ignores guardian/tests).
+- Git status: `git status --porcelain` clean.
+- Commit mode: two-phase.
+- Implementation commit: `ea1b57bd`.
+- Finalize commit: reported in campaign mapping.
+- Campaign mapping: `TASK-2026-01-20-012_DOCUMENT_UPLOAD_RETRIEVAL_TEST -> [ea1b57bd, <finalize_hash>]`.
