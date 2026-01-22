@@ -45,6 +45,7 @@ from guardian.db.models import (
     UploadedImage,
 )
 from guardian.image_gen.router import ImageGenRouter
+from guardian.services.document_chunking import chunk_document_text
 from guardian.services.document_parsers import (
     DocxTextExtractionError,
     PdfTextExtractionError,
@@ -404,9 +405,26 @@ async def upload_document(
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
 
-                # Embed and index
-                embedder.embed_and_index([parsed_text], metadatas=[meta])
-                logger.info(f"Document embedded: {file.filename}")
+                # Embed and index (chunked for long docs)
+                chunks = chunk_document_text(parsed_text)
+                chunk_texts = [chunk.text for chunk in chunks]
+                chunk_metas = [
+                    {
+                        **meta,
+                        "chunk_index": chunk.index,
+                        "chunk_count": len(chunks),
+                    }
+                    for chunk in chunks
+                ]
+                embedder.embed_and_index(
+                    chunk_texts,
+                    metadatas=chunk_metas,
+                )
+                logger.info(
+                    "Document embedded: %s (chunks=%s)",
+                    file.filename,
+                    len(chunks),
+                )
 
             except Exception as e:
                 # specific logging but don't fail the upload if embedding fails
