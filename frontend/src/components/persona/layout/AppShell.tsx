@@ -932,6 +932,7 @@ export default function AppShell({}: PropsWithChildren) {
   const openDocInPlace = (doc: DocumentLike) => {
     setActiveDoc(doc);
     setWorkspaceOpen(true);
+    setView("documents");
   };
   const openDocInThread = (doc: DocumentLike) => {
     setActiveDoc(doc);
@@ -944,6 +945,31 @@ export default function AppShell({}: PropsWithChildren) {
     if (!doc) return;
     openDocInThread(doc);
   };
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const raw = detail.doc ?? detail;
+      if (!raw) return;
+      const doc = normalizeDoc(raw);
+      setDocuments((prev) => {
+        const exists = prev.some(
+          (d) =>
+            d.id === doc.id ||
+            ((d.title === doc.title || d.name === doc.name) &&
+              d.ext === doc.ext)
+        );
+        return exists ? prev : [doc, ...prev];
+      });
+      openDocInPlace(doc);
+    };
+    window.addEventListener("cfy:documents:open", onOpen as EventListener);
+    return () =>
+      window.removeEventListener(
+        "cfy:documents:open",
+        onOpen as EventListener
+      );
+  }, [openDocInPlace, normalizeDoc]);
   const createThreadFromDashboard = useCallback(async () => {
     const userId = userName || "default";
     try {
