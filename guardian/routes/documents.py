@@ -7,16 +7,20 @@ import uuid
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from guardian.core import event_bus
+from guardian.core.ai_router import chat_with_ai
 from guardian.core.db import GuardianDB
 from guardian.db import models
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_ALLOWED_DOC_FORMATS = {"markdown", "plain"}
+_ALLOWED_LLM_PROVIDERS = {"local", "groq", "openai"}
 
 
 class AutosaveRequest(BaseModel):
@@ -43,6 +47,31 @@ class ThreadDocumentResponse(BaseModel):
     created_at: str
 
 
+class DocumentGenerateRequest(BaseModel):
+    """Request body for document generation."""
+
+    title: str | None = None
+    prompt: str
+    format: str | None = None
+    doc_type: str | None = Field(default=None, alias="type")
+    context: str | None = None
+    provider: str | None = None
+    model: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+
+class DocumentGenerateResponse(BaseModel):
+    """Response body for document generation."""
+
+    ok: bool
+    content: str
+    format: str
+    title: str | None = None
+    provider: str | None = None
+    model: str | None = None
+
+
 # Module-level database instance (will be set by guardian_api.py)
 _db: GuardianDB | None = None
 
@@ -58,6 +87,13 @@ def _get_db() -> GuardianDB:
     if _db is None:
         raise RuntimeError("Database not configured for documents router")
     return _db
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    return trimmed or None
 
 
 @router.post("/api/documents/autosave", response_model=AutosaveResponse)
@@ -203,6 +239,84 @@ async def autosave_document(request: AutosaveRequest) -> dict[str, Any]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to autosave document: {str(e)}",
         )
+
+
+@router.post("/api/documents/generate", response_model=DocumentGenerateResponse)
+async def generate_document(
+    request: DocumentGenerateRequest,
+) -> dict[str, Any]:
+    """Generate a document draft using the configured LLM backend."""
+    prompt = _normalize_optional_text(request.prompt)
+    if not prompt:
+        logger.warning("Document generation request missing prompt")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="prompt is required and cannot be empty",
+        )
+
+    title = _normalize_optional_text(request.title)
+    context = _normalize_optional_text(request.context)
+
+    format_hint = _normalize_optional_text(request.format or request.doc_type)
+    format_hint = (format_hint or "markdown").lower()
+    if format_hint not in _ALLOWED_DOC_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="format must be one of: markdown, plain",
+        )
+
+    provider = _normalize_optional_text(request.provider)
+    if provider:
+        provider = provider.lower()
+        if provider not in _ALLOWED_LLM_PROVIDERS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="provider must be one of: local, groq, openai",
+            )
+
+    model = _normalize_optional_text(request.model)
+
+    system_content = "You are a document generation assistant. " + (
+        "Return markdown formatted content."
+        if format_hint == "markdown"
+        else "Return plain text without markdown formatting."
+    )
+    user_lines = []
+    if title:
+        user_lines.append(f"Title: {title}")
+    if context:
+        user_lines.append(f"Context: {context}")
+    user_lines.append(f"Prompt: {prompt}")
+    user_content = "\n".join(user_lines)
+
+    messages = [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]
+
+    try:
+        content = str(chat_with_ai(messages, model=model, provider=provider))
+    except HTTPException as exc:
+        logger.error("Document generation failed: %s", exc.detail)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Document generation failed. Please try again later.",
+        ) from exc
+    except Exception as exc:
+        logger.error("Document generation failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Document generation failed. Please try again later.",
+        ) from exc
+
+    return {
+        "ok": True,
+        "content": content,
+        "format": format_hint,
+        "title": title,
+        "provider": provider,
+        "model": model,
+    }
 
 
 @router.get("/api/threads/{thread_id}/documents")
