@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _ALLOWED_DOC_FORMATS = {"markdown", "plain"}
+_FORMAT_STORAGE_MAP = {"markdown": "md", "plain": "txt"}
 _ALLOWED_LLM_PROVIDERS = {"local", "groq", "openai"}
 
 
@@ -50,6 +51,9 @@ class ThreadDocumentResponse(BaseModel):
 class DocumentGenerateRequest(BaseModel):
     """Request body for document generation."""
 
+    thread_id: int | None = None
+    project_id: int | None = None
+    user_id: str | None = None
     title: str | None = None
     prompt: str
     format: str | None = None
@@ -65,6 +69,7 @@ class DocumentGenerateResponse(BaseModel):
     """Response body for document generation."""
 
     ok: bool
+    document_id: str | None = None
     content: str
     format: str
     title: str | None = None
@@ -254,6 +259,13 @@ async def generate_document(
             detail="prompt is required and cannot be empty",
         )
 
+    if request.thread_id is None or request.thread_id <= 0:
+        logger.warning("Document generation request missing thread_id")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="thread_id is required",
+        )
+
     title = _normalize_optional_text(request.title)
     context = _normalize_optional_text(request.context)
 
@@ -275,6 +287,7 @@ async def generate_document(
             )
 
     model = _normalize_optional_text(request.model)
+    model_name = model or provider or "default"
 
     system_content = "You are a document generation assistant. " + (
         "Return markdown formatted content."
@@ -309,8 +322,64 @@ async def generate_document(
             detail="Document generation failed. Please try again later.",
         ) from exc
 
+    document_id: str | None = None
+    try:
+        db = _get_db()
+        with db.get_session() as session:
+            thread = (
+                session.query(models.ChatThread)
+                .filter_by(id=request.thread_id)
+                .first()
+            )
+            if not thread:
+                logger.warning(
+                    "Thread %s not found for document generation",
+                    request.thread_id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Thread {request.thread_id} not found",
+                )
+
+            document_id = str(uuid.uuid4())
+            resolved_title = (
+                title
+                or _normalize_optional_text(getattr(thread, "title", None))
+                or "Generated document"
+            )
+            generated_document = models.GeneratedDocument(
+                id=document_id,
+                project_id=thread.project_id,
+                thread_id=thread.id,
+                user_id=thread.user_id or request.user_id,
+                title=resolved_title,
+                content=content,
+                format=_FORMAT_STORAGE_MAP[format_hint],
+                model=model_name,
+            )
+            session.add(generated_document)
+
+            link = models.ThreadDocument(
+                thread_id=thread.id,
+                document_id=document_id,
+                relation="attached",
+            )
+            session.add(link)
+            session.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to persist generated document: %s", exc, exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist generated document.",
+        ) from exc
+
     return {
         "ok": True,
+        "document_id": document_id,
         "content": content,
         "format": format_hint,
         "title": title,
