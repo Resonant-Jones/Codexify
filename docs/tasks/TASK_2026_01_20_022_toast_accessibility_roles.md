@@ -86,8 +86,7 @@ Two-phase commits:
   - `pnpm --dir frontend/src test` (pass; baseline-browser-mapping warning, existing act warnings)
   - `pnpm --dir frontend/src lint` (warnings only)
   - `pnpm --dir frontend/src exec playwright test migration_e2e_import.spec.ts` (pass)
-- Git status --porcelain: `M docs/Campaign/CAMPAIGN_2026_01_20.md`, `M docs/tasks/TASK_2026_01_20_022_toast_accessibility_roles.md`
-- Commit mode: two-phase
+- Git status --porcelain: (clean)
 - Implementation commit: 95d23d0c
-- Finalize commit: reported in campaign mapping
-- Campaign mapping: `TASK-2026-01-20-022_TOAST_ACCESSIBILITY_ROLES -> [95d23d0c, reported in campaign mapping]`
+- Finalize commit: ae52d262
+- Campaign mapping: `TASK-2026-01-20-022_TOAST_ACCESSIBILITY_ROLES -> [95d23d0c, ae52d262]`
