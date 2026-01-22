@@ -1,4 +1,9 @@
 import React from "react";
+
+import DocumentGenModal, {
+  DocumentGenInput,
+} from "./components/DocumentGenModal";
+import { Button } from "./components/ui/button";
 import AppShell from "./components/persona/layout/AppShell";
 import { TopBar } from "./components/TopBar";
 import EventsConsole from "./pages/EventsConsole";
@@ -89,6 +94,27 @@ function DevTuneGate() {
 }
 
 export default function App() {
+  const [docGenOpen, setDocGenOpen] = React.useState(false);
+  const [docGenDraft, setDocGenDraft] = React.useState<DocumentGenInput | null>(
+    null
+  );
+
+  const handleDocGenSubmit = React.useCallback(
+    (input: DocumentGenInput) => {
+      setDocGenDraft(input);
+      try {
+        window.dispatchEvent(
+          new CustomEvent("cfy:toast", {
+            detail: { message: "Document draft captured" },
+          })
+        );
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
+
   if (TUNE_ENABLED && isTuneRoute()) {
     return <DevTuneGate />;
   }
@@ -108,5 +134,27 @@ export default function App() {
       return <SharePage token={token} />;
     }
   }
-  return <AppShell />;
+  return (
+    <>
+      <AppShell />
+      <div className="fixed bottom-6 right-6 z-[1200]">
+        <Button
+          type="button"
+          variant="ghost"
+          className="rounded-full px-4 shadow"
+          onClick={() => setDocGenOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={docGenOpen}
+        >
+          Generate Doc
+        </Button>
+      </div>
+      <DocumentGenModal
+        open={docGenOpen}
+        onOpenChange={setDocGenOpen}
+        onSubmit={handleDocGenSubmit}
+        initialValues={docGenDraft ?? undefined}
+      />
+    </>
+  );
 }
