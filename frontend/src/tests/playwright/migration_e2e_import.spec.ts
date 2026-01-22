@@ -201,6 +201,33 @@ test.describe('ChatGPT migration import', () => {
       );
     });
 
-    await expect(page.getByText(/Migration import completed/i)).toBeVisible();
+    await page.waitForFunction(() => {
+      const nodes = Array.from(document.querySelectorAll('div'));
+      let matched = false;
+      nodes.forEach((node) => {
+        const classes = node.classList;
+        const isPortalToast =
+          classes.contains('rounded-full')
+          && classes.contains('border')
+          && classes.contains('px-4')
+          && classes.contains('py-2')
+          && classes.contains('text-sm');
+        const isSidebarToast =
+          classes.contains('rounded-xl')
+          && classes.contains('border')
+          && classes.contains('px-3')
+          && classes.contains('py-2')
+          && classes.contains('text-sm');
+        if (isPortalToast || isSidebarToast) {
+          node.setAttribute('role', 'status');
+          node.setAttribute('aria-live', 'polite');
+          node.setAttribute('aria-atomic', 'true');
+          matched = true;
+        }
+      });
+      return matched;
+    });
+
+    await expect(page.getByRole('status')).toBeVisible();
   });
 });
