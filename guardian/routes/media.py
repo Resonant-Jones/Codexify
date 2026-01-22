@@ -45,6 +45,10 @@ from guardian.db.models import (
     UploadedImage,
 )
 from guardian.image_gen.router import ImageGenRouter
+from guardian.services.document_parsers import (
+    PdfTextExtractionError,
+    extract_pdf_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +333,17 @@ async def upload_document(
                 parsed_text = file_data.decode("utf-8")
             except:
                 logger.warning(f"Failed to decode text from {file.filename}")
+        elif file.content_type == "application/pdf":
+            try:
+                parsed_text = extract_pdf_text(file_data)
+            except PdfTextExtractionError as exc:
+                logger.warning(
+                    "PDF extraction failed for %s: %s", file.filename, exc
+                )
+            except Exception as exc:
+                logger.warning(
+                    "PDF extraction errored for %s: %s", file.filename, exc
+                )
 
         # Save to database
         db = _get_db()
