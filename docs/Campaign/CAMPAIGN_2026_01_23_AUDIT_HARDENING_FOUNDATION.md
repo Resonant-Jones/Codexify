@@ -33,7 +33,7 @@ Convert the audit findings into small, mergeable tasks that harden secrets handl
 Goal: Remove hardcoded secrets and credentials from docker-compose.yml; ensure env-driven configuration.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_001_secrets_docker_compose.md`
-- Task mapping: `TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [94c10071, <commitB>]`
 
 ### ✅ TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT
 
@@ -100,7 +100,7 @@ Goal: Optional cleanup of README claims that contradict implementation (audit it
 
 ## Final Mapping (authoritative; update as tasks complete)
 
-- TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [<commitA>, <commitB>]
+- TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [94c10071, <commitB>]
 - TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [<commitA>, <commitB>]
 - TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [<commitA>, <commitB>]
 - TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [<commitA>, <commitB>]
@@ -205,7 +205,7 @@ git status --porcelain -uall
 git log -1 --oneline
 
 Mapping
- • TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [, ]
+ • TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [94c10071, <commitB>]
 
 Summary (fill after completion)
  • Hardcoded secrets removed from docker-compose.yml; env-driven vars documented.
