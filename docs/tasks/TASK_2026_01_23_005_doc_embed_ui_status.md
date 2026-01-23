@@ -53,11 +53,11 @@ Expose embedding readiness to users:
 - `git status --porcelain -uall`
 
 ## Git Status
-- `git status --porcelain -uall` shows only this task artifact pending finalize commit.
+- `git status --porcelain -uall` shows task artifact + campaign mapping pending record finalize hash commit.
 
 ## Commits
 - Commit A (implementation): `97da98ff`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `b95c1307`
 
 ## Mapping
-- TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [97da98ff, ]
+- TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [97da98ff, b95c1307]
