@@ -715,6 +715,16 @@ class UploadedDocument(Base):
     parsed_text: Mapped[str | None] = mapped_column(
         Text
     )  # Extracted text for FTS
+    embedding_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="pending"
+    )
+    embedding_error: Mapped[str | None] = mapped_column(Text)
+    embedding_started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    embedding_completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -732,6 +742,12 @@ class UploadedDocument(Base):
     project: Mapped[Project | None] = relationship("Project")
     thread: Mapped[ChatThread | None] = relationship("ChatThread")
 
+    __table_args__ = (
+        CheckConstraint(
+            "embedding_status IN ('pending','processing','ready','failed')",
+            name="uploaded_documents_embedding_status_check",
+        ),
+    )
     __mapper_args__ = {"eager_defaults": True}
 
 
