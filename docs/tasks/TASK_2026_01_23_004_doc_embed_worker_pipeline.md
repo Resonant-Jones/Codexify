@@ -55,11 +55,11 @@ Replace fire-and-forget embeddings with a reliable queued worker pipeline that u
 - `pytest -q -k "embed and worker" || true` (exit 0; no output)
 
 ## Git Status
-- `git status --porcelain -uall` shows only this task artifact pending finalize commit.
+- `git status --porcelain -uall` shows task artifact + campaign mapping pending record finalize hash commit.
 
 ## Commits
 - Commit A (implementation): `0b64306b`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `1e2c22b8`
 
 ## Mapping
-- TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [0b64306b, ]
+- TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [0b64306b, 1e2c22b8]
