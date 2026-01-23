@@ -40,7 +40,7 @@ Goal: Remove hardcoded secrets and credentials from docker-compose.yml; ensure e
 Goal: Verify the embeddings endpoint exists and matches frontend expectations; implement or correct if missing/mismatched.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_002_verify_embeddings_endpoint.md`
-- Task mapping: `TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [9f9b1c3b, 0efbb2fb]`
 
 ### ✅ TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA
 
@@ -101,7 +101,7 @@ Goal: Optional cleanup of README claims that contradict implementation (audit it
 ## Final Mapping (authoritative; update as tasks complete)
 
 - TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [94c10071, 6af53567]
-- TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [<commitA>, <commitB>]
+- TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [9f9b1c3b, 0efbb2fb]
 - TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [<commitA>, <commitB>]
 - TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [<commitA>, <commitB>]
 - TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [<commitA>, <commitB>]
@@ -301,7 +301,7 @@ git status --porcelain -uall
 git log -1 --oneline
 
 Mapping
- • TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [, ]
+ • TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [9f9b1c3b, 0efbb2fb]
 
 Summary (fill after completion)
  • Document the discovered route path + request/response shape.
