@@ -41,8 +41,8 @@ Ignore Playwright artifacts (test-results/, screenshots, traces, playwright-repo
 - Added Playwright artifact ignores for traces and .last-run.json under `frontend/src` in `.gitignore`.
 - Checks:
   - `pnpm --dir frontend/src exec playwright test --list` (passed: 8 tests / 4 files).
-- Git status: `git status --porcelain` shows `.gitignore` and this task artifact pending finalize commit.
+- Git status: `git status --porcelain` clean after finalize commit.
 - Commit mode: two-phase.
-- Implementation commit: pending.
-- Finalize commit: pending.
-- Campaign mapping requirement: `TASK-2026-01-20-020_GITIGNORE_E2E_ARTIFACTS -> [<impl_hash>, <finalize_hash>]`.
+- Implementation commit: `9f445e63`.
+- Finalize commit: `556bedd5`.
+- Campaign mapping requirement: `TASK-2026-01-20-020_GITIGNORE_E2E_ARTIFACTS -> [9f445e63, 556bedd5]`.
