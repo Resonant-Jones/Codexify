@@ -96,6 +96,10 @@ class DocumentUploadResponse(BaseModel):
     filesize: int
     mime_type: str
     parsed_text: Optional[str] = None
+    embedding_status: Optional[str] = None
+    embedding_error: Optional[str] = None
+    embedding_started_at: Optional[str] = None
+    embedding_completed_at: Optional[str] = None
     created_at: str
 
 
@@ -362,6 +366,14 @@ async def upload_document(
                     "DOCX extraction errored for %s: %s", file.filename, exc
                 )
 
+        embedding_status = "pending"
+        embedding_error = None
+        embedding_started_at = None
+        embedding_completed_at = None
+        if parsed_text:
+            embedding_status = "processing"
+            embedding_started_at = datetime.now(timezone.utc)
+
         # Save to database
         db = _get_db()
         doc_id = str(uuid.uuid4())
@@ -377,6 +389,10 @@ async def upload_document(
                 filesize=filesize,
                 mime_type=file.content_type,
                 parsed_text=parsed_text,
+                embedding_status=embedding_status,
+                embedding_error=embedding_error,
+                embedding_started_at=embedding_started_at,
+                embedding_completed_at=embedding_completed_at,
             )
             session.add(uploaded_doc)
             session.commit()
@@ -425,10 +441,25 @@ async def upload_document(
                     file.filename,
                     len(chunks),
                 )
+                embedding_status = "ready"
 
             except Exception as e:
                 # specific logging but don't fail the upload if embedding fails
                 logger.error(f"Failed to embed document {file.filename}: {e}")
+                embedding_status = "failed"
+                embedding_error = str(e)
+            finally:
+                embedding_completed_at = datetime.now(timezone.utc)
+                with db.get_session() as session:
+                    session.query(UploadedDocument).filter_by(id=doc_id).update(
+                        {
+                            UploadedDocument.embedding_status: embedding_status,
+                            UploadedDocument.embedding_error: embedding_error,
+                            UploadedDocument.embedding_started_at: embedding_started_at,
+                            UploadedDocument.embedding_completed_at: embedding_completed_at,
+                        }
+                    )
+                    session.commit()
 
         return DocumentUploadResponse(
             id=doc_id,
@@ -437,6 +468,18 @@ async def upload_document(
             filesize=filesize,
             mime_type=file.content_type,
             parsed_text=parsed_text,
+            embedding_status=embedding_status,
+            embedding_error=embedding_error,
+            embedding_started_at=(
+                embedding_started_at.isoformat()
+                if embedding_started_at
+                else None
+            ),
+            embedding_completed_at=(
+                embedding_completed_at.isoformat()
+                if embedding_completed_at
+                else None
+            ),
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -699,6 +742,18 @@ async def list_documents(
                     "filename": doc.filename,
                     "mime_type": doc.mime_type,
                     "filesize": doc.filesize,
+                    "embedding_status": doc.embedding_status,
+                    "embedding_error": doc.embedding_error,
+                    "embedding_started_at": (
+                        doc.embedding_started_at.isoformat()
+                        if doc.embedding_started_at
+                        else None
+                    ),
+                    "embedding_completed_at": (
+                        doc.embedding_completed_at.isoformat()
+                        if doc.embedding_completed_at
+                        else None
+                    ),
                     "created_at": (
                         doc.created_at.isoformat() if doc.created_at else None
                     ),
