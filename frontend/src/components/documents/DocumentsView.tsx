@@ -119,7 +119,11 @@ export default function DocumentsView({
                     }}
                   >
                     <DocumentTile
-                      file={{ name: d.title, ext: d.ext }}
+                      file={{
+                        name: d.title,
+                        ext: d.ext,
+                        embeddingStatus: d.embeddingStatus,
+                      }}
                       onClick={() => handleDocumentClick(d)}
                     />
                     {d.mock && (
