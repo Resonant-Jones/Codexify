@@ -61,7 +61,7 @@ Goal: Replace fire-and-forget embedding with a reliable worker-based pipeline th
 Goal: Show embedding readiness in the UI (and block retrieval until ready if needed).
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_005_doc_embed_ui_status.md`
-- Task mapping: `TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [97da98ff, ]`
 
 ### ✅ TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING
 
@@ -104,7 +104,7 @@ Goal: Optional cleanup of README claims that contradict implementation (audit it
 - TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [9f9b1c3b, 0efbb2fb]
 - TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, b097a557]
 - TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [0b64306b, 1e2c22b8]
-- TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [<commitA>, <commitB>]
+- TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [97da98ff, ]
 - TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [<commitA>, <commitB>]
 - TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [<commitA>, <commitB>]
 - TASK-2026-01-23-008_MEMORY_INIT_AND_CONTEXT_INTEGRATION_TEST -> [<commitA>, <commitB>]
@@ -590,7 +590,7 @@ git status --porcelain -uall
 git log -1 --oneline
 
 Mapping
- • TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [, ]
+ • TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [97da98ff, ]
 
 ---
 
