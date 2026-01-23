@@ -1,0 +1,25 @@
+import os
+
+VALID_KEY = os.getenv("GUARDIAN_API_KEY", "invalid-by-default")
+
+
+def test_embeddings_endpoint_contract(client):
+    payload = {
+        "texts": ["hello embeddings"],
+        "embedder": "dummy",
+        "model": "unit",
+    }
+    response = client.post(
+        "/api/embeddings",
+        headers={"X-API-Key": VALID_KEY},
+        json=payload,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["provider"] == "dummy"
+    assert data["model"] == "unit"
+    assert isinstance(data["vectors"], list)
+    assert len(data["vectors"]) == 1
+    assert isinstance(data["vectors"][0], list)
+    assert len(data["vectors"][0]) > 0
+    assert isinstance(data["vectors"][0][0], float)
