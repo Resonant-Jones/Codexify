@@ -118,6 +118,7 @@ from guardian.routes import (
     backfill,
     devtools,
     documents,
+    embeddings,
     federation,
     health,
     memory,
@@ -380,6 +381,7 @@ app.include_router(system_prompt_router)
 app.include_router(system_docs_router)
 app.include_router(iddb_router)
 app.include_router(backfill.router)
+app.include_router(embeddings.router)
 
 # Core feature routers
 app.include_router(threads.router)
