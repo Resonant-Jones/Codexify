@@ -54,7 +54,7 @@ Goal: Add durable embedding status tracking for uploaded documents (schema + API
 Goal: Replace fire-and-forget embedding with a reliable worker-based pipeline that updates status.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_004_doc_embed_worker_pipeline.md`
-- Task mapping: `TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [0b64306b, ]`
 
 ### ✅ TASK-2026-01-23-005_DOC_EMBED_UI_STATUS
 
@@ -103,7 +103,7 @@ Goal: Optional cleanup of README claims that contradict implementation (audit it
 - TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [94c10071, 6af53567]
 - TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [9f9b1c3b, 0efbb2fb]
 - TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, b097a557]
-- TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [<commitA>, <commitB>]
+- TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [0b64306b, ]
 - TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [<commitA>, <commitB>]
 - TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [<commitA>, <commitB>]
 - TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [<commitA>, <commitB>]
@@ -497,7 +497,7 @@ git status --porcelain -uall
 git log -1 --oneline
 
 Mapping
- • TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [, ]
+ • TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [0b64306b, ]
 
 ---
 
