@@ -38,4 +38,11 @@ Add a tiny, deterministic Playwright smoke test that boots the app, loads the ro
 - Commit B: TASK-2026-01-20-021_E2E_SMOKE_TEST_CANARY: finalize task summary
 
 ## Summary
-- TBD
+- Added a Playwright smoke canary test that loads the app and asserts the Guardian tab is visible.
+- Checks:
+  - `pnpm --dir frontend/src exec playwright test e2e_smoke_canary.spec.ts` (passed: 1 test; Vite proxy ECONNREFUSED to backend :8888 noted but non-fatal).
+- Git status: `git status --porcelain` clean after docs reconciliation commit.
+- Commit mode: two-phase.
+- Implementation commit: `d822a735`.
+- Finalize commit: `33ee566d`.
+- Campaign mapping requirement: `TASK-2026-01-20-021_E2E_SMOKE_TEST_CANARY -> [d822a735, 33ee566d]`.
