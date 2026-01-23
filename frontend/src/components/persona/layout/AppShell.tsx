@@ -392,6 +392,30 @@ export default function AppShell({}: PropsWithChildren) {
   type DocItem = DocumentLike & { ext: keyof ExtColors };
   function normalizeDoc(raw: any, idx = 0): DocItem {
     const title = raw?.title || raw?.name || "Untitled";
+    const embeddingStatus =
+      typeof raw?.embeddingStatus === "string"
+        ? raw.embeddingStatus
+        : typeof raw?.embedding_status === "string"
+          ? raw.embedding_status
+          : undefined;
+    const embeddingError =
+      typeof raw?.embeddingError === "string"
+        ? raw.embeddingError
+        : typeof raw?.embedding_error === "string"
+          ? raw.embedding_error
+          : undefined;
+    const embeddingStartedAt =
+      typeof raw?.embeddingStartedAt === "string"
+        ? raw.embeddingStartedAt
+        : typeof raw?.embedding_started_at === "string"
+          ? raw.embedding_started_at
+          : undefined;
+    const embeddingCompletedAt =
+      typeof raw?.embeddingCompletedAt === "string"
+        ? raw.embeddingCompletedAt
+        : typeof raw?.embedding_completed_at === "string"
+          ? raw.embedding_completed_at
+          : undefined;
     return {
       id: raw?.id || raw?.document_id || `${title}-${raw?.ext || "md"}-${idx}`,
       name: raw?.name || title,
@@ -400,6 +424,10 @@ export default function AppShell({}: PropsWithChildren) {
       type: raw?.type === "codex_entry" ? "codex_entry" : "file",
       mock: Boolean(raw?.mock),
       createdAt: raw?.createdAt || raw?.created_at,
+      embeddingStatus,
+      embeddingError,
+      embeddingStartedAt,
+      embeddingCompletedAt,
     };
   }
   const [documents, setDocuments] = useState<DocItem[]>(() => {

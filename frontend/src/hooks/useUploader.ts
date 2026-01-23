@@ -21,7 +21,18 @@ export function useUploader({
   threadId,
 }: {
   onImages: (items: { src: string; prompt: string; mock?: boolean }[]) => void;
-  onDocuments: (items: { name: string; ext: string; mock?: boolean; source?: string; id?: string; filename?: string }[]) => void;
+  onDocuments: (items: {
+    name: string;
+    ext: string;
+    mock?: boolean;
+    source?: string;
+    id?: string;
+    filename?: string;
+    embeddingStatus?: string;
+    embeddingError?: string;
+    embeddingStartedAt?: string;
+    embeddingCompletedAt?: string;
+  }[]) => void;
   onAnyUpload?: () => void;
   tag?: string; // optional source tag (e.g., "chat", "project:<id>")
   projectId?: number | string;
@@ -117,13 +128,24 @@ export function useUploader({
             totalFailed++;
           }
 
-          // Add to local docs list (either with server response or local fallback)
-          const docEntry = uploadedDoc?.document || {
-            name: f.name.replace(/\.[^.]+$/, ""),
+          const serverDoc = uploadedDoc?.document || uploadedDoc || {};
+          const filename = serverDoc?.filename || f.name;
+          const docEntry = {
+            name: filename.replace(/\.[^.]+$/, ""),
             ext: ext.replace(".", ""),
             source: tag,
-            id: uploadedDoc?.id,
-            filename: f.name,
+            id: serverDoc?.id || uploadedDoc?.id,
+            filename,
+            embeddingStatus:
+              serverDoc?.embedding_status || serverDoc?.embeddingStatus,
+            embeddingError:
+              serverDoc?.embedding_error || serverDoc?.embeddingError,
+            embeddingStartedAt:
+              serverDoc?.embedding_started_at ||
+              serverDoc?.embeddingStartedAt,
+            embeddingCompletedAt:
+              serverDoc?.embedding_completed_at ||
+              serverDoc?.embeddingCompletedAt,
           };
           docs.push(docEntry);
 
