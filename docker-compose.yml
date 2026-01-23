@@ -635,9 +635,40 @@ services:
         cd /app/src
         exec npx vite dev --host 0.0.0.0 --port 5173
 
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.56.1-jammy
+    working_dir: /work
+    environment:
+      CI: "true"
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      PNPM_HOME: /pnpm
+      PNPM_STORE_DIR: /work/.pnpm-store
+      PW_BASE_URL: http://frontend:5173
+    shm_size: "2gb"
+    volumes:
+      - ./:/work
+      - e2e_frontend_src_node_modules:/work/frontend/src/node_modules
+      - e2e_pnpm_store:/work/.pnpm-store
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        set -e
+        if ! command -v pnpm >/dev/null 2>&1; then
+          corepack enable
+          corepack prepare pnpm@9.12.1 --activate
+        fi
+        if [ ! -d /work/frontend/src/node_modules ] || [ -z "$(ls -A /work/frontend/src/node_modules 2>/dev/null)" ]; then
+          pnpm --dir /work/frontend/src install --no-lockfile
+        fi
+        exec "$0" "$@"
+
 volumes:
   pg_data:
   neo4j_data:
   hf_cache:
   model_store:
     driver: local
+  e2e_frontend_src_node_modules:
+  e2e_pnpm_store:
