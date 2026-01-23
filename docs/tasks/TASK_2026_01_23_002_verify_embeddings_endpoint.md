@@ -59,4 +59,4 @@ Confirm the embeddings endpoint exists, matches frontend usage, and functions (r
 
 ### Commits
 - Commit A (implementation): `9f9b1c3b`
-- Commit B (finalize docs): `<commitB>`
+- Commit B (finalize docs): `0efbb2fb`
