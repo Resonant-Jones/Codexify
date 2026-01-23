@@ -596,6 +596,34 @@ services:
         ln -snf /app/codexify /app/Codexify
         exec python -m guardian.workers.graph_backfill_worker
 
+  tts:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    entrypoint: []
+    environment:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: /app
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
+    volumes:
+      - ./backend:/app/backend
+      - hf_cache:/root/.cache/huggingface
+    expose:
+      - "8000"
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "[TTS] Starting local TTS service..."
+        exec uvicorn backend.tts_service.app:app --host 0.0.0.0 --port 8000
+
   frontend:
     build:
       context: ./frontend
