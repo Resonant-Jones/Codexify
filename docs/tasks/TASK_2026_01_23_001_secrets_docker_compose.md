@@ -51,8 +51,8 @@ Remove hardcoded credentials/secrets in docker-compose.yml and ensure secrets ar
   - `rg -n "GUARDIAN_API_KEY:|POSTGRES_PASSWORD:|NEO4J_PASSWORD:|OPENAI_API_KEY:" docker-compose.yml`
   - `rg -n "GUARDIAN_API_KEY:\s*[0-9a-f]{16,}|POSTGRES_PASSWORD:\s*\S+|NEO4J_PASSWORD:\s*\S+" docker-compose.yml || true`
   - `docker compose config >/dev/null`
-- Git status: `git status --porcelain -uall` shows only allowed files pending finalize commit.
+- Git status: `git status --porcelain -uall` shows only allowed docs files pending finalize hash mapping commit.
 - Commit mode: two-phase.
 - Implementation commit: `94c10071`.
-- Finalize commit: pending.
-- Campaign mapping requirement: `TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [94c10071, <commitB>]`.
+- Finalize commit: `6af53567`.
+- Campaign mapping requirement: `TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [94c10071, 6af53567]`.
