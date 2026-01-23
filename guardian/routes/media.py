@@ -45,7 +45,7 @@ from guardian.db.models import (
     UploadedImage,
 )
 from guardian.image_gen.router import ImageGenRouter
-from guardian.services.document_chunking import chunk_document_text
+from guardian.queue.document_embed_queue import enqueue_document_embed
 from guardian.services.document_parsers import (
     DocxTextExtractionError,
     PdfTextExtractionError,
@@ -370,9 +370,10 @@ async def upload_document(
         embedding_error = None
         embedding_started_at = None
         embedding_completed_at = None
-        if parsed_text:
-            embedding_status = "processing"
-            embedding_started_at = datetime.now(timezone.utc)
+        if not parsed_text:
+            embedding_status = "failed"
+            embedding_error = "parsed_text_missing"
+            embedding_completed_at = datetime.now(timezone.utc)
 
         # Save to database
         db = _get_db()
@@ -404,51 +405,30 @@ async def upload_document(
         # --- Embedding (RAG) ---
         if parsed_text:
             try:
-                # Import here to avoid circular deps if any, or move to top if safe
-                from guardian.runtime.embed.embedder import CodexifyEmbedder
-
-                # Initialize embedder (uses env vars for config)
-                embedder = CodexifyEmbedder(store="chroma")
-
-                # Prepare metadata
-                meta = {
-                    "source": "document",
-                    "filename": file.filename,
-                    "doc_id": doc_id,
-                    "user_id": user_id,
-                    "project_id": project_id,
-                    "thread_id": thread_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-
-                # Embed and index (chunked for long docs)
-                chunks = chunk_document_text(parsed_text)
-                chunk_texts = [chunk.text for chunk in chunks]
-                chunk_metas = [
-                    {
-                        **meta,
-                        "chunk_index": chunk.index,
-                        "chunk_count": len(chunks),
-                    }
-                    for chunk in chunks
-                ]
-                embedder.embed_and_index(
-                    chunk_texts,
-                    metadatas=chunk_metas,
+                enqueue_document_embed(
+                    doc_id,
+                    origin="api:media.upload",
+                    metadata={
+                        "filename": file.filename,
+                        "mime_type": file.content_type,
+                        "user_id": user_id,
+                        "project_id": project_id,
+                        "thread_id": thread_id,
+                    },
                 )
                 logger.info(
-                    "Document embedded: %s (chunks=%s)",
+                    "Document queued for embedding: %s (doc_id=%s)",
                     file.filename,
-                    len(chunks),
+                    doc_id,
                 )
-                embedding_status = "ready"
-
             except Exception as e:
-                # specific logging but don't fail the upload if embedding fails
-                logger.error(f"Failed to embed document {file.filename}: {e}")
+                logger.error(
+                    "Failed to enqueue embedding for %s: %s",
+                    file.filename,
+                    e,
+                )
                 embedding_status = "failed"
                 embedding_error = str(e)
-            finally:
                 embedding_completed_at = datetime.now(timezone.utc)
                 with db.get_session() as session:
                     session.query(UploadedDocument).filter_by(id=doc_id).update(
