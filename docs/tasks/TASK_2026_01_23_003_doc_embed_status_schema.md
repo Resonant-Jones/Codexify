@@ -58,7 +58,7 @@ Add durable embedding status tracking (pending/processing/ready/failed) for uplo
 
 ## Commits
 - Commit A (implementation): `f2e6acdd`
-- Commit B (finalize docs): pending
+- Commit B (finalize docs): `b097a557`
 
 ## Mapping
-- TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, <commitB>]
+- TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, b097a557]

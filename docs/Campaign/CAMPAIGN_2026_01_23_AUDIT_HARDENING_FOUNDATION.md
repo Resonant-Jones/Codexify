@@ -47,7 +47,7 @@ Goal: Verify the embeddings endpoint exists and matches frontend expectations; i
 Goal: Add durable embedding status tracking for uploaded documents (schema + API surface).
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_003_doc_embed_status_schema.md`
-- Task mapping: `TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, <commitB>]`
+- Task mapping: `TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, b097a557]`
 
 ### ✅ TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE
 
@@ -102,7 +102,7 @@ Goal: Optional cleanup of README claims that contradict implementation (audit it
 
 - TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE -> [94c10071, 6af53567]
 - TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT -> [9f9b1c3b, 0efbb2fb]
-- TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, <commitB>]
+- TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, b097a557]
 - TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [<commitA>, <commitB>]
 - TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [<commitA>, <commitB>]
 - TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [<commitA>, <commitB>]
@@ -400,7 +400,7 @@ git status --porcelain -uall
 git log -1 --oneline
 
 Mapping
- • TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, <commitB>]
+ • TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA -> [f2e6acdd, b097a557]
 
 ---
 
