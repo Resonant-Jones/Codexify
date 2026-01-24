@@ -27,7 +27,7 @@ Unlike cloud-based AI platforms, Codexify runs **entirely on your infrastructure
 
 - **🧠 Multi-Silo Memory System**: Ephemeral, midterm, and long-term memory silos with semantic search
 - **🔌 Extensible Plugin Architecture**: Build custom agents, analyzers, and integrations
-- **📊 Hybrid Database Strategy**: PostgreSQL for structured data, Neo4j for knowledge graphs, ChromaDB for vectors
+- **📊 Hybrid Database Strategy**: PostgreSQL for structured data, ChromaDB for vectors; Neo4j is optional/experimental and deferred for MVP graph context
 - **🎯 Provider-Agnostic AI**: Switch between Groq, OpenAI, Anthropic, Gemini, or self-hosted models
 - **⚡ Event-Sourced Design**: Reliable event bus with outbox pattern for distributed workflows
 - **🔐 Local-First Security**: No cloud dependencies, full data sovereignty, encrypted at rest
@@ -44,7 +44,7 @@ Unlike cloud-based AI platforms, Codexify runs **entirely on your infrastructure
 | **Conversational AI** | Multi-turn chat with streaming responses, context management, and thread hierarchies |
 | **RAG Orchestration** | Vector search, semantic caching, and hybrid retrieval across multiple knowledge bases |
 | **Memory Management** | Three-tiered memory system (ephemeral/midterm/longterm) with auto-consolidation |
-| **Knowledge Graph** | Neo4j-powered relationship mapping for context-aware reasoning |
+| **Knowledge Graph** | Optional Neo4j graph (experimental; disabled by default for context reasoning) |
 | **Connector Framework** | Sync data from GitHub, Google Drive, Notion, and custom sources |
 | **Plugin System** | Extend functionality with pattern analyzers, memory analyzers, and custom tools |
 | **Project Workspaces** | Organize conversations, documents, and memory by project context |
@@ -95,7 +95,7 @@ graph TB
 
     subgraph "Storage Layer"
         PG[(PostgreSQL<br/>Structured Data)]
-        Neo[(Neo4j<br/>Knowledge Graph)]
+        Neo[(Neo4j<br/>Optional Graph)]
         Vector[(ChromaDB<br/>Vector Store)]
     end
 
@@ -139,7 +139,13 @@ graph TB
 3. **AI Processing** → Router selects optimal LLM provider and streams response
 4. **Memory Update** → Conversation context stored in PostgreSQL + vectorized
 5. **Event Emission** → Events written to outbox table for async processing
-6. **Graph Update** → Relationships indexed in Neo4j for semantic connections
+6. **Graph Update (optional)** → Relationships indexed in Neo4j when graph logging/context is enabled
+
+---
+
+### Decision: Neo4j Deferred Post-MVP
+
+Neo4j-backed graph context is optional and disabled by default. The MVP does not depend on Neo4j for chat context, and graph logging/backfill remain experimental. We will revisit full graph enrichment post-MVP.
 
 ---
 
@@ -187,7 +193,7 @@ make dev
 
 # This starts:
 # - PostgreSQL (port 5432)
-# - Neo4j (port 7474 web, 7687 bolt)
+# - Neo4j (optional; 7474 web, 7687 bolt)
 # - Backend API (port 8888)
 # - Frontend dev server (port 5173)
 ```
@@ -442,7 +448,7 @@ See `.github/workflows/guardian-ci.yml` for full pipeline.
 | **SQLAlchemy** | 2.0.44 | ORM for PostgreSQL |
 | **Alembic** | 1.17.0 | Database migrations |
 | **PostgreSQL** | 15 | Primary database |
-| **Neo4j** | 5 | Knowledge graph |
+| **Neo4j** | 5 (optional) | Knowledge graph (experimental; disabled by default) |
 | **ChromaDB** | 1.2.1 | Vector storage |
 | **LangChain** | 1.0.2 | LLM orchestration |
 | **Pydantic** | 2.x | Data validation |
@@ -620,7 +626,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 feat: add new memory consolidation algorithm
 fix: resolve token count overflow in chat context
 docs: update API documentation for /embeddings endpoint
-test: add integration tests for Neo4j connector
+test: add integration tests for optional graph connector
 refactor: simplify plugin loading mechanism
 chore: update dependencies to latest versions
 ```
@@ -663,7 +669,7 @@ If you discover a security vulnerability, please email **security@catalystlabs.a
 - ✅ Alembic migration system
 - ✅ Multi-provider AI routing
 - ✅ Plugin architecture v1
-- ✅ Neo4j knowledge graph integration
+- 🟡 Neo4j graph scaffolding (optional; deferred for MVP context)
 - ✅ React 19 frontend upgrade
 
 ### Roadmap
