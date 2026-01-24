@@ -96,7 +96,7 @@ Goal: Make an explicit decision: defer Neo4j graph context (or wire minimal enri
 Goal: Optional cleanup of README claims that contradict implementation (audit items).
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_010_docs_drift_cleanup_optional.md`
-- Task mapping: `TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [69c751e1, ]`
 
 ## Final Mapping (authoritative; update as tasks complete)
 
@@ -109,7 +109,7 @@ Goal: Optional cleanup of README claims that contradict implementation (audit it
 - TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, bc52c143]
 - TASK-2026-01-23-008_MEMORY_INIT_AND_CONTEXT_INTEGRATION_TEST -> [160d6c21, 64f973a8]
 - TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [d37d4788, 6f7d9581]
-- TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [<commitA>, <commitB>]
+- TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [69c751e1, ]
 
 ⸻
 
@@ -1019,7 +1019,7 @@ git status --porcelain -uall
 git log -1 --oneline
 
 Mapping
- • TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [, ]
+ • TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [69c751e1, ]
 
 ---
 
