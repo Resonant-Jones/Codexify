@@ -171,7 +171,7 @@ installed.
 
 ## 🔗 Graph Tests and Self-Check
 
-Codexify uses a Neo4j graph database for persistent relationships between agents, messages, and users. The canonical direction for message relationships is:
+Codexify can use a Neo4j graph database for persistent relationships between agents, messages, and users. Neo4j is optional and gated by config (graph logging/context disabled by default) and deferred for MVP graph context. The canonical direction for message relationships is:
 
 - `(:MessageNode)-[:SENT_BY]->(:UserNode)`
 
@@ -195,7 +195,7 @@ To run the main graph relationship test:
 pytest guardian/tests/graph/test_neo4j_connection.py::test_relationships_exist
 ```
 
-This test verifies that the canonical relationships (such as `SENT_BY`) exist and are correctly oriented in the test graph.
+This test verifies that the canonical relationships (such as `SENT_BY`) exist and are correctly oriented in the test graph. Only run it when Neo4j is configured and available.
 
 ### Self-Check Endpoint
 
