@@ -46,11 +46,11 @@ Optionally correct documentation claims identified in the audit (WebSocket scope
 - `git status --porcelain -uall`
 
 ## Git Status
-- `git status --porcelain -uall` shows this task artifact + campaign mapping pending finalize commit.
+- `git status --porcelain -uall` shows this task artifact + campaign mapping pending record finalize hash commit.
 
 ## Commits
 - Commit A (implementation): `69c751e1`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `c9435700`
 
 ## Mapping
-- TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [69c751e1, ]
+- TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [69c751e1, c9435700]
