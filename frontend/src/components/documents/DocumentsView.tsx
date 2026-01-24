@@ -37,6 +37,13 @@ export default function DocumentsView({
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [menu, setMenu] = useState<{x:number;y:number;doc?:DocumentLike}|null>(null);
 
+  const handleGenerateDocument = () => {
+    if (typeof window === "undefined") return;
+    try {
+      window.dispatchEvent(new CustomEvent("cfy:documents:generate"));
+    } catch {}
+  };
+
   const uploader = useUploader({
     tag: "upload",
     onImages: () => {},
@@ -76,18 +83,27 @@ export default function DocumentsView({
         {/* Header: Title + Controls */}
         <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] py-4">
           <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>Documents</h2>
-          <div className="glass-pill h-auto py-[3px] px-[6px]">
-            {pills.map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                className="pill-tab text-xs"
-                data-state={behavior === key ? "active" : undefined}
-                onClick={() => setBehavior(key)}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="glass-pill h-auto py-[3px] px-[6px]">
+              {pills.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="pill-tab text-xs"
+                  data-state={behavior === key ? "active" : undefined}
+                  onClick={() => setBehavior(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="text-xs underline hover:opacity-80"
+              onClick={handleGenerateDocument}
+            >
+              Generate Document
+            </button>
           </div>
         </div>
 
