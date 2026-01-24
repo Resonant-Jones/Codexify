@@ -38,4 +38,19 @@ Make an explicit decision to defer Neo4j post-MVP and align README/docs with act
 - Commit B: TASK-2026-01-23-009_NEO4J_DECISION_DOC: finalize task summary
 
 ## Summary
-- TBD
+- Documented Neo4j as optional/experimental and deferred for MVP context in README.
+- Softened Neo4j language in docs/Codexify/README.md to reflect opt-in graph tests.
+
+## Checks Run
+- `rg -n "Neo4j|knowledge graph" README.md docs || true`
+- `git status --porcelain -uall`
+
+## Git Status
+- `git status --porcelain -uall` shows task artifact + campaign mapping pending finalize commit.
+
+## Commits
+- Commit A (implementation): `d37d4788`
+- Commit B (finalize docs): TBD
+
+## Mapping
+- TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [d37d4788, ]
