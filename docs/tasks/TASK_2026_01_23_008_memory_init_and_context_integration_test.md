@@ -48,11 +48,11 @@ Ensure memory store is initialized correctly and add a deterministic ContextBrok
 - `pytest -q -k "context and broker" || true` (pass)
 
 ## Git Status
-- `git status --porcelain -uall` shows only this task artifact pending finalize commit.
+- `git status --porcelain -uall` shows task artifact + campaign mapping pending record finalize hash commit.
 
 ## Commits
 - Commit A (implementation): `160d6c21`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `64f973a8`
 
 ## Mapping
-- TASK-2026-01-23-008_MEMORY_INIT_AND_CONTEXT_INTEGRATION_TEST -> [160d6c21, ]
+- TASK-2026-01-23-008_MEMORY_INIT_AND_CONTEXT_INTEGRATION_TEST -> [160d6c21, 64f973a8]
