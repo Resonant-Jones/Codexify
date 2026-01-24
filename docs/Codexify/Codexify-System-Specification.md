@@ -551,7 +551,7 @@ guardian/connectors/*
 ## 12. FUTURE EVOLUTION PATHS
 
 ### 12.1 Planned Features (from README roadmap)
-- WebSocket support for real-time updates ✅ (exists in `/realtime`)
+- WebSocket collaboration (document editing only; broader real-time updates planned)
 - Advanced RAG with hybrid search
 - Fine-tuning support for local models
 - Multi-user authentication & RBAC
