@@ -89,7 +89,7 @@ Goal: Verify memory store initialization and add an integration test for Context
 Goal: Make an explicit decision: defer Neo4j graph context (or wire minimal enrichment) and update docs accordingly.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_009_neo4j_decision_doc.md`
-- Task mapping: `TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [d37d4788, ]`
 
 ### ✅ TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL
 
@@ -108,7 +108,7 @@ Goal: Optional cleanup of README claims that contradict implementation (audit it
 - TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [94d8aee8, bc216d18]
 - TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, bc52c143]
 - TASK-2026-01-23-008_MEMORY_INIT_AND_CONTEXT_INTEGRATION_TEST -> [160d6c21, 64f973a8]
-- TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [<commitA>, <commitB>]
+- TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [d37d4788, ]
 - TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [<commitA>, <commitB>]
 
 ⸻
@@ -940,7 +940,7 @@ git status --porcelain -uall
 git log -1 --oneline
 
 Mapping
- • TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [, ]
+ • TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [d37d4788, ]
 
 ---
 
