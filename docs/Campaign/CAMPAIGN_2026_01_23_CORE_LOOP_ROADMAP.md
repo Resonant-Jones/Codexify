@@ -60,7 +60,7 @@ Goal: Verify `/api/embeddings` exists and matches frontend expectations; impleme
 Goal: Add embedding status tracking to `UploadedDocument` (DB + migrations).
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_003_add_document_embedding_status_column.md`
-- Task mapping: `TASK-2026-01-23-003_ADD_DOCUMENT_EMBEDDING_STATUS_COLUMN -> [700c7c27, ]`
+- Task mapping: `TASK-2026-01-23-003_ADD_DOCUMENT_EMBEDDING_STATUS_COLUMN -> [700c7c27, ad15e46e]`
 
 ---
 
@@ -441,7 +441,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-003_ADD_DOCUMENT_EMBEDDING_STATUS_COLUMN -> [700c7c27, ]
+TASK-2026-01-23-003_ADD_DOCUMENT_EMBEDDING_STATUS_COLUMN -> [700c7c27, ad15e46e]
 
 ---
 
