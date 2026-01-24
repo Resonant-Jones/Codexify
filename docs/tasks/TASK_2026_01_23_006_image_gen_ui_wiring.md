@@ -50,11 +50,11 @@ Add the missing ImageGen UI entry point (button/modal) and wire it to the existi
 - `git status --porcelain -uall`
 
 ## Git Status
-- `git status --porcelain -uall` shows only this task artifact pending finalize commit.
+- `git status --porcelain -uall` shows task artifact + campaign mapping pending record finalize hash commit.
 
 ## Commits
 - Commit A (implementation): `94d8aee8`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `bc216d18`
 
 ## Mapping
-- TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [94d8aee8, ]
+- TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [94d8aee8, bc216d18]
