@@ -46,11 +46,11 @@ Make an explicit decision to defer Neo4j post-MVP and align README/docs with act
 - `git status --porcelain -uall`
 
 ## Git Status
-- `git status --porcelain -uall` shows task artifact + campaign mapping pending finalize commit.
+- `git status --porcelain -uall` shows task artifact + campaign mapping pending record finalize hash commit.
 
 ## Commits
 - Commit A (implementation): `d37d4788`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `6f7d9581`
 
 ## Mapping
-- TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [d37d4788, ]
+- TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [d37d4788, 6f7d9581]
