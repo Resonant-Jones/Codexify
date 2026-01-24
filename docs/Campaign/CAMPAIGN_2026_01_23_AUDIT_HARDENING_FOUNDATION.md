@@ -75,7 +75,7 @@ Goal: Wire Image Generation UI to the existing backend endpoint (modal + button 
 Goal: Wire DocumentGenModal submit to POST /api/documents/generate and add the missing UI entry point.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_007_document_gen_ui_wiring.md`
-- Task mapping: `TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, ]`
+- Task mapping: `TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, bc52c143]`
 
 ### ✅ TASK-2026-01-23-008_MEMORY_INIT_AND_CONTEXT_INTEGRATION_TEST
 
@@ -106,7 +106,7 @@ Goal: Optional cleanup of README claims that contradict implementation (audit it
 - TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE -> [0b64306b, 1e2c22b8]
 - TASK-2026-01-23-005_DOC_EMBED_UI_STATUS -> [97da98ff, b95c1307]
 - TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [94d8aee8, bc216d18]
-- TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, ]
+- TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, bc52c143]
 - TASK-2026-01-23-008_MEMORY_INIT_AND_CONTEXT_INTEGRATION_TEST -> [<commitA>, <commitB>]
 - TASK-2026-01-23-009_NEO4J_DECISION_DOC -> [<commitA>, <commitB>]
 - TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL -> [<commitA>, <commitB>]
@@ -769,7 +769,7 @@ git status --porcelain -uall
 git log -1 --oneline
 
 Mapping
- • TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, ]
+ • TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, bc52c143]
 
 ---
 

@@ -51,11 +51,11 @@ Close the document generation loop by ensuring a visible UI entry point exists a
 - `git status --porcelain -uall`
 
 ## Git Status
-- `git status --porcelain -uall` shows only this task artifact pending finalize commit.
+- `git status --porcelain -uall` shows task artifact + campaign mapping pending record finalize hash commit.
 
 ## Commits
 - Commit A (implementation): `7d9b52ae`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `bc52c143`
 
 ## Mapping
-- TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, ]
+- TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING -> [7d9b52ae, bc52c143]
