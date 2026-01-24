@@ -42,7 +42,7 @@ Close the remaining **CORE LOOP** gaps called out in the audit:
 Goal: Remove hardcoded secrets from docker-compose and enforce env-driven configuration.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_001_secrets_docker_compose_hygiene.md`
-- Task mapping: `TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE_HYGIENE -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE_HYGIENE -> [202c1aaf, ]`
 
 ---
 
@@ -235,7 +235,7 @@ git rev-parse HEAD
 Campaign Mapping Update (exact format)
 
 In the campaign file, set:
-TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE_HYGIENE -> [<commitA>, <commitB>]
+TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE_HYGIENE -> [202c1aaf, ]
 
 Notes
 
@@ -1287,4 +1287,3 @@ git rev-parse HEAD
 Campaign Mapping Update (exact format)
 
 TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [<commitA>, <commitB>]
-
