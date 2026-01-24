@@ -210,6 +210,17 @@ export default function App() {
     []
   );
 
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpen = () => setDocGenOpen(true);
+    window.addEventListener("cfy:documents:generate", onOpen as EventListener);
+    return () =>
+      window.removeEventListener(
+        "cfy:documents:generate",
+        onOpen as EventListener
+      );
+  }, []);
+
   if (TUNE_ENABLED && isTuneRoute()) {
     return <DevTuneGate />;
   }
