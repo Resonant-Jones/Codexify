@@ -146,7 +146,7 @@ Remove hardcoded credentials/secrets in docker-compose.yml and ensure secrets ar
 - .env.example
 - .env.template
 - docs/tasks/TASK_2026_01_23_001_secrets_docker_compose.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 
@@ -199,7 +199,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_001_secrets_docker_compose.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_001_secrets_docker_compose.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
@@ -244,7 +244,7 @@ Confirm the embeddings endpoint exists, matches frontend usage, and functions (r
 - frontend/src/**/*.ts
 - frontend/src/**/*.tsx
 - docs/tasks/TASK_2026_01_23_002_verify_embeddings_endpoint.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 - Python env capable of running pytest (use existing repo conventions).
@@ -295,7 +295,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_002_verify_embeddings_endpoint.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_002_verify_embeddings_endpoint.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-002_VERIFY_EMBEDDINGS_ENDPOINT: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
@@ -340,7 +340,7 @@ Introduce durable status tracking so the system can report whether an uploaded d
 - guardian/routes/*.py (ONLY the route(s) touched to surface status)
 - guardian/tests/test_*.py (ONLY tests for status contract)
 - docs/tasks/TASK_2026_01_23_003_doc_embed_status_schema.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 - Alembic migration workflow must already exist in repo (use existing patterns).
@@ -394,7 +394,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_003_doc_embed_status_schema.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_003_doc_embed_status_schema.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-003_DOC_EMBED_STATUS_SCHEMA: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
@@ -438,7 +438,7 @@ Replace fire-and-forget embeddings with a reliable queued worker pipeline that:
 - backend/rag/*.py and/or backend/vector_store/*.py (ONLY if required to hook into existing embedding logic)
 - guardian/tests/test_*.py (ONLY pipeline tests)
 - docs/tasks/TASK_2026_01_23_004_doc_embed_worker_pipeline.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 - Redis queue exists (per audit).
@@ -491,7 +491,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_004_doc_embed_worker_pipeline.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_004_doc_embed_worker_pipeline.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-004_DOC_EMBED_WORKER_PIPELINE: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
@@ -532,7 +532,7 @@ Expose embedding readiness to users:
 - frontend/src/components/**/*
 - frontend/src/tests/**/*
 - docs/tasks/TASK_2026_01_23_005_doc_embed_ui_status.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 - Status fields and API response support exist (Task 003).
@@ -584,7 +584,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_005_doc_embed_ui_status.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_005_doc_embed_ui_status.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-005_DOC_EMBED_UI_STATUS: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
@@ -623,7 +623,7 @@ Add the missing ImageGen UI entry point (button/modal) and wire it to the existi
 - frontend/src/**/*.ts
 - frontend/src/tests/**/*
 - docs/tasks/TASK_2026_01_23_006_image_gen_ui_wiring.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 - Backend endpoint exists (verify via grep/search).
@@ -674,7 +674,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_006_image_gen_ui_wiring.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_006_image_gen_ui_wiring.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
@@ -714,7 +714,7 @@ Close the document generation loop by ensuring:
 - frontend/src/**/*.ts
 - frontend/src/tests/**/*
 - docs/tasks/TASK_2026_01_23_007_document_gen_ui_wiring.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 - Backend endpoint exists (you already implemented /api/documents/generate earlier).
@@ -763,7 +763,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_007_document_gen_ui_wiring.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_007_document_gen_ui_wiring.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-007_DOCUMENT_GEN_UI_WIRING: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
@@ -802,7 +802,7 @@ Ensure memory store is initialized correctly in app dependencies and add a deter
 - guardian/memory/*.py (ONLY if needed for initialization fix)
 - guardian/tests/test_*.py
 - docs/tasks/TASK_2026_01_23_008_memory_init_and_context_integration_test.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 - pytest available.
@@ -850,7 +850,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_008_memory_init_and_context_integration_test.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_008_memory_init_and_context_integration_test.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-008_MEMORY_INIT_AND_CONTEXT_INTEGRATION_TEST: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
@@ -889,7 +889,7 @@ This task implements **Option A by default** to match audit risk and MVP focus.
 - README.md
 - docs/**/*.md (ONLY relevant docs)
 - docs/tasks/TASK_2026_01_23_009_neo4j_decision_doc.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 - None.
@@ -934,7 +934,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_009_neo4j_decision_doc.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_009_neo4j_decision_doc.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-009_NEO4J_DECISION_DOC: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
@@ -969,7 +969,7 @@ Optionally correct documentation claims identified in the audit (WebSocket scope
 - README.md
 - docs/**/*.md (ONLY docs drift corrections)
 - docs/tasks/TASK_2026_01_23_010_docs_drift_cleanup_optional.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+- docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 
 ## Dependencies / Prereqs
 - None.
@@ -1013,7 +1013,7 @@ Message (EXACT):
 
 Commands:
 
-git add docs/tasks/TASK_2026_01_23_010_docs_drift_cleanup_optional.md docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+git add docs/tasks/TASK_2026_01_23_010_docs_drift_cleanup_optional.md docs/Campaign/CAMPAIGN_2026_01_23_AUDIT_HARDENING_FOUNDATION.md
 git commit -m "TASK-2026-01-23-010_DOCS_DRIFT_CLEANUP_OPTIONAL: finalize task summary"
 git status --porcelain -uall
 git log -1 --oneline
