@@ -51,11 +51,11 @@ Remove any hardcoded secrets from docker-compose.yml and ensure secrets are env-
 - `git status --porcelain -uall`
 
 ## Git Status
-- `git status --porcelain -uall` shows this task artifact + campaign mapping pending finalize commit.
+- `git status --porcelain -uall` shows this task artifact + campaign mapping pending record finalize hash commit.
 
 ## Commits
 - Commit A (implementation): `202c1aaf`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `2e403d4a`
 
 ## Mapping
-- TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE_HYGIENE -> [202c1aaf, ]
+- TASK-2026-01-23-001_SECRETS_DOCKER_COMPOSE_HYGIENE -> [202c1aaf, 2e403d4a]
