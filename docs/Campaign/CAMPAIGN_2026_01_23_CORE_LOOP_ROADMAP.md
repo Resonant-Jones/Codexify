@@ -51,7 +51,7 @@ Goal: Remove hardcoded secrets from docker-compose and enforce env-driven config
 Goal: Verify `/api/embeddings` exists and matches frontend expectations; implement/fix if missing.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_002_verify_or_implement_embeddings_endpoint.md`
-- Task mapping: `TASK-2026-01-23-002_VERIFY_OR_IMPLEMENT_EMBEDDINGS_ENDPOINT -> [b95a1646, ]`
+- Task mapping: `TASK-2026-01-23-002_VERIFY_OR_IMPLEMENT_EMBEDDINGS_ENDPOINT -> [b95a1646, 57deb7b8]`
 
 ---
 
@@ -342,7 +342,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-002_VERIFY_OR_IMPLEMENT_EMBEDDINGS_ENDPOINT -> [b95a1646, ]
+TASK-2026-01-23-002_VERIFY_OR_IMPLEMENT_EMBEDDINGS_ENDPOINT -> [b95a1646, 57deb7b8]
 
 ---
 
