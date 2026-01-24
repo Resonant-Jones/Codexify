@@ -674,12 +674,12 @@ If you discover a security vulnerability, please email **security@catalystlabs.a
 
 ### Roadmap
 
-- 🚧 WebSocket support for real-time updates
+- 🚧 WebSocket collaboration (document editing only; broader real-time updates planned)
 - 🚧 Advanced RAG with hybrid search
-- 🚧 Fine-tuning support for local models
-- 🚧 Multi-user authentication & RBAC
+- 🚧 Fine-tuning support for local models (roadmap)
+- 🚧 Multi-user authentication & RBAC (roadmap)
 - 🚧 Kubernetes deployment guides
-- 🚧 Plugin marketplace
+- 🚧 Plugin marketplace (roadmap)
 
 ---
 
