@@ -61,7 +61,7 @@ Note: The campaign text references `docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP
 
 ## Commits
 - Commit A (implementation): `eae38a7d`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `6fdb330c`
 
 ## Mapping
-- TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [eae38a7d, ]
+- TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [eae38a7d, 6fdb330c]
