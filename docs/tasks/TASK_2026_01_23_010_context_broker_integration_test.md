@@ -61,7 +61,7 @@ Add an integration test that verifies ContextBroker assembles context for a repr
 
 ## Commits
 - Commit A (implementation): `bd95789e`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `a0b0e2d1`
 
 ## Mapping
-- TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [bd95789e, ]
+- TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [bd95789e, a0b0e2d1]
