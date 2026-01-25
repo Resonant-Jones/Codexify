@@ -139,6 +139,7 @@ export default function DocumentsView({
                         name: d.title,
                         ext: d.ext,
                         embeddingStatus: d.embeddingStatus,
+                        embeddingError: d.embeddingError,
                       }}
                       onClick={() => handleDocumentClick(d)}
                     />

@@ -13,4 +13,19 @@ describe("DocumentTile", () => {
 
     expect(screen.getByText("Processing")).toBeInTheDocument();
   });
+
+  it("shows a short hint for failed embeddings", () => {
+    render(
+      <DocumentTile
+        file={{
+          name: "Quarterly Plan.pdf",
+          ext: "pdf",
+          embeddingStatus: "failed",
+          embeddingError: "parsed_text_missing",
+        }}
+      />
+    );
+
+    expect(screen.getByText("Failed - No text")).toBeInTheDocument();
+  });
 });
