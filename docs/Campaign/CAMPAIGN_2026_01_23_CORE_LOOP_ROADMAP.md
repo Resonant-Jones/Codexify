@@ -123,7 +123,7 @@ Goal: Verify memory store initialization in dependencies and fix wiring if neede
 Goal: Add an integration test confirming context broker assembly works end-to-end with a representative query.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_010_context_broker_integration_test.md`
-- Task mapping: `TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [bd95789e, ]`
 
 ---
 
@@ -1072,7 +1072,7 @@ Add an integration test that verifies ContextBroker assembles context for a repr
 - guardian/tests/**/*.py
 - guardian/context/broker.py (only if test reveals a bug needing minimal fix)
 - guardian/routes/chat.py (only if needed for test harness)
-- docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP_ROADMAP.md
+- docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md
 - docs/tasks/TASK_2026_01_23_010_context_broker_integration_test.md
 
 ## Command Checklist (exact)
@@ -1127,14 +1127,14 @@ Manual commands:
 
 git add \
   docs/tasks/TASK_2026_01_23_010_context_broker_integration_test.md \
-  docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP_ROADMAP.md
+  docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md
 git commit -m "TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST: finalize task summary"
 git log -1 --oneline
 git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [<commitA>, <commitB>]
+TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [bd95789e, ]
 
 ---
 
