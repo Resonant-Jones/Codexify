@@ -123,7 +123,7 @@ Goal: Verify memory store initialization in dependencies and fix wiring if neede
 Goal: Add an integration test confirming context broker assembly works end-to-end with a representative query.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_010_context_broker_integration_test.md`
-- Task mapping: `TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [bd95789e, ]`
+- Task mapping: `TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [bd95789e, a0b0e2d1]`
 
 ---
 
@@ -1134,7 +1134,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [bd95789e, ]
+TASK-2026-01-23-010_CONTEXT_BROKER_INTEGRATION_TEST -> [bd95789e, a0b0e2d1]
 
 ---
 
