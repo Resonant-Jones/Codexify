@@ -9,6 +9,7 @@ export type DocumentFile = {
   ext?: string;
   thumb?: string;
   embeddingStatus?: string;
+  embeddingError?: string;
 };
 
 type Props = {
@@ -93,6 +94,21 @@ function resolveStatusLabel(raw?: string) {
   };
 }
 
+function resolveErrorHint(raw?: string) {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes("parsed_text_missing")) return "No text";
+  if (lower.includes("no_chunks")) return "No chunks";
+  if (lower.includes("timeout")) return "Timeout";
+  if (lower.includes("redis") || lower.includes("queue")) return "Queue error";
+  const cleaned = trimmed.replace(/[_-]+/g, " ").trim();
+  if (!cleaned) return null;
+  if (cleaned.length > 18) return `${cleaned.slice(0, 18).trimEnd()}...`;
+  return cleaned;
+}
+
 function readExtColors(): Record<string, string> {
   const defaults: ExtColors = {
     pdf: "#ef4444",
@@ -123,6 +139,11 @@ export default function DocumentTile({ file, onClick, className }: Props) {
   const onColor = contrastRatio(bannerColor, "#ffffff") >= 4.5 ? "#ffffff" : "#111827";
   const Icon = ext === "codex" ? BookOpen : FileText;
   const status = resolveStatusLabel(file?.embeddingStatus);
+  const statusKey = file?.embeddingStatus?.trim().toLowerCase();
+  const errorHint = statusKey === "failed" ? resolveErrorHint(file?.embeddingError) : null;
+  const statusLabel = status
+    ? `${status.label}${errorHint ? ` - ${errorHint}` : ""}`
+    : null;
 
   const content = (
     <div className="relative flex aspect-[3/4] w-full flex-col">
@@ -135,14 +156,14 @@ export default function DocumentTile({ file, onClick, className }: Props) {
       )}
       {status && (
         <span
-          className="absolute right-2 top-2 z-10 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+          className="absolute right-2 top-2 z-10 max-w-[120px] truncate rounded-full border px-2 py-0.5 text-[10px] font-semibold"
           style={{
             background: status.background,
             color: status.color,
             borderColor: status.border,
           }}
         >
-          {status.label}
+          {statusLabel}
         </span>
       )}
       <div className="mt-auto">
