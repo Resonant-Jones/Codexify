@@ -105,7 +105,7 @@ Goal: Add “Generate Document” button in Documents view and wire DocumentGenM
 Goal: Add doc_type selector (code/literature/diagram) + emit/update UI events to refresh documents list.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_008_document_gen_add_doc_type_and_events.md`
-- Task mapping: `TASK-2026-01-23-008_DOCUMENT_GEN_ADD_DOC_TYPE_AND_EVENTS -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-008_DOCUMENT_GEN_ADD_DOC_TYPE_AND_EVENTS -> [e0c4b588, c37392de]`
 
 ---
 
@@ -963,7 +963,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-008_DOCUMENT_GEN_ADD_DOC_TYPE_AND_EVENTS -> [<commitA>, <commitB>]
+TASK-2026-01-23-008_DOCUMENT_GEN_ADD_DOC_TYPE_AND_EVENTS -> [e0c4b588, c37392de]
 
 ---
 

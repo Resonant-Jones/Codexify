@@ -56,8 +56,8 @@ Add the missing product ergonomics to document generation:
 - `git status --porcelain -uall` shows App.tsx, DocumentGenModal.tsx, document_gen_modal.spec.tsx, the task artifact, and the campaign file pending commits.
 
 ## Commits
-- Commit A (implementation): TBD
-- Commit B (finalize docs): TBD
+- Commit A (implementation): `e0c4b588`
+- Commit B (finalize docs): `c37392de`
 
 ## Mapping
-- TASK-2026-01-23-008_DOCUMENT_GEN_ADD_DOC_TYPE_AND_EVENTS -> [<commitA>, <commitB>]
+- TASK-2026-01-23-008_DOCUMENT_GEN_ADD_DOC_TYPE_AND_EVENTS -> [e0c4b588, c37392de]
