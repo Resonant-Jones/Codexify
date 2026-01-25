@@ -114,7 +114,7 @@ Goal: Add doc_type selector (code/literature/diagram) + emit/update UI events to
 Goal: Verify memory store initialization in dependencies and fix wiring if needed.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_009_verify_memory_store_init.md`
-- Task mapping: `TASK-2026-01-23-009_VERIFY_MEMORY_STORE_INIT -> [9a462cf8, ]`
+- Task mapping: `TASK-2026-01-23-009_VERIFY_MEMORY_STORE_INIT -> [9a462cf8, 2b1029ad]`
 
 ---
 
@@ -1049,7 +1049,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-009_VERIFY_MEMORY_STORE_INIT -> [9a462cf8, ]
+TASK-2026-01-23-009_VERIFY_MEMORY_STORE_INIT -> [9a462cf8, 2b1029ad]
 
 ---
 
