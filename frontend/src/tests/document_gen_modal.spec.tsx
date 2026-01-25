@@ -25,6 +25,7 @@ describe("DocumentGenModal", () => {
       "Draft a launch overview.  "
     );
     await user.selectOptions(screen.getByLabelText(/output format/i), "plain");
+    await user.selectOptions(screen.getByLabelText(/document type/i), "diagram");
 
     await user.click(screen.getByRole("button", { name: /save draft/i }));
 
@@ -32,6 +33,7 @@ describe("DocumentGenModal", () => {
       title: "Launch Brief",
       prompt: "Draft a launch overview.",
       format: "plain",
+      doc_type: "diagram",
     });
     expect(handleOpen).toHaveBeenCalledWith(false);
   });

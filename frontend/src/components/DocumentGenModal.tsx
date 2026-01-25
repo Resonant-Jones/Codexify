@@ -8,6 +8,7 @@ export type DocumentGenInput = {
   title: string;
   prompt: string;
   format: "markdown" | "plain";
+  doc_type: "code" | "literature" | "diagram";
 };
 
 interface DocumentGenModalProps {
@@ -26,6 +27,7 @@ export function DocumentGenModal({
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [format, setFormat] = useState<DocumentGenInput["format"]>("markdown");
+  const [docType, setDocType] = useState<DocumentGenInput["doc_type"]>("literature");
   const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
 
@@ -43,6 +45,7 @@ export function DocumentGenModal({
     setTitle(initialValues?.title ?? "");
     setPrompt(initialValues?.prompt ?? "");
     setFormat(initialValues?.format ?? "markdown");
+    setDocType(initialValues?.doc_type ?? "literature");
     setError(null);
     const raf = window.requestAnimationFrame(() => {
       titleRef.current?.focus();
@@ -73,6 +76,7 @@ export function DocumentGenModal({
       title: title.trim(),
       prompt: trimmedPrompt,
       format,
+      doc_type: docType,
     };
     onSubmit?.(payload);
     onOpenChange(false);
@@ -169,6 +173,28 @@ export function DocumentGenModal({
             >
               <option value="markdown">Markdown</option>
               <option value="plain">Plain text</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="docGenType">
+              Document type
+            </label>
+            <select
+              id="docGenType"
+              value={docType}
+              onChange={(event) =>
+                setDocType(event.target.value as DocumentGenInput["doc_type"])
+              }
+              className="h-10 w-full rounded-[var(--tile-radius)] border px-3 text-sm"
+              style={{
+                background: "transparent",
+                borderColor: "var(--panel-border)",
+                color: "var(--text)",
+              }}
+            >
+              <option value="code">Code</option>
+              <option value="literature">Literature</option>
+              <option value="diagram">Diagram</option>
             </select>
           </div>
         </div>
