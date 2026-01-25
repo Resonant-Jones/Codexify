@@ -132,7 +132,7 @@ Goal: Add an integration test confirming context broker assembly works end-to-en
 Goal: Make an explicit CORE LOOP decision on graph context (Neo4j) and reflect it in code/docs.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_011_decision_defer_graph_context.md`
-- Task mapping: `TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [eae38a7d, ]`
 
 ---
 
@@ -1163,7 +1163,7 @@ Make the CORE LOOP decision explicit:
 - guardian/context/broker.py
 - guardian/routes/chat.py (only if needed to align trace/flags)
 - docs/reports/audit-mvp-codexify-2026-01-23.md (only if updating the audit is allowed; otherwise don’t touch)
-- docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP_ROADMAP.md
+- docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md
 - docs/tasks/TASK_2026_01_23_011_decision_defer_graph_context.md
 - README.md (optional; only if docs drift is real and small)
 
@@ -1209,14 +1209,14 @@ Manual commands:
 
 git add \
   docs/tasks/TASK_2026_01_23_011_decision_defer_graph_context.md \
-  docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP_ROADMAP.md
+  docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md
 git commit -m "TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT: finalize task summary"
 git log -1 --oneline
 git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [<commitA>, <commitB>]
+TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [eae38a7d, ]
 
 ---
 
