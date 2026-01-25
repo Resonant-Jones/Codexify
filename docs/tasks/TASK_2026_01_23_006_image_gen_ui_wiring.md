@@ -3,7 +3,7 @@
 ## Task Prompt
 
 ### Context
-Campaign: CAMPAIGN-2026-01-23-001_AUDIT_HARDENING_FOUNDATION.
+Campaign: CAMPAIGN-2026-01-23-002_CORE_LOOP_ROADMAP.
 
 ### Instructions
 - Follow docs/Ops/Runner_Protocol.md exactly.
@@ -14,47 +14,58 @@ Campaign: CAMPAIGN-2026-01-23-001_AUDIT_HARDENING_FOUNDATION.
 - Commit in two phases using the specified commit messages (manual commits; index.lock workaround).
 
 ### Task Description
-Add the missing ImageGen UI entry point (button/modal) and wire it to the existing backend image generation endpoint.
+Close the Image Generation core loop by adding a Gallery trigger, a modal with prompt + model selection, and wiring to POST `/api/media/generate/image`.
 
 ### Expected Output
-- UI has a visible button to open modal.
-- Modal submit triggers correct POST with required payload fields.
-- No unintended artifacts committed.
+- Gallery has a visible button to open the modal.
+- Modal submit triggers correct POST with required payload fields (including model).
+- Generated images are added to the gallery view.
 
 ## Allowed Files
-- frontend/src/**/*.tsx
-- frontend/src/**/*.ts
-- frontend/src/tests/**/*
+- frontend/src/components/gallery/GalleryView.tsx
+- frontend/src/components/modals/*.tsx
+- frontend/src/lib/**/*.ts (if there’s a centralized API client)
+- frontend/src/tests/**/*.ts(x) (optional)
+- guardian/routes/media.py (only if endpoint payload/response needs alignment)
+- docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md
 - docs/tasks/TASK_2026_01_23_006_image_gen_ui_wiring.md
-- docs/Campaign/CAMPAIGN_2026_01_23_001_AUDIT_HARDENING_FOUNDATION.md
+
+Note: The campaign text references `docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP_ROADMAP.md`; using the actual file `docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md`.
 
 ## Checks to Run
-- rg -n "media/generate|image/generate|Generate Image" frontend/src guardian/routes || true
-- pnpm --dir frontend/src test || true
+- rg -n "/api/media/generate/image|generate_image" guardian/routes/media.py
+- rg -n "GalleryView|Generate" frontend/src/components/gallery/GalleryView.tsx
+- ls -1 frontend/src/components/modals || true
+- rg -n "\"type-check\"|\"lint\"|vitest" frontend/src/package.json
+- pnpm --dir frontend/src lint
 - git status --porcelain -uall
 
 ## Commit Mode
 - Two-phase
 
 ## Commit Messages
-- Commit A: TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING: wire image gen modal to endpoint
+- Commit A: TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING: add image generation modal and gallery trigger
 - Commit B: TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING: finalize task summary
 
 ## Summary
-- Verified ImageGenModal posts to `/api/media/generate/image` with the expected payload and trims the prompt.
-- Added a focused unit test to assert modal submit wiring and close behavior on success.
+- Added model selection to ImageGenModal and included model in the request payload.
+- Added a GalleryView trigger + event listener to append generated images to the grid.
+- Updated the modal test to assert the model value in the request.
 
 ## Checks Run
-- `rg -n "media/generate|image/generate|Generate Image" frontend/src guardian/routes || true`
-- `pnpm --dir frontend/src test || true` (pass; warnings from existing tests about act() and WebSocket errors)
+- `rg -n "/api/media/generate/image|generate_image" guardian/routes/media.py`
+- `rg -n "GalleryView|Generate" frontend/src/components/gallery/GalleryView.tsx`
+- `ls -1 frontend/src/components/modals || true`
+- `rg -n "\"type-check\"|\"lint\"|vitest" frontend/src/package.json`
+- `pnpm --dir frontend/src lint` (warnings only: existing lint warnings in repo)
 - `git status --porcelain -uall`
 
 ## Git Status
-- `git status --porcelain -uall` shows task artifact + campaign mapping pending record finalize hash commit.
+- `git status --porcelain -uall` shows this task artifact + campaign mapping pending finalize commit.
 
 ## Commits
-- Commit A (implementation): `94d8aee8`
-- Commit B (finalize docs): `bc216d18`
+- Commit A (implementation): `97dc31dc`
+- Commit B (finalize docs): TBD
 
 ## Mapping
-- TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [94d8aee8, bc216d18]
+- TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [97dc31dc, ]
