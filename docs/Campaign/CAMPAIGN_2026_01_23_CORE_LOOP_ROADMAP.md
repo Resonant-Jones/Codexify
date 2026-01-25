@@ -69,7 +69,7 @@ Goal: Add embedding status tracking to `UploadedDocument` (DB + migrations).
 Goal: Replace fire-and-forget embedding with a reliable queue/worker pipeline and status transitions.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_004_document_embed_pipeline_worker.md`
-- Task mapping: `TASK-2026-01-23-004_DOCUMENT_EMBED_PIPELINE_WORKER -> [b158a85c, ]`
+- Task mapping: `TASK-2026-01-23-004_DOCUMENT_EMBED_PIPELINE_WORKER -> [b158a85c, a64b7d98]`
 
 ---
 
@@ -560,7 +560,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-004_DOCUMENT_EMBED_PIPELINE_WORKER -> [b158a85c, ]
+TASK-2026-01-23-004_DOCUMENT_EMBED_PIPELINE_WORKER -> [b158a85c, a64b7d98]
 
 ---
 

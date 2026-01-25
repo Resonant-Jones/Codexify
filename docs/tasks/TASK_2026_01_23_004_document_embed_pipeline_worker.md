@@ -63,11 +63,11 @@ Note: The campaign text references `docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP
 - `git status --porcelain -uall`
 
 ## Git Status
-- `git status --porcelain -uall` shows this task artifact + campaign mapping pending finalize commit.
+- `git status --porcelain -uall` shows this task artifact + campaign mapping pending record finalize hash commit.
 
 ## Commits
 - Commit A (implementation): `b158a85c`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `a64b7d98`
 
 ## Mapping
-- TASK-2026-01-23-004_DOCUMENT_EMBED_PIPELINE_WORKER -> [b158a85c, ]
+- TASK-2026-01-23-004_DOCUMENT_EMBED_PIPELINE_WORKER -> [b158a85c, a64b7d98]
