@@ -67,7 +67,7 @@ Note: The campaign text references `docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP
 
 ## Commits
 - Commit A (implementation): `b20caad9`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `9f4adcd7`
 
 ## Mapping
-- TASK-2026-01-23-007_DOCUMENT_GEN_UI_BUTTON_AND_SUBMIT_WIRING -> [b20caad9, ]
+- TASK-2026-01-23-007_DOCUMENT_GEN_UI_BUTTON_AND_SUBMIT_WIRING -> [b20caad9, 9f4adcd7]

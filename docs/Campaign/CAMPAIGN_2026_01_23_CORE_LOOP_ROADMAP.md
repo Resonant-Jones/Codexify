@@ -96,7 +96,7 @@ Goal: Create ImageGenModal + add “Generate Image” button and wire to POST `/
 Goal: Add “Generate Document” button in Documents view and wire DocumentGenModal submit to POST `/api/documents/generate`.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_007_document_gen_ui_button_and_submit_wiring.md`
-- Task mapping: `TASK-2026-01-23-007_DOCUMENT_GEN_UI_BUTTON_AND_SUBMIT_WIRING -> [b20caad9, ]`
+- Task mapping: `TASK-2026-01-23-007_DOCUMENT_GEN_UI_BUTTON_AND_SUBMIT_WIRING -> [b20caad9, 9f4adcd7]`
 
 ---
 
@@ -877,7 +877,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-007_DOCUMENT_GEN_UI_BUTTON_AND_SUBMIT_WIRING -> [b20caad9, ]
+TASK-2026-01-23-007_DOCUMENT_GEN_UI_BUTTON_AND_SUBMIT_WIRING -> [b20caad9, 9f4adcd7]
 
 ---
 
