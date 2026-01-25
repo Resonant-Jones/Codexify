@@ -119,7 +119,7 @@ class ContextBroker:
         else:
             context["semantic"] = []
 
-        # Optional graph-derived context (gated by explicit flag)
+        # Optional graph-derived context (explicit flag; deferred for CORE LOOP by default)
         context["graph"] = []
         if getattr(self.settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
             try:
