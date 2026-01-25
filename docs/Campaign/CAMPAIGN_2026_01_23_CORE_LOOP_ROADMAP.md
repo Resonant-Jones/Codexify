@@ -87,7 +87,7 @@ Goal: Expose embedding status in the Documents UI (and ensure the backend list p
 Goal: Create ImageGenModal + add “Generate Image” button and wire to POST `/api/media/generate/image`.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_006_image_gen_ui_wiring.md`
-- Task mapping: `TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [97dc31dc, ]`
+- Task mapping: `TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [97dc31dc, 006f2622]`
 
 ---
 
@@ -770,7 +770,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [97dc31dc, ]
+TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [97dc31dc, 006f2622]
 
 ---
 
