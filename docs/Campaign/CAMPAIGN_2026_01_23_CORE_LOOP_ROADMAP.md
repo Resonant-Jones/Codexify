@@ -141,7 +141,7 @@ Goal: Make an explicit CORE LOOP decision on graph context (Neo4j) and reflect i
 Goal: Clean up any remaining README/docs claims that conflict with actual CORE LOOP behavior.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_012_docs_drift_cleanup_core_loop.md`
-- Task mapping: `TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [<commitA>, <commitB>]`
+- Task mapping: `TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [6eba9ec6, ]`
 
 ⸻
 
@@ -1238,7 +1238,7 @@ Align docs with reality for CORE LOOP scope (only where drift is confirmed).
 
 - README.md
 - docs/**/*.md (excluding large generated reports)
-- docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP_ROADMAP.md
+- docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md
 - docs/tasks/TASK_2026_01_23_012_docs_drift_cleanup_core_loop.md
 
 ## Command Checklist (exact)
@@ -1283,11 +1283,11 @@ Manual commands:
 
 git add \
   docs/tasks/TASK_2026_01_23_012_docs_drift_cleanup_core_loop.md \
-  docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP_ROADMAP.md
+  docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md
 git commit -m "TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP: finalize task summary"
 git log -1 --oneline
 git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [<commitA>, <commitB>]
+TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [6eba9ec6, ]
