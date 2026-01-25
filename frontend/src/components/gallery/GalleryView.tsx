@@ -3,6 +3,7 @@ import React, { useContext, useMemo, useState, useEffect } from "react";
 import { ProjectContext } from "@/components/layout/ProjectContext";
 import PreviewTile from "@/components/gallery/PreviewTile";
 import FrameCard from "@/components/surface/FrameCard";
+import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import useUploader from "@/hooks/useUploader";
 import { X } from "lucide-react";
 
@@ -44,6 +45,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
 
   const [backendImages, setBackendImages] = useState<GalleryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showImageGen, setShowImageGen] = useState(false);
 
   // Fetch images from backend on mount
   useEffect(() => {
@@ -71,6 +73,30 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
       .finally(() => {
         setIsLoading(false);
       });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onAdd = (event: Event) => {
+      const items = (event as CustomEvent).detail?.items || [];
+      if (!Array.isArray(items) || items.length === 0) return;
+      const additions = items
+        .map((item: any) => ({
+          src: item?.src || item?.src_url || item?.url,
+          prompt: item?.prompt || item?.filename || "Generated image",
+          project: item?.project || item?.project_id,
+        }))
+        .filter((item: GalleryItem) => item.src);
+      if (additions.length === 0) return;
+      setBackendImages((prev) => {
+        const seen = new Set(prev.map((entry) => entry.src));
+        const next = additions.filter((entry) => !seen.has(entry.src));
+        return next.length ? [...next, ...prev] : prev;
+      });
+    };
+    window.addEventListener("cfy:gallery:add", onAdd as EventListener);
+    return () =>
+      window.removeEventListener("cfy:gallery:add", onAdd as EventListener);
   }, []);
 
   // Merge prop items with backend images
@@ -126,6 +152,13 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
       >
         <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-3">
           <div className="text-lg font-semibold">Gallery</div>
+          <button
+            type="button"
+            className="text-xs underline hover:opacity-80"
+            onClick={() => setShowImageGen(true)}
+          >
+            Generate Image
+          </button>
         </div>
         {!hasRealGallery && showDemoGallery && (
           <div className="rounded-[var(--tile-radius,19px)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
@@ -192,6 +225,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
           {isLoading && <span className="text-xs opacity-60">Loading...</span>}
         </div>
       </FrameCard>
+      <ImageGenModal open={showImageGen} onOpenChange={setShowImageGen} />
     </div>
   );
 };

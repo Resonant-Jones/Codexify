@@ -37,6 +37,7 @@ describe("ImageGenModal", () => {
         "/api/media/generate/image",
         expect.objectContaining({
           prompt: "neon city",
+          model: "dall-e-3",
           project_id: 1,
           thread_id: 1,
           user_id: "default",
