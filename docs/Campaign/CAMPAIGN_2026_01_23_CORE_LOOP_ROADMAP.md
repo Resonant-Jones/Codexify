@@ -141,7 +141,7 @@ Goal: Make an explicit CORE LOOP decision on graph context (Neo4j) and reflect i
 Goal: Clean up any remaining README/docs claims that conflict with actual CORE LOOP behavior.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_012_docs_drift_cleanup_core_loop.md`
-- Task mapping: `TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [6eba9ec6, ]`
+- Task mapping: `TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [6eba9ec6, e8dfb08e]`
 
 ⸻
 
@@ -1290,4 +1290,4 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [6eba9ec6, ]
+TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [6eba9ec6, e8dfb08e]
