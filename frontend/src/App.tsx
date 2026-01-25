@@ -139,6 +139,7 @@ export default function App() {
           title: input.title.trim() || undefined,
           prompt: input.prompt,
           format: input.format,
+          doc_type: input.doc_type,
         };
         const response = await api.post("/documents/generate", payload);
         const data = response?.data ?? {};
