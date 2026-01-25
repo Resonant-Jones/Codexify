@@ -55,7 +55,7 @@ Note: The campaign text references `docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP
 
 ## Commits
 - Commit A (implementation): `9a462cf8`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `2b1029ad`
 
 ## Mapping
-- TASK-2026-01-23-009_VERIFY_MEMORY_STORE_INIT -> [9a462cf8, ]
+- TASK-2026-01-23-009_VERIFY_MEMORY_STORE_INIT -> [9a462cf8, 2b1029ad]
