@@ -203,8 +203,8 @@ make dev
 Backfill workers run as one-shot services at startup and exit when complete.
 They never block API startup and are safe to re-run.
 
-- Automatic startup: `embedding-backfill` and `graph-backfill` run on `docker compose up`
-- Manual run: `docker compose run --rm embedding-backfill` or `docker compose run --rm graph-backfill`
+- Automatic startup: `embedding-backfill` runs on `docker compose up`; `graph-backfill` runs only when Neo4j is enabled (deferred for CORE LOOP).
+- Manual run: `docker compose run --rm embedding-backfill` or `docker compose run --rm graph-backfill` (graph is optional).
 - Status: `GET /backfill/status` (API) or `python -m guardian.cli backfill:status`
 - No-work behavior: logs a clear `no_work` exit reason and exits 0
 
