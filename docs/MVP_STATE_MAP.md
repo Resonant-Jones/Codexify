@@ -48,7 +48,8 @@ You have built **substantial infrastructure** for all 6 MVP features. The state 
 
 **ContextBroker** (`guardian/context/broker.py`)
 - ✅ **Implemented:** All 4 depth modes (shallow/normal/deep/diagnostic)
-- ✅ **Implemented:** Fetches recent messages, semantic search, memory, graph context, sensors
+- ✅ **Implemented:** Fetches recent messages, semantic search, memory, sensors
+- 🟡 **Roadmap/TBD:** Graph context retrieval is optional/experimental and disabled by default (requires Neo4j + `GUARDIAN_ENABLE_GRAPH_CONTEXT`)
 - ✅ **Implemented:** Returns context bundle + trace metadata
 - **Files:** `guardian/context/broker.py` (complete implementation)
 
@@ -1141,7 +1142,7 @@ This feature requires building from scratch:
 2. **Frontend Component Architecture** — React components are reusable and tested
 3. **Database Design** — Schema is normalized, migrations clean, relationships clear
 4. **LLM Integration** — Provider routing with fallbacks; token management
-5. **Vector Store Integration** — Chroma/Neo4j properly configured for RAG
+5. **Vector Store Integration** — Chroma configured for RAG; Neo4j graph context is optional/experimental (Roadmap/TBD for CORE LOOP)
 6. **System Prompts** — Persona/imprint system sophisticated and flexible
 
 ### Main Gaps 🔴
