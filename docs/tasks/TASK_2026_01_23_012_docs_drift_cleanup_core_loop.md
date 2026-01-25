@@ -50,7 +50,7 @@ Clean up any remaining README/docs claims that conflict with actual CORE LOOP be
 
 ## Commits
 - Commit A (implementation): `6eba9ec6`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `e8dfb08e`
 
 ## Mapping
-- TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [6eba9ec6, ]
+- TASK-2026-01-23-012_DOCS_DRIFT_CLEANUP_CORE_LOOP -> [6eba9ec6, e8dfb08e]
