@@ -901,8 +901,10 @@ Add the missing product ergonomics to document generation:
 
 - frontend/src/components/DocumentGenModal.tsx
 - frontend/src/components/documents/**/*.tsx (only if event wiring is here)
+- frontend/src/App.tsx
+- frontend/src/tests/document_gen_modal.spec.tsx (if payload assertions need updating)
 - guardian/routes/documents.py (only if doc_type contract needs alignment)
-- docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP_ROADMAP.md
+- docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md
 - docs/tasks/TASK_2026_01_23_008_document_gen_add_doc_type_and_events.md
 
 ## Command Checklist (exact)
@@ -936,8 +938,10 @@ Manual commands:
 
 git status --porcelain -uall
 git add \
+  frontend/src/App.tsx \
   frontend/src/components/DocumentGenModal.tsx \
   frontend/src/components/documents \
+  frontend/src/tests/document_gen_modal.spec.tsx \
   guardian/routes/documents.py
 git commit -m "TASK-2026-01-23-008_DOCUMENT_GEN_ADD_DOC_TYPE_AND_EVENTS: add doc type selector and refresh events"
 git log -1 --oneline
@@ -952,7 +956,7 @@ Manual commands:
 
 git add \
   docs/tasks/TASK_2026_01_23_008_document_gen_add_doc_type_and_events.md \
-  docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP_ROADMAP.md
+  docs/Campaign/CAMPAIGN_2026_01_23_CORE_LOOP_ROADMAP.md
 git commit -m "TASK-2026-01-23-008_DOCUMENT_GEN_ADD_DOC_TYPE_AND_EVENTS: finalize task summary"
 git log -1 --oneline
 git rev-parse HEAD
