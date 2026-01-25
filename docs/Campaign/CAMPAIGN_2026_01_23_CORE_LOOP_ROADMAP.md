@@ -78,7 +78,7 @@ Goal: Replace fire-and-forget embedding with a reliable queue/worker pipeline an
 Goal: Expose embedding status in the Documents UI (and ensure the backend list payload contains it).
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_005_documents_ui_embed_status_indicator.md`
-- Task mapping: `TASK-2026-01-23-005_DOCUMENTS_UI_EMBED_STATUS_INDICATOR -> [66501b7b, ]`
+- Task mapping: `TASK-2026-01-23-005_DOCUMENTS_UI_EMBED_STATUS_INDICATOR -> [66501b7b, 06a50a84]`
 
 ---
 
@@ -660,7 +660,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-005_DOCUMENTS_UI_EMBED_STATUS_INDICATOR -> [66501b7b, ]
+TASK-2026-01-23-005_DOCUMENTS_UI_EMBED_STATUS_INDICATOR -> [66501b7b, 06a50a84]
 
 ---
 
