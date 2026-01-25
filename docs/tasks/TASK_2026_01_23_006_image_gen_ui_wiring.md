@@ -65,7 +65,7 @@ Note: The campaign text references `docs/Campaign/CAMPAIGN_2026_01_23__CORE_LOOP
 
 ## Commits
 - Commit A (implementation): `97dc31dc`
-- Commit B (finalize docs): TBD
+- Commit B (finalize docs): `006f2622`
 
 ## Mapping
-- TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [97dc31dc, ]
+- TASK-2026-01-23-006_IMAGE_GEN_UI_WIRING -> [97dc31dc, 006f2622]
