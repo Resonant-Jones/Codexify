@@ -132,7 +132,7 @@ Goal: Add an integration test confirming context broker assembly works end-to-en
 Goal: Make an explicit CORE LOOP decision on graph context (Neo4j) and reflect it in code/docs.
 
 - Task artifact: `docs/tasks/TASK_2026_01_23_011_decision_defer_graph_context.md`
-- Task mapping: `TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [eae38a7d, ]`
+- Task mapping: `TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [eae38a7d, 6fdb330c]`
 
 ---
 
@@ -1216,7 +1216,7 @@ git rev-parse HEAD
 
 Campaign Mapping Update (exact format)
 
-TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [eae38a7d, ]
+TASK-2026-01-23-011_DECISION_DEFER_GRAPH_CONTEXT -> [eae38a7d, 6fdb330c]
 
 ---
 
