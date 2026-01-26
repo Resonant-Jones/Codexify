@@ -10,8 +10,8 @@ RUN corepack enable && corepack prepare pnpm@10.18.2 --activate
 # Toolchain for any native modules (safe to keep)
 RUN apk add --no-cache python3 make g++ linux-headers
 
-# Install deps in ./src (including dev deps)
-COPY src/package.json src/pnpm-lock.yaml ./src/
+COPY src/package.json ./src/package.json
+# Lockfile is optional in this repo layout; don't fail the Docker build if it isn't present.
 RUN pnpm --dir src install --include=dev
 
 # Now copy the app source
