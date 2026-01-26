@@ -54,10 +54,9 @@ services:
       neo4j:
         condition: service_healthy
     restart: "no"
+    entrypoint: ["sh", "-lc"]
     command:
-      - sh
-      - -c
-      - |
+      - |-
         set -e
         echo "[graph-init] Applying Neo4j constraints + seed nodes..."
         cat <<'CYPHER' | /var/lib/neo4j/bin/cypher-shell -a bolt://neo4j:7687 -u ${NEO4J_USER:-neo4j} -p ${NEO4J_PASS}
@@ -77,9 +76,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
-    entrypoint:
-      - sh
-      - -lc
+    entrypoint: ["sh", "-lc"]
     depends_on:
       db:
         condition: service_healthy
@@ -104,8 +101,8 @@ services:
       - ./backend:/app/backend
     restart: "no"
     command:
-      - |
-        set -eu
+      - |-
+        set -e
         (set -o pipefail) 2>/dev/null && set -o pipefail || true
 
         echo "[Migrator] Preflight: verify Alembic script_location exists"
@@ -116,10 +113,6 @@ services:
           ls -la /app/guardian || true
           exit 1
         fi
-
-        echo "[Migrator] DATABASE_URL=$DATABASE_URL"
-        echo "[Migrator] Alembic heads (sanity check):"
-        alembic --raiseerr -c /app/backend/alembic.ini heads || true
 
         echo "[Migrator] Running Alembic migrations..."
         alembic --raiseerr -c /app/backend/alembic.ini upgrade head
