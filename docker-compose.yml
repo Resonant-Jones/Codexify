@@ -5,7 +5,7 @@ services:
     image: postgres:15
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-codexify}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codexify}
       POSTGRES_DB: ${POSTGRES_DB:-Codexify}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codexify} -d ${POSTGRES_DB:-Codexify}"]
@@ -72,7 +72,6 @@ services:
         MERGE (me)-[:OWNS]->(p);
         CYPHER
         echo "[graph-init] Done."
-
   migrator:
     build:
       context: .
@@ -81,18 +80,19 @@ services:
     entrypoint:
       - sh
       - -lc
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
-      ENABLE_BLIP_MODEL: "false"   # keep migrations light (no model loading)
-      # Ensure seed/init code can construct an OpenAI client even when running local-first
+      ENABLE_BLIP_MODEL: "false"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
-      # Force local-first defaults during migrations/seeding
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       EMBEDDER_PROVIDER: "local"
@@ -102,104 +102,31 @@ services:
       - ./codexify:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
-    depends_on:
-      db:
-        condition: service_healthy
     restart: "no"
     command:
       - |
         set -eu
         (set -o pipefail) 2>/dev/null && set -o pipefail || true
 
-        echo "[Migrator] Wiring Codexify -> codexify (case alias)"
-        ln -snf /app/codexify /app/Codexify
-        python - <<'PY'
-        import codexify
-        print("[Migrator] codexify resolves to:", getattr(codexify, "__file__", "<namespace>"))
-        PY
+        echo "[Migrator] Preflight: verify Alembic script_location exists"
+        if [ ! -d "/app/guardian/db/migrations" ]; then
+          echo "[Migrator] ERROR: /app/guardian/db/migrations is missing. Bind-mount failed or repo layout changed."
+          echo "[Migrator] DEBUG: listing /app and /app/guardian (if present):"
+          ls -la /app || true
+          ls -la /app/guardian || true
+          exit 1
+        fi
 
-        echo "[Migrator] DATABASE_URL=$$DATABASE_URL"
-
+        echo "[Migrator] DATABASE_URL=$DATABASE_URL"
         echo "[Migrator] Alembic heads (sanity check):"
-        alembic --raiseerr -c backend/alembic.ini heads || true
+        alembic --raiseerr -c /app/backend/alembic.ini heads || true
 
         echo "[Migrator] Running Alembic migrations..."
-        alembic --raiseerr -c backend/alembic.ini upgrade head
+        alembic --raiseerr -c /app/backend/alembic.ini upgrade head
 
-        echo "[Migrator] Verifying required tables + alembic_version..."
+        echo "[Migrator] Running seed script (idempotent)..."
+        python /app/backend/scripts/seed_defaults.py
 
-        python - <<'PY'
-        import os
-        from sqlalchemy import create_engine, text
-
-        url = os.environ.get("DATABASE_URL")
-        if not url:
-            raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
-
-        en = create_engine(url)
-
-        required = [
-            "public.alembic_version",
-            "public.projects",
-            "public.chat_threads",
-            "public.chat_messages",
-            "public.imprints",
-            "public.system_docs",
-            "public.system_doc_links",
-            "public.events_outbox",
-        ]
-
-        with en.begin() as conn:
-            missing = []
-            for t in required:
-                reg = conn.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar()
-                if reg is None:
-                    missing.append(t)
-
-            if missing:
-                tables = conn.execute(text("""
-                    SELECT table_schema || '.' || table_name
-                    FROM information_schema.tables
-                    WHERE table_type = 'BASE TABLE'
-                    ORDER BY 1
-                """)).fetchall()
-
-                table_list = "\n  - ".join([r[0] for r in tables]) if tables else "<none>"
-                raise SystemExit(
-                    "[Migrator] ERROR: schema missing required tables:\n  - "
-                    + "\n  - ".join(missing)
-                    + "\n\n[Migrator] Existing tables:\n  - "
-                    + table_list
-                )
-
-            ver = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
-
-        print(f"[Migrator] OK: alembic_version={ver}")
-        PY
-
-        echo "[Migrator] Post-migration schema guard: ensure chat_threads.metadata exists..."
-
-        python - <<'PY'
-        import os
-        from sqlalchemy import create_engine, text
-
-        url = os.environ.get("DATABASE_URL")
-        if not url:
-            raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
-
-        en = create_engine(url)
-        with en.begin() as conn:
-            conn.execute(text(
-                "ALTER TABLE IF EXISTS chat_threads "
-                "ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;"
-            ))
-
-        print("[Migrator] Post-migration schema guard complete.")
-        PY
-
-        echo "[Migrator] Running seed script (should be idempotent)..."
-        python backend/scripts/seed_defaults.py
-        echo "[Migrator] Seed script completed."
         echo "[Migrator] Done."
 
   chatgpt-migrate:
@@ -211,13 +138,13 @@ services:
       - cli
     entrypoint: ["python", "scripts/chatgpt_import/import_chatgpt.py"]
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       EMBEDDER_PROVIDER: "local"
@@ -251,6 +178,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
+    ports: ["8888:8888"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()\" || exit 1"]
       interval: 5s
@@ -266,13 +194,13 @@ services:
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
       - ./.chroma:/app/.chroma
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       PORT: "8888"
       NEO4J_BOLT_URL: bolt://${NEO4J_USER:-neo4j}:${NEO4J_PASS}@neo4j:7687
       GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-local}"
@@ -422,13 +350,13 @@ services:
       backend:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
@@ -467,13 +395,13 @@ services:
       backend:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
@@ -514,13 +442,13 @@ services:
       migrator:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
@@ -569,13 +497,13 @@ services:
       migrator:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       NEO4J_BOLT_URL: bolt://${NEO4J_USER:-neo4j}:${NEO4J_PASS}@neo4j:7687
       EMBED_PROVIDER: "local"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -613,8 +541,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
-    expose:
-      - "8000"
+    ports: ["8000:8000"]
     restart: unless-stopped
     command:
       - sh
@@ -628,9 +555,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    depends_on:
-      backend:
-        condition: service_healthy
     ports: ["5173:5173"]
     volumes:
       - ./frontend:/app
@@ -640,7 +564,7 @@ services:
     environment:
       # Ensure pnpm installs modules inside the container mount and skips heavy postinstall scripts
       VITE_PROXY_TARGET: http://backend:8888
-      VITE_GUARDIAN_API_KEY: "${VITE_GUARDIAN_API_KEY:-}"
+      VITE_GUARDIAN_API_KEY: "${VITE_GUARDIAN_API_KEY:-local}"
       # Local-first defaults for the UI (backend still enforces actual routing)
       # Match backend-supported provider id while still pointing at Ollama.
       VITE_DEFAULT_LLM_PROVIDER: "local"
