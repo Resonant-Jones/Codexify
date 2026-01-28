@@ -334,9 +334,62 @@ app = FastAPI(
 )
 
 
+def _get_request_id(request: Request) -> str:
+    request_id = getattr(request.state, "request_id", None)
+    if request_id:
+        return request_id
+    header_id = request.headers.get("X-Request-ID")
+    if header_id:
+        request.state.request_id = header_id
+        return header_id
+    request_id = str(uuid4())
+    request.state.request_id = request_id
+    return request_id
+
+
 # =========================
 # Middleware Configuration
 # =========================
+
+
+# Request-id middleware
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = _get_request_id(request)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    request_id = _get_request_id(request)
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "request_id": request_id},
+        headers=getattr(exc, "headers", None),
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    request_id = _get_request_id(request)
+    logger.exception(
+        "[error] Unhandled exception request_id=%s method=%s path=%s query_params=%s",
+        request_id,
+        request.method,
+        request.url.path,
+        dict(request.query_params),
+    )
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "request_id": request_id},
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 
 # CORS middleware
 app.add_middleware(
