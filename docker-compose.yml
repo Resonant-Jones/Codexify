@@ -399,7 +399,10 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      # Never use localhost for cross-container calls; localhost points to this worker container.
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "ministral-3:14b"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
