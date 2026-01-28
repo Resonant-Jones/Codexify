@@ -105,12 +105,12 @@ services:
         set -e
         (set -o pipefail) 2>/dev/null && set -o pipefail || true
 
-        echo "[Migrator] Preflight: verify Alembic script_location exists"
-        if [ ! -d "/app/guardian/db/migrations" ]; then
-          echo "[Migrator] ERROR: /app/guardian/db/migrations is missing. Bind-mount failed or repo layout changed."
-          echo "[Migrator] DEBUG: listing /app and /app/guardian (if present):"
+        echo "[Migrator] Preflight: verify Alembic config exists"
+        if [ ! -f "/app/backend/alembic.ini" ]; then
+          echo "[Migrator] ERROR: /app/backend/alembic.ini is missing. Bind-mount failed or repo layout changed."
+          echo "[Migrator] DEBUG: listing /app and /app/backend (if present):"
           ls -la /app || true
-          ls -la /app/guardian || true
+          ls -la /app/backend || true
           exit 1
         fi
 
@@ -171,6 +171,9 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
+    entrypoint:
+      - sh
+      - -lc
     ports: ["8888:8888"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()\" || exit 1"]
@@ -207,9 +210,10 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
+      # NOTE: ministral-3 requires Ollama 0.13.1 (pre-release); use a different model if you're on an older Ollama.
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
-      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_CHAT_MODEL: "ministral-3:3b"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
 
       # --- OpenAI (cloud) ---
@@ -236,8 +240,6 @@ services:
       graph-init:
         condition: service_completed_successfully
     command:
-      - sh
-      - -lc
       - |
         set -e
 
@@ -271,9 +273,6 @@ services:
         else:
           raise SystemExit(f"[Backend] Postgres not ready after 60s: {last_err}")
         PY
-
-        echo "[Backend] Applying Alembic migrations (idempotent)..."
-        alembic --raiseerr -c backend/alembic.ini upgrade head
 
         echo "[Backend] Verifying required tables + alembic_version..."
         python - <<'PY'
@@ -354,7 +353,7 @@ services:
       EMBED_PROVIDER: "local"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_CHAT_MODEL: "ministral-3:14b"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "1"
@@ -399,7 +398,7 @@ services:
       EMBED_PROVIDER: "local"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_CHAT_MODEL: "ministral-3:14b"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "1"
@@ -446,7 +445,7 @@ services:
       EMBED_PROVIDER: "local"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_CHAT_MODEL: "ministral-3:14b"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "1"
