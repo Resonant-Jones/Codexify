@@ -581,6 +581,7 @@ See `.env.example` for complete list with descriptions.
 ### Quick Links
 
 - **[Database Architecture](docs/DB_POSTGRES_ONLY.md)** - Schema design, migrations, and best practices
+- **[Completion Pipeline](docs/architecture/completion_pipeline.md)** - End-to-end completion flow and context/prompt assembly
 - **[API Documentation](http://localhost:8888/docs)** - Interactive OpenAPI docs (run locally)
 - **[Plugin Development](docs/Plugins/)** - Build custom agents and tools
 - **[CLI Guide](docs/CLI/)** - Command-line interface reference
