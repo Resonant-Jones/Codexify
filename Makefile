@@ -203,3 +203,75 @@ codemap-clean:
 init: venv requirements-dev.txt requirements-test.txt .pre-commit-config.yaml
 	@mkdir -p $(SRC_DIR) $(TEST_DIR) $(DOCS_DIR) plugins
 	@echo "Project structure initialized"
+
+# ────────────────────────────────
+# Docker Compose shortcuts
+#
+# Rationale:
+# - Keep everything attached to the repo (not your machine), using --env-file.
+# - Provide a quick “rendered config” view (config --no-interpolate) to verify
+#   variables are filling as expected and secrets aren’t accidentally inlined.
+#
+# Notes:
+# - `make logs` is already taken (Guardian memory logs), so Docker logs are `dlogs`.
+# - If you don’t have a separate prod env file yet, create `.env.prod` later.
+# ────────────────────────────────
+
+COMPOSE   ?= docker compose
+DEV_ENV   ?= .env
+PROD_ENV  ?= .env.prod
+
+.PHONY: up down restart ps dlogs cfg cfgsec \
+	up-prod down-prod restart-prod ps-prod dlogs-prod cfg-prod cfgsec-prod
+
+# Dev (defaults to .env)
+up:
+	$(COMPOSE) --env-file $(DEV_ENV) up -d --build
+
+down:
+	$(COMPOSE) --env-file $(DEV_ENV) down
+
+restart:
+	$(COMPOSE) --env-file $(DEV_ENV) restart
+
+ps:
+	$(COMPOSE) --env-file $(DEV_ENV) ps
+
+dlogs:
+	$(COMPOSE) --env-file $(DEV_ENV) logs -f --tail=200
+
+# Render the fully merged compose (WITHOUT interpolating ${...} from env/shell)
+cfg:
+	$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate
+
+# Secret leak sanity checks
+# - Should NOT contain credentials embedded in bolt://user:pass@host
+# - Should NOT print the literal NEO4J_PASS value in the rendered compose output
+cfgsec:
+	@$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate | rg -n 'bolt://.*@' || true
+	@$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate | rg -n 'NEO4J_PASS:\s*[^$]' || true
+	@echo "[cfgsec] NOTE: If you see a literal password above, your compose file is inlining secrets. Prefer \"NEO4J_PASS: ${NEO4J_PASS}\" (unquoted) in docker-compose.yml and provide it via --env-file."
+
+# Prod (defaults to .env.prod)
+up-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) up -d --build
+
+down-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) down
+
+restart-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) restart
+
+ps-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) ps
+
+dlogs-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) logs -f --tail=200
+
+cfg-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate
+
+cfgsec-prod:
+	@$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate | rg -n 'bolt://.*@' || true
+	@$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate | rg -n 'NEO4J_PASS:\s*[^$]' || true
+	@echo "[cfgsec-prod] NOTE: If you see a literal password above, your compose file is inlining secrets. Prefer \"NEO4J_PASS: ${NEO4J_PASS}\" (unquoted) in docker-compose.yml and provide it via --env-file."
