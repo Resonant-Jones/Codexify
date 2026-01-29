@@ -57,7 +57,7 @@ export function GuardianChat({
   activeThread,
   onSendMessage,
   onNewChat,
-  onBranchThread,
+  onBranchThread: _onBranchThread,
   onArchiveThread,
   onSidebarToggle,
   isSidebarVisible = true,
@@ -101,6 +101,16 @@ export function GuardianChat({
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? "New Chat");
   const triggerReload = useMemo(() => debounce(() => setChatReloadVersion((v) => v + 1), 300), []);
   const { subscribe } = useLiveEvents({ passive: true });
+  const showToast = (message: string) => {
+    try {
+      window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message, kind: "error" } }));
+    } catch {}
+  };
+  const focusComposer = () => {
+    if (typeof document === "undefined") return;
+    const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
+    composer?.focus();
+  };
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
     try {
@@ -203,6 +213,35 @@ export function GuardianChat({
     // Update URL to reflect the new thread
     if (typeof window !== "undefined") {
       window.history.replaceState({}, "", `/chat/${threadId}`);
+    }
+  };
+
+  const handleBranchThread = async () => {
+    if (effectiveThreadId == null) {
+      showToast("Thread is not persisted yet.");
+      return;
+    }
+    const suggestion = `${threadTitle || "New Chat"} (branch)`;
+    const nextTitle = window.prompt("Branch thread title", suggestion);
+    if (nextTitle === null) return;
+    const trimmedTitle = nextTitle.trim();
+    try {
+      const payload = trimmedTitle ? { title: trimmedTitle } : {};
+      const res = await api.post(`/chat/${effectiveThreadId}/branch`, payload);
+      const data = res?.data ?? {};
+      const rawId = data?.id ?? data?.thread?.id ?? data?.thread_id ?? data?.id_str;
+      const newThreadId = Number(rawId);
+      if (!Number.isFinite(newThreadId)) {
+        throw new Error("Branch response missing thread id");
+      }
+      const responseTitle = typeof data?.title === "string" && data.title.trim().length > 0 ? data.title : undefined;
+      handleThreadCreated(newThreadId, responseTitle ?? trimmedTitle ?? suggestion);
+      emitThreadsRefresh("refresh", { reason: "branch", id: String(newThreadId), parentId: String(effectiveThreadId) });
+      setChatReloadVersion((v) => v + 1);
+      setTimeout(() => focusComposer(), 0);
+    } catch (err) {
+      console.error("[guardian] branch failed", err);
+      showToast("Failed to branch thread.");
     }
   };
 
@@ -376,21 +415,15 @@ export function GuardianChat({
             Rename Thread
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={async () => {
-              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
-              if (!onBranchThread) return alert("Branching is unavailable in this view");
-              const suggestion = `${threadTitle || "New Chat"} (branch)`;
-              const title = window.prompt("Branch title", suggestion);
-              if (title === null) return;
-              try {
-                await onBranchThread(effectiveThreadId, { title });
-                emitThreadsRefresh("branch", { parentId: String(effectiveThreadId) });
-              } catch (err) {
-                console.warn("[guardian] branch failed", err);
-              }
-            }}
+            onClick={handleBranchThread}
+            title="Create a new thread that inherits a summary/briefing and continue with a different model."
           >
-            Branch Thread
+            <div className="flex flex-col flex-1 min-h-0">
+              <div className="font-medium">Branch thread</div>
+              <div className="text-xs opacity-70">
+                Create a new thread that inherits a summary/briefing and continue with a different model.
+              </div>
+            </div>
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
