@@ -41,7 +41,7 @@ projects_module.create_project(name, description)
 
 with an API-backed implementation:
  • Add Typer options to the command signature:
- • --api-url (optional) default: GUARDIAN_API_URL or <http://localhost:8888>
+ • --api-url (optional) default: GUARDIAN_API_URL or http://localhost:8888
  • --api-key (optional) default: GUARDIAN_API_KEY
  • POST to: POST {base}/api/projects with JSON:
  • { "name": name, "description": description } (omit description if None)
@@ -148,7 +148,7 @@ Suggested Local Test Commands
 
 Assuming Guardian API is running and env vars set:
 
-export GUARDIAN_API_URL="<http://localhost:8888>"
+export GUARDIAN_API_URL="http://localhost:8888"
 export GUARDIAN_API_KEY="..."
 python -m guardian.guardian_main init-db
 python -m guardian.guardian_main list-projects

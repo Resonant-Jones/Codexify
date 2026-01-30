@@ -91,7 +91,8 @@ Smoke test: upload document works
 
 echo "hello embed world" > /tmp/codexify_smoke_doc.txt
 THREAD_ID=1
-curl -sS -X POST <http://localhost:8888/api/media/upload/document> \
+set -a; source .env; set +a
+curl -sS -X POST http://localhost:8888/api/media/upload/document \
   -H "X-API-Key: $GUARDIAN_API_KEY" \
   -F "file=@/tmp/codexify_smoke_doc.txt" \
   -F "project_id=1" \

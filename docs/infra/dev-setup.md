@@ -1,39 +1,47 @@
+
 Guardian (Dev) — Auth, Envs, Endpoints, and Rituals
+
+This repo expects a real API key (e.g. a 64-hex token) and an explicit devtools toggle in `.env`.
+- `GUARDIAN_API_KEY` is required for authenticated routes.
+- `GUARDIAN_DEV_MODE=true` is required for `/dev/*` routes.
+
+The “happy path” below assumes you `source .env` and do not rely on `local` fallbacks.
 
 0) TL;DR (happy path)
 
-# Backend (one terminal)
+# Choose your run mode (pick ONE)
+
+## A) Docker Compose (stack runs on :8888)
+
+BASE=http://localhost:8888
+# Load GUARDIAN_API_KEY + GUARDIAN_DEV_MODE from .env into this shell
+set -a; source .env; set +a
+
+docker compose up -d db redis neo4j
+docker compose run --rm migrator
+# add worker-chat if you want async /complete processing
+docker compose up -d backend worker-chat
+
+curl -s "$BASE/healthz" | jq
+curl -s -H "X-API-Key: $GUARDIAN_API_KEY" "$BASE/threads" | jq
+
+## B) Uvicorn (app runs on :8000)
+
+BASE=http://127.0.0.1:8000
+# Load GUARDIAN_API_KEY + GUARDIAN_DEV_MODE from .env into this shell
+set -a; source .env; set +a
 
 uvicorn guardian.guardian_api:app --reload --log-level info
 
-# Dev API key (from env files)
+curl -s "$BASE/healthz" | jq
+curl -s -H "X-API-Key: $GUARDIAN_API_KEY" "$BASE/threads" | jq
 
-KEY="$(bash scripts/dev-key.sh)"
-
-# Health + threads should work
-
-curl -s <http://127.0.0.1:8000/healthz> | jq
-curl -s -H "X-API-Key: $KEY" <http://127.0.0.1:8000/threads> | jq
-
-Front-end .env.local:
-
-VITE_GUARDIAN_API_BASE=<http://127.0.0.1:8000>
-VITE_GUARDIAN_API_KEY=<same dev key as backend>
-
-App bootstrap:
-
-import { configureGC } from '@/dcw-services/gc';
-configureGC({
-  base: import.meta.env.VITE_GUARDIAN_API_BASE,
-  token: import.meta.env.VITE_GUARDIAN_API_KEY,
-});
 
 ⸻
 
 1) Environment files (local dev vs prod)
  • Local dev (private, untracked):
  • .env.local — overrides anything else for this machine (backend + optional Vite vars). Do not commit.
- • .env.backend.development — optional backend-only dev overrides.
  • Shared templates (safe to commit):
  • .env.template, .env.example, server/.env.example — no real keys.
  • Production:
@@ -41,18 +49,17 @@ configureGC({
 
 Backend load order (last one wins):
 
-.env  →  .env.backend.development  →  .env.local
+.env  →  .env.local  (overrides for one machine only)
 
-You’ll see something like this on startup:
-
-[env] dotenv loaded (in order): .env -> .env.backend.development -> .env.local
-[auth] Using GUARDIAN_API_KEY=e96d…11f6
+Repo convention: treat `.env` as the shared single source of truth.
+Use `.env.local` only for machine-specific overrides, and avoid changing docs/examples to depend on it.
 
 ⸻
 
 2) Secrets: where to put keys
- • Backend dev key: set GUARDIAN_API_KEY in .env.local (or .env.backend.development).
- • Frontend: only for local dev, you can mirror the key as VITE_GUARDIAN_API_KEY in .env.local so the browser can call the dev API.
+ • Backend dev key: set GUARDIAN_API_KEY in .env.
+ • Frontend: only for local dev, you can mirror the key as VITE_GUARDIAN_API_KEY in .env so the browser can call the dev API.
+ • Prefer keeping the key out of browser code: for dev, let the Vite dev proxy attach X-API-Key server-side when possible.
  • For production, do not expose secrets in Vite env; frontends can’t keep secrets. Use a server/proxy to attach headers.
 
 Generate a strong dev key (example):
@@ -65,14 +72,14 @@ PY
 
 Copy it into:
 
-# .env.local (backend)
+# .env (backend)
 
 GUARDIAN_API_KEY=<sha256-like string>
 
-# .env.local (frontend – dev only)
+# .env (frontend – dev only)
 
 VITE_GUARDIAN_API_KEY=<same value>
-VITE_GUARDIAN_API_BASE=<http://127.0.0.1:8000>
+VITE_GUARDIAN_API_BASE=http://127.0.0.1:8000
 
 ⸻
 
@@ -86,7 +93,7 @@ GUARDIAN_DB_PATH=guardian/guardian.dev.db
 
  • Check what’s active:
 
-curl -s <http://127.0.0.1:8000/healthz> | jq
+curl -s "$BASE/healthz" | jq
 
 # {
 
@@ -108,22 +115,29 @@ rm -f guardian/guardian.dev.db
 
 4) Scripts you should keep
 
-scripts/dev-key.sh
+scripts/dev/dev-key.sh
 
 # !/usr/bin/env bash
 set -euo pipefail
-grep -h -E '^GUARDIAN_API_KEY=' .env.local .env.backend.development .env 2>/dev/null \
+key=$(grep -h -E '^GUARDIAN_API_KEY=' .env 2>/dev/null \
   | tail -n1 \
   | cut -d= -f2- \
-  | tr -d '\r'
+  | tr -d '\r')
+
+if [ -z "$key" ]; then
+  echo "GUARDIAN_API_KEY is not set in .env" >&2
+  exit 1
+fi
+
+printf '%s' "$key"
 
 Make it executable:
 
-chmod +x scripts/dev-key.sh
+chmod +x scripts/dev/dev-key.sh
 
 Usage:
 
-KEY="$(scripts/dev-key.sh)"
+KEY="$(scripts/dev/dev-key.sh)"
 printf 'Using key: %s…%s\n' "${KEY:0:4}" "${KEY: -4}"
 
 ⸻
@@ -148,36 +162,39 @@ printf 'Using key: %s…%s\n' "${KEY:0:4}" "${KEY: -4}"
 
 # Key
 
-KEY="$(scripts/dev-key.sh)"
+set -a; source .env; set +a
 
 # Health (no auth)
 
-curl -s <http://127.0.0.1:8000/healthz> | jq
+curl -s "$BASE/healthz" | jq
 
 # Threads
 
-curl -s -H "X-API-Key: $KEY" http://127.0.0.1:8000/threads | jq
-curl -s -X POST http://127.0.0.1:8000/threads \
-  -H 'content-type: application/json' -H "X-API-Key: $KEY" \
+curl -s -H "X-API-Key: $GUARDIAN_API_KEY" "$BASE/threads" | jq
+curl -s -X POST "$BASE/threads" \
+  -H 'content-type: application/json' -H "X-API-Key: $GUARDIAN_API_KEY" \
   -d '{"summary":"Hello MVP","project_id":"p1"}' | jq
-curl -s -X DELETE -H "X-API-Key: $KEY" <http://127.0.0.1:8000/thread/1> | jq
+curl -s -X DELETE -H "X-API-Key: $GUARDIAN_API_KEY" "$BASE/thread/1" | jq
 
 # Projects
 
-PID=$(curl -s -X POST http://127.0.0.1:8000/projects \
-  -H 'content-type: application/json' -H "X-API-Key: $KEY" \
+PID=$(curl -s -X POST "$BASE/projects" \
+  -H 'content-type: application/json' -H "X-API-Key: $GUARDIAN_API_KEY" \
   -d '{"name":"Alpha","description":"First project"}' | jq -r .project_id)
-curl -s -H "X-API-Key: $KEY" http://127.0.0.1:8000/projects | jq
-curl -s -X DELETE -H "X-API-Key: $KEY" <http://127.0.0.1:8000/projects/$PID> | jq
+curl -s -H "X-API-Key: $GUARDIAN_API_KEY" "$BASE/projects" | jq
+curl -s -X DELETE -H "X-API-Key: $GUARDIAN_API_KEY" "$BASE/projects/$PID" | jq
 
 ⸻
 
 7) Frontend wiring (Vite)
 
-.env.local:
+.env:
 
-VITE_GUARDIAN_API_BASE=<http://127.0.0.1:8000>
-VITE_GUARDIAN_API_KEY=<dev key – same as backend, dev only>
+# Pick one, depending on how you're running the backend:
+# - Docker Compose: http://localhost:8888
+# - Uvicorn:       http://127.0.0.1:8000
+VITE_GUARDIAN_API_BASE=http://127.0.0.1:8000
+VITE_GUARDIAN_API_KEY=<dev-only: same as backend; do not ship this in production>
 
 Bootstrap (already in place):
 
@@ -186,6 +203,9 @@ configureGC({
   base: import.meta.env.VITE_GUARDIAN_API_BASE,
   token: import.meta.env.VITE_GUARDIAN_API_KEY,
 });
+
+Note: Vite exposes `VITE_*` variables to the browser bundle.
+That’s OK for local dev, but for production use a backend/proxy that attaches `X-API-Key` so the frontend never contains secrets.
 
 If the UI shows a white screen, open the browser console (DevTools → Console) and look for:
  • missing exports/imports (e.g. request not exported)
@@ -198,7 +218,8 @@ Fix imports and restart Vite after changing envs.
 8) Troubleshooting (the greatest hits)
  • 401 Unauthorized
  • Your header is empty or wrong. Print it:
-bash scripts/dev-key.sh | awk '{print substr($0,1,4) "…" substr($0,length($0)-3)}'
+set -a; source .env; set +a
+printf '%s\n' "$GUARDIAN_API_KEY" | awk '{print substr($0,1,4) "…" substr($0,length($0)-3)}'
  • Backend startup log should show the key it loaded:
 "[auth] Using GUARDIAN_API_KEY=…"
  • 500 on /threads
