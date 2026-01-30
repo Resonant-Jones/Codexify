@@ -248,8 +248,9 @@ Why it fails: running bare `alembic` on the host does not load `backend/alembic.
 guardian chat create --title "My First Chat"
 
 # Or via API
+set -a; source .env; set +a
 curl -X POST http://localhost:8888/api/threads \
-  -H "X-API-Key: your_api_key" \
+  -H "X-API-Key: $GUARDIAN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"user_id": "user_123", "title": "My First Chat"}'
 ```
@@ -264,7 +265,7 @@ Bring your ChatGPT conversation history into Codexify with a simple upload.
 
 1. Export your data from [ChatGPT Settings → Data Controls](https://chat.openai.com/settings)
 2. Extract `conversations.json` from the downloaded archive
-3. Open Codexify UI at <http://localhost:5173>
+3. Open Codexify UI at `http://localhost:5173`
 4. Go to **Settings → Import** and upload your file
 
 Your conversations appear immediately and become searchable as embeddings are created.
@@ -284,9 +285,10 @@ docker compose run --rm --profile cli chatgpt-migrate --file /data/conversations
 ### API Migration
 
 ```bash
+set -a; source .env; set +a
 curl -X POST http://localhost:8888/upload-chatgpt-export \
   -H "X-User-Id: me" \
-  -H "X-Api-Key: ${GUARDIAN_API_KEY}" \
+  -H "X-API-Key: $GUARDIAN_API_KEY" \
   -F "file=@./conversations.json"
 ```
 
@@ -554,7 +556,11 @@ NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_password
 
 # API Authentication
-GUARDIAN_API_KEY=your_secure_api_key_here
+GUARDIAN_API_KEY=your-64-hex-token
+# Devtools gate (set true to enable /dev/*)
+GUARDIAN_DEV_MODE=true
+# Frontend dev (Vite): mirror backend key for local dev only
+VITE_GUARDIAN_API_KEY=${GUARDIAN_API_KEY}
 
 # LLM Provider (choose one or more)
 LLM_PROVIDER=groq  # Options: groq, openai, anthropic, gemini

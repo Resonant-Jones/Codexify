@@ -107,3 +107,6 @@ models/
 
 # Local audit outputs
 /docs/_audit_runs/
+
+# local reports
+/docs/reports/

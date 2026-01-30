@@ -254,9 +254,10 @@ docker compose run --rm --profile cli chatgpt-migrate --file /app/conversations.
 **For developers integrating migration into custom workflows.**
 
 ```bash
+set -a; source .env; set +a
 curl -X POST http://localhost:8888/upload-chatgpt-export \
   -H "X-User-Id: me" \
-  -H "X-Api-Key: ${GUARDIAN_API_KEY}" \
+  -H "X-API-Key: $GUARDIAN_API_KEY" \
   -F "file=@./conversations.json"
 ```
 
@@ -293,7 +294,7 @@ docker compose ps
 
 #### Step 2: Open the UI
 
-Navigate to <http://localhost:5173> in your browser.
+Navigate to `http://localhost:5173` in your browser.
 
 #### Step 3: Import Your Conversations
 
