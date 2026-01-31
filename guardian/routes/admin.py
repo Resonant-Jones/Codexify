@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 try:
     from guardian.core.auth import issue_session_token, verify_session_token
     from guardian.core.dependencies import (
-        API_KEY,
         DB_BACKEND,
         GUARDIAN_PROVIDER,
         PG_DSN,
@@ -39,7 +38,6 @@ except ImportError as e:
     chatlog_db = None
     require_api_key = lambda x: x
     issue_session_token = None
-    API_KEY = None
     PG_DSN = None
     DB_BACKEND = "postgres"
     GUARDIAN_PROVIDER = "unknown"
@@ -272,10 +270,11 @@ def debug_config(access_method: str = Depends(require_admin)):
     This endpoint requires admin privileges (X-Admin-Token header or DEBUG=true).
     """
     env = os.getenv("GUARDIAN_ENV", "development")
+    api_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
     masked_key = (
-        (API_KEY[:4] + "…" + API_KEY[-4:])
-        if API_KEY and len(API_KEY) > 8
-        else API_KEY
+        (api_key[:4] + "…" + api_key[-4:])
+        if api_key and len(api_key) > 8
+        else api_key
     )
     db_target = PG_DSN
     return {

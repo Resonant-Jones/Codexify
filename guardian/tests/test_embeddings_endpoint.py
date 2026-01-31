@@ -1,6 +1,6 @@
 import os
 
-VALID_KEY = os.getenv("GUARDIAN_API_KEY", "invalid-by-default")
+VALID_KEY = os.environ["GUARDIAN_API_KEY"]
 
 
 def test_embeddings_endpoint_contract(client):

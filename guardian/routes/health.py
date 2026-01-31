@@ -7,6 +7,7 @@ Mounted without a prefix to preserve public paths like /health/chat.
 """
 
 import logging
+import os
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Response
@@ -166,7 +167,7 @@ def health_deps(format: str = "json"):
     - format=prometheus: Returns Prometheus-compatible metrics
     """
     # Import from core dependencies module
-    from guardian.core.dependencies import API_KEY, _mask_dsn
+    from guardian.core.dependencies import _mask_dsn
 
     if format == "prometheus":
         return Response(
@@ -175,10 +176,11 @@ def health_deps(format: str = "json"):
         )
 
     # JSON format (default)
+    api_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
     masked_api_key = (
-        (API_KEY[:4] + "…" + API_KEY[-4:])
-        if API_KEY and len(API_KEY) > 8
-        else API_KEY
+        (api_key[:4] + "…" + api_key[-4:])
+        if api_key and len(api_key) > 8
+        else api_key
     )
 
     return {

@@ -221,8 +221,8 @@ COMPOSE   ?= docker compose
 DEV_ENV   ?= .env
 PROD_ENV  ?= .env.prod
 
-.PHONY: up down restart ps dlogs cfg cfgsec \
-	up-prod down-prod restart-prod ps-prod dlogs-prod cfg-prod cfgsec-prod
+.PHONY: up down restart ps dlogs cfg cfgredact cfgsec \
+	up-prod down-prod restart-prod ps-prod dlogs-prod cfg-prod cfgredact-prod cfgsec-prod
 
 # Dev (defaults to .env)
 up:
@@ -244,13 +244,15 @@ dlogs:
 cfg:
 	$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate
 
-# Secret leak sanity checks
-# - Should NOT contain credentials embedded in bolt://user:pass@host
-# - Should NOT print the literal NEO4J_PASS value in the rendered compose output
+# Render the fully merged compose with secrets redacted (handy for screenshots/PRs)
+cfgredact:
+	$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate | sed -E 's/^([[:space:]]*NEO4J_PASS:[[:space:]]+).*/\1<redacted>/'
+
+# - Should NOT hardcode NEO4J_PASS as a literal in docker-compose.yml
 cfgsec:
 	@$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate | rg -n 'bolt://.*@' || true
-	@$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate | rg -n 'NEO4J_PASS:\s*[^$]' || true
-	@echo "[cfgsec] NOTE: If you see a literal password above, your compose file is inlining secrets. Prefer \"NEO4J_PASS: ${NEO4J_PASS}\" (unquoted) in docker-compose.yml and provide it via --env-file."
+	@rg -n '^[[:space:]]*NEO4J_PASS:[[:space:]]+[^$$]' docker-compose.yml || true
+	@echo "[cfgsec] NOTE: It's normal for 'docker compose config' to show resolved env values (including NEO4J_PASS). This check only flags (a) credentials embedded in bolt:// URLs and (b) hardcoded NEO4J_PASS literals in docker-compose.yml."
 
 # Prod (defaults to .env.prod)
 up-prod:
@@ -271,7 +273,13 @@ dlogs-prod:
 cfg-prod:
 	$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate
 
+# Render the fully merged compose (prod) with secrets redacted
+cfgredact-prod:
+	@test -f $(PROD_ENV) || { echo "[cfgredact-prod] NOTE: $(PROD_ENV) not found; skipping compose config check"; exit 0; }
+	$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate | sed -E 's/^([[:space:]]*NEO4J_PASS:[[:space:]]+).*/\1<redacted>/'
+
 cfgsec-prod:
+	@test -f $(PROD_ENV) || { echo "[cfgsec-prod] NOTE: $(PROD_ENV) not found; skipping compose config check"; exit 0; }
 	@$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate | rg -n 'bolt://.*@' || true
-	@$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate | rg -n 'NEO4J_PASS:\s*[^$]' || true
-	@echo "[cfgsec-prod] NOTE: If you see a literal password above, your compose file is inlining secrets. Prefer \"NEO4J_PASS: ${NEO4J_PASS}\" (unquoted) in docker-compose.yml and provide it via --env-file."
+	@rg -n '^[[:space:]]*NEO4J_PASS:[[:space:]]+[^$$]' docker-compose.yml || true
+	@echo "[cfgsec-prod] NOTE: It's normal for 'docker compose config' to show resolved env values (including NEO4J_PASS). This check only flags (a) credentials embedded in bolt:// URLs and (b) hardcoded NEO4J_PASS literals in docker-compose.yml."
