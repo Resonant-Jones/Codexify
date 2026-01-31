@@ -19,13 +19,21 @@ services:
   neo4j:
     image: neo4j:5
     environment:
-      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS:-codexify_local_neo4j_2026!}"
       NEO4J_server_default__listen__address: 0.0.0.0
+      # Let the official image handle auth via NEO4J_AUTH (no custom entrypoint).
+      # NOTE: Compose will interpolate ${NEO4J_PASS} from your project .env at deploy time.
+      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS}"
     ports: ["7474:7474", "7687:7687"]
     volumes:
       - neo4j_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "/var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u ${NEO4J_USER:-neo4j} -p \"$$NEO4J_PASS\" 'RETURN 1' || exit 1"]
+      test:
+        - CMD-SHELL
+        - >
+          /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687
+          -u "$$(echo $$NEO4J_AUTH | cut -d/ -f1)"
+          -p "$$(echo $$NEO4J_AUTH | cut -d/ -f2-)"
+          'RETURN 1' || exit 1
       interval: 10s
       timeout: 10s
       retries: 30
@@ -50,6 +58,7 @@ services:
       retries: 20
   graph-init:
     image: neo4j:5
+    env_file: .env
     depends_on:
       neo4j:
         condition: service_healthy
@@ -59,7 +68,11 @@ services:
       - |-
         set -e
         echo "[graph-init] Applying Neo4j constraints + seed nodes..."
-        cat <<'CYPHER' | /var/lib/neo4j/bin/cypher-shell -a bolt://neo4j:7687 -u ${NEO4J_USER:-neo4j} -p "$NEO4J_PASS"
+        if [ -z "$${NEO4J_PASS:-}" ]; then
+          echo "[graph-init] ERROR: NEO4J_PASS is not set (expected via env_file: .env)"
+          exit 1
+        fi
+        cat <<'CYPHER' | /var/lib/neo4j/bin/cypher-shell -a bolt://neo4j:7687 -u "$${NEO4J_USER:-neo4j}" -p "$${NEO4J_PASS}"
         CREATE CONSTRAINT user_id_unique     IF NOT EXISTS FOR (u:User)    REQUIRE u.id IS UNIQUE;
         CREATE CONSTRAINT project_id_unique  IF NOT EXISTS FOR (p:Project) REQUIRE p.id IS UNIQUE;
         CREATE CONSTRAINT thread_id_unique   IF NOT EXISTS FOR (t:Thread)  REQUIRE t.id IS UNIQUE;
@@ -80,6 +93,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
@@ -98,7 +112,7 @@ services:
       EMBEDDING_BACKEND: "local"
       CODEXIFY_USE_OPENAI: "0"
     volumes:
-      - ./codexify:/app/codexify
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
     restart: "no"
@@ -163,6 +177,7 @@ services:
     profiles:
       - cli
     entrypoint: ["python", "scripts/chatgpt_import/import_chatgpt.py"]
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -183,7 +198,7 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
       CODEXIFY_USE_OPENAI: "0"
     volumes:
-      - ./codexify:/app/codexify
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - ./scripts:/app/scripts
@@ -216,7 +231,7 @@ services:
     env_file: .env
     volumes:
       - ./conversations.json:/app/conversations.json:ro
-      - ./codexify:/app/codexify
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
@@ -232,9 +247,6 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       PORT: "8888"
       NEO4J_BOLT_URL: bolt://neo4j:7687
-      NEO4J_USER: "${NEO4J_USER:-neo4j}"
-      NEO4J_PASS: "${NEO4J_PASS:-codexify_local_neo4j_2026!}"
-      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-local}"
       ENABLE_CONNECTOR_WORKER: "false"
       REDIS_URL: redis://redis:6379/0
       # Supported provider ids (backend): "local", "groq", "openai"
@@ -248,7 +260,7 @@ services:
       # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-ministral-3:14b}"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
 
       # --- OpenAI (cloud) ---
@@ -376,6 +388,7 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -391,17 +404,15 @@ services:
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
       LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-ministral-3:14b}"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
       NEO4J_BOLT_URL: bolt://neo4j:7687
-      NEO4J_USER: "${NEO4J_USER:-neo4j}"
-      NEO4J_PASS: "${NEO4J_PASS:-codexify_local_neo4j_2026!}"
     volumes:
-      - ./codexify:/app/codexify
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
@@ -427,6 +438,7 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -442,17 +454,15 @@ services:
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
       LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-ministral-3:14b}"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
       NEO4J_BOLT_URL: bolt://neo4j:7687
-      NEO4J_USER: "${NEO4J_USER:-neo4j}"
-      NEO4J_PASS: "${NEO4J_PASS:-codexify_local_neo4j_2026!}"
     volumes:
-      - ./codexify:/app/codexify
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
@@ -480,6 +490,7 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -502,10 +513,8 @@ services:
       CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
       CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
-      NEO4J_USER: "${NEO4J_USER:-neo4j}"
-      NEO4J_PASS: "${NEO4J_PASS:-codexify_local_neo4j_2026!}"
     volumes:
-      - ./codexify:/app/codexify
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
@@ -538,6 +547,7 @@ services:
         condition: service_completed_successfully
       migrator:
         condition: service_completed_successfully
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -547,15 +557,13 @@ services:
       GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       NEO4J_BOLT_URL: bolt://neo4j:7687
-      NEO4J_USER: "${NEO4J_USER:-neo4j}"
-      NEO4J_PASS: "${NEO4J_PASS:-codexify_local_neo4j_2026!}"
       EMBED_PROVIDER: "local"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
     volumes:
-      - ./codexify:/app/codexify
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
@@ -608,7 +616,7 @@ services:
     environment:
       # Ensure pnpm installs modules inside the container mount and skips heavy postinstall scripts
       VITE_PROXY_TARGET: http://backend:8888
-      VITE_GUARDIAN_API_KEY: "${VITE_GUARDIAN_API_KEY:-local}"
+      VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY}"
       # Local-first defaults for the UI (backend still enforces actual routing)
       # Match backend-supported provider id while still pointing at Ollama.
       VITE_DEFAULT_LLM_PROVIDER: "local"

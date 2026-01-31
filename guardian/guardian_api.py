@@ -53,7 +53,6 @@ from guardian.core import dependencies, event_bus, metrics
 from guardian.core.config import get_settings
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
-    API_KEY,
     ENABLE_CONNECTOR_WORKER,
     ENABLE_OUTBOX,
     allowed_origins,
@@ -91,11 +90,20 @@ except Exception:
 # Load environment files
 dependencies._load_env_chain()
 
+# Resolve API key after dotenv load (no silent fallback)
+api_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
+dependencies.API_KEY = api_key
+if not api_key:
+    logger.error(
+        "[auth] GUARDIAN_API_KEY is missing. Set it in .env to start the backend."
+    )
+    raise SystemExit("GUARDIAN_API_KEY is required")
+
 # Log API key (masked)
 _mask = (
-    (API_KEY[:4] + "…" + API_KEY[-4:])
-    if API_KEY and len(API_KEY) > 8
-    else API_KEY
+    (api_key[:4] + "…" + api_key[-4:])
+    if api_key and len(api_key) > 8
+    else api_key
 )
 logger.info("[auth] Using GUARDIAN_API_KEY=%s", _mask)
 
