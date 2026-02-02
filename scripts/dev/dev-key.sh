@@ -2,8 +2,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Look in local-first order; print the LAST value found (allows overrides)
-grep -h -E '^GUARDIAN_API_KEY=' .env.local .env.backend.development .env 2>/dev/null \
+# Read GUARDIAN_API_KEY from .env only (single source of truth).
+key=$(grep -h -E '^GUARDIAN_API_KEY=' .env 2>/dev/null \
   | tail -n1 \
   | cut -d= -f2- \
-  | tr -d '\r'
+  | tr -d '\r')
+
+if [ -z "$key" ]; then
+  echo "GUARDIAN_API_KEY is not set in .env" >&2
+  exit 1
+fi
+
+printf '%s' "$key"

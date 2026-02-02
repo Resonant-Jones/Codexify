@@ -109,11 +109,66 @@ def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
     return "Context hints:\n" + "\n".join(f"- {h}" for h in hints) + "\n"
 
 
+def _capability_index_block(capability_index: Optional[Dict[str, Any]]) -> str:
+    if not capability_index:
+        return ""
+
+    order = ("core", "plugins", "connectors", "mcps")
+    has_items = False
+    for key in order:
+        value = capability_index.get(key)
+        if isinstance(value, list) and value:
+            has_items = True
+            break
+    if not has_items:
+        return ""
+
+    lines = ["Capability Index (installed features):"]
+
+    def _format_items(items: list[Any]) -> list[str]:
+        formatted: list[str] = []
+        for item in items:
+            if isinstance(item, dict):
+                item_id = item.get("id") or item.get("name") or "unknown"
+                triggers = item.get("triggers") or item.get("help_triggers")
+                help_text = item.get("help")
+            else:
+                item_id = str(item)
+                triggers = None
+                help_text = None
+            line = f"- {item_id}"
+            extras = []
+            if triggers:
+                extras.append(f"triggers: {', '.join(triggers)}")
+            if help_text:
+                extras.append(f"help: {help_text}")
+            if extras:
+                line = f"{line} ({'; '.join(extras)})"
+            formatted.append(line)
+        return formatted
+
+    labels = {
+        "core": "Core",
+        "plugins": "Plugins",
+        "connectors": "Connectors",
+        "mcps": "MCPs",
+    }
+    for key in order:
+        items = capability_index.get(key) or []
+        if not items:
+            continue
+        lines.append(f"{labels.get(key, key)}:")
+        lines.extend(_format_items(items))
+
+    return "\n".join(lines) + "\n"
+
+
 def get_guardian_system_prompt(
     user_id: str,
     depth: str,
     project_id: Optional[int] = None,
     bundle: Optional[Dict[str, Any]] = None,
+    capability_index: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Compose the final system message:
@@ -132,6 +187,7 @@ def get_guardian_system_prompt(
         _imprint_zero_style_block(user_id),
         _user_persona_block(user_id, project_id),
         _rag_hint_block(bundle),
+        _capability_index_block(capability_index),
     ]
 
     # Filter out empty segments and join with spacing

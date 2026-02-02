@@ -1,4 +1,4 @@
-# Threadspace Makefile
+# Codexify Makefile
 
 .PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build
 
@@ -203,3 +203,83 @@ codemap-clean:
 init: venv requirements-dev.txt requirements-test.txt .pre-commit-config.yaml
 	@mkdir -p $(SRC_DIR) $(TEST_DIR) $(DOCS_DIR) plugins
 	@echo "Project structure initialized"
+
+# ────────────────────────────────
+# Docker Compose shortcuts
+#
+# Rationale:
+# - Keep everything attached to the repo (not your machine), using --env-file.
+# - Provide a quick “rendered config” view (config --no-interpolate) to verify
+#   variables are filling as expected and secrets aren’t accidentally inlined.
+#
+# Notes:
+# - `make logs` is already taken (Guardian memory logs), so Docker logs are `dlogs`.
+# - If you don’t have a separate prod env file yet, create `.env.prod` later.
+# ────────────────────────────────
+
+COMPOSE   ?= docker compose
+DEV_ENV   ?= .env
+PROD_ENV  ?= .env.prod
+
+.PHONY: up down restart ps dlogs cfg cfgredact cfgsec \
+	up-prod down-prod restart-prod ps-prod dlogs-prod cfg-prod cfgredact-prod cfgsec-prod
+
+# Dev (defaults to .env)
+up:
+	$(COMPOSE) --env-file $(DEV_ENV) up -d --build
+
+down:
+	$(COMPOSE) --env-file $(DEV_ENV) down
+
+restart:
+	$(COMPOSE) --env-file $(DEV_ENV) restart
+
+ps:
+	$(COMPOSE) --env-file $(DEV_ENV) ps
+
+dlogs:
+	$(COMPOSE) --env-file $(DEV_ENV) logs -f --tail=200
+
+# Render the fully merged compose (WITHOUT interpolating ${...} from env/shell)
+cfg:
+	$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate
+
+# Render the fully merged compose with secrets redacted (handy for screenshots/PRs)
+cfgredact:
+	$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate | sed -E 's/^([[:space:]]*NEO4J_PASS:[[:space:]]+).*/\1<redacted>/'
+
+# - Should NOT hardcode NEO4J_PASS as a literal in docker-compose.yml
+cfgsec:
+	@$(COMPOSE) --env-file $(DEV_ENV) config --no-interpolate | rg -n 'bolt://.*@' || true
+	@rg -n '^[[:space:]]*NEO4J_PASS:[[:space:]]+[^$$]' docker-compose.yml || true
+	@echo "[cfgsec] NOTE: It's normal for 'docker compose config' to show resolved env values (including NEO4J_PASS). This check only flags (a) credentials embedded in bolt:// URLs and (b) hardcoded NEO4J_PASS literals in docker-compose.yml."
+
+# Prod (defaults to .env.prod)
+up-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) up -d --build
+
+down-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) down
+
+restart-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) restart
+
+ps-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) ps
+
+dlogs-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) logs -f --tail=200
+
+cfg-prod:
+	$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate
+
+# Render the fully merged compose (prod) with secrets redacted
+cfgredact-prod:
+	@test -f $(PROD_ENV) || { echo "[cfgredact-prod] NOTE: $(PROD_ENV) not found; skipping compose config check"; exit 0; }
+	$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate | sed -E 's/^([[:space:]]*NEO4J_PASS:[[:space:]]+).*/\1<redacted>/'
+
+cfgsec-prod:
+	@test -f $(PROD_ENV) || { echo "[cfgsec-prod] NOTE: $(PROD_ENV) not found; skipping compose config check"; exit 0; }
+	@$(COMPOSE) --env-file $(PROD_ENV) config --no-interpolate | rg -n 'bolt://.*@' || true
+	@rg -n '^[[:space:]]*NEO4J_PASS:[[:space:]]+[^$$]' docker-compose.yml || true
+	@echo "[cfgsec-prod] NOTE: It's normal for 'docker compose config' to show resolved env values (including NEO4J_PASS). This check only flags (a) credentials embedded in bolt:// URLs and (b) hardcoded NEO4J_PASS literals in docker-compose.yml."

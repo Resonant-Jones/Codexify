@@ -236,7 +236,7 @@ steps:
             return (
               <div className="min-h-screen grid grid-cols-[264px_1fr]">
                 <aside className="border-r border-muted p-4">
-                  <div className="font-semibold mb-4">ThreadSpace</div>
+                  <div className="font-semibold mb-4">Codexify</div>
                   <nav className="space-y-2 text-sm opacity-80">
                     <a href="#" className="block hover:opacity-100">Dashboard</a>
                     <a href="#" className="block hover:opacity-100">Threads</a>

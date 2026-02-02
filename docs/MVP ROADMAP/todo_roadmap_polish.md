@@ -128,7 +128,7 @@ This roadmap prioritizes user-facing functionality while ensuring robust backend
 
 ---
 
-## 📜 PRD — Final MVP Cut for **Guardian Backend v2** + ThreadSpace (v2)
+## 📜 PRD — Final MVP Cut for **Guardian Backend v2** + Codexify (v2)
 
 **Doc owner:** Axis (with Resonant Jones)  
 **Date:** 2025‑09‑17  

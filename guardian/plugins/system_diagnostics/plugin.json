@@ -2,7 +2,7 @@
     "name": "system_diagnostics",
     "version": "1.0.0",
     "description": "Advanced system diagnostics and health monitoring plugin with failure handling",
-    "author": "Threadspace Core Team",
+    "author": "Codexify Core Team",
     "dependencies": [],
     "capabilities": [
         "system_monitoring",

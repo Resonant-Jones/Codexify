@@ -3,7 +3,7 @@
     "name": "memory_analyzer",
     "version": "1.0.0",
     "description": "Analyzes memory patterns and provides insights on system memory usage",
-    "author": "Threadspace Core Team",
+    "author": "Codexify Core Team",
     "dependencies": [],
     "capabilities": [
       "memory_analysis",

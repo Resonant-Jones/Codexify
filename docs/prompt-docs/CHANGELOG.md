@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Threadspace will be documented in this file.
+All notable changes to Codexify will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -101,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Versioning
 
-We use [SemVer](http://semver.org/) for versioning. For the versions available, see the [tags on this repository](https://github.com/threadspace/threadspace/tags).
+We use [SemVer](http://semver.org/) for versioning. For the versions available, see the [tags on this repository](https://github.com/Codexify/Codexify/tags).
 
 ### Version Format
 
@@ -158,7 +158,7 @@ We use [SemVer](http://semver.org/) for versioning. For the versions available, 
 
 ## Reporting Issues
 
-Please report any issues on our [GitHub Issues](https://github.com/threadspace/threadspace/issues) page.
+Please report any issues on our [GitHub Issues](https://github.com/Codexify/Codexify/issues) page.
 
 ---
 

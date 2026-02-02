@@ -104,9 +104,11 @@ def _parse_entry(path: Path, include_body: bool = False) -> CodexEntry:
         thread_id=fm.get("thread_id"),
         message_ids=[str(m) for m in message_ids if m],
         author_id=fm.get("author"),
-        heat_score=None
-        if fm.get("heat_score") is None
-        else float(fm.get("heat_score")),
+        heat_score=(
+            None
+            if fm.get("heat_score") is None
+            else float(fm.get("heat_score"))
+        ),
         frontmatter=fm,
         body=body if include_body else None,
     )

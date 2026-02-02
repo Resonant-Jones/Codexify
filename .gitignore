@@ -1,12 +1,14 @@
 # This file silences the parts of the system that do not carry meaning.
-# Byte-compiled / optimized / DLL files
+
+# --- Python ---
 __pycache__/
 *.py[cod]
 *$py.class
 
 # Virtual environment
-# Ignore all env files except .env.example (for secrets safety)
 venv/
+
+# Env files (ignore all env files except templates/examples)
 .env
 .env.*
 !.env.example
@@ -36,82 +38,75 @@ htmlcov/
 .AppleDouble
 .LSOverride
 
-# Database / temp files
+# --- Databases / local runtime ---
 *.sqlite3
 *.db
 *.bak
-guardian-token.md
-node_modules
-build/
-dist/
+:memory:
 
-# TypeScript build info caches
-frontend/src/node_modules/.tmp/
-frontend/src/tsconfig.tsbuildinfo
-*.egg-info/
-
-# Sourcegraph local deployment
-# Sourcegraph local deployment
-dev_tools/deploy-sourcegraph-docker/
-# codemap snapshots
-guardian/codemap/codemap.json
-artifacts/
-
-# embedded repos we do NOT track
-dev_tools/deploy-sourcegraph-docker/
-groq-code-cli/
-
-# build junk
-guardian.egg-info/
-guardian_codex.egg-info/
-artifacts/
-guardian/codemap/*.json
-
-# embedded repos; do not track
-dev_tools/deploy-sourcegraph-docker/
-groq-code-cli/
-
-# build junk
-guardian.egg-info/
-guardian_codex.egg-info/
-artifacts/
-guardian/codemap/*.json
-dev_tools/deploy-sourcegraph-docker/
-groq-code-cli/
-
-# Vite output & caches
-.vite/
-node_modules/.vite/
-dist/
-
-# --- allow Vitest files in src ---
-!src/**/__tests__/
-!src/**/__tests__/**
-!src/**/*.test.ts
-!src/**/*.test.tsx
-!src/vitest.config.ts
-!src/test/
-!src/test/**/*
+# Guardian DB (local)
 guardian/guardian.db
 guardian/guardian.*.db
-.env.local
-.env
-guardian/codemap/codemap.json
-models/moondream1/*.safetensors
-models/**.safetensors
-__DISABLE_SQLITE__
-makefile
+
+# --- Node / frontend build artifacts ---
+node_modules/
+.pnpm-store/
+.vite/
+dist/
+build/
+
+# Lockfiles: keep only the intentional roots
+# (Root workspace lockfile is tracked; nested lockfiles are never tracked.)
+**/src/pnpm-lock.yaml
+
+# TypeScript build info caches
+*.tsbuildinfo
+frontend/src/node_modules/.tmp/
+
+# Frontend debug/test artifacts (local-only)
+frontend/src/playwright-report/
+frontend/src/test-results/
+frontend/src/screenshots/
+frontend/src/screenshots/**
+frontend/src/traces/
+frontend/src/**/.last-run.json
+
+# --- Artifacts / tooling ---
+artifacts/
 tmp-clone/
+__DISABLE_SQLITE__
+
+# Sourcegraph local deployment
+/dev_tools/deploy-sourcegraph-docker/
+
+# Embedded repos; do not track
+/groq-code-cli/
+
+# Codemap snapshots
+/guardian/codemap/*.json
 
 # Personal chat history exports
-chatgpt_migrations/conversations.json
-.pnpm-store/
+/chatgpt_migrations/conversations.json
+/chatgpt_conversation.json
+
+# Misc local folders
 HRM/
-.env
-frontend/store
-.env
-chatgpt_conversation.json
+frontend/store/
 
-
+# Vector DB caches
 .chroma/
 .chroma_test/
+
+# Models (large/local)
+models/
+
+# Local runtime / secrets (DO NOT COMMIT)
+/data/credentials.json
+/data/token.pickle
+/data/trust_registry.json
+
+# Local audit outputs
+/docs/_audit_runs/
+
+# local reports
+/docs/reports/

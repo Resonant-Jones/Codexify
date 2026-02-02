@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Threadspace System Runner
+Codexify System Runner
 -----------------------
 Initializes and runs the complete system with monitoring.
 """
@@ -35,7 +35,7 @@ class SystemRunner:
     async def start(self) -> None:
         """Start the system."""
         try:
-            logger.info("Starting Threadspace system...")
+            logger.info("Starting Codexify system...")
 
             # Run system checks
             await self._run_checks()
@@ -55,7 +55,7 @@ class SystemRunner:
     async def stop(self) -> None:
         """Stop the system."""
         try:
-            logger.info("Stopping Threadspace system...")
+            logger.info("Stopping Codexify system...")
             self.running = False
 
             # Cleanup
@@ -144,7 +144,7 @@ class SystemRunner:
         # Clear screen
         print("\033[2J\033[H")
 
-        print("=== Threadspace System Status ===")
+        print("=== Codexify System Status ===")
         print(f"Uptime: {self.stats['uptime']}")
         print(f"Status: {self.stats['status']}")
 
@@ -216,7 +216,7 @@ class SystemRunner:
 
 async def main():
     """Run the system."""
-    parser = argparse.ArgumentParser(description="Threadspace System Runner")
+    parser = argparse.ArgumentParser(description="Codexify System Runner")
     parser.add_argument(
         "--config", help="Path to configuration file", default=None
     )

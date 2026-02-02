@@ -52,11 +52,11 @@ A modular prompt kit to drive Codexify Runtime (or equivalent agent) to execute 
 
 ## 2) Epic: Backend Orchestration
 
-### 2.1 ThreadVault ↔ PulseOS ↔ ThreadSpace Sync
+### 2.1 ThreadVault ↔ PulseOS ↔ Codexify Sync
 
 **Intent Prompt:**
 
-> Implement persistent state sync across ThreadVault, PulseOS, and ThreadSpace.
+> Implement persistent state sync across ThreadVault, PulseOS, and Codexify.
 > 
 > **Requirements:**
 > 
@@ -163,7 +163,7 @@ A modular prompt kit to drive Codexify Runtime (or equivalent agent) to execute 
 
 **Intent Prompt:**
 
-> Expose retrieval API in PulseOS and add resolver in ThreadSpace for contextual prompts.
+> Expose retrieval API in PulseOS and add resolver in Codexify for contextual prompts.
 > 
 > **Deliverables:** `/api/retrieve` endpoint, client, and caching.
 
@@ -175,7 +175,7 @@ A modular prompt kit to drive Codexify Runtime (or equivalent agent) to execute 
 
 **Intent Prompt:**
 
-> Scaffold ThreadSpace base UI with ambient/frosted theme and slot preserved components.
+> Scaffold Codexify base UI with ambient/frosted theme and slot preserved components.
 > 
 > **Deliverables:**
 > 
@@ -317,7 +317,7 @@ stages:
     needs: []
 
   - id: sync
-    prompt: Epic 2.1 ThreadVault ↔ PulseOS ↔ ThreadSpace Sync
+    prompt: Epic 2.1 ThreadVault ↔ PulseOS ↔ Codexify Sync
     needs: [context]
     locks: [repo_write, port_apis]
 

@@ -13,7 +13,7 @@
 
 ## 🌟 Overview
 
-Threadspace's plugin system allows extending the system's functionality through modular, self-contained plugins. This guide covers everything you need to know to create, test, and distribute plugins.
+Codexify's plugin system allows extending the system's functionality through modular, self-contained plugins. This guide covers everything you need to know to create, test, and distribute plugins.
 
 ## 🏗️ Plugin Architecture
 
@@ -262,7 +262,7 @@ my_plugin/
 from setuptools import setup, find_packages
 
 setup(
-    name="threadspace-plugin-name",
+    name="Codexify-plugin-name",
     version="1.0.0",
     packages=find_packages(),
     install_requires=[

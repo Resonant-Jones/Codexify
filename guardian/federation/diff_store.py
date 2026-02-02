@@ -111,9 +111,8 @@ class DiffStore:
         self._index[doc_id]["diffs"].append(diff_record)
         self._index[doc_id]["latest_version"] = diff.version
         self._index[doc_id]["latest_content"] = resulting_content
-        self._index[doc_id]["latest_updated"] = datetime.now(
-            timezone.utc
-        ).isoformat()
+        now = datetime.now(timezone.utc)
+        self._index[doc_id]["latest_updated"] = now.isoformat()
 
         self._save_index(doc_id)
 

@@ -1,3 +1,6 @@
+/**
+ * useSidebarThreads - thread list state with semantic update guards.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
 import type { Project } from "@/types/common";
@@ -152,7 +155,7 @@ export function useSidebarThreads({
   // keep local scope in sync with controlled prop
   useEffect(() => {
     if (projectId === undefined) return;
-    setLocalProjectId(projectId ?? null);
+    setLocalProjectId((prev) => (prev === projectId ? prev : projectId ?? null));
     try {
       window.localStorage.setItem(LOCAL_SCOPE_KEY, projectId ?? "null");
     } catch {}
@@ -160,7 +163,10 @@ export function useSidebarThreads({
 
   const handleDeleteThread = useCallback(
     (threadId: string) => {
-      setThreadList((prev) => prev.filter((t) => String(t.id) !== String(threadId)));
+      setThreadList((prev) => {
+        const next = prev.filter((t) => String(t.id) !== String(threadId));
+        return next.length === prev.length ? prev : next;
+      });
       try {
         previewRef.current.delete(String(threadId));
       } catch {}
@@ -173,7 +179,7 @@ export function useSidebarThreads({
       if (onProjectChange) {
         onProjectChange(id);
       } else {
-        setLocalProjectId(id);
+        setLocalProjectId((prev) => (prev === id ? prev : id));
       }
       try {
         window.localStorage.setItem(LOCAL_SCOPE_KEY, id ?? "null");

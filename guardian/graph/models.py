@@ -1,7 +1,8 @@
 """Neo4j graph models for chat logging and RAG context."""
+
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from neomodel import (
     DateTimeProperty,
@@ -34,7 +35,7 @@ class MessageNode(StructuredNode):
     uuid = UniqueIdProperty()
     message_id = StringProperty(unique_index=True, required=True)
     content = StringProperty()
-    created_at = DateTimeProperty(default=datetime.utcnow)
+    created_at = DateTimeProperty(default=lambda: datetime.now(timezone.utc))
 
     user = RelationshipTo(UserNode, "SENT_BY")
     thread = RelationshipTo(ThreadNode, "PART_OF")

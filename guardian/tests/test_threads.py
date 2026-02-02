@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from guardian.guardian_api import app
 
-KEY = os.environ.get("GUARDIAN_API_KEY", "changeme")
+KEY = os.environ["GUARDIAN_API_KEY"]
 
 client = TestClient(app)
 

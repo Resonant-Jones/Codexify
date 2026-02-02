@@ -50,6 +50,9 @@ PY
 COPY guardian /app/guardian
 RUN ln -s /app/guardian /app/codexify
 
+# Copy migration scripts for CLI access
+COPY scripts /app/scripts
+
 # Ensure alembic.ini exists in /app/backend (or write a tiny default) and normalize newlines
 RUN python - <<'PY'
 from pathlib import Path

@@ -1,19 +1,27 @@
-import os
+import logging
 from functools import lru_cache
 
 from sentence_transformers import SentenceTransformer
 
+from guardian.utils.embed_paths import resolve_local_embed_model
+
+logger = logging.getLogger(__name__)
+
 
 class LocalEmbedder:
     def __init__(self, model_name: str | None = None):
-        from guardian.core.config import settings
-
-        model_name = (
-            model_name
-            or os.getenv("LOCAL_EMBEDDER_MODEL")
-            or settings.LOCAL_EMBEDDER_MODEL
-        )
-        self.model = SentenceTransformer(model_name)
+        if model_name:
+            logger.warning(
+                "[memoryos] model override ignored; use LOCAL_EMBED_MODEL"
+            )
+        model_name = resolve_local_embed_model(ValueError)
+        logger.info("[memoryos] local embedding model=%s", model_name)
+        try:
+            self.model = SentenceTransformer(model_name, local_files_only=True)
+        except Exception as exc:
+            raise RuntimeError(
+                "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
+            ) from exc
         _ = self.model.encode("preloading model")
 
     @lru_cache(maxsize=1024)

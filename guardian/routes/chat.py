@@ -13,7 +13,7 @@ Frontend contract (primary calls today):
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -22,7 +22,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
 
 from guardian.queue import task_events
-from guardian.queue.redis_queue import enqueue
+from guardian.queue.redis_queue import (
+    acquire_turn_lock,
+    enqueue,
+    release_turn_lock,
+)
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
@@ -153,7 +157,7 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
             "thread_id": thread_id,
             "role": role,
             "message_id": message_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "chat",
         }
         _vector_store.add_texts([{"text": content, "meta": meta}])
@@ -222,28 +226,33 @@ def _apply_thread_update(
     archived_present = "archived" in payload
     archived_requested = payload.get("archived") if archived_present else None
 
-    has_field_updates = (
-        any(
-            field is not None
-            for field in (
-                title_value if "title" in payload else None,
-                summary_value if "summary" in payload else None,
-                project_value if project_present else None,
-            )
-        )
-        or project_present
-        and payload.get("project_id") is None
-    )
+    changes: Dict[str, Any] = {}
+    if "title" in payload and title_value is not None:
+        current_title = (existing.get("title") or "").strip()
+        if title_value != current_title:
+            changes["title"] = title_value
+    if "summary" in payload and summary_value is not None:
+        current_summary = (existing.get("summary") or "").strip()
+        if summary_value != current_summary:
+            changes["summary"] = summary_value
+    if project_present:
+        current_project = existing.get("project_id")
+        if project_value != current_project:
+            changes["project_id"] = project_value
+
+    has_field_updates = bool(changes)
 
     if not has_field_updates and not archived_present:
-        raise HTTPException(status_code=400, detail="No valid fields to update")
+        # No semantic deltas requested; return the current state without emitting.
+        return existing
 
     if has_field_updates:
         updated = chatlog_db.update_thread(
             thread_id,
-            title=title_value if "title" in payload else None,
-            summary=(summary_value if "summary" in payload else None),
-            project_id=project_value if project_present else None,
+            title=changes.get("title"),
+            summary=changes.get("summary"),
+            project_id=changes.get("project_id"),
+            project_id_set=project_present,
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Thread not found")
@@ -262,16 +271,19 @@ def _apply_thread_update(
         event_bus.emit_event(
             "thread.updated",
             {
+                "thread_id": refreshed.get("id"),
+                "title": refreshed.get("title"),
+                "summary": refreshed.get("summary"),
+                "project_id": refreshed.get("project_id"),
+                "archived_at": refreshed.get("archived_at"),
                 "thread": refreshed,
-                "changes": {
-                    key: payload.get(key) for key in updated_field_keys
-                },
+                "changes": changes,
             },
         )
         logger.info(
             "[threads] updated thread_id=%s fields=%s",
             thread_id,
-            updated_field_keys or list(payload.keys()),
+            list(changes.keys()) or updated_field_keys or list(payload.keys()),
         )
 
     if archived_requested is True:
@@ -312,6 +324,7 @@ def _apply_thread_update(
     return refreshed
 
 
+# Legacy /chat routes; canonical base is /api/chat.
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 DEFAULT_PROJECT_NAME = "Loose Threads"
@@ -354,7 +367,9 @@ def _coerce_project_id(raw: Any) -> Optional[int]:
 
 
 @router.post("/threads")
-def chat_create_thread(body: dict = Body(...)):
+def chat_create_thread(
+    body: dict = Body(...), api_key: str = Depends(require_api_key)
+):
     """Create a chat thread and return identifier metadata."""
     try:
         payload = body or {}
@@ -406,7 +421,7 @@ def chat_create_thread(body: dict = Body(...)):
 
 
 @router.get("/threads")
-def chat_list_threads():
+def chat_list_threads(api_key: str = Depends(require_api_key)):
     """Return the list of persisted chat threads."""
     try:
         threads = chatlog_db.list_chat_threads()
@@ -422,7 +437,11 @@ def chat_list_threads():
 
 
 @router.post("/{thread_id}/messages")
-def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
+def chat_post_message(
+    thread_id: int,
+    body: Dict[str, str] = Body(...),
+    api_key: str = Depends(require_api_key),
+):
     """Post a new message to a chat thread."""
     role = body.get("role")
     content = body.get("content", "").strip()
@@ -432,6 +451,22 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
             content={"ok": False, "error": "role and content required"},
         )
     owner = body.get("user_id") or "default"
+    lock_acquired = False
+    try:
+        # Enforce one in-flight turn per thread at a time.
+        lock_acquired = acquire_turn_lock(thread_id, value=str(owner))
+    except Exception as exc:
+        logger.warning(
+            "[chat] turn lock unavailable thread_id=%s err=%s",
+            thread_id,
+            exc,
+        )
+        lock_acquired = True
+    if not lock_acquired:
+        return JSONResponse(
+            status_code=429,
+            content={"ok": False, "error": "turn_in_flight"},
+        )
     default_project_id = _coerce_project_id(None)
     try:
         chatlog_db.ensure_chat_thread(
@@ -445,10 +480,36 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
         logger.exception(
             "Failed to ensure chat thread %s exists: %s", thread_id, exc
         )
+        if lock_acquired:
+            try:
+                release_turn_lock(thread_id)
+            except Exception:
+                logger.debug(
+                    "[chat] turn lock release failed thread_id=%s",
+                    thread_id,
+                    exc_info=True,
+                )
         raise HTTPException(
             status_code=500, detail="Failed to persist chat message"
         )
-    mid = chatlog_db.create_message(thread_id, role, content)
+    try:
+        mid = chatlog_db.create_message(thread_id, role, content)
+    except Exception as exc:
+        if lock_acquired:
+            try:
+                release_turn_lock(thread_id)
+            except Exception:
+                logger.debug(
+                    "[chat] turn lock release failed thread_id=%s",
+                    thread_id,
+                    exc_info=True,
+                )
+        logger.exception(
+            "[chat] create_message failed thread_id=%s: %s", thread_id, exc
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to persist chat message"
+        )
     chatlog_db.write_audit_log(
         "create", "chat_message", str(mid), user_id=str(owner)
     )
@@ -511,20 +572,25 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
             user_id_str = str(owner)
             message_text = content
 
-            neo_user, _ = UserNode.get_or_create(
+            neo_user = UserNode.get_or_create(
                 {"user_id": user_id_str, "name": user_id_str}
             )
-            neo_thread, _ = ThreadNode.get_or_create(
-                {"thread_id": thread_id_str}
-            )
+            if isinstance(neo_user, list):
+                neo_user = neo_user[0]
 
-            neo_msg, _ = MessageNode.get_or_create(
+            neo_thread = ThreadNode.get_or_create({"thread_id": thread_id_str})
+            if isinstance(neo_thread, list):
+                neo_thread = neo_thread[0]
+
+            neo_msg = MessageNode.get_or_create(
                 {
                     "message_id": message_id,
                     "content": message_text,
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                 }
             )
+            if isinstance(neo_msg, list):
+                neo_msg = neo_msg[0]
 
             neo_msg.user.connect(neo_user)
             neo_msg.thread.connect(neo_thread)
@@ -544,16 +610,30 @@ def chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
 
 
 @router.get("/{thread_id}/messages")
-def chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
+def chat_list_messages(
+    thread_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    include_fact_evidence: bool = False,
+    api_key: str = Depends(require_api_key),
+):
     """List messages for a chat thread."""
-    items = chatlog_db.list_messages(thread_id, limit=limit, offset=offset)
+    exclude_kinds = None if include_fact_evidence else ["fact_evidence"]
+    items = chatlog_db.list_messages(
+        thread_id,
+        limit=limit,
+        offset=offset,
+        exclude_kinds=exclude_kinds,
+    )
     total = chatlog_db.count_messages(thread_id)
     return {"ok": True, "total": total, "messages": items}
 
 
 @router.post("/{thread_id}/complete")
 async def chat_complete(
-    thread_id: int, body: ChatCompletionRequest = Body(...)
+    thread_id: int,
+    body: ChatCompletionRequest = Body(...),
+    api_key: str = Depends(require_api_key),
 ):
     """
     Enqueue an assistant reply for the given thread and return a task id.
@@ -575,6 +655,14 @@ async def chat_complete(
         else True
     )
     if not thread_exists:
+        try:
+            release_turn_lock(thread_id)
+        except Exception:
+            logger.debug(
+                "[chat.complete] turn lock release failed thread_id=%s",
+                thread_id,
+                exc_info=True,
+            )
         raise HTTPException(status_code=404, detail="Thread not found")
 
     limit = int(body.max_context or 50)
@@ -590,6 +678,14 @@ async def chat_complete(
         ):
             context.append({"role": role, "content": content})
     if not context:
+        try:
+            release_turn_lock(thread_id)
+        except Exception:
+            logger.debug(
+                "[chat.complete] turn lock release failed thread_id=%s",
+                thread_id,
+                exc_info=True,
+            )
         raise HTTPException(
             status_code=400, detail="Thread has no usable context"
         )
@@ -607,7 +703,18 @@ async def chat_complete(
         enqueue(task, "codexify:queue:chat")
     except Exception as exc:
         logger.warning("[chat.complete] queue unavailable: %s", exc)
+        try:
+            release_turn_lock(thread_id)
+        except Exception:
+            logger.debug(
+                "[chat.complete] turn lock release failed thread_id=%s",
+                thread_id,
+                exc_info=True,
+            )
         raise HTTPException(status_code=503, detail="queue_unavailable")
+
+    # Track latest task for debug endpoint
+    _thread_latest_task[thread_id] = task.task_id
 
     try:
         task_events.publish(
@@ -629,7 +736,11 @@ async def chat_complete(
 
 
 @router.delete("/{thread_id}/messages/{message_id}")
-def chat_delete_message(thread_id: int, message_id: int):
+def chat_delete_message(
+    thread_id: int,
+    message_id: int,
+    api_key: str = Depends(require_api_key),
+):
     """Delete a message from a chat thread."""
     chatlog_db.delete_message(thread_id, message_id)
     chatlog_db.write_audit_log(
@@ -717,7 +828,11 @@ def update_thread(
 
 
 @router.patch("/threads/{thread_id}")
-def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
+def patch_thread(
+    thread_id: int,
+    body: Dict[str, object] = Body(...),
+    api_key: str = Depends(require_api_key),
+):
     """Alternative PATCH endpoint for thread updates (less strict validation)."""
     try:
         update = ThreadUpdate(**(body or {}))
@@ -740,7 +855,11 @@ def patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
 
 
 @router.delete("/{thread_id}")
-def delete_thread(thread_id: int, force: bool = Query(False)):
+def delete_thread(
+    thread_id: int,
+    force: bool = Query(False),
+    api_key: str = Depends(require_api_key),
+):
     """Hard delete a thread regardless of archived state."""
     deleted = chatlog_db.delete_thread(thread_id, force=force)
     if not deleted:
@@ -939,13 +1058,50 @@ async def simple_chat_entrypoint(
 # This is ephemeral and per-process, which is fine for dev debugging.
 _rag_traces: Dict[int, Dict[str, Any]] = {}
 
+# Track latest task_id per thread for debug endpoint
+_thread_latest_task: Dict[int, str] = {}
+
+
+def _get_trace_from_task_events(task_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Poll task events stream to extract the trace from task.completed event.
+    Returns the trace dict if found, None otherwise.
+    """
+    try:
+        # Read task events, starting from beginning
+        events = task_events.read_events(task_id, "0", count=100, block_ms=1000)
+        for _, event in events:
+            if event.get("type") == "task.completed":
+                data = event.get("data", {})
+                trace = data.get("trace")
+                if trace:
+                    return trace
+        return None
+    except Exception as exc:
+        logger.debug("[chat] failed to read task events for trace: %s", exc)
+        return None
+
 
 @router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
-def get_latest_rag_trace(thread_id: int):
+def get_latest_rag_trace(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
     """
     [DEV ONLY] Get the RAG trace for the last completion in this thread.
+
+    Attempts to read from task events if task_id is tracked,
+    falls back to in-memory cache otherwise.
     Returns empty arrays if no trace is available.
     """
+    # Try to get trace from task events if we have a recent task
+    task_id = _thread_latest_task.get(thread_id)
+    if task_id:
+        trace = _get_trace_from_task_events(task_id)
+        if trace:
+            _rag_traces[thread_id] = trace  # Cache it
+            return trace
+
+    # Fall back to in-memory cache
     trace = _rag_traces.get(thread_id)
     if not trace:
         return {"documents": [], "graph": []}
@@ -979,55 +1135,82 @@ async def simple_chat_stream(
 
 
 # =========================
-# /api/chat/* Alias Endpoints (backward compatibility)
+# /api/chat/* Canonical Endpoints
 # =========================
 
-# These endpoints maintain backward compatibility with tests that expect
-# /api/chat/* paths by delegating to the canonical /chat/* implementations
+# These endpoints are the canonical chat API surface; /chat/* remains as a
+# legacy alias that delegates to the same handler functions.
 
 api_chat_router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
 
 @api_chat_router.post("")
-async def api_chat_root(body: ChatRequest):
+async def api_chat_root(
+    body: ChatRequest, api_key: str = Depends(require_api_key)
+):
     """Compat alias for POST /api/chat used by legacy frontend helper."""
-    return await simple_chat_entrypoint(body, api_key="api-bypass")
+    return await simple_chat_entrypoint(body, api_key=api_key)
 
 
 @api_chat_router.post("/threads")
-def api_chat_create_thread(body: dict = Body(...)):
+def api_chat_create_thread(
+    body: dict = Body(...), api_key: str = Depends(require_api_key)
+):
     """Compat alias for POST /chat/threads used in tests."""
     return chat_create_thread(body)
 
 
 @api_chat_router.get("/threads")
-def api_chat_list_threads():
+def api_chat_list_threads(api_key: str = Depends(require_api_key)):
     """Compat alias for GET /chat/threads used in tests."""
     return chat_list_threads()
 
 
 @api_chat_router.post("/{thread_id}/messages")
-def api_chat_post_message(thread_id: int, body: Dict[str, str] = Body(...)):
+def api_chat_post_message(
+    thread_id: int,
+    body: Dict[str, str] = Body(...),
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for POST /chat/{thread_id}/messages used in tests."""
     return chat_post_message(thread_id, body)
 
 
 @api_chat_router.get("/{thread_id}/messages")
-def api_chat_list_messages(thread_id: int, limit: int = 50, offset: int = 0):
+def api_chat_list_messages(
+    thread_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for GET /chat/{thread_id}/messages used in tests."""
     return chat_list_messages(thread_id, limit, offset)
 
 
 @api_chat_router.post("/{thread_id}/complete")
 async def api_chat_complete(
-    thread_id: int, body: ChatCompletionRequest = Body(...)
+    thread_id: int,
+    body: ChatCompletionRequest = Body(...),
+    api_key: str = Depends(require_api_key),
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
     return await chat_complete(thread_id, body)
 
 
+@api_chat_router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
+def api_get_latest_rag_trace(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
+    """Compat alias for GET /chat/debug/rag-trace/{thread_id}/latest."""
+    return get_latest_rag_trace(thread_id, api_key=api_key)
+
+
 @api_chat_router.delete("/{thread_id}/messages/{message_id}")
-def api_chat_delete_message(thread_id: int, message_id: int):
+def api_chat_delete_message(
+    thread_id: int,
+    message_id: int,
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for DELETE /chat/{thread_id}/messages/{message_id} used in tests."""
     return chat_delete_message(thread_id, message_id)
 
@@ -1053,12 +1236,20 @@ def api_update_thread(
 
 
 @api_chat_router.patch("/threads/{thread_id}")
-def api_patch_thread(thread_id: int, body: Dict[str, object] = Body(...)):
+def api_patch_thread(
+    thread_id: int,
+    body: Dict[str, object] = Body(...),
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for PATCH /chat/threads/{thread_id} used in tests."""
     return patch_thread(thread_id, body)
 
 
 @api_chat_router.delete("/threads/{thread_id}")
-def api_delete_thread(thread_id: int, force: bool = Query(False)):
+def api_delete_thread(
+    thread_id: int,
+    force: bool = Query(False),
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for DELETE /chat/threads/{thread_id} used in tests."""
     return delete_thread(thread_id, force)

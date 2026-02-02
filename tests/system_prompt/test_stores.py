@@ -2,9 +2,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from codexify.imprints import store as imprint_store
-from codexify.personas import store as persona_store
-from codexify.system_docs import store as system_doc_store
+from guardian.cognition.imprints import store as imprint_store
+from guardian.cognition.personas import store as persona_store
+from guardian.cognition.system_docs import store as system_doc_store
 from guardian.db.models import Base, Imprint, Persona, SystemDoc, SystemDocLink
 
 

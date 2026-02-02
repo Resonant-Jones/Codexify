@@ -25,6 +25,7 @@ class MigrationStats(BaseModel):
 from backend.rag.chatgpt_migration import ingest_chatgpt_export
 
 
+@router.post("/api/upload-chatgpt-export", response_model=MigrationStats)
 @router.post("/upload-chatgpt-export", response_model=MigrationStats)
 async def upload_chatgpt_export(
     file: UploadFile = File(...),
@@ -33,14 +34,16 @@ async def upload_chatgpt_export(
 ):
     """
     Import a ChatGPT export file (JSON).
-    Creates threads and messages in the database and embeds them in the vector store.
+
+    Canonical path: /api/upload-chatgpt-export
+    Legacy alias: /upload-chatgpt-export
     """
     try:
         content = await file.read()
         stats = ingest_chatgpt_export(content, user_id=user_id)
         return MigrationStats(
-            threads_imported=stats["threads"],
-            messages_imported=stats["messages"],
+            threads_imported=stats["threads_imported"],
+            messages_imported=stats["messages_imported"],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

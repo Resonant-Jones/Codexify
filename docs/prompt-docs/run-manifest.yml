@@ -15,7 +15,7 @@ stages:
     needs: []
 
   - id: sync
-    prompt: Epic 2.1 ThreadVault ↔ PulseOS ↔ ThreadSpace Sync
+    prompt: Epic 2.1 ThreadVault ↔ PulseOS ↔ Codexify Sync
     needs: [context]
     locks: [repo_write, port_apis]
 

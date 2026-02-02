@@ -79,9 +79,11 @@ class CodexifyFSManifest:
                     "signer": signer,
                     "verified_at": verified_at,
                     "method": method,
-                    "signature_file": str(sig_file.relative_to(self.base_dir))
-                    if sig_file
-                    else None,
+                    "signature_file": (
+                        str(sig_file.relative_to(self.base_dir))
+                        if sig_file
+                        else None
+                    ),
                 }
             except Exception:
                 return {
@@ -89,9 +91,11 @@ class CodexifyFSManifest:
                     "signer": None,
                     "verified_at": None,
                     "method": "gpg",
-                    "signature_file": str(sig_file.relative_to(self.base_dir))
-                    if sig_file
-                    else None,
+                    "signature_file": (
+                        str(sig_file.relative_to(self.base_dir))
+                        if sig_file
+                        else None
+                    ),
                 }
         else:
             # fallback to pgpy
@@ -104,11 +108,11 @@ class CodexifyFSManifest:
                         "signer": None,
                         "verified_at": None,
                         "method": "pgpy",
-                        "signature_file": str(
-                            sig_file.relative_to(self.base_dir)
-                        )
-                        if sig_file
-                        else None,
+                        "signature_file": (
+                            str(sig_file.relative_to(self.base_dir))
+                            if sig_file
+                            else None
+                        ),
                     }
 
                 with open(trusted_key_path) as key_file:
@@ -138,9 +142,11 @@ class CodexifyFSManifest:
                     "signer": signer,
                     "verified_at": verified_at,
                     "method": "pgpy",
-                    "signature_file": str(sig_file.relative_to(self.base_dir))
-                    if sig_file
-                    else None,
+                    "signature_file": (
+                        str(sig_file.relative_to(self.base_dir))
+                        if sig_file
+                        else None
+                    ),
                 }
             except Exception:
                 return {
@@ -148,9 +154,11 @@ class CodexifyFSManifest:
                     "signer": None,
                     "verified_at": None,
                     "method": "pgpy",
-                    "signature_file": str(sig_file.relative_to(self.base_dir))
-                    if sig_file
-                    else None,
+                    "signature_file": (
+                        str(sig_file.relative_to(self.base_dir))
+                        if sig_file
+                        else None
+                    ),
                 }
 
     def _file_metadata(self, file_path: Path):

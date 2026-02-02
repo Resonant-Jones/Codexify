@@ -7,6 +7,8 @@ Mounted without a prefix to preserve public paths like /health/chat.
 """
 
 import logging
+import os
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Response
 
@@ -75,6 +77,74 @@ def health_memory():
     }
 
 
+@router.get("/health/vector")
+def health_vector():
+    """Get health status of the vector store (add + search probe)."""
+    try:
+        import os
+        import tempfile
+
+        from backend.rag.embedder import Embedder
+        from guardian.core import dependencies
+        from guardian.vector.store import VectorStore
+
+        vector_store = dependencies._vector_store
+        backend = (
+            getattr(vector_store.embedder, "store", None)
+            if vector_store is not None
+            else None
+        )
+        if not backend:
+            backend = (
+                os.getenv("CODEXIFY_VECTOR_STORE", "faiss").strip().lower()
+            )
+
+        probe_id = uuid4().hex
+        probe_text = f"health_check_{probe_id}"
+        probe_meta = {"health_check": True, "id": probe_id}
+
+        if backend == "chroma":
+            source = "probe"
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                embedder = Embedder(
+                    store="chroma",
+                    chroma_path=tmp_dir,
+                    collection=f"health_{probe_id}",
+                )
+                result = embedder.embed_and_index(
+                    [probe_text], metadatas=[probe_meta], ids_prefix="health"
+                )
+                added = int(result.get("count", 0))
+                matches = embedder.search(probe_text, k=1)
+        else:
+            source = "shared"
+            if vector_store is None:
+                vector_store = VectorStore()
+                source = "local"
+            added = vector_store.add_texts(
+                [{"text": probe_text, "meta": probe_meta}]
+            )
+            matches = vector_store.search(probe_text, k=1)
+        ok = bool(matches)
+
+        return {
+            "ok": ok,
+            "status": "ok" if ok else "error",
+            "backend": backend,
+            "source": source,
+            "added": added,
+            "matches": len(matches),
+        }
+    except Exception as exc:
+        logger.warning("[health/vector] check failed: %s", exc)
+        return {
+            "ok": False,
+            "status": "error",
+            "backend": "unknown",
+            "error": str(exc),
+        }
+
+
 @router.get("/metrics")
 def prometheus_metrics():
     """
@@ -97,7 +167,7 @@ def health_deps(format: str = "json"):
     - format=prometheus: Returns Prometheus-compatible metrics
     """
     # Import from core dependencies module
-    from guardian.core.dependencies import API_KEY, _mask_dsn
+    from guardian.core.dependencies import _mask_dsn
 
     if format == "prometheus":
         return Response(
@@ -106,10 +176,11 @@ def health_deps(format: str = "json"):
         )
 
     # JSON format (default)
+    api_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
     masked_api_key = (
-        (API_KEY[:4] + "…" + API_KEY[-4:])
-        if API_KEY and len(API_KEY) > 8
-        else API_KEY
+        (api_key[:4] + "…" + api_key[-4:])
+        if api_key and len(api_key) > 8
+        else api_key
     )
 
     return {

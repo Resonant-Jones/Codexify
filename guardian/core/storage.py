@@ -11,7 +11,7 @@ import os
 import sys
 import tempfile
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -436,7 +436,7 @@ def generate_unique_filename(original_filename: str, prefix: str = "") -> str:
         generate_unique_filename('photo.jpg', 'images/')
         → 'images/2025-10-26_142530_photo.jpg'
     """
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
     name, ext = os.path.splitext(original_filename)
 
     # Sanitize name

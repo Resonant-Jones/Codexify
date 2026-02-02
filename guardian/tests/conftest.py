@@ -12,6 +12,9 @@ def _internet():
         return False
 
 
+# Ensure auth-dependent tests have a configured API key.
+os.environ.setdefault("GUARDIAN_API_KEY", "test-key")
+
 pytestmark = pytest.mark.skipif(
     not _internet() or not os.getenv("ALLOW_NET_TESTS"),
     reason="Network tests are disabled by config or no internet.",

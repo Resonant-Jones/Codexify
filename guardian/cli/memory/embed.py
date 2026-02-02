@@ -16,7 +16,6 @@ from guardian.runtime.embed.embedder import embed_file
     show_default=True,
     help="Use OpenAI API or local model.",
 )
-@click.option("--model", default=None, help="Override embedding model name.")
 @click.option(
     "--store",
     type=click.Choice(["chroma", "faiss"]),
@@ -36,12 +35,11 @@ from guardian.runtime.embed.embedder import embed_file
     show_default=True,
     help="Chroma collection name.",
 )
-def embed(path, use_openai, model, store, chroma_path, collection):
+def embed(path, use_openai, store, chroma_path, collection):
     """Embed and index documents into the configured vector store."""
     result = embed_file(
         path=path,
         use_openai=use_openai,
-        model=model,
         store=store,
         chroma_path=chroma_path,
         collection=collection,

@@ -80,3 +80,16 @@ def test_health_chat_endpoint(test_client):
     data = res.json()
     assert data["ok"] is True
     assert "backend" in data
+
+
+def test_health_vector_endpoint(test_client):
+    """Test /health/vector endpoint verifies vector store connectivity."""
+    res = test_client.get("/health/vector")
+    assert res.status_code == 200
+    data = res.json()
+    assert data.get("ok") is True
+    assert data.get("status") == "ok"
+    assert "backend" in data
+    assert data.get("source") in ("shared", "local", "probe")
+    assert data.get("added") == 1
+    assert data.get("matches", 0) >= 1

@@ -1,3 +1,6 @@
+/**
+ * useProjectsCache - maintains a stable project list cache and loose-thread count.
+ */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import type { Project } from "@/types/common";
@@ -73,6 +76,29 @@ function mergeProjects(primary: Project[], secondary: Project[]): Project[] {
   return out;
 }
 
+/**
+ * Compare two project records by visible fields to avoid no-op updates.
+ */
+function sameProject(a: Project, b: Project): boolean {
+  return String(a.id) === String(b.id)
+    && (a.name ?? "") === (b.name ?? "")
+    && (a.icon ?? "") === (b.icon ?? "")
+    && (a.color ?? "") === (b.color ?? "");
+}
+
+/**
+ * Check if two project lists are effectively identical for UI rendering.
+ */
+function equalProjectLists(a: Project[], b: Project[]): boolean {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!sameProject(a[i], b[i])) return false;
+  }
+  return true;
+}
+
 export function useProjectsCache({
   initialProjects = [],
   threadsForLooseCount = [],
@@ -83,7 +109,12 @@ export function useProjectsCache({
   });
 
   useEffect(() => {
-    setProjectList((prev) => mergeProjects(prev, initialProjects));
+    if (!initialProjects.length) return;
+    setProjectList((prev) => {
+      const merged = mergeProjects(prev, initialProjects);
+      // Avoid churn when the merged list is identical but newly allocated.
+      return equalProjectLists(prev, merged) ? prev : merged;
+    });
   }, [initialProjects]);
 
   useEffect(() => {
@@ -95,7 +126,10 @@ export function useProjectsCache({
       const res = await api.get("/projects");
       const list = normalizeProjectsResponse(res);
       if (Array.isArray(list) && list.length) {
-        setProjectList((prev) => mergeProjects(prev, list));
+        setProjectList((prev) => {
+          const merged = mergeProjects(prev, list);
+          return equalProjectLists(prev, merged) ? prev : merged;
+        });
       }
     } catch {
       /* parent may retry; swallow errors here */

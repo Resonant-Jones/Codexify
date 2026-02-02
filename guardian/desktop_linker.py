@@ -1,5 +1,5 @@
 """
-Desktop Linker module for Codexify: ThreadSpace.
+Desktop Linker module for Codexify: Codexify.
 
 Implements a secure linking flow between a mobile device and a desktop client
 using X25519 key exchange and a short‑lived link token.

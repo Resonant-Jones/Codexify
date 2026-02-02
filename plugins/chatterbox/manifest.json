@@ -1,0 +1,8 @@
+{
+  "id": "chatterbox",
+  "name": "Chatterbox TTS",
+  "entrypoint": "http://localhost:7101",
+  "permissions": [],
+  "capabilities": ["tts"],
+  "ui_panel": false
+}

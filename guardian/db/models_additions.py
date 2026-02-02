@@ -6,6 +6,7 @@ and heavily used in the API layer.
 
 After review, merge these into guardian/db/models.py
 """
+
 from __future__ import annotations
 
 from datetime import datetime

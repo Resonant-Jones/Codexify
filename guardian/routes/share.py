@@ -263,20 +263,26 @@ async def retrieve_share_content(token: str) -> dict[str, Any]:
                     "id": thread.id,
                     "title": thread.title,
                     "summary": thread.summary,
-                    "created_at": thread.created_at.isoformat()
-                    if thread.created_at
-                    else None,
-                    "updated_at": thread.updated_at.isoformat()
-                    if thread.updated_at
-                    else None,
+                    "created_at": (
+                        thread.created_at.isoformat()
+                        if thread.created_at
+                        else None
+                    ),
+                    "updated_at": (
+                        thread.updated_at.isoformat()
+                        if thread.updated_at
+                        else None
+                    ),
                     "messages": [
                         {
                             "id": msg.id,
                             "role": msg.role,
                             "content": msg.content,
-                            "created_at": msg.created_at.isoformat()
-                            if msg.created_at
-                            else None,
+                            "created_at": (
+                                msg.created_at.isoformat()
+                                if msg.created_at
+                                else None
+                            ),
                         }
                         for msg in messages
                     ],
@@ -315,12 +321,16 @@ async def retrieve_share_content(token: str) -> dict[str, Any]:
                         "title": document.title,
                         "content": document.content,
                         "format": document.format,
-                        "created_at": document.created_at.isoformat()
-                        if document.created_at
-                        else None,
-                        "updated_at": document.updated_at.isoformat()
-                        if document.updated_at
-                        else None,
+                        "created_at": (
+                            document.created_at.isoformat()
+                            if document.created_at
+                            else None
+                        ),
+                        "updated_at": (
+                            document.updated_at.isoformat()
+                            if document.updated_at
+                            else None
+                        ),
                     }
                 else:  # UploadedDocument (has 'filename' and 'mime_type' attributes)
                     content = {
@@ -329,12 +339,16 @@ async def retrieve_share_content(token: str) -> dict[str, Any]:
                         "filesize": document.filesize,
                         "mime_type": document.mime_type,
                         "src_url": document.src_url,
-                        "created_at": document.created_at.isoformat()
-                        if document.created_at
-                        else None,
-                        "updated_at": document.updated_at.isoformat()
-                        if document.updated_at
-                        else None,
+                        "created_at": (
+                            document.created_at.isoformat()
+                            if document.created_at
+                            else None
+                        ),
+                        "updated_at": (
+                            document.updated_at.isoformat()
+                            if document.updated_at
+                            else None
+                        ),
                     }
 
             # Emit event (don't let event failures break the response)

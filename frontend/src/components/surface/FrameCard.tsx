@@ -191,7 +191,7 @@ export default function FrameCard({
           height: 100%;
           width: 100%;
           box-sizing: border-box;
-          overflow: visible;
+          overflow: hidden; /* clip content to rounded corners */
           min-height: 0;
         }
         .fc-inner {

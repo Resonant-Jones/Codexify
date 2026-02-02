@@ -3,6 +3,15 @@ Embedder Module
 ~~~~~~~~~~~~~~~
 
 Local semantic embedder that combines SentenceTransformers with a vector store.
+
+Environment Variables:
+    CODEXIFY_EMBEDDINGS_BACKEND: Backend selection
+        - "sentence_transformer" (default): Use local SentenceTransformers
+        - "mock": Use MockEmbeddingBackend for tests/dev
+
+    CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: Fallback behavior
+        - "0" (default): Fail if SentenceTransformer init fails
+        - "1": Fall back to MockEmbeddingBackend on init failure
 """
 
 from __future__ import annotations
@@ -10,14 +19,21 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
+
+from guardian.utils.embed_paths import resolve_local_embed_model
 
 try:
     from sentence_transformers import SentenceTransformer  # type: ignore
 except Exception:
     SentenceTransformer = None  # type: ignore
+
+try:
+    from guardian.embeddings.mock_backend import MockEmbeddingBackend
+except Exception:
+    MockEmbeddingBackend = None  # type: ignore
 
 try:
     import faiss  # type: ignore
@@ -31,10 +47,16 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.getenv("CODEXIFY_LOCAL_MODEL") or os.getenv(
-    "LOCAL_EMBED_MODEL"
-)
 DEFAULT_STORE = "faiss"
+
+# Environment variable names
+_ENV_BACKEND = "CODEXIFY_EMBEDDINGS_BACKEND"
+_ENV_FALLBACK = "CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK"
+
+# Allowed backend values
+_BACKEND_SENTENCE_TRANSFORMER = "sentence_transformer"
+_BACKEND_MOCK = "mock"
+_ALLOWED_BACKENDS = {_BACKEND_SENTENCE_TRANSFORMER, _BACKEND_MOCK}
 
 
 def _normalize_metadatas(
@@ -58,8 +80,28 @@ def _normalize_embeddings(arr: np.ndarray) -> np.ndarray:
     return arr / norms
 
 
+def _get_embeddings_backend() -> str:
+    """Get the configured embeddings backend from environment."""
+    backend = os.getenv(_ENV_BACKEND, _BACKEND_SENTENCE_TRANSFORMER)
+    backend = backend.strip().lower()
+    if backend not in _ALLOWED_BACKENDS:
+        logger.warning(
+            "[embedder] invalid backend=%s, falling back to %s",
+            backend,
+            _BACKEND_SENTENCE_TRANSFORMER,
+        )
+        backend = _BACKEND_SENTENCE_TRANSFORMER
+    return backend
+
+
+def _allow_fallback() -> bool:
+    """Check if fallback to mock backend is allowed on init failure."""
+    val = os.getenv(_ENV_FALLBACK, "0").strip().lower()
+    return val in ("1", "true", "yes")
+
+
 class LocalSemanticEmbedder:
-    """Local embedder that supports embedding, indexing, and semantic search."""
+    """Local embedder for embedding, indexing, and semantic search."""
 
     def __init__(
         self,
@@ -68,21 +110,18 @@ class LocalSemanticEmbedder:
         chroma_path: str = "./.chroma",
         collection: str = "codexify_vault",
     ) -> None:
-        self.model_name = model or DEFAULT_MODEL
-        if not self.model_name or not os.path.isdir(self.model_name):
-            raise RuntimeError(
-                f"LOCAL_EMBED_MODEL must point to a local directory, got: {self.model_name}"
+        if model:
+            logger.warning(
+                "[embedder] model override ignored; use LOCAL_EMBED_MODEL"
             )
+
         self.store = (store or DEFAULT_STORE).strip().lower()
         self.chroma_path = chroma_path
         self.collection = collection
+        self._backend_type: str = _get_embeddings_backend()
 
-        if SentenceTransformer is None:
-            raise RuntimeError("sentence-transformers not installed.")
-        self._model = SentenceTransformer(
-            self.model_name,
-            local_files_only=True,
-        )
+        # Initialize embedding model based on backend selection
+        self._model = self._init_embedding_model()
 
         self._index = None
         self._index_dim: int | None = None
@@ -103,6 +142,67 @@ class LocalSemanticEmbedder:
         else:
             raise ValueError("Vector store must be 'faiss' or 'chroma'.")
 
+    def _init_embedding_model(self):
+        """Initialize the embedding model based on backend configuration."""
+        if self._backend_type == _BACKEND_MOCK:
+            return self._init_mock_backend()
+
+        # Default: sentence_transformer backend
+        return self._init_sentence_transformer()
+
+    def _init_mock_backend(self):
+        """Initialize MockEmbeddingBackend."""
+        if MockEmbeddingBackend is None:
+            raise RuntimeError(
+                "MockEmbeddingBackend not available. "
+                "Ensure guardian.embeddings.mock_backend is importable."
+            )
+        # Use 384 dims to match bge-large-en-v1.5 default
+        mock = MockEmbeddingBackend(dim=384, normalize=True)
+        logger.info(
+            "[embedder] backend=mock dim=%d normalize=%d",
+            mock.dim,
+            int(mock.normalize),
+        )
+        self.model_name = "mock"
+        return mock
+
+    def _init_sentence_transformer(self):
+        """Initialize SentenceTransformer backend with optional fallback."""
+        self.model_name = resolve_local_embed_model()
+        logger.info("[embedder] local embedding model=%s", self.model_name)
+
+        if SentenceTransformer is None:
+            if _allow_fallback() and MockEmbeddingBackend is not None:
+                logger.warning(
+                    "[embedder] sentence-transformers not installed; "
+                    "fallback to mock backend enabled"
+                )
+                return self._init_mock_backend()
+            raise RuntimeError("sentence-transformers not installed.")
+
+        try:
+            model = SentenceTransformer(
+                self.model_name,
+                local_files_only=True,
+            )
+            logger.info(
+                "[embedder] backend=sentence_transformer model=%s",
+                self.model_name,
+            )
+            return model
+        except Exception as exc:
+            if _allow_fallback() and MockEmbeddingBackend is not None:
+                logger.warning(
+                    "[embedder] SentenceTransformer init failed: %s; "
+                    "falling back to mock backend",
+                    str(exc),
+                )
+                return self._init_mock_backend()
+            raise RuntimeError(
+                "LOCAL_EMBED_MODEL could not be loaded from local cache."
+            ) from exc
+
     def _embed_np(self, texts: list[str], batch_size: int = 64) -> np.ndarray:
         if not texts:
             return np.empty((0, 0), dtype="float32")
@@ -117,7 +217,7 @@ class LocalSemanticEmbedder:
         return vectors.astype("float32")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        """Expose embeddings for external callers (health checks, utilities)."""
+        """Expose embeddings for external callers."""
         return self.embed_texts(texts)
 
     def embed_texts(

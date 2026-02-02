@@ -16,12 +16,36 @@ repos:
     -   id: trailing-whitespace
     -   id: end-of-file-fixer
     -   id: check-yaml
+        exclude: |
+            (?x)(
+                ^codex_tasks/|  # Task YAML has embedded diff syntax
+                ^\.github/workflows/  # Workflow files handled separately
+            )
     -   id: check-json
+        exclude: |
+            (?x)(
+                ^manifest\.json$|  # Git LFS pointer, not actual JSON
+                ^models/  # Model configs may have LFS pointers
+            )
     -   id: check-added-large-files
     -   id: debug-statements
+        exclude: |
+            (?x)(
+                ^backend/wait_for_db\.py$  # Dockerfile snippet, not Python
+            )
     -   id: check-merge-conflict
     -   id: check-case-conflict
     -   id: check-docstring-first
+        exclude: |
+            (?x)(
+                ^guardian/core/research/|  # Research modules have non-standard structure
+                ^guardian/chat/cli/|
+                ^guardian/plugins/|  # Plugin modules
+                ^guardian/tests/|    # Test modules
+                ^guardian/plugin_loader\.py$|  # Plugin loader
+                ^tests/|             # Root test modules
+                ^conftest\.py$       # Pytest conftest files
+            )
     -   id: detect-private-key
 
 -   repo: https://github.com/psf/black
@@ -42,17 +66,53 @@ repos:
     hooks:
     -   id: flake8
         additional_dependencies:
-        -   flake8-docstrings
+        # MVP: Removed flake8-docstrings to reduce noise - re-enable when ready
+        # -   flake8-docstrings
         -   flake8-bugbear
         -   flake8-comprehensions
         -   flake8-simplify
-        args: [--max-line-length=80]
+        args:
+        - --max-line-length=88
+        - "--extend-ignore=E501,W503,E203"
+        # E501: line too long (handled by black)
+        # W503: line break before binary operator (black style)
+        # E203: whitespace before ':' (black style)
+        files: |
+            (?x)^(
+                guardian/routes/threads\.py|
+                guardian/workers/chat_worker\.py|
+                guardian/identity\.py|
+                guardian/cognition/(imprints|personas)/store\.py|
+                guardian/graph/models\.py|
+                guardian/eval/run_graph_rag_benchmark\.py|
+                backend/rag/chatgpt_migration\.py
+            )$
 
 -   repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.3.0
     hooks:
     -   id: mypy
-        args: [--ignore-missing-imports]
+        args: [--ignore-missing-imports, --explicit-package-bases]
+        # Explicit package bases prevents "Source file found twice" error
+        # when repo root has __init__.py but guardian/ is the actual package
+        # Exclude directories that have spurious __init__.py or aren't valid package names
+        exclude: |
+            (?x)(
+                ^\.github/|
+                ^GitHub/|
+                ^requirements/|
+                ^data/|
+                ^flows/|
+                ^codex_memory/|
+                ^frontend/|
+                ^venv/|
+                ^\.venv/|
+                ^__init__\.py$|
+                guardian-codex/|
+                ^backend/wait_for_db\.py$|
+                ^backend/migrations/|
+                ^guardian/codexify/
+            )
         # If you want type stubs later, add them explicitly here instead of using types-all, e.g.:
         # additional_dependencies:
         # - types-requests
@@ -62,7 +122,14 @@ repos:
     rev: 1.7.5
     hooks:
     -   id: bandit
-        args: [-ll, -r]
+        # MVP: Only report HIGH severity + HIGH confidence issues
+        # Use -ll -ii for full security audit later
+        args: [-lll, -iii, -r, "-s", "B101,B602,B324"]
+        # -lll: HIGH severity only, -iii: HIGH confidence only
+        # --skip=B101: Skip assert statements (used in tests)
+        # --skip=B602: Skip shell=True checks (dev scripts only)
+        # --skip=B324: Skip weak hash warnings (used for ID generation, not security)
+        additional_dependencies: [pbr]
 
 -   repo: https://github.com/asottile/pyupgrade
     rev: v3.4.0

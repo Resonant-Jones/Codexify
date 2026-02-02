@@ -4,16 +4,16 @@ Run a simple KG vs RAG benchmark locally.
 Example:
     poetry run python -m guardian.eval.run_graph_rag_benchmark --compare
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
 import time
-from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from guardian.context.broker import ContextBroker
 from guardian.core.ai_router import chat_with_ai
@@ -53,7 +53,7 @@ def build_prompt(
         txt = g.get("text") or g
         parts.append(f"GRAPH: {txt}")
     ctx_block = "\n".join(str(p) for p in parts if p)
-    prompt_text = f"Context:\n{ctx_block}\n\nQuestion: {question}"
+    prompt_text = "Context:\n" + ctx_block + "\n\nQuestion: " + question
     return [{"role": "user", "content": prompt_text}]
 
 
@@ -113,7 +113,7 @@ async def main():
     spec = load_benchmark(args.benchmark)
     prompts = spec.get("prompts", [])
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     output_dir = Path(__file__).parent / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"graph_rag_{timestamp}.jsonl"

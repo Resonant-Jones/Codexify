@@ -1,11 +1,22 @@
-// src/components/gallery/GalleryView.tsx
-import React, { useContext, useMemo, useState } from "react";
+/**
+ * GalleryView.tsx
+ *
+ * Renders the gallery surface and supports filtering images by source tag.
+ */
+import React, { useContext, useMemo, useState, useEffect } from "react";
 import { ProjectContext } from "@/components/layout/ProjectContext";
 import PreviewTile from "@/components/gallery/PreviewTile";
 import FrameCard from "@/components/surface/FrameCard";
+import { ImageGenModal } from "@/components/modals/ImageGenModal";
+import useUploader from "@/hooks/useUploader";
 import { X } from "lucide-react";
 
-export type GalleryItem = { src: string; prompt: string; project?: string };
+export type GalleryItem = {
+  src: string;
+  prompt: string;
+  project?: string | number;
+  tag?: string;
+};
 
 // ──────── Demo Gallery Items ────────
 const DEMO_GALLERY_ITEMS: GalleryItem[] = [
@@ -28,11 +39,11 @@ const DEMO_GALLERY_ITEMS: GalleryItem[] = [
 ];
 
 type Props = {
-  items: GalleryItem[];
+  items?: GalleryItem[];
   onSelect: (prompt: string) => void;
 };
 
-const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
+const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   const ctx = useContext(ProjectContext);
   const projectId = ctx?.projectId ?? null;
 
@@ -41,17 +52,123 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
     return window.localStorage.getItem("cfy.hideMockGallery") !== "1";
   });
 
-  const visible = useMemo(
-    () => (projectId ? items.filter((i) => i.project === projectId) : items),
-    [items, projectId]
+  const [backendImages, setBackendImages] = useState<GalleryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showImageGen, setShowImageGen] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<"uploaded" | "generated">("uploaded");
+
+  // Fetch images from backend on mount
+  useEffect(() => {
+    setIsLoading(true);
+    const params = new URLSearchParams();
+    params.set("tag", sourceFilter);
+    if (projectId !== null) params.set("project_id", String(projectId));
+    const qs = params.toString();
+    fetch(`/api/media/images${qs ? `?${qs}` : ""}`)
+      .then((resp) => {
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+      })
+      .then((data) => {
+        // Convert backend image objects to GalleryItem format
+        const images = Array.isArray(data.images)
+          ? data.images.map((img: any) => ({
+              src: img.src_url || img.url,
+              prompt: img.filename || "Untitled",
+              project: img.project_id,
+              tag: img.source_tag || img.tag || sourceFilter,
+            }))
+          : [];
+        setBackendImages(images);
+      })
+      .catch(() => {
+        // Silently fail, fall back to demo gallery
+        setBackendImages([]);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [projectId, sourceFilter]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onAdd = (event: Event) => {
+      const items = (event as CustomEvent).detail?.items || [];
+      if (!Array.isArray(items) || items.length === 0) return;
+      const additions = items
+        .map((item: any) => ({
+          src: item?.src || item?.src_url || item?.url,
+          prompt: item?.prompt || item?.filename || "Generated image",
+          project: item?.project || item?.project_id,
+          tag: item?.tag || item?.source_tag || "uploaded",
+        }))
+        .filter((item: GalleryItem) => item.src);
+      if (additions.length === 0) return;
+      setBackendImages((prev) => {
+        const seen = new Set(prev.map((entry) => entry.src));
+        const next = additions.filter((entry) => !seen.has(entry.src));
+        return next.length ? [...next, ...prev] : prev;
+      });
+    };
+    window.addEventListener("cfy:gallery:add", onAdd as EventListener);
+    return () =>
+      window.removeEventListener("cfy:gallery:add", onAdd as EventListener);
+  }, []);
+
+  // Merge prop items with backend images
+  const allItems = useMemo(
+    () => [...propItems, ...backendImages],
+    [propItems, backendImages]
   );
+
+  // Filter by source tag and project when selected.
+  const visible = useMemo(() => {
+    const tagFiltered = allItems.filter(
+      (item) => (item.tag || "uploaded") === sourceFilter
+    );
+    return projectId
+      ? tagFiltered.filter((item) => item.project === projectId)
+      : tagFiltered;
+  }, [allItems, projectId, sourceFilter]);
+
+  // Setup uploader for image uploads
+  const uploader = useUploader({
+    tag: "gallery",
+    projectId,
+    onImages: (newImages) => {
+      // Add newly uploaded images to the gallery
+      setBackendImages((prev) => [
+        ...prev,
+        ...newImages.map((img: any) => ({
+          src: img?.src || img?.src_url,
+          prompt: img?.prompt || img?.filename || "Uploaded image",
+          project: img?.project || img?.project_id,
+          tag: "uploaded",
+        })),
+      ]);
+    },
+    onDocuments: () => {},
+    onAnyUpload: () => {
+      try { localStorage.setItem("cfy.hasUserUpload", "true"); } catch {}
+    },
+  });
 
   // Compute which gallery items to show
   const hasRealGallery = visible && visible.length > 0;
-  const galleryToRender = useMemo(
-    () => (hasRealGallery ? visible : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
-    [visible, hasRealGallery, showDemoGallery]
-  );
+  const galleryToRender = useMemo(() => {
+    if (hasRealGallery) return visible;
+    // Only show demo items in the uploaded tab so filters stay honest.
+    if (showDemoGallery && sourceFilter === "uploaded") return DEMO_GALLERY_ITEMS;
+    return [];
+  }, [visible, hasRealGallery, showDemoGallery, sourceFilter]);
+
+  const handleDelete = async (item: GalleryItem) => {
+    // Try to delete from backend (if it's from backend)
+    // For now, just remove from local state
+    setBackendImages((prev) =>
+      prev.filter((img) => img.src !== item.src)
+    );
+  };
 
   const tileSize = 224;
 
@@ -65,6 +182,39 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
       >
         <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-3">
           <div className="text-lg font-semibold">Gallery</div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setSourceFilter("uploaded")}
+                className={`rounded-full px-3 py-1 border ${
+                  sourceFilter === "uploaded"
+                    ? "border-[var(--accent-strong)] text-[var(--text)]"
+                    : "border-[var(--panel-border)] opacity-70"
+                }`}
+              >
+                Uploaded
+              </button>
+              <button
+                type="button"
+                onClick={() => setSourceFilter("generated")}
+                className={`rounded-full px-3 py-1 border ${
+                  sourceFilter === "generated"
+                    ? "border-[var(--accent-strong)] text-[var(--text)]"
+                    : "border-[var(--panel-border)] opacity-70"
+                }`}
+              >
+                Generated
+              </button>
+            </div>
+            <button
+              type="button"
+              className="text-xs underline hover:opacity-80"
+              onClick={() => setShowImageGen(true)}
+            >
+              Generate Image
+            </button>
+          </div>
         </div>
         {!hasRealGallery && showDemoGallery && (
           <div className="rounded-[var(--tile-radius,19px)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
@@ -82,10 +232,21 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
             </button>
           </div>
         )}
-        <div className="flex-1 min-h-0 overflow-auto pb-1">
+        <div
+          className="flex-1 min-h-0 overflow-auto pb-1"
+          onDrop={uploader.onDrop}
+          onDragOver={uploader.onDragOver}
+        >
           {galleryToRender.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-sm opacity-70">
-              No gallery images yet. Generate or upload to get started.
+            <div className="flex h-full items-center justify-center flex-col gap-3 text-sm opacity-70">
+              <div>No gallery images yet. Generate or upload to get started.</div>
+              <button
+                type="button"
+                onClick={uploader.pick}
+                className="text-xs underline hover:opacity-80"
+              >
+                Choose images to upload
+              </button>
             </div>
           ) : (
             <div
@@ -106,7 +267,21 @@ const GalleryView: React.FC<Props> = ({ items, onSelect }) => {
             </div>
           )}
         </div>
+        <div className="flex-shrink-0 flex items-center justify-between gap-2 border-t border-[var(--panel-border)] py-3 text-xs" style={{ color: "var(--muted)" }}>
+          <div className="flex items-center gap-2">
+            <span>Drag & drop images here, or</span>
+            <button
+              type="button"
+              className="underline hover:opacity-80"
+              onClick={uploader.pick}
+            >
+              upload images
+            </button>
+          </div>
+          {isLoading && <span className="text-xs opacity-60">Loading...</span>}
+        </div>
       </FrameCard>
+      <ImageGenModal open={showImageGen} onOpenChange={setShowImageGen} />
     </div>
   );
 };

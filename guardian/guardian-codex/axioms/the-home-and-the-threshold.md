@@ -1,8 +1,8 @@
 
 
-# ThreadSpace Axiom: The Home and The Threshold
+# Codexify Axiom: The Home and The Threshold
 
-ThreadSpace is your home — the sovereign hearth where your signals rest, your memory stays local, and your Guardian serves you alone. Inside these walls, you control the environment, the keys, and the vault.
+Codexify is your home — the sovereign hearth where your signals rest, your memory stays local, and your Guardian serves you alone. Inside these walls, you control the environment, the keys, and the vault.
 
 But once you choose to invite the outside in — a YouTube video, a Gemini call, a web scrape — you cross the threshold. No Companion can rewrite the rules of the world beyond the walls.
 

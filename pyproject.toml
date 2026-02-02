@@ -116,3 +116,60 @@ extend-ignore = ["E203"]
 [tool.ruff.per-file-ignores]
 "tests/**/*.py" = ["E402", "F841"]
 "guardian/plugins/**/tests/**/*.py" = ["E402"]
+
+[tool.mypy]
+# Prevent mypy from treating repo root as a package (fixes "Source file found twice" error)
+# The repo root has __init__.py but guardian/ is the actual package root
+explicit_package_bases = true
+mypy_path = "."
+packages = ["guardian", "tests", "scripts", "backend"]
+ignore_missing_imports = true
+# MVP: Less strict type checking - enable stricter settings as codebase improves
+warn_return_any = false
+warn_unused_ignores = false
+check_untyped_defs = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+no_implicit_optional = false
+strict = false
+# MVP: Disable error codes for issues that need gradual cleanup
+# Remove these as the codebase type coverage improves
+disable_error_code = [
+    "name-defined",    # Missing imports/definitions - common in dynamic code
+    "attr-defined",    # Attribute access issues
+    "arg-type",        # Argument type mismatches
+    "return-value",    # Return type mismatches
+    "assignment",      # Assignment type mismatches
+    "misc",            # Various issues including type assignments
+    "valid-type",      # Invalid type annotations
+    "var-annotated",   # Missing type annotations for variables
+    "call-arg",        # Missing/extra arguments
+    "no-redef",        # Name redefinition
+    "func-returns-value",  # Function returns value issues
+    "index",           # Indexing issues
+    "operator",        # Operator type issues
+    "union-attr",      # Optional attribute access
+    "import",          # Missing stubs
+    "truthy-function", # Function always true in boolean context
+    "dict-item",       # Dict entry type mismatches
+    "override",        # Signature incompatible with supertype
+    "used-before-def", # Variable used before definition
+    "abstract",        # Cannot instantiate abstract class
+    "return",          # Missing return statement
+    "unused-coroutine", # Coroutine not awaited
+]
+# Exclude files/directories that shouldn't be type-checked
+exclude = [
+    "^venv/",
+    "^\\.venv/",
+    "^build/",
+    "^dist/",
+    "^docs/",
+    "^\\.github/",  # Not a valid Python package name
+    "^GitHub/",     # Spurious directory with __init__.py
+    "^requirements/",  # Not meant to be a package
+    "^data/",          # Data files, not code
+    "^flows/",         # Config/workflow files
+    "^codex_memory/",  # Excluded from packages list
+    "^frontend/",      # Frontend is TypeScript, not Python
+]

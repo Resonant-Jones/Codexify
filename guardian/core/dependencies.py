@@ -74,8 +74,8 @@ def _load_env_chain() -> None:
 # Configuration
 # =========================
 
-# API key setup
-API_KEY = os.getenv("GUARDIAN_API_KEY", "changeme")
+# API key setup (must be explicitly provided via env/.env; no silent defaults)
+API_KEY = (os.getenv("GUARDIAN_API_KEY") or "").strip()
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 # Provider selection and Groq config
@@ -161,16 +161,19 @@ def verify_api_key(
     except Exception:
         allowed = []
 
-    # Fallback: allow direct env GUARDIAN_API_KEY or deterministic
-    # test-time defaults when settings are not configured.
+    # Fallback: allow direct env GUARDIAN_API_KEY, otherwise fail closed.
     if not allowed:
         env_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
         if env_key:
             allowed.append(env_key)
         else:
-            # When no explicit key is configured, honour the two canonical
-            # dev/test defaults used across the test suite.
-            allowed.extend(["invalid-by-default", "changeme"])
+            logger.error(
+                "GUARDIAN_API_KEY is not configured; set it in .env or the environment."
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Server misconfigured: GUARDIAN_API_KEY is not set",
+            )
 
     for candidate in candidates:
         for allowed_key in allowed:

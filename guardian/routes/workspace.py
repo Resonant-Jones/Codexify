@@ -61,9 +61,11 @@ def _collect_thread_documents(thread_id: int) -> list[dict[str, Any]]:
                         "id": str(doc.id),
                         "title": doc.title,
                         "relation": link.relation,
-                        "created_at": link.created_at.isoformat()
-                        if link.created_at
-                        else None,
+                        "created_at": (
+                            link.created_at.isoformat()
+                            if link.created_at
+                            else None
+                        ),
                     }
                 )
     except Exception as e:  # pragma: no cover – defensive

@@ -141,6 +141,15 @@ class ChatMessage(Base):
         String(32), nullable=False
     )  # 'user', 'assistant', 'system'
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    event_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="chat"
+    )
+    extra_meta: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -148,6 +157,141 @@ class ChatMessage(Base):
     # Relationship
     thread: Mapped[ChatThread] = relationship(
         "ChatThread", back_populates="messages"
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Personal Facts
+# =========================
+
+
+class PersonalFact(Base):
+    """Correctable facts about a user."""
+
+    __tablename__ = "personal_facts"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="candidate"
+    )
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default="0.5"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    last_confirmed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    evidence: Mapped[list[PersonalFactEvidence]] = relationship(
+        "PersonalFactEvidence",
+        back_populates="fact",
+        cascade="all, delete-orphan",
+    )
+    revisions: Mapped[list[PersonalFactRevision]] = relationship(
+        "PersonalFactRevision",
+        back_populates="fact",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('candidate', 'verified', 'disputed', 'archived')",
+            name="personal_facts_status_check",
+        ),
+        CheckConstraint(
+            "confidence >= 0.0 AND confidence <= 1.0",
+            name="personal_facts_confidence_check",
+        ),
+        Index(
+            "ix_personal_facts_user_status", "user_id", "status", "is_active"
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class PersonalFactEvidence(Base):
+    """Evidence backing a personal fact."""
+
+    __tablename__ = "personal_fact_evidence"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    fact_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("personal_facts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_message_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("chat_messages.id", ondelete="SET NULL"),
+    )
+    excerpt: Mapped[str | None] = mapped_column(Text)
+    modality: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="text"
+    )
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default="0.5"
+    )
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_meta: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    fact: Mapped[PersonalFact] = relationship(
+        "PersonalFact", back_populates="evidence"
+    )
+    source_message: Mapped[ChatMessage | None] = relationship("ChatMessage")
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class PersonalFactRevision(Base):
+    """Audit trail for personal fact updates."""
+
+    __tablename__ = "personal_fact_revisions"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    fact_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("personal_facts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    actor: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    field_changed: Mapped[str | None] = mapped_column(String(64))
+    old_value: Mapped[str | None] = mapped_column(Text)
+    new_value: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    fact: Mapped[PersonalFact] = relationship(
+        "PersonalFact", back_populates="revisions"
     )
 
     __mapper_args__ = {"eager_defaults": True}
@@ -478,6 +622,9 @@ class UploadedImage(Base):
     mime_type: Mapped[str] = mapped_column(
         String(128), nullable=False
     )  # image/png, image/jpeg, etc.
+    source_tag: Mapped[str | None] = mapped_column(
+        String(64)
+    )  # uploaded | generated | other
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -568,9 +715,22 @@ class UploadedDocument(Base):
     src_url: Mapped[str] = mapped_column(
         Text, nullable=False
     )  # Path or URL to file
+    source_tag: Mapped[str | None] = mapped_column(
+        String(64)
+    )  # uploaded | generated | other
     parsed_text: Mapped[str | None] = mapped_column(
         Text
     )  # Extracted text for FTS
+    embedding_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="pending"
+    )
+    embedding_error: Mapped[str | None] = mapped_column(Text)
+    embedding_started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    embedding_completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -588,6 +748,12 @@ class UploadedDocument(Base):
     project: Mapped[Project | None] = relationship("Project")
     thread: Mapped[ChatThread | None] = relationship("ChatThread")
 
+    __table_args__ = (
+        CheckConstraint(
+            "embedding_status IN ('pending','processing','ready','failed')",
+            name="uploaded_documents_embedding_status_check",
+        ),
+    )
     __mapper_args__ = {"eager_defaults": True}
 
 

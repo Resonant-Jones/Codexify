@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import create_engine, func, inspect, text
+from sqlalchemy import create_engine, func, inspect, or_, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -25,6 +25,9 @@ from guardian.db.models import (
     ConnectorRun,
     EventOutbox,
     MemoryEntry,
+    PersonalFact,
+    PersonalFactEvidence,
+    PersonalFactRevision,
     Project,
     RawDocument,
     SyncJob,
@@ -204,15 +207,17 @@ class _PostgresGuardianDB:
                 "summary": thread.summary,
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
-                "archived_at": thread.archived_at.isoformat()
-                if thread.archived_at
-                else None,
-                "created_at": thread.created_at.isoformat()
-                if thread.created_at
-                else None,
-                "updated_at": thread.updated_at.isoformat()
-                if thread.updated_at
-                else None,
+                "archived_at": (
+                    thread.archived_at.isoformat()
+                    if thread.archived_at
+                    else None
+                ),
+                "created_at": (
+                    thread.created_at.isoformat() if thread.created_at else None
+                ),
+                "updated_at": (
+                    thread.updated_at.isoformat() if thread.updated_at else None
+                ),
             }
 
     def ensure_chat_thread(
@@ -286,15 +291,17 @@ class _PostgresGuardianDB:
                 "summary": thread.summary,
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
-                "archived_at": thread.archived_at.isoformat()
-                if thread.archived_at
-                else None,
-                "created_at": thread.created_at.isoformat()
-                if thread.created_at
-                else None,
-                "updated_at": thread.updated_at.isoformat()
-                if thread.updated_at
-                else None,
+                "archived_at": (
+                    thread.archived_at.isoformat()
+                    if thread.archived_at
+                    else None
+                ),
+                "created_at": (
+                    thread.created_at.isoformat() if thread.created_at else None
+                ),
+                "updated_at": (
+                    thread.updated_at.isoformat() if thread.updated_at else None
+                ),
             }
 
     def get_recent_thread(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -318,6 +325,7 @@ class _PostgresGuardianDB:
         title: Optional[str] = None,
         summary: Optional[str] = None,
         project_id: Optional[int] = None,
+        project_id_set: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Update thread fields."""
         with self.get_session() as session:
@@ -329,7 +337,7 @@ class _PostgresGuardianDB:
                 thread.title = title
             if summary is not None:
                 thread.summary = summary
-            if project_id is not None:
+            if project_id_set:
                 thread.project_id = project_id
 
             session.commit()
@@ -413,27 +421,49 @@ class _PostgresGuardianDB:
     # Chat Messages
     # =================================================================
 
-    def create_message(self, thread_id: int, role: str, content: str) -> int:
+    def create_message(
+        self,
+        thread_id: int,
+        role: str,
+        content: str,
+        *,
+        kind: str = "chat",
+        event_at: Optional[datetime] = None,
+        extra_meta: Optional[dict] = None,
+    ) -> int:
         """Create a new message in a thread."""
         with self.get_session() as session:
             message = ChatMessage(
                 thread_id=thread_id,
                 role=role,
                 content=content,
+                kind=kind,
+                event_at=event_at or datetime.now(timezone.utc),
+                extra_meta=extra_meta or {},
             )
             session.add(message)
             session.commit()
             return message.id
 
     def list_messages(
-        self, thread_id: int, limit: int = 50, offset: int = 0
+        self,
+        thread_id: int,
+        limit: int = 50,
+        offset: int = 0,
+        exclude_kinds: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """List messages in a thread."""
         with self.get_session() as session:
+            query = session.query(ChatMessage).filter_by(thread_id=thread_id)
+            if exclude_kinds:
+                query = query.filter(
+                    or_(
+                        ChatMessage.kind.is_(None),
+                        ChatMessage.kind.notin_(exclude_kinds),
+                    )
+                )
             messages = (
-                session.query(ChatMessage)
-                .filter_by(thread_id=thread_id)
-                .order_by(ChatMessage.created_at.asc())
+                query.order_by(ChatMessage.event_at.asc(), ChatMessage.id.asc())
                 .limit(limit)
                 .offset(offset)
                 .all()
@@ -445,6 +475,48 @@ class _PostgresGuardianDB:
                     "thread_id": m.thread_id,
                     "role": m.role,
                     "content": m.content,
+                    "event_at": m.event_at.isoformat() if m.event_at else None,
+                    "kind": m.kind,
+                    "extra_meta": m.extra_meta,
+                    "created_at": m.created_at.isoformat()
+                    if m.created_at
+                    else None,
+                }
+                for m in messages
+            ]
+
+    def list_messages_by_date_range(
+        self,
+        thread_id: int,
+        start_date: str,
+        end_date: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """List messages in a thread ordered by event timestamp."""
+        from guardian.utils.datetime import parse_ts
+
+        with self.get_session() as session:
+            query = session.query(ChatMessage).filter_by(thread_id=thread_id)
+            start_dt = parse_ts(start_date)
+            query = query.filter(ChatMessage.event_at >= start_dt)
+            if end_date:
+                end_dt = parse_ts(end_date)
+                query = query.filter(ChatMessage.event_at <= end_dt)
+            messages = (
+                query.order_by(ChatMessage.event_at.asc(), ChatMessage.id.asc())
+                .limit(limit)
+                .all()
+            )
+
+            return [
+                {
+                    "id": m.id,
+                    "thread_id": m.thread_id,
+                    "role": m.role,
+                    "content": m.content,
+                    "event_at": m.event_at.isoformat() if m.event_at else None,
+                    "kind": m.kind,
+                    "extra_meta": m.extra_meta,
                     "created_at": m.created_at.isoformat()
                     if m.created_at
                     else None,
@@ -589,12 +661,12 @@ class _PostgresGuardianDB:
                 "content": entry.content,
                 "tags": entry.tags,
                 "pinned": entry.pinned,
-                "created_at": entry.created_at.isoformat()
-                if entry.created_at
-                else None,
-                "updated_at": entry.updated_at.isoformat()
-                if entry.updated_at
-                else None,
+                "created_at": (
+                    entry.created_at.isoformat() if entry.created_at else None
+                ),
+                "updated_at": (
+                    entry.updated_at.isoformat() if entry.updated_at else None
+                ),
             }
 
     def update_memory(
@@ -640,6 +712,278 @@ class _PostgresGuardianDB:
             )
             session.commit()
             return count
+
+    # =================================================================
+    # Personal Facts
+    # =================================================================
+
+    def _fact_to_dict(self, fact: PersonalFact) -> Dict[str, Any]:
+        return {
+            "id": fact.id,
+            "user_id": fact.user_id,
+            "key": fact.key,
+            "value": fact.value,
+            "status": fact.status,
+            "confidence": fact.confidence,
+            "is_active": fact.is_active,
+            "last_confirmed_at": fact.last_confirmed_at.isoformat()
+            if fact.last_confirmed_at
+            else None,
+            "created_at": fact.created_at.isoformat()
+            if fact.created_at
+            else None,
+            "updated_at": fact.updated_at.isoformat()
+            if fact.updated_at
+            else None,
+        }
+
+    def _evidence_to_dict(
+        self, evidence: PersonalFactEvidence
+    ) -> Dict[str, Any]:
+        return {
+            "id": evidence.id,
+            "fact_id": evidence.fact_id,
+            "source_message_id": evidence.source_message_id,
+            "excerpt": evidence.excerpt,
+            "modality": evidence.modality,
+            "confidence": evidence.confidence,
+            "source_type": evidence.source_type,
+            "evidence_meta": evidence.evidence_meta,
+            "created_at": evidence.created_at.isoformat()
+            if evidence.created_at
+            else None,
+        }
+
+    def _revision_to_dict(
+        self, revision: PersonalFactRevision
+    ) -> Dict[str, Any]:
+        return {
+            "id": revision.id,
+            "fact_id": revision.fact_id,
+            "actor": revision.actor,
+            "action": revision.action,
+            "field_changed": revision.field_changed,
+            "old_value": revision.old_value,
+            "new_value": revision.new_value,
+            "reason": revision.reason,
+            "created_at": revision.created_at.isoformat()
+            if revision.created_at
+            else None,
+        }
+
+    def list_facts(
+        self,
+        user_id: str,
+        status: Optional[str] = None,
+        active_only: bool = True,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """List personal facts for a user."""
+        with self.get_session() as session:
+            query = session.query(PersonalFact).filter_by(user_id=user_id)
+            if status:
+                query = query.filter_by(status=status)
+            if active_only:
+                query = query.filter_by(is_active=True)
+            facts = (
+                query.order_by(PersonalFact.updated_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [self._fact_to_dict(fact) for fact in facts]
+
+    def create_fact(
+        self,
+        user_id: str,
+        key: str,
+        value: str,
+        status: str = "candidate",
+        confidence: float = 0.5,
+    ) -> int:
+        """Create a personal fact."""
+        with self.get_session() as session:
+            fact = PersonalFact(
+                user_id=user_id,
+                key=key,
+                value=value,
+                status=status,
+                confidence=confidence,
+                is_active=True,
+            )
+            session.add(fact)
+            session.commit()
+            return fact.id
+
+    def get_fact(self, fact_id: int) -> Optional[Dict[str, Any]]:
+        """Fetch a fact by id."""
+        with self.get_session() as session:
+            fact = session.query(PersonalFact).filter_by(id=fact_id).first()
+            if not fact:
+                return None
+            return self._fact_to_dict(fact)
+
+    def _add_fact_revision(
+        self,
+        session: Session,
+        *,
+        fact_id: int,
+        actor: str,
+        action: str,
+        field_changed: Optional[str] = None,
+        old_value: Optional[str] = None,
+        new_value: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> None:
+        revision = PersonalFactRevision(
+            fact_id=fact_id,
+            actor=actor,
+            action=action,
+            field_changed=field_changed,
+            old_value=old_value,
+            new_value=new_value,
+            reason=reason,
+        )
+        session.add(revision)
+
+    def update_fact(
+        self,
+        fact_id: int,
+        *,
+        value: Optional[str] = None,
+        status: Optional[str] = None,
+        confidence: Optional[float] = None,
+        actor: str = "system",
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update a personal fact and record revisions."""
+        with self.get_session() as session:
+            fact = session.query(PersonalFact).filter_by(id=fact_id).first()
+            if not fact:
+                raise ValueError(f"Fact {fact_id} not found")
+
+            if value is not None and value != fact.value:
+                self._add_fact_revision(
+                    session,
+                    fact_id=fact.id,
+                    actor=actor,
+                    action="value_updated",
+                    field_changed="value",
+                    old_value=fact.value,
+                    new_value=value,
+                    reason=reason,
+                )
+                fact.value = value
+
+            if status is not None and status != fact.status:
+                self._add_fact_revision(
+                    session,
+                    fact_id=fact.id,
+                    actor=actor,
+                    action="status_updated",
+                    field_changed="status",
+                    old_value=fact.status,
+                    new_value=status,
+                    reason=reason,
+                )
+                fact.status = status
+                if status == "verified":
+                    fact.last_confirmed_at = datetime.now(timezone.utc)
+
+            if confidence is not None and confidence != fact.confidence:
+                self._add_fact_revision(
+                    session,
+                    fact_id=fact.id,
+                    actor=actor,
+                    action="confidence_updated",
+                    field_changed="confidence",
+                    old_value=str(fact.confidence),
+                    new_value=str(confidence),
+                    reason=reason,
+                )
+                fact.confidence = confidence
+
+            fact.updated_at = datetime.now(timezone.utc)
+            session.add(fact)
+            session.commit()
+            return self._fact_to_dict(fact)
+
+    def deactivate_fact(
+        self,
+        fact_id: int,
+        *,
+        actor: str = "system",
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Archive a fact and mark it inactive."""
+        with self.get_session() as session:
+            fact = session.query(PersonalFact).filter_by(id=fact_id).first()
+            if not fact:
+                raise ValueError(f"Fact {fact_id} not found")
+
+            self._add_fact_revision(
+                session,
+                fact_id=fact.id,
+                actor=actor,
+                action="deactivated",
+                field_changed="is_active",
+                old_value=str(fact.is_active),
+                new_value="False",
+                reason=reason,
+            )
+            fact.is_active = False
+            fact.status = "archived"
+            fact.updated_at = datetime.now(timezone.utc)
+            session.add(fact)
+            session.commit()
+            return self._fact_to_dict(fact)
+
+    def list_fact_evidence(self, fact_id: int) -> List[Dict[str, Any]]:
+        """List evidence rows for a fact."""
+        with self.get_session() as session:
+            evidence = (
+                session.query(PersonalFactEvidence)
+                .filter_by(fact_id=fact_id)
+                .order_by(PersonalFactEvidence.created_at.asc())
+                .all()
+            )
+            return [self._evidence_to_dict(row) for row in evidence]
+
+    def add_fact_evidence(
+        self,
+        fact_id: int,
+        source_message_id: Optional[int],
+        excerpt: Optional[str],
+        *,
+        modality: str = "text",
+        confidence: float = 0.5,
+        source_type: str = "runtime_extraction",
+        evidence_meta: Optional[dict] = None,
+    ) -> int:
+        """Add evidence to a fact."""
+        with self.get_session() as session:
+            evidence = PersonalFactEvidence(
+                fact_id=fact_id,
+                source_message_id=source_message_id,
+                excerpt=excerpt,
+                modality=modality,
+                confidence=confidence,
+                source_type=source_type,
+                evidence_meta=evidence_meta or {},
+            )
+            session.add(evidence)
+            session.commit()
+            return evidence.id
+
+    def get_fact_revisions(self, fact_id: int) -> List[Dict[str, Any]]:
+        """Fetch revision history for a fact."""
+        with self.get_session() as session:
+            revisions = (
+                session.query(PersonalFactRevision)
+                .filter_by(fact_id=fact_id)
+                .order_by(PersonalFactRevision.created_at.desc())
+                .all()
+            )
+            return [self._revision_to_dict(row) for row in revisions]
 
     # =================================================================
     # Connectors
@@ -690,12 +1034,12 @@ class _PostgresGuardianDB:
                 "name": config.name,
                 "type": config.type,
                 "settings": config.config,
-                "created_at": config.created_at.isoformat()
-                if config.created_at
-                else None,
-                "updated_at": config.updated_at.isoformat()
-                if config.updated_at
-                else None,
+                "created_at": (
+                    config.created_at.isoformat() if config.created_at else None
+                ),
+                "updated_at": (
+                    config.updated_at.isoformat() if config.updated_at else None
+                ),
             }
 
     def create_connector_config(
@@ -716,12 +1060,12 @@ class _PostgresGuardianDB:
                 "name": config.name,
                 "type": config.type,
                 "settings": config.config,
-                "created_at": config.created_at.isoformat()
-                if config.created_at
-                else None,
-                "updated_at": config.updated_at.isoformat()
-                if config.updated_at
-                else None,
+                "created_at": (
+                    config.created_at.isoformat() if config.created_at else None
+                ),
+                "updated_at": (
+                    config.updated_at.isoformat() if config.updated_at else None
+                ),
             }
 
     def update_connector_config(
@@ -743,12 +1087,16 @@ class _PostgresGuardianDB:
                 "name": connector.name,
                 "type": connector.type,
                 "settings": connector.config,
-                "created_at": connector.created_at.isoformat()
-                if connector.created_at
-                else None,
-                "updated_at": connector.updated_at.isoformat()
-                if connector.updated_at
-                else None,
+                "created_at": (
+                    connector.created_at.isoformat()
+                    if connector.created_at
+                    else None
+                ),
+                "updated_at": (
+                    connector.updated_at.isoformat()
+                    if connector.updated_at
+                    else None
+                ),
             }
 
     def create_connector_run(
@@ -1058,3 +1406,10 @@ class GuardianDB:
         GuardianDB APIs without having to re-declare each method.
         """
         return getattr(self._impl, name)
+
+
+def load_guardian_db_from_env() -> Optional[GuardianDB]:
+    db_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not db_url:
+        return None
+    return GuardianDB(db_url)

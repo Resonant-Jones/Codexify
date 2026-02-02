@@ -1,6 +1,7 @@
 """
 Imprint_Zero routes: proposal, acceptance, status, and system prompt summary.
 """
+
 from __future__ import annotations
 
 import logging
@@ -9,11 +10,13 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from codexify.imprints import store as imprint_store
-from codexify.personas import store as persona_store
-from codexify.system_docs import store as system_doc_store
-from codexify.system_prompt_builder import build_guardian_system_prompt
-from codexify.user_settings import store as user_settings_store
+from guardian.cognition.imprints import store as imprint_store
+from guardian.cognition.personas import store as persona_store
+from guardian.cognition.system_docs import store as system_doc_store
+from guardian.cognition.system_prompt_builder import (
+    build_guardian_system_prompt,
+)
+from guardian.cognition.user_settings import store as user_settings_store
 
 logger = logging.getLogger(__name__)
 
@@ -180,9 +183,9 @@ def create_imprint_proposal(body: dict[str, Any] = Body(default_factory=dict)):
 
     persona_text = (
         f"You are {name}, the Guardian assistant for this user inside Codexify. "
-        f"When the user asks for your name, always reply first with exactly \"{name}\". "
+        f'When the user asks for your name, always reply first with exactly "{name}". '
         "You may optionally add that you are their Guardian inside Codexify.\n\n"
-        f"Address the user as \"{preferred_name}\" when it feels natural. "
+        f'Address the user as "{preferred_name}" when it feels natural. '
         "Respond concisely, with clarity and kindness. Keep answers grounded; when unsure, ask a clarifying question."
     )
 

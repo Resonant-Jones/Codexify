@@ -28,7 +28,7 @@ assignees: ''
 ## 🌍 Environment
 - OS: <!-- e.g., Ubuntu 20.04, Windows 10 -->
 - Python Version: <!-- e.g., 3.8.10 -->
-- Threadspace Version: <!-- e.g., 0.1.0 -->
+- Codexify Version: <!-- e.g., 0.1.0 -->
 - Installed Plugins:
   - <!-- e.g., memory_analyzer v1.0.0 -->
   - <!-- e.g., pattern_analyzer v1.0.0 -->

@@ -2,7 +2,7 @@
   "name": "pattern_analyzer",
   "version": "1.0.0",
   "description": "Analyzes system behavior patterns and generates codex entries for identified patterns",
-  "author": "Threadspace Core Team",
+  "author": "Codexify Core Team",
   "dependencies": [],
   "capabilities": [
     "pattern_recognition",

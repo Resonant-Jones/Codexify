@@ -1,7 +1,7 @@
 """
 System Configuration Module
 ------------------------
-Central configuration management for the Threadspace system.
+Central configuration management for the Codexify system.
 Handles system-wide settings, paths, and operational parameters.
 """
 
@@ -24,7 +24,7 @@ class SystemConfig:
     # Default configuration values
     DEFAULT_CONFIG = {
         "system": {
-            "name": "Threadspace",
+            "name": "Codexify",
             "version": "0.1.0",
             "debug_mode": False,
             "log_level": "INFO",
