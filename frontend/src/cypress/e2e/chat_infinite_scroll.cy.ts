@@ -1,6 +1,9 @@
 describe("Chat infinite scroll", () => {
   beforeEach(() => {
-    const apiKey = Cypress.env("GUARDIAN_API_KEY") || "changeme";
+    const apiKey = Cypress.env("GUARDIAN_API_KEY");
+    if (!apiKey) {
+      throw new Error("GUARDIAN_API_KEY must be set for Cypress API requests.");
+    }
 
     cy.request({
       method: "POST",

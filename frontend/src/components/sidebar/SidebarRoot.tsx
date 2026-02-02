@@ -1,6 +1,6 @@
 import * as React from "react";
 import clsx from "clsx";
-import { Search, Plus, Menu } from "lucide-react";
+import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
@@ -25,9 +25,7 @@ type Props = {
   projects?: Project[];
   creatingThread?: boolean;
   onDeleteThread?: (threadId: string) => void;
-  onToggleCollapse?: () => void;
   onCreateProject?: (data: { name: string; icon?: string; color?: string }) => Promise<Project | void> | Project | void;
-  collapsed?: boolean;
 };
 
 function colorStringToRgba(input: string, alpha: number, fallback: string): string {
@@ -76,9 +74,7 @@ export default function SidebarRoot({
   projects = [],
   creatingThread,
   onDeleteThread,
-  onToggleCollapse,
   onCreateProject,
-  collapsed: collapsedProp,
 }: Props) {
   const [tab, setTab] = React.useState<"threads" | "projects">(() =>
     (typeof window === "undefined" ? "threads" : ((localStorage.getItem("cfy.sidebarTab") as any) || "threads"))
@@ -88,7 +84,7 @@ export default function SidebarRoot({
   const [toast, setToast] = React.useState<ActiveToast | null>(null);
   const [showProjectModal, setShowProjectModal] = React.useState(false);
   const [savingProject, setSavingProject] = React.useState(false);
-  const [collapsedLocal, setCollapsedLocal] = React.useState(false);
+  const [projectModalError, setProjectModalError] = React.useState<string | null>(null);
 
   const {
     threads: sidebarThreads,
@@ -119,8 +115,7 @@ export default function SidebarRoot({
   }, [currentProjectId, hookScopeLabel, projectList]);
 
   const effectiveLooseCount = looseCountFromProjects ?? looseCount;
-  const effectiveCollapsed = collapsedProp ?? collapsedLocal;
-  const columnClass = effectiveCollapsed ? "w-full px-2" : "w-full px-[5px]";
+  const columnClass = "w-full px-[5px]";
 
   const accentColor = React.useMemo(() => getComputedStyleVar("--accent", "#6B7280"), []);
   const successBg = React.useMemo(
@@ -173,14 +168,6 @@ export default function SidebarRoot({
     );
   }, [displayThreads, q]);
 
-  const handleToggleCollapse = React.useCallback(() => {
-    if (onToggleCollapse) {
-      onToggleCollapse();
-    } else {
-      setCollapsedLocal((prev) => !prev);
-    }
-  }, [onToggleCollapse]);
-
   const handleDelete = React.useCallback(
     async (id: string) => {
       await deleteThread(id);
@@ -210,24 +197,29 @@ export default function SidebarRoot({
   const handleCreateProject = React.useCallback(
     async (data: { name: string; icon?: string; color?: string }) => {
       const name = data.name.trim();
-      if (!name) return;
+      if (!name) {
+        setProjectModalError("Project name is required.");
+        return;
+      }
       setSavingProject(true);
+      setProjectModalError(null);
       try {
         let created: Project | void | undefined;
         if (onCreateProject) {
           created = await onCreateProject(data);
         } else {
-          const resp = await api.post("/projects", { name, description: "" });
+          const icon = data.icon?.trim() || "📁";
+          const resp = await api.post("/projects", { name, icon, description: "" });
           const payload = resp?.data ?? {};
           const createdId = payload?.id ?? payload?.project_id;
           if (createdId) {
-            created = { id: String(createdId), name, icon: data.icon };
+            created = { id: String(createdId), name, icon };
           }
         }
         const newProj: Project =
           created && (created as any).id
             ? { id: String((created as any).id), name: (created as any).name ?? name, icon: (created as any).icon ?? data.icon }
-            : { id: `local-${Date.now()}`, name, icon: data.icon };
+            : { id: `local-${Date.now()}`, name, icon: data.icon?.trim() || "📁" };
 
         setProjectList((prev) => {
           const exists = prev.some((p) => p.id === newProj.id || p.name === newProj.name);
@@ -240,6 +232,13 @@ export default function SidebarRoot({
         setShowProjectModal(false);
         await refreshProjectsFromServer();
         setTimeout(() => { void refreshProjectsFromServer(); }, 600);
+      } catch (err: any) {
+        const message =
+          err?.response?.data?.message
+          || err?.response?.data?.detail
+          || err?.message
+          || "Failed to create project.";
+        setProjectModalError(message);
       } finally {
         setSavingProject(false);
       }
@@ -251,7 +250,7 @@ export default function SidebarRoot({
     <div
       className={clsx(
         "flex min-h-0 h-full flex-col gap-3 transition-[width] duration-300",
-        effectiveCollapsed ? "items-center" : "items-stretch"
+        "items-stretch"
       )}
       style={{ color: "var(--text)" }}
     >
@@ -272,103 +271,105 @@ export default function SidebarRoot({
       )}
 
       <div
-        className="flex flex-col min-h-0 flex-1 gap-3 rounded-[calc(19px-3px)]"
+        className="flex flex-col min-h-0 flex-1 gap-3 rounded-[var(--card-radius)]"
         style={{
           background: "var(--panel-sheet, #1f1f1f)",
           border: "1px solid var(--panel-border, rgba(255,255,255,0.08))",
           color: "inherit",
+          overflow: "hidden",
         }}
       >
-        <div className={clsx("flex items-center gap-[14px]", effectiveCollapsed ? "w-full px-2" : "w-full px-[5px]")}>
-          <button type="button" className="icon-inline" aria-label="Collapse sidebar" onClick={handleToggleCollapse}>
-            <Menu className="h-5 w-5" />
-          </button>
-          {!effectiveCollapsed && (
-            <div className="flex-1 flex justify-center mt-[3px]">
-              <div className="glass-pill" role="tablist" aria-label="Sidebar tabs">
-                <button
-                  role="tab"
-                  className="pill-tab text-xs"
-                  data-state={tab === "threads" ? "active" : undefined}
-                  onClick={() => setTab("threads")}
-                  onKeyDown={(e) => {
-                    if (e.key === "ArrowRight" || e.key === "ArrowDown") setTab("projects");
-                  }}
-                >
-                  Threads
-                </button>
-                <button
-                  role="tab"
-                  className="pill-tab text-xs"
-                  data-state={tab === "projects" ? "active" : undefined}
-                  onClick={() => setTab("projects")}
-                  onKeyDown={(e) => {
-                    if (e.key === "ArrowLeft" || e.key === "ArrowUp") setTab("threads");
-                  }}
-                >
-                  Projects
-                </button>
-              </div>
-              {legacyEnabled && (
-                <button
-                  type="button"
-                  className="pill-tab text-xs ml-2"
-                  onClick={openLegacy}
-                  title="Browse legacy conversation trees"
-                >
-                  Legacy
-                </button>
-              )}
+        <div className="flex items-center gap-[14px] w-full px-[5px]">
+          <div className="flex-1 flex justify-center mt-[3px]">
+            <div className="glass-pill" role="tablist" aria-label="Sidebar tabs">
+              <button
+                role="tab"
+                className="pill-tab text-xs"
+                data-testid="sidebar-threads-tab"
+                data-state={tab === "threads" ? "active" : undefined}
+                onClick={() => setTab("threads")}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowRight" || e.key === "ArrowDown") setTab("projects");
+                }}
+              >
+                Threads
+              </button>
+              <button
+                role="tab"
+                className="pill-tab text-xs"
+                data-testid="sidebar-projects-tab"
+                data-state={tab === "projects" ? "active" : undefined}
+                onClick={() => setTab("projects")}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft" || e.key === "ArrowUp") setTab("threads");
+                }}
+              >
+                Projects
+              </button>
             </div>
-          )}
+            {legacyEnabled && (
+              <button
+                type="button"
+                className="pill-tab text-xs ml-2"
+                onClick={openLegacy}
+                title="Browse legacy conversation trees"
+              >
+                Legacy
+              </button>
+            )}
+          </div>
         </div>
 
-        {!effectiveCollapsed && (
-          <>
-            <div className={clsx("relative", columnClass, tab === "projects" && "mb-[5px]")}>
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60" />
-              <Input
-                className="pl-9 pr-3 h-9 rounded-xl"
-                placeholder={tab === "projects" ? "Search projects…" : "Search threads…"}
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                style={{ background: "transparent", borderColor: "var(--panel-border)", color: "var(--text)" }}
-              />
-            </div>
+        <div className={clsx("relative", columnClass, tab === "projects" && "mb-[5px]")}>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60" />
+          <Input
+            className="pl-9 pr-3 h-9 rounded-xl"
+            placeholder={tab === "projects" ? "Search projects…" : "Search threads…"}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ background: "transparent", borderColor: "var(--panel-border)", color: "var(--text)" }}
+          />
+        </div>
 
-            {tab === "projects" ? (
-              <ProjectList
-                projects={projectList}
-                search={q}
-                looseCount={effectiveLooseCount}
-                currentId={currentProjectId}
-                onPick={(id) => { setScope(id); setTab("threads"); }}
-                onOpenNewProject={() => setShowProjectModal(true)}
-                className={clsx("flex-1 min-h-0 mt-[5px]", columnClass)}
-              />
-            ) : (
-              <ThreadList
-                threads={filteredThreads}
-                activeId={activeId}
-                scopeLabel={scopeLabel}
-                onSelect={onSelect}
-                onNewChat={onNewChat}
-                creatingThread={creatingThread}
-                onRename={renameThread}
-                onArchiveToggle={handleArchiveToggle}
-                onDelete={handleDelete}
-                className={clsx("flex-1 min-h-0", columnClass)}
-              />
-            )}
-          </>
+        {tab === "projects" ? (
+          <ProjectList
+            projects={projectList}
+            search={q}
+            looseCount={effectiveLooseCount}
+            currentId={currentProjectId}
+            onPick={(id) => { setScope(id); setTab("threads"); }}
+            onOpenNewProject={() => {
+              setProjectModalError(null);
+              setShowProjectModal(true);
+            }}
+            className={clsx("flex-1 min-h-0 mt-[5px]", columnClass)}
+          />
+        ) : (
+          <ThreadList
+            threads={filteredThreads}
+            activeId={activeId}
+            scopeLabel={scopeLabel}
+            onSelect={onSelect}
+            onNewChat={onNewChat}
+            creatingThread={creatingThread}
+            onRename={renameThread}
+            onArchiveToggle={handleArchiveToggle}
+            onDelete={handleDelete}
+            className={clsx("flex-1 min-h-0", columnClass)}
+          />
         )}
       </div>
 
       <CreateProjectModal
         open={showProjectModal}
-        onClose={() => setShowProjectModal(false)}
+        onClose={() => {
+          if (savingProject) return;
+          setShowProjectModal(false);
+          setProjectModalError(null);
+        }}
         onCreateProject={handleCreateProject}
         isSaving={savingProject}
+        error={projectModalError}
       />
     </div>
   );

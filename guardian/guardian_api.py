@@ -40,7 +40,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -51,8 +51,8 @@ logger = logging.getLogger(__name__)
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
 from guardian.core.config import get_settings
+from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
-    API_KEY,
     ENABLE_CONNECTOR_WORKER,
     ENABLE_OUTBOX,
     allowed_origins,
@@ -90,11 +90,20 @@ except Exception:
 # Load environment files
 dependencies._load_env_chain()
 
+# Resolve API key after dotenv load (no silent fallback)
+api_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
+dependencies.API_KEY = api_key
+if not api_key:
+    logger.error(
+        "[auth] GUARDIAN_API_KEY is missing. Set it in .env to start the backend."
+    )
+    raise SystemExit("GUARDIAN_API_KEY is required")
+
 # Log API key (masked)
 _mask = (
-    (API_KEY[:4] + "…" + API_KEY[-4:])
-    if API_KEY and len(API_KEY) > 8
-    else API_KEY
+    (api_key[:4] + "…" + api_key[-4:])
+    if api_key and len(api_key) > 8
+    else api_key
 )
 logger.info("[auth] Using GUARDIAN_API_KEY=%s", _mask)
 
@@ -114,7 +123,10 @@ from guardian.realtime import collaboration
 from guardian.routes import (
     admin,
     agent,
+    backfill,
+    devtools,
     documents,
+    embeddings,
     federation,
     health,
     memory,
@@ -135,6 +147,7 @@ from guardian.routes.imprint import router as imprint_router
 from guardian.routes.imprint import system_docs_router, system_prompt_router
 from guardian.routes.media import router as media_router
 from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
+from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import ensure_loose_threads_project
 from guardian.routes.projects import router as projects_router
 from guardian.routes.tools import router as tools_router
@@ -182,6 +195,18 @@ async def app_lifespan(app: FastAPI):
     memory.bind_dependencies(
         chatlog_db_instance=db, require_api_key_func=require_api_key
     )
+
+    guardian_db = None
+    try:
+        guardian_db = load_guardian_db_from_env()
+    except Exception as exc:
+        logger.warning("[startup] GuardianDB init failed: %s", exc)
+    if guardian_db:
+        documents.configure_db(guardian_db)
+        share.configure_db(guardian_db)
+        logger.info(
+            "[startup] GuardianDB configured for documents/share routes"
+        )
 
     # Configure durable outbox storage
     if ENABLE_OUTBOX:
@@ -239,24 +264,12 @@ async def app_lifespan(app: FastAPI):
         local_llm_model = os.getenv("LOCAL_LLM_MODEL") or getattr(
             settings, "LOCAL_LLM_MODEL", None
         )
-        local_embed_model = (
-            os.getenv("LOCAL_EMBED_MODEL")
-            or os.getenv("LOCAL_EMBEDDING_MODEL")
-            or getattr(settings, "LOCAL_EMBEDDING_MODEL", None)
-        )
+        local_embed_model = os.getenv("LOCAL_EMBED_MODEL")
 
         def _norm_model(name: Optional[str]) -> str:
             return str(name or "").strip().lower()
 
-        embed_models = {
-            _norm_model(local_embed_model),
-            _norm_model(os.getenv("LOCAL_EMBED_MODEL")),
-            _norm_model(os.getenv("LOCAL_EMBEDDING_MODEL")),
-            _norm_model(os.getenv("LOCAL_EMBEDDER_MODEL")),
-            _norm_model(os.getenv("EMBEDDING_MODEL")),
-            _norm_model(os.getenv("CODEXIFY_LOCAL_MODEL")),
-            _norm_model(getattr(settings, "LOCAL_EMBEDDING_MODEL", None)),
-        }
+        embed_models = {_norm_model(local_embed_model)}
         embed_models.discard("")
 
         models = []
@@ -329,9 +342,62 @@ app = FastAPI(
 )
 
 
+def _get_request_id(request: Request) -> str:
+    request_id = getattr(request.state, "request_id", None)
+    if request_id:
+        return request_id
+    header_id = request.headers.get("X-Request-ID")
+    if header_id:
+        request.state.request_id = header_id
+        return header_id
+    request_id = str(uuid4())
+    request.state.request_id = request_id
+    return request_id
+
+
 # =========================
 # Middleware Configuration
 # =========================
+
+
+# Request-id middleware
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = _get_request_id(request)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    request_id = _get_request_id(request)
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "request_id": request_id},
+        headers=getattr(exc, "headers", None),
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    request_id = _get_request_id(request)
+    logger.exception(
+        "[error] Unhandled exception request_id=%s method=%s path=%s query_params=%s",
+        request_id,
+        request.method,
+        request.url.path,
+        dict(request.query_params),
+    )
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "request_id": request_id},
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 
 # CORS middleware
 app.add_middleware(
@@ -375,11 +441,14 @@ app.include_router(imprint_router)
 app.include_router(system_prompt_router)
 app.include_router(system_docs_router)
 app.include_router(iddb_router)
+app.include_router(backfill.router)
+app.include_router(embeddings.router)
 
 # Core feature routers
 app.include_router(threads.router)
 app.include_router(projects_router)
 app.include_router(memory.router)
+app.include_router(personal_facts_router)
 app.include_router(agent.router, prefix="/agent")
 app.include_router(research.router, prefix="/research")
 app.include_router(documents.router)
@@ -393,6 +462,7 @@ app.include_router(exports_router)
 app.include_router(codex_router)
 app.include_router(codexify_router)
 app.include_router(migration.router)
+app.include_router(devtools.router)
 
 logger.info("[routers] All routers included")
 
@@ -400,6 +470,25 @@ logger.info("[routers] All routers included")
 # =========================
 # Unique Endpoints (Not in Routers)
 # =========================
+
+
+# Compatibility aliases for legacy codex routes
+@app.get("/codex/entries", include_in_schema=False)
+def codex_entries_compat():
+    """Compatibility alias for legacy clients; redirect to the canonical /api route."""
+    return RedirectResponse(url="/api/codex/entries")
+
+
+@app.get("/codex/entries/{entry_id}", include_in_schema=False)
+def codex_entry_compat(entry_id: str):
+    """Compatibility alias for legacy clients; redirect to the canonical /api route."""
+    return RedirectResponse(url=f"/api/codex/entries/{entry_id}")
+
+
+@app.get("/codex/entries/{entry_id}/export", include_in_schema=False)
+def codex_entry_export_compat(entry_id: str):
+    """Compatibility alias for legacy clients; redirect to the canonical /api route."""
+    return RedirectResponse(url=f"/api/codex/entries/{entry_id}/export")
 
 
 @app.get("/api/events", tags=["Events"])

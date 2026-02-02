@@ -16,13 +16,13 @@ interface DocumentsViewProps {
 
 /**
  * DocumentsView
- * 
+ *
  * Structure:
  * - FrameCard wrapper (glass + bezel)
  *   - Header (title + pill tabs)
  *   - Content area (scrollable grid of documents)
  *   - Footer (upload UI + controls)
- * 
+ *
  * Layout principle: fill parent completely, no internal card nesting
  */
 export default function DocumentsView({
@@ -36,7 +36,14 @@ export default function DocumentsView({
   const [behavior, setBehavior] = useState<"workspace" | "thread">(defaultBehavior);
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [menu, setMenu] = useState<{x:number;y:number;doc?:DocumentLike}|null>(null);
-  
+
+  const handleGenerateDocument = () => {
+    if (typeof window === "undefined") return;
+    try {
+      window.dispatchEvent(new CustomEvent("cfy:documents:generate"));
+    } catch {}
+  };
+
   const uploader = useUploader({
     tag: "upload",
     onImages: () => {},
@@ -63,7 +70,7 @@ export default function DocumentsView({
   };
 
   const docItems = useMemo(() => (hideMocks ? (documents ?? []).filter(d => !d.mock) : (documents ?? [])), [documents, hideMocks]);
-  
+
   const pills = [
     { key: "workspace" as const, label: "Open in Workspace" },
     { key: "thread" as const, label: "Open in Thread" },
@@ -76,23 +83,32 @@ export default function DocumentsView({
         {/* Header: Title + Controls */}
         <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] py-4">
           <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>Documents</h2>
-          <div className="glass-pill h-auto py-[3px] px-[6px]">
-            {pills.map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                className="pill-tab text-xs"
-                data-state={behavior === key ? "active" : undefined}
-                onClick={() => setBehavior(key)}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="glass-pill h-auto py-[3px] px-[6px]">
+              {pills.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="pill-tab text-xs"
+                  data-state={behavior === key ? "active" : undefined}
+                  onClick={() => setBehavior(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="text-xs underline hover:opacity-80"
+              onClick={handleGenerateDocument}
+            >
+              Generate Document
+            </button>
           </div>
         </div>
 
         {/* Content Area: Scrollable document grid */}
-        <div 
+        <div
           className="flex-1 min-h-0 overflow-auto py-4"
           onDrop={uploader.onDrop}
           onDragOver={uploader.onDragOver}
@@ -119,13 +135,18 @@ export default function DocumentsView({
                     }}
                   >
                     <DocumentTile
-                      file={{ name: d.title, ext: d.ext }}
+                      file={{
+                        name: d.title,
+                        ext: d.ext,
+                        embeddingStatus: d.embeddingStatus,
+                        embeddingError: d.embeddingError,
+                      }}
                       onClick={() => handleDocumentClick(d)}
                     />
                     {d.mock && (
-                      <span 
+                      <span
                         className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border"
-                        style={{ 
+                        style={{
                           background: "rgba(255,255,255,0.2)",
                           color: "#111",
                           borderColor: "rgba(255,255,255,0.5)"
@@ -145,8 +166,8 @@ export default function DocumentsView({
         <div className="flex-shrink-0 flex items-center justify-between gap-2 border-t border-[var(--panel-border)] py-4 text-xs" style={{ color: "var(--muted)" }}>
           <div className="flex items-center gap-2">
             <span>Drag & drop files here, or</span>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="underline hover:opacity-80"
               onClick={uploader.pick}
             >
@@ -154,9 +175,9 @@ export default function DocumentsView({
             </button>
           </div>
           <label className="flex items-center gap-2 cursor-pointer hover:opacity-80">
-            <input 
-              type="checkbox" 
-              checked={hideMocks} 
+            <input
+              type="checkbox"
+              checked={hideMocks}
               onChange={(e) => {
                 setHideMocks(e.target.checked);
                 try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {}
@@ -181,9 +202,9 @@ export default function DocumentsView({
                   onDeleteDocument(menu.doc!);
                 },
               }] : []),
-              { 
-                label: hideMocks ? "Show Mock Items" : "Hide Mock Items", 
-                onClick: () => { 
+              {
+                label: hideMocks ? "Show Mock Items" : "Hide Mock Items",
+                onClick: () => {
                   const v = !hideMocks;
                   setHideMocks(v);
                   try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {}

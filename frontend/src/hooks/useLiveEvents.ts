@@ -1,3 +1,6 @@
+/**
+ * useLiveEvents - shared SSE hook that enforces semantic-only state updates.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GuardianEventSource } from "@/lib/guardianEventSource";
 import { GUARDIAN_API_BASE, GUARDIAN_API_KEY } from "@/lib/env";
@@ -57,6 +60,17 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
 
   const streamUrl = useMemo(() => combineBaseAndPath(GUARDIAN_API_BASE, EVENT_ENDPOINT), []);
 
+  const isSameEvent = useCallback((prev: LiveEvent | null, next: LiveEvent) => {
+    if (!prev) return false;
+    if (prev.id && next.id && prev.id === next.id) return true;
+    if (prev.type !== next.type) return false;
+    try {
+      return JSON.stringify(prev.data) === JSON.stringify(next.data);
+    } catch {
+      return false;
+    }
+  }, []);
+
   // Debounced connected state update to prevent rapid flapping
   const flushConnected = useCallback(() => {
     if (isUnmountedRef.current) return;
@@ -66,7 +80,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       setConnected(next);
     }
     pendingConnectedRef.current = null;
-  }, []);
+  }, [isSameEvent]);
 
   const updateConnected = useCallback((next: boolean) => {
     if (isUnmountedRef.current) return;
@@ -89,7 +103,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
   const flushLastEvent = useCallback(() => {
     if (isUnmountedRef.current) return;
     const payload = pendingLastEventRef.current;
-    if (payload) {
+    if (payload && !isSameEvent(lastEventRef.current, payload)) {
       setLastEvent(payload);
     }
   }, []);
@@ -120,12 +134,18 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     })();
     const url = `${streamUrl}?last_id=${lastId}`;
 
+    // Only send an API key header when we actually have a key.
+    // Sending an empty X-API-Key causes noisy 401s and prevents proxy-based auth injection.
+    const headers: Record<string, string> = {
+      Accept: "text/event-stream",
+      "Cache-Control": "no-cache",
+    };
+    if (GUARDIAN_API_KEY) {
+      headers["X-API-Key"] = GUARDIAN_API_KEY;
+    }
+
     const eventSource = new GuardianEventSource(url, {
-      headers: {
-        "X-API-Key": GUARDIAN_API_KEY || "",
-        "Accept": "text/event-stream",
-        "Cache-Control": "no-cache",
-      },
+      headers,
       withCredentials: false,
     });
     let isCancelled = false;
@@ -150,8 +170,11 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       try {
         if (payload.id) localStorage.setItem("cfy.events.lastId", String(payload.id));
       } catch {}
-      lastEventRef.current = payload;
       updateConnected(true);
+      if (isSameEvent(lastEventRef.current, payload)) {
+        return;
+      }
+      lastEventRef.current = payload;
       if (!passive) {
         scheduleLastEventUpdate(payload);
       }
@@ -214,7 +237,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     };
     // Note: updateConnected and scheduleLastEventUpdate are intentionally omitted from deps
     // as they are stable refs and including them would cause unnecessary reconnections
-  }, [passive, streamUrl]);
+  }, [passive, streamUrl, isSameEvent]);
 
   const subscribe = useCallback(
     (eventType: string, handler: (event: LiveEvent) => void) => {

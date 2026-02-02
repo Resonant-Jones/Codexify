@@ -15,7 +15,9 @@ except Exception:
 
 
 _DEFAULT_CHAT = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
-_DEFAULT_EMB = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+_DEFAULT_EMB = os.getenv("OPENAI_EMBED_MODEL") or os.getenv(
+    "OPENAI_EMBEDDING_MODEL"
+)
 
 
 class OpenAIChat(ChatProvider):
@@ -72,6 +74,10 @@ class OpenAIEmbeddings(EmbeddingsProvider):
         self, texts: List[str], model: Optional[str] = None, **kw
     ) -> List[List[float]]:
         model = model or _DEFAULT_EMB
+        if not model:
+            raise ValueError(
+                "OPENAI_EMBED_MODEL or OPENAI_EMBEDDING_MODEL is required for OpenAI embeddings."
+            )
         r = self.client.embeddings.create(
             model=model, input=texts, timeout=self.timeout, **kw
         )

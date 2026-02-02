@@ -1,4 +1,5 @@
 # guardian/core/client_factory.py
+import os
 from functools import lru_cache
 
 # Import embedders
@@ -43,11 +44,18 @@ def get_memoryos_instance() -> Memoryos:
     if settings.EMBEDDER_PROVIDER == "local":
         embedder = LocalEmbedder()
     elif settings.EMBEDDER_PROVIDER == "openai":
+        model = (
+            os.getenv("OPENAI_EMBED_MODEL")
+            or os.getenv("OPENAI_EMBEDDING_MODEL")
+            or (settings.EMBEDDING_MODEL or "")
+        ).strip()
+        if not model:
+            raise ValueError(
+                "OpenAI embedder requires OPENAI_EMBED_MODEL or OPENAI_EMBEDDING_MODEL."
+            )
         embedder = OpenAIEmbedder(
             api_key=settings.OPENAI_API_KEY,
-            model=getattr(
-                settings, "EMBEDDING_MODEL", "text-embedding-3-small"
-            ),
+            model=model,
         )
     else:
         raise ValueError(

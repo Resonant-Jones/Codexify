@@ -5,10 +5,13 @@
  * Uses the backend's configurable provider system (Ollama, DALL-E, Stability, Replicate).
  */
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import api from "@/lib/api";
+
+const DEFAULT_MODELS = ["dall-e-3", "dall-e-2", "sdxl"];
 
 interface ImageGenModalProps {
   open: boolean;
@@ -19,6 +22,23 @@ interface ImageGenModalProps {
 
 export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGenModalProps) {
   const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_MODELS[0];
+    const configured = (window as any).__imageGenModel;
+    if (typeof configured === "string" && configured.trim()) {
+      return configured.trim();
+    }
+    return DEFAULT_MODELS[0];
+  });
+  const modelOptions = useMemo(() => {
+    if (typeof window === "undefined") return DEFAULT_MODELS;
+    const provided = (window as any).__imageGenModels;
+    if (!Array.isArray(provided)) return DEFAULT_MODELS;
+    const cleaned = provided
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter((item) => item);
+    return cleaned.length ? Array.from(new Set(cleaned)) : DEFAULT_MODELS;
+  }, []);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +50,11 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
       setError("Please enter a prompt");
       return;
     }
+    const trimmedModel = model.trim();
+    if (!trimmedModel) {
+      setError("Please select a model");
+      return;
+    }
 
     setGenerating(true);
     setError(null);
@@ -37,6 +62,7 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
     try {
       const response = await api.post("/api/media/generate/image", {
         prompt: trimmed,
+        model: trimmedModel,
         project_id: 1,  // Default project
         thread_id: 1,   // Default thread
         user_id: "default"
@@ -49,15 +75,16 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
 
         // Broadcast success for gallery refresh
         try {
-          window.dispatchEvent(new CustomEvent("cfy:gallery:add", {
-            detail: {
-              items: [{
-                src: imageUrl,
-                prompt: trimmed,
-                mock: false
-              }]
-            }
-          }));
+              window.dispatchEvent(new CustomEvent("cfy:gallery:add", {
+                detail: {
+                  items: [{
+                    src: imageUrl,
+                    prompt: trimmed,
+                    mock: false,
+                    tag: "generated"
+                  }]
+                }
+              }));
         } catch {}
 
         // Show success toast
@@ -108,7 +135,7 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
           </p>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           <label className="text-sm font-medium" htmlFor="imagePrompt">
             Prompt
           </label>
@@ -131,6 +158,33 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
             Provider: {(window as any).__imageGenProvider || "Auto (from config)"}
           </div>
         </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="imageModel">
+            Model
+          </label>
+          <Input
+            id="imageModel"
+            list="imageModelOptions"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder={DEFAULT_MODELS[0]}
+            className="rounded-[var(--tile-radius)]"
+            style={{
+              background: "transparent",
+              borderColor: "var(--panel-border)",
+              color: "var(--text)",
+            }}
+            disabled={generating}
+          />
+          <datalist id="imageModelOptions">
+            {modelOptions.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
+          <div className="text-xs opacity-60">
+            Defaults to {DEFAULT_MODELS[0]} unless configured.
+          </div>
+        </div>
 
         {error && (
           <div className="text-sm font-medium text-red-400 bg-red-400/10 rounded-lg px-3 py-2">
@@ -151,7 +205,7 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
           <Button
             type="submit"
             className="rounded-full px-4"
-            disabled={generating || !prompt.trim()}
+            disabled={generating || !prompt.trim() || !model.trim()}
           >
             {generating ? (
               <>

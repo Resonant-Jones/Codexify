@@ -4,7 +4,7 @@ import os
 import pytest
 
 # pick up the same key your server uses
-VALID_KEY = os.getenv("GUARDIAN_API_KEY", "invalid-by-default")
+VALID_KEY = os.environ["GUARDIAN_API_KEY"]
 
 
 @pytest.mark.parametrize(

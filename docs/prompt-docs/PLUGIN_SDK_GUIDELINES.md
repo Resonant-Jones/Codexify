@@ -1,12 +1,12 @@
 
 
-# ThreadSpace Plugin SDK Guidelines
+# Codexify Plugin SDK Guidelines
 
-This document outlines the expectations for developers who wish to create plugins for the ThreadSpace ecosystem.
+This document outlines the expectations for developers who wish to create plugins for the Codexify ecosystem.
 
 ## ✅ Minimum Requirements
 
-- Use the official ThreadSpace Plugin SDK and implement MCP (Model Context Protocol) integration.
+- Use the official Codexify Plugin SDK and implement MCP (Model Context Protocol) integration.
 - Follow the coding standards and error handling conventions defined by GuardianOS.
 - Ensure your plugin is modular and does not interfere with other plugins.
 - Provide clear logs and respect symbolic coherence.
@@ -19,7 +19,7 @@ This document outlines the expectations for developers who wish to create plugin
 ## 🔑 Official Endorsement Benefits
 
 - Inclusion in the Codexify Cloud Plugin Directory.
-- Optional access to ThreadSpace-hosted inference infrastructure.
+- Optional access to Codexify-hosted inference infrastructure.
 - Eligibility for revenue sharing and unified billing.
 
 ## 🗝️ Review Process

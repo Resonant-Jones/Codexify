@@ -1,17 +1,32 @@
+import logging
+import os
+
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions.ollama_embedding_function import (
     OllamaEmbeddingFunction,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class VectorSearch:
     def __init__(
         self,
-        model: str = "library2/embeddinggemma:300m-bf16",
+        model: str | None = None,
         name="new_collection",
         path: str = "./db",
     ):
+        if model:
+            logger.warning(
+                "[rag] model override ignored; use LOCAL_EMBED_MODEL"
+            )
+        model = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
+        if not model:
+            raise ValueError(
+                "LOCAL_EMBED_MODEL is not set for Ollama embeddings."
+            )
+        logger.info("[rag] local embedding model=%s", model)
         self.client = chromadb.PersistentClient(
             path=path, settings=Settings(allow_reset=True)
         )

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -38,7 +38,7 @@ def test_save_entry_filename_prefix_and_template(monkeypatch):
         api, "build_drive_service", lambda logger=None: object()
     )
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     req = api.SaveEntryRequest(
         title="Test Title", body="Body", format="md", dry_run=False
     )
@@ -53,7 +53,7 @@ def test_export_engine_default_filename_template(monkeypatch):
     monkeypatch.setenv("CODEXIFY_FILENAME_TEMPLATE", "{date}_{slug}.{ext}")
     from guardian import export_engine as ee
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     # Dummy service to capture file metadata
     class _FilesReq:

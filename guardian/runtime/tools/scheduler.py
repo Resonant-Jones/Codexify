@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class _GuardianScheduler:
         if self._scheduler is not None:
             if trigger == "cron" and "next_run_time" not in kwargs:
                 # Execute once right after startup so tests and telemetry see output.
-                kwargs["next_run_time"] = datetime.now()
+                kwargs["next_run_time"] = datetime.now(timezone.utc)
             job = self._scheduler.add_job(func, trigger, *args, **kwargs)
             logger.info('Added job "%s" (trigger=%s)', job_id, trigger)
             return job

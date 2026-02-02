@@ -204,9 +204,9 @@ plugins/system_diagnostics/tests/test_system_diagnostics.py::test_diagnostic_loo
 👑 CREDITS  
 ─────────────────────────────  
 🧩 **Patch Author:** BLACKBOXAI  
-🧩 **Codex Companion:** Axis • ThreadSpace  
+🧩 **Codex Companion:** Axis • Codexify  
 🧩 **Version:** Guardian Backend 2.0  
 🧩 **Powered by:** MemoryOS + Codexify MCP  
 
 ─────────────────────────────  
-#Guardian #PytestFix #ThreadSpaceCodex #PatchSweep #COMPLETED
+#Guardian #PytestFix #CodexifyCodex #PatchSweep #COMPLETED

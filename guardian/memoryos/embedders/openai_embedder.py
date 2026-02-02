@@ -14,14 +14,13 @@ logger = logging.getLogger(__name__)
 class OpenAIEmbedder:
     """
     Embedder that uses OpenAI's embedding API to generate text embeddings.
-    Supports various OpenAI embedding models including text-embedding-3-small,
-    text-embedding-3-large, and text-embedding-ada-002.
+    The embedding model is resolved from environment variables or explicit args.
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "text-embedding-3-small",
+        model: Optional[str] = None,
     ):
         """
         Initialize OpenAI embedder.
@@ -31,9 +30,16 @@ class OpenAIEmbedder:
             model: OpenAI embedding model to use
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model or os.getenv(
-            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
-        )
+        self.model = (
+            model
+            or os.getenv("OPENAI_EMBEDDING_MODEL")
+            or os.getenv("OPENAI_EMBED_MODEL")
+            or ""
+        ).strip()
+        if not self.model:
+            raise ValueError(
+                "OpenAI embedder requires OPENAI_EMBED_MODEL or OPENAI_EMBEDDING_MODEL."
+            )
 
         if not self.api_key:
             raise ValueError(
@@ -98,13 +104,9 @@ class OpenAIEmbedder:
         Returns:
             int: Dimension of embedding vectors
         """
-        # OpenAI embedding dimensions
-        dimensions = {
-            "text-embedding-3-small": 1536,
-            "text-embedding-3-large": 3072,
-            "text-embedding-ada-002": 1536,
-        }
-        return dimensions.get(self.model, 1536)
+        raise NotImplementedError(
+            "Embedding dimension is model-dependent; infer from live embeddings instead of fixed mappings."
+        )
 
     def __repr__(self):
         return f"OpenAIEmbedder(model='{self.model}')"

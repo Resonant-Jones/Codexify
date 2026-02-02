@@ -1,15 +1,16 @@
 """
 Identity/Memory settings routes.
 
-Thin wrapper over codexify.user_settings.store.
+Thin wrapper over guardian.cognition.user_settings.store.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict
 
 from fastapi import APIRouter, Body, HTTPException
 
-from codexify.user_settings import store as user_settings_store
+from guardian.cognition.user_settings import store as user_settings_store
 
 router = APIRouter(prefix="/api/iddb", tags=["IdentitySettings"])
 

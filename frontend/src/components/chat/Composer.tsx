@@ -26,7 +26,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Sparkles } from "lucide-react";
+import { Send, Sparkles, ImagePlus, Paperclip, X, FileText } from "lucide-react";
 import { ModelProvider } from "@/Providers/ModelProvider";
 import api from "@/lib/api";
 
@@ -43,6 +43,55 @@ function readCssVar(name: string, fallback: string) {
   if (typeof window === "undefined") return fallback;
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return v || fallback;
+}
+
+
+function inferProjectIdFromLocation(fallback = 1): number {
+  if (typeof window === "undefined") return fallback;
+  const path = window.location.pathname || "";
+  // Common shapes: /projects/:id, /project/:id, /p/:id
+  const m = path.match(/\/(?:projects?|p)\/(\d+)/i);
+  if (!m) return fallback;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function toAbsoluteMediaUrl(srcUrl: string) {
+  if (!srcUrl) return srcUrl;
+  if (srcUrl.startsWith("http://") || srcUrl.startsWith("https://")) return srcUrl;
+
+  // Prefer the API base if present; otherwise fall back to same-origin.
+  const base = (import.meta as any)?.env?.VITE_API_BASE_URL || "";
+  if (base) return `${base}${srcUrl.startsWith("/") ? "" : "/"}${srcUrl}`;
+
+  if (typeof window === "undefined") return srcUrl;
+  const origin = window.location.origin;
+  return `${origin}${srcUrl.startsWith("/") ? "" : "/"}${srcUrl}`;
+}
+
+function buildChatAttachmentMessage(args: {
+  kind: "image" | "document";
+  src_url: string;
+  filename: string;
+  id?: string;
+  text?: string;
+}): string {
+  const { kind, src_url, filename, id, text } = args;
+  const abs = toAbsoluteMediaUrl(src_url);
+
+  // Primary marker is used by the backend worker to resolve media in the DB.
+  // NOTE: this must remain `cfy-media:<kind>:<uuid>` for the worker regex.
+  const media = id ? `<!-- cfy-media:${kind}:${id} -->` : "";
+
+  // UI-only metadata: ChatBubble will read these to render a polished attachment tile.
+  // These are hidden comments (never shown to users).
+  const src = abs ? `<!-- cfy-media-src:${abs} -->` : "";
+  const name = filename ? `<!-- cfy-media-name:${filename} -->` : "";
+
+  const body = (text || "").trim();
+
+  // Message content MUST be non-empty; if there is no body text, keep at least the primary marker.
+  return [media || "<!-- cfy-media:missing-id -->", src, name, body].filter(Boolean).join("\n\n").trim();
 }
 
 
@@ -72,7 +121,7 @@ export function Composer({
   onPrefillConsumed,
   threadId,
 }: {
-  onSend: (t: string) => void;
+  onSend: (t: string) => void | Promise<void>;
   prefill?: string;
   onPrefillConsumed?: () => void;
   threadId?: number;
@@ -91,6 +140,31 @@ export function Composer({
   });
   const [sending, setSending] = useState(false);
   const prevKeyRef = useRef<string | null>(storageKey);
+
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  type DraftAttachment = {
+    id: string;
+    file: File;
+    kind: "image" | "document";
+    previewUrl?: string; // only for images
+  };
+
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
+
+  // Revoke blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      for (const a of draftAttachments) {
+        if (a.previewUrl) {
+          try { URL.revokeObjectURL(a.previewUrl); } catch {}
+        }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-resize helper: expand textarea to fit content but cap at ~40vh
   const autoResize = useCallback(() => {
@@ -153,22 +227,170 @@ export function Composer({
     autoResize();
   }, [value, autoResize]);
 
-  // Send handler: optimistic send (sets sending=true), clears input.
-  // Consider awaiting a promise from onSend if you want server-confirmed sends.
-  function send() {
-    const v = value.trim();
-    if (!v) return;
-    setSending(true);
-    onSend(v);
-    setValue("");
-    if (storageKey && typeof window !== "undefined") {
-      try {
-        sessionStorage.removeItem(storageKey);
-      } catch {
-        // ignore storage errors
+  function stageFiles(files: FileList | File[]) {
+    const arr = Array.from(files || []);
+    if (!arr.length) return;
+
+    setDraftAttachments((prev) => {
+      const next: DraftAttachment[] = [...prev];
+      for (const f of arr) {
+        // rudimentary client-side dedupe to reduce accidental repeats in the same draft
+        const already = next.some((x) => x.file.name === f.name && x.file.size === f.size && x.file.type === f.type);
+        if (already) continue;
+
+        const isImage = f.type.startsWith("image/");
+        const kind: DraftAttachment["kind"] = isImage ? "image" : "document";
+        const previewUrl = isImage ? URL.createObjectURL(f) : undefined;
+        next.push({
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          file: f,
+          kind,
+          previewUrl,
+        });
       }
+      return next;
+    });
+  }
+
+  function removeDraftAttachment(id: string) {
+    setDraftAttachments((prev) => {
+      const target = prev.find((p) => p.id === id);
+      if (target?.previewUrl) {
+        try { URL.revokeObjectURL(target.previewUrl); } catch {}
+      }
+      return prev.filter((p) => p.id !== id);
+    });
+  }
+
+  async function uploadOneAttachment(att: DraftAttachment): Promise<{
+    kind: "image" | "document";
+    src_url: string;
+    filename: string;
+    id?: string;
+  } | null> {
+    const file = att.file;
+    if (!file) return null;
+
+    // Prefer explicit threadId prop when present; projectId is inferred from the URL as a best-effort fallback.
+    const projectId = inferProjectIdFromLocation(1);
+    const tid = typeof threadId === "number" ? threadId : undefined;
+
+    const isImage = att.kind === "image";
+    const endpoint = isImage ? "/api/media/upload/image" : "/api/media/upload/file";
+
+    const form = new FormData();
+    form.append("project_id", String(projectId));
+    if (tid !== undefined) form.append("thread_id", String(tid));
+    form.append("file", file);
+
+    try {
+      const res = await api.post(endpoint, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const data = (res as any)?.data ?? res;
+      const src_url = data?.src_url;
+      const filename = data?.filename ?? file.name;
+      const id = data?.id;
+
+      if (!src_url) {
+        console.error("Upload succeeded but no src_url returned", data);
+        return null;
+      }
+
+      return {
+        kind: isImage ? "image" : "document",
+        src_url: toAbsoluteMediaUrl(String(src_url)),
+        filename,
+        id,
+      };
+    } catch (err) {
+      console.error("Upload failed", err);
+      return null;
     }
-    setTimeout(() => setSending(false), 200);
+  }
+
+  function buildChatAttachmentBatchMessage(args: {
+    attachments: { kind: "image" | "document"; src_url: string; filename: string; id?: string }[];
+    text?: string;
+  }): string {
+    const { attachments, text } = args;
+    const parts: string[] = [];
+
+    for (const a of attachments) {
+      const media = a.id ? `<!-- cfy-media:${a.kind}:${a.id} -->` : "<!-- cfy-media:missing-id -->";
+      const src = a.src_url ? `<!-- cfy-media-src:${toAbsoluteMediaUrl(a.src_url)} -->` : "";
+      const name = a.filename ? `<!-- cfy-media-name:${a.filename} -->` : "";
+      parts.push([media, src, name].filter(Boolean).join("\n"));
+    }
+
+    const body = (text || "").trim();
+    if (body) parts.push(body);
+
+    // Ensure non-empty
+    return parts.filter(Boolean).join("\n\n").trim() || "<!-- cfy-media:missing-id -->";
+  }
+
+  function onPickImageClick() {
+    imageInputRef.current?.click();
+  }
+
+  function onPickFileClick() {
+    fileInputRef.current?.click();
+  }
+
+  // Send handler: uploads attachments (if any) and sends message.
+  async function send() {
+    if (sending || uploading) return;
+
+    const bodyText = value.trim();
+    const hasAttachments = draftAttachments.length > 0;
+    if (!bodyText && !hasAttachments) return;
+
+    setSending(true);
+    setUploading(hasAttachments);
+
+    try {
+      let uploaded: { kind: "image" | "document"; src_url: string; filename: string; id?: string }[] = [];
+
+      if (hasAttachments) {
+        // Upload sequentially to avoid stampeding the server and to keep ordering predictable.
+        for (const att of draftAttachments) {
+          const up = await uploadOneAttachment(att);
+          if (up) uploaded.push(up);
+        }
+      }
+
+      const msg = hasAttachments
+        ? buildChatAttachmentBatchMessage({ attachments: uploaded, text: bodyText })
+        : bodyText;
+
+      await onSend(msg);
+
+      // Clear draft text + attachments after successful send
+      setValue("");
+      setDraftAttachments((prev) => {
+        for (const a of prev) {
+          if (a.previewUrl) {
+            try { URL.revokeObjectURL(a.previewUrl); } catch {}
+          }
+        }
+        return [];
+      });
+
+      if (storageKey && typeof window !== "undefined") {
+        try {
+          sessionStorage.removeItem(storageKey);
+        } catch {
+          // ignore storage errors
+        }
+      }
+
+      setTimeout(() => ref.current?.focus(), 0);
+    } finally {
+      setUploading(false);
+      setTimeout(() => setSending(false), 200);
+    }
   }
 
   const accentStrong = readCssVar("--accent-strong", "#2f2f2f");
@@ -179,7 +401,7 @@ export function Composer({
 
   // Presentation: ModelProvider wraps the composer so model config can be per-composer
   return (
-    // ModelProvider: defaultModel="gpt-120b-oss" sets the per-composer default model.
+    // ModelProvider: defaultModel="**REPLACE**" sets the per-composer default model.
     // If provider expects a different prop name, update accordingly.
     <ModelProvider>
       <div
@@ -194,6 +416,41 @@ export function Composer({
           backgroundClip: "padding-box",
         }}
       >
+        {/* Render draft attachments, if any */}
+        {draftAttachments.length > 0 && (
+          <div className="w-full flex flex-wrap gap-2 pb-2">
+            {draftAttachments.map((att) => (
+              <div
+                key={att.id}
+                className="relative overflow-hidden rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5"
+                style={{ width: 96, height: 72 }}
+                title={att.file.name}
+              >
+                {att.kind === "image" ? (
+                  <img
+                    src={att.previewUrl}
+                    alt={att.file.name}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="h-full w-full flex items-center justify-center">
+                    <FileText className="h-6 w-6 opacity-70" />
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  aria-label="Remove attachment"
+                  onClick={() => removeDraftAttachment(att.id)}
+                  className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/50 text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* Textarea: auto-resizes on input; Enter sends (unless Shift is held) */}
       <Textarea
         ref={ref}
@@ -205,7 +462,7 @@ export function Composer({
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            send();
+            void send();
           }
         }}
         className="block w-full resize-none overflow-hidden rounded-xl border-0 bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -218,6 +475,79 @@ export function Composer({
       />
 
       <div data-send-wrap className="shrink-0 m-0 flex gap-2">
+        {/* Hidden file inputs (triggered by the attachment buttons) */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const files = e.target.files;
+            e.currentTarget.value = "";
+            if (files && files.length) stageFiles(files);
+          }}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          // Allow docs too; backend route is /api/media/upload/file
+          accept="image/*,application/pdf,text/plain,text/markdown,.md,.txt"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const files = e.target.files;
+            e.currentTarget.value = "";
+            if (files && files.length) stageFiles(files);
+          }}
+        />
+
+        {/* Attach Image */}
+        <Button
+          type="button"
+          size="icon"
+          aria-label="Attach image"
+          title="Attach image"
+          onClick={onPickImageClick}
+          disabled={sending || uploading}
+          className="relative grid h-11 w-11 place-items-center rounded-2xl border focus:outline-none m-0"
+          style={{
+            background:
+              "radial-gradient(120% 120% at 30% 12%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.38) 10%, rgba(255,255,255,0.0) 36%), " +
+              `linear-gradient(180deg, ${accentStrong} 0%, color-mix(in srgb, ${accentStrong} 85%, black 15%) 100%)`,
+            color: "#fff",
+            borderColor: "color-mix(in srgb, var(--accent-strong) 70%, white 30%)",
+            boxShadow:
+              "inset 0 1px rgba(255,255,255,0.35), inset 0 -8px 12px rgba(0,0,0,0.28), 0 8px 18px color-mix(in srgb, var(--accent-strong) 55%, black 45%)",
+            outlineColor: "var(--accent-weak)",
+          }}
+        >
+          <ImagePlus className="h-5 w-5" />
+        </Button>
+
+        {/* Attach File */}
+        <Button
+          type="button"
+          size="icon"
+          aria-label="Attach file"
+          title="Attach file"
+          onClick={onPickFileClick}
+          disabled={sending || uploading}
+          className="relative grid h-11 w-11 place-items-center rounded-2xl border focus:outline-none m-0"
+          style={{
+            background:
+              "radial-gradient(120% 120% at 30% 12%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.38) 10%, rgba(255,255,255,0.0) 36%), " +
+              `linear-gradient(180deg, ${accentStrong} 0%, color-mix(in srgb, ${accentStrong} 85%, black 15%) 100%)`,
+            color: "#fff",
+            borderColor: "color-mix(in srgb, var(--accent-strong) 70%, white 30%)",
+            boxShadow:
+              "inset 0 1px rgba(255,255,255,0.35), inset 0 -8px 12px rgba(0,0,0,0.28), 0 8px 18px color-mix(in srgb, var(--accent-strong) 55%, black 45%)",
+            outlineColor: "var(--accent-weak)",
+          }}
+        >
+          <Paperclip className="h-5 w-5" />
+        </Button>
+
       {/* Open Prompt Library Button: visually prominent, similar styling to Send button */}
         <Button
           type="button"
@@ -225,6 +555,7 @@ export function Composer({
           aria-label="Open Prompt Library"
           title="Prompt Library"
           onClick={() => window.dispatchEvent(new CustomEvent("cfy:workspace:togglePromptLibrary", { detail: { source: "composer" } }))}
+          disabled={sending || uploading}
           className="relative grid h-11 w-11 place-items-center rounded-2xl border focus:outline-none m-0"
           style={{
             background:
@@ -243,8 +574,8 @@ export function Composer({
       {/* Send Button: visually prominent, shows disabled state while sending */}
         <Button
           type="button"
-          onClick={send}
-          disabled={sending || !value.trim()}
+          onClick={() => void send()}
+          disabled={sending || uploading || (!value.trim() && draftAttachments.length === 0)}
           size="icon"
           className="relative grid h-11 w-11 place-items-center rounded-2xl border focus:outline-none m-0"
           style={{

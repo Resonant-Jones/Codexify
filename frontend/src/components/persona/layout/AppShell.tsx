@@ -392,6 +392,37 @@ export default function AppShell({}: PropsWithChildren) {
   type DocItem = DocumentLike & { ext: keyof ExtColors };
   function normalizeDoc(raw: any, idx = 0): DocItem {
     const title = raw?.title || raw?.name || "Untitled";
+    // Preserve any existing media URL so WorkspacePane can preview attachments.
+    const srcUrl =
+      (typeof raw?.src_url === "string" && raw.src_url) ||
+      (typeof raw?.srcUrl === "string" && raw.srcUrl) ||
+      (typeof raw?.src === "string" && raw.src) ||
+      (typeof raw?.url === "string" && raw.url) ||
+      undefined;
+    const embeddingStatus =
+      typeof raw?.embeddingStatus === "string"
+        ? raw.embeddingStatus
+        : typeof raw?.embedding_status === "string"
+          ? raw.embedding_status
+          : undefined;
+    const embeddingError =
+      typeof raw?.embeddingError === "string"
+        ? raw.embeddingError
+        : typeof raw?.embedding_error === "string"
+          ? raw.embedding_error
+          : undefined;
+    const embeddingStartedAt =
+      typeof raw?.embeddingStartedAt === "string"
+        ? raw.embeddingStartedAt
+        : typeof raw?.embedding_started_at === "string"
+          ? raw.embedding_started_at
+          : undefined;
+    const embeddingCompletedAt =
+      typeof raw?.embeddingCompletedAt === "string"
+        ? raw.embeddingCompletedAt
+        : typeof raw?.embedding_completed_at === "string"
+          ? raw.embedding_completed_at
+          : undefined;
     return {
       id: raw?.id || raw?.document_id || `${title}-${raw?.ext || "md"}-${idx}`,
       name: raw?.name || title,
@@ -400,6 +431,11 @@ export default function AppShell({}: PropsWithChildren) {
       type: raw?.type === "codex_entry" ? "codex_entry" : "file",
       mock: Boolean(raw?.mock),
       createdAt: raw?.createdAt || raw?.created_at,
+      src_url: srcUrl,
+      embeddingStatus,
+      embeddingError,
+      embeddingStartedAt,
+      embeddingCompletedAt,
     };
   }
   const [documents, setDocuments] = useState<DocItem[]>(() => {
@@ -932,6 +968,7 @@ export default function AppShell({}: PropsWithChildren) {
   const openDocInPlace = (doc: DocumentLike) => {
     setActiveDoc(doc);
     setWorkspaceOpen(true);
+    setView("documents");
   };
   const openDocInThread = (doc: DocumentLike) => {
     setActiveDoc(doc);
@@ -944,6 +981,31 @@ export default function AppShell({}: PropsWithChildren) {
     if (!doc) return;
     openDocInThread(doc);
   };
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const raw = detail.doc ?? detail;
+      if (!raw) return;
+      const doc = normalizeDoc(raw);
+      setDocuments((prev) => {
+        const exists = prev.some(
+          (d) =>
+            d.id === doc.id ||
+            ((d.title === doc.title || d.name === doc.name) &&
+              d.ext === doc.ext)
+        );
+        return exists ? prev : [doc, ...prev];
+      });
+      openDocInPlace(doc);
+    };
+    window.addEventListener("cfy:documents:open", onOpen as EventListener);
+    return () =>
+      window.removeEventListener(
+        "cfy:documents:open",
+        onOpen as EventListener
+      );
+  }, [openDocInPlace, normalizeDoc]);
   const createThreadFromDashboard = useCallback(async () => {
     const userId = userName || "default";
     try {
@@ -1091,6 +1153,7 @@ export default function AppShell({}: PropsWithChildren) {
           boxSizing: "border-box",
         }}
       >
+      <div id="cfy-portal-root" />
       {/* {view === "dashboard" && (
         <RefractiveGlassCard
           wallpaperUrl={activeWallpaper}

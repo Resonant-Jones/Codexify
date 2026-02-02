@@ -1,11 +1,42 @@
+"""ChatGPT export migration into Postgres and the vector store."""
+
 import json
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Dict, Optional
 
 from guardian.core import dependencies
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_imports_project_id(chatlog_db) -> int:
+    try:
+        return chatlog_db.ensure_project(
+            "Imports", "Default bucket for imported threads"
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to ensure Imports project during migration: %s",
+            e,
+        )
+    try:
+        projects = chatlog_db.list_projects()
+        imports = [p for p in projects if p.get("name") == "Imports"]
+        imports_ids = [int(p["id"]) for p in imports if p.get("id") is not None]
+        if imports_ids:
+            return min(imports_ids)
+
+        legacy = [p for p in projects if p.get("name") == "Loose Threads"]
+        legacy_ids = [int(p["id"]) for p in legacy if p.get("id") is not None]
+        if legacy_ids:
+            return min(legacy_ids)
+    except Exception as e:
+        logger.warning(
+            "Failed to resolve Imports/Loose Threads project ID via list_projects: %s",
+            e,
+        )
+    raise RuntimeError("Unable to resolve Loose Threads project ID")
 
 
 def ingest_chatgpt_export(
@@ -58,12 +89,15 @@ def ingest_chatgpt_export(
             # Extract thread metadata
             title = conv.get("title") or "Imported Chat"
 
+            # Resolve Imports project ID (create if missing to avoid FK error)
+            imports_project_id = _resolve_imports_project_id(chatlog_db)
+
             # Create thread
             thread_record = chatlog_db.create_chat_thread(
                 user_id=user_id,
                 title=title,
                 summary="Imported from ChatGPT",
-                project_id=1,  # Default to Loose Threads
+                project_id=imports_project_id,
             )
             thread_id = thread_record["id"]
             threads_count += 1
@@ -73,17 +107,18 @@ def ingest_chatgpt_export(
 
             # Linearize messages
             messages = []
-            for node_id, node in mapping.items():
+            for _node_id, node in mapping.items():
                 message = node.get("message")
                 if not message:
                     continue
 
                 author = message.get("author", {})
                 role = author.get("role") or message.get("role")
-                content_parts = message.get("content", {}).get("parts", [])
+                content = message.get("content") or {}
+                content_parts = content.get("parts") or []
                 create_time = message.get("create_time")
 
-                if not content_parts or not role:
+                if not role:
                     continue
 
                 text_content = ""
@@ -91,7 +126,15 @@ def ingest_chatgpt_export(
                     if isinstance(part, str):
                         text_content += part
                     elif isinstance(part, dict):
-                        pass
+                        part_text = part.get("text")
+                        if isinstance(part_text, str):
+                            text_content += part_text
+
+                if not text_content.strip():
+                    # Some exports store code/tool output under content.text.
+                    fallback_text = content.get("text")
+                    if isinstance(fallback_text, str):
+                        text_content = fallback_text
 
                 if not text_content.strip():
                     continue
@@ -131,11 +174,13 @@ def ingest_chatgpt_export(
                             "thread_id": thread_id,
                             "role": msg["role"],
                             "message_id": mid,
-                            "timestamp": datetime.utcfromtimestamp(
-                                msg["timestamp"]
-                            ).isoformat()
-                            if msg["timestamp"]
-                            else datetime.utcnow().isoformat(),
+                            "timestamp": (
+                                datetime.fromtimestamp(
+                                    msg["timestamp"], timezone.utc
+                                ).isoformat()
+                                if msg["timestamp"]
+                                else datetime.now(timezone.utc).isoformat()
+                            ),
                             "source": "chatgpt_import",
                         }
                         _vector_store.add_texts(

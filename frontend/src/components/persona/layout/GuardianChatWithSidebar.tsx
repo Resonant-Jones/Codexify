@@ -3,13 +3,13 @@
  * each lives inside its own glass shell while sharing data feeds for threads/projects/messages.
  */
 import React, { useMemo } from "react";
+import { createPortal } from "react-dom";
 import clsx from "clsx";
 import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message } from "@/types/ui";
 import api from "@/lib/api";
-import { useBreakpoint } from "./useBreakpoint";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
@@ -22,12 +22,42 @@ type PanelShellProps = React.PropsWithChildren<{
   disabled?: boolean;
 }>;
 
+const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
+  return a.id === b.id
+    && a.title === b.title
+    && a.lastMessage === b.lastMessage
+    && (a.unread ?? 0) === (b.unread ?? 0)
+    && (a.projectId ?? null) === (b.projectId ?? null)
+    && (a.parentId ?? null) === (b.parentId ?? null)
+    && (a.archivedAt ?? null) === (b.archivedAt ?? null);
+};
+
 
 export default function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillConsumed, onWorkspaceToggle }) {
-  const [isSidebarVisible, setIsSidebarVisible] = React.useState(true);
+  const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem("cfy.sidebarVisible");
+    return stored === null ? true : stored === "true";
+  });
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
+  const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const stored = window.localStorage.getItem("cfy.lastProjectId");
+    if (!stored || stored === "null") return null;
+    return stored;
+  });
+
+  // Persist sidebar visibility preference
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("cfy.sidebarVisible", String(isSidebarVisible));
+    } catch { /* ignore */ }
+  }, [isSidebarVisible]);
   const [showWorkspacePanel, setShowWorkspacePanel] = React.useState(false);
-  const bp = useBreakpoint();
+  const [isDesktopLayout, setIsDesktopLayout] = React.useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
+    return window.matchMedia("(min-width: 1024px)").matches;
+  });
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
@@ -50,22 +80,95 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     return () => window.removeEventListener('cfy:workspace:toggleWorkspacePanel', onToggleWorkspace);
   }, []);
 
-  const isDesktopLayout = bp === "lg" || bp === "xl" || bp === "2xl";
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const handleChange = (event?: MediaQueryListEvent) => {
+      if (event && typeof event.matches === "boolean") {
+        setIsDesktopLayout(event.matches);
+        return;
+      }
+      setIsDesktopLayout(mq.matches);
+    };
+    handleChange();
+    if (typeof mq.addEventListener === "function") {
+      mq.addEventListener("change", handleChange);
+      return () => {
+        mq.removeEventListener("change", handleChange);
+      };
+    }
+    if (typeof mq.addListener === "function") {
+      mq.addListener(handleChange);
+      return () => {
+        mq.removeListener(handleChange);
+      };
+    }
+    return undefined;
+  }, []);
+
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
+  const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
+
+  // Portal target: mount inside the themed app shell so the overlay inherits
+  // the same CSS variables and theme context as the rest of the UI.
+  const portalTarget = React.useMemo(() => {
+    if (typeof document === "undefined") return null;
+    return (
+      document.getElementById("cfy-portal-root") ??
+      document.getElementById("app") ??
+      document.getElementById("root") ??
+      document.body ??
+      document.documentElement
+    );
+  }, []);
+
+
+  const setSidebarOpen = React.useCallback(
+    (next: boolean) => {
+      if (isDesktopLayout) {
+        setIsSidebarVisible(next);
+      } else {
+        setIsMobileSidebarOpen(next);
+      }
+    },
+    [isDesktopLayout]
+  );
+
+  const closeSidebar = React.useCallback(() => {
+    setSidebarOpen(false);
+  }, [setSidebarOpen]);
 
   const toggleSidebar = React.useCallback(() => {
-    if (isDesktopLayout) {
-      setIsSidebarVisible((prev) => !prev);
-    } else {
-      setIsMobileSidebarOpen((prev) => !prev);
-    }
-  }, [isDesktopLayout]);
+    setSidebarOpen(!isSidebarOpen);
+  }, [isSidebarOpen, setSidebarOpen]);
 
   React.useEffect(() => {
     if (isDesktopLayout && isMobileSidebarOpen) {
       setIsMobileSidebarOpen(false);
     }
   }, [isDesktopLayout, isMobileSidebarOpen]);
+
+  React.useEffect(() => {
+    if (!isMobileOverlayActive || typeof document === "undefined") return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileOverlayActive]);
+
+  React.useEffect(() => {
+    if (!isMobileOverlayActive || typeof window === "undefined") return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isMobileOverlayActive, setSidebarOpen]);
 
   const mapThreadRecord = React.useCallback(
     (raw: any): Thread | null => {
@@ -173,11 +276,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   async function embedPrompt(text: string, source: string) {
     try {
-      await fetch('/embed', {
+      const resp = await fetch('/embed', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text, tags: ['prompt'], metadata: { source } }),
       });
+      if (!resp.ok) {
+        throw new Error(`embed failed: ${resp.status}`);
+      }
       // Also append to local prompt cache for prompt library UI
       try {
         const key = 'cfy.prompts';
@@ -186,8 +292,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         const next = [{ text, ts: Date.now() }, ...Array.isArray(arr) ? arr : []].slice(0, 200);
         localStorage.setItem(key, JSON.stringify(next));
       } catch {}
+      try {
+        window.dispatchEvent(new CustomEvent('cfy:toast', { detail: { kind: 'success', message: 'Saved to Prompt Library' } }));
+      } catch {}
     } catch (err) {
       console.warn('[prompt] embed failed', err);
+      try {
+        window.dispatchEvent(new CustomEvent('cfy:toast', { detail: { kind: 'error', message: 'Prompt embedding failed' } }));
+      } catch {}
     }
   }
 
@@ -241,6 +353,18 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       setThreadsLoaded(true);
     }
   }, [handleNewChat, mapThreadRecord, resolveRouteThreadId]); // Remove threads dependency to avoid loops
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onThreadsRefresh = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail ?? {};
+      const kind = detail?.kind ?? detail?.type;
+      if (kind !== "refresh" && kind !== "import") return;
+      void loadThreads();
+    };
+    window.addEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
+    return () => window.removeEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
+  }, [loadThreads]);
 
   // Initial load only
   React.useEffect(() => {
@@ -454,6 +578,14 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       );
     } catch (err) {
       console.warn("[guardian] failed to persist user message", err);
+      // Surface per-thread turn lock errors as a friendly retry prompt.
+      const status = (err as any)?.response?.status;
+      const errorCode = (err as any)?.response?.data?.error;
+      const message =
+        status === 429 || errorCode === "turn_in_flight"
+          ? "One moment—finish the current reply first."
+          : "Failed to send message.";
+      throw new Error(message);
     }
   };
 
@@ -498,6 +630,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           lastMessage: content || target.lastMessage,
           unread,
         };
+        const shouldMove = idx > 0;
+        if (!shouldMove && sameThreadSnapshot(target, updated)) {
+          return prev;
+        }
         const next = prev.slice();
         next.splice(idx, 1);
         next.unshift(updated);
@@ -509,17 +645,27 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const payload = (event.data as any)?.data ?? event.data;
       console.info("[live] thread.updated", payload);
       // Update local state instead of full reload
-      const tid = payload?.id ?? payload?.thread_id;
+      const threadPayload = payload?.thread ?? payload;
+      const tid = threadPayload?.id ?? threadPayload?.thread_id ?? payload?.thread_id;
       if (!tid) return;
       const idStr = String(tid);
-      setThreads(prev => prev.map(t => {
-        if (t.id !== idStr) return t;
-        return {
-             ...t,
-             title: payload.title ?? t.title,
-             // Update other fields if present
-        };
-      }));
+      setThreads((prev) => {
+        let touched = false;
+        const next = prev.map((t) => {
+          if (t.id !== idStr) return t;
+          const updated = {
+            ...t,
+            title: threadPayload?.title ?? t.title,
+            projectId: threadPayload?.project_id ?? threadPayload?.projectId ?? t.projectId,
+            archivedAt: threadPayload?.archived_at ?? threadPayload?.archivedAt ?? t.archivedAt,
+          };
+          if (!sameThreadSnapshot(t, updated)) {
+            touched = true;
+          }
+          return updated;
+        });
+        return touched ? next : prev;
+      });
     });
 
     const offThreadCreated = subscribe("thread.created", (event) => {
@@ -542,7 +688,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       console.info("[live] thread.branch", payload);
       const mapped = mapThreadRecord(payload);
       if (mapped) {
-          setThreads(prev => [mapped, ...prev]);
+          setThreads((prev) => {
+            if (prev.some((t) => t.id === mapped.id)) return prev;
+            return [mapped, ...prev];
+          });
       } else {
           void loadThreads();
       }
@@ -553,7 +702,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       console.info("[live] thread.archived", payload);
       const tid = payload?.id;
       if (tid) {
-          setThreads(prev => prev.filter(t => t.id !== String(tid)));
+          setThreads((prev) => {
+            const next = prev.filter((t) => t.id !== String(tid));
+            return next.length === prev.length ? prev : next;
+          });
       } else {
           void loadThreads();
       }
@@ -584,9 +736,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   const chatDisabled = !isDesktopLayout && isSidebarOpen;
 
-  const sidebarWrapperClass = isDesktopLayout
-    ? "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]"
-    : "absolute inset-0 z-30 flex h-full w-full";
+  const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
+  const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  }, []);
 
   const PanelShell: React.FC<PanelShellProps> = ({ className, surfaceStyle, disabled, children }) => {
     const panelStyle: React.CSSProperties = {
@@ -614,49 +767,39 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     );
   };
 
-  return (
-    <div
-      className="relative grid h-full w-full max-w-[1500px] min-h-0 box-border items-stretch mx-auto overflow-hidden"
-      style={{
-        gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
-        gap: "8px",
-        padding: "0px",
-        boxSizing: "border-box",
-      }}
-    >
-        {imprintZero.proposal && (
-          <ImprintZeroToast
-            proposal={imprintZero.proposal}
-            onAccept={(override) => imprintZero.accept(override)}
-            onReject={() => imprintZero.reject()}
-            onEditAccept={(text) => imprintZero.accept(text)}
+  const mobileOverlay = isMobileOverlayActive && portalTarget
+    ? createPortal(
+        <div
+          data-testid="mobile-sidebar-overlay"
+          style={{ position: "fixed", inset: 0, zIndex: 10000 }}
+        >
+          <div
+            data-testid="mobile-sidebar-scrim"
+            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }}
+            role="button"
+            tabIndex={0}
+            onClick={closeSidebar}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                closeSidebar();
+              }
+            }}
           />
-        )}
-
-        {/* Sidebar */}
-        {isSidebarOpen && (
-          <>
-            {!isDesktopLayout && (
-              <button
-                type="button"
-                aria-label="Hide sidebar"
-                className="absolute inset-0 z-20 bg-black/45"
-                onClick={toggleSidebar}
-              />
-            )}
-            <div
-              className={clsx(
-                "h-full w-full min-h-0 overflow-hidden box-border",
-                sidebarWrapperClass && isDesktopLayout ? undefined : undefined
-              )}
-              style={{
-                gridColumn: "1",
-                gridRow: "1",
-                zIndex: isDesktopLayout ? undefined : 30,
-                position: isDesktopLayout ? "relative" : "absolute",
-                inset: !isDesktopLayout ? 0 : undefined,
-              }}
-            >
+          <aside
+            data-testid="mobile-sidebar-drawer"
+            className="h-full overflow-hidden"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              height: "100%",
+              width: "min(360px, 90vw)",
+              zIndex: 10001,
+            }}
+            onPointerDown={stopDrawerEvent}
+            onClick={stopDrawerEvent}
+          >
+            <div className="relative h-full w-full min-h-0 min-w-0 box-border">
               <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
                 <RefractiveGlassCard
                   wallpaperUrl={wallpaperUrl}
@@ -676,17 +819,79 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                     activeId={activeId}
                     onSelect={handleSelectThread}
                     onNewChat={handleNewChatImmediate}
+                    projectId={selectedProjectId}
+                    onProjectChange={setSelectedProjectId}
                   />
                 </PanelShell>
               </div>
             </div>
-          </>
+          </aside>
+        </div>,
+        portalTarget
+      )
+    : null;
+
+  return (
+    <>
+      {mobileOverlay}
+      <div
+        className="relative grid h-full w-full max-w-[1500px] min-h-0 overflow-hidden box-border items-stretch mx-auto"
+        style={{
+          gridTemplateColumns: isDesktopLayout && isSidebarOpen
+            ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+            : "1fr",
+          gap: "8px",
+          padding: "0px",
+          boxSizing: "border-box",
+          transition: "grid-template-columns 0.2s ease-out",
+        }}
+      >
+        {imprintZero.proposal && (
+          <ImprintZeroToast
+            proposal={imprintZero.proposal}
+            onAccept={(override) => imprintZero.accept(override)}
+            onReject={() => imprintZero.reject()}
+            onEditAccept={(text) => imprintZero.accept(text)}
+          />
+        )}
+
+        {/* Sidebar */}
+        {isSidebarOpen && isDesktopLayout && (
+          <div
+            className={clsx("h-full w-full min-h-0 overflow-hidden box-border", sidebarWrapperClass)}
+            style={{ gridColumn: "1", gridRow: "1" }}
+          >
+            <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
+              <RefractiveGlassCard
+                wallpaperUrl={wallpaperUrl}
+                className="h-full w-full rounded-[var(--card-radius)]"
+                style={{ background: "transparent", border: "none" }}
+                intensity={0.006}
+                aberration={0}
+              />
+            </div>
+            <div
+              data-layer="panel-shell"
+              className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
+            >
+              <PanelShell surfaceStyle={sidebarSurfaceStyle}>
+                <SidebarRoot
+                  threads={threads}
+                  activeId={activeId}
+                  onSelect={handleSelectThread}
+                  onNewChat={handleNewChatImmediate}
+                  projectId={selectedProjectId}
+                  onProjectChange={setSelectedProjectId}
+                />
+              </PanelShell>
+            </div>
+          </div>
         )}
         {/* Chat Panel */}
         <div
-          className="h-full w-full min-h-0 overflow-hidden box-border"
+          className="flex h-full w-full min-h-0 overflow-hidden flex-col box-border"
           style={{
-            gridColumn: isSidebarOpen ? 2 : "1 / span 2",
+            gridColumn: isDesktopLayout && isSidebarOpen ? "2" : "1",
             gridRow: "1",
           }}
         >
@@ -695,7 +900,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             surfaceStyle={chatSurfaceStyle}
             disabled={chatDisabled}
           >
-            <div className="flex h-full min-h-0 flex-col">
+            <div className="flex h-full min-h-0 overflow-hidden flex-col">
               <PromptLibraryPortal />
               {(imprintZero.status?.system_prompt_meta?.warnings?.length || 0) > 0 && (
                 <div
@@ -719,7 +924,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   </div>
                 </div>
               )}
-              <div className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                 <GuardianChat
                   guardianName={guardianName}
                   userName={userName}
@@ -732,7 +937,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   onBranchThread={handleBranchThread}
                   onArchiveThread={handleArchiveThread}
                   onSidebarToggle={toggleSidebar}
-                  isSidebarVisible={isSidebarVisible}
+                  isSidebarVisible={isSidebarOpen}
                   onBack={() => {
                     setActiveId(null);
                     if (typeof window !== "undefined") {
@@ -746,6 +951,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           </PanelShell>
         </div>
       </div>
+    </>
   );
 }
 

@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import os
+
+# Force mock embeddings backend BEFORE any app imports to avoid loading model
+os.environ.setdefault("CODEXIFY_EMBEDDINGS_BACKEND", "mock")
+
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-# Set environment variables early to avoid /app/media creation and other startup issues
+# Set environment variables early to avoid /app/media creation and startup issues
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
 os.environ.setdefault("ENABLE_BLIP_MODEL", "false")
 os.environ.setdefault("GUARDIAN_ENABLE_MONDREAM", "0")

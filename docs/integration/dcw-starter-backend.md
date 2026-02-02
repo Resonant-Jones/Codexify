@@ -123,7 +123,7 @@ track('time_to_save', { ms });
 
 ## 6) URL/Deep Links (optional)
 
-- If your backend sends links back into the app, define a custom scheme like `codexify://?mode=threadspace&sel=thread:abc123`.
+- If your backend sends links back into the app, define a custom scheme like `codexify://?mode=Codexify&sel=thread:abc123`.
 
 - Tauri can register protocol handlers; in web builds fall back to `https://app.example.com/?…`.
 

@@ -16,7 +16,7 @@ def push_to_notion(rows):
             parent={"database_id": database_id},
             properties={
                 "Name": {"title": [{"text": {"content": row[0]}}]},
-                "Description": {"rich_text": [{"text": {"content": row[1]}}]}
+                "Description": {"rich_text": [{"text": {"content": row[1]}}]},
                 # Extend with your columns!
             },
         )

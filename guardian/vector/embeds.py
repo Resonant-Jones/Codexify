@@ -1,6 +1,10 @@
 import hashlib
-import os
+import logging
 from typing import Iterable, List
+
+from guardian.utils.embed_paths import resolve_local_embed_model
+
+logger = logging.getLogger(__name__)
 
 
 def _stub_embed(text: str, dim: int = 128) -> List[float]:
@@ -27,13 +31,21 @@ class Embedder:
                 from sentence_transformers import (
                     SentenceTransformer,  # type: ignore
                 )
+            except Exception as exc:
+                raise RuntimeError(
+                    "sentence-transformers is required for EMBEDDING_BACKEND=local."
+                ) from exc
 
-                model_name = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-                self._model = SentenceTransformer(model_name)
-                self.backend = "local"
-            except Exception:
-                # Fallback to stub if local model is unavailable/offline
-                self.backend = "stub"
+            model_name = resolve_local_embed_model()
+            logger.info("[embeds] local embedding model=%s", model_name)
+            try:
+                self._model = SentenceTransformer(
+                    model_name, local_files_only=True
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
+                ) from exc
 
     def embed(self, texts: Iterable[str]) -> List[List[float]]:
         if self.backend == "local" and self._model is not None:

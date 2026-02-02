@@ -3,30 +3,51 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Iterable
 
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from guardian.cognition.prompts import build_context_system_message
 from guardian.context.broker import ContextBroker
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import chat_with_ai, stream_local
 from guardian.core.config import (
     LLMConfigError,
     get_settings,
+    is_cloud_provider,
     validate_llm_config,
 )
+from guardian.core.db import GuardianDB
+from guardian.core.message_guard import (
+    EMPTY_ASSISTANT_FALLBACK,
+    guard_assistant_message_content,
+)
+from guardian.db.models import UploadedDocument, UploadedImage
 from guardian.queue import task_events
-from guardian.queue.redis_queue import clear_cancelled, dequeue, is_cancelled
+from guardian.queue.redis_queue import (
+    clear_cancelled,
+    dequeue,
+    is_cancelled,
+    release_turn_lock,
+)
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
+from guardian.utils.groq_helpers import run_groq_vision_url
 
 logger = logging.getLogger(__name__)
 
 QUEUE_NAME = os.getenv("CHAT_QUEUE_NAME", "codexify:queue:chat")
 CONCURRENCY = int(os.getenv("CHAT_WORKER_CONCURRENCY", "2"))
+
+_MEDIA_DB: GuardianDB | None = None
+_MEDIA_MARKER_RE = re.compile(
+    r"<!--\s*cfy-media:(image|document):([a-fA-F0-9-]+)\s*-->"
+)
 
 
 try:  # pragma: no cover - prompts are optional in some deployments
@@ -62,7 +83,7 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
             "thread_id": thread_id,
             "role": role,
             "message_id": message_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "chat",
         }
         dependencies._vector_store.add_texts([{"text": content, "meta": meta}])
@@ -72,6 +93,213 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
             message_id,
             exc,
         )
+
+
+def _get_media_db() -> GuardianDB | None:
+    global _MEDIA_DB
+    if _MEDIA_DB is not None:
+        return _MEDIA_DB
+    db_url = os.getenv("DATABASE_URL") or os.getenv("GUARDIAN_DATABASE_URL")
+    if not db_url:
+        return None
+    try:
+        _MEDIA_DB = GuardianDB(db_url)
+    except Exception as exc:
+        logger.warning("[chat-worker] media DB unavailable: %s", exc)
+        _MEDIA_DB = None
+    return _MEDIA_DB
+
+
+def _extract_media_markers(text: str | None) -> list[tuple[str, str]]:
+    if not text:
+        return []
+    return [(m.group(1), m.group(2)) for m in _MEDIA_MARKER_RE.finditer(text)]
+
+
+def _absolute_media_url(src_url: str | None) -> str | None:
+    if not src_url:
+        return None
+    raw = str(src_url).strip()
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+
+    base = (
+        os.getenv("PUBLIC_MEDIA_BASE_URL")
+        or os.getenv("PUBLIC_API_BASE_URL")
+        or os.getenv("GUARDIAN_API_BASE_URL")
+        or os.getenv("API_BASE_URL")
+        or os.getenv("BASE_URL")
+        or os.getenv("PUBLIC_BASE_URL")
+        or os.getenv("VITE_API_BASE_URL")
+        or ""
+    ).strip()
+
+    if base.endswith("/api"):
+        base = base[: -len("/api")]
+
+    if not base:
+        return raw
+
+    base = base.rstrip("/")
+    path = raw if raw.startswith("/") else f"/{raw}"
+    return f"{base}{path}"
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _matches_scope(
+    *,
+    row_thread_id: Any,
+    row_project_id: Any,
+    thread_id: int | None,
+    project_id: int | None,
+) -> bool:
+    row_tid = _coerce_int(row_thread_id)
+    row_pid = _coerce_int(row_project_id)
+
+    if row_tid is not None and thread_id is not None and row_tid != thread_id:
+        return False
+    if row_pid is not None and project_id is not None and row_pid != project_id:
+        return False
+    return True
+
+
+def _resolve_media_items(
+    markers: Iterable[tuple[str, str]],
+    thread_id: int | None,
+    project_id: int | None,
+) -> list[dict[str, Any]]:
+    db = _get_media_db()
+    if not db:
+        return []
+    items: list[dict[str, Any]] = []
+    unique = {(kind, media_id) for kind, media_id in markers if media_id}
+    with db.get_session() as session:
+        for kind, media_id in sorted(unique):
+            if kind == "image":
+                row = (
+                    session.query(UploadedImage).filter_by(id=media_id).first()
+                )
+                if not row:
+                    logger.info(
+                        "[chat-worker] media marker missing kind=image id=%s",
+                        media_id,
+                    )
+                    continue
+                if not _matches_scope(
+                    row_thread_id=row.thread_id,
+                    row_project_id=row.project_id,
+                    thread_id=thread_id,
+                    project_id=project_id,
+                ):
+                    logger.info(
+                        "[chat-worker] media marker scope mismatch kind=image id=%s",
+                        media_id,
+                    )
+                    continue
+                abs_url = _absolute_media_url(row.src_url) or ""
+                if abs_url and not abs_url.startswith("http"):
+                    logger.info(
+                        "[chat-worker] media url not absolute kind=image id=%s src=%s",
+                        media_id,
+                        abs_url,
+                    )
+                items.append(
+                    {
+                        "kind": "image",
+                        "id": row.id,
+                        "src_url": abs_url,
+                        "filename": row.filename,
+                    }
+                )
+            elif kind == "document":
+                row = (
+                    session.query(UploadedDocument)
+                    .filter_by(id=media_id)
+                    .first()
+                )
+                if not row:
+                    logger.info(
+                        "[chat-worker] media marker missing kind=document id=%s",
+                        media_id,
+                    )
+                    continue
+                if not _matches_scope(
+                    row_thread_id=row.thread_id,
+                    row_project_id=row.project_id,
+                    thread_id=thread_id,
+                    project_id=project_id,
+                ):
+                    logger.info(
+                        "[chat-worker] media marker scope mismatch kind=document id=%s",
+                        media_id,
+                    )
+                    continue
+                abs_url = _absolute_media_url(row.src_url) or ""
+                if abs_url and not abs_url.startswith("http"):
+                    logger.info(
+                        "[chat-worker] media url not absolute kind=document id=%s src=%s",
+                        media_id,
+                        abs_url,
+                    )
+                items.append(
+                    {
+                        "kind": "document",
+                        "id": row.id,
+                        "src_url": abs_url,
+                        "filename": row.filename,
+                    }
+                )
+    return items
+
+
+def _build_media_system_message(
+    media_items: list[dict[str, Any]]
+) -> str | None:
+    if not media_items:
+        return None
+    lines = ["User uploaded media attachments:"]
+    for item in media_items:
+        label = item.get("filename") or item.get("id") or "attachment"
+        src = item.get("src_url") or ""
+        kind = item.get("kind") or "media"
+        lines.append(f"- {kind}: {label} ({src})")
+    return "\n".join(lines)
+
+
+def _maybe_add_vision_summary(
+    media_items: list[dict[str, Any]], provider: str
+) -> str | None:
+    if not media_items:
+        return None
+    if provider != "groq":
+        return None
+    image = next((i for i in media_items if i.get("kind") == "image"), None)
+    if not image:
+        return None
+    src_url = image.get("src_url")
+    if not isinstance(src_url, str) or not src_url.strip():
+        return None
+    if not src_url.startswith("http"):
+        logger.info(
+            "[chat-worker] groq vision skipped (non-absolute url) src=%s",
+            src_url,
+        )
+        return None
+    try:
+        summary = run_groq_vision_url(src_url, "Describe this image briefly.")
+    except Exception as exc:
+        logger.warning("[chat-worker] groq vision failed: %s", exc)
+        return None
+    if not summary:
+        return None
+    label = image.get("filename") or image.get("id") or "image"
+    return f"Vision summary for {label}: {summary}"
 
 
 async def _build_messages_for_llm(
@@ -85,6 +313,11 @@ async def _build_messages_for_llm(
         .strip()
         .lower()
     )
+
+    if is_cloud_provider(provider) and not settings.ALLOW_CLOUD_PROVIDERS:
+        raise LLMConfigError(
+            "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
+        )
 
     if validate_llm_config:
         try:
@@ -115,10 +348,8 @@ async def _build_messages_for_llm(
     items = dependencies.chatlog_db.list_messages(
         thread_id, limit=limit, offset=0
     )
-    try:
+    with contextlib.suppress(Exception):
         items = sorted(items, key=lambda m: m.get("id") or 0)
-    except Exception:
-        pass
 
     context: list[dict[str, str]] = []
     for msg in items:
@@ -213,7 +444,32 @@ async def _build_messages_for_llm(
         )
 
     messages_for_llm.append({"role": "system", "content": system_content})
+    context_message = build_context_system_message(bundle)
+    if context_message:
+        messages_for_llm.append({"role": "system", "content": context_message})
     messages_for_llm.extend(context)
+
+    # Attach media references/vision summaries for any upload markers.
+    try:
+        markers: list[tuple[str, str]] = []
+        for msg in context:
+            markers.extend(_extract_media_markers(msg.get("content")))
+        if markers:
+            media_items = _resolve_media_items(
+                markers, thread_id=thread_id, project_id=project_id_for_prompt
+            )
+            media_note = _build_media_system_message(media_items)
+            if media_note:
+                messages_for_llm.append(
+                    {"role": "system", "content": media_note}
+                )
+            vision_note = _maybe_add_vision_summary(media_items, provider)
+            if vision_note:
+                messages_for_llm.append(
+                    {"role": "system", "content": vision_note}
+                )
+    except Exception as exc:
+        logger.warning("[chat-worker] media attachment parsing failed: %s", exc)
 
     model = task.model
     if not model and provider == "local":
@@ -247,119 +503,141 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         messages_for_llm, provider, model, bundle, trace = asyncio.run(
             _build_messages_for_llm(task)
         )
-    except Exception as exc:
-        _safe_publish(
-            task.task_id,
-            "task.failed",
-            {"error": str(exc), "thread_id": task.thread_id},
-        )
-        logger.exception(
-            "[task] failed type=%s id=%s err=%s", task.type, task.task_id, exc
-        )
-        return
-
-    if is_cancelled(task.task_id):
-        _safe_publish(
-            task.task_id,
-            "task.cancelled",
-            {"thread_id": task.thread_id, "origin": task.origin},
-        )
-        clear_cancelled(task.task_id)
-        logger.info("[task] cancelled type=%s id=%s", task.type, task.task_id)
-        return
-
-    assistant_text = ""
-    try:
-        if provider == "local":
-            token_stream = stream_local(
-                messages_for_llm,
-                model,
-            )
-            try:
-                for token in token_stream:
-                    if is_cancelled(task.task_id):
-                        token_stream.close()
-                        _safe_publish(
-                            task.task_id,
-                            "task.cancelled",
-                            {"thread_id": task.thread_id},
-                        )
-                        clear_cancelled(task.task_id)
-                        logger.info(
-                            "[task] cancelled type=%s id=%s",
-                            task.type,
-                            task.task_id,
-                        )
-                        return
-                    assistant_text += token
-                    _safe_publish(
-                        task.task_id,
-                        "task.progress",
-                        {"token": token, "thread_id": task.thread_id},
-                    )
-            finally:
-                token_stream.close()
-        else:
-            assistant_text = str(
-                chat_with_ai(messages_for_llm, model=model, provider=provider)
-            )
+        if is_cancelled(task.task_id):
             _safe_publish(
                 task.task_id,
-                "task.progress",
-                {"token": assistant_text, "thread_id": task.thread_id},
+                "task.cancelled",
+                {"thread_id": task.thread_id, "origin": task.origin},
             )
-    except Exception as exc:
-        _safe_publish(
-            task.task_id,
-            "task.failed",
-            {"error": str(exc), "thread_id": task.thread_id},
-        )
-        logger.exception(
-            "[task] failed type=%s id=%s err=%s", task.type, task.task_id, exc
-        )
-        return
-
-    try:
-        mid = dependencies.chatlog_db.create_message(
-            task.thread_id, "assistant", assistant_text
-        )
-        try:
-            dependencies.chatlog_db.write_audit_log(
-                "create", "chat_message", str(mid), user_id="bot"
+            clear_cancelled(task.task_id)
+            logger.info(
+                "[task] cancelled type=%s id=%s", task.type, task.task_id
             )
-        except Exception:
-            pass
+            return
+
+        assistant_text = ""
+        try:
+            if provider == "local":
+                token_stream = stream_local(
+                    messages_for_llm,
+                    model,
+                )
+                try:
+                    for token in token_stream:
+                        if is_cancelled(task.task_id):
+                            token_stream.close()
+                            _safe_publish(
+                                task.task_id,
+                                "task.cancelled",
+                                {"thread_id": task.thread_id},
+                            )
+                            clear_cancelled(task.task_id)
+                            logger.info(
+                                "[task] cancelled type=%s id=%s",
+                                task.type,
+                                task.task_id,
+                            )
+                            return
+                        assistant_text += token
+                        _safe_publish(
+                            task.task_id,
+                            "task.progress",
+                            {"token": token, "thread_id": task.thread_id},
+                        )
+                finally:
+                    token_stream.close()
+            else:
+                assistant_text = str(
+                    chat_with_ai(
+                        messages_for_llm, model=model, provider=provider
+                    )
+                )
+                _safe_publish(
+                    task.task_id,
+                    "task.progress",
+                    {"token": assistant_text, "thread_id": task.thread_id},
+                )
+        except Exception as exc:
+            _safe_publish(
+                task.task_id,
+                "task.failed",
+                {"error": str(exc), "thread_id": task.thread_id},
+            )
+            logger.exception(
+                "[task] failed type=%s id=%s err=%s",
+                task.type,
+                task.task_id,
+                exc,
+            )
+            return
 
         try:
-            event_bus.emit_event(
-                "message.created",
+            assistant_text = guard_assistant_message_content(
+                "assistant",
+                assistant_text,
+                thread_id=task.thread_id,
+                origin="chat_worker",
+            )
+        except ValueError:
+            logger.warning(
+                "[chat-worker] blank assistant content replaced thread_id=%s",
+                task.thread_id,
+            )
+            assistant_text = EMPTY_ASSISTANT_FALLBACK
+
+        try:
+            mid = dependencies.chatlog_db.create_message(
+                task.thread_id, "assistant", assistant_text
+            )
+            with contextlib.suppress(Exception):
+                dependencies.chatlog_db.write_audit_log(
+                    "create", "chat_message", str(mid), user_id="bot"
+                )
+
+            try:
+                event_bus.emit_event(
+                    "message.created",
+                    {
+                        "thread_id": task.thread_id,
+                        "message_id": mid,
+                        "role": "assistant",
+                        "content": assistant_text,
+                    },
+                )
+            except Exception:
+                logger.debug("[chat-worker] emit message.created failed")
+
+            _embed_message(task.thread_id, "assistant", assistant_text, mid)
+
+            _safe_publish(
+                task.task_id,
+                "task.completed",
                 {
                     "thread_id": task.thread_id,
                     "message_id": mid,
-                    "role": "assistant",
+                    "provider": provider,
+                    "model": model,
+                    "trace": trace or {},
                 },
             )
-        except Exception:
-            logger.debug("[chat-worker] emit message.created failed")
-
-        _embed_message(task.thread_id, "assistant", assistant_text, mid)
-
-        _safe_publish(
-            task.task_id,
-            "task.completed",
-            {
-                "thread_id": task.thread_id,
-                "message_id": mid,
-                "provider": provider,
-                "model": model,
-            },
-        )
-        logger.info(
-            "[task] completed type=%s id=%s thread=%s",
-            task.type,
-            task.task_id,
-            task.thread_id,
-        )
+            logger.info(
+                "[task] completed type=%s id=%s thread=%s",
+                task.type,
+                task.task_id,
+                task.thread_id,
+            )
+        except Exception as exc:
+            _safe_publish(
+                task.task_id,
+                "task.failed",
+                {"error": str(exc), "thread_id": task.thread_id},
+            )
+            logger.exception(
+                "[task] failed type=%s id=%s err=%s",
+                task.type,
+                task.task_id,
+                exc,
+            )
     except Exception as exc:
         _safe_publish(
             task.task_id,
@@ -369,6 +647,16 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         logger.exception(
             "[task] failed type=%s id=%s err=%s", task.type, task.task_id, exc
         )
+    finally:
+        # Always clear the per-thread turn lock on completion/cancel/failure.
+        try:
+            release_turn_lock(task.thread_id)
+        except Exception:
+            logger.debug(
+                "[chat-worker] turn lock release failed thread_id=%s",
+                task.thread_id,
+                exc_info=True,
+            )
 
 
 def _initialize_worker() -> None:

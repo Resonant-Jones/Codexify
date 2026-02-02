@@ -1,4 +1,4 @@
-# Threadspace Code of Conduct
+# Codexify Code of Conduct
 
 ## 🌟 Our Pledge
 
@@ -48,7 +48,7 @@ This Code of Conduct applies both within project spaces and in public spaces whe
 ### Reporting
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by:
-* Contacting the project team at conduct@threadspace.ai
+* Contacting the project team at conduct@Codexify.ai
 * Using the project's reporting system
 * Contacting maintainers directly
 
@@ -159,4 +159,4 @@ By participating in this project, you agree to abide by this Code of Conduct. Th
 
 Last updated: [Date]
 Version: 1.0.0
-Contact: conduct@threadspace.ai
+Contact: conduct@Codexify.ai

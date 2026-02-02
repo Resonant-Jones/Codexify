@@ -8,6 +8,8 @@ export type DocumentFile = {
   name: string;
   ext?: string;
   thumb?: string;
+  embeddingStatus?: string;
+  embeddingError?: string;
 };
 
 type Props = {
@@ -47,6 +49,66 @@ function getExt(name: string): string {
   return m ? m[1].toLowerCase() : "";
 }
 
+const STATUS_STYLES: Record<
+  string,
+  { label: string; background: string; color: string; border: string }
+> = {
+  pending: {
+    label: "Pending",
+    background: "#e2e8f0",
+    color: "#1f2937",
+    border: "rgba(15, 23, 42, 0.15)",
+  },
+  processing: {
+    label: "Processing",
+    background: "#fde047",
+    color: "#713f12",
+    border: "rgba(113, 63, 18, 0.25)",
+  },
+  ready: {
+    label: "Ready",
+    background: "#bbf7d0",
+    color: "#14532d",
+    border: "rgba(20, 83, 45, 0.2)",
+  },
+  failed: {
+    label: "Failed",
+    background: "#fecaca",
+    color: "#7f1d1d",
+    border: "rgba(127, 29, 29, 0.25)",
+  },
+};
+
+function resolveStatusLabel(raw?: string) {
+  if (!raw) return null;
+  const key = raw.trim().toLowerCase();
+  if (!key) return null;
+  const config = STATUS_STYLES[key];
+  if (config) return config;
+  const label = key.charAt(0).toUpperCase() + key.slice(1);
+  return {
+    label,
+    background: "#e5e7eb",
+    color: "#111827",
+    border: "rgba(15, 23, 42, 0.15)",
+  };
+}
+
+function resolveErrorHint(raw?: string) {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes("parsed_text_missing")) return "No text";
+  if (lower.includes("no_chunks")) return "No chunks";
+  if (lower.includes("timeout")) return "Timeout";
+  if (lower.includes("redis") || lower.includes("queue")) return "Queue error";
+  const cleaned = trimmed.replace(/[_-]+/g, " ").trim();
+  if (!cleaned) return null;
+  if (cleaned.length > 18) return `${cleaned.slice(0, 18).trimEnd()}...`;
+  return cleaned;
+}
+
 function readExtColors(): Record<string, string> {
   const defaults: ExtColors = {
     pdf: "#ef4444",
@@ -76,6 +138,12 @@ export default function DocumentTile({ file, onClick, className }: Props) {
   const bannerColor = extColors[ext] || "#6B7280"; // fallback gray
   const onColor = contrastRatio(bannerColor, "#ffffff") >= 4.5 ? "#ffffff" : "#111827";
   const Icon = ext === "codex" ? BookOpen : FileText;
+  const status = resolveStatusLabel(file?.embeddingStatus);
+  const statusKey = file?.embeddingStatus?.trim().toLowerCase();
+  const errorHint = statusKey === "failed" ? resolveErrorHint(file?.embeddingError) : null;
+  const statusLabel = status
+    ? `${status.label}${errorHint ? ` - ${errorHint}` : ""}`
+    : null;
 
   const content = (
     <div className="relative flex aspect-[3/4] w-full flex-col">
@@ -85,6 +153,18 @@ export default function DocumentTile({ file, onClick, className }: Props) {
         <div className="absolute inset-0 grid place-items-center">
           <Icon className="h-7 w-7" style={{ color: bannerColor }} />
         </div>
+      )}
+      {status && (
+        <span
+          className="absolute right-2 top-2 z-10 max-w-[120px] truncate rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+          style={{
+            background: status.background,
+            color: status.color,
+            borderColor: status.border,
+          }}
+        >
+          {statusLabel}
+        </span>
       )}
       <div className="mt-auto">
         <div className="flex h-11 items-center px-2 text-xs" style={{ background: bannerColor, color: onColor }}>

@@ -1,7 +1,7 @@
 """
 Epistemic Self-Check Module
 --------------------------
-Provides metacognitive awareness capabilities for the Threadspace system.
+Provides metacognitive awareness capabilities for the Codexify system.
 Allows the system to reflect on its knowledge, confidence, and limitations.
 
 This module implements systematic self-awareness checks to help the system

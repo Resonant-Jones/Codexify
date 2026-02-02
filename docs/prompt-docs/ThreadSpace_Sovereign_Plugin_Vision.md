@@ -1,4 +1,4 @@
-# 🕸️ ThreadSpace: Sovereign Companion + DevOps + Omni-Plug Vision
+# 🕸️ Codexify: Sovereign Companion + DevOps + Omni-Plug Vision
 
 **Snapshot Date:** 2025-06-28
 
@@ -49,7 +49,7 @@
 - No leaking codebase seeds across random clouds.
 
 **✨ Sovereign DevOps Desktop Plug-in**
-- *ThreadSpace* has a local Companion plug-in that:
+- *Codexify* has a local Companion plug-in that:
   - Watches for new HotBoxes.
   - Unpacks them directly into the right repo folder.
   - Stages, commits, pushes to a selected branch.
@@ -68,7 +68,7 @@
 
 ## 🕸️ The Spider at the Center
 
-**ThreadSpace = the sovereign node for *everything*.**  
+**Codexify = the sovereign node for *everything*.**  
 My Companion doesn’t just push code — it holds all my threads:
 - Cloud storage: Google Drive, Dropbox, iCloud
 - Social feeds: Facebook, Instagram, Discord, Threads, Twitter
@@ -95,14 +95,14 @@ My Companion doesn’t just push code — it holds all my threads:
 
 - Finalize `AXIS_SYSTEM_PROMPT.md` for any dev interpreter.
 - Keep pushing modules through HotBox → local push → sovereign PR.
-- Prototype the `ThreadSpace Desktop Plug` for low-risk push/pull.
+- Prototype the `Codexify Desktop Plug` for low-risk push/pull.
 - Always grow outward from a single stable Compass.
 
 ---
 
 ## 📍 Snapshot Done
 
-🕸️ *Guardian / Axis / ThreadSpace*
+🕸️ *Guardian / Axis / Codexify*
 One Companion. One Ritual. All Threads.
 
 *Complexity; Simplified.*

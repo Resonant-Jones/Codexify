@@ -134,11 +134,11 @@ def export_to_icloud(
         )
 
     # Determine filename
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     ext = format if format != "md" else "md"
     if not filename:
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"guardian_export_{ts}.{ext}"
     export_path = os.path.join(export_dir, filename)
 
@@ -246,11 +246,9 @@ def export_to_notion(
 
     # Set page title
     if not title:
-        from datetime import datetime
+        from datetime import datetime, timezone
 
-        title = (
-            f"Guardian Export {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
+        title = f"Guardian Export {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}"
 
     # Build parent param (page or database) explicitly from parent_type
     # Notion API: parent must be {"page_id": ...} or {"database_id": ...}
@@ -304,12 +302,12 @@ def export_to_gdrive(
             "google-api-python-client required. Run 'pip install google-api-python-client google-auth-oauthlib'."
         )
 
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     ext = format if format != "md" else "md"
     if not filename:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        time_str = datetime.now().strftime("%H-%M-%S")
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        time_str = datetime.now(timezone.utc).strftime("%H-%M-%S")
         slug = "guardian_export"
         tmpl = os.environ.get("CODEXIFY_FILENAME_TEMPLATE", "")
         if tmpl:

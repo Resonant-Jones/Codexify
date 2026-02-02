@@ -4,11 +4,11 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_USER: codexify
-      POSTGRES_PASSWORD: codexify
-      POSTGRES_DB: Codexify
+      POSTGRES_USER: ${POSTGRES_USER:-codexify}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codexify}
+      POSTGRES_DB: ${POSTGRES_DB:-Codexify}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U codexify -d Codexify"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codexify} -d ${POSTGRES_DB:-Codexify}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -19,13 +19,21 @@ services:
   neo4j:
     image: neo4j:5
     environment:
-      NEO4J_AUTH: neo4j/codexify
       NEO4J_server_default__listen__address: 0.0.0.0
+      # Let the official image handle auth via NEO4J_AUTH (no custom entrypoint).
+      # NOTE: Compose will interpolate ${NEO4J_PASS} from your project .env at deploy time.
+      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS}"
     ports: ["7474:7474", "7687:7687"]
     volumes:
       - neo4j_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "/var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u neo4j -p codexify 'RETURN 1' || exit 1"]
+      test:
+        - CMD-SHELL
+        - >
+          /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687
+          -u "$$(echo $$NEO4J_AUTH | cut -d/ -f1)"
+          -p "$$(echo $$NEO4J_AUTH | cut -d/ -f2-)"
+          'RETURN 1' || exit 1
       interval: 10s
       timeout: 10s
       retries: 30
@@ -50,17 +58,21 @@ services:
       retries: 20
   graph-init:
     image: neo4j:5
+    env_file: .env
     depends_on:
       neo4j:
         condition: service_healthy
     restart: "no"
+    entrypoint: ["sh", "-lc"]
     command:
-      - sh
-      - -c
-      - |
+      - |-
         set -e
         echo "[graph-init] Applying Neo4j constraints + seed nodes..."
-        cat <<'CYPHER' | /var/lib/neo4j/bin/cypher-shell -a bolt://neo4j:7687 -u neo4j -p codexify
+        if [ -z "$${NEO4J_PASS:-}" ]; then
+          echo "[graph-init] ERROR: NEO4J_PASS is not set (expected via env_file: .env)"
+          exit 1
+        fi
+        cat <<'CYPHER' | /var/lib/neo4j/bin/cypher-shell -a bolt://neo4j:7687 -u "$${NEO4J_USER:-neo4j}" -p "$${NEO4J_PASS}"
         CREATE CONSTRAINT user_id_unique     IF NOT EXISTS FOR (u:User)    REQUIRE u.id IS UNIQUE;
         CREATE CONSTRAINT project_id_unique  IF NOT EXISTS FOR (p:Project) REQUIRE p.id IS UNIQUE;
         CREATE CONSTRAINT thread_id_unique   IF NOT EXISTS FOR (t:Thread)  REQUIRE t.id IS UNIQUE;
@@ -72,8 +84,137 @@ services:
         MERGE (me)-[:OWNS]->(p);
         CYPHER
         echo "[graph-init] Done."
-
   migrator:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    entrypoint: ["sh", "-lc"]
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: /app
+      ALEMBIC_CFG: /app/backend/alembic.ini
+      ENABLE_BLIP_MODEL: "false"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      EMBEDDER_PROVIDER: "local"
+      EMBEDDING_BACKEND: "local"
+      CODEXIFY_USE_OPENAI: "0"
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+    restart: "no"
+    command:
+      - |-
+        set -e
+        (set -o pipefail) 2>/dev/null && set -o pipefail || true
+
+        echo "[Migrator] Preflight: verify Alembic config exists"
+        if [ ! -f "/app/backend/alembic.ini" ]; then
+          echo "[Migrator] ERROR: /app/backend/alembic.ini is missing. Bind-mount failed or repo layout changed."
+          echo "[Migrator] DEBUG: listing /app and /app/backend (if present):"
+          ls -la /app || true
+          ls -la /app/backend || true
+          exit 1
+        fi
+
+        # Prefer the Alembic config that matches where migrations actually live.
+        ALEMBIC_CFG="/app/backend/alembic.ini"
+        if [ -f "/app/guardian/alembic.ini" ]; then
+          ALEMBIC_CFG="/app/guardian/alembic.ini"
+        elif [ -f "/app/alembic.ini" ]; then
+          ALEMBIC_CFG="/app/alembic.ini"
+        fi
+
+        echo "[Migrator] Running Alembic migrations..."
+        echo "[Migrator] Using Alembic config: $$ALEMBIC_CFG"
+
+        # Helpful debug if Alembic complains about missing script_location.
+        python - <<'PY'
+        import configparser, os
+
+        cfg_path = os.environ.get("ALEMBIC_CFG", "/app/backend/alembic.ini")
+        cp = configparser.RawConfigParser()
+        cp.read(cfg_path)
+        script_loc = cp.get("alembic", "script_location", fallback="<missing>")
+        print(f"[Migrator] alembic.ini script_location={script_loc}")
+        PY
+
+        # Run migrations; on failure, print the likely mount locations.
+        if ! ALEMBIC_CFG="$$ALEMBIC_CFG" alembic --raiseerr -c "$$ALEMBIC_CFG" upgrade head; then
+          echo "[Migrator] ERROR: Alembic upgrade failed. Debugging mounted paths..."
+          echo "[Migrator] ls -la /app"; ls -la /app || true
+          echo "[Migrator] ls -la /app/backend"; ls -la /app/backend || true
+          echo "[Migrator] ls -la /app/guardian"; ls -la /app/guardian || true
+          echo "[Migrator] ls -la /app/guardian/db"; ls -la /app/guardian/db || true
+          echo "[Migrator] ls -la /app/guardian/db/migrations"; ls -la /app/guardian/db/migrations || true
+          echo "[Migrator] ls -la /app/guardian/db/migrations/versions"; ls -la /app/guardian/db/migrations/versions || true
+          exit 1
+        fi
+
+        echo "[Migrator] Running seed script (idempotent)..."
+        python /app/backend/scripts/seed_defaults.py
+
+        echo "[Migrator] Done."
+
+  chatgpt-migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    profiles:
+      - cli
+    entrypoint: ["python", "scripts/chatgpt_import/import_chatgpt.py"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      EMBEDDER_PROVIDER: "local"
+      EMBEDDING_BACKEND: "local"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      # Ensure seed/init code can construct an OpenAI client even when running local-first
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
+      CODEXIFY_USE_OPENAI: "0"
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - ./scripts:/app/scripts
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      # Mount data directory for conversations.json
+      - ./data:/data
+      # Mount conversations.json directly if present
+      - ./conversations.json:/app/conversations.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    restart: "no"
+
+  backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -81,135 +222,7 @@ services:
     entrypoint:
       - sh
       - -lc
-    environment:
-      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
-      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
-      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
-      ENABLE_BLIP_MODEL: "false"   # keep migrations light (no model loading)
-      # Ensure seed/init code can construct an OpenAI client even when running local-first
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
-      # Force local-first defaults during migrations/seeding
-      LLM_PROVIDER: "local"
-      EMBED_PROVIDER: "local"
-      EMBEDDER_PROVIDER: "local"
-      EMBEDDING_BACKEND: "local"
-      CODEXIFY_USE_OPENAI: "0"
-    volumes:
-      - ./codexify:/app/codexify
-      - ./guardian:/app/guardian
-      - ./backend:/app/backend
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: "no"
-    command: |
-      set -euo pipefail
-
-      echo "[Migrator] Wiring Codexify -> codexify (case alias)"
-      ln -snf /app/codexify /app/Codexify
-      python - <<'PY'
-      import codexify
-      print("[Migrator] codexify resolves to:", getattr(codexify, "__file__", "<namespace>"))
-      PY
-
-      echo "[Migrator] DATABASE_URL=${DATABASE_URL:-<unset>}"
-
-      echo "[Migrator] Alembic heads (sanity check):"
-      alembic --raiseerr -c backend/alembic.ini heads || true
-
-      echo "[Migrator] Running Alembic migrations..."
-      alembic --raiseerr -c backend/alembic.ini upgrade head
-
-      echo "[Migrator] Verifying required tables + alembic_version..."
-
-      python - <<'PY'
-      import os
-      from sqlalchemy import create_engine, text
-
-      url = os.environ.get("DATABASE_URL")
-      if not url:
-          raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
-
-      en = create_engine(url)
-
-      required = [
-          "public.alembic_version",
-          "public.projects",
-          "public.chat_threads",
-          "public.chat_messages",
-          "public.imprints",
-          "public.system_docs",
-          "public.system_doc_links",
-          "public.events_outbox",
-      ]
-
-      with en.begin() as conn:
-          missing = []
-          for t in required:
-              reg = conn.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar()
-              if reg is None:
-                  missing.append(t)
-
-          if missing:
-              tables = conn.execute(text("""
-                  SELECT table_schema || '.' || table_name
-                  FROM information_schema.tables
-                  WHERE table_type = 'BASE TABLE'
-                  ORDER BY 1
-              """)).fetchall()
-
-              table_list = "\n  - ".join([r[0] for r in tables]) if tables else "<none>"
-              raise SystemExit(
-                  "[Migrator] ERROR: schema missing required tables:\n  - "
-                  + "\n  - ".join(missing)
-                  + "\n\n[Migrator] Existing tables:\n  - "
-                  + table_list
-              )
-
-          ver = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
-
-      print(f"[Migrator] OK: alembic_version={ver}")
-      PY
-
-      echo "[Migrator] Post-migration schema guard: ensure chat_threads.metadata exists..."
-
-      python - <<'PY'
-      import os
-      from sqlalchemy import create_engine, text
-
-      url = os.environ.get("DATABASE_URL")
-      if not url:
-          raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
-
-      en = create_engine(url)
-      with en.begin() as conn:
-          conn.execute(text("""
-      DO $$
-      BEGIN
-        IF EXISTS (
-          SELECT 1
-          FROM information_schema.tables
-          WHERE table_schema = 'public' AND table_name = 'chat_threads'
-        ) THEN
-          ALTER TABLE chat_threads
-            ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
-        END IF;
-      END $$;
-      """))
-
-      print("[Migrator] Post-migration schema guard complete.")
-      PY
-
-      echo "[Migrator] Running seed script (should be idempotent)..."
-      python backend/scripts/seed_defaults.py
-      echo "[Migrator] Seed script completed."
-      echo "[Migrator] Done."
-
-  backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    working_dir: /app
+    ports: ["8888:8888"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()\" || exit 1"]
       interval: 5s
@@ -217,18 +230,23 @@ services:
       retries: 30
     env_file: .env
     volumes:
-      - ./codexify:/app/codexify
+      - ./conversations.json:/app/conversations.json:ro
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
-      - ./models:/models:ro
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./.chroma:/app/.chroma
     environment:
-      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
-      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
-      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       PORT: "8888"
-      NEO4J_BOLT_URL: bolt://neo4j:codexify@neo4j:7687
-      GUARDIAN_API_KEY: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e
+      NEO4J_BOLT_URL: bolt://neo4j:7687
       ENABLE_CONNECTOR_WORKER: "false"
       REDIS_URL: redis://redis:6379/0
       # Supported provider ids (backend): "local", "groq", "openai"
@@ -239,9 +257,10 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
-      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
-      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
 
       # --- OpenAI (cloud) ---
@@ -268,8 +287,6 @@ services:
       graph-init:
         condition: service_completed_successfully
     command:
-      - sh
-      - -lc
       - |
         set -e
 
@@ -303,9 +320,6 @@ services:
         else:
           raise SystemExit(f"[Backend] Postgres not ready after 60s: {last_err}")
         PY
-
-        echo "[Backend] Applying Alembic migrations (idempotent)..."
-        alembic --raiseerr -c backend/alembic.ini upgrade head
 
         echo "[Backend] Verifying required tables + alembic_version..."
         python - <<'PY'
@@ -341,8 +355,7 @@ services:
                     FROM information_schema.tables
                     WHERE table_type = 'BASE TABLE'
                     ORDER BY 1
-                """
-                )).fetchall()
+                """)).fetchall()
                 table_list = "\n  - ".join([r[0] for r in tables]) if tables else "<none>"
                 raise SystemExit(
                     "[Backend] ERROR: schema missing required tables:\n  - "
@@ -367,95 +380,243 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
+    entrypoint:
+      - sh
+      - -lc
     depends_on:
       redis:
         condition: service_healthy
       backend:
         condition: service_healthy
+    env_file: .env
     environment:
-      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
-      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
-      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
-      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      # Never use localhost for cross-container calls; localhost points to this worker container.
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
+      NEO4J_BOLT_URL: bolt://neo4j:7687
     volumes:
-      - ./codexify:/app/codexify
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
-      - ./models:/models:ro
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: unless-stopped
     command:
-      - sh
-      - -lc
       - |
+        set -e
         echo "[worker-warmup] Starting warm-up worker..."
         ln -snf /app/codexify /app/Codexify
-        exec python -m guardian.workers.warmup_worker
+        exec python /app/guardian/workers/warmup_worker.py
 
   worker-chat:
     build:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
+    entrypoint:
+      - sh
+      - -lc
     depends_on:
       redis:
         condition: service_healthy
       backend:
         condition: service_healthy
+    env_file: .env
     environment:
-      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
-      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
-      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
-      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      # Never use localhost for cross-container calls; localhost points to this worker container.
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
+      NEO4J_BOLT_URL: bolt://neo4j:7687
     volumes:
-      - ./codexify:/app/codexify
+      - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
-      - ./models:/models:ro
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: unless-stopped
     command:
-      - sh
-      - -lc
       - |
+        set -e
         echo "[worker-chat] Starting chat worker..."
         ln -snf /app/codexify /app/Codexify
         exec python -m guardian.workers.chat_worker
+
+  embedding-backfill:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    profiles:
+      - backfill
+    entrypoint:
+      - sh
+      - -lc
+    depends_on:
+      db:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      REDIS_URL: redis://redis:6379/0
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
+      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - hf_cache:/root/.cache/huggingface
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./.chroma:/app/.chroma
+    restart: "no"
+    command:
+      - |
+        set -e
+        echo "[embedding-backfill] Starting embedding backfill..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.embedding_backfill_worker
+
+  graph-backfill:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    profiles:
+      - backfill
+    entrypoint:
+      - sh
+      - -lc
+    depends_on:
+      db:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      graph-init:
+        condition: service_completed_successfully
+      migrator:
+        condition: service_completed_successfully
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+      EMBED_PROVIDER: "local"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - hf_cache:/root/.cache/huggingface
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+    restart: "no"
+    command:
+      - |
+        set -e
+        echo "[graph-backfill] Starting graph backfill..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.graph_backfill_worker
+
+  tts:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    entrypoint: []
+    environment:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: /app
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
+    volumes:
+      - ./backend:/app/backend
+      - hf_cache:/root/.cache/huggingface
+    ports: ["8000:8000"]
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "[TTS] Starting local TTS service..."
+        exec uvicorn backend.tts_service.app:app --host 0.0.0.0 --port 8000
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    depends_on:
-      backend:
-        condition: service_healthy
     ports: ["5173:5173"]
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/src/node_modules
+    env_file: .env
     environment:
       # Ensure pnpm installs modules inside the container mount and skips heavy postinstall scripts
       VITE_PROXY_TARGET: http://backend:8888
-      VITE_GUARDIAN_API_KEY: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e
+      VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY}"
       # Local-first defaults for the UI (backend still enforces actual routing)
       # Match backend-supported provider id while still pointing at Ollama.
       VITE_DEFAULT_LLM_PROVIDER: "local"
@@ -478,9 +639,40 @@ services:
         cd /app/src
         exec npx vite dev --host 0.0.0.0 --port 5173
 
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.56.1-jammy
+    working_dir: /work
+    environment:
+      CI: "true"
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      PNPM_HOME: /pnpm
+      PNPM_STORE_DIR: /work/.pnpm-store
+      PW_BASE_URL: http://frontend:5173
+    shm_size: "2gb"
+    volumes:
+      - ./:/work
+      - e2e_frontend_src_node_modules:/work/frontend/src/node_modules
+      - e2e_pnpm_store:/work/.pnpm-store
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        set -e
+        if ! command -v pnpm >/dev/null 2>&1; then
+          corepack enable
+          corepack prepare pnpm@9.12.1 --activate
+        fi
+        if [ ! -d /work/frontend/src/node_modules ] || [ -z "$(ls -A /work/frontend/src/node_modules 2>/dev/null)" ]; then
+          pnpm --dir /work/frontend/src install --no-lockfile
+        fi
+        exec "$0" "$@"
+
 volumes:
   pg_data:
   neo4j_data:
   hf_cache:
   model_store:
     driver: local
+  e2e_frontend_src_node_modules:
+  e2e_pnpm_store:

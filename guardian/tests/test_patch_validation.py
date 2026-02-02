@@ -91,7 +91,8 @@ def test_memory_analyzer_test_mocks():
     print("Testing Memory Analyzer test mocks...")
 
     with open(
-        "guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py") as f:
+        "guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py"
+    ) as f:
         content = f.read()
 
     # Should have query_memory mocks, not query_memories

@@ -1,3 +1,6 @@
+"""CLI command registration for Codexify utilities."""
+
+from .backfill_status import backfill_status_cmd
 from .codexify_export_gdrive import export_gdrive_cmd
 from .codexify_oauth_begin import oauth_begin_cmd
 from .codexify_oauth_status import oauth_status_cmd
@@ -23,5 +26,6 @@ cli.add_command(oauth_status_cmd)
 cli.add_command(oauth_begin_cmd)
 cli.add_command(export_gdrive_cmd)
 cli.add_command(save_entry_cmd)
+cli.add_command(backfill_status_cmd)
 
 __all__ = ["cli", "ImprintZero"]

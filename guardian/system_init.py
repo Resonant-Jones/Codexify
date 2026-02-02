@@ -1,7 +1,7 @@
 """
 System Initialization
 ------------------
-Main entry point for the Threadspace system.
+Main entry point for the Codexify system.
 Handles component initialization, health checks, and system startup.
 """
 
@@ -29,11 +29,11 @@ logger = logging.getLogger(__name__)
 class SystemInitializer:
     """
     System initialization and management interface for testing.
-    Wraps ThreadspaceSystem to provide the interface expected by tests.
+    Wraps CodexifySystem to provide the interface expected by tests.
     """
 
     def __init__(self):
-        self._system = ThreadspaceSystem()
+        self._system = CodexifySystem()
         self._initialized = False
 
     async def initialize(self) -> bool:
@@ -73,9 +73,9 @@ class SystemInitializer:
             return {"status": "error", "error": str(e)}
 
 
-class ThreadspaceSystem:
+class CodexifySystem:
     """
-    Main system class that coordinates all Threadspace components.
+    Main system class that coordinates all Codexify components.
     Handles initialization, shutdown, and system-wide operations.
     """
 
@@ -110,7 +110,7 @@ class ThreadspaceSystem:
             bool: True if initialization was successful
         """
         try:
-            logger.info("Starting Threadspace system initialization...")
+            logger.info("Starting Codexify system initialization...")
 
             # 1. Validate system configuration
             if not system_config.validate():
@@ -137,9 +137,7 @@ class ThreadspaceSystem:
             self.startup_timestamp = datetime.now(UTC)
             self.health_status = initial_health["status"]
 
-            logger.info(
-                "Threadspace system initialization completed successfully"
-            )
+            logger.info("Codexify system initialization completed successfully")
             return True
 
         except Exception as e:
@@ -321,22 +319,22 @@ class ThreadspaceSystem:
 
 
 # Global system instance
-threadspace = ThreadspaceSystem()
+Codexify = CodexifySystem()
 
 
 def main():
     """Main entry point for the system."""
-    if threadspace.initialize():
-        logger.info("Threadspace system is ready")
+    if Codexify.initialize():
+        logger.info("Codexify system is ready")
 
         # Keep the main thread alive
         try:
-            while not threadspace.shutdown_event.is_set():
-                threadspace.shutdown_event.wait(1)
+            while not Codexify.shutdown_event.is_set():
+                Codexify.shutdown_event.wait(1)
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt")
         finally:
-            threadspace.shutdown()
+            Codexify.shutdown()
     else:
         logger.error("System initialization failed")
         sys.exit(1)

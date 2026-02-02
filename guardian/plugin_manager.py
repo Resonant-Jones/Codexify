@@ -68,7 +68,7 @@ class SafePlugin:
         async with self.lock:
             try:
                 self.active_calls += 1
-                self.last_call = datetime.now().timestamp()
+                self.last_call = datetime.now(UTC).timestamp()
 
                 if hasattr(self.module, "execute"):
                     return await self.module.execute(*args, **kwargs)

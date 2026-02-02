@@ -1,6 +1,6 @@
-# Contributing to Threadspace
+# Contributing to Codexify
 
-Thank you for your interest in contributing to Threadspace! This guide will help you get started with development and understand our workflow.
+Thank you for your interest in contributing to Codexify! This guide will help you get started with development and understand our workflow.
 
 ## 🔧 Development Setup
 
@@ -15,8 +15,8 @@ Thank you for your interest in contributing to Threadspace! This guide will help
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/threadspace/threadspace.git
-cd threadspace
+git clone https://github.com/Codexify/Codexify.git
+cd Codexify
 ```
 
 2. Create and activate virtual environment:
@@ -91,7 +91,7 @@ pre-commit run --all-files
 ## 🏗️ Project Structure
 
 ```
-threadspace/
+Codexify/
 ├── guardian/               # Core system components
 │   ├── agents/            # Agent implementations
 │   ├── config/           # System configuration
@@ -238,4 +238,4 @@ Contributors are recognized in:
 - Release notes
 - Project documentation
 
-Thank you for contributing to Threadspace! Your efforts help make this project better for everyone.
+Thank you for contributing to Codexify! Your efforts help make this project better for everyone.

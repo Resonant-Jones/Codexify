@@ -10,7 +10,7 @@ def search_plan(
 ) -> str:
     step_left = k - len(todo)
     return f"""
-        Today is {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        Today is {datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}
         You are an expert planner for search tasks. Your current assignment is to search and gather information on the following topic:
 
         {task}

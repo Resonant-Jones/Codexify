@@ -3,9 +3,9 @@ name: Codemap maintenance
 # NOTE: All cron times are UTC. Adjust if you expect output at a specific local time.
 
 on:
-  schedule:
-    - cron: '23 3 * * *'   # nightly UTC
-    - cron: '15 4 * * 0'   # weekly Sunday UTC
+  # schedule:
+  #   - cron: '23 3 * * *'   # nightly UTC (disabled)
+  #   - cron: '15 4 * * 0'   # weekly Sunday UTC (disabled)
   workflow_dispatch: {}
   push:
     branches: ["main"]

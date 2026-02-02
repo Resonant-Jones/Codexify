@@ -1,31 +1,49 @@
+/**
+ * ChatView - renders message history with scroll/stream coherence.
+ */
 import React, { useCallback, useEffect, useRef, useState, useLayoutEffect } from "react";
-import { useChat } from "@/features/chat/useChat";
+import { useChat, parseMessagesResponse, CompletionState } from "@/features/chat/useChat";
 import ChatBubble from "@/features/chat/components/ChatBubble";
 import ContextMenu from "@/components/ui/ContextMenu";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { cn } from "@/lib/utils";
+import api from "@/lib/api";
+import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 
 export function ChatView({
   threadId,
   guardianName,
   reloadVersion = 0,
+  completionState,
+  endCompletion,
   className,
   bottomPadding = 0,
 }: {
   threadId: number;
   guardianName?: string;
   reloadVersion?: number;
+  completionState: CompletionState;
+  endCompletion: () => void;
   className?: string;
   bottomPadding?: number;
 }) {
-  const { messages, loadMessages, appendMessage, loading, error, hasMore } = useChat();
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { messages, loadMessages, appendMessage, loading, error, hasMore, shouldRefresh, markRefreshed } = useChat();
+  const { containerRef, endRef } = useChatAutoScroll(messages.length);
   const initialScrollRef = useRef(true);
   const [hasOverflow, setHasOverflow] = useState(false);
   const [zenMode, setZenMode] = React.useState(false);
   const scrollMeasuredRef = useRef(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const PAGE_SIZE = 100;
+  const POLL_INTERVAL_MS = 900;
+  const POLL_TIMEOUT_MS = 30000;
+  const pollTokenRef = useRef(0);
+  const pollTimerRef = useRef<number | null>(null);
+  const isPollingRef = useRef(false);
+  const lastMessageIdRef = useRef(0);
+  const lastAssistantIdRef = useRef(0);
+  const lastPolledUserIdRef = useRef(0);
+  const lastReloadVersionRef = useRef(reloadVersion);
 
 
 
@@ -39,16 +57,132 @@ export function ChatView({
     [appendMessage, threadId]
   );
 
+  const stopPolling = useCallback(() => {
+    pollTokenRef.current += 1;
+    isPollingRef.current = false;
+    if (pollTimerRef.current != null) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(
+    (tid: number, reason: string) => {
+      if (!Number.isFinite(tid)) return;
+      stopPolling();
+
+      const token = ++pollTokenRef.current;
+      const startedAt = Date.now();
+      const initialAssistantId = lastAssistantIdRef.current;
+      isPollingRef.current = true;
+
+      const pollOnce = async () => {
+        if (pollTokenRef.current !== token) return;
+
+        try {
+          const res = await api.get(`/chat/${tid}/messages`, { params: { limit: PAGE_SIZE, offset: 0 } });
+          const parsed = parseMessagesResponse(res?.data);
+          if (parsed) {
+            const [page] = parsed;
+            console.debug(`[chat:poll] Parsed ${page.length} messages for thread ${tid}`);
+            let maxId = lastMessageIdRef.current;
+            let maxAssistantId = initialAssistantId;
+            const newMessages = [];
+            const getMessageId = (msg: any) => {
+              const value = Number(msg?.id ?? msg?.message_id ?? msg?.messageId);
+              return Number.isFinite(value) ? value : 0;
+            };
+
+            for (const msg of page) {
+              const id = getMessageId(msg);
+              if (!Number.isFinite(id)) continue;
+              if (id > maxId) {
+                maxId = id;
+              }
+              if (msg?.role && msg.role !== "user" && id > maxAssistantId) {
+                maxAssistantId = id;
+              }
+              if (id > lastMessageIdRef.current) {
+                newMessages.push(msg);
+              }
+            }
+
+            if (newMessages.length) {
+              console.debug(`[chat:poll] Found ${newMessages.length} new messages for thread ${tid}`);
+              newMessages
+                .sort((a, b) => getMessageId(a) - getMessageId(b))
+                .forEach((msg) => appendMessage(tid, msg));
+            }
+
+            if (maxId > lastMessageIdRef.current) {
+              lastMessageIdRef.current = maxId;
+            }
+            if (maxAssistantId > lastAssistantIdRef.current) {
+              lastAssistantIdRef.current = maxAssistantId;
+            }
+            if (maxAssistantId > initialAssistantId) {
+              stopPolling();
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn(`[chat] polling failed (${reason})`, err);
+        }
+
+        if (Date.now() - startedAt >= POLL_TIMEOUT_MS) {
+          console.info(`[chat] polling timed out (${reason})`);
+          stopPolling();
+          return;
+        }
+
+        pollTimerRef.current = window.setTimeout(pollOnce, POLL_INTERVAL_MS);
+      };
+
+      void pollOnce();
+    },
+    [appendMessage, stopPolling]
+  );
+
   useEffect(() => {
+    stopPolling();
     initialScrollRef.current = true;
     loadMessages(threadId, PAGE_SIZE, 0, false);
-  }, [threadId, reloadVersion, loadMessages]);
+    if (reloadVersion !== lastReloadVersionRef.current) {
+      lastReloadVersionRef.current = reloadVersion;
+      startPolling(threadId, "completion");
+    }
+  }, [threadId, reloadVersion, loadMessages, startPolling, stopPolling]);
 
   // Live updates: append message for active thread without refetching
   useEffect(() => {
     const offMessage = subscribe("message.created", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
+      const messageRole = payload?.role ?? "";
+      const tid = Number(payload?.thread_id ?? payload?.threadId);
+
+      // Ingest the message into the UI
       ingestIncoming(payload);
+
+      // If this is an assistant message for the active thread and we're completing, end completion tracking
+      if (
+        messageRole === "assistant" &&
+        Number.isFinite(tid) &&
+        tid === threadId &&
+        completionState.isCompleting
+      ) {
+        console.debug(
+          `[chat] Assistant message arrived for thread ${tid}, ending completion tracking`
+        );
+        // Small delay to ensure message is visible before hiding loader
+        setTimeout(() => {
+          endCompletion();
+          // Trigger a debounced refresh to ensure all messages are loaded
+          if (shouldRefresh(threadId, messages.length)) {
+            loadMessages(threadId, 50, 0, false);
+            markRefreshed(threadId, messages.length + 1);
+          }
+        }, 150);
+      }
     });
     const onLocal = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
@@ -59,7 +193,7 @@ export function ChatView({
       offMessage();
       window.removeEventListener("cfy:chat:message", onLocal as EventListener);
     };
-  }, [ingestIncoming, subscribe]);
+  }, [ingestIncoming, subscribe, threadId, completionState.isCompleting, endCompletion, messages.length, shouldRefresh, loadMessages, markRefreshed]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -69,7 +203,7 @@ export function ChatView({
     setHasOverflow(overflowing);
   }, [messages.length]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
@@ -89,17 +223,44 @@ export function ChatView({
       } catch {}
     }
 
-    // Otherwise, auto-scroll to bottom only when explicitly at bottom
-    const atBottom = Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop) < 24;
-    if (initialScrollRef.current || atBottom) {
-      requestAnimationFrame(() => {
-        if (containerRef.current) {
-          containerRef.current.scrollTop = containerRef.current.scrollHeight;
-        }
-      });
+    if (initialScrollRef.current) {
+      el.scrollTop = el.scrollHeight;
       initialScrollRef.current = false;
     }
-  }, [messages, threadId]);
+  }, [messages.length, threadId]);
+
+  useEffect(() => {
+    let maxId = 0;
+    let maxAssistantId = 0;
+    for (const msg of messages) {
+      const id = Number(msg.id);
+      if (!Number.isFinite(id)) continue;
+      if (id > maxId) {
+        maxId = id;
+      }
+      if (msg.role && msg.role !== "user" && id > maxAssistantId) {
+        maxAssistantId = id;
+      }
+    }
+    if (maxId > lastMessageIdRef.current) {
+      lastMessageIdRef.current = maxId;
+    }
+    if (maxAssistantId > lastAssistantIdRef.current) {
+      lastAssistantIdRef.current = maxAssistantId;
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== "user") return;
+    const lastId = Number(lastMessage.id);
+    if (!Number.isFinite(lastId)) return;
+    if (lastId <= lastPolledUserIdRef.current) return;
+    lastPolledUserIdRef.current = lastId;
+    startPolling(threadId, "user-message");
+  }, [messages, startPolling, threadId]);
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
 
   const onScroll = async () => {
     const el = containerRef.current;
@@ -207,6 +368,37 @@ export function ChatView({
             />
           </div>
         ))}
+        {completionState.isCompleting && (
+          <div className="max-w-full" data-testid="chat-completing-indicator">
+            <div className="flex items-start gap-3 px-4 py-3">
+              {/* Guardian avatar skeleton */}
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-400 to-blue-500 flex-shrink-0 animate-pulse" />
+
+              {/* Skeleton content with pulsing animation */}
+              <div className="flex-1 space-y-2 min-w-0">
+                <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+                <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+                <div className="flex items-center gap-2 mt-3">
+                  <div
+                    className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "0ms" }}
+                  />
+                  <div
+                    className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "150ms" }}
+                  />
+                  <div
+                    className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "300ms" }}
+                  />
+                  <span className="text-xs ml-2 opacity-60" style={{ color: "var(--muted)" }}>
+                    Guardian is thinking…
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {loading && (
           <div className="text-xs opacity-70" data-testid="chat-loading">
             Loading…
@@ -217,6 +409,7 @@ export function ChatView({
             {error}
           </div>
         )}
+        <div ref={endRef} />
       </div>
       {menu && (
         <ContextMenu

@@ -96,7 +96,7 @@ class ContextBroker:
 
         context: Dict[str, Any] = {}
 
-                # Always include recent messages
+        # Always include recent messages
         try:
             messages = await self._fetch_messages(thread_id, n_messages)
             context["messages"] = messages
@@ -119,7 +119,7 @@ class ContextBroker:
         else:
             context["semantic"] = []
 
-        # Optional graph-derived context (gated by explicit flag)
+        # Optional graph-derived context (explicit flag; deferred for CORE LOOP by default)
         context["graph"] = []
         if getattr(self.settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
             try:
@@ -198,9 +198,7 @@ class ContextBroker:
                 depth,
                 len(context.get("messages", [])),
                 len(context.get("semantic", [])),
-                len(context.get("memory", []))
-                if "memory" in context
-                else 0,
+                len(context.get("memory", [])) if "memory" in context else 0,
                 len(context.get("graph", [])),
             )
         except Exception:

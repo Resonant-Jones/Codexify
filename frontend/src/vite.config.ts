@@ -4,7 +4,8 @@ import { resolve } from 'path'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
-const API_KEY = process.env.VITE_GUARDIAN_API_KEY || 'local-guardian-ui';
+const API_KEY = (process.env.VITE_GUARDIAN_API_KEY ?? '').trim();
+const API_HEADERS = API_KEY ? { 'X-API-Key': API_KEY } : {};
 const PROXY_TARGET =
   process.env.VITE_PROXY_TARGET ||
   process.env.VITE_BACKEND_URL ||
@@ -24,7 +25,7 @@ export default defineConfig({
     {
       name: 'inject-guardian-key',
       configureServer(server) {
-        const UI_KEY = process.env.VITE_GUARDIAN_API_KEY;
+        const UI_KEY = (process.env.VITE_GUARDIAN_API_KEY ?? '').trim();
         server.middlewares.use((req, _res, next) => {
           // Node lowercases header names; add the expected API key header for all /api* routes
           if (req.url && req.url.startsWith('/api')) {
@@ -90,14 +91,16 @@ export default defineConfig({
         proxyTimeout: 0,
         timeout: 0,
         headers: {
-          'X-API-Key': API_KEY,
+          ...API_HEADERS,
           'accept': 'text/event-stream',
           'cache-control': 'no-cache',
           'connection': 'keep-alive',
         },
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {
-            try { proxyReq.setHeader('X-API-Key', API_KEY); } catch {}
+            if (API_KEY) {
+              try { proxyReq.setHeader('X-API-Key', API_KEY); } catch {}
+            }
           });
           proxy.on('error', (err) => {
             console.error('[vite-proxy] /api/events error:', err?.message || err);
@@ -106,27 +109,26 @@ export default defineConfig({
       },
 
       // Compatibility bridges: map some legacy '/api/*' routes to unprefixed backend paths
-      // Chat
+      // Chat (backend serves /api/chat/*)
       '^/api/chat(?=/|$)': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        headers: { 'X-API-Key': API_KEY },
-        rewrite: (p) => p.replace(/^\/api\/chat/, '/chat'),
+        headers: API_HEADERS,
       },
       // Threads alias (/api/threads -> /threads, /api/thread -> /thread)
       '^/api/threads(?=/|$)': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        headers: { 'X-API-Key': API_KEY },
+        headers: API_HEADERS,
         rewrite: (p) => p.replace(/^\/api\//, '/'),
       },
       '^/api/thread(?=/|$)': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        headers: { 'X-API-Key': API_KEY },
+        headers: API_HEADERS,
         rewrite: (p) => p.replace(/^\/api\//, '/'),
       },
       // Projects
@@ -134,22 +136,28 @@ export default defineConfig({
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        headers: { 'X-API-Key': API_KEY },
+        headers: API_HEADERS,
         rewrite: (p) => p.replace(/^\/api\//, '/'),
       },
 
-      // General API: /api/* -> backend /*  (drop /api prefix)
+      // Some clients build URLs as `${base}/api/...` where base is already `/api`.
+      // Collapse `/api/api/*` -> `/api/*` to avoid 404s.
+      '^/api/api(?=/|$)': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: API_HEADERS,
+        rewrite: (p) => p.replace(/^\/api\/api/, '/api'),
+      },
+
+      // General API: /api/* -> backend /api/* (do not rewrite; backend serves /api/*)
       '/api': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
         headers: {
-          'X-API-Key': API_KEY,
+          ...API_HEADERS,
         },
-
-        // /api/codex/entries -> /codex/entries
-        // /api/memory/...    -> /memory/...
-        rewrite: (p) => p.replace(/^\/api/, ''),
 
         // Let Vite serve source files itself instead of proxying them
         bypass: (req) => {
@@ -160,9 +168,11 @@ export default defineConfig({
 
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {
-            try {
-              proxyReq.setHeader('X-API-Key', API_KEY);
-            } catch {}
+            if (API_KEY) {
+              try {
+                proxyReq.setHeader('X-API-Key', API_KEY);
+              } catch {}
+            }
           });
           proxy.on('error', (err) => {
             console.error('[vite-proxy] /api error:', err?.message || err);

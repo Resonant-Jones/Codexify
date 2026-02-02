@@ -1,13 +1,13 @@
-# 🧠 Threadspace Internal Architecture
+# 🧠 Codexify Internal Architecture
 
-This document details the internal architecture and self-awareness capabilities of the Threadspace system. It serves as both documentation for developers and a reference for the system's own understanding of its capabilities.
+This document details the internal architecture and self-awareness capabilities of the Codexify system. It serves as both documentation for developers and a reference for the system's own understanding of its capabilities.
 
 ## 🗺️ System Architecture
 
 ### Core Components
 
 ```
-Threadspace
+Codexify
 ├── GuardianOS (Core System)
 │   ├── Thread Manager
 │   ├── Plugin System
@@ -299,5 +299,5 @@ Guidelines:
 
 ---
 
-> This documentation is maintained by the Threadspace system and updated automatically as capabilities evolve.
+> This documentation is maintained by the Codexify system and updated automatically as capabilities evolve.
 > Last Updated: [timestamp]

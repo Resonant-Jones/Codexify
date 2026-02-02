@@ -9,6 +9,9 @@ if str(ROOT) not in sys.path:
 # Avoid importing the FastAPI app at import-time to keep non-API tests light
 import os
 
+# Force mock embeddings backend BEFORE any app imports to avoid loading model
+os.environ.setdefault("CODEXIFY_EMBEDDINGS_BACKEND", "mock")
+
 # Import the correct FastAPI app for tests
 import socket
 from urllib.parse import urlparse

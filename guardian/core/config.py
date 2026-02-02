@@ -47,11 +47,11 @@ class Settings(BaseSettings):
             "Advanced override only: set to 'openai' via env for emergency fallback."
         ),
     )
-    EMBEDDING_MODEL: str = Field(
-        default="library2/embeddinggemma:300m-bf16",
+    EMBEDDING_MODEL: str | None = Field(
+        default=None,
         description=(
             "Embedding model identifier passed to the selected EMBEDDER_PROVIDER. "
-            "Examples: 'library2/embeddinggemma:300m-bf16' (local_api), 'text-embedding-3-small' (openai)."
+            "Set via environment variables; no default model is assumed."
         ),
     )
     LLM_FALLBACK_ORDER: list[str] = Field(
@@ -76,11 +76,10 @@ class Settings(BaseSettings):
         default="library2/ministral-3:8b",
         description="Local chat model identifier for Ollama.",
     )
-    LOCAL_EMBEDDING_MODEL: str = Field(
-        default="library2/embeddinggemma:300m-bf16",
+    LOCAL_EMBEDDING_MODEL: str | None = Field(
+        default=None,
         description=(
-            "Local embedding model identifier for Ollama. "
-            "This is the single supported embedding path for now (no swappable embedders yet)."
+            "Deprecated in favor of LOCAL_EMBED_MODEL. Set LOCAL_EMBED_MODEL in the environment."
         ),
     )
     GROQ_API_KEY: str | None = Field(
@@ -143,14 +142,26 @@ class Settings(BaseSettings):
         default=False,
         description="Enable using graph-derived context during completions.",
     )
+    GUARDIAN_DEV_MODE: bool = Field(
+        default=False,
+        description="Enable dev-only routes such as /dev/*.",
+    )
 
 
 # Create a singleton instance that can be imported across the application
 settings = Settings()
 
+CLOUD_LLM_PROVIDERS = {"openai", "groq"}
+
 
 class LLMConfigError(Exception):
     """Raised when LLM provider configuration is invalid."""
+
+
+def is_cloud_provider(provider: str | None) -> bool:
+    if not provider:
+        return False
+    return provider.strip().lower() in CLOUD_LLM_PROVIDERS
 
 
 def validate_llm_config(

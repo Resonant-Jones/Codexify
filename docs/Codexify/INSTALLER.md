@@ -1,6 +1,6 @@
 # Bundled Installer
 
-This project can be distributed as a single installer bundling ThreadSpace and required Ollama models.
+This project can be distributed as a single installer bundling Codexify and required Ollama models.
 
 ## Steps
 1. Package the `guardian_codex` application using `python -m build`.
