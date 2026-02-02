@@ -75,15 +75,16 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
 
         // Broadcast success for gallery refresh
         try {
-          window.dispatchEvent(new CustomEvent("cfy:gallery:add", {
-            detail: {
-              items: [{
-                src: imageUrl,
-                prompt: trimmed,
-                mock: false
-              }]
-            }
-          }));
+              window.dispatchEvent(new CustomEvent("cfy:gallery:add", {
+                detail: {
+                  items: [{
+                    src: imageUrl,
+                    prompt: trimmed,
+                    mock: false,
+                    tag: "generated"
+                  }]
+                }
+              }));
         } catch {}
 
         // Show success toast

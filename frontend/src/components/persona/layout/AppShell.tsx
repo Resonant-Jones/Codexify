@@ -392,6 +392,13 @@ export default function AppShell({}: PropsWithChildren) {
   type DocItem = DocumentLike & { ext: keyof ExtColors };
   function normalizeDoc(raw: any, idx = 0): DocItem {
     const title = raw?.title || raw?.name || "Untitled";
+    // Preserve any existing media URL so WorkspacePane can preview attachments.
+    const srcUrl =
+      (typeof raw?.src_url === "string" && raw.src_url) ||
+      (typeof raw?.srcUrl === "string" && raw.srcUrl) ||
+      (typeof raw?.src === "string" && raw.src) ||
+      (typeof raw?.url === "string" && raw.url) ||
+      undefined;
     const embeddingStatus =
       typeof raw?.embeddingStatus === "string"
         ? raw.embeddingStatus
@@ -424,6 +431,7 @@ export default function AppShell({}: PropsWithChildren) {
       type: raw?.type === "codex_entry" ? "codex_entry" : "file",
       mock: Boolean(raw?.mock),
       createdAt: raw?.createdAt || raw?.created_at,
+      src_url: srcUrl,
       embeddingStatus,
       embeddingError,
       embeddingStartedAt,
