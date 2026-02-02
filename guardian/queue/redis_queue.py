@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_REDIS_URL = "redis://redis:6379/0"
 _CANCEL_SET_KEY = "codexify:queue:cancelled"
+_TURN_LOCK_PREFIX = "turn_lock:"
+_DEFAULT_TURN_LOCK_TTL = int(os.getenv("CHAT_TURN_LOCK_TTL_SECONDS", "300"))
 _CLIENT: redis.Redis | None = None
 
 
@@ -128,6 +130,39 @@ def is_cancelled(task_id: str) -> bool:
 def clear_cancelled(task_id: str) -> None:
     def _clear(client: redis.Redis) -> int:
         return client.srem(_CANCEL_SET_KEY, task_id)
+
+    _with_reconnect(_clear)
+
+
+def _turn_lock_key(thread_id: int) -> str:
+    return f"{_TURN_LOCK_PREFIX}{thread_id}"
+
+
+def acquire_turn_lock(
+    thread_id: int,
+    *,
+    ttl_seconds: int | None = None,
+    value: str | None = None,
+) -> bool:
+    ttl = int(ttl_seconds or _DEFAULT_TURN_LOCK_TTL)
+    lock_value = value or str(int(time.time()))
+
+    def _set(client: redis.Redis) -> bool:
+        return bool(
+            client.set(
+                _turn_lock_key(thread_id),
+                lock_value,
+                nx=True,
+                ex=ttl,
+            )
+        )
+
+    return bool(_with_reconnect(_set))
+
+
+def release_turn_lock(thread_id: int) -> None:
+    def _clear(client: redis.Redis) -> int:
+        return client.delete(_turn_lock_key(thread_id))
 
     _with_reconnect(_clear)
 

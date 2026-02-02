@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import FrameCard from "@/components/surface/FrameCard";
 import { DocumentLike } from "@/types/documents";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,31 @@ type WorkspacePaneProps = {
 };
 
 export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePaneProps) {
+  const resolvePreviewUrl = useCallback((): string | null => {
+    if (!activeDoc) return null;
+    // DocumentLike varies across the app; tolerate several common shapes.
+    const anyDoc: any = activeDoc as any;
+    const url =
+      (typeof anyDoc.src_url === "string" && anyDoc.src_url) ||
+      (typeof anyDoc.srcUrl === "string" && anyDoc.srcUrl) ||
+      (typeof anyDoc.url === "string" && anyDoc.url) ||
+      (typeof anyDoc.src === "string" && anyDoc.src) ||
+      null;
+    return url && url.trim() ? url : null;
+  }, [activeDoc]);
+
+  const previewUrl = resolvePreviewUrl();
+
+  const isImage = useMemo(() => {
+    if (!previewUrl) return false;
+    const u = previewUrl.toLowerCase();
+    return u.endsWith(".png") || u.endsWith(".jpg") || u.endsWith(".jpeg") || u.endsWith(".webp") || u.startsWith("data:image/");
+  }, [previewUrl]);
+
+  const isPdf = useMemo(() => {
+    if (!previewUrl) return false;
+    return previewUrl.toLowerCase().includes(".pdf") || previewUrl.toLowerCase().startsWith("data:application/pdf");
+  }, [previewUrl]);
   const [codexEntry, setCodexEntry] = useState<CodexEntry | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,11 +125,67 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
         )}
 
         {activeDoc && activeDoc.type !== "codex_entry" && (
-          <div className="rounded-[var(--tile-radius)] border p-4" style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)", color: "var(--text)" }}>
-            <div className="text-sm font-semibold">{activeDoc?.title || "Untitled"}{activeDoc?.ext ? `.${activeDoc.ext}` : ""}</div>
-            <p className="mt-2 text-sm opacity-70">
-              Preview is not available for this document type. Use Export or open in thread to review.
-            </p>
+          <div className="rounded-[var(--tile-radius)] border p-4 space-y-3" style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)", color: "var(--text)" }}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">
+                  {activeDoc?.title || "Untitled"}
+                  {activeDoc?.ext ? `.${activeDoc.ext}` : ""}
+                </div>
+                <p className="mt-1 text-sm opacity-70">
+                  {previewUrl ? "Preview" : "Preview is not available for this document type."}
+                </p>
+              </div>
+              {previewUrl && (
+                <a
+                  href={previewUrl}
+                  className="rounded-[var(--radius-micro)] border px-3 py-1 text-xs"
+                  style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open
+                </a>
+              )}
+            </div>
+
+            {!previewUrl && (
+              <p className="text-sm opacity-70">Use “Open” or “Open in Thread” to review.</p>
+            )}
+
+            {previewUrl && isImage && (
+              <div className="rounded-[var(--tile-radius)] overflow-hidden border" style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)" }}>
+                <img
+                  src={previewUrl}
+                  alt={activeDoc?.title || "Image"}
+                  className="block w-full"
+                  style={{ maxHeight: 520, objectFit: "contain" }}
+                  loading="lazy"
+                />
+              </div>
+            )}
+
+            {previewUrl && !isImage && isPdf && (
+              <div className="rounded-[var(--tile-radius)] overflow-hidden border" style={{ borderColor: "var(--panel-border)", background: "var(--panel-bg)" }}>
+                <iframe
+                  title={activeDoc?.title || "PDF"}
+                  src={previewUrl}
+                  className="w-full"
+                  style={{ height: 620 }}
+                />
+              </div>
+            )}
+
+            {previewUrl && !isImage && !isPdf && (
+              <div className="text-sm opacity-70">
+                This file type doesn’t have an inline preview yet.
+                <div className="mt-2">
+                  <a href={previewUrl} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">
+                    Open in a new tab
+                  </a>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
