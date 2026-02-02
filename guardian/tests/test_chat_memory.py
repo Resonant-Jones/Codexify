@@ -1,3 +1,5 @@
+"""Tests for chat message CRUD, pagination, and turn-lock enforcement."""
+
 from fastapi.testclient import TestClient
 
 from guardian.guardian_api import app
@@ -36,6 +38,22 @@ def test_chat_post_empty_400():
     )
     assert r.status_code == 400
     assert r.json().get("ok") is False
+
+
+def test_chat_turn_lock_rejects(monkeypatch):
+    from guardian.routes import chat as chat_routes
+
+    def fake_acquire_turn_lock(*_args, **_kwargs) -> bool:
+        return False
+
+    monkeypatch.setattr(
+        chat_routes, "acquire_turn_lock", fake_acquire_turn_lock
+    )
+    r = client.post(
+        "/api/chat/555/messages", json={"role": "user", "content": "hi"}
+    )
+    assert r.status_code == 429
+    assert r.json().get("error") == "turn_in_flight"
 
 
 def test_memory_crud_and_health():

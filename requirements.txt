@@ -172,6 +172,7 @@ PyGetWindow==0.0.9
 Pygments==2.19.2
 PyJWT==2.10.1
 PyMsgBox==1.0.9
+pypdf==5.1.0
 PyMuPDF==1.26.3
 pyobjc-core==11.1
 pyobjc-framework-Cocoa==11.1

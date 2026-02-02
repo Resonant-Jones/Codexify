@@ -7,7 +7,11 @@ import api from "@/lib/api";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ImagePlus, X } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
+
 import GalleryPreviewTile from "@/components/gallery/PreviewTile";
+
+// Debug signature: helps confirm which DashboardView module the browser is actually running.
+const DASHBOARDVIEW_SIGNATURE = "DashboardView.tsx (components/dashboard) signature: 2026-02-01";
 
 // ──────── Demo Data ────────
 const DEMO_RECENT_DOCS: string[] = [
@@ -71,6 +75,14 @@ export default function DashboardView({
   });
 
   React.useEffect(() => {
+    try {
+      console.debug("[dashboard]", DASHBOARDVIEW_SIGNATURE);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  React.useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -100,13 +112,46 @@ export default function DashboardView({
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.get("/api/media/documents", { params: { limit: 4 } });
-        const docs = res?.data || [];
-        const names = docs.map((d: any) => d.filename || d.name || "Untitled");
-        if (!cancelled) setRecentDocs(names);
+        // NOTE: `api` is configured with the `/api` base; keep paths base-relative.
+        // Backend route: GET /api/media/documents
+        const res = await api.get("/media/documents", { params: { limit: 4 } });
+        const data = res?.data;
+
+        // Backend may return either:
+        //  - an array of docs
+        //  - an envelope like { documents: [...], count: number }
+        //  - an envelope like { items: [...] } or { data: [...] }
+        //  - an error object (e.g. { detail: [...] })
+        //  - a nested envelope (proxy / wrapper)
+        const unwrap = (v: any): any => {
+          if (!v || typeof v !== "object") return v;
+          return (v as any).documents ?? (v as any).items ?? (v as any).data ?? (v as any).results ?? v;
+        };
+
+        const candidate1 = Array.isArray(data) ? data : unwrap(data);
+        const candidate2 = Array.isArray(candidate1) ? candidate1 : unwrap(candidate1);
+        const docs: any[] = Array.isArray(candidate2) ? candidate2 : [];
+
+        // Optional debug signal: helps identify weird backend shapes without crashing UI
+        if (docs.length === 0 && data != null) {
+          try {
+            console.debug("[dashboard] documents payload shape", {
+              type: typeof data,
+              keys: typeof data === "object" && data ? Object.keys(data as any) : undefined,
+            });
+          } catch {
+            // ignore
+          }
+        }
+
+        const names = docs
+          .map((d: any) => d?.filename || d?.name || d?.title || "Untitled")
+          .filter((v: any) => typeof v === "string" && v.trim().length > 0);
+
+        if (!cancelled) setRecentDocs(Array.isArray(names) ? names : []);
       } catch (e) {
         console.warn("[dashboard] failed to load documents", e);
-        // Fall back to empty array (no mock data)
+        // Fall back to empty array (dashboard will show demo docs if enabled)
         if (!cancelled) setRecentDocs([]);
       }
     })();

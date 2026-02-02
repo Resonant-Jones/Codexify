@@ -503,6 +503,10 @@ pygments==2.19.2
     # via
     #   pytest
     #   rich
+pypdf>=5.0.0
+    # via PDF text extraction
+pymupdf>=1.24.0
+    # via PDF text extraction
 pyopenssl==25.3.0
     # via crawl4ai
 pypika==0.48.9

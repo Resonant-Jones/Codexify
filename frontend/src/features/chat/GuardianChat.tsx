@@ -1,4 +1,10 @@
-import { useMemo, useState, useEffect } from "react";
+/**
+ * GuardianChat.tsx
+ *
+ * Hosts the Guardian chat surface and coordinates thread-level UI state,
+ * including completion tracking and per-thread turn gating for the composer.
+ */
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { debounce } from "lodash-es";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ChevronRight, MoreVertical, Plus, Sparkles, Layers, SquareStack } from "lucide-react";
@@ -15,6 +21,7 @@ import { ProviderSelect } from "@/components/ProviderSelect";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
+const TURN_LOCK_TOAST = "One moment—finish the current reply first.";
 
 /**
  * RAG depth modes: Four lenses of consciousness.
@@ -69,7 +76,7 @@ export function GuardianChat({
   onPrefillConsumed?: () => void;
   onWorkspaceToggle?: () => void;
   activeThread: Thread;
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string) => Promise<void>;
   onNewChat: () => void;
   onBranchThread?: (threadId: number, options?: { title?: string }) => Promise<void> | void;
   onArchiveThread?: (threadId: number) => Promise<void> | void;
@@ -84,6 +91,9 @@ export function GuardianChat({
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
   // Chat state management including completion tracking
   const { completionState, startCompletion, endCompletion } = useChat();
+  const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
+  const [pendingTurnLock, setPendingTurnLock] = useState(false);
+  const lastCompletionThreadRef = useRef<number | null>(null);
 
   // Listen for external prefill requests (e.g., Prompt Library selection)
   useEffect(() => {
@@ -111,6 +121,28 @@ export function GuardianChat({
     const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
     composer?.focus();
   };
+  const setTurnLockForThread = useCallback((threadId: number, locked: boolean) => {
+    setTurnLocks((prev) => {
+      const current = Boolean(prev[threadId]);
+      if (current === locked) return prev;
+      if (!locked) {
+        const next = { ...prev };
+        delete next[threadId];
+        return next;
+      }
+      return { ...prev, [threadId]: true };
+    });
+  }, []);
+  const isTurnLocked = useCallback(
+    (threadId: number | null) => {
+      if (threadId == null) return pendingTurnLock;
+      return Boolean(turnLocks[threadId]);
+    },
+    [pendingTurnLock, turnLocks]
+  );
+  const notifyTurnLocked = () => {
+    showToast(TURN_LOCK_TOAST);
+  };
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
     try {
@@ -136,8 +168,10 @@ export function GuardianChat({
         });
         console.log(`[guardian] RAG trace captured: ${ctx.semantic?.length || 0} semantic, ${ctx.memory?.length || 0} memory`);
       }
+      return true;
     } catch (err) {
       console.warn("[guardian] completion failed", err);
+      return false;
     } finally {
       // always nudge the view to reconcile with server state
       triggerReload();
@@ -199,6 +233,30 @@ export function GuardianChat({
       offThread();
     };
   }, [effectiveThreadId, subscribe]);
+  useEffect(() => {
+    const offMessage = subscribe("message.created", (event) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const tid = Number(payload?.thread_id ?? payload?.threadId);
+      const role = String(payload?.role ?? "").trim().toLowerCase();
+      if (!Number.isFinite(tid) || role !== "assistant") return;
+      setTurnLockForThread(tid, false);
+    });
+
+    return () => {
+      offMessage();
+    };
+  }, [setTurnLockForThread, subscribe]);
+  useEffect(() => {
+    if (completionState.isCompleting && completionState.activeThreadId != null) {
+      lastCompletionThreadRef.current = completionState.activeThreadId;
+      return;
+    }
+    if (!completionState.isCompleting && lastCompletionThreadRef.current != null) {
+      // Safety release if completion ends without an assistant message (timeouts/cancels).
+      setTurnLockForThread(lastCompletionThreadRef.current, false);
+      lastCompletionThreadRef.current = null;
+    }
+  }, [completionState.activeThreadId, completionState.isCompleting, setTurnLockForThread]);
 
   // Auto-thread creation handler
   const handleThreadCreated = (threadId: number, title?: string) => {
@@ -246,7 +304,7 @@ export function GuardianChat({
   };
 
   // Enhanced send handler with auto-thread creation
-  const handleSendMessage = (text: string) => {
+  const handleSendMessage = async (text: string) => {
     /**
      * Inject human consciousness into the thread's awareness stream.
      *
@@ -255,60 +313,88 @@ export function GuardianChat({
      * title becomes the thread's identity in the distributed awareness network.
      */
     const normalizedUserId = userName || "default";
+    if (isTurnLocked(effectiveThreadId)) {
+      notifyTurnLocked();
+      return;
+    }
     if (!effectiveThreadId) {
-      (async () => {
-        const firstLine = text.trim().split(/\n+/)[0] ?? "";
-        const provisionalTitle = firstLine.slice(0, 60) || "New Chat";
-        try {
-          const resp = await api.post("/chat/threads", {
-            title: provisionalTitle,
-            project_id: 1, // Loose Threads
-          });
-          const th = (resp && resp.data) || {};
-          const newThreadId = th.id ?? th.thread?.id ?? th.thread_id ?? th.id_str;
-          const numericNewId = Number(newThreadId);
-          if (!Number.isFinite(numericNewId)) {
-            console.warn("Unexpected thread creation response:", th);
-            throw new Error("Thread id missing from response");
-          }
-          const derivedTitle = th.thread?.title ?? provisionalTitle;
-          handleThreadCreated(numericNewId, derivedTitle);
-
-          // Post the first message to the newly-created thread
-          await api.post(`/chat/${numericNewId}/messages`, {
-            role: "user",
-            content: text,
-            user_id: normalizedUserId,
-          });
-
-          // Remove draft only after successful post
-          if (typeof window !== "undefined") {
-            sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${numericNewId}`);
-          }
-
-          // Notify parent that the message was sent
-          onSendMessage(text);
-
-          // Complete the thread and refresh
-          await completeThread(numericNewId);
-        } catch (error) {
-          console.error("Failed to create thread or send message:", error);
-          // Do not call onSendMessage so parent doesn't assume success
+      const firstLine = text.trim().split(/\n+/)[0] ?? "";
+      const provisionalTitle = firstLine.slice(0, 60) || "New Chat";
+      let createdThreadId: number | null = null;
+      setPendingTurnLock(true);
+      try {
+        const resp = await api.post("/chat/threads", {
+          title: provisionalTitle,
+          project_id: 1, // Loose Threads
+        });
+        const th = (resp && resp.data) || {};
+        const newThreadId = th.id ?? th.thread?.id ?? th.thread_id ?? th.id_str;
+        const numericNewId = Number(newThreadId);
+        if (!Number.isFinite(numericNewId)) {
+          console.warn("Unexpected thread creation response:", th);
+          throw new Error("Thread id missing from response");
         }
-      })();
+        createdThreadId = numericNewId;
+        const derivedTitle = th.thread?.title ?? provisionalTitle;
+        handleThreadCreated(numericNewId, derivedTitle);
+
+        // Lock the new thread before sending the first message.
+        setTurnLockForThread(numericNewId, true);
+        setPendingTurnLock(false);
+
+        // Post the first message to the newly-created thread
+        await api.post(`/chat/${numericNewId}/messages`, {
+          role: "user",
+          content: text,
+          user_id: normalizedUserId,
+        });
+
+        // Remove draft only after successful post
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${numericNewId}`);
+        }
+
+        // Notify parent that the message was sent
+        await onSendMessage(text);
+
+        // Complete the thread and refresh
+        const completed = await completeThread(numericNewId);
+        if (!completed) {
+          setTurnLockForThread(numericNewId, false);
+          throw new Error("Assistant response failed.");
+        }
+      } catch (error) {
+        console.error("Failed to create thread or send message:", error);
+        setPendingTurnLock(false);
+        if (createdThreadId != null) {
+          setTurnLockForThread(createdThreadId, false);
+        }
+        throw error;
+      }
     } else {
       if (typeof window !== "undefined") {
         sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${effectiveThreadId}`);
       }
+      setTurnLockForThread(effectiveThreadId, true);
       // Thread exists, just send the message via parent callback
-      onSendMessage(text);
+      try {
+        await onSendMessage(text);
 
-      // Fire-and-forget completion a beat later so the just-sent message is persisted
-      setTimeout(() => {
-        if (effectiveThreadId != null) {
-          void completeThread(effectiveThreadId);
-        }
-      }, 100);
+        // Fire-and-forget completion a beat later so the just-sent message is persisted
+        setTimeout(() => {
+          if (effectiveThreadId == null) return;
+          void (async () => {
+            const completed = await completeThread(effectiveThreadId);
+            if (!completed) {
+              setTurnLockForThread(effectiveThreadId, false);
+              showToast("Assistant response failed.");
+            }
+          })();
+        }, 100);
+      } catch (error) {
+        setTurnLockForThread(effectiveThreadId, false);
+        throw error;
+      }
     }
   };
 
@@ -591,6 +677,7 @@ export function GuardianChat({
               onPrefillConsumed?.();
             }}
             threadId={effectiveThreadId ?? undefined}
+            isTurnInFlight={isTurnLocked(effectiveThreadId)}
           />
         </div>
       </div>

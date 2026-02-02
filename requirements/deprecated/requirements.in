@@ -15,6 +15,8 @@ aiohttp
 sqlalchemy
 selenium
 beautifulsoup4
+pypdf>=5.0.0
+pymupdf>=1.24.0
 chromadb
 pgvector
 litellm

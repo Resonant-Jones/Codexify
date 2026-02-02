@@ -22,7 +22,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
 
 from guardian.queue import task_events
-from guardian.queue.redis_queue import enqueue
+from guardian.queue.redis_queue import (
+    acquire_turn_lock,
+    enqueue,
+    release_turn_lock,
+)
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
@@ -447,6 +451,22 @@ def chat_post_message(
             content={"ok": False, "error": "role and content required"},
         )
     owner = body.get("user_id") or "default"
+    lock_acquired = False
+    try:
+        # Enforce one in-flight turn per thread at a time.
+        lock_acquired = acquire_turn_lock(thread_id, value=str(owner))
+    except Exception as exc:
+        logger.warning(
+            "[chat] turn lock unavailable thread_id=%s err=%s",
+            thread_id,
+            exc,
+        )
+        lock_acquired = True
+    if not lock_acquired:
+        return JSONResponse(
+            status_code=429,
+            content={"ok": False, "error": "turn_in_flight"},
+        )
     default_project_id = _coerce_project_id(None)
     try:
         chatlog_db.ensure_chat_thread(
@@ -460,10 +480,36 @@ def chat_post_message(
         logger.exception(
             "Failed to ensure chat thread %s exists: %s", thread_id, exc
         )
+        if lock_acquired:
+            try:
+                release_turn_lock(thread_id)
+            except Exception:
+                logger.debug(
+                    "[chat] turn lock release failed thread_id=%s",
+                    thread_id,
+                    exc_info=True,
+                )
         raise HTTPException(
             status_code=500, detail="Failed to persist chat message"
         )
-    mid = chatlog_db.create_message(thread_id, role, content)
+    try:
+        mid = chatlog_db.create_message(thread_id, role, content)
+    except Exception as exc:
+        if lock_acquired:
+            try:
+                release_turn_lock(thread_id)
+            except Exception:
+                logger.debug(
+                    "[chat] turn lock release failed thread_id=%s",
+                    thread_id,
+                    exc_info=True,
+                )
+        logger.exception(
+            "[chat] create_message failed thread_id=%s: %s", thread_id, exc
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to persist chat message"
+        )
     chatlog_db.write_audit_log(
         "create", "chat_message", str(mid), user_id=str(owner)
     )
@@ -609,6 +655,14 @@ async def chat_complete(
         else True
     )
     if not thread_exists:
+        try:
+            release_turn_lock(thread_id)
+        except Exception:
+            logger.debug(
+                "[chat.complete] turn lock release failed thread_id=%s",
+                thread_id,
+                exc_info=True,
+            )
         raise HTTPException(status_code=404, detail="Thread not found")
 
     limit = int(body.max_context or 50)
@@ -624,6 +678,14 @@ async def chat_complete(
         ):
             context.append({"role": role, "content": content})
     if not context:
+        try:
+            release_turn_lock(thread_id)
+        except Exception:
+            logger.debug(
+                "[chat.complete] turn lock release failed thread_id=%s",
+                thread_id,
+                exc_info=True,
+            )
         raise HTTPException(
             status_code=400, detail="Thread has no usable context"
         )
@@ -641,6 +703,14 @@ async def chat_complete(
         enqueue(task, "codexify:queue:chat")
     except Exception as exc:
         logger.warning("[chat.complete] queue unavailable: %s", exc)
+        try:
+            release_turn_lock(thread_id)
+        except Exception:
+            logger.debug(
+                "[chat.complete] turn lock release failed thread_id=%s",
+                thread_id,
+                exc_info=True,
+            )
         raise HTTPException(status_code=503, detail="queue_unavailable")
 
     # Track latest task for debug endpoint

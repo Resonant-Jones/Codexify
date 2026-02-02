@@ -4,7 +4,24 @@
 import { useCallback, useRef, useState } from "react";
 import api from "@/lib/api";
 
-export type ChatMessage = { id: number; thread_id: number; role: string; content: string; created_at: string };
+export type ChatAttachment = {
+  id: string;
+  kind: "image" | "document";
+  src_url: string;
+  filename?: string;
+  mime_type?: string;
+  filesize?: number;
+  created_at?: string;
+};
+
+export type ChatMessage = {
+  id: number;
+  thread_id: number;
+  role: string;
+  content: string;
+  created_at: string;
+  attachments?: ChatAttachment[];
+};
 
 /**
  * Safely extract messages from API response.
@@ -23,6 +40,56 @@ export const parseMessagesResponse = (data: any): [ChatMessage[], number] | null
   return null;
 };
 
+const normalizeSrcUrl = (src: any): string => {
+  if (typeof src !== "string") return "";
+  // Allow either absolute URLs or /media/... relative paths.
+  return src.trim();
+};
+
+const normalizeAttachments = (raw: any): ChatAttachment[] => {
+  const base = raw?.message && typeof raw.message === "object" ? raw.message : raw;
+
+  // We accept a few possible shapes to stay resilient while backend evolves.
+  const candidates: any[] = [];
+
+  // Preferred: `attachments: [...]`
+  if (Array.isArray(base?.attachments)) candidates.push(...base.attachments);
+
+  // Legacy-ish: `images: [...]` or `documents: [...]`
+  if (Array.isArray(base?.images)) candidates.push(...base.images.map((x: any) => ({ ...x, kind: "image" })));
+  if (Array.isArray(base?.documents)) candidates.push(...base.documents.map((x: any) => ({ ...x, kind: "document" })));
+
+  // Sometimes nested media envelope: `media: { images: [...], documents: [...] }`
+  if (base?.media && typeof base.media === "object") {
+    if (Array.isArray(base.media.images)) candidates.push(...base.media.images.map((x: any) => ({ ...x, kind: "image" })));
+    if (Array.isArray(base.media.documents)) candidates.push(...base.media.documents.map((x: any) => ({ ...x, kind: "document" })));
+  }
+
+  const out: ChatAttachment[] = [];
+  for (const c of candidates) {
+    if (!c) continue;
+    const kind: any = (c.kind || c.type || c.media_type || c.mime_type || "").toString().toLowerCase();
+    const inferredKind: "image" | "document" =
+      kind.includes("image") ? "image" : (kind === "document" || kind.includes("pdf") || kind.includes("text")) ? "document" : "image";
+
+    const id = (c.id ?? c.media_id ?? c.uuid ?? "").toString();
+    const src_url = normalizeSrcUrl(c.src_url ?? c.srcUrl ?? c.url ?? c.path);
+    if (!id || !src_url) continue;
+
+    out.push({
+      id,
+      kind: inferredKind,
+      src_url,
+      filename: typeof c.filename === "string" ? c.filename : undefined,
+      mime_type: typeof c.mime_type === "string" ? c.mime_type : (typeof c.mimeType === "string" ? c.mimeType : undefined),
+      filesize: Number.isFinite(Number(c.filesize)) ? Number(c.filesize) : (Number.isFinite(Number(c.size)) ? Number(c.size) : undefined),
+      created_at: (c.created_at ?? c.createdAt) ? String(c.created_at ?? c.createdAt) : undefined,
+    });
+  }
+
+  return out;
+};
+
 const normalizeMessage = (raw: any, fallbackThreadId?: number): ChatMessage | null => {
   if (!raw) return null;
   const base = raw.message && typeof raw.message === "object" ? raw.message : raw;
@@ -32,19 +99,41 @@ const normalizeMessage = (raw: any, fallbackThreadId?: number): ChatMessage | nu
   const content = typeof base.content === "string" ? base.content : String(base.content ?? "");
   const createdAtRaw = base.created_at ?? base.createdAt;
   const createdAt = createdAtRaw ? String(createdAtRaw) : "";
+  const attachments = normalizeAttachments(raw);
   if (!Number.isFinite(threadId) || !Number.isFinite(id)) return null;
-  // Drop empty content to avoid no-op UI updates.
-  if (!role || !content.trim()) return null;
+  // Drop true no-op messages, but allow attachment-only messages (uploads).
+  const hasText = !!content.trim();
+  const hasAttachments = attachments.length > 0;
+  if (!role || (!hasText && !hasAttachments)) return null;
   return {
     id,
     thread_id: threadId,
     role,
     content,
     created_at: createdAt,
+    attachments: attachments.length ? attachments : undefined,
   };
 };
 
 const sameMessage = (a: ChatMessage, b: ChatMessage): boolean => {
+  const aAtt = a.attachments ?? [];
+  const bAtt = b.attachments ?? [];
+  if (aAtt.length !== bAtt.length) return false;
+  for (let i = 0; i < aAtt.length; i += 1) {
+    const aa = aAtt[i];
+    const bb = bAtt[i];
+    if (
+      aa.id !== bb.id ||
+      aa.kind !== bb.kind ||
+      aa.src_url !== bb.src_url ||
+      (aa.filename || "") !== (bb.filename || "") ||
+      (aa.mime_type || "") !== (bb.mime_type || "") ||
+      (aa.filesize ?? null) !== (bb.filesize ?? null)
+    ) {
+      return false;
+    }
+  }
+
   return a.id === b.id
     && a.thread_id === b.thread_id
     && a.role === b.role
@@ -150,15 +239,28 @@ export function useChat() {
     });
   }, []);
 
-  const sendMessage = useCallback(async (threadId: number, role: string, content: string) => {
-    try {
-      const res = await api.post(`/chat/${threadId}/messages`, { role, content });
-      return res?.data;
-    } catch (e) {
-      setError("Failed to send message");
-      return { ok: false };
-    }
-  }, []);
+  const sendMessage = useCallback(
+    async (
+      threadId: number,
+      role: string,
+      content: string,
+      opts?: { attachments?: ChatAttachment[] }
+    ) => {
+      try {
+        const payload: any = { role, content };
+        if (opts?.attachments?.length) {
+          // Backend may ignore this until wired, but frontend can start calling it.
+          payload.attachments = opts.attachments;
+        }
+        const res = await api.post(`/chat/${threadId}/messages`, payload);
+        return res?.data;
+      } catch (e) {
+        setError("Failed to send message");
+        return { ok: false };
+      }
+    },
+    []
+  );
 
   const deleteMessage = useCallback(async (threadId: number, id: number) => {
     try {
