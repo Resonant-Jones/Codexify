@@ -622,6 +622,9 @@ class UploadedImage(Base):
     mime_type: Mapped[str] = mapped_column(
         String(128), nullable=False
     )  # image/png, image/jpeg, etc.
+    source_tag: Mapped[str | None] = mapped_column(
+        String(64)
+    )  # uploaded | generated | other
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -712,6 +715,9 @@ class UploadedDocument(Base):
     src_url: Mapped[str] = mapped_column(
         Text, nullable=False
     )  # Path or URL to file
+    source_tag: Mapped[str | None] = mapped_column(
+        String(64)
+    )  # uploaded | generated | other
     parsed_text: Mapped[str | None] = mapped_column(
         Text
     )  # Extracted text for FTS

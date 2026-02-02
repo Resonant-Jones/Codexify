@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -260,3 +261,83 @@ class TestImageGeneration:
         assert generated_image.project_id == 42
         assert generated_image.thread_id == 99
         assert generated_image.user_id == "user123"
+
+
+class TestUploadDedupeAndTagging:
+    """Tests for media upload dedupe and tag filtering."""
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media._get_db")
+    def test_upload_image_dedupe_returns_existing(
+        self, mock_get_db, mock_storage, client
+    ):
+        """Return existing DB row when filename + filesize match."""
+        existing = MagicMock()
+        existing.id = "img-123"
+        existing.src_url = "/media/images/existing.png"
+        existing.filename = "existing.png"
+        existing.filesize = 8
+        existing.mime_type = "image/png"
+        existing.source_tag = "uploaded"
+        existing.created_at = datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+        mock_session = MagicMock()
+        query = mock_session.query.return_value
+        query.filter.return_value = query
+        query.order_by.return_value = query
+        query.first.return_value = existing
+
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__enter__ = MagicMock(
+            return_value=mock_session
+        )
+        mock_db.get_session.return_value.__exit__ = MagicMock(
+            return_value=False
+        )
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/image",
+            data={"project_id": 1, "thread_id": 1},
+            files={"file": ("existing.png", b"12345678", "image/png")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["id"] == "img-123"
+        assert payload["source_tag"] == "uploaded"
+        mock_storage.upload_file.assert_not_called()
+
+    @patch("guardian.routes.media._get_db")
+    def test_list_images_generated_tag_returns_generated(
+        self, mock_get_db, client
+    ):
+        """List generated images when tag=generated is provided."""
+        generated = MagicMock()
+        generated.id = "gen-1"
+        generated.src_url = "/media/generated/gen-1.png"
+        generated.prompt = "A test prompt"
+        generated.created_at = datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+        mock_session = MagicMock()
+        query = mock_session.query.return_value
+        query.filter.return_value = query
+        query.filter_by.return_value = query
+        query.order_by.return_value = query
+        query.limit.return_value = query
+        query.all.return_value = [generated]
+
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__enter__ = MagicMock(
+            return_value=mock_session
+        )
+        mock_db.get_session.return_value.__exit__ = MagicMock(
+            return_value=False
+        )
+        mock_get_db.return_value = mock_db
+
+        response = client.get("/api/media/images?tag=generated")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["count"] == 1
+        assert payload["images"][0]["source_tag"] == "generated"

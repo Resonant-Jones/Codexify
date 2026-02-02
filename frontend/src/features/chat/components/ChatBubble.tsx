@@ -1,3 +1,9 @@
+/**
+ * ChatBubble.tsx
+ *
+ * Renders chat bubbles with inline attachment tiles and dispatches workspace
+ * open events for attachments without navigating away from the chat view.
+ */
 import React from "react";
 import { motion } from "framer-motion";
 import { Message } from "@/types/ui";
@@ -69,37 +75,32 @@ const AttachmentTiles = ({
     "overflow-hidden rounded-[var(--tile-radius)] border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5";
   const tileSize = "w-full max-w-[320px]";
 
-  const openInWorkspace = (att: Attachment) => {
+  const openInWorkspace = (att: Attachment, idx: number) => {
     if (!att?.src) return;
-    // Dispatch a cancelable event; if a listener handles it, it should call preventDefault().
-    try {
-      const ev = new CustomEvent("cfy:workspace:open", {
-        detail: {
-          kind: att.kind,
-          src: att.src,
-          id: att.id,
-          name: att.name,
-        },
-        cancelable: true,
-      });
-      const notCanceled = window.dispatchEvent(ev);
-      const handled = !notCanceled;
-      if (handled) return;
-      try {
-        window.dispatchEvent(new CustomEvent("cfy:workspace:toggleWorkspacePanel"));
-      } catch {}
-    } catch {
-      // fall through to default
-    }
+    // Normalize attachment metadata into the DocumentLike shape expected by AppShell.
+    const rawName =
+      att.name ||
+      (() => {
+        const last = att.src?.split("/").pop() || "";
+        return last.split("?")[0];
+      })() ||
+      (att.kind === "image" ? "Image.png" : "Document.pdf");
+    const extMatch = rawName.match(/\.([a-z0-9]+)$/i);
+    const ext = extMatch ? extMatch[1].toLowerCase() : att.kind === "image" ? "png" : "pdf";
+    const title = rawName.replace(/\.[^.]+$/, "") || (att.kind === "image" ? "Image" : "Document");
 
-    // No fallback navigation (avoids the "jump-scare" new-tab behavior).
-    // If nothing handles the event yet, surface a toast so it’s obvious what’s missing.
     try {
       window.dispatchEvent(
-        new CustomEvent("cfy:toast", {
+        new CustomEvent("cfy:documents:open", {
           detail: {
-            message:
-              "Workspace open isn’t wired yet for attachments (missing cfy:workspace:open listener).",
+            doc: {
+              id: att.id || `${att.kind}-${idx}`,
+              title,
+              name: title,
+              ext,
+              type: "file",
+              src_url: att.src,
+            },
           },
         })
       );
@@ -116,7 +117,7 @@ const AttachmentTiles = ({
               {att.src ? (
                 <button
                   type="button"
-                  onClick={() => openInWorkspace(att)}
+                  onClick={() => openInWorkspace(att, idx)}
                   className="block w-full text-left"
                   aria-label="Open image"
                 >
@@ -142,7 +143,7 @@ const AttachmentTiles = ({
             {att.src ? (
               <button
                 type="button"
-                onClick={() => openInWorkspace(att)}
+                onClick={() => openInWorkspace(att, idx)}
                 className="flex w-full items-center gap-3 text-left"
                 aria-label="Open document"
               >

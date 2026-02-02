@@ -1,4 +1,8 @@
-// src/components/gallery/GalleryView.tsx
+/**
+ * GalleryView.tsx
+ *
+ * Renders the gallery surface and supports filtering images by source tag.
+ */
 import React, { useContext, useMemo, useState, useEffect } from "react";
 import { ProjectContext } from "@/components/layout/ProjectContext";
 import PreviewTile from "@/components/gallery/PreviewTile";
@@ -7,7 +11,12 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import useUploader from "@/hooks/useUploader";
 import { X } from "lucide-react";
 
-export type GalleryItem = { src: string; prompt: string; project?: string };
+export type GalleryItem = {
+  src: string;
+  prompt: string;
+  project?: string | number;
+  tag?: string;
+};
 
 // ──────── Demo Gallery Items ────────
 const DEMO_GALLERY_ITEMS: GalleryItem[] = [
@@ -46,11 +55,16 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   const [backendImages, setBackendImages] = useState<GalleryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showImageGen, setShowImageGen] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<"uploaded" | "generated">("uploaded");
 
   // Fetch images from backend on mount
   useEffect(() => {
     setIsLoading(true);
-    fetch("/api/media/images")
+    const params = new URLSearchParams();
+    params.set("tag", sourceFilter);
+    if (projectId !== null) params.set("project_id", String(projectId));
+    const qs = params.toString();
+    fetch(`/api/media/images${qs ? `?${qs}` : ""}`)
       .then((resp) => {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         return resp.json();
@@ -62,6 +76,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
               src: img.src_url || img.url,
               prompt: img.filename || "Untitled",
               project: img.project_id,
+              tag: img.source_tag || img.tag || sourceFilter,
             }))
           : [];
         setBackendImages(images);
@@ -73,7 +88,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
       .finally(() => {
         setIsLoading(false);
       });
-  }, []);
+  }, [projectId, sourceFilter]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -85,6 +100,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
           src: item?.src || item?.src_url || item?.url,
           prompt: item?.prompt || item?.filename || "Generated image",
           project: item?.project || item?.project_id,
+          tag: item?.tag || item?.source_tag || "uploaded",
         }))
         .filter((item: GalleryItem) => item.src);
       if (additions.length === 0) return;
@@ -105,11 +121,15 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
     [propItems, backendImages]
   );
 
-  // Filter by project if needed
-  const visible = useMemo(
-    () => (projectId ? allItems.filter((i) => i.project === projectId) : allItems),
-    [allItems, projectId]
-  );
+  // Filter by source tag and project when selected.
+  const visible = useMemo(() => {
+    const tagFiltered = allItems.filter(
+      (item) => (item.tag || "uploaded") === sourceFilter
+    );
+    return projectId
+      ? tagFiltered.filter((item) => item.project === projectId)
+      : tagFiltered;
+  }, [allItems, projectId, sourceFilter]);
 
   // Setup uploader for image uploads
   const uploader = useUploader({
@@ -117,7 +137,15 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
     projectId,
     onImages: (newImages) => {
       // Add newly uploaded images to the gallery
-      setBackendImages((prev) => [...prev, ...newImages]);
+      setBackendImages((prev) => [
+        ...prev,
+        ...newImages.map((img: any) => ({
+          src: img?.src || img?.src_url,
+          prompt: img?.prompt || img?.filename || "Uploaded image",
+          project: img?.project || img?.project_id,
+          tag: "uploaded",
+        })),
+      ]);
     },
     onDocuments: () => {},
     onAnyUpload: () => {
@@ -127,10 +155,12 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
 
   // Compute which gallery items to show
   const hasRealGallery = visible && visible.length > 0;
-  const galleryToRender = useMemo(
-    () => (hasRealGallery ? visible : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
-    [visible, hasRealGallery, showDemoGallery]
-  );
+  const galleryToRender = useMemo(() => {
+    if (hasRealGallery) return visible;
+    // Only show demo items in the uploaded tab so filters stay honest.
+    if (showDemoGallery && sourceFilter === "uploaded") return DEMO_GALLERY_ITEMS;
+    return [];
+  }, [visible, hasRealGallery, showDemoGallery, sourceFilter]);
 
   const handleDelete = async (item: GalleryItem) => {
     // Try to delete from backend (if it's from backend)
@@ -152,13 +182,39 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
       >
         <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-3">
           <div className="text-lg font-semibold">Gallery</div>
-          <button
-            type="button"
-            className="text-xs underline hover:opacity-80"
-            onClick={() => setShowImageGen(true)}
-          >
-            Generate Image
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setSourceFilter("uploaded")}
+                className={`rounded-full px-3 py-1 border ${
+                  sourceFilter === "uploaded"
+                    ? "border-[var(--accent-strong)] text-[var(--text)]"
+                    : "border-[var(--panel-border)] opacity-70"
+                }`}
+              >
+                Uploaded
+              </button>
+              <button
+                type="button"
+                onClick={() => setSourceFilter("generated")}
+                className={`rounded-full px-3 py-1 border ${
+                  sourceFilter === "generated"
+                    ? "border-[var(--accent-strong)] text-[var(--text)]"
+                    : "border-[var(--panel-border)] opacity-70"
+                }`}
+              >
+                Generated
+              </button>
+            </div>
+            <button
+              type="button"
+              className="text-xs underline hover:opacity-80"
+              onClick={() => setShowImageGen(true)}
+            >
+              Generate Image
+            </button>
+          </div>
         </div>
         {!hasRealGallery && showDemoGallery && (
           <div className="rounded-[var(--tile-radius,19px)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
