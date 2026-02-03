@@ -1,10 +1,43 @@
 """Tests for chat message CRUD, pagination, and turn-lock enforcement."""
 
+import os
+
+import pytest
 from fastapi.testclient import TestClient
 
+from guardian.config import get_settings
 from guardian.guardian_api import app
 
-client = TestClient(app)
+
+def _pick_test_api_key(settings) -> str | None:
+    # Prefer explicit single-key configs
+    for name in ("GUARDIAN_API_KEY", "API_KEY", "X_API_KEY"):
+        val = getattr(settings, name, None) or os.getenv(name)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+
+    # Fall back to multi-key configs
+    for name in ("GUARDIAN_API_KEYS", "API_KEYS"):
+        val = getattr(settings, name, None) or os.getenv(name)
+        if isinstance(val, (list, tuple)) and val:
+            first = str(val[0]).strip()
+            return first or None
+        if isinstance(val, str) and val.strip():
+            first = val.split(",")[0].strip()
+            return first or None
+
+    return None
+
+
+_settings = get_settings()
+_api_key = _pick_test_api_key(_settings)
+if not _api_key:
+    # Avoid a wall of 401s when auth is enabled but tests are misconfigured.
+    pytest.skip(
+        "No API key configured for tests (GUARDIAN_API_KEY / GUARDIAN_API_KEYS)"
+    )
+
+client = TestClient(app, headers={"X-API-Key": _api_key})
 
 
 def test_chat_crud():
@@ -151,27 +184,74 @@ def test_midterm_retention_pruning():
     }
     import sqlite3
 
-    from guardian.config import get_settings
+    from sqlalchemy import text
 
-    settings = get_settings()
-    with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:
-        c = conn.cursor()
-        c.execute(
-            "INSERT INTO memory_entries (user_id, silo, content, tags, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                old_entry["user_id"],
-                old_entry["silo"],
-                old_entry["content"],
-                old_entry["tags"],
-                0,
-                old_entry["created_at"],
-                old_entry["updated_at"],
-            ),
-        )
-        conn.commit()
+    from guardian.config import get_settings
     from guardian.core.db import GuardianDB
 
-    db = GuardianDB(settings.GUARDIAN_DB_PATH)
+    settings = get_settings()
+
+    # Prefer a DB URL (works for Postgres + SQLite). Fall back to any legacy DB path.
+    db_url = (
+        getattr(settings, "DATABASE_URL", None)
+        or getattr(settings, "database_url", None)
+        or os.getenv("DATABASE_URL")
+        or os.getenv("GUARDIAN_DATABASE_URL")
+    )
+
+    legacy_path = (
+        getattr(settings, "GUARDIAN_DB_PATH", None)
+        or getattr(settings, "MEMORY_DB_PATH", None)
+        or getattr(settings, "GUARDIAN_MEMORY_DB_PATH", None)
+        or os.getenv("GUARDIAN_DB_PATH")
+        or os.getenv("MEMORY_DB_PATH")
+        or os.getenv("GUARDIAN_MEMORY_DB_PATH")
+    )
+
+    if not db_url and not legacy_path:
+        pytest.skip("No database configured for midterm pruning test")
+
+    # Insert the old entry in a DB-agnostic way.
+    if db_url and isinstance(db_url, str) and db_url.startswith("sqlite"):
+        # sqlite URL forms: sqlite:///path/to.db or sqlite:////abs/path
+        path = db_url.split("sqlite:///", 1)[-1]
+        with sqlite3.connect(path) as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO memory_entries (user_id, silo, content, tags, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    old_entry["user_id"],
+                    old_entry["silo"],
+                    old_entry["content"],
+                    old_entry["tags"],
+                    0,
+                    old_entry["created_at"],
+                    old_entry["updated_at"],
+                ),
+            )
+            conn.commit()
+        db = GuardianDB(db_url)
+    else:
+        # Postgres (or other SQLAlchemy-supported DB)
+        db = GuardianDB(db_url or legacy_path)
+        with db.get_session() as session:
+            session.execute(
+                text(
+                    "INSERT INTO memory_entries (user_id, silo, content, tags, pinned, created_at, updated_at) "
+                    "VALUES (:user_id, :silo, :content, :tags, :pinned, :created_at, :updated_at)"
+                ),
+                {
+                    "user_id": old_entry["user_id"],
+                    "silo": old_entry["silo"],
+                    "content": old_entry["content"],
+                    "tags": old_entry["tags"],
+                    "pinned": False,
+                    "created_at": old_entry["created_at"],
+                    "updated_at": old_entry["updated_at"],
+                },
+            )
+            session.commit()
+
     deleted = db.prune_midterm(cutoff.isoformat())
     assert deleted >= 1
 

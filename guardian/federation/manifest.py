@@ -8,7 +8,7 @@ import base64
 import os
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 try:
     from cryptography.exceptions import InvalidSignature
@@ -41,10 +41,8 @@ class NodeManifest(BaseModel):
         description="Base64-encoded Ed25519 signature of the manifest",
     )
 
-    class Config:
-        """Pydantic config."""
-
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "node_id": "node-alpha-001",
                 "public_key": "base64encodedkey==",
@@ -53,6 +51,7 @@ class NodeManifest(BaseModel):
                 "signature": "base64encodedsignature==",
             }
         }
+    )
 
 
 def generate_keypair() -> tuple[str, str]:

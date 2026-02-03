@@ -19,9 +19,73 @@ from guardian.core.dependencies import require_api_key as core_require_api_key
 
 logger = logging.getLogger(__name__)
 
+
 # Import shared context (initialized via guardian.core.dependencies in app startup)
 chatlog_db = None
 require_api_key = core_require_api_key
+
+
+# --- LAZY DB INIT + list/count compat wrappers ---
+
+
+def _ensure_chatlog_db() -> None:
+    """Ensure `chatlog_db` is initialized.
+
+    In production, `bind_dependencies()` should set this.
+    In tests/CLI, routes may be imported before app startup, so we lazily initialize.
+    """
+    global chatlog_db
+    if chatlog_db is not None:
+        return
+    from guardian.core.dependencies import chatlog_db as core_chatlog_db
+    from guardian.core.dependencies import init_database
+
+    init_database()
+    if core_chatlog_db is None:
+        raise RuntimeError("chatlog_db is not initialised")
+    chatlog_db = core_chatlog_db
+    logger.info("[memory] chatlog_db lazy-initialized")
+
+
+def _list_memories_compat(
+    silo: str, *, user_id: str, limit: int, offset: int
+) -> list[dict[str, Any]]:
+    """Call into chatlog_db.list_memories with backward-compatible signature.
+
+    Some DB backends support scoping by user_id; older ones do not.
+    """
+    _ensure_chatlog_db()
+    try:
+        return chatlog_db.list_memories(
+            silo, user_id=user_id, limit=limit, offset=offset
+        )
+    except TypeError as exc:
+        # Back-compat: PgDB.list_memories(silo, limit, offset)
+        msg = str(exc)
+        if "unexpected keyword argument" in msg and "user_id" in msg:
+            return chatlog_db.list_memories(silo, limit=limit, offset=offset)
+        raise
+
+
+def _count_memories_compat(silo: str, *, user_id: str) -> int:
+    """Call into chatlog_db.count_memories with backward-compatible signature."""
+    _ensure_chatlog_db()
+    try:
+        return int(chatlog_db.count_memories(silo, user_id=user_id))
+    except TypeError as exc:
+        msg = str(exc)
+        if "unexpected keyword argument" in msg and "user_id" in msg:
+            return int(chatlog_db.count_memories(silo))
+        raise
+
+
+def _get_memory_optional(entry_id: int) -> Optional[Dict[str, Any]]:
+    """Return a memory entry by id when the backend supports it."""
+    _ensure_chatlog_db()
+    getter = getattr(chatlog_db, "get_memory", None)
+    if callable(getter):
+        return getter(entry_id)
+    return None
 
 
 def bind_dependencies(*, chatlog_db_instance, require_api_key_func):
@@ -120,11 +184,11 @@ def memory_list(
         ]
         items = user_items[offset : offset + limit]
         return {"ok": True, "count": len(user_items), "entries": items}
-    # Filter database memories by user_id
-    items = chatlog_db.list_memories(
+    # Filter database memories by user_id (when supported by the DB backend)
+    items = _list_memories_compat(
         silo, user_id=current_user, limit=limit, offset=offset
     )
-    count = chatlog_db.count_memories(silo, user_id=current_user)
+    count = _count_memories_compat(silo, user_id=current_user)
     return {"ok": True, "count": count, "entries": items}
 
 
@@ -227,10 +291,11 @@ def memory_update(
             status_code=404, content={"ok": False, "error": "not found"}
         )
     # Verify ownership before updating
-    existing = chatlog_db.get_memory(entry_id)
-    if not existing or existing.get("user_id") != current_user:
+    _ensure_chatlog_db()
+    existing = _get_memory_optional(entry_id)
+    if existing is not None and existing.get("user_id") != current_user:
         return JSONResponse(
-            status_code=404, content={"ok": False, "error": "not found"}
+            status_code=403, content={"ok": False, "error": "forbidden"}
         )
     chatlog_db.update_memory(
         entry_id,
@@ -285,10 +350,11 @@ def memory_delete(
             status_code=404, content={"ok": False, "error": "not found"}
         )
     # Verify ownership before deleting
-    existing = chatlog_db.get_memory(entry_id)
-    if not existing or existing.get("user_id") != current_user:
+    _ensure_chatlog_db()
+    existing = _get_memory_optional(entry_id)
+    if existing is not None and existing.get("user_id") != current_user:
         return JSONResponse(
-            status_code=404, content={"ok": False, "error": "not found"}
+            status_code=403, content={"ok": False, "error": "forbidden"}
         )
     chatlog_db.delete_memory(entry_id)
     chatlog_db.write_audit_log(
@@ -319,10 +385,8 @@ def health_memory(current_user: str = Depends(get_current_user)):
         "ok": True,
         "silos": {
             "ephemeral": user_ephemeral_count,
-            "midterm": chatlog_db.count_memories(
-                "midterm", user_id=current_user
-            ),
-            "longterm": chatlog_db.count_memories(
+            "midterm": _count_memories_compat("midterm", user_id=current_user),
+            "longterm": _count_memories_compat(
                 "longterm", user_id=current_user
             ),
         },
