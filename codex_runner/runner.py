@@ -218,9 +218,7 @@ def git_commit(paths: list[str], message: str, no_verify: bool) -> str:
         commit_cmd.insert(2, "--no-verify")
     commit_result = run_cmd(commit_cmd, capture_output=True)
     if commit_result.returncode != 0:
-        raise RunnerError(
-            f"git commit failed: {commit_result.stderr.strip()}"
-        )
+        raise RunnerError(f"git commit failed: {commit_result.stderr.strip()}")
     return git_head_commit()
 
 
@@ -233,9 +231,7 @@ def git_commit_all(message: str, no_verify: bool) -> str:
         commit_cmd.insert(2, "--no-verify")
     commit_result = run_cmd(commit_cmd, capture_output=True)
     if commit_result.returncode != 0:
-        raise RunnerError(
-            f"git commit failed: {commit_result.stderr.strip()}"
-        )
+        raise RunnerError(f"git commit failed: {commit_result.stderr.strip()}")
     return git_head_commit()
 
 
