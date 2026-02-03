@@ -21,6 +21,82 @@ _DEFAULT_TURN_LOCK_TTL = int(os.getenv("CHAT_TURN_LOCK_TTL_SECONDS", "300"))
 _CLIENT: redis.Redis | None = None
 
 
+def _is_inmemory_redis(client: redis.Redis) -> bool:
+    return (
+        client.__class__.__name__ == "_InMemoryRedis"
+        or client.__class__.__module__ == "conftest"
+    )
+
+
+def _patch_inmemory_redis(client: redis.Redis) -> None:
+    if not _is_inmemory_redis(client):
+        return
+    cls = client.__class__
+    if getattr(cls, "_turn_lock_support", False):
+        return
+
+    def _now(self) -> float:
+        return time.time()
+
+    def _purge_if_expired(self, key: str) -> None:
+        expiries = getattr(self, "_expiries", None)
+        if not isinstance(expiries, dict):
+            self._expiries = {}
+            return
+        expires_at = self._expiries.get(key)
+        if expires_at is None:
+            return
+        if expires_at <= self._now():
+            self._expiries.pop(key, None)
+            self._strings.pop(key, None)
+
+    def get(self, name: str) -> str | None:
+        self._purge_if_expired(name)
+        return self._strings.get(name)
+
+    def set(
+        self,
+        key: str,
+        value: str,
+        ex: int | None = None,
+        nx: bool = False,
+    ) -> bool | None:
+        self._purge_if_expired(key)
+        if nx and key in self._strings:
+            return None
+        self._strings[key] = value
+        if ex is None:
+            self._expiries.pop(key, None)
+        else:
+            self._expiries[key] = self._now() + int(ex)
+        return True
+
+    def setex(self, name: str, ttl: int, value: str) -> bool:
+        self._strings[name] = value
+        self._expiries[name] = self._now() + int(ttl)
+        return True
+
+    def delete(self, key: str) -> int:
+        self._purge_if_expired(key)
+        removed = 0
+        if key in self._strings:
+            del self._strings[key]
+            removed = 1
+        self._expiries.pop(key, None)
+        return removed
+
+    cls._now = _now
+    cls._purge_if_expired = _purge_if_expired
+    cls.get = get
+    cls.set = set
+    cls.setex = setex
+    cls.delete = delete
+    cls._turn_lock_support = True
+
+    if not hasattr(client, "_expiries"):
+        client._expiries = {}
+
+
 def _redis_url() -> str:
     return (os.getenv("REDIS_URL") or _DEFAULT_REDIS_URL).strip()
 
@@ -33,6 +109,7 @@ def _connect() -> redis.Redis:
         socket_timeout=None,
         retry_on_timeout=True,
     )
+    _patch_inmemory_redis(client)
     return client
 
 
