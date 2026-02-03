@@ -13,11 +13,7 @@
   "properties": {
     "status": {
       "type": "string",
-      "enum": [
-        "success",
-        "failed",
-        "blocked"
-      ]
+      "enum": ["success", "failed", "blocked"]
     },
     "summary": {
       "type": "string"
