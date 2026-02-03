@@ -451,23 +451,41 @@ def chat_post_message(
             content={"ok": False, "error": "role and content required"},
         )
     owner = body.get("user_id") or "default"
-    lock_acquired = False
+    default_project_id = _coerce_project_id(None)
+    # Turn gating: allow posting messages normally, but reject new user messages
+    # while an assistant completion is in-flight (lock held). We probe the lock
+    # without holding it by acquiring and immediately releasing when available.
+    lock_probe_acquired = False
     try:
-        # Enforce one in-flight turn per thread at a time.
-        lock_acquired = acquire_turn_lock(thread_id, value=str(owner))
+        lock_probe_acquired = acquire_turn_lock(thread_id, value="user")
+        if not lock_probe_acquired:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "ok": False,
+                    "error": "turn_in_flight",
+                    "message": "Assistant is responding",
+                },
+            )
+    except HTTPException:
+        raise
     except Exception as exc:
+        # If Redis is unavailable, continue without turn gating.
         logger.warning(
-            "[chat] turn lock unavailable thread_id=%s err=%s",
+            "[chat.messages] turn lock probe unavailable thread_id=%s err=%s",
             thread_id,
             exc,
         )
-        lock_acquired = True
-    if not lock_acquired:
-        return JSONResponse(
-            status_code=429,
-            content={"ok": False, "error": "turn_in_flight"},
-        )
-    default_project_id = _coerce_project_id(None)
+    finally:
+        if lock_probe_acquired:
+            try:
+                release_turn_lock(thread_id)
+            except Exception:
+                logger.debug(
+                    "[chat.messages] turn lock probe release failed thread_id=%s",
+                    thread_id,
+                    exc_info=True,
+                )
     try:
         chatlog_db.ensure_chat_thread(
             thread_id=thread_id,
@@ -480,30 +498,12 @@ def chat_post_message(
         logger.exception(
             "Failed to ensure chat thread %s exists: %s", thread_id, exc
         )
-        if lock_acquired:
-            try:
-                release_turn_lock(thread_id)
-            except Exception:
-                logger.debug(
-                    "[chat] turn lock release failed thread_id=%s",
-                    thread_id,
-                    exc_info=True,
-                )
         raise HTTPException(
             status_code=500, detail="Failed to persist chat message"
         )
     try:
         mid = chatlog_db.create_message(thread_id, role, content)
     except Exception as exc:
-        if lock_acquired:
-            try:
-                release_turn_lock(thread_id)
-            except Exception:
-                logger.debug(
-                    "[chat] turn lock release failed thread_id=%s",
-                    thread_id,
-                    exc_info=True,
-                )
         logger.exception(
             "[chat] create_message failed thread_id=%s: %s", thread_id, exc
         )
@@ -638,6 +638,30 @@ async def chat_complete(
     """
     Enqueue an assistant reply for the given thread and return a task id.
     """
+    # Turn gating: acquire and HOLD the lock while an assistant completion is running.
+    lock_acquired = False
+    try:
+        lock_acquired = acquire_turn_lock(thread_id, value="assistant")
+        if not lock_acquired:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "ok": False,
+                    "error": "turn_in_flight",
+                    "message": "Assistant is responding",
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # If Redis is unavailable, continue without turn gating.
+        logger.warning(
+            "[chat.complete] turn lock unavailable thread_id=%s err=%s",
+            thread_id,
+            exc,
+        )
+        lock_acquired = False
+
     provider = str(
         body.provider
         or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
@@ -655,14 +679,15 @@ async def chat_complete(
         else True
     )
     if not thread_exists:
-        try:
-            release_turn_lock(thread_id)
-        except Exception:
-            logger.debug(
-                "[chat.complete] turn lock release failed thread_id=%s",
-                thread_id,
-                exc_info=True,
-            )
+        if lock_acquired:
+            try:
+                release_turn_lock(thread_id)
+            except Exception:
+                logger.debug(
+                    "[chat.complete] turn lock release failed thread_id=%s",
+                    thread_id,
+                    exc_info=True,
+                )
         raise HTTPException(status_code=404, detail="Thread not found")
 
     limit = int(body.max_context or 50)
@@ -678,14 +703,15 @@ async def chat_complete(
         ):
             context.append({"role": role, "content": content})
     if not context:
-        try:
-            release_turn_lock(thread_id)
-        except Exception:
-            logger.debug(
-                "[chat.complete] turn lock release failed thread_id=%s",
-                thread_id,
-                exc_info=True,
-            )
+        if lock_acquired:
+            try:
+                release_turn_lock(thread_id)
+            except Exception:
+                logger.debug(
+                    "[chat.complete] turn lock release failed thread_id=%s",
+                    thread_id,
+                    exc_info=True,
+                )
         raise HTTPException(
             status_code=400, detail="Thread has no usable context"
         )
@@ -703,14 +729,15 @@ async def chat_complete(
         enqueue(task, "codexify:queue:chat")
     except Exception as exc:
         logger.warning("[chat.complete] queue unavailable: %s", exc)
-        try:
-            release_turn_lock(thread_id)
-        except Exception:
-            logger.debug(
-                "[chat.complete] turn lock release failed thread_id=%s",
-                thread_id,
-                exc_info=True,
-            )
+        if lock_acquired:
+            try:
+                release_turn_lock(thread_id)
+            except Exception:
+                logger.debug(
+                    "[chat.complete] turn lock release failed thread_id=%s",
+                    thread_id,
+                    exc_info=True,
+                )
         raise HTTPException(status_code=503, detail="queue_unavailable")
 
     # Track latest task for debug endpoint

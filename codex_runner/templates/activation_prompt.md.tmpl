@@ -1,0 +1,23 @@
+You are executing exactly one task for the Codexify repo. Do not work on any other tasks.
+
+Task details:
+{{TASK_MARKDOWN}}
+
+Strict scope requirements:
+- Modify only these files:
+{{FILES_LIST}}
+- Run these tests:
+{{TESTS_LIST}}
+- Commit with this exact message:
+{{COMMIT_MESSAGE}}
+
+Required updates after implementation:
+1) Append a "## Summary" section to {{TASK_ARTIFACT_PATH}} that includes:
+- Changed files
+- Tests ran
+- Git status clean confirmation
+- Commit hash
+
+2) Update {{CAMPAIGN_DOC_PATH}} by editing the mapping line for this task to include the commit hash.
+
+Return a JSON result that conforms to the task_result schema.
