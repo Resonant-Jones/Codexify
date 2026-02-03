@@ -200,11 +200,36 @@ def switch_branch(branch_name: str) -> None:
         )
 
 
-def git_head_commit() -> str:
+def git_head_commit(*, debug_label: str | None = None) -> str:
     result = run_cmd(["git", "rev-parse", "HEAD"], capture_output=True)
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip()
+    if debug_label and (result.returncode != 0 or not stdout):
+        print(
+            f"DEBUG {debug_label}: git rev-parse returncode={result.returncode}",
+            file=sys.stderr,
+        )
+        print(
+            f"DEBUG {debug_label}: git rev-parse stdout={result.stdout!r}",
+            file=sys.stderr,
+        )
+        print(
+            f"DEBUG {debug_label}: git rev-parse stderr={result.stderr!r}",
+            file=sys.stderr,
+        )
     if result.returncode != 0:
-        raise RunnerError(f"git rev-parse failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+        details: list[str] = []
+        if stderr:
+            details.append(f"stderr: {stderr}")
+        if stdout:
+            details.append(f"stdout: {stdout}")
+        detail_msg = f" ({'; '.join(details)})" if details else ""
+        raise RunnerError(f"git rev-parse failed{detail_msg}")
+    if not stdout:
+        raise RunnerError("git rev-parse returned empty stdout")
+    if debug_label:
+        print(f"DEBUG {debug_label}: git HEAD {stdout}", file=sys.stderr)
+    return stdout
 
 
 def git_commit(paths: list[str], message: str, no_verify: bool) -> str:
@@ -233,6 +258,17 @@ def git_commit_all(message: str, no_verify: bool) -> str:
     if commit_result.returncode != 0:
         raise RunnerError(f"git commit failed: {commit_result.stderr.strip()}")
     return git_head_commit()
+
+
+def append_task_receipt(task_path: Path, message: str) -> None:
+    existing = ""
+    if task_path.exists():
+        existing = task_path.read_text(encoding="utf-8")
+    separator = ""
+    if existing:
+        separator = "\n" if existing.endswith("\n") else "\n\n"
+    content = f"{existing}{separator}- Receipt: {message}\n"
+    write_text_file(task_path, content)
 
 
 def execute_task(task: dict[str, Any]) -> dict[str, Any]:
@@ -314,9 +350,22 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
     if args.execute and not args.dry_run:
         for task in payload["tasks"]:
             ensure_clean_git("start of task")
-            head_before = git_head_commit()
-            print(f"Executing task {task.get('id', '')}...")
-            execute_task(task)
+            task_id = task.get("id", "")
+            if args.debug:
+                head_before = git_head_commit(
+                    debug_label=f"task {task_id} before"
+                )
+            else:
+                head_before = git_head_commit()
+            print(f"Executing task {task_id}...")
+            result = execute_task(task)
+            if args.debug:
+                print(
+                    "DEBUG task "
+                    f"{task_id}: task_result status={result.get('status')!r} "
+                    f"commit_hash={result.get('commit_hash')!r}",
+                    file=sys.stderr,
+                )
 
             if not git_is_clean():
                 if args.auto_commit:
@@ -327,11 +376,33 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
                     )
 
             ensure_clean_git("after task commit")
-            head_after = git_head_commit()
-            if head_after == head_before:
-                raise RunnerError(
-                    f"Task {task.get('id', '')} produced no commit."
+            if args.debug:
+                head_after = git_head_commit(
+                    debug_label=f"task {task_id} after"
                 )
+            else:
+                head_after = git_head_commit()
+            if head_after == head_before:
+                status = result.get("status")
+                if status == "success" and git_is_clean():
+                    append_task_receipt(
+                        Path(task["task_artifact_path"]),
+                        "success-with-noop (no changes; no commit)",
+                    )
+                    if not args.auto_commit:
+                        print(
+                            "Warning: auto-commit disabled; committing no-op "
+                            "receipt to keep tree clean.",
+                            file=sys.stderr,
+                        )
+                    git_commit(
+                        [task["task_artifact_path"]],
+                        task["commit_message"],
+                        args.no_verify,
+                    )
+                    ensure_clean_git("after no-op receipt commit")
+                    continue
+                raise RunnerError(f"Task {task_id} produced no commit.")
     elif args.execute and args.dry_run:
         print("Dry run enabled: skipping task execution.")
 
@@ -419,6 +490,11 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Generate artifacts but skip task execution.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Emit debug output for task execution and git state.",
     )
     return parser.parse_args()
 
