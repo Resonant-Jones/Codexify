@@ -128,6 +128,7 @@ def write_text_file(path: Path, content: str) -> None:
 def run_codex_exec(
     prompt_file: Path, output_schema: Path, output_path: Path
 ) -> None:
+    prompt_text = prompt_file.read_text(encoding="utf-8")
     result = run_cmd(
         [
             "codex",
@@ -136,12 +137,18 @@ def run_codex_exec(
             str(output_schema),
             "-o",
             str(output_path),
-            "--prompt-file",
-            str(prompt_file),
-        ]
+            prompt_text,
+        ],
+        capture_output=True,
     )
     if result.returncode != 0:
-        raise RunnerError("codex exec failed")
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        raise RunnerError(
+            "codex exec failed"
+            + (f"\nSTDERR:\n{stderr}" if stderr else "")
+            + (f"\nSTDOUT:\n{stdout}" if stdout else "")
+        )
 
 
 def switch_branch(branch_name: str) -> None:
