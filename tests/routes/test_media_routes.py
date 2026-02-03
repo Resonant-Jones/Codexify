@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 # Set environment variables early
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ.setdefault("GUARDIAN_API_KEY", "test")
 
 
 @pytest.fixture
@@ -32,7 +33,10 @@ def app():
 @pytest.fixture
 def client(app):
     """Create test client."""
-    return TestClient(app)
+    # Provide API key header for routes protected by Guardian's API key dependency.
+    return TestClient(
+        app, headers={"X-API-Key": os.environ["GUARDIAN_API_KEY"]}
+    )
 
 
 @pytest.fixture

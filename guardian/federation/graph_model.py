@@ -8,7 +8,7 @@ memory and context sharing across federated nodes.
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class GraphNode(BaseModel):
@@ -34,10 +34,7 @@ class GraphNode(BaseModel):
         description="Additional metadata for this node (owner, status, tags, etc)",
     )
 
-    class Config:
-        """Pydantic config."""
-
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
     def __hash__(self) -> int:
         """Hash based on type and id for use in sets/dicts."""
@@ -78,10 +75,7 @@ class GraphEdge(BaseModel):
         description="Additional metadata for this edge",
     )
 
-    class Config:
-        """Pydantic config."""
-
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
     def __hash__(self) -> int:
         """Hash based on source, target, and relation for use in sets."""
@@ -118,7 +112,4 @@ class GraphSnapshot(BaseModel):
         description="When this snapshot was created",
     )
 
-    class Config:
-        """Pydantic config."""
-
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
