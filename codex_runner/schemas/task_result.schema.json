@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Codex Runner Task Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "summary",
+    "tests_ran",
+    "commit_hash"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "failed", "blocked"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "tests_ran": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commit_hash": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}
