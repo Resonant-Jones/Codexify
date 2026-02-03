@@ -322,7 +322,56 @@ Start with the document that matches your goal:
 - **CONTRIBUTING.md**
   Expectations, safe areas, and how to avoid stepping on landmines.
 
+  ## Documentation Map (Read This in Order)
+
+Codexify has extensive documentation. You do **not** need to read everything.
+
+Start with the document that matches your goal:
+
+### 1. High-level system understanding
+
+* **Codexify-System-Specification.md**
+  What Codexify is, what problems it solves, and what it intentionally does not do.
+
+### 2. Architectural truth (how it actually runs)
+
+* **Codexify-Master-Architecture-Report.md**
+  End-to-end runtime topology, services, data flow, and container roles.
+
+### 3. Backend internals
+
+* **system_architecture.md**
+  Guardian internals, lifecycle, DB wiring, workers, and event flow.
+
+### 4. Data, memory, and cognition
+
+* **Event_Graph.md**
+* **Thread-Artifact-Lineage.md**
+* **context-report.md**
+  How memory, threads, artifacts, and context interact over time.
+
+### 5. UI + perceptual layer
+
+* **Codexify-UI-Rendering-Protocol.md**
+* **CODEXIFY-PERCEPTUAL-STACK-SPEC.md**
+  How UI state, rendering, and agent perception are structured.
+
+### 6. Security & integrity
+
+* **SECURITY.md**
+* **SECURITY_HARDENING_PLAN.md**
+  Threat model, guardrails, and non-goals.
+
+### 7. Contributing
+
+* **CONTRIBUTING.md**
+  Expectations, safe areas, and how to avoid stepping on landmines.
+
+If you are unsure where to start, read **Codexify-System-Specification.md** and then open the code.
+
 ## Contribution Entry Point
+
+If you haven’t read the Documentation Map above, start there.
 
 If you're new, start here:
 - **Backend API routes:** `guardian/routes/`
