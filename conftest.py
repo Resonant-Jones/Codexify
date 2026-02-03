@@ -20,6 +20,42 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+
+# ---- Minimal .env loader for test env ----
+def _load_dotenv_if_present() -> None:
+    """Load a minimal subset of .env into os.environ for pytest runs.
+
+    We avoid adding a python-dotenv dependency; this is intentionally tiny.
+    Only fills values that are not already set in the environment.
+    """
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for raw in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if k and k not in os.environ:
+                os.environ[k] = v
+    except Exception:
+        # Best-effort only; tests should still be able to run when .env is absent.
+        return
+
+
+_load_dotenv_if_present()
+
+
+# If the app expects GUARDIAN_DATABASE_URL but the developer uses DATABASE_URL (or vice versa),
+# mirror whichever is present so tests can initialize the chatlog DB.
+if "GUARDIAN_DATABASE_URL" not in os.environ and os.environ.get("DATABASE_URL"):
+    os.environ["GUARDIAN_DATABASE_URL"] = os.environ["DATABASE_URL"]
+if "DATABASE_URL" not in os.environ and os.environ.get("GUARDIAN_DATABASE_URL"):
+    os.environ["DATABASE_URL"] = os.environ["GUARDIAN_DATABASE_URL"]
+
 """
 pytest bootstrap (quiet by default)
 - Seeds dummy env so import-time Settings() validation can't crash collection.
@@ -168,6 +204,7 @@ if os.getenv("PYTEST_VERBOSE_BOOT") == "1":
 
 # ---- Env seeding for tests/CI ----
 os.environ.setdefault("GUARDIAN_ALLOW_DUMMY_SETTINGS", "1")
+os.environ.setdefault("GUARDIAN_API_KEY", "test")
 os.environ.setdefault("GENAI_API_KEY", "dummy")
 os.environ.setdefault("NOTION_API_KEY", "dummy")
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy")
@@ -177,6 +214,45 @@ os.environ.setdefault("GOOGLE_API_KEY", "dummy")
 
 # Force mock embeddings backend in tests to avoid loading local model files
 os.environ.setdefault("CODEXIFY_EMBEDDINGS_BACKEND", "mock")
+
+
+# ---- FastAPI TestClient default auth header (keeps tests terse) ----
+try:
+    import fastapi.testclient as _ftc  # type: ignore
+    from fastapi.testclient import TestClient as _OrigTestClient  # type: ignore
+
+    class TestClient(_OrigTestClient):  # type: ignore
+        def __init__(self, app, **kwargs):
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers.setdefault(
+                "X-API-Key", os.environ.get("GUARDIAN_API_KEY", "test")
+            )
+            super().__init__(app, headers=headers, **kwargs)
+
+    _ftc.TestClient = TestClient  # type: ignore
+except Exception:
+    # If fastapi isn't available at import-time (or tests don't use TestClient), ignore.
+    pass
+
+
+# Also patch Starlette's TestClient (FastAPI re-exports it, but some tests import from starlette).
+try:
+    import starlette.testclient as _stc  # type: ignore
+    from starlette.testclient import (
+        TestClient as _StarletteOrig,  # type: ignore
+    )
+
+    class StarletteTestClient(_StarletteOrig):  # type: ignore
+        def __init__(self, app, **kwargs):
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers.setdefault(
+                "X-API-Key", os.environ.get("GUARDIAN_API_KEY", "test")
+            )
+            super().__init__(app, headers=headers, **kwargs)
+
+    _stc.TestClient = StarletteTestClient  # type: ignore
+except Exception:
+    pass
 
 # ---- Simple secret masker for test logs ----
 import logging

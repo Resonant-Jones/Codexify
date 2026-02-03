@@ -9,7 +9,7 @@ render UI panels.
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PluginManifest(BaseModel):
@@ -42,10 +42,8 @@ class PluginManifest(BaseModel):
         default="right", description="Position of the UI panel"
     )
 
-    class Config:
-        """Pydantic config for PluginManifest."""
-
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "codex",
                 "name": "Codex Plugin",
@@ -56,3 +54,4 @@ class PluginManifest(BaseModel):
                 "ui_position": "right",
             }
         }
+    )

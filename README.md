@@ -1,730 +1,359 @@
 # Codexify
 
-<div align="center">
+Codexify is a local-first chat + knowledge workspace built around a FastAPI backend (Guardian) and a React UI. It provides thread-based chat, memory silos, document autosave and sharing, media uploads, vector search, and optional workers for background tasks. Docker Compose is the primary, supported way to run the full stack.
 
-**AI-Powered Conversation Orchestration & Knowledge Management Platform**
+### TL;DR — Start Here
 
-[![Python Tests](https://github.com/Resonant-Jones/Codexify/workflows/Guardian%20CI/badge.svg)](https://github.com/Resonant-Jones/Codexify/actions)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+If you want to **run Codexify locally** with the least friction:
 
-*Where memory meets intelligence, and context becomes wisdom.*
+* Use **Docker Compose**
+* Copy `.env.template → .env`
+* Set `GUARDIAN_API_KEY`, `NEO4J_PASS`, and your local LLM settings
+* Run: `docker compose up --build`
+* Open:
 
-[Quick Start](#-quick-start) • [Documentation](#-documentation) • [Architecture](#-architecture) • [Contributing](#-contributing)
+  * UI: [http://localhost:5173](http://localhost:5173)
+  * API docs: [http://localhost:8888/docs](http://localhost:8888/docs)
 
-</div>
+If you want to **contribute code**, start with:
 
----
+* Backend routes: `guardian/routes/`
+* Frontend UI: `frontend/src/`
+* Database schema: `guardian/db/migrations/`
 
-## 🌟 Overview
+This README reflects what is actually wired today (no roadmap promises).
 
-Codexify is a **local-first, AI-powered conversation and knowledge management platform** that combines retrieval-augmented generation (RAG), semantic memory, and multi-provider LLM orchestration into a unified system. Built for developers, researchers, and organizations who need intelligent conversation management with enterprise-grade data sovereignty.
+This section is intentionally explicit. It lists what is **implemented**, what is **wired but off**, and what is **stubbed or incomplete**, so contributors are not guessing.
 
-Unlike cloud-based AI platforms, Codexify runs **entirely on your infrastructure**—from local Docker containers to on-premise deployments—ensuring your data never leaves your control.
+## What This Repo Actually Is
 
-### What Makes Codexify Different
+**Implemented (default stack)**
+- **Guardian FastAPI backend** running on port 8888 (`guardian/guardian_api.py`).
+- **React UI** served by Vite on port 5173 (`frontend/src`).
+- **PostgreSQL** for persistence (Compose `db`).
+- **Redis** for task queues and task event streams (Compose `redis`).
+- **Vector store** (FAISS or Chroma) used for semantic retrieval (`guardian/vector/store.py` + `backend/rag/embedder.py`).
 
-- **🧠 Multi-Silo Memory System**: Ephemeral, midterm, and long-term memory silos with semantic search
-- **🔌 Extensible Plugin Architecture**: Build custom agents, analyzers, and integrations
-- **📊 Hybrid Database Strategy**: PostgreSQL for structured data, ChromaDB for vectors; Neo4j is optional/experimental and deferred for MVP graph context
-- **🎯 Provider-Agnostic AI**: Switch between Groq, OpenAI, Anthropic, Gemini, or self-hosted models
-- **⚡ Event-Sourced Design**: Reliable event bus with outbox pattern for distributed workflows
-- **🔐 Local-First Security**: No cloud dependencies, full data sovereignty, encrypted at rest
-- **🎨 Modern Stack**: FastAPI, React 19, TypeScript, Tailwind, Tauri desktop app
+**Optional (wired but off by default)**
+- **Neo4j graph** for graph logging/context (requires env flags; Compose includes it).
+- **Connector worker** (disabled unless `ENABLE_CONNECTOR_WORKER=true`).
+- **ChatGPT import** (CLI/Compose profile `cli`, requires export file + Neo4j + embeddings).
+- **Backfill workers** (Compose profile `backfill`).
 
----
+**Experimental / stubbed / partially wired**
+- **RAG upload endpoint** `/upload-chat` requires a missing module (`codexify.rag.enhanced_rag`), so it currently returns 503.
+- **Embeddings API** `/api/embeddings` returns **dummy vectors** (deterministic mock) and is not backed by real models.
+- **Local image generation** returns a 1x1 placeholder image unless an external provider is configured.
+- **TTS**: API uses a **mock local provider** (sine wave). A separate HuggingFace TTS microservice exists (`backend/tts_service`) but is not integrated into the main API.
+- **Desktop app** (Tauri) is a skeleton config (`src-tauri`) without a published build pipeline.
 
-## ✨ Key Features
+## What You Can Do With It Today
 
-### Core Capabilities
+- Create chat threads, post messages, and request completions.
+- Stream events via SSE from `/api/events` (durable outbox) and `/api/tasks/{task_id}/events` (Redis stream).
+- Store and query memory in **ephemeral/midterm/longterm** silos.
+- Autosave and retrieve thread documents.
+- Share threads/documents via secure share tokens.
+- Upload images/documents, with metadata stored in Postgres and files stored on disk.
+- Use semantic retrieval from the vector store during chat (if embeddings are configured).
 
-| Feature | Description |
-|---------|-------------|
-| **Conversational AI** | Multi-turn chat with streaming responses, context management, and thread hierarchies |
-| **RAG Orchestration** | Vector search, semantic caching, and hybrid retrieval across multiple knowledge bases |
-| **Memory Management** | Three-tiered memory system (ephemeral/midterm/longterm) with auto-consolidation |
-| **Knowledge Graph** | Optional Neo4j graph (experimental; disabled by default for context reasoning) |
-| **Connector Framework** | Sync data from GitHub, Google Drive, Notion, and custom sources |
-| **Plugin System** | Extend functionality with pattern analyzers, memory analyzers, and custom tools |
-| **Project Workspaces** | Organize conversations, documents, and memory by project context |
-| **Audit Trail** | Complete event sourcing and audit logs for compliance and debugging |
-
-### AI Capabilities
-
-- **Multi-Provider Support**: Groq, OpenAI, Anthropic Claude, Google Gemini, DeepSeek, Ollama
-- **Streaming Generation**: Real-time token streaming with Server-Sent Events
-- **Semantic Search**: ChromaDB and FAISS-backed vector search with sentence-transformers
-- **Smart Summarization**: Auto-generate thread summaries and memory consolidations
-- **Context Management**: Intelligent token budget management and context window optimization
-
-### Developer Experience
-
-- **RESTful API**: FastAPI with auto-generated OpenAPI docs at `/docs`
-- **CLI Tools**: Rich terminal UI for memory management, diagnostics, and development
-- **Desktop App**: Tauri-based native application for macOS, Linux, and Windows
-- **Live Reload**: Vite HMR for frontend, Uvicorn auto-reload for backend
-- **Type Safety**: Full TypeScript frontend, Python type hints with MyPy validation
-- **Pre-commit Hooks**: Automated linting, formatting, and security checks
-
----
-
-## 🏗 Architecture
-
-Codexify follows a **multi-tier architecture** with clear separation of concerns and event-driven communication.
-
-```mermaid
-graph TB
-    subgraph "Frontend Layer"
-        UI[React + TypeScript UI]
-        Desktop[Tauri Desktop App]
-    end
-
-    subgraph "API Gateway"
-        FastAPI[FastAPI Server<br/>Port 8888]
-    end
-
-    subgraph "Core Services"
-        Router[AI Router<br/>Provider Selection]
-        Memory[Memory System<br/>3-Tier Silos]
-        Chat[Chat Manager<br/>Thread Orchestration]
-        RAG[RAG Engine<br/>Semantic Search]
-        Connectors[Connector Framework<br/>External Sync]
-        Plugins[Plugin Registry<br/>Extensible Agents]
-    end
-
-    subgraph "Storage Layer"
-        PG[(PostgreSQL<br/>Structured Data)]
-        Neo[(Neo4j<br/>Optional Graph)]
-        Vector[(ChromaDB<br/>Vector Store)]
-    end
-
-    subgraph "External Services"
-        LLM[LLM Providers<br/>Groq/OpenAI/Claude]
-        Integrations[Integrations<br/>GitHub/GDrive/Notion]
-    end
-
-    UI --> FastAPI
-    Desktop --> FastAPI
-    FastAPI --> Router
-    FastAPI --> Memory
-    FastAPI --> Chat
-    FastAPI --> RAG
-    FastAPI --> Connectors
-    FastAPI --> Plugins
-
-    Router --> LLM
-    Connectors --> Integrations
-
-    Memory --> PG
-    Memory --> Vector
-    Chat --> PG
-    Chat --> Neo
-    RAG --> Vector
-    RAG --> Neo
-    Connectors --> PG
-    Plugins --> PG
-
-    style FastAPI fill:#4CAF50
-    style PG fill:#336791
-    style Neo fill:#00857C
-    style Vector fill:#FF6B6B
-    style LLM fill:#FFD93D
-```
-
-### Data Flow
-
-1. **User Request** → React UI or CLI sends request to FastAPI
-2. **Routing** → API layer routes to appropriate service (Chat, Memory, RAG, etc.)
-3. **AI Processing** → Router selects optimal LLM provider and streams response
-4. **Memory Update** → Conversation context stored in PostgreSQL + vectorized
-5. **Event Emission** → Events written to outbox table for async processing
-6. **Graph Update (optional)** → Relationships indexed in Neo4j when graph logging/context is enabled
-
----
-
-### Decision: Neo4j Deferred Post-MVP
-
-Neo4j-backed graph context is optional and disabled by default. The MVP does not depend on Neo4j for chat context, and graph logging/backfill remain experimental. We will revisit full graph enrichment post-MVP.
-
----
-
-## ✅ Coherence Contract
-
-Codexify treats **meaning** as the only valid trigger for downstream updates.
-
-- **Identity vs Meaning**: Object identity, timestamps, or empty payloads are not meaningful changes.
-- **Eventual Consistency Boundaries**: SSE/outbox events are authoritative for live UI; API fetches reconcile drift.
-- **Semantic Guards > Debounce**: Prefer explicit equality checks at producers/consumers over throttle hacks.
-
----
-
-## 🚀 Quick Start
+## Quick Start (Docker Compose)
 
 ### Prerequisites
+- Docker + Docker Compose v2
+- A local OpenAI-compatible LLM endpoint (e.g., **Ollama**) **or** cloud API keys
 
-- **Docker** (20.10+) and **Docker Compose** (v2.0+)
-- **Node.js** (20+) with **pnpm** (9+)
-- **Python** (3.10, 3.11, or 3.12)
-- **Make** (optional, for convenience commands)
-
-### 1. Clone & Setup Environment
+### 1) Configure `.env`
+The repo already contains `.env`, `.env.example`, and `.env.template`. They are **not consistent**. For a clean start:
 
 ```bash
-# Clone the repository
-git clone https://github.com/Resonant-Jones/Codexify.git
-cd Codexify
-
-# Copy environment template
-cp .env.example .env
-
-# Edit .env with your API keys (at minimum, set GROQ_API_KEY or OPENAI_API_KEY)
-nano .env
+cp .env.template .env
 ```
 
-### 2. Start the Stack
+Minimum variables required for the **default Compose stack**:
+
+```env
+# Required to start the FastAPI backend
+GUARDIAN_API_KEY=replace-with-64-hex-or-any-long-token
+VITE_GUARDIAN_API_KEY=replace-with-same-token
+
+# Required by Neo4j + graph-init in docker-compose.yml
+NEO4J_PASS=replace-with-neo4j-password
+
+# Required for local LLM usage (default provider)
+LOCAL_BASE_URL=http://host.docker.internal:11434
+LOCAL_LLM_MODEL=your-ollama-model-tag
+
+# Required for local embeddings (must be absolute path **inside the container**)
+LOCAL_EMBED_MODEL=/models/bge-large-en-v1.5
+```
+
+If you want cloud models instead of local:
+
+```env
+ALLOW_CLOUD_PROVIDERS=true
+LLM_PROVIDER=openai   # or groq
+OPENAI_API_KEY=...
+# GROQ_API_KEY=...
+```
+
+### 2) Start the stack
 
 ```bash
-# Option A: Using Docker Compose (recommended for first run)
-docker-compose up -d
-
-# Option B: Using Make targets
-make dev
-
-# This starts:
-# - PostgreSQL (port 5432)
-# - Neo4j (optional; 7474 web, 7687 bolt)
-# - Backend API (port 8888)
-# - Frontend dev server (port 5173)
+docker compose up --build
 ```
 
-### Backfill Workers (Embeddings + Graph)
-
-Backfill workers run as one-shot services at startup and exit when complete.
-They never block API startup and are safe to re-run.
-
-- Automatic startup: `embedding-backfill` runs on `docker compose up`; `graph-backfill` runs only when Neo4j is enabled (deferred for CORE LOOP).
-- Manual run: `docker compose run --rm embedding-backfill` or `docker compose run --rm graph-backfill` (graph is optional).
-- Status: `GET /backfill/status` (API) or `python -m guardian.cli backfill:status`
-- No-work behavior: logs a clear `no_work` exit reason and exits 0
-
-### 3. Verify Installation
+### 3) Verify it's working
 
 ```bash
-# Check backend health
-curl http://localhost:8888/healthz
+# Backend health (no auth required)
+curl http://localhost:8888/ping
 
-# Check frontend
-open http://localhost:5173
-
-# View API documentation
-open http://localhost:8888/docs
+# Authenticated health (API key required)
+curl -H "X-API-Key: $GUARDIAN_API_KEY" http://localhost:8888/health
 ```
 
-### 4. Database Migrations (Canonical Workflow)
+### If Something Fails to Start
 
-Migrations run automatically via the `migrator` service in Docker Compose. When running Alembic manually, **always run it via Docker**; the backend container is the canonical execution environment.
+Common causes:
 
-Correct commands (run from the repo root):
+* `GUARDIAN_API_KEY` is missing or mismatched between backend and UI
+* `LOCAL_EMBED_MODEL` is not an absolute path **inside the container**
+* Neo4j password mismatch (`NEO4J_PASS`)
+* Local LLM endpoint not reachable from Docker
+
+First debug step:
 
 ```bash
-docker compose exec backend alembic -c backend/alembic.ini current
-docker compose exec backend alembic -c backend/alembic.ini history
-docker compose exec backend alembic -c backend/alembic.ini upgrade head
+docker compose logs backend
 ```
 
-Incorrect command (will fail):
+This README assumes a **local-first, trusted environment**. Cloud providers and advanced configurations require additional flags.
+
+Open the UI:
+- http://localhost:5173
+
+Open API docs:
+- http://localhost:8888/docs
+
+### Ports (Docker Compose)
+- **Backend API**: 8888
+- **Frontend dev server**: 5173
+- **Postgres**: 5433 -> 5432 (container)
+- **Neo4j**: 7474 (browser), 7687 (Bolt)
+- **TTS microservice**: 8000
+- **Redis**: internal only (6379, not exposed)
+
+## Local Dev (Without Docker)
+
+This is possible, but Compose is the reference setup. If running locally:
+
+1) Python environment
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+2) Set environment variables
+```bash
+export GUARDIAN_API_KEY=...
+export DATABASE_URL=postgresql://user:pass@localhost:5432/Codexify
+export LOCAL_BASE_URL=http://localhost:11434
+export LOCAL_LLM_MODEL=your-ollama-model-tag
+export LOCAL_EMBED_MODEL=/absolute/path/to/Codexify/models/bge-large-en-v1.5
+```
+
+3) Run migrations + seed defaults
+```bash
+alembic -c backend/alembic.ini upgrade head
+python backend/scripts/seed_defaults.py
+```
+
+4) Start the API
+```bash
+uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8888
+```
+
+5) Start the UI
+```bash
+pnpm --dir frontend/src install
+pnpm --dir frontend/src dev
+```
+
+## Runtime Topology
+
+**Always-on containers (Compose default)**
+- `db` -> Postgres 15
+- `redis` -> task queues + task events
+- `neo4j` -> optional graph store (but required by default Compose)
+- `backend` -> FastAPI app (Guardian)
+- `frontend` -> Vite dev server
+- `worker-chat` -> background chat task worker
+- `worker-warmup` -> warm-up worker for local models
+- `tts` -> separate FastAPI TTS microservice
+
+**One-shot containers**
+- `migrator` -> runs Alembic + seed defaults, then exits
+- `graph-init` -> applies Neo4j constraints + seed nodes, then exits
+
+**Profiled containers (not started unless enabled)**
+- `chatgpt-migrate` (`cli` profile)
+- `embedding-backfill`, `graph-backfill` (`backfill` profile)
+
+**Communication summary**
+- Backend <-> Postgres (chat threads, messages, memory, outbox, documents, media, etc.)
+- Backend <-> Redis (task queues + task event streams)
+- Backend <-> Neo4j (only if graph flags enabled)
+- Backend <-> Vector store (FAISS/Chroma using local embeddings)
+- Frontend <-> Backend (Vite proxy injects `X-API-Key` automatically in dev)
+
+**Startup sequence (Compose)**
+1. Postgres + Neo4j start
+2. `graph-init` applies constraints (requires `NEO4J_PASS`)
+3. `migrator` runs Alembic + `seed_defaults.py`
+4. Backend starts, verifies required tables, seeds defaults again, then serves API
+5. Workers start (Redis required)
+
+## Repo Structure (Truthful)
+
+- `guardian/` - **Main backend package** (FastAPI app, routes, DB logic, workers, plugins, providers).
+- `backend/` - Dockerfile, Alembic config, RAG embedder, and **separate** TTS microservice.
+- `frontend/` - React + Vite app (source in `frontend/src`).
+- `src-tauri/` - Tauri desktop shell (not a published app yet).
+- `guardian/db/migrations/` - Alembic migrations (authoritative schema path).
+- `scripts/` - CLI tools (ChatGPT import, maintenance scripts).
+- `models/` - Local embedding model files (mounted into containers).
+- `plugins/` and `guardian/plugins/` - Plugin scaffolding and example plugins.
+
+## Configuration Reality
+
+### Required to boot (Docker Compose default)
+- `GUARDIAN_API_KEY` - backend refuses to start without it.
+- `VITE_GUARDIAN_API_KEY` - UI uses this to call the API.
+- `NEO4J_PASS` - required by `graph-init` (Compose dependency).
+- `LOCAL_BASE_URL` - OpenAI-compatible LLM endpoint (e.g., Ollama).
+- `LOCAL_LLM_MODEL` - model name passed to the local endpoint.
+- `LOCAL_EMBED_MODEL` - **absolute path inside container** (e.g., `/models/bge-large-en-v1.5`).
+
+### Required if running without Docker
+- `DATABASE_URL` (or `GUARDIAN_DATABASE_URL`) - no DB, no chat/memory persistence.
+
+### Common optional settings
+- `ALLOW_CLOUD_PROVIDERS=true` + `OPENAI_API_KEY` or `GROQ_API_KEY`
+- `CODEXIFY_VECTOR_STORE=chroma|faiss`
+- `CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1` (allow mock embeddings if local model fails)
+- `GUARDIAN_ENABLE_GRAPH_CONTEXT=true` / `GUARDIAN_ENABLE_GRAPH_LOGGING=true`
+- `ENABLE_CONNECTOR_WORKER=true` (and provider tokens like `GITHUB_TOKEN`)
+- `IMAGE_GEN_PROVIDER` + `IMAGE_GEN_MODEL` (image generation)
+- `ELEVENLABS_API_KEY` or `GOOGLE_APPLICATION_CREDENTIALS` (real TTS)
+
+## Development Workflow (As It Exists)
+
+### Running tests
+- Two test trees exist: `guardian/tests` (large) and `tests` (smaller).
+- The **Makefile test target is broken**: it references `tests/run_tests.py` which does not exist.
+- Use pytest directly instead:
 
 ```bash
-alembic current
+pytest guardian/tests
+pytest tests
 ```
 
-Why it fails: running bare `alembic` on the host does not load `backend/alembic.ini`, so Alembic cannot find `script_location` and exits with `No 'script_location' key found in configuration`.
-
-### 5. Create Your First Chat
+### Migrations
+- Alembic config: `backend/alembic.ini`
+- Migrations live in `guardian/db/migrations/`
 
 ```bash
-# Using the CLI
-guardian chat create --title "My First Chat"
-
-# Or via API
-set -a; source .env; set +a
-curl -X POST http://localhost:8888/api/threads \
-  -H "X-API-Key: $GUARDIAN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "user_123", "title": "My First Chat"}'
+alembic -c backend/alembic.ini revision -m "your change"
+alembic -c backend/alembic.ini upgrade head
 ```
 
----
-
-## 📥 ChatGPT Migration
-
-Bring your ChatGPT conversation history into Codexify with a simple upload.
-
-### Quick Migration (UI - Recommended)
-
-1. Export your data from [ChatGPT Settings → Data Controls](https://chat.openai.com/settings)
-2. Extract `conversations.json` from the downloaded archive
-3. Open Codexify UI at `http://localhost:5173`
-4. Go to **Settings → Import** and upload your file
-
-Your conversations appear immediately and become searchable as embeddings are created.
-
-### CLI Migration (Advanced)
-
-For automation or headless environments:
-
-```bash
-# Place your export in the data/ directory
-mkdir -p data && cp conversations.json data/
-
-# Run the migration
-docker compose run --rm --profile cli chatgpt-migrate --file /data/conversations.json
-```
-
-### API Migration
-
-```bash
-set -a; source .env; set +a
-curl -X POST http://localhost:8888/upload-chatgpt-export \
-  -H "X-User-Id: me" \
-  -H "X-API-Key: $GUARDIAN_API_KEY" \
-  -F "file=@./conversations.json"
-```
-
-For detailed instructions, troubleshooting, and advanced options, see the [ChatGPT Migration Guide](docs/CHATGPT_MIGRATION_GUIDE.md).
-
----
-
-## 💻 Development Workflow
-
-### Initial Setup
-
-```bash
-# 1. Install Python dependencies
-python -m pip install -e .
-pip install -r backend/requirements.txt
-pip install -r backend/requirements-dev.txt  # Dev dependencies
-
-# 2. Install frontend dependencies
-cd frontend/src
-pnpm install
-
-# 3. Install pre-commit hooks
-cd ../..
-pip install pre-commit
-pre-commit install
-
-# 4. Verify setup
-make check  # Runs format + lint + tests
-```
-
-### Daily Development
-
-```bash
-# Start backend with live reload
-make run
-# Or: uvicorn guardian.server.run:app --reload --port 8888
-
-# Start frontend with HMR
-cd frontend/src
-pnpm dev
-
-# Run tests on change
-pytest --watch guardian/tests/
-
-# Format and lint before committing
-make format  # Black + isort
-make lint    # Ruff + MyPy
-
-# Or let pre-commit handle it
-git commit -m "feat: add new feature"  # Hooks run automatically
-```
-
-### Working with Databases
-
-```bash
-# Create a new migration
-alembic revision --autogenerate -m "add new table"
-
-# Review and edit migration in guardian/db/migrations/versions/
-
-# Apply migration
-alembic upgrade head
-
-# Rollback one migration
-alembic downgrade -1
-
-# Seed database with test data
-python backend/scripts/seed_db.py
-```
-
-### Plugin Development
-
-```bash
-# Scaffold a new plugin
-make init-plugin name=my_analyzer
-
-# This creates:
-# guardian/plugins/my_analyzer/
-#   ├── __init__.py
-#   ├── manifest.yaml
-#   ├── my_analyzer.py
-#   └── tests/
-
-# List installed plugins
-make plugins
-
-# Run a specific plugin
-make plugin name=my_analyzer args="--help"
-```
-
----
-
-## 🧪 Testing
-
-### Backend Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=guardian --cov-report=html
-open htmlcov/index.html
-
-# Run specific test file
-pytest guardian/tests/test_contracts.py
-
-# Run tests matching pattern
-pytest -k "test_chat"
-
-# Run with network tests enabled (requires API keys)
-ALLOW_NET_TESTS=1 pytest
-
-# Skip slow tests
-pytest -m "not slow"
-```
-
-### Frontend Tests
-
-```bash
-cd frontend/src
-
-# Run unit tests
-pnpm test
-
-# Run with coverage
-pnpm test:coverage
-
-# Run E2E tests (Cypress)
-pnpm test:e2e
-
-# Run linter
-pnpm lint
-
-# Type check
-pnpm type-check
-```
-
-### CI/CD
-
-Tests run automatically on GitHub Actions for:
-- Python 3.10, 3.11, 3.12
-- Frontend linting, build, and tests
-- Database schema validation
-- Security scanning with Bandit
-
-See `.github/workflows/guardian-ci.yml` for full pipeline.
-
----
-
-## 🛠 Tech Stack
-
-### Backend
-
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| **Python** | 3.10+ | Core language |
-| **FastAPI** | 0.119.1 | REST API framework |
-| **SQLAlchemy** | 2.0.44 | ORM for PostgreSQL |
-| **Alembic** | 1.17.0 | Database migrations |
-| **PostgreSQL** | 15 | Primary database |
-| **Neo4j** | 5 (optional) | Knowledge graph (experimental; disabled by default) |
-| **ChromaDB** | 1.2.1 | Vector storage |
-| **LangChain** | 1.0.2 | LLM orchestration |
-| **Pydantic** | 2.x | Data validation |
-| **Uvicorn** | 0.38.0 | ASGI server |
-
-### Frontend
-
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| **React** | 19.1.1 | UI framework |
-| **TypeScript** | 5.x | Type-safe JavaScript |
-| **Vite** | 5.x | Build tool & dev server |
-| **Tailwind CSS** | 4.1.14 | Utility-first CSS |
-| **Monaco Editor** | 0.53.0 | Code editing |
-| **React Force Graph** | 1.48.1 | Graph visualization |
-| **DOMPurify** | 3.3.0 | XSS protection |
-
-### AI/ML Stack
-
-| Provider/Tool | Purpose |
-|---------------|---------|
-| **Groq** | Fast inference (default) |
-| **OpenAI** | GPT-4, GPT-3.5 models |
-| **Anthropic** | Claude models |
-| **Google Gemini** | Multimodal capabilities |
-| **Sentence Transformers** | Local embeddings |
-| **FAISS** | Fast vector search |
-| **Torch** | ML framework |
-
-### Development Tools
-
-- **Ruff** + **Black** + **isort**: Code formatting
-- **MyPy**: Static type checking
-- **Bandit**: Security linting
-- **pytest**: Testing framework
-- **pre-commit**: Git hooks
-- **Docker Compose**: Local orchestration
-
----
-
-## 📁 Folder Structure
-
-```
-Codexify/
-├── guardian/                 # Core Python backend
-│   ├── api/                 # FastAPI route handlers
-│   ├── core/                # Business logic (db, ai_router, event_bus)
-│   ├── db/                  # SQLAlchemy models + migrations
-│   ├── server/              # FastAPI app configuration
-│   ├── plugins/             # Extensible plugin system
-│   ├── connectors/          # External service integrations
-│   ├── memory/              # Memory system implementation
-│   ├── cli/                 # Command-line interfaces
-│   ├── tui/                 # Terminal UI with Textual
-│   ├── tests/               # Backend test suite
-│   └── config/              # Configuration management
-│
-├── frontend/src/            # React + TypeScript UI
-│   ├── components/          # Reusable React components
-│   ├── pages/               # Page-level components
-│   ├── main.tsx             # React entry point
-│   ├── vite.config.ts       # Vite configuration
-│   ├── tailwind.config.ts   # Tailwind CSS config
-│   └── package.json         # Frontend dependencies
-│
-├── src-tauri/               # Tauri desktop application
-│   ├── src/                 # Rust backend for desktop
-│   └── Cargo.toml           # Rust dependencies
-│
-├── backend/                 # Backend configuration
-│   ├── Dockerfile           # Backend container image
-│   ├── requirements.txt     # Python dependencies
-│   ├── alembic.ini          # Migration configuration
-│   ├── migrations/          # Alembic migration files
-│   └── scripts/             # Seed scripts, utilities
-│
-├── docs/                    # Documentation
-│   ├── DB_POSTGRES_ONLY.md # Database architecture
-│   ├── CLI/                 # CLI documentation
-│   ├── Plugins/             # Plugin development guide
-│   ├── prompt-docs/         # Prompt engineering
-│   └── infra/               # Infrastructure guides
-│
-├── .github/workflows/       # CI/CD pipelines
-├── docker-compose.yml       # Full stack orchestration
-├── Makefile                 # Development convenience commands
-├── pyproject.toml           # Python project metadata
-├── .pre-commit-config.yaml  # Git hook configuration
-└── .env.example             # Environment variable template
-```
-
----
-
-## 🔑 Configuration
-
-### Required Environment Variables
-
-```bash
-# Database
-DATABASE_URL=postgresql://guardian:guardian@localhost:5432/guardian
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
-
-# API Authentication
-GUARDIAN_API_KEY=your-64-hex-token
-# Devtools gate (set true to enable /dev/*)
-GUARDIAN_DEV_MODE=true
-# Frontend dev (Vite): mirror backend key for local dev only
-VITE_GUARDIAN_API_KEY=${GUARDIAN_API_KEY}
-
-# LLM Provider (choose one or more)
-LLM_PROVIDER=groq  # Options: groq, openai, anthropic, gemini
-GROQ_API_KEY=gsk_...
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-GENAI_API_KEY=...  # Google Gemini
-
-# Optional: External Integrations
-NOTION_API_KEY=secret_...
-GITHUB_TOKEN=ghp_...
-
-# Optional: Embeddings
-EMBEDDING_BACKEND=sentence-transformers  # or "stub" for testing
-EMBEDDING_DIM=384
-```
-
-See `.env.example` for complete list with descriptions.
-
----
-
-## 📚 Documentation
-
-### Quick Links
-
-- **[Database Architecture](docs/DB_POSTGRES_ONLY.md)** - Schema design, migrations, and best practices
-- **[Completion Pipeline](docs/architecture/completion_pipeline.md)** - End-to-end completion flow and context/prompt assembly
-- **[API Documentation](http://localhost:8888/docs)** - Interactive OpenAPI docs (run locally)
-- **[Plugin Development](docs/Plugins/)** - Build custom agents and tools
-- **[CLI Guide](docs/CLI/)** - Command-line interface reference
-- **[Infrastructure](docs/infra/)** - Deployment and scaling guides
-
-### Additional Resources
-
-- **[PostgreSQL Setup Guide](guardian/db/SETUP_GUIDE.md)** - Database installation and configuration
-- **[Prompt Engineering](docs/prompt-docs/)** - Optimize your LLM interactions
-- **[Refactor Summary](POSTGRES_REFACTOR_SUMMARY.md)** - Recent architecture changes
-
----
-
-## 🤝 Contributing
-
-We welcome contributions from the community! Whether you're fixing bugs, adding features, or improving documentation, your help makes Codexify better.
-
-### Getting Started
-
-1. **Fork the repository** and clone your fork
-2. **Create a feature branch**: `git checkout -b feat/my-new-feature`
-3. **Make your changes** and add tests
-4. **Run the test suite**: `make check`
-5. **Commit with conventional commits**: `git commit -m "feat: add new feature"`
-6. **Push to your fork**: `git push origin feat/my-new-feature`
-7. **Open a Pull Request** with a clear description
-
-### Development Standards
-
-- ✅ All tests must pass (`pytest` and `pnpm test`)
-- ✅ Code must pass linting (`make lint`)
-- ✅ Format with Black and isort (`make format`)
-- ✅ Add tests for new features
-- ✅ Update documentation as needed
-- ✅ Follow conventional commit format
-- ✅ Pre-commit hooks must pass
-
-### Commit Convention
-
-We follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-feat: add new memory consolidation algorithm
-fix: resolve token count overflow in chat context
-docs: update API documentation for /embeddings endpoint
-test: add integration tests for optional graph connector
-refactor: simplify plugin loading mechanism
-chore: update dependencies to latest versions
-```
-
-### Code of Conduct
-
-Be respectful, inclusive, and collaborative. We're building something meaningful together.
-
-For detailed guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md) *(coming soon)*.
-
----
-
-## 🔒 Security
-
-### Reporting Vulnerabilities
-
-If you discover a security vulnerability, please email **security@catalystlabs.ai** instead of opening a public issue. We take security seriously and will respond promptly.
-
-### Security Features
-
-- 🔐 API key authentication with environment-based secrets
-- 🛡️ Input validation with Pydantic models
-- 🔍 SQL injection protection via SQLAlchemy ORM
-- 🎭 Log scrubbing for sensitive filenames and credentials
-- 🔒 Private key detection in pre-commit hooks
-- ✅ Security linting with Bandit
-- 🌐 CORS middleware with configurable origins
-
----
-
-## 📊 Project Status
-
-**Current Version**: 0.1.0 (Beta)
-**Status**: Active Development
-**Last Updated**: November 2025
-
-### Recent Milestones
-
-- ✅ Postgres-only architecture (October 2025)
-- ✅ Alembic migration system
-- ✅ Multi-provider AI routing
-- ✅ Plugin architecture v1
-- 🟡 Neo4j graph scaffolding (optional; deferred for MVP context)
-- ✅ React 19 frontend upgrade
-
-### Roadmap
-
-- 🚧 WebSocket collaboration (document editing only; broader real-time updates planned)
-- 🚧 Advanced RAG with hybrid search
-- 🚧 Fine-tuning support for local models (roadmap)
-- 🚧 Multi-user authentication & RBAC (roadmap)
-- 🚧 Kubernetes deployment guides
-- 🚧 Plugin marketplace (roadmap)
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-Built with ❤️ by **[Resonant Constructs LLC](https://catalystlabs.ai)** and the Codexify community.
-
-### Core Technologies
-
-Special thanks to the teams behind:
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
-- [React](https://react.dev/) - Frontend excellence
-- [PostgreSQL](https://www.postgresql.org/) - Reliable data storage
-- [Neo4j](https://neo4j.com/) - Graph database innovation
-- [LangChain](https://www.langchain.com/) - LLM orchestration
-
----
-
-## 📬 Contact & Community
-
-- **Website**: [catalystlabs.ai](https://catalystlabs.ai)
-- **Documentation**: [docs.codexify.io](https://docs.codexify.io) *(coming soon)*
-- **Issues**: [GitHub Issues](https://github.com/Resonant-Jones/Codexify/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Resonant-Jones/Codexify/discussions)
-- **Email**: dev@catalystlabs.ai
-
----
-
-<div align="center">
-
-**Star ⭐ this repo if Codexify helps your work!**
-
-*"In the convergence of memory and intelligence, we find not just answers, but understanding."*
-
-</div>
+### Known foot-guns
+- Backend exits if `GUARDIAN_API_KEY` is missing.
+- `LOCAL_EMBED_MODEL` must be **absolute** or embeddings will fail.
+- Default `.env` uses a private IP for `LOCAL_BASE_URL`; update it for your machine.
+- `make dev` runs `guardian.system_init` (not the FastAPI API server).
+
+## Explicit Non-Goals / Deferred Systems
+
+- Full graph context is **off by default** and requires explicit env flags.
+- The `/upload-chat` RAG endpoint is effectively disabled (missing module).
+- Embeddings API returns mock vectors; not production-ready.
+- Local image generation is a placeholder; real providers require env setup.
+- TTS microservice exists but is not integrated into the main API.
+- Desktop/Tauri app is not production-ready.
+
+## Documentation Map (Read This in Order)
+
+Codexify has extensive documentation. You do **not** need to read everything.
+
+Start with the document that matches your goal:
+
+### 1. High-level system understanding
+- **Codexify-System-Specification.md**
+  What Codexify is, what problems it solves, and what it intentionally does not do.
+
+### 2. Architectural truth (how it actually runs)
+- **Codexify-Master-Architecture-Report.md**
+  End-to-end runtime topology, services, data flow, and container roles.
+
+### 3. Backend internals
+- **system_architecture.md**
+  Guardian internals, lifecycle, DB wiring, workers, and event flow.
+
+### 4. Data, memory, and cognition
+- **Event_Graph.md**
+- **Thread-Artifact-Lineage.md**
+- **context-report.md**
+  How memory, threads, artifacts, and context interact over time.
+
+### 5. UI + perceptual layer
+- **Codexify-UI-Rendering-Protocol.md**
+- **CODEXIFY-PERCEPTUAL-STACK-SPEC.md**
+  How UI state, rendering, and agent perception are structured.
+
+### 6. Security & integrity
+- **SECURITY.md**
+- **SECURITY_HARDENING_PLAN.md**
+  Threat model, guardrails, and non-goals.
+
+### 7. Contributing
+- **CONTRIBUTING.md**
+  Expectations, safe areas, and how to avoid stepping on landmines.
+
+## Contribution Entry Point
+
+If you're new, start here:
+- **Backend API routes:** `guardian/routes/`
+- **Data models + migrations:** `guardian/db/models.py`, `guardian/db/migrations/`
+- **Frontend UI:** `frontend/src/`
+- **Workers & queues:** `guardian/workers/`, `guardian/queue/`
+
+Sensitive or architectural areas:
+- `guardian/core/` (auth, DB wiring, event bus)
+- `guardian/core/config.py` (provider routing rules)
+- `guardian/guardian_api.py` (app lifecycle + router wiring)
+
+Safe changes:
+- UI components and styling in `frontend/src`
+- New API endpoints in `guardian/routes/`
+- New migrations under `guardian/db/migrations/versions/`
+
+If you're unsure, open a small PR touching one area (UI or a single route) and ask for guidance.
+
+### Known foot-guns
+
+- Backend exits if `GUARDIAN_API_KEY` is missing.
+* `LOCAL_EMBED_MODEL` must be **absolute** or embeddings will fail.
+* Default `.env` uses a private IP for `LOCAL_BASE_URL`; update it for your machine.
+* `make dev` runs `guardian.system_init` (not the FastAPI API server).
+
+## Explicit Non-Goals / Deferred Systems
+
+* Full graph context is **off by default** and requires explicit env flags.
+* The `/upload-chat` RAG endpoint is effectively disabled (missing module).
+* Embeddings API returns mock vectors; not production-ready.
+* Local image generation is a placeholder; real providers require env setup.
+* TTS microservice exists but is not integrated into the main API.
+* Desktop/Tauri app is not production-ready.
