@@ -7,7 +7,8 @@
     "status",
     "summary",
     "tests_ran",
-    "commit_hash"
+    "commit_hash",
+    "notes"
   ],
   "properties": {
     "status": {
