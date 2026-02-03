@@ -7,8 +7,9 @@ import re
 import subprocess
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 DEFAULT_CAMPAIGN_DIR = Path("docs/Campaign")
 DEFAULT_TASKS_DIR = Path("docs/tasks")
@@ -41,16 +42,36 @@ def run_cmd(
     )
 
 
-def ensure_clean_git() -> None:
+def git_status_porcelain() -> str:
     result = run_cmd(
         ["git", "status", "--porcelain", "-uall"], capture_output=True
     )
     if result.returncode != 0:
         raise RunnerError(f"git status failed: {result.stderr.strip()}")
-    if result.stdout.strip():
+    return result.stdout
+
+
+def git_is_clean() -> bool:
+    return git_status_porcelain().strip() == ""
+
+
+def ensure_clean_git(context: str) -> None:
+    if not git_is_clean():
         raise RunnerError(
-            "git tree is not clean. Commit or stash changes before running the runner."
+            f"git tree is not clean ({context}). Commit or stash changes."
         )
+
+
+def parse_porcelain_paths(status: str) -> list[str]:
+    paths: list[str] = []
+    for line in status.splitlines():
+        if not line:
+            continue
+        entry = line[3:]
+        if " -> " in entry:
+            entry = entry.split(" -> ", 1)[1]
+        paths.append(entry)
+    return paths
 
 
 def read_json_file(path: Path) -> dict[str, Any]:
@@ -151,6 +172,20 @@ def run_codex_exec(
         )
 
 
+def slugify_branch(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9_-]+", "-", value.strip().lower())
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    if not slug:
+        raise RunnerError("campaign_slug must contain valid characters")
+    return slug
+
+
+def campaign_branch_name(campaign_slug: str) -> str:
+    safe_slug = slugify_branch(campaign_slug)
+    today = date.today().strftime("%Y-%m-%d")
+    return f"campaign/{today}/{safe_slug}"
+
+
 def switch_branch(branch_name: str) -> None:
     create_result = run_cmd(
         ["git", "switch", "-c", branch_name], capture_output=True
@@ -170,6 +205,38 @@ def git_head_commit() -> str:
     if result.returncode != 0:
         raise RunnerError(f"git rev-parse failed: {result.stderr.strip()}")
     return result.stdout.strip()
+
+
+def git_commit(paths: list[str], message: str, no_verify: bool) -> str:
+    if not paths:
+        raise RunnerError("git_commit requires at least one path")
+    add_result = run_cmd(["git", "add", *paths], capture_output=True)
+    if add_result.returncode != 0:
+        raise RunnerError(f"git add failed: {add_result.stderr.strip()}")
+    commit_cmd = ["git", "commit", "-m", message]
+    if no_verify:
+        commit_cmd.insert(2, "--no-verify")
+    commit_result = run_cmd(commit_cmd, capture_output=True)
+    if commit_result.returncode != 0:
+        raise RunnerError(
+            f"git commit failed: {commit_result.stderr.strip()}"
+        )
+    return git_head_commit()
+
+
+def git_commit_all(message: str, no_verify: bool) -> str:
+    add_result = run_cmd(["git", "add", "-A"], capture_output=True)
+    if add_result.returncode != 0:
+        raise RunnerError(f"git add -A failed: {add_result.stderr.strip()}")
+    commit_cmd = ["git", "commit", "-m", message]
+    if no_verify:
+        commit_cmd.insert(2, "--no-verify")
+    commit_result = run_cmd(commit_cmd, capture_output=True)
+    if commit_result.returncode != 0:
+        raise RunnerError(
+            f"git commit failed: {commit_result.stderr.strip()}"
+        )
+    return git_head_commit()
 
 
 def execute_task(task: dict[str, Any]) -> dict[str, Any]:
@@ -197,8 +264,12 @@ def execute_task(task: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
-    ensure_clean_git()
+    ensure_clean_git("start of cycle")
     print(f"Starting cycle {cycle_index}...")
+    print(
+        "Note: concurrent campaigns in the same workdir will serialize in Git. "
+        "Use separate clones/worktrees for true parallelism."
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
@@ -210,13 +281,15 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
 
     validate_campaign_payload(payload)
 
-    if args.branch_per_campaign:
-        campaign_slug = payload.get("campaign_slug", "")
-        if not campaign_slug:
-            raise RunnerError(
-                "campaign_slug is required for branch-per-campaign"
-            )
-        switch_branch(campaign_slug)
+    campaign_slug = payload.get("campaign_slug", "")
+    if not campaign_slug:
+        raise RunnerError("campaign_slug is required for branch-per-campaign")
+    if not git_is_clean():
+        raise RunnerError(
+            "git tree is not clean before switching campaign branch"
+        )
+    switch_branch(campaign_branch_name(campaign_slug))
+    ensure_clean_git("after switching campaign branch")
 
     campaign_doc_path = Path(payload["campaign_doc_path"])
     write_text_file(campaign_doc_path, payload["campaign_markdown"])
@@ -225,12 +298,69 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
         task_path = Path(task["task_artifact_path"])
         write_text_file(task_path, task["task_artifact_markdown"])
 
+    campaign_id = payload.get("campaign_id", "campaign")
+    artifact_paths = [str(campaign_doc_path)] + [
+        task["task_artifact_path"] for task in payload["tasks"]
+    ]
+
+    if args.auto_commit:
+        git_commit(
+            artifact_paths,
+            f"Docs: add {campaign_id} campaign + tasks",
+            args.no_verify,
+        )
+        ensure_clean_git("after campaign artifact commit")
+    elif not git_is_clean():
+        raise RunnerError(
+            "Auto-commit disabled but campaign artifacts changed the tree."
+        )
+
     if args.execute and not args.dry_run:
         for task in payload["tasks"]:
+            ensure_clean_git("start of task")
+            head_before = git_head_commit()
             print(f"Executing task {task.get('id', '')}...")
             execute_task(task)
+
+            if not git_is_clean():
+                if args.auto_commit:
+                    git_commit_all(task["commit_message"], args.no_verify)
+                else:
+                    raise RunnerError(
+                        "Auto-commit disabled but task left the tree dirty."
+                    )
+
+            ensure_clean_git("after task commit")
+            head_after = git_head_commit()
+            if head_after == head_before:
+                raise RunnerError(
+                    f"Task {task.get('id', '')} produced no commit."
+                )
     elif args.execute and args.dry_run:
         print("Dry run enabled: skipping task execution.")
+
+    status = git_status_porcelain()
+    if status.strip():
+        dirty_paths = parse_porcelain_paths(status)
+        campaign_path_str = str(campaign_doc_path)
+        if dirty_paths == [campaign_path_str]:
+            if args.auto_commit:
+                git_commit(
+                    [campaign_path_str],
+                    f"Docs: finalize {campaign_id} campaign",
+                    args.no_verify,
+                )
+                ensure_clean_git("after campaign finalize commit")
+            else:
+                raise RunnerError(
+                    "Auto-commit disabled but campaign summary updates "
+                    "left the tree dirty."
+                )
+        else:
+            raise RunnerError(
+                "Unexpected dirty tree after cycle completion: "
+                + ", ".join(dirty_paths)
+            )
 
 
 def parse_args() -> argparse.Namespace:
@@ -250,7 +380,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--branch-per-campaign",
         action="store_true",
-        help="Create/switch to a branch per campaign using campaign_slug.",
+        default=True,
+        help=(
+            "Required. Create/switch to a branch per campaign using "
+            "campaign_slug (default behavior)."
+        ),
+    )
+    verify_group = parser.add_mutually_exclusive_group()
+    verify_group.add_argument(
+        "--no-verify",
+        dest="no_verify",
+        action="store_true",
+        default=True,
+        help="Skip git hooks for runner commits (default).",
+    )
+    verify_group.add_argument(
+        "--verify",
+        dest="no_verify",
+        action="store_false",
+        help="Run git hooks for runner commits.",
+    )
+    auto_commit_group = parser.add_mutually_exclusive_group()
+    auto_commit_group.add_argument(
+        "--auto-commit",
+        dest="auto_commit",
+        action="store_true",
+        default=True,
+        help="Auto-commit runner-generated changes (default).",
+    )
+    auto_commit_group.add_argument(
+        "--no-auto-commit",
+        dest="auto_commit",
+        action="store_false",
+        help="Disable auto-commit for runner-generated changes.",
     )
     parser.add_argument(
         "--execute",
