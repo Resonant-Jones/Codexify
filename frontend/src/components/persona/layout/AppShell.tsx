@@ -390,8 +390,39 @@ export default function AppShell({}: PropsWithChildren) {
      - `openDocInPlace`: Helper to open a doc and reveal the workspace pane.
      ───────────────────────────────────────────────────────────────────────────── */
   type DocItem = DocumentLike & { ext: keyof ExtColors };
+  const defaultDocs: DocItem[] = [
+    normalizeDoc({ id: "mock-covenant", name: "Covenant", ext: "pdf", mock: true }),
+    normalizeDoc({ id: "mock-roadmap", name: "Roadmap", ext: "md", mock: true }),
+    normalizeDoc({ id: "mock-vision", name: "Vision", ext: "txt", mock: true }),
+    normalizeDoc({ id: "mock-design", name: "Design", ext: "sketch", mock: true }),
+  ];
+  const readCachedDocuments = (): DocItem[] | null => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("cfy.documents");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return null;
+      return parsed.map((d: any, idx: number) => normalizeDoc(d, idx)) as DocItem[];
+    } catch {
+      return null;
+    }
+  };
   function normalizeDoc(raw: any, idx = 0): DocItem {
-    const title = raw?.title || raw?.name || "Untitled";
+    const filename =
+      typeof raw?.filename === "string" && raw.filename.trim()
+        ? raw.filename.trim()
+        : undefined;
+    const title =
+      raw?.title ||
+      raw?.name ||
+      (filename ? filename.replace(/\.[^./\\]+$/, "") : "") ||
+      "Untitled";
+    const extFromFilename = (() => {
+      if (!filename) return undefined;
+      const match = filename.toLowerCase().match(/\.([a-z0-9]+)$/i);
+      return match?.[1];
+    })();
     // Preserve any existing media URL so WorkspacePane can preview attachments.
     const srcUrl =
       (typeof raw?.src_url === "string" && raw.src_url) ||
@@ -425,9 +456,9 @@ export default function AppShell({}: PropsWithChildren) {
           : undefined;
     return {
       id: raw?.id || raw?.document_id || `${title}-${raw?.ext || "md"}-${idx}`,
-      name: raw?.name || title,
+      name: raw?.name || filename || title,
       title,
-      ext: (raw?.ext || raw?.extension || "md") as keyof ExtColors,
+      ext: (raw?.ext || raw?.extension || extFromFilename || "md") as keyof ExtColors,
       type: raw?.type === "codex_entry" ? "codex_entry" : "file",
       mock: Boolean(raw?.mock),
       createdAt: raw?.createdAt || raw?.created_at,
@@ -439,32 +470,47 @@ export default function AppShell({}: PropsWithChildren) {
     };
   }
   const [documents, setDocuments] = useState<DocItem[]>(() => {
-    const def: DocItem[] = [
-      normalizeDoc({ id: "mock-covenant", name: "Covenant", ext: "pdf", mock: true }),
-      normalizeDoc({ id: "mock-roadmap", name: "Roadmap", ext: "md", mock: true }),
-      normalizeDoc({ id: "mock-vision", name: "Vision", ext: "txt", mock: true }),
-      normalizeDoc({ id: "mock-design", name: "Design", ext: "sketch", mock: true }),
-    ];
-    if (typeof window === "undefined") return def;
-    try {
-      const raw = localStorage.getItem("cfy.documents");
-      if (!raw) {
-        // Seed defaults on first run
-        localStorage.setItem("cfy.documents", JSON.stringify(def));
-        return def;
-      }
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return def;
-      return parsed.map((d: any, idx: number) => normalizeDoc(d, idx)) as DocItem[];
-    } catch {
-      return def;
-    }
+    const cached = readCachedDocuments();
+    if (cached) return cached;
+    return typeof window === "undefined" ? defaultDocs : defaultDocs;
+  });
+  const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
+    if (typeof window === "undefined") return "default";
+    return readCachedDocuments() ? "cache" : "default";
   });
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("cfy.documents", JSON.stringify(documents));
-    }
-  }, [documents]);
+    if (typeof window === "undefined") return;
+    if (documentsSource === "default") return;
+    const cacheable = documents.filter((d) => !d.mock);
+    try {
+      localStorage.setItem("cfy.documents", JSON.stringify(cacheable));
+    } catch {}
+  }, [documents, documentsSource]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get("/media/documents", { params: { limit: 200 } });
+        const data = res?.data;
+        const unwrap = (v: any): any => {
+          if (!v || typeof v !== "object") return v;
+          return (v as any).documents ?? (v as any).items ?? (v as any).data ?? (v as any).results ?? v;
+        };
+        const candidate1 = Array.isArray(data) ? data : unwrap(data);
+        const candidate2 = Array.isArray(candidate1) ? candidate1 : unwrap(candidate1);
+        const docs: any[] = Array.isArray(candidate2) ? candidate2 : [];
+        if (cancelled) return;
+        const normalized = docs.map((d: any, idx: number) => normalizeDoc(d, idx));
+        setDocuments(normalized);
+        setDocumentsSource("backend");
+      } catch (err) {
+        console.warn("[documents] failed to load backend documents", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -833,6 +879,7 @@ export default function AppShell({}: PropsWithChildren) {
     const onAdd = (e: Event) => {
       const items = (e as CustomEvent).detail?.items || [];
       if (!Array.isArray(items) || items.length === 0) return;
+      setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
       setDocuments((prev) => [...items.map((item: any, idx: number) => normalizeDoc(item, idx)), ...prev]);
     };
     window.addEventListener("cfy:documents:add", onAdd as EventListener);
@@ -988,6 +1035,7 @@ export default function AppShell({}: PropsWithChildren) {
       const raw = detail.doc ?? detail;
       if (!raw) return;
       const doc = normalizeDoc(raw);
+      setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
       setDocuments((prev) => {
         const exists = prev.some(
           (d) =>
