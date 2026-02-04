@@ -1,8 +1,8 @@
 Dead code scan (heuristic)
 Repo: /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
-Scanned Python files: 415
-Package files (guardian/server): 376
-Referenced module prefixes: 128
+Scanned Python files: 642
+Package files (guardian/server): 521
+Referenced module prefixes: 202
 Dead candidates: 0
 
 # Dead candidates (relative):
