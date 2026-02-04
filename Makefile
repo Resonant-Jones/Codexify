@@ -52,7 +52,7 @@ dev-install: install
 # Run tests
 test:
 	@mkdir -p $(TEST_REPORT_DIR)
-	$(PYTHON) $(TEST_DIR)/run_tests.py
+	$(PYTHON) -m pytest -q guardian/tests tests
 
 # Run tests with coverage
 test-coverage:
