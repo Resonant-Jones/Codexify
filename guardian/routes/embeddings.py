@@ -3,6 +3,7 @@ Embeddings endpoint for frontend usage.
 """
 
 import logging
+import os
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,8 +37,39 @@ class EmbeddingsResponse(BaseModel):
 def embeddings(body: EmbeddingsRequest) -> EmbeddingsResponse:
     if not body.texts:
         raise HTTPException(status_code=400, detail="texts must not be empty")
-    provider = body.embedder or "dummy"
-    vectors = [get_embedding(text) for text in body.texts]
+    raw_embedder = (body.embedder or "").strip()
+    provider = raw_embedder.lower()
+    allow_dummy = os.getenv("CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if not provider:
+        env_provider = (
+            os.getenv("CODEXIFY_EMBEDDINGS_BACKEND")
+            or os.getenv("EMBEDDING_BACKEND")
+            or os.getenv("EMBEDDER")
+            or ""
+        ).strip()
+        provider = env_provider.lower()
+
+    if provider in ("", "dummy", "mock"):
+        if not raw_embedder and not allow_dummy:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Embeddings backend is not configured. "
+                    "Set embedder=dummy explicitly for mock vectors, or configure a real backend."
+                ),
+            )
+        provider = "dummy"
+
+    try:
+        vectors = [
+            get_embedding(text, embedder=provider) for text in body.texts
+        ]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         from guardian.vector.store import VectorStore
 

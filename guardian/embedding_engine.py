@@ -21,13 +21,35 @@ Future work:
 from __future__ import annotations
 
 import hashlib
+import os
 import random
 from typing import List
 
-# Switch between back‑ends.  For the MVP we use the dummy
-# implementation, but the constant makes it easy to
-# swap out later.
-EMBEDDER = "dummy"  # Options: "dummy", "gpt_oss", "nomic"
+_ENV_BACKEND = "CODEXIFY_EMBEDDINGS_BACKEND"
+_ALLOWED_EMBEDDERS = {"dummy", "gpt_oss", "nomic"}
+
+
+def _normalize_embedder(value: str) -> str:
+    embedder = value.strip().lower()
+    if embedder == "mock":
+        embedder = "dummy"
+    if embedder not in _ALLOWED_EMBEDDERS:
+        raise ValueError(f"Unsupported embedder: {embedder}")
+    return embedder
+
+
+def _resolve_embedder(value: str | None) -> str:
+    if value and value.strip():
+        return _normalize_embedder(value)
+    env_value = (
+        os.getenv(_ENV_BACKEND)
+        or os.getenv("EMBEDDING_BACKEND")
+        or os.getenv("EMBEDDER")
+        or ""
+    )
+    if not env_value:
+        return "dummy"
+    return _normalize_embedder(env_value)
 
 
 def _dummy_embedding(text: str, dim: int = 768) -> list[float]:
@@ -43,7 +65,7 @@ def _dummy_embedding(text: str, dim: int = 768) -> list[float]:
     return [rng.random() for _ in range(dim)]
 
 
-def get_embedding(text: str) -> list[float]:
+def get_embedding(text: str, *, embedder: str | None = None) -> list[float]:
     """
     Public API – returns an embedding vector for ``text``.
     Returns a deterministic dummy vector if ``EMBEDDER`` is set to
@@ -56,9 +78,10 @@ def get_embedding(text: str) -> list[float]:
     Returns:
         List[float]: Embedding vector.
     """
-    if EMBEDDER == "dummy":
+    embedder = _resolve_embedder(embedder)
+    if embedder == "dummy":
         return _dummy_embedding(text)
-    elif EMBEDDER == "gpt_oss":
+    elif embedder == "gpt_oss":
         import requests
 
         try:
@@ -72,9 +95,9 @@ def get_embedding(text: str) -> list[float]:
             return result["embedding"]
         except requests.RequestException as e:
             raise RuntimeError(f"Failed to fetch embedding from GPT-OSS: {e}")
-    elif EMBEDDER == "nomic":
+    elif embedder == "nomic":
         # TODO: Call local Nomic model (e.g. via huggingface
         # or a local server) and return the embedding.
         raise NotImplementedError("Nomic embedder not implemented yet.")
     else:
-        raise ValueError(f"Unsupported embedder: {EMBEDDER}")
+        raise ValueError(f"Unsupported embedder: {embedder}")
