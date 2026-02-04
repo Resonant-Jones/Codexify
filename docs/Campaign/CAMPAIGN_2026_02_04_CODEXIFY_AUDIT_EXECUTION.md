@@ -51,4 +51,4 @@ Format EXACT: TASK-ID -> [<commitA>] DocsCommit=<docsCommit>
 - TASK-2026-02-04-005_workers_add_document_embed_worker_to_compose -> [1a85797e] DocsCommit=39a01fed
 - TASK-2026-02-04-006_embeddings_remove_surprising_dummy_default_or_flag_clearly -> [55b5d25c] DocsCommit=afca36d8
 - TASK-2026-02-04-007_docgen_ui_use_backend_documents_list_not_localstorage -> [7653f9f0] DocsCommit=b178f5d9
-- TASK-2026-02-04-008_dx_fix_make_test_target -> [<commitA>] DocsCommit=<docsCommit>
+- TASK-2026-02-04-008_dx_fix_make_test_target -> [f1e69a81] DocsCommit=<docsCommit>
