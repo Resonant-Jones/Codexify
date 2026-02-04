@@ -10,6 +10,13 @@ from fastapi.testclient import TestClient
 from guardian.db import models
 from guardian.routes import documents as documents_routes
 
+_API_KEY = "test-api-key"
+
+
+def _auth_headers(monkeypatch) -> dict[str, str]:
+    monkeypatch.setenv("GUARDIAN_API_KEY", _API_KEY)
+    return {"X-API-Key": _API_KEY}
+
 
 @dataclass
 class _Thread:
@@ -70,6 +77,7 @@ def test_document_gen_pipeline_happy_path(monkeypatch) -> None:
     client = _make_client()
     response = client.post(
         "/api/documents/generate",
+        headers=_auth_headers(monkeypatch),
         json={
             "thread_id": 5,
             "title": "Launch Brief",
@@ -123,6 +131,7 @@ def test_document_gen_pipeline_llm_failure(monkeypatch) -> None:
     client = _make_client()
     response = client.post(
         "/api/documents/generate",
+        headers=_auth_headers(monkeypatch),
         json={
             "thread_id": 5,
             "title": "Launch Brief",
@@ -136,3 +145,20 @@ def test_document_gen_pipeline_llm_failure(monkeypatch) -> None:
         response.json()["detail"]
         == "Document generation failed. Please try again later."
     )
+
+
+def test_document_gen_requires_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", _API_KEY)
+    client = _make_client()
+    response = client.post(
+        "/api/documents/generate",
+        json={
+            "thread_id": 5,
+            "title": "Launch Brief",
+            "prompt": "Summarize the launch goals.",
+            "type": "markdown",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing API key"

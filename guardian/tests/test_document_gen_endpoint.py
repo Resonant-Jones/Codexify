@@ -5,6 +5,13 @@ from fastapi.testclient import TestClient
 
 from guardian.routes import documents as documents_routes
 
+_API_KEY = "test-api-key"
+
+
+def _auth_headers(monkeypatch) -> dict[str, str]:
+    monkeypatch.setenv("GUARDIAN_API_KEY", _API_KEY)
+    return {"X-API-Key": _API_KEY}
+
 
 def _make_client() -> TestClient:
     app = FastAPI()
@@ -26,6 +33,7 @@ def test_document_generate_happy_path(monkeypatch) -> None:
     client = _make_client()
     response = client.post(
         "/api/documents/generate",
+        headers=_auth_headers(monkeypatch),
         json={
             "title": "Launch Brief",
             "prompt": "Summarize the launch goals.",
@@ -52,10 +60,11 @@ def test_document_generate_happy_path(monkeypatch) -> None:
     assert "Prompt: Summarize the launch goals." in user_content
 
 
-def test_document_generate_requires_prompt() -> None:
+def test_document_generate_requires_prompt(monkeypatch) -> None:
     client = _make_client()
     response = client.post(
         "/api/documents/generate",
+        headers=_auth_headers(monkeypatch),
         json={
             "title": "Launch Brief",
             "prompt": "   ",
