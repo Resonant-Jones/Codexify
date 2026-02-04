@@ -6,13 +6,14 @@ import logging
 import uuid
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from guardian.core import event_bus
 from guardian.core.ai_router import chat_with_ai
 from guardian.core.db import GuardianDB
+from guardian.core.dependencies import require_api_key
 from guardian.db import models
 
 logger = logging.getLogger(__name__)
@@ -102,7 +103,10 @@ def _normalize_optional_text(value: str | None) -> str | None:
 
 
 @router.post("/api/documents/autosave", response_model=AutosaveResponse)
-async def autosave_document(request: AutosaveRequest) -> dict[str, Any]:
+async def autosave_document(
+    request: AutosaveRequest,
+    _api_key: str = Depends(require_api_key),
+) -> dict[str, Any]:
     """
     Autosave a session document linked to a thread.
 
@@ -249,6 +253,7 @@ async def autosave_document(request: AutosaveRequest) -> dict[str, Any]:
 @router.post("/api/documents/generate", response_model=DocumentGenerateResponse)
 async def generate_document(
     request: DocumentGenerateRequest,
+    _api_key: str = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Generate a document draft using the configured LLM backend."""
     prompt = _normalize_optional_text(request.prompt)
