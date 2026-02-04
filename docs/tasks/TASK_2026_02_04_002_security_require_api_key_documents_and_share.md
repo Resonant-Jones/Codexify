@@ -79,7 +79,7 @@ Commands:
 - git add guardian/routes/documents.py guardian/routes/share.py guardian/core/dependencies.py guardian/guardian_api.py tests guardian/tests README.md
 - git commit --no-verify -m "TASK-2026-02-04-002_security_require_api_key_documents_and_share: enforce auth on documents/share"
 - git log -1 --oneline
-Record CommitA=<hash>
+Record CommitA=24b6f81b
 
 ### Commit B message EXACT
 
