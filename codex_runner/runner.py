@@ -242,32 +242,19 @@ def git_commit_all(message: str, no_verify: bool) -> str:
 
 
 def execute_task(task: dict[str, Any]) -> dict[str, Any]:
+    """Run a single task activation prompt via Codex and return the structured result.
+
+    Note: the task agent may or may not perform the git commit itself. The runner is
+    allowed to commit (auto-commit mode), so commit_hash validation/fill-in happens
+    at the orchestration layer where we can compare HEAD before/after.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         prompt_path = tmp_path / "activation_prompt.md"
         output_path = tmp_path / "task_result.json"
         prompt_path.write_text(task["activation_prompt"], encoding="utf-8")
         run_codex_exec(prompt_path, TASK_RESULT_SCHEMA_PATH, output_path)
-        result = read_json_file(output_path)
-
-    status = result.get("status")
-    if status == "success":
-        head_commit = git_head_commit()
-        commit_hash = (result.get("commit_hash") or "").strip()
-        if not commit_hash:
-            note = f"missing commit_hash: head is {head_commit}"
-            existing_notes = (result.get("notes") or "").strip()
-            result["notes"] = f"{existing_notes} {note}".strip()
-            print(f"Warning: {note}", file=sys.stderr)
-        elif commit_hash != head_commit:
-            note = (
-                "commit_hash mismatch: reported "
-                f"{commit_hash}, head is {head_commit}"
-            )
-            existing_notes = (result.get("notes") or "").strip()
-            result["notes"] = f"{existing_notes} {note}".strip()
-            print(f"Warning: {note}", file=sys.stderr)
-    return result
+        return read_json_file(output_path)
 
 
 def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
@@ -328,7 +315,9 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
             head_before = git_head_commit()
             print(f"Executing task {task.get('id', '')}...")
             result = execute_task(task)
+            head_after_exec = git_head_commit()
 
+            # If the agent left changes, the runner commits them.
             if not git_is_clean():
                 if args.auto_commit:
                     git_commit_all(task["commit_message"], args.no_verify)
@@ -339,9 +328,45 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
 
             ensure_clean_git("after task commit")
             head_after = git_head_commit()
+
+            # Normalize/fill commit_hash:
+            # - If agent committed: commit_hash should match head_after.
+            # - If runner committed: commit_hash is often empty; fill it with head_after.
+            reported = (result.get("commit_hash") or "").strip()
+            if not reported and head_after != head_before:
+                result["commit_hash"] = head_after
+            elif reported and reported != head_after:
+                existing_notes = (result.get("notes") or "").strip()
+                note = f"commit_hash mismatch: reported {reported}, head is {head_after}"
+                result["notes"] = f"{existing_notes} {note}".strip()
+                print(f"Warning: {note}", file=sys.stderr)
+
+            if head_after != head_before:
+                task_artifact_path = Path(task["task_artifact_path"])
+                append_text_file(
+                    task_artifact_path,
+                    "\n\n## Runner Result\n\n```json\n"
+                    + json.dumps(result, indent=2)
+                    + "\n```\n",
+                )
+                if args.auto_commit:
+                    git_commit(
+                        [str(task_artifact_path)],
+                        task["commit_message"],
+                        args.no_verify,
+                    )
+                    ensure_clean_git("after task receipt commit")
+                    head_after = git_head_commit()
+                else:
+                    raise RunnerError(
+                        "Auto-commit disabled but runner result receipt would dirty the tree."
+                    )
+
             if head_after == head_before:
-                # Task produced no changes/commit. For deterministic loops, record the
-                # structured result into the task artifact and commit that receipt.
+                # For a noop task, the receipt commit is the task's commit.
+                if not (result.get("commit_hash") or "").strip():
+                    result["commit_hash"] = git_head_commit()
+
                 if args.auto_commit and (result.get("status") == "success"):
                     task_artifact_path = Path(task["task_artifact_path"])
                     append_text_file(
