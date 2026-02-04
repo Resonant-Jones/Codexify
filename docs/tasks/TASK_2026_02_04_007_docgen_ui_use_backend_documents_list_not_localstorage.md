@@ -82,7 +82,7 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_007_docgen_ui_use_backend_documents_list_not_localstorage.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-007_docgen_ui_use_backend_documents_list_not_localstorage: finalize task docs and campaign mapping"
-Record DocsCommit=<hash>
+Record DocsCommit=b178f5d9
 
 Campaign mapping update EXACT:
 
