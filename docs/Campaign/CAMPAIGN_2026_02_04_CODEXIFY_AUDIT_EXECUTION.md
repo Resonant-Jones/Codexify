@@ -42,13 +42,13 @@ Convert the Senior Architect System Audit (2026-02-04) into a sequence of small,
 
 ## Mapping (fill after each task completes)
 
-Format EXACT: TASK-ID -> [<commitA>, <commitB>]
+Format EXACT: TASK-ID -> [<commitA>] DocsCommit=<docsCommit>
 
-- TASK-2026-02-04-001_secrets_untrack_env_and_align_templates -> [c3e306f1, a3f54735]
-- TASK-2026-02-04-002_security_require_api_key_documents_and_share -> [24b6f81b, b9dc1e08]
-- TASK-2026-02-04-003_auth_frontend_attach_x_api_key_without_dev_proxy -> [c08e50a1, 987e34ee]
-- TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth -> [e472ea71, 0f14f6cd]
-- TASK-2026-02-04-005_workers_add_document_embed_worker_to_compose -> [<commitA>, <commitB>]
-- TASK-2026-02-04-006_embeddings_remove_surprising_dummy_default_or_flag_clearly -> [<commitA>, <commitB>]
-- TASK-2026-02-04-007_docgen_ui_use_backend_documents_list_not_localstorage -> [<commitA>, <commitB>]
-- TASK-2026-02-04-008_dx_fix_make_test_target -> [<commitA>, <commitB>]
+- TASK-2026-02-04-001_secrets_untrack_env_and_align_templates -> [c3e306f1] DocsCommit=a3f54735
+- TASK-2026-02-04-002_security_require_api_key_documents_and_share -> [24b6f81b] DocsCommit=b9dc1e08
+- TASK-2026-02-04-003_auth_frontend_attach_x_api_key_without_dev_proxy -> [c08e50a1] DocsCommit=987e34ee
+- TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth -> [e472ea71] DocsCommit=0f14f6cd
+- TASK-2026-02-04-005_workers_add_document_embed_worker_to_compose -> [<commitA>] DocsCommit=<docsCommit>
+- TASK-2026-02-04-006_embeddings_remove_surprising_dummy_default_or_flag_clearly -> [<commitA>] DocsCommit=<docsCommit>
+- TASK-2026-02-04-007_docgen_ui_use_backend_documents_list_not_localstorage -> [<commitA>] DocsCommit=<docsCommit>
+- TASK-2026-02-04-008_dx_fix_make_test_target -> [<commitA>] DocsCommit=<docsCommit>
