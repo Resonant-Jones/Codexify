@@ -69,7 +69,7 @@ Commands:
 
 - git add frontend/src/components/modals/ChatGPTImportModal.tsx guardian/routes/migration.py README.md
 - git commit --no-verify -m "TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth: wire import to /api with auth"
-Record CommitA=<hash>
+Record CommitA=e472ea71
 
 ### Commit B message EXACT
 
@@ -79,7 +79,7 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_004_migration_fix_chatgpt_import_api_path_and_auth.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth: finalize task docs and campaign mapping"
-Record CommitB=<hash>
+Record CommitB=c2345d3b
 
 Campaign mapping update EXACT:
 
