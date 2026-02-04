@@ -95,7 +95,7 @@ Commands:
 
 Record:
 
-- CommitA=<paste hash>
+- CommitA=c3e306f1
 
 ### Commit B (docs finalize: task artifact + campaign mapping)
 

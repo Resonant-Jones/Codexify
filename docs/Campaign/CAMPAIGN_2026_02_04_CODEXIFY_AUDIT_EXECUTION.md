@@ -44,7 +44,7 @@ Convert the Senior Architect System Audit (2026-02-04) into a sequence of small,
 
 Format EXACT: TASK-ID -> [<commitA>, <commitB>]
 
-- TASK-2026-02-04-001_secrets_untrack_env_and_align_templates -> [<commitA>, <commitB>]
+- TASK-2026-02-04-001_secrets_untrack_env_and_align_templates -> [c3e306f1, a3f54735]
 - TASK-2026-02-04-002_security_require_api_key_documents_and_share -> [<commitA>, <commitB>]
 - TASK-2026-02-04-003_auth_frontend_attach_x_api_key_without_dev_proxy -> [<commitA>, <commitB>]
 - TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth -> [<commitA>, <commitB>]
