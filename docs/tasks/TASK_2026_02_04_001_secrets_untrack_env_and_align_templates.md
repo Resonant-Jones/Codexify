@@ -96,10 +96,11 @@ Commands:
 Record:
 
 - CommitA=c3e306f1
+- DocsCommit=a3f54735
 
-### Commit B (docs finalize: task artifact + campaign mapping)
+### Docs Commit (docs finalize: task artifact + campaign mapping)
 
-Commit B message EXACT:
+Docs Commit message EXACT:
 
 - "TASK-2026-02-04-001_secrets_untrack_env_and_align_templates: finalize task docs and campaign mapping"
 
@@ -111,7 +112,7 @@ Commands:
 
 Campaign mapping update EXACT:
 
-- TASK-2026-02-04-001_secrets_untrack_env_and_align_templates -> [<commitA>, <commitB>]
+- TASK-2026-02-04-001_secrets_untrack_env_and_align_templates -> [<commitA>] DocsCommit=<docsCommit>
 
 ## Stop Conditions
 

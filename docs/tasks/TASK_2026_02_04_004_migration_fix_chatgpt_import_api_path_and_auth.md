@@ -71,7 +71,7 @@ Commands:
 - git commit --no-verify -m "TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth: wire import to /api with auth"
 Record CommitA=e472ea71
 
-### Commit B message EXACT
+### Docs Commit message EXACT
 
 "TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth: finalize task docs and campaign mapping"
 
@@ -79,11 +79,11 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_004_migration_fix_chatgpt_import_api_path_and_auth.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth: finalize task docs and campaign mapping"
-Record CommitB=0f14f6cd
+Record DocsCommit=0f14f6cd
 
 Campaign mapping update EXACT:
 
-- TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth -> [<commitA>, <commitB>]
+- TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth -> [<commitA>] DocsCommit=<docsCommit>
 
 ## Stop Conditions
 

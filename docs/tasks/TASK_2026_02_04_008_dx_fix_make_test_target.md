@@ -67,7 +67,7 @@ Commands:
 - git commit --no-verify -m "TASK-2026-02-04-008_dx_fix_make_test_target: make test runs pytest"
 Record CommitA=<hash>
 
-### Commit B message EXACT
+### Docs Commit message EXACT
 
 "TASK-2026-02-04-008_dx_fix_make_test_target: finalize task docs and campaign mapping"
 
@@ -75,11 +75,11 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_008_dx_fix_make_test_target.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-008_dx_fix_make_test_target: finalize task docs and campaign mapping"
-Record CommitB=<hash>
+Record DocsCommit=<hash>
 
 Campaign mapping update EXACT:
 
-- TASK-2026-02-04-008_dx_fix_make_test_target -> [<commitA>, <commitB>]
+- TASK-2026-02-04-008_dx_fix_make_test_target -> [<commitA>] DocsCommit=<docsCommit>
 
 ## Stop Conditions
 

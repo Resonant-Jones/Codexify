@@ -81,7 +81,7 @@ Commands:
 - git log -1 --oneline
 Record CommitA=24b6f81b
 
-### Commit B message EXACT
+### Docs Commit message EXACT
 
 "TASK-2026-02-04-002_security_require_api_key_documents_and_share: finalize task docs and campaign mapping"
 
@@ -89,11 +89,11 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_002_security_require_api_key_documents_and_share.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-002_security_require_api_key_documents_and_share: finalize task docs and campaign mapping"
-Record CommitB=<hash>
+Record DocsCommit=b9dc1e08
 
 Campaign mapping update EXACT:
 
-- TASK-2026-02-04-002_security_require_api_key_documents_and_share -> [<commitA>, <commitB>]
+- TASK-2026-02-04-002_security_require_api_key_documents_and_share -> [<commitA>] DocsCommit=<docsCommit>
 
 ## Stop Conditions
 
