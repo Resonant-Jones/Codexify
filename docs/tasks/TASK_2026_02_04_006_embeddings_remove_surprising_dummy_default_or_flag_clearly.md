@@ -80,7 +80,7 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_006_embeddings_remove_surprising_dummy_default_or_flag_clearly.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-006_embeddings_remove_surprising_dummy_default_or_flag_clearly: finalize task docs and campaign mapping"
-Record DocsCommit=<hash>
+Record DocsCommit=afca36d8
 
 Campaign mapping update EXACT:
 
