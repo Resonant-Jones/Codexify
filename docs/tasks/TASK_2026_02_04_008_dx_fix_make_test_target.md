@@ -75,11 +75,11 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_008_dx_fix_make_test_target.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-008_dx_fix_make_test_target: finalize task docs and campaign mapping"
-Record DocsCommit=<hash>
+Record DocsCommit=84ce843e
 
 Campaign mapping update EXACT:
 
-- TASK-2026-02-04-008_dx_fix_make_test_target -> [<commitA>] DocsCommit=<docsCommit>
+- TASK-2026-02-04-008_dx_fix_make_test_target -> [f1e69a81] DocsCommit=84ce843e
 
 ## Stop Conditions
 
