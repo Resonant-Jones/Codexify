@@ -1,23 +1,25 @@
-# Codex Runner Campaign Audit
+# Codex Runner Campaign — Audit Output
 
 **Date:** 2026-02-04
-**Campaign ID:** camp_2026_02_04_001
-**Slug:** codex_runner_audit_2026_02_04
+**Campaign ID:** CAMPAIGN_2026_02_04_001
+**Slug:** codex_runner_audit
 
-## Purpose
-Establish a structured audit of the Codex Runner campaign outputs, validate schema compliance, and ensure task artifacts are complete and actionable.
+## Objective
+Produce a clean, schema-valid campaign audit output with clear task activation guidance and artifact tracking.
 
 ## Scope
-- Campaign metadata validation
-- Task artifact completeness
-- Activation prompt readiness
+- Generate campaign document
+- Generate task artifact document
+- Provide activation prompt for the task
 
-## Success Criteria
-- Output JSON passes schema validation
-- All required fields are present
-- Paths and filenames match required patterns
-- Each task includes a clear activation prompt
+## Constraints
+- File paths must follow required naming conventions
+- Output must validate against campaign_output schema
 
 ## Tasks
-1. Validate campaign document structure and metadata
-2. Validate task artifact structure and activation readiness
+1. Create the campaign audit artifact and activation prompt for execution.
+
+## Success Criteria
+- JSON output validates against schema
+- All required fields provided
+- Paths match required patterns
