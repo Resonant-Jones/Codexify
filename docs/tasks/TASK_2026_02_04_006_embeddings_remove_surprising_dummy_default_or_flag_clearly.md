@@ -70,7 +70,7 @@ Commands:
 
 - git add guardian/embedding_engine.py guardian/routes/embeddings.py README.md tests guardian/tests
 - git commit --no-verify -m "TASK-2026-02-04-006_embeddings_remove_surprising_dummy_default_or_flag_clearly: clarify embeddings behavior"
-Record CommitA=<hash>
+Record CommitA=55b5d25c
 
 ### Docs Commit message EXACT
 
