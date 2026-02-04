@@ -73,7 +73,7 @@ Commands:
 
 - git add docker-compose.yml guardian/workers/document_embed_worker.py README.md tests guardian/tests
 - git commit --no-verify -m "TASK-2026-02-04-005_workers_add_document_embed_worker_to_compose: run embed worker in compose"
-Record CommitA=<hash>
+Record CommitA=1a85797e
 
 ### Docs Commit message EXACT
 
@@ -83,7 +83,7 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_005_workers_add_document_embed_worker_to_compose.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-005_workers_add_document_embed_worker_to_compose: finalize task docs and campaign mapping"
-Record DocsCommit=<hash>
+Record DocsCommit=8b702361
 
 Campaign mapping update EXACT:
 
