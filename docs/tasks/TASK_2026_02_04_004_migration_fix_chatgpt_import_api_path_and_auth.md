@@ -79,7 +79,7 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_004_migration_fix_chatgpt_import_api_path_and_auth.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth: finalize task docs and campaign mapping"
-Record CommitB=c2345d3b
+Record CommitB=0f14f6cd
 
 Campaign mapping update EXACT:
 
