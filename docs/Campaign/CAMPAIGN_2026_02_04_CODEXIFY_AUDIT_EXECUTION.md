@@ -49,6 +49,6 @@ Format EXACT: TASK-ID -> [<commitA>] DocsCommit=<docsCommit>
 - TASK-2026-02-04-003_auth_frontend_attach_x_api_key_without_dev_proxy -> [c08e50a1] DocsCommit=987e34ee
 - TASK-2026-02-04-004_migration_fix_chatgpt_import_api_path_and_auth -> [e472ea71] DocsCommit=0f14f6cd
 - TASK-2026-02-04-005_workers_add_document_embed_worker_to_compose -> [1a85797e] DocsCommit=39a01fed
-- TASK-2026-02-04-006_embeddings_remove_surprising_dummy_default_or_flag_clearly -> [55b5d25c] DocsCommit=<docsCommit>
+- TASK-2026-02-04-006_embeddings_remove_surprising_dummy_default_or_flag_clearly -> [55b5d25c] DocsCommit=afca36d8
 - TASK-2026-02-04-007_docgen_ui_use_backend_documents_list_not_localstorage -> [<commitA>] DocsCommit=<docsCommit>
 - TASK-2026-02-04-008_dx_fix_make_test_target -> [<commitA>] DocsCommit=<docsCommit>
