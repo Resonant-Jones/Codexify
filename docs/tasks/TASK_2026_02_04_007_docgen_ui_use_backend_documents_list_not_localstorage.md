@@ -72,7 +72,7 @@ Commands:
 
 - git add frontend/src/components/persona/layout/AppShell.tsx guardian/routes/documents.py frontend/src/lib/api.ts README.md tests guardian/tests
 - git commit --no-verify -m "TASK-2026-02-04-007_docgen_ui_use_backend_documents_list_not_localstorage: wire UI docs list to backend"
-Record CommitA=<hash>
+Record CommitA=7653f9f0
 
 ### Docs Commit message EXACT
 
