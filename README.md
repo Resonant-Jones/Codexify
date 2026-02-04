@@ -8,6 +8,7 @@ If you want to **run Codexify locally** with the least friction:
 
 * Use **Docker Compose**
 * Copy `.env.template → .env`
+* `.env` is local-only; never commit it (templates are the source of truth)
 * Set `GUARDIAN_API_KEY`, `NEO4J_PASS`, and your local LLM settings
 * Run: `docker compose up --build`
 * Open:
@@ -64,7 +65,7 @@ This section is intentionally explicit. It lists what is **implemented**, what i
 - A local OpenAI-compatible LLM endpoint (e.g., **Ollama**) **or** cloud API keys
 
 ### 1) Configure `.env`
-The repo already contains `.env`, `.env.example`, and `.env.template`. They are **not consistent**. For a clean start:
+The repo includes `.env.template` and `.env.example`, which are aligned and act as the source of truth. Copy one to `.env` (local-only; never commit it):
 
 ```bash
 cp .env.template .env
@@ -81,7 +82,7 @@ VITE_GUARDIAN_API_KEY=replace-with-same-token
 NEO4J_PASS=replace-with-neo4j-password
 
 # Required for local LLM usage (default provider)
-LOCAL_BASE_URL=http://host.docker.internal:11434
+LOCAL_BASE_URL=http://host.docker.internal:11434/v1
 LOCAL_LLM_MODEL=your-ollama-model-tag
 
 # Required for local embeddings (must be absolute path **inside the container**)
@@ -159,7 +160,7 @@ pip install -r requirements.txt
 ```bash
 export GUARDIAN_API_KEY=...
 export DATABASE_URL=postgresql://user:pass@localhost:5432/Codexify
-export LOCAL_BASE_URL=http://localhost:11434
+export LOCAL_BASE_URL=http://localhost:11434/v1
 export LOCAL_LLM_MODEL=your-ollama-model-tag
 export LOCAL_EMBED_MODEL=/absolute/path/to/Codexify/models/bge-large-en-v1.5
 ```
@@ -272,7 +273,7 @@ alembic -c backend/alembic.ini upgrade head
 ### Known foot-guns
 - Backend exits if `GUARDIAN_API_KEY` is missing.
 - `LOCAL_EMBED_MODEL` must be **absolute** or embeddings will fail.
-- Default `.env` uses a private IP for `LOCAL_BASE_URL`; update it for your machine.
+- Default templates use `http://localhost:11434/v1` for `LOCAL_BASE_URL`; update it for Docker (e.g., `http://host.docker.internal:11434/v1`) or your local setup.
 - `make dev` runs `guardian.system_init` (not the FastAPI API server).
 
 ## Explicit Non-Goals / Deferred Systems
@@ -395,7 +396,7 @@ If you're unsure, open a small PR touching one area (UI or a single route) and a
 
 - Backend exits if `GUARDIAN_API_KEY` is missing.
 * `LOCAL_EMBED_MODEL` must be **absolute** or embeddings will fail.
-* Default `.env` uses a private IP for `LOCAL_BASE_URL`; update it for your machine.
+* Default templates use `http://localhost:11434/v1` for `LOCAL_BASE_URL`; update it for Docker (e.g., `http://host.docker.internal:11434/v1`) or your local setup.
 * `make dev` runs `guardian.system_init` (not the FastAPI API server).
 
 ## Explicit Non-Goals / Deferred Systems
