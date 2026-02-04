@@ -43,7 +43,7 @@ This section is intentionally explicit. It lists what is **implemented**, what i
 
 **Experimental / stubbed / partially wired**
 - **RAG upload endpoint** `/upload-chat` requires a missing module (`codexify.rag.enhanced_rag`), so it currently returns 503.
-- **Embeddings API** `/api/embeddings` returns **dummy vectors** (deterministic mock) and is not backed by real models.
+- **Embeddings API** `/api/embeddings` returns **dummy vectors only when explicitly requested** (`embedder=dummy`) or when fallback is enabled; otherwise it returns 503 until a real backend is configured.
 - **Local image generation** returns a 1x1 placeholder image unless an external provider is configured.
 - **TTS**: API uses a **mock local provider** (sine wave). A separate HuggingFace TTS microservice exists (`backend/tts_service`) but is not integrated into the main API.
 - **Desktop app** (Tauri) is a skeleton config (`src-tauri`) without a published build pipeline.
@@ -243,7 +243,7 @@ pnpm --dir frontend/src dev
 ### Common optional settings
 - `ALLOW_CLOUD_PROVIDERS=true` + `OPENAI_API_KEY` or `GROQ_API_KEY`
 - `CODEXIFY_VECTOR_STORE=chroma|faiss`
-- `CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1` (allow mock embeddings if local model fails)
+- `CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1` (allow mock embeddings fallback and `/api/embeddings` dummy mode)
 - `GUARDIAN_ENABLE_GRAPH_CONTEXT=true` / `GUARDIAN_ENABLE_GRAPH_LOGGING=true`
 - `ENABLE_CONNECTOR_WORKER=true` (and provider tokens like `GITHUB_TOKEN`)
 - `IMAGE_GEN_PROVIDER` + `IMAGE_GEN_MODEL` (image generation)
@@ -280,7 +280,7 @@ alembic -c backend/alembic.ini upgrade head
 
 - Full graph context is **off by default** and requires explicit env flags.
 - The `/upload-chat` RAG endpoint is effectively disabled (missing module).
-- Embeddings API returns mock vectors; not production-ready.
+- Embeddings API returns mock vectors only when explicitly requested; otherwise it fails closed until configured.
 - Local image generation is a placeholder; real providers require env setup.
 - TTS microservice exists but is not integrated into the main API.
 - Desktop/Tauri app is not production-ready.
@@ -403,7 +403,7 @@ If you're unsure, open a small PR touching one area (UI or a single route) and a
 
 * Full graph context is **off by default** and requires explicit env flags.
 * The `/upload-chat` RAG endpoint is effectively disabled (missing module).
-* Embeddings API returns mock vectors; not production-ready.
+* Embeddings API returns mock vectors only when explicitly requested; otherwise it fails closed until configured.
 * Local image generation is a placeholder; real providers require env setup.
 * TTS microservice exists but is not integrated into the main API.
 * Desktop/Tauri app is not production-ready.
