@@ -79,7 +79,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Generate artifacts but skip task execution.",
+        help=(
+            "Plan-only: generate and commit campaign/task artifacts, but skip "
+            "task execution."
+        ),
+    )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help=(
+            "Preview the audit output without writing artifacts, switching "
+            "branches, or committing."
+        ),
     )
     parser.add_argument(
         "--debug",
@@ -91,7 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """Run Codex Runner from the command line."""
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.preview and args.execute:
+        parser.error("--preview cannot be combined with --execute")
+    if args.preview and args.dry_run:
+        parser.error("--preview cannot be combined with --dry-run")
     repo_root = args.repo_root.expanduser().resolve()
     audit_prompt_file = args.audit_prompt_file.expanduser().resolve()
 
@@ -101,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         cycles=args.cycles,
         execute=args.execute,
         dry_run=args.dry_run,
+        preview=args.preview,
         branch_per_campaign=args.branch_per_campaign,
         no_verify=args.no_verify,
         auto_commit=args.auto_commit,

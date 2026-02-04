@@ -20,7 +20,7 @@ DEFAULT_CAMPAIGN_DIR = Path("docs/Campaign")
 DEFAULT_TASKS_DIR = Path("docs/tasks")
 
 CAMPAIGN_PATH_PATTERN = re.compile(
-    r"^docs/Campaign/CAMPAIGN_\d{4}_\d{2}_\d{2}(?:_[A-Z0-9_+\-]+)?\.md$"
+    r"^docs/Campaign/CAMPAIGN_(\d{4})_(\d{2})_(\d{2})(?:_[A-Z0-9_+\-]+)?\.md$"
 )
 TASK_PATH_PATTERN = re.compile(
     r"^docs/tasks/TASK_\d{4}_\d{2}_\d{2}_\d{3}_[a-z0-9_]+\.md$"
@@ -43,6 +43,7 @@ class RunnerConfig:
     cycles: int = 1
     execute: bool = False
     dry_run: bool = False
+    preview: bool = False
     branch_per_campaign: bool = True
     no_verify: bool = True
     auto_commit: bool = True
@@ -291,6 +292,45 @@ def run_codex_exec(
         )
 
 
+def run_codex_exec_preview(
+    prompt_file: Path,
+    output_schema: Path,
+    *,
+    repo_root: Path,
+    debug: bool,
+) -> dict[str, Any]:
+    """Invoke the Codex CLI and return schema-validated output via stdout."""
+    prompt_text = prompt_file.read_text(encoding="utf-8")
+    result = run_cmd(
+        [
+            "codex",
+            "exec",
+            "--output-schema",
+            str(output_schema),
+            prompt_text,
+        ],
+        capture_output=True,
+        cwd=repo_root,
+        debug=debug,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        raise RunnerError(
+            "codex exec failed"
+            + (f"\nSTDERR:\n{stderr}" if stderr else "")
+            + (f"\nSTDOUT:\n{stdout}" if stdout else "")
+        )
+
+    stdout = (result.stdout or "").strip()
+    if not stdout:
+        raise RunnerError("codex exec produced no output")
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise RunnerError(f"Invalid JSON from codex exec: {exc}") from exc
+
+
 def slugify_branch(value: str) -> str:
     """Normalize campaign slugs into git-friendly branch names."""
     slug = re.sub(r"[^a-z0-9_-]+", "-", value.strip().lower())
@@ -300,11 +340,39 @@ def slugify_branch(value: str) -> str:
     return slug
 
 
-def campaign_branch_name(campaign_slug: str) -> str:
+def campaign_date_from_path(campaign_doc_path: str, *, debug: bool) -> str:
+    """Extract the campaign date from the campaign doc path."""
+    match = CAMPAIGN_PATH_PATTERN.fullmatch(campaign_doc_path)
+    if match:
+        year, month, day = match.groups()
+        try:
+            return date(int(year), int(month), int(day)).strftime("%Y-%m-%d")
+        except ValueError:
+            if debug:
+                print(
+                    "[debug] Invalid campaign date in campaign_doc_path "
+                    f"({campaign_doc_path}); falling back to today.",
+                    file=sys.stderr,
+                )
+    elif debug:
+        print(
+            "[debug] Unable to parse campaign date from campaign_doc_path "
+            f"({campaign_doc_path}); falling back to today.",
+            file=sys.stderr,
+        )
+    return date.today().strftime("%Y-%m-%d")
+
+
+def campaign_branch_name(
+    campaign_slug: str,
+    campaign_doc_path: str,
+    *,
+    debug: bool,
+) -> str:
     """Build the branch name for a campaign."""
     safe_slug = slugify_branch(campaign_slug)
-    today = date.today().strftime("%Y-%m-%d")
-    return f"campaign/{today}/{safe_slug}"
+    campaign_date = campaign_date_from_path(campaign_doc_path, debug=debug)
+    return f"campaign/{campaign_date}/{safe_slug}"
 
 
 def switch_branch(branch_name: str, repo_root: Path, debug: bool) -> None:
@@ -398,12 +466,17 @@ def git_commit_all(
     return git_head_commit(repo_root, debug)
 
 
-def ensure_repo_root(repo_root: Path, debug: bool) -> None:
-    """Ensure the repo root exists and is a git repository."""
+def ensure_repo_root_exists(repo_root: Path) -> None:
+    """Ensure the repo root exists on disk."""
     if not repo_root.exists():
         raise RunnerError(f"repo root does not exist: {repo_root}")
     if not repo_root.is_dir():
         raise RunnerError(f"repo root is not a directory: {repo_root}")
+
+
+def ensure_repo_root(repo_root: Path, debug: bool) -> None:
+    """Ensure the repo root exists and is a git repository."""
+    ensure_repo_root_exists(repo_root)
     result = run_cmd(
         ["git", "rev-parse", "--show-toplevel"],
         capture_output=True,
@@ -462,6 +535,46 @@ def execute_task(
     return result
 
 
+def print_preview_summary(
+    payload: dict[str, Any],
+    *,
+    cycle_index: int,
+    total_cycles: int,
+) -> None:
+    """Print a concise preview summary to stdout."""
+    header = "Preview summary"
+    if total_cycles > 1:
+        header = f"Preview summary (cycle {cycle_index}/{total_cycles})"
+    print(header)
+    print(f"campaign_id: {payload['campaign_id']}")
+    print(f"campaign_doc_path: {payload['campaign_doc_path']}")
+    tasks = payload["tasks"]
+    print(f"task_count: {len(tasks)}")
+    for task in tasks:
+        print(f"task: {task['id']} -> {task['task_artifact_path']}")
+
+
+def run_preview_cycle(
+    config: RunnerConfig,
+    resources: RunnerResources,
+    cycle_index: int,
+    total_cycles: int,
+) -> None:
+    """Run a single preview-only cycle without side effects."""
+    payload = run_codex_exec_preview(
+        config.audit_prompt_file,
+        resources.campaign_schema_path,
+        repo_root=config.repo_root,
+        debug=config.debug,
+    )
+    validate_campaign_payload(payload)
+    print_preview_summary(
+        payload,
+        cycle_index=cycle_index,
+        total_cycles=total_cycles,
+    )
+
+
 def run_cycle(config: RunnerConfig, resources: RunnerResources, cycle_index: int) -> None:
     """Run a single audit -> campaign -> task cycle."""
     ensure_clean_git("start of cycle", config.repo_root, config.debug)
@@ -491,18 +604,22 @@ def run_cycle(config: RunnerConfig, resources: RunnerResources, cycle_index: int
     campaign_slug = payload.get("campaign_slug", "")
     if not campaign_slug:
         raise RunnerError("campaign_slug is required for branch-per-campaign")
+    campaign_doc_relative = payload["campaign_doc_path"]
     if not git_is_clean(config.repo_root, config.debug):
         raise RunnerError(
             "git tree is not clean before switching campaign branch"
         )
     switch_branch(
-        campaign_branch_name(campaign_slug),
+        campaign_branch_name(
+            campaign_slug,
+            campaign_doc_relative,
+            debug=config.debug,
+        ),
         config.repo_root,
         config.debug,
     )
     ensure_clean_git("after switching campaign branch", config.repo_root, config.debug)
 
-    campaign_doc_relative = payload["campaign_doc_path"]
     campaign_doc_path = config.repo_root / campaign_doc_relative
     write_text_file(campaign_doc_path, payload["campaign_markdown"])
 
@@ -626,14 +743,28 @@ def run(config: RunnerConfig) -> int:
     """Run Codex Runner with the provided configuration."""
     if config.cycles < 1:
         raise RunnerError("--cycles must be >= 1")
+    if config.preview and (config.execute or config.dry_run):
+        raise RunnerError("--preview cannot be combined with --execute or --dry-run")
     if not config.audit_prompt_file.exists():
         raise RunnerError(
             f"Audit prompt file not found: {config.audit_prompt_file}"
         )
 
-    ensure_repo_root(config.repo_root, config.debug)
     ensure_codex_available()
 
+    if config.preview:
+        ensure_repo_root_exists(config.repo_root)
+        with load_resources(config) as resources:
+            for cycle_index in range(1, config.cycles + 1):
+                run_preview_cycle(
+                    config,
+                    resources,
+                    cycle_index,
+                    config.cycles,
+                )
+        return 0
+
+    ensure_repo_root(config.repo_root, config.debug)
     with load_resources(config) as resources:
         for cycle_index in range(1, config.cycles + 1):
             run_cycle(config, resources, cycle_index)
