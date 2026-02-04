@@ -475,6 +475,60 @@ services:
         ln -snf /app/codexify /app/Codexify
         exec python -m guardian.workers.chat_worker
 
+  worker-document-embed:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    entrypoint:
+      - sh
+      - -lc
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      # Never use localhost for cross-container calls; localhost points to this worker container.
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      REDIS_URL: redis://redis:6379/0
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
+      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - hf_cache:/root/.cache/huggingface
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./.chroma:/app/.chroma
+    restart: unless-stopped
+    command:
+      - |
+        set -e
+        echo "[worker-document-embed] Starting document embed worker..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.document_embed_worker
+
   embedding-backfill:
     build:
       context: .
