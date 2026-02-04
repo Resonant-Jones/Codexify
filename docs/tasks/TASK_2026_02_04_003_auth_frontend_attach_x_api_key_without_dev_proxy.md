@@ -81,7 +81,7 @@ Commands:
 
 - git add docs/tasks/TASK_2026_02_04_003_auth_frontend_attach_x_api_key_without_dev_proxy.md docs/Campaign/CAMPAIGN_2026_02_04_CODEXIFY_AUDIT_EXECUTION.md
 - git commit --no-verify -m "TASK-2026-02-04-003_auth_frontend_attach_x_api_key_without_dev_proxy: finalize task docs and campaign mapping"
-Record CommitB=2004bb6f
+Record CommitB=987e34ee
 
 Campaign mapping update EXACT:
 
