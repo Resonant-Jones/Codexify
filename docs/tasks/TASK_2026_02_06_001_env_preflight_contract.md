@@ -101,3 +101,19 @@ Summary (fill after completion)
  • What changed
  • Commands run + outputs captured
  • Final mapping with real hashes
+
+## Summary
+- Status: DONE.
+- Changes:
+  - Added an Environment Contract section to `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/README.md`.
+- Commands run:
+  - `python --version` → `Python 3.13.9`
+  - `python -m pip --version` → `pip 25.3 ... (python 3.13)`
+  - `python -m pytest --version` → `No module named pytest`
+  - `node --version` → `v22.17.0`
+  - `pnpm --version` → `10.13.1`
+  - `npm --version` → `10.9.2`
+  - `docker --version` → `Docker version 29.2.0`
+  - `docker compose version` → `Docker Compose version v5.0.2`
+- Commit mode: two-phase.
+- Implementation commit: `7ddc7b49`.
