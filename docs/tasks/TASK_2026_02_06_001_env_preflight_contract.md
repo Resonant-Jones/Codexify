@@ -3,7 +3,7 @@
 ## Metadata
 
 - Task-ID: TASK-2026-02-06-001_env_preflight_contract
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_ENV_AND_VALIDATION
+- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION
 - Task artifact: docs/tasks/TASK_2026_02_06_001_env_preflight_contract.md
 - Owner: resonant_jones
 - Risk: LOW
@@ -29,7 +29,7 @@ Define a deterministic environment “contract” for running Codexify + tests (
 - README.md
 - docs/QUICK_REFERENCE.md (if present) OR docs/ (tight: docs/*.md)
 - docs/tasks/TASK_2026_02_06_001_env_preflight_contract.md
-- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 
 ## Preconditions (NO GUESSING)
 
@@ -69,7 +69,7 @@ Expected results
 
 Rollback / cleanup
 
-git checkout -- README.md docs/QUICK_REFERENCE.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md docs/tasks/TASK_2026_02_06_001_env_preflight_contract.md
+git checkout -- README.md docs/QUICK_REFERENCE.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md docs/tasks/TASK_2026_02_06_001_env_preflight_contract.md
 
 Commit plan (MANUAL; index.lock workaround)
 
@@ -79,7 +79,7 @@ Commit A (implementation)
  • Manual commands:
 
 git status --porcelain -uall
-git add README.md docs/QUICK_REFERENCE.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+git add README.md docs/QUICK_REFERENCE.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 git commit --no-verify -m "TASK-2026-02-06-001_env_preflight_contract: define env contract"
 git log -1 --oneline
 git status --porcelain -uall
@@ -89,7 +89,7 @@ Commit B (docs finalize + mapping)
  • TASK-2026-02-06-001_env_preflight_contract: docs finalize + mapping
  • Manual commands:
 
-git add docs/tasks/TASK_2026_02_06_001_env_preflight_contract.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+git add docs/tasks/TASK_2026_02_06_001_env_preflight_contract.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 git commit --no-verify -m "TASK-2026-02-06-001_env_preflight_contract: docs finalize + mapping"
 git log -1 --oneline
 git status --porcelain -uall

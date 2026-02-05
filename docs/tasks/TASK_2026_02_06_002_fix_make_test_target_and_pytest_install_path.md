@@ -4,7 +4,7 @@
 ## Metadata
 
 - Task-ID: TASK-2026-02-06-002_fix_make_test_target_and_pytest_install_path
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_ENV_AND_VALIDATION
+- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION
 - Task artifact: docs/tasks/TASK_2026_02_06_002_fix_make_test_target_and_pytest_install_path.md
 - Owner: resonant_jones
 - Risk: MED
@@ -31,7 +31,7 @@ Make `make test` (or the repo’s canonical test command) deterministically runn
 - Makefile
 - README.md
 - docs/tasks/TASK_2026_02_06_002_fix_make_test_target_and_pytest_install_path.md
-- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 
 ## Preconditions (NO GUESSING)
 
@@ -80,7 +80,7 @@ Commit B (docs finalize + mapping)
  • TASK-2026-02-06-002_fix_make_test_target_and_pytest_install_path: docs finalize + mapping
  • Manual commands:
 
-git add docs/tasks/TASK_2026_02_06_002_fix_make_test_target_and_pytest_install_path.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+git add docs/tasks/TASK_2026_02_06_002_fix_make_test_target_and_pytest_install_path.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 git commit --no-verify -m "TASK-2026-02-06-002_fix_make_test_target_and_pytest_install_path: docs finalize + mapping"
 git log -1 --oneline
 git status --porcelain -uall

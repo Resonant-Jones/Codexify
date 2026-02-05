@@ -4,7 +4,7 @@
 
 ## Metadata
 - Task-ID: TASK-2026-02-06-004_validate_chat_embed_queue_loop
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_ENV_AND_VALIDATION
+- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION
 - Task artifact: docs/tasks/TASK_2026_02_06_004_validate_chat_embed_queue_loop.md
 - Owner: resonant_jones
 - Risk: HIGH
@@ -31,7 +31,7 @@ enqueue → worker consumes → embedding persisted/observable.
 - README.md
 - tests/ (tight: tests/**/*.py) OR guardian/tests/ (tight: guardian/tests/**/*.py) — whichever the repo already uses for this area
 - docs/tasks/TASK_2026_02_06_004_validate_chat_embed_queue_loop.md
-- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 
 ## Preconditions
 ```bash
@@ -94,7 +94,7 @@ Commit B (docs finalize + mapping)
  • TASK-2026-02-06-004_validate_chat_embed_queue_loop: docs finalize + mapping
  • Manual commands:
 
-git add docs/tasks/TASK_2026_02_06_004_validate_chat_embed_queue_loop.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+git add docs/tasks/TASK_2026_02_06_004_validate_chat_embed_queue_loop.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 git commit --no-verify -m "TASK-2026-02-06-004_validate_chat_embed_queue_loop: docs finalize + mapping"
 git log -1 --oneline
 git status --porcelain -uall

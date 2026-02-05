@@ -4,7 +4,7 @@
 
 ## Metadata
 - Task-ID: TASK-2026-02-06-003_add_repo_preflight_script_or_doc_checklist
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_ENV_AND_VALIDATION
+- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION
 - Task artifact: docs/tasks/TASK_2026_02_06_003_add_repo_preflight_script_or_doc_checklist.md
 - Owner: resonant_jones
 - Risk: MED
@@ -28,7 +28,7 @@ Add a single “preflight” entrypoint (script OR docs checklist) that validate
 - README.md
 - docs/ (tight: docs/*.md)
 - docs/tasks/TASK_2026_02_06_003_add_repo_preflight_script_or_doc_checklist.md
-- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 
 ## Preconditions
 ```bash
@@ -74,7 +74,7 @@ Commit B (docs finalize + mapping)
  • TASK-2026-02-06-003_add_repo_preflight_script_or_doc_checklist: docs finalize + mapping
  • Manual commands:
 
-git add docs/tasks/TASK_2026_02_06_003_add_repo_preflight_script_or_doc_checklist.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+git add docs/tasks/TASK_2026_02_06_003_add_repo_preflight_script_or_doc_checklist.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 git commit --no-verify -m "TASK-2026-02-06-003_add_repo_preflight_script_or_doc_checklist: docs finalize + mapping"
 git log -1 --oneline
 git status --porcelain -uall
