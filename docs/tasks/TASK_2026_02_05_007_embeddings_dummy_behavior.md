@@ -44,3 +44,8 @@ Manual git commands (explicit file paths):
 ## Scope Control
 - Only modify files in the Allowed files list.
 - No mega-tasks; keep changes minimal and observable.
+
+## Summary
+- Status: DONE (already satisfied by prior implementation).
+- Implementation: 55b5d25c (embeddings endpoint fails closed unless explicitly configured; dummy gated by flag; docs updated).
+- Tests: Not run (no code changes for this task).
