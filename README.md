@@ -263,6 +263,58 @@ pnpm --dir frontend/src dev
 
 ## Development Workflow (As It Exists)
 
+### Environment Contract (macOS + zsh)
+Required tools:
+- Python 3 (via `python` on PATH)
+- pip
+- pytest
+- Node.js
+- pnpm
+- npm
+- Docker + Docker Compose (for compose-based tasks)
+
+Verify (copy/paste):
+
+```bash
+cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
+
+python --version
+python -m pip --version
+python -m pytest --version || true
+
+node --version
+pnpm --version || true
+npm --version
+
+docker --version
+docker compose version
+```
+
+Remediation (Homebrew, copy/paste):
+
+```bash
+brew install python
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install pytest
+
+brew install node
+corepack enable
+corepack prepare pnpm@9.12.1 --activate
+
+brew install --cask docker
+```
+
+Optional (isolated Python env):
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install pytest
+```
+
 ### Running tests
 - Two test trees exist: `guardian/tests` (large) and `tests` (smaller).
 - The **Makefile test target is broken**: it references `tests/run_tests.py` which does not exist.
