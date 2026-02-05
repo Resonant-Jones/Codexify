@@ -1,0 +1,83 @@
+{
+  "audit_id": "AUDIT_YYYY_MM_DD",
+  "repo": {
+    "path": "/absolute/path/to/repo",
+    "branch": "branch-name",
+    "commit": "optional-commit-hash-or-null"
+  },
+  "generated_at": "ISO-8601 timestamp",
+  "agent": {
+    "name": "Codex",
+    "model": "GPT-5",
+    "mode": "audit"
+  },
+
+  "reports": [
+    {
+      "report_id": "security_system_audit",
+      "type": "system_audit",
+      "path": "docs/reports/...",
+      "severity_summary": {
+        "RISK": 5,
+        "WARN": 7,
+        "INFO": 3
+      }
+    },
+    {
+      "report_id": "mvp_roadmap",
+      "type": "mvp_roadmap",
+      "path": "docs/...",
+      "focus": "core-loop-closure"
+    }
+  ],
+
+  "runner_ready_findings": [
+    {
+      "finding_id": "FINDING-YYYY-MM-DD-NNN",
+      "area": "security | core-loop | dx | performance | testing | docs-drift | other",
+      "severity": "RISK | WARN | INFO",
+      "title": "short title",
+      "description": "1–3 paragraphs",
+      "evidence": [
+        {
+          "file": "path",
+          "lines": "Lx-Ly | unknown"
+        }
+      ],
+      "relates_to_core_loop": "rag | migration | doc-upload | image-gallery | image-gen | doc-gen | none",
+      "suggested_task_outcome": "observable done statement",
+      "suggested_commands": [
+        "exact command",
+        "exact command"
+      ],
+      "dependencies": [
+        "ENV_VAR",
+        "SERVICE"
+      ],
+      "notes": "ambiguity notes"
+    }
+  ],
+
+  "campaign_derivation_rules": {
+    "strategy": "one-or-more-campaigns",
+    "group_by": [
+      "severity",
+      "core_loop"
+    ],
+    "priority_order": [
+      "RISK",
+      "WARN",
+      "INFO"
+    ]
+  },
+
+  "derived_campaigns": [
+    {
+      "campaign_id": "CAMPAIGN_YYYY_MM_DD_<SLUG>",
+      "campaign_type": "security | mvp | followup",
+      "source_findings": [
+        "FINDING-YYYY-MM-DD-NNN"
+      ]
+    }
+  ]
+}
