@@ -81,3 +81,14 @@ git status --porcelain -uall
 
 Mapping
  • TASK-2026-02-06-003_add_repo_preflight_script_or_doc_checklist -> [, ]
+
+## Summary
+- Status: DONE.
+- Changes:
+  - Added `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/preflight.sh`.
+  - Documented `./scripts/preflight.sh` in `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/README.md`.
+- Commands run:
+  - `./scripts/preflight.sh` (failed: pytest missing + dirty tree)
+  - `python -m pytest --version` → `No module named pytest`
+- Commit mode: two-phase.
+- Implementation commit: `a859f61a`.
