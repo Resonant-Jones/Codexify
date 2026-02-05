@@ -1,14 +1,8 @@
-import base64
 from typing import Any, Dict
 
 from fastapi import HTTPException
 
 from guardian.image_gen.base import ImageGenProvider
-
-_PLACEHOLDER_PNG_BASE64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
-    "/x8AAwMCAO+XlX0AAAAASUVORK5CYII="
-)
 
 
 class StabilityImageGen(ImageGenProvider):
@@ -20,9 +14,10 @@ class StabilityImageGen(ImageGenProvider):
         model: str | None = None,
         **kwargs: Dict[str, Any],
     ) -> bytes:
-        if not model:
-            raise HTTPException(
-                status_code=400,
-                detail="Model is required for Stability image generation.",
-            )
-        return base64.b64decode(_PLACEHOLDER_PNG_BASE64)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Stability image generation is not implemented. "
+                "Configure IMAGE_GEN_PROVIDER=openai or add Stability support."
+            ),
+        )
