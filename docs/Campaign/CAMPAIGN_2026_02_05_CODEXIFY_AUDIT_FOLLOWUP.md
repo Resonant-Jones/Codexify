@@ -34,7 +34,7 @@ Format EXACT: TASK-2026-02-05-NNN_<slug> -> [<commitA>, <commitB>]
 - TASK-2026-02-05-009_doc_list_backend_source -> [7653f9f0, beef24ce]
 - TASK-2026-02-05-010_rag_trace_dev_only_label -> [cecfc011, ce1e4ee3]
 - TASK-2026-02-05-011_fix_make_test_target -> [f1e69a81, a29b3f0c]
-- TASK-2026-02-05-012_chat_embedding_background_queue -> [<commitA>, <commitB>]
+- TASK-2026-02-05-012_chat_embedding_background_queue -> [dc9592f7, <commitB>]
 
 ## Completion Rules
 - A blocked task is marked BLOCKED and does not stop the rest of the campaign.
