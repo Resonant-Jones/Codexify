@@ -1,4 +1,4 @@
-# CAMPAIGN_2026_02_03 — Runner Audit Output
+# CAMPAIGN_2026_02_03  Runner Audit Output
 
 ## Campaign Intent
 
@@ -36,7 +36,7 @@ one-commit
 
 Commit Message Template
 
- • TASK_2026_02_03_001: add runner protocol audit report
+  TASK_2026_02_03_001: add runner protocol audit report
 
 Task Prompt (for docs/tasks artifact)
 
@@ -76,7 +76,7 @@ one-commit
 
 Commit Message Template
 
- • TASK_2026_02_03_002: add campaign task index
+  TASK_2026_02_03_002: add campaign task index
 
 Task Prompt (for docs/tasks artifact)
 
@@ -93,4 +93,4 @@ Create docs/_audit_runs/2026-02-03/campaign_task_index.md with a table containin
 Completion Mapping Requirement
 
 After completing all tasks, output a mapping:
- • TASK_... -> <commit_hash>
+  TASK_... -> <commit_hash>

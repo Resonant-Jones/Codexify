@@ -1,4 +1,4 @@
-# TASK-2026-02-03-001 — Runner Protocol audit report
+# TASK-2026-02-03-001  Runner Protocol audit report
 
 ## Task Prompt
 - **Context:** Runner audit output campaign for February 3, 2026.
