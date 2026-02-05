@@ -30,7 +30,7 @@ This campaign is **DX + Loop Integrity**, not feature work.
 
 ## Mapping (placeholders)
 
-- TASK-2026-02-06-001_env_preflight_contract -> [<commitA>, <commitB>]
+- TASK-2026-02-06-001_env_preflight_contract -> [7ddc7b49, <commitB>]
 - TASK-2026-02-06-002_fix_make_test_target_and_pytest_install_path -> [<commitA>, <commitB>]
 - TASK-2026-02-06-003_add_repo_preflight_script_or_doc_checklist -> [<commitA>, <commitB>]
 - TASK-2026-02-06-004_validate_chat_embed_queue_loop -> [<commitA>, <commitB>]
