@@ -25,6 +25,7 @@ from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     acquire_turn_lock,
     enqueue,
+    enqueue_chat_embed,
     release_turn_lock,
 )
 from guardian.tasks.types import ChatCompletionTask
@@ -144,25 +145,22 @@ class ChatCompletionRequest(BaseModel):
 
 # Helper functions
 def _embed_message(thread_id: int, role: str, content: str, message_id: int):
-    """Best-effort embedding of a chat message."""
+    """Best-effort enqueue of a chat message embedding task."""
     if not _vector_store:
         return
     try:
-        # Run in background or just await?
-        # Since VectorStore is sync (wrapper around sync embedder calls), we can just call it.
-        # But wait, VectorStore might be slow if using OpenAI.
-        # For MVP, sync is fine, but ideally this should be backgrounded.
-        # However, VectorStore.add_texts is synchronous in the current implementation.
-        meta = {
-            "thread_id": thread_id,
-            "role": role,
-            "message_id": message_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "chat",
-        }
-        _vector_store.add_texts([{"text": content, "meta": meta}])
+        enqueue_chat_embed(
+            {
+                "thread_id": thread_id,
+                "role": role,
+                "content": content,
+                "message_id": message_id,
+            }
+        )
     except Exception as e:
-        logger.warning(f"[chat] Failed to auto-embed message {message_id}: {e}")
+        logger.warning(
+            "[chat] Failed to enqueue embed message %s: %s", message_id, e
+        )
 
 
 # Very rough token estimate used for UX hints about prompt cost.
