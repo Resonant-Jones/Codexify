@@ -145,6 +145,16 @@ Open API docs:
 - **TTS microservice**: 8000
 - **Redis**: internal only (6379, not exposed)
 
+## Debugging: Frontend crash discovery
+
+If a frontend crash mentions `utils.js:306` or you need to locate the source, run:
+
+```bash
+bash scripts/dev/doctor.sh
+```
+
+If you see `rg: frontend: No such file or directory`, you're almost certainly not in the repo root.
+
 ## Local Dev (Without Docker)
 
 This is possible, but Compose is the reference setup. If running locally:
