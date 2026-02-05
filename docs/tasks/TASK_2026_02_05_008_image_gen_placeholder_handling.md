@@ -45,3 +45,11 @@ Manual git commands (explicit file paths):
 ## Scope Control
 - Only modify files in the Allowed files list.
 - No mega-tasks; keep changes minimal and observable.
+
+## Summary
+- Status: IN PROGRESS.
+- Implementation: 8866d46f.
+- Change: guardian/image_gen/providers/local.py now returns HTTP 503 with a clear not-implemented message.
+- Change: guardian/image_gen/providers/stability.py now returns HTTP 503 with a clear not-implemented message.
+- Change: README.md states Local/Stability image generation is disabled until a real provider is configured.
+- Test: python -m pytest tests/routes/test_media_routes.py (failed: No module named pytest).
