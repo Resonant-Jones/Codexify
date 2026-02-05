@@ -317,8 +317,8 @@ python -m pip install pytest
 
 ### Running tests
 - Two test trees exist: `guardian/tests` (large) and `tests` (smaller).
-- The **Makefile test target is broken**: it references `tests/run_tests.py` which does not exist.
-- Use pytest directly instead:
+- `make test` runs `python -m pytest -q guardian/tests tests` and will prompt if pytest is missing.
+- You can also run pytest directly:
 
 ```bash
 pytest guardian/tests
