@@ -43,3 +43,8 @@ Manual git commands (explicit file paths):
 ## Scope Control
 - Only modify files in the Allowed files list.
 - No mega-tasks; keep changes minimal and observable.
+
+## Summary
+- Status: DONE (already satisfied by prior implementation).
+- Implementation: 7653f9f0 (documents list sourced from backend with local cache).
+- Tests: Not run (no code changes for this task).
