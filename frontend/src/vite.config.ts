@@ -55,6 +55,7 @@ export default defineConfig({
         start_url: '/'
       },
       workbox: {
+        mode: 'development',
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/,

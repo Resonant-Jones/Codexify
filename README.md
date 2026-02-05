@@ -43,6 +43,7 @@ This section is intentionally explicit. It lists what is **implemented**, what i
 
 **Experimental / stubbed / partially wired**
 - **RAG upload endpoint** `/upload-chat` requires a missing module (`codexify.rag.enhanced_rag`), so it currently returns 503.
+- **RAG trace debug endpoint** is in-memory only and clears on restart.
 - **Embeddings API** `/api/embeddings` returns **dummy vectors only when explicitly requested** (`embedder=dummy`) or when fallback is enabled; otherwise it returns 503 until a real backend is configured.
 - **Local/Stability image generation** is disabled and returns a 503 until a real provider is implemented or configured.
 - **TTS**: API uses a **mock local provider** (sine wave). A separate HuggingFace TTS microservice exists (`backend/tts_service`) but is not integrated into the main API.
