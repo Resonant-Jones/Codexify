@@ -47,3 +47,8 @@ Manual git commands (explicit file paths):
 ## Scope Control
 - Only modify files in the Allowed files list.
 - No mega-tasks; keep changes minimal and observable.
+
+## Summary
+- Status: DONE (already satisfied by prior implementation).
+- Implementation: 2048accf (README documents /upload-chat as disabled; endpoint not wired in guardian_api).
+- Tests: Not run (no code changes for this task).
