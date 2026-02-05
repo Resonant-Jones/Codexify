@@ -9,6 +9,7 @@ Risk: LOW
 Allowed files list:
 - frontend/src/hooks/useRagTrace.ts
 - frontend/src/components/**
+- frontend/src/vite.config.ts
 - README.md
 Command checklist (exact commands to run):
 - git status --porcelain -uall
@@ -45,3 +46,12 @@ Manual git commands (explicit file paths):
 ## Scope Control
 - Only modify files in the Allowed files list.
 - No mega-tasks; keep changes minimal and observable.
+
+## Summary
+- Status: IN PROGRESS.
+- Implementation: cecfc011.
+- Change: /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/frontend/src/components/diagnostics/RagTracePanel.tsx shows a dev-only/in-memory notice.
+- Change: /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/README.md documents the RAG trace debug endpoint as in-memory.
+- Change: /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/frontend/src/vite.config.ts sets workbox mode to development to avoid SW minify failure.
+- Test: npm --prefix frontend install (no output).
+- Test: npm --prefix frontend run build (passed).
