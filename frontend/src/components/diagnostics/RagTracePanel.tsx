@@ -45,12 +45,20 @@ export function RagTracePanel({ threadId }: RagTracePanelProps) {
     <div className="space-y-4">
       {/* Header with refresh button */}
       <div className="flex items-center justify-between">
-        <h3
-          className="text-sm font-semibold"
-          style={{ color: "var(--text)" }}
-        >
-          RAG Trace
-        </h3>
+        <div>
+          <h3
+            className="text-sm font-semibold"
+            style={{ color: "var(--text)" }}
+          >
+            RAG Trace
+          </h3>
+          <p
+            className="text-xs"
+            style={{ color: "var(--muted)", opacity: 0.75 }}
+          >
+            Dev-only: stored in memory and cleared on restart.
+          </p>
+        </div>
         <button
           onClick={() => {
             setAutoFetched(false);
