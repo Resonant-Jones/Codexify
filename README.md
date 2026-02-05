@@ -44,7 +44,7 @@ This section is intentionally explicit. It lists what is **implemented**, what i
 **Experimental / stubbed / partially wired**
 - **RAG upload endpoint** `/upload-chat` requires a missing module (`codexify.rag.enhanced_rag`), so it currently returns 503.
 - **Embeddings API** `/api/embeddings` returns **dummy vectors only when explicitly requested** (`embedder=dummy`) or when fallback is enabled; otherwise it returns 503 until a real backend is configured.
-- **Local image generation** returns a 1x1 placeholder image unless an external provider is configured.
+- **Local/Stability image generation** is disabled and returns a 503 until a real provider is implemented or configured.
 - **TTS**: API uses a **mock local provider** (sine wave). A separate HuggingFace TTS microservice exists (`backend/tts_service`) but is not integrated into the main API.
 - **Desktop app** (Tauri) is a skeleton config (`src-tauri`) without a published build pipeline.
 
@@ -291,7 +291,7 @@ alembic -c backend/alembic.ini upgrade head
 - Full graph context is **off by default** and requires explicit env flags.
 - The `/upload-chat` RAG endpoint is effectively disabled (missing module).
 - Embeddings API returns mock vectors only when explicitly requested; otherwise it fails closed until configured.
-- Local image generation is a placeholder; real providers require env setup.
+- Local/Stability image generation is disabled; real providers require env setup.
 - TTS microservice exists but is not integrated into the main API.
 - Desktop/Tauri app is not production-ready.
 
@@ -414,6 +414,6 @@ If you're unsure, open a small PR touching one area (UI or a single route) and a
 * Full graph context is **off by default** and requires explicit env flags.
 * The `/upload-chat` RAG endpoint is effectively disabled (missing module).
 * Embeddings API returns mock vectors only when explicitly requested; otherwise it fails closed until configured.
-* Local image generation is a placeholder; real providers require env setup.
+* Local/Stability image generation is disabled; real providers require env setup.
 * TTS microservice exists but is not integrated into the main API.
 * Desktop/Tauri app is not production-ready.
