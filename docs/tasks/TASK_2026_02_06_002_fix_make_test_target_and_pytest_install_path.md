@@ -87,3 +87,15 @@ git status --porcelain -uall
 
 Mapping
  • TASK-2026-02-06-002_fix_make_test_target_and_pytest_install_path -> [, ]
+
+## Summary
+- Status: DONE.
+- Changes:
+  - Updated `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/Makefile` to use `python`/`pip` defaults and to fail fast with pytest install guidance.
+  - Updated `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/README.md` to reflect the fixed `make test` behavior.
+- Commands run:
+  - `make test` (failed with guided pytest install message)
+  - `python -m pytest --version` → `No module named pytest`
+  - `python -m pytest -q` → `No module named pytest`
+- Commit mode: two-phase.
+- Implementation commit: `de6379d3`.
