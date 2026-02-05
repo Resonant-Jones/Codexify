@@ -50,3 +50,17 @@ Manual git commands (explicit file paths):
 ## Scope Control
 - Only modify files in the Allowed files list.
 - No mega-tasks; keep changes minimal and observable.
+
+## Summary
+- Status: DONE.
+- Changes:
+  - Queued chat embeddings instead of running synchronously in `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/guardian/routes/chat.py`.
+  - Added chat embedding queue helpers/constants in `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/guardian/queue/redis_queue.py`.
+  - Added `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/guardian/workers/chat_embedding_worker.py`.
+  - Added `worker-chat-embed` service in `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/docker-compose.yml`.
+  - Documented worker in `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/README.md`.
+- Tests:
+  - `docker compose config` (pass)
+  - `python -m pytest tests/routes/test_chat_routes.py` (fail: `No module named pytest`)
+- Commit mode: two-phase.
+- Implementation commit: `dc9592f7`.
