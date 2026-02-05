@@ -315,6 +315,15 @@ python -m pip install -r requirements.txt
 python -m pip install pytest
 ```
 
+### Preflight (one command)
+Run this before any campaign/task work:
+
+```bash
+./scripts/preflight.sh
+```
+
+It validates toolchain availability, pytest importability, and a clean working tree.
+
 ### Running tests
 - Two test trees exist: `guardian/tests` (large) and `tests` (smaller).
 - `make test` runs `python -m pytest -q guardian/tests tests` and will prompt if pytest is missing.
