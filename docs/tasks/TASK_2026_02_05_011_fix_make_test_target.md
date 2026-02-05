@@ -43,3 +43,8 @@ Manual git commands (explicit file paths):
 ## Scope Control
 - Only modify files in the Allowed files list.
 - No mega-tasks; keep changes minimal and observable.
+
+## Summary
+- Status: DONE (already satisfied by prior implementation).
+- Implementation: f1e69a81 (Makefile test target runs pytest).
+- Tests: Not run (no code changes for this task).
