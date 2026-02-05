@@ -23,7 +23,7 @@ Convert the 2026-02-04 audit into a deterministic set of small, independently me
 ## Mapping (fill after each task completes)
 Format EXACT: TASK-2026-02-05-NNN_<slug> -> [<commitA>, <commitB>]
 
-- TASK-2026-02-05-001_remove_env_and_align_templates -> [<commitA>, <commitB>]
+- TASK-2026-02-05-001_remove_env_and_align_templates -> [c3e306f1, <commitB>]
 - TASK-2026-02-05-002_enforce_auth_documents_share -> [<commitA>, <commitB>]
 - TASK-2026-02-05-003_frontend_send_x_api_key -> [<commitA>, <commitB>]
 - TASK-2026-02-05-004_fix_chatgpt_import_path_auth -> [<commitA>, <commitB>]
