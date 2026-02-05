@@ -202,6 +202,7 @@ pnpm --dir frontend/src dev
 - `backend` -> FastAPI app (Guardian)
 - `frontend` -> Vite dev server
 - `worker-chat` -> background chat task worker
+- `worker-chat-embed` -> background chat embedding worker
 - `worker-warmup` -> warm-up worker for local models
 - `tts` -> separate FastAPI TTS microservice
 
