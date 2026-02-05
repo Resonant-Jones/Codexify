@@ -1,4 +1,4 @@
-# TASK-2026-02-03-002 — Campaign task index
+# TASK-2026-02-03-002  Campaign task index
 
 ## Task Prompt
 - **Context:** Runner audit output campaign for February 3, 2026.

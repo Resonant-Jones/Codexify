@@ -1,3 +1,90 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:1c7c9cdb3b06b89c52bf83c906ade15e76b28e5e68715f17a502466c7e4e441c
-size 2063
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Codex Runner Campaign Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "campaign_id",
+    "campaign_slug",
+    "campaign_doc_path",
+    "campaign_markdown",
+    "tasks"
+  ],
+  "properties": {
+    "campaign_id": {
+      "type": "string"
+    },
+    "campaign_slug": {
+      "type": "string"
+    },
+    "campaign_doc_path": {
+      "type": "string",
+      "pattern": "^docs/Campaign/CAMPAIGN_\\d{4}_\\d{2}_\\d{2}(?:_[A-Z0-9_+\\-]+)?\\.md$"
+    },
+    "campaign_markdown": {
+      "type": "string"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "slug",
+          "area",
+          "files",
+          "tests",
+          "commit_message",
+          "task_artifact_path",
+          "task_artifact_markdown",
+          "activation_prompt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "area": {
+            "type": "string",
+            "enum": [
+              "backend",
+              "frontend",
+              "fullstack",
+              "docs",
+              "tooling"
+            ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tests": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "commit_message": {
+            "type": "string"
+          },
+          "task_artifact_path": {
+            "type": "string",
+            "pattern": "^docs/tasks/TASK_\\d{4}_\\d{2}_\\d{2}_\\d{3}_[a-z0-9_]+\\.md$"
+          },
+          "task_artifact_markdown": {
+            "type": "string"
+          },
+          "activation_prompt": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
