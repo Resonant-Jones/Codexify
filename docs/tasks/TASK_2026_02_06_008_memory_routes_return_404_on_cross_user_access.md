@@ -169,10 +169,23 @@ Update the campaign file mapping line to the exact format:
 
 ## Summary (fill after completion)
 - What changed:
-  - 
+  - Updated ownership mismatch handling in `guardian/routes/memory.py` for non-ephemeral update/delete routes to return `404 not found` instead of `403 forbidden`.
+  - Preserved missing-auth behavior by leaving dependency/auth wiring unchanged.
 - Commands run + key outputs:
-  - 
+  - `ls -la guardian/routes/memory.py tests/routes/test_memory.py` (paths exist)
+  - `python -m pytest --version` (`No module named pytest` in `python` interpreter)
+  - `pytest --version` (`pytest 8.4.2` from `venv/bin/pytest`)
+  - `rg -n "403|404|HTTPException|Forbidden|not found|ownership|user_id" guardian/routes/memory.py tests/routes/test_memory.py -S` (located 403 branches in update/delete handlers)
+  - `pytest -q tests/routes/test_memory.py -k "ownership|scoping|cannot_access|update_memory_checks_ownership|delete_memory_checks_ownership" -x` (task-doc expression invalid in pytest due to `|`)
+  - `pytest -q tests/routes/test_memory.py -k "ownership or scoping or cannot_access or update_memory_checks_ownership or delete_memory_checks_ownership" -x` (PASS)
+  - `pytest -q tests/routes/test_memory.py` (PASS)
+  - `git status --porcelain -uall` (only `guardian/routes/memory.py` before Commit A)
 - Tests:
-  - 
+  - Focused ownership/scoping subset: PASS
+  - Full `tests/routes/test_memory.py`: PASS
+- Commit A:
+  - `1fc12fb4`
+- Commit B:
+  - `8c9cb1c4`
 - Final mapping:
-  - `TASK-2026-02-06-008_memory_routes_return_404_on_cross_user_access -> [<commitA>, <commitB>]`
+  - `TASK-2026-02-06-008_memory_routes_return_404_on_cross_user_access -> [1fc12fb4, 8c9cb1c4]`
