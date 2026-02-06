@@ -6,6 +6,8 @@ type ShareButtonProps = {
   targetId: number;
 };
 
+const API_KEY = (import.meta.env.VITE_GUARDIAN_API_KEY ?? "").trim();
+
 export function ShareButton({ targetType, targetId }: ShareButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -14,9 +16,15 @@ export function ShareButton({ targetType, targetId }: ShareButtonProps) {
   const handleShare = async () => {
     setIsLoading(true);
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (API_KEY) {
+        headers["X-API-Key"] = API_KEY;
+      }
       const response = await fetch("/api/share", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           target_type: targetType,
           target_id: targetId,
@@ -44,6 +52,7 @@ export function ShareButton({ targetType, targetId }: ShareButtonProps) {
       setShowToast(true);
       setTimeout(() => setShowToast(false), 3000);
     } catch (error) {
+      console.error("Share create failed:", error);
       const message = error instanceof Error ? error.message : "Failed to create share link";
       setToastMessage(message);
       setShowToast(true);
