@@ -8,6 +8,7 @@ If you want to **run Codexify locally** with the least friction:
 
 * Use **Docker Compose**
 * Copy `.env.template → .env`
+* `.env` is local-only; never commit it (templates are the source of truth)
 * Set `GUARDIAN_API_KEY`, `NEO4J_PASS`, and your local LLM settings
 * Run: `docker compose up --build`
 * Open:
@@ -42,8 +43,9 @@ This section is intentionally explicit. It lists what is **implemented**, what i
 
 **Experimental / stubbed / partially wired**
 - **RAG upload endpoint** `/upload-chat` requires a missing module (`codexify.rag.enhanced_rag`), so it currently returns 503.
-- **Embeddings API** `/api/embeddings` returns **dummy vectors** (deterministic mock) and is not backed by real models.
-- **Local image generation** returns a 1x1 placeholder image unless an external provider is configured.
+- **RAG trace debug endpoint** is in-memory only and clears on restart.
+- **Embeddings API** `/api/embeddings` returns **dummy vectors only when explicitly requested** (`embedder=dummy`) or when fallback is enabled; otherwise it returns 503 until a real backend is configured.
+- **Local/Stability image generation** is disabled and returns a 503 until a real provider is implemented or configured.
 - **TTS**: API uses a **mock local provider** (sine wave). A separate HuggingFace TTS microservice exists (`backend/tts_service`) but is not integrated into the main API.
 - **Desktop app** (Tauri) is a skeleton config (`src-tauri`) without a published build pipeline.
 
@@ -64,7 +66,7 @@ This section is intentionally explicit. It lists what is **implemented**, what i
 - A local OpenAI-compatible LLM endpoint (e.g., **Ollama**) **or** cloud API keys
 
 ### 1) Configure `.env`
-The repo already contains `.env`, `.env.example`, and `.env.template`. They are **not consistent**. For a clean start:
+The repo includes `.env.template` and `.env.example`, which are aligned and act as the source of truth. Copy one to `.env` (local-only; never commit it):
 
 ```bash
 cp .env.template .env
@@ -81,7 +83,7 @@ VITE_GUARDIAN_API_KEY=replace-with-same-token
 NEO4J_PASS=replace-with-neo4j-password
 
 # Required for local LLM usage (default provider)
-LOCAL_BASE_URL=http://host.docker.internal:11434
+LOCAL_BASE_URL=http://host.docker.internal:11434/v1
 LOCAL_LLM_MODEL=your-ollama-model-tag
 
 # Required for local embeddings (must be absolute path **inside the container**)
@@ -144,6 +146,16 @@ Open API docs:
 - **TTS microservice**: 8000
 - **Redis**: internal only (6379, not exposed)
 
+## Debugging: Frontend crash discovery
+
+If a frontend crash mentions `utils.js:306` or you need to locate the source, run:
+
+```bash
+bash scripts/dev/doctor.sh
+```
+
+If you see `rg: frontend: No such file or directory`, you're almost certainly not in the repo root.
+
 ## Local Dev (Without Docker)
 
 This is possible, but Compose is the reference setup. If running locally:
@@ -159,7 +171,7 @@ pip install -r requirements.txt
 ```bash
 export GUARDIAN_API_KEY=...
 export DATABASE_URL=postgresql://user:pass@localhost:5432/Codexify
-export LOCAL_BASE_URL=http://localhost:11434
+export LOCAL_BASE_URL=http://localhost:11434/v1
 export LOCAL_LLM_MODEL=your-ollama-model-tag
 export LOCAL_EMBED_MODEL=/absolute/path/to/Codexify/models/bge-large-en-v1.5
 ```
@@ -190,6 +202,7 @@ pnpm --dir frontend/src dev
 - `backend` -> FastAPI app (Guardian)
 - `frontend` -> Vite dev server
 - `worker-chat` -> background chat task worker
+- `worker-chat-embed` -> background chat embedding worker
 - `worker-warmup` -> warm-up worker for local models
 - `tts` -> separate FastAPI TTS microservice
 
@@ -242,7 +255,7 @@ pnpm --dir frontend/src dev
 ### Common optional settings
 - `ALLOW_CLOUD_PROVIDERS=true` + `OPENAI_API_KEY` or `GROQ_API_KEY`
 - `CODEXIFY_VECTOR_STORE=chroma|faiss`
-- `CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1` (allow mock embeddings if local model fails)
+- `CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1` (allow mock embeddings fallback and `/api/embeddings` dummy mode)
 - `GUARDIAN_ENABLE_GRAPH_CONTEXT=true` / `GUARDIAN_ENABLE_GRAPH_LOGGING=true`
 - `ENABLE_CONNECTOR_WORKER=true` (and provider tokens like `GITHUB_TOKEN`)
 - `IMAGE_GEN_PROVIDER` + `IMAGE_GEN_MODEL` (image generation)
@@ -272,15 +285,15 @@ alembic -c backend/alembic.ini upgrade head
 ### Known foot-guns
 - Backend exits if `GUARDIAN_API_KEY` is missing.
 - `LOCAL_EMBED_MODEL` must be **absolute** or embeddings will fail.
-- Default `.env` uses a private IP for `LOCAL_BASE_URL`; update it for your machine.
+- Default templates use `http://localhost:11434/v1` for `LOCAL_BASE_URL`; update it for Docker (e.g., `http://host.docker.internal:11434/v1`) or your local setup.
 - `make dev` runs `guardian.system_init` (not the FastAPI API server).
 
 ## Explicit Non-Goals / Deferred Systems
 
 - Full graph context is **off by default** and requires explicit env flags.
 - The `/upload-chat` RAG endpoint is effectively disabled (missing module).
-- Embeddings API returns mock vectors; not production-ready.
-- Local image generation is a placeholder; real providers require env setup.
+- Embeddings API returns mock vectors only when explicitly requested; otherwise it fails closed until configured.
+- Local/Stability image generation is disabled; real providers require env setup.
 - TTS microservice exists but is not integrated into the main API.
 - Desktop/Tauri app is not production-ready.
 
@@ -395,14 +408,14 @@ If you're unsure, open a small PR touching one area (UI or a single route) and a
 
 - Backend exits if `GUARDIAN_API_KEY` is missing.
 * `LOCAL_EMBED_MODEL` must be **absolute** or embeddings will fail.
-* Default `.env` uses a private IP for `LOCAL_BASE_URL`; update it for your machine.
+* Default templates use `http://localhost:11434/v1` for `LOCAL_BASE_URL`; update it for Docker (e.g., `http://host.docker.internal:11434/v1`) or your local setup.
 * `make dev` runs `guardian.system_init` (not the FastAPI API server).
 
 ## Explicit Non-Goals / Deferred Systems
 
 * Full graph context is **off by default** and requires explicit env flags.
 * The `/upload-chat` RAG endpoint is effectively disabled (missing module).
-* Embeddings API returns mock vectors; not production-ready.
-* Local image generation is a placeholder; real providers require env setup.
+* Embeddings API returns mock vectors only when explicitly requested; otherwise it fails closed until configured.
+* Local/Stability image generation is disabled; real providers require env setup.
 * TTS microservice exists but is not integrated into the main API.
 * Desktop/Tauri app is not production-ready.

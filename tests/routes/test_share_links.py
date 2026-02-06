@@ -16,10 +16,12 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 from guardian.routes import share
 
+_API_KEY = "test-api-key"
 
 class TestCreateThreadShare:
     """Tests for creating share links for threads."""
@@ -88,6 +90,7 @@ class TestCreateThreadShare:
         call_kwargs = mock_emit.call_args.kwargs
         assert call_kwargs["topic"] == "share.created"
         assert call_kwargs["payload"]["token"] == "test_secure_token_12345"
+
 
     @patch("guardian.routes.share.models")
     @patch("guardian.routes.share.secrets.token_urlsafe")
@@ -589,6 +592,21 @@ class TestRetrieveSharedContent:
 
         assert exc_info.value.status_code == 404
         assert "deleted" in exc_info.value.detail.lower()
+
+
+def test_create_share_requires_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", _API_KEY)
+    app = FastAPI()
+    app.include_router(share.router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/share",
+        json={"target_type": "thread", "target_id": 1},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing API key"
 
 
 @pytest.fixture

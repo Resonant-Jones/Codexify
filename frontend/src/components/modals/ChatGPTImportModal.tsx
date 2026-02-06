@@ -7,6 +7,7 @@
 
 import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import api from "@/lib/api";
 
 interface ChatGPTImportModalProps {
   open: boolean;
@@ -54,25 +55,19 @@ export function ChatGPTImportModal({
     formData.append("file", file);
 
     try {
-      const response = await fetch("/upload-chatgpt-export", {
-        method: "POST",
-        headers: {
-          "X-User-Id": userName,
-        },
-        body: formData,
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.details || data.error || "Migration failed"
-        );
-      }
+      const response = await api.post(
+        "/api/upload-chatgpt-export",
+        formData,
+        {
+          headers: {
+            "X-User-Id": userName,
+          },
+        }
+      );
 
       setStats({
-        threads_imported: data.threads_imported,
-        messages_imported: data.messages_imported,
+        threads_imported: response.data.threads_imported,
+        messages_imported: response.data.messages_imported,
       });
       setStatus("success");
       setFile(null);
@@ -89,7 +84,11 @@ export function ChatGPTImportModal({
     } catch (err: any) {
       console.error("Migration error:", err);
       setStatus("error");
-      setError(err.message || "Failed to migrate data");
+      const detail =
+        err?.response?.data?.detail ??
+        err?.response?.data?.error ??
+        err?.message;
+      setError(detail || "Failed to migrate data");
     }
   };
 
