@@ -1,6 +1,6 @@
-CAMPAIGN_2026_01_16_GUARDIAN_CHAT_SIDEBAR_POLISH.md
+# CAMPAIGN_2026_01_16_GUARDIAN_CHAT_SIDEBAR_POLISH.md
 
-Slice Definition of Done (DoD)
+## Slice Definition of Done (DoD)
 
 This slice is complete when:
  • Sidebar toggle collapses/expands the entire sidebar (not just inner content).
@@ -11,7 +11,7 @@ This slice is complete when:
 
 ⸻
 
-TASK-2026-01-16-001 — Sidebar dismiss chevron truly collapses sidebar
+# TASK-2026-01-16-001 — Sidebar dismiss chevron truly collapses sidebar
 
 Task artifact: docs/tasks/TASK_2026_01_16_001_sidebar_toggle.md
 Commit mode: two-phase
@@ -31,7 +31,7 @@ Task prompt (for the artifact):
 
 ⸻
 
-TASK-2026-01-16-002 — Sidebar tab focus persists (Threads/Projects doesn’t flip)
+# TASK-2026-01-16-002 — Sidebar tab focus persists (Threads/Projects doesn’t flip)
 
 Task artifact: docs/tasks/TASK_2026_01_16_002_sidebar_tab_persistence.md
 Commit mode: two-phase
@@ -52,7 +52,7 @@ Task prompt:
 
 ⸻
 
-TASK-2026-01-16-003 — Fix glass “sharp corner” bleed (blur overflow containment)
+# TASK-2026-01-16-003 — Fix glass “sharp corner” bleed (blur overflow containment)
 
 Task artifact: docs/tasks/TASK_2026_01_16_003_fix_glass_corner_bleed.md
 Commit mode: two-phase
@@ -72,7 +72,7 @@ Task prompt:
 
 ⸻
 
-TASK-2026-01-16-004 — Deduplicate “Loose Threads” at the DB source of truth
+# TASK-2026-01-16-004 — Deduplicate “Loose Threads” at the DB source of truth
 
 Task artifact: docs/tasks/TASK_2026_01_16_004_dedupe_loose_threads.md
 Commit mode: two-phase
@@ -95,7 +95,7 @@ Task prompt:
 
 ⸻
 
-TASK-2026-01-16-005 — Fix “Create Project” modal (visible + functional submit)
+# TASK-2026-01-16-005 — Fix “Create Project” modal (visible + functional submit)
 
 Task artifact: docs/tasks/TASK_2026_01_16_005_create_project_modal.md
 Commit mode: two-phase
@@ -116,12 +116,13 @@ Do not edit any other files for this task.
 Task description
 
 Fix the “Add Project” flow in Guardian Chat:
+
  1. Modal visibility
 
  • Modal should render with correct z-index/overlay and a non-transparent surface.
  • Ensure backdrop + panel have expected background tokens (glass or solid) and rounded corners match the design system.
 
- 2. Modal submit actually creates a project
+ 1. Modal submit actually creates a project
 
  • Hitting Enter or clicking Save must:
  • validate input (non-empty name)
@@ -129,7 +130,7 @@ Fix the “Add Project” flow in Guardian Chat:
  • on success: close the modal + refresh the projects list (or optimistically insert)
  • show an error toast/message on failure
 
- 3. No dead UI
+ 1. No dead UI
 
  • If the backend returns an error, the user must see it.
  • If the request succeeds, the new project must appear without requiring a hard refresh.
@@ -157,7 +158,7 @@ Expected output
 
 ⸻
 
-TASK-2026-01-16-006 — Add regression tests for Create Project modal flow
+# TASK-2026-01-16-006 — Add regression tests for Create Project modal flow
 
 Task artifact: docs/tasks/TASK_2026_01_16_006_create_project_modal_tests.md
 Commit mode: two-phase
