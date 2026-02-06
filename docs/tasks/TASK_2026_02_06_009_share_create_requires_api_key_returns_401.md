@@ -192,6 +192,22 @@ Update the campaign file with the real hashes:
 
 ## Summary (fill after completion)
 - What changed:
+  - Updated `tests/routes/test_share_links.py` in `test_create_share_requires_api_key` to explicitly send `headers={"X-API-Key": ""}` so the request is truly unauthenticated under the test harness.
+  - Kept runtime share route behavior unchanged because `POST /api/share` already depended on `require_api_key`; failure source was test client default header injection.
 - Commands run + key outputs:
+  - `git status --porcelain -uall` => clean before execution.
+  - `rg -n "include_router\\(share\\.router|share\\.router" guardian/guardian_api.py` => router include found.
+  - `rg -n "APIRouter\\(" guardian/routes/share.py` => router declaration found.
+  - `rg -n "require_api_key" guardian/routes/share.py guardian/guardian_api.py guardian/core/dependencies.py` => auth dependency on create endpoint confirmed.
+  - `rg -n "test_create_share_requires_api_key" tests/routes/test_share_links.py` => test location confirmed.
+  - `python -m pytest -q tests/routes/test_share_links.py -k "test_create_share_requires_api_key" --maxfail=1` => failed in this shell (`No module named pytest`).
+  - `pytest -q tests/routes/test_share_links.py -k "test_create_share_requires_api_key" --maxfail=1` => reproduced behavior failure before fix.
+  - `venv/bin/python -m pytest -q tests/routes/test_share_links.py -k "test_create_share_requires_api_key" --maxfail=1` => PASS after fix.
+  - `venv/bin/python -m pytest -q tests/routes/test_share_links.py` => PASS.
+  - `git status --porcelain -uall` => only allowed file changed before Commit A.
+- Commit A:
+  - `f852b33b`
+- Commit B:
+  - `3ee0340e`
 - Final mapping:
-  - TASK-2026-02-06-009_share_create_requires_api_key_returns_401 -> [<commitA>, <commitB>]
+  - TASK-2026-02-06-009_share_create_requires_api_key_returns_401 -> [f852b33b, 3ee0340e]
