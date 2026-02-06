@@ -324,6 +324,44 @@ Run this before any campaign/task work:
 
 It validates toolchain availability, pytest importability, and a clean working tree.
 
+### Validation: Chat Embedding Queue Loop
+This validates enqueue → worker consume → observable result.
+
+```bash
+# 1) Start dependencies
+docker compose up -d redis db backend worker-chat-embed
+
+# 2) Enqueue a message (creates an embed job)
+BASE_URL="${BASE_URL:-http://localhost:8888}"
+API_KEY="${GUARDIAN_API_KEY:-}"
+
+THREAD_JSON="$(curl -sS -H "X-API-Key: ${API_KEY}" -H "Content-Type: application/json" \
+  -d '{}' "${BASE_URL}/api/chat/threads")"
+
+THREAD_ID="$(python - <<'PY'
+import json, os, sys
+payload = sys.stdin.read()
+data = json.loads(payload)
+print(data.get("id") or data.get("thread", {}).get("id") or "")
+PY
+<<<"${THREAD_JSON}")"
+
+curl -sS -H "X-API-Key: ${API_KEY}" -H "Content-Type: application/json" \
+  -d '{"role":"user","content":"preflight-embed"}' \
+  "${BASE_URL}/api/chat/${THREAD_ID}/messages"
+
+# 3) Observe worker consumption
+docker compose logs --tail=200 worker-chat-embed
+```
+
+Expected signals:
+- Success log: `[chat-embed] embedded message_id=...`
+- Acceptable loop validation: `[chat-embed] embedding failed ...` (queue loop is working but embeddings are misconfigured)
+
+If it fails:
+- Ensure `GUARDIAN_API_KEY` is set (from `.env`).
+- Ensure embeddings are configured (`LOCAL_EMBED_MODEL` mounted and valid).
+
 ### Running tests
 - Two test trees exist: `guardian/tests` (large) and `tests` (smaller).
 - `make test` runs `python -m pytest -q guardian/tests tests` and will prompt if pytest is missing.
