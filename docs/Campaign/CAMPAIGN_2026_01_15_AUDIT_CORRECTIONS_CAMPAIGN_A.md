@@ -1,4 +1,4 @@
-# CAMPAIGN_2026_01_15 — Audit Corrections Campaign A
+# CAMPAIGN_2026_01_15_AUDIT_CORRECTIONS_CAMPAIGN_A.md
 
 ## Context
 This campaign translates the latest system audit into an ordered sequence of **atomic, testable, commit-sized tasks**.
@@ -17,7 +17,7 @@ This campaign translates the latest system audit into an ordered sequence of **a
 - **Backend changes:**
   ```bash
   pytest -v
-  ```
+  ``
 - **Frontend changes:**
   ```bash
   pnpm test
