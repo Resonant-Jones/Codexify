@@ -1,22 +1,30 @@
-# Codex Runner Audit Campaign
+# Codex Runner Campaign Audit
 
-- Date: 2026-02-03
-- Owner: Codex Runner
-- Goal: Capture audit findings and produce actionable hardening tasks for the Codex Runner pipeline.
+Date: 2026-02-03
+Owner: Resonant Constructs
+
+## Objective
+Produce a concise audit campaign for Codex Runner usage, focusing on traceability, artifact integrity, and task activation consistency.
 
 ## Scope
-- Runtime task execution flow (planning, activation prompts, artifact generation)
-- Artifact storage and naming conventions
-- Logging and telemetry for auditability
+- Review task activation prompts for clarity and reproducibility.
+- Validate artifact naming conventions and storage paths.
+- Ensure campaign documentation includes goals, scope, and acceptance criteria.
 
-## Risks
-- Gaps in task activation prompts could lead to inconsistent execution.
-- Artifact metadata may be insufficient for traceability.
+## Acceptance Criteria
+- Each task has a unique ID, slug, and artifact path that matches the required naming convention.
+- Each task includes a fully formed activation prompt with clear inputs/outputs.
+- Campaign document and task artifacts are complete and internally consistent.
+
+## Risks & Mitigations
+- Risk: Missing or ambiguous activation prompts.
+  Mitigation: Standardize prompt template with required sections.
+- Risk: Artifact path drift from naming policy.
+  Mitigation: Enforce strict path patterns in templates.
 
 ## Deliverables
-- Task 001: Standardize activation prompt format and validation.
-- Task 002: Expand campaign doc template with audit checkpoints.
+- Campaign document (this file).
+- Task artifacts for audit checks and validation steps.
 
-## Success Criteria
-- Each task has a clear activation prompt, acceptance criteria, and test guidance.
-- Campaign docs include audit checkpoints and traceability fields.
+## Notes
+This campaign is designed for a lightweight, repeatable audit suitable for CI or scheduled reviews.

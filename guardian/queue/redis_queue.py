@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import time
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 import redis
@@ -18,6 +20,10 @@ _DEFAULT_REDIS_URL = "redis://redis:6379/0"
 _CANCEL_SET_KEY = "codexify:queue:cancelled"
 _TURN_LOCK_PREFIX = "turn_lock:"
 _DEFAULT_TURN_LOCK_TTL = int(os.getenv("CHAT_TURN_LOCK_TTL_SECONDS", "300"))
+CHAT_EMBED_QUEUE_NAME = os.getenv(
+    "CHAT_EMBED_QUEUE_NAME", "codexify:queue:chat-embed"
+)
+CHAT_EMBED_TASK_TYPE = "chat_embed"
 _CLIENT: redis.Redis | None = None
 
 
@@ -188,6 +194,24 @@ def dequeue(
 
     raw = _with_reconnect(_pop)
     return _deserialize(raw)
+
+
+def enqueue_chat_embed(payload: dict[str, Any]) -> str:
+    task_id = str(uuid.uuid4())
+    record = {
+        "task_id": task_id,
+        "type": CHAT_EMBED_TASK_TYPE,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+    enqueue(record, CHAT_EMBED_QUEUE_NAME)
+    return task_id
+
+
+def dequeue_chat_embed(
+    *, block: bool = True, timeout: int | None = None
+) -> dict[str, Any] | None:
+    return dequeue(CHAT_EMBED_QUEUE_NAME, block=block, timeout=timeout)
 
 
 def cancel(task_id: str) -> None:

@@ -8,12 +8,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from guardian.core import event_bus
 from guardian.core.db import GuardianDB
+from guardian.core.dependencies import require_api_key
 from guardian.db import models
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,10 @@ def _get_db() -> GuardianDB:
 
 
 @router.post("/api/share", response_model=CreateShareResponse)
-async def create_share_link(request: CreateShareRequest) -> dict[str, Any]:
+async def create_share_link(
+    request: CreateShareRequest,
+    _api_key: str = Depends(require_api_key),
+) -> dict[str, Any]:
     """
     Create a secure shareable link for a thread or document.
 

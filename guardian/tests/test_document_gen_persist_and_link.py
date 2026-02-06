@@ -10,6 +10,13 @@ from fastapi.testclient import TestClient
 from guardian.db import models
 from guardian.routes import documents as documents_routes
 
+_API_KEY = "test-api-key"
+
+
+def _auth_headers(monkeypatch) -> dict[str, str]:
+    monkeypatch.setenv("GUARDIAN_API_KEY", _API_KEY)
+    return {"X-API-Key": _API_KEY}
+
 
 @dataclass
 class _Thread:
@@ -70,6 +77,7 @@ def test_document_generate_persists_and_links(monkeypatch) -> None:
     client = _make_client()
     response = client.post(
         "/api/documents/generate",
+        headers=_auth_headers(monkeypatch),
         json={
             "thread_id": 42,
             "title": "Launch Brief",
@@ -126,6 +134,7 @@ def test_document_generate_persist_failure(monkeypatch) -> None:
     client = _make_client()
     response = client.post(
         "/api/documents/generate",
+        headers=_auth_headers(monkeypatch),
         json={
             "thread_id": 7,
             "title": "Launch Brief",

@@ -1,20 +1,23 @@
 # Codexify Campaign Audit
 
-Date: February 3, 2026
-
-## Purpose
-Produce a concise audit of the Codex Runner campaign setup, ensuring task artifacts, activation prompts, and documentation are well-formed and consistent with repository conventions.
+- **Campaign ID:** camp_2026_02_03_codexify_audit
+- **Date:** 2026-02-03
+- **Owner:** Resonant Constructs
+- **Objective:** Produce a structured audit of current Codex Runner campaign artifacts and task traces, validate schema compliance, and summarize readiness.
 
 ## Scope
-- Validate campaign documentation structure and naming
-- Define a single audit task with clear activation guidance
-- Provide a lightweight checklist for follow‑up verification
+This campaign audits the current Codex Runner campaign outputs to ensure they are complete, valid, and consistent with required schema and naming conventions.
+
+## Acceptance Criteria
+1. All task artifacts exist with correct naming and required sections.
+2. Campaign document matches naming pattern and includes objectives, scope, and acceptance criteria.
+3. Task metadata is consistent with artifact contents.
+4. Activation prompts are actionable and self-contained.
+
+## Risks
+- Missing task artifacts or mismatched IDs.
+- Incomplete activation prompts.
+- Inconsistent naming conventions.
 
 ## Notes
-This campaign is a documentation‑only audit. No code changes are required.
-
-## Audit Checklist
-- Campaign doc path matches required pattern
-- Task artifact path matches required pattern
-- Activation prompt is explicit and actionable
-- Task describes expected output and verification steps
+This audit output is self-contained and intended for automated validation pipelines.

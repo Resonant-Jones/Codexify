@@ -146,6 +146,12 @@ def write_text_file(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def append_text_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(content)
+
+
 def run_codex_exec(
     prompt_file: Path, output_schema: Path, output_path: Path
 ) -> None:
@@ -236,27 +242,19 @@ def git_commit_all(message: str, no_verify: bool) -> str:
 
 
 def execute_task(task: dict[str, Any]) -> dict[str, Any]:
+    """Run a single task activation prompt via Codex and return the structured result.
+
+    Note: the task agent may or may not perform the git commit itself. The runner is
+    allowed to commit (auto-commit mode), so commit_hash validation/fill-in happens
+    at the orchestration layer where we can compare HEAD before/after.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         prompt_path = tmp_path / "activation_prompt.md"
         output_path = tmp_path / "task_result.json"
         prompt_path.write_text(task["activation_prompt"], encoding="utf-8")
         run_codex_exec(prompt_path, TASK_RESULT_SCHEMA_PATH, output_path)
-        result = read_json_file(output_path)
-
-    status = result.get("status")
-    if status == "success":
-        head_commit = git_head_commit()
-        commit_hash = result.get("commit_hash", "")
-        if commit_hash != head_commit:
-            note = (
-                "commit_hash mismatch: expected "
-                f"{head_commit}, got {commit_hash}"
-            )
-            existing_notes = result.get("notes", "")
-            result["notes"] = f"{existing_notes} {note}".strip()
-            print(f"Warning: {note}", file=sys.stderr)
-    return result
+        return read_json_file(output_path)
 
 
 def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
@@ -316,8 +314,10 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
             ensure_clean_git("start of task")
             head_before = git_head_commit()
             print(f"Executing task {task.get('id', '')}...")
-            execute_task(task)
+            result = execute_task(task)
+            head_after_exec = git_head_commit()
 
+            # If the agent left changes, the runner commits them.
             if not git_is_clean():
                 if args.auto_commit:
                     git_commit_all(task["commit_message"], args.no_verify)
@@ -328,10 +328,64 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
 
             ensure_clean_git("after task commit")
             head_after = git_head_commit()
-            if head_after == head_before:
-                raise RunnerError(
-                    f"Task {task.get('id', '')} produced no commit."
+
+            # Normalize/fill commit_hash:
+            # - If agent committed: commit_hash should match head_after.
+            # - If runner committed: commit_hash is often empty; fill it with head_after.
+            reported = (result.get("commit_hash") or "").strip()
+            if not reported and head_after != head_before:
+                result["commit_hash"] = head_after
+            elif reported and reported != head_after:
+                existing_notes = (result.get("notes") or "").strip()
+                note = f"commit_hash mismatch: reported {reported}, head is {head_after}"
+                result["notes"] = f"{existing_notes} {note}".strip()
+                print(f"Warning: {note}", file=sys.stderr)
+
+            if head_after != head_before:
+                task_artifact_path = Path(task["task_artifact_path"])
+                append_text_file(
+                    task_artifact_path,
+                    "\n\n## Runner Result\n\n```json\n"
+                    + json.dumps(result, indent=2)
+                    + "\n```\n",
                 )
+                if args.auto_commit:
+                    git_commit(
+                        [str(task_artifact_path)],
+                        task["commit_message"],
+                        args.no_verify,
+                    )
+                    ensure_clean_git("after task receipt commit")
+                    head_after = git_head_commit()
+                else:
+                    raise RunnerError(
+                        "Auto-commit disabled but runner result receipt would dirty the tree."
+                    )
+
+            if head_after == head_before:
+                # For a noop task, the receipt commit is the task's commit.
+                if not (result.get("commit_hash") or "").strip():
+                    result["commit_hash"] = git_head_commit()
+
+                if args.auto_commit and (result.get("status") == "success"):
+                    task_artifact_path = Path(task["task_artifact_path"])
+                    append_text_file(
+                        task_artifact_path,
+                        "\n\n## Runner Result\n\n```json\n"
+                        + json.dumps(result, indent=2)
+                        + "\n```\n",
+                    )
+                    git_commit(
+                        [str(task_artifact_path)],
+                        task["commit_message"],
+                        args.no_verify,
+                    )
+                    ensure_clean_git("after task receipt commit")
+                    head_after = git_head_commit()
+                else:
+                    raise RunnerError(
+                        f"Task {task.get('id', '')} produced no commit."
+                    )
     elif args.execute and args.dry_run:
         print("Dry run enabled: skipping task execution.")
 
