@@ -602,6 +602,7 @@ def test_create_share_requires_api_key(monkeypatch) -> None:
 
     response = client.post(
         "/api/share",
+        headers={"X-API-Key": ""},
         json={"target_type": "thread", "target_id": 1},
     )
 
