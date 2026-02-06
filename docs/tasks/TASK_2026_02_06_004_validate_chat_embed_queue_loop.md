@@ -101,3 +101,14 @@ git status --porcelain -uall
 
 Mapping
  • TASK-2026-02-06-004_validate_chat_embed_queue_loop -> [, ]
+
+## Summary
+- Status: DONE.
+- Changes:
+  - Added “Validation: Chat Embedding Queue Loop” section in `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/README.md`.
+- Commands run:
+  - `docker compose up -d worker-chat-embed` (build + start succeeded)
+  - `curl` to `http://localhost:8888` to create thread/message (failed: connection refused)
+  - `docker compose logs --tail=200 worker-chat-embed` (worker started; no embed job observed)
+- Commit mode: two-phase.
+- Implementation commit: `593681e9`.
