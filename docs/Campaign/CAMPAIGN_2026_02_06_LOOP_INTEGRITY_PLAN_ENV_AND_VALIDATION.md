@@ -1,8 +1,8 @@
-# CAMPAIGN_2026_02_06_LOOP_INTEGRITY_ENV_AND_VALIDATION.md
+# CAMPAIGN_2026_02_06_LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION.md
 
 ## Campaign-ID
 
-CAMPAIGN-2026-02-06-LOOP_INTEGRITY_ENV_AND_VALIDATION
+CAMPAIGN-2026-02-06-LOOP_INTEGRITY_PLAN_ENV_AND_VALIDATION
 
 ## Purpose
 
@@ -30,11 +30,13 @@ This campaign is **DX + Loop Integrity**, not feature work.
 
 ## Mapping (placeholders)
 
-- TASK-2026-02-06-001_env_preflight_contract -> [<commitA>, <commitB>]
-- TASK-2026-02-06-002_fix_make_test_target_and_pytest_install_path -> [<commitA>, <commitB>]
-- TASK-2026-02-06-003_add_repo_preflight_script_or_doc_checklist -> [<commitA>, <commitB>]
-- TASK-2026-02-06-004_validate_chat_embed_queue_loop -> [<commitA>, <commitB>]
+- TASK-2026-02-06-001_env_preflight_contract -> [7ddc7b49, fd6fa3ea]
+- TASK-2026-02-06-002_fix_make_test_target_and_pytest_install_path -> [de6379d3, e1954d31]
+- TASK-2026-02-06-003_add_repo_preflight_script_or_doc_checklist -> [a859f61a, a407f042]
+- TASK-2026-02-06-004_validate_chat_embed_queue_loop -> [593681e9, 8510ecb2]
 
 ## Completion Criteria
 
 Campaign is DONE when all tasks are DONE or explicitly DEFERRED with a documented decision.
+
+

@@ -110,3 +110,7 @@ models/
 
 # local reports
 /docs/reports/
+
+# Local temp artifacts
+/guardian/temp/
+/guardian/temp/*.json
