@@ -1,40 +1,166 @@
-# TASK_2026_02_06_005_embedder_stub_alias_to_dummy_and_template_fix
+# TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix
+
+## Metadata
+- Task-ID: TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix
+- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Risk: HIGH
+- Branch: campaign/2026-02-06/loop-integrity-auth-and-defaults
+- Task artifact: docs/tasks/TASK_2026_02_06_005_embedder_stub_alias_to_dummy_and_template_fix.md
+- Owner: resonant_jones
 
 ## Objective
-
-Prevent default environment configurations from breaking the `/api/embeddings` endpoint by restoring backward-compatible embedder behavior.
+Make `/api/embeddings` **work under default repo env templates** by restoring backward-compatible embedder selection:
+- `EMBEDDING_BACKEND=stub` must not break local setups (treat as alias for `dummy`).
+- Templates/docs must not ship an invalid default value.
 
 ## Background
-
-Recent validation restricts EMBEDDING_BACKEND to `{dummy, gpt_oss, nomic}`.
+Recent validation restricts `EMBEDDING_BACKEND` to `{dummy, gpt_oss, nomic}`.
 Repo templates still define `EMBEDDING_BACKEND=stub`, causing a 400 error on fresh setups.
 
-## Requirements
+## Scope
+### In-scope
+- Backend: treat `stub` as an alias for `dummy` (and optionally `mock -> dummy` if historically present).
+- Templates/docs: update `.env.example`/`.env.template` (and any canonical env docs) to use an allowed default (`dummy`) and explicitly document accepted values.
+- Add/adjust tests to lock the behavior so default config doesn’t regress.
 
-### Backend
+### Out-of-scope
+- Implementing a new embeddings backend.
+- Changing embedding vector dimensionality/format.
+- Any refactor unrelated to resolving `stub` defaults and documenting the contract.
 
-- Treat `stub` as an alias for `dummy`
-- Optional: also alias `mock -> dummy` if present historically
-- `/api/embeddings` must succeed under default config
+## Allowed files (STRICT)
+> Do not modify files outside this list.
 
-### Templates / Docs
+- guardian/embedding_engine.py
+- guardian/routes/embeddings.py
+- .env.example
+- .env.template
+- README.md
+- tests/routes/test_embeddings.py
+- docs/tasks/TASK_2026_02_06_005_embedder_stub_alias_to_dummy_and_template_fix.md
+- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
 
-- Update `.env.example` and templates to use `dummy`
-- Document accepted values explicitly
+## Preconditions (NO GUESSING)
+Run these to confirm context and locate current behavior:
 
-## Acceptance Criteria
+```bash
+cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
 
-- `EMBEDDING_BACKEND=stub` no longer errors
-- Fresh clone + default `.env` returns embeddings successfully
-- No regression for explicit real backends
+# must be clean before starting
+git status --porcelain -uall
 
-## Files Likely Touched
+# confirm current env template values
+rg -n "^EMBEDDING_BACKEND=" .env.example .env.template README.md || true
 
-- Guardian embedder resolution logic
-- `.env.example`
-- README / environment docs
+# confirm allowed embedder validation and current behavior
+rg -n "EMBEDDING_BACKEND|embedder|dummy|stub|mock|Unsupported embedder" guardian/embedding_engine.py guardian/routes/embeddings.py
 
-## Commit Plan
+# confirm tests exist / current expectations
+rg -n "embeddings" tests/routes/test_embeddings.py || true
+```
 
-- Commit A: backend alias logic
-- Commit B: template + docs update
+## Execution plan
+### Step-by-step commands (copy/paste)
+
+```bash
+cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
+
+# 1) preflight
+git status --porcelain -uall
+
+# 2) implement + adjust tests/docs/templates within allowed files
+# (edit files listed in Allowed files)
+
+# 3) run focused checks
+python -m pytest -q tests/routes/test_embeddings.py
+
+# 4) ensure only allowed files changed
+git status --porcelain -uall
+```
+
+## Expected results
+- With `EMBEDDING_BACKEND=stub`, `/api/embeddings` returns **200** and a valid embeddings payload (no “Unsupported embedder: stub”).
+- `.env.example` and `.env.template` no longer set `EMBEDDING_BACKEND=stub`.
+- README documents accepted values (at minimum: `dummy`, `gpt_oss`, `nomic`) and notes that `stub` is accepted as an alias for backward compatibility.
+- `tests/routes/test_embeddings.py` includes coverage for the alias behavior (stub → dummy), so a regression fails tests.
+
+## Rollback / cleanup
+
+```bash
+cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
+
+# discard changes to the task’s allowed files (if abandoning)
+git restore -- \
+  guardian/embedding_engine.py \
+  guardian/routes/embeddings.py \
+  .env.example \
+  .env.template \
+  README.md \
+  tests/routes/test_embeddings.py \
+  docs/tasks/TASK_2026_02_06_005_embedder_stub_alias_to_dummy_and_template_fix.md \
+  docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+
+# remove any untracked files created during work
+git clean -fd
+```
+
+## Commit plan (MANUAL; index.lock workaround)
+### Commit mode
+- two-phase
+
+### Commit A (implementation)
+- Commit message (EXACT):
+  - `TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix: alias stub to dummy + keep embeddings default working`
+
+- Manual commands:
+
+```bash
+git status --porcelain -uall
+
+git add \
+  guardian/embedding_engine.py \
+  guardian/routes/embeddings.py \
+  tests/routes/test_embeddings.py
+
+git commit --no-verify -m "TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix: alias stub to dummy + keep embeddings default working"
+
+git status --porcelain -uall
+git log -1 --oneline
+```
+
+### Commit B (docs finalize + mapping)
+- Commit message (EXACT):
+  - `TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix: docs finalize + mapping`
+
+- Manual commands:
+
+```bash
+git status --porcelain -uall
+
+git add \
+  .env.example \
+  .env.template \
+  README.md \
+  docs/tasks/TASK_2026_02_06_005_embedder_stub_alias_to_dummy_and_template_fix.md \
+  docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+
+git commit --no-verify -m "TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix: docs finalize + mapping"
+
+git status --porcelain -uall
+git log -1 --oneline
+```
+
+## Mapping
+- TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix -> [<commitA>, <commitB>]
+
+## Notes
+- If `mock` appears in historical env docs/templates, treat it like `stub` (alias to `dummy`).
+- Prefer behavior that keeps “fresh clone + default .env” functional even without external model backends.
+
+## Summary (fill after completion)
+- What changed:
+- Commands run + outputs:
+- Commit A hash:
+- Commit B hash:
+- Final mapping:
+  - TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix -> [______, ______]
