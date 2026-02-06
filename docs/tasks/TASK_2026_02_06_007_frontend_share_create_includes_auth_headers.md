@@ -151,13 +151,24 @@ TASK-2026-02-06-007_frontend_share_create_includes_auth_headers -> [<commitA>, <
 
 Summary (fill after completion)
  • Files changed:
- • (list)
+ • frontend/src/components/ShareButton.tsx
  • Commands run:
- • (paste commands + short outputs)
+ • node -v => v22.17.0
+ • npm -v => 10.9.2
+ • ls -la frontend/node_modules >/dev/null || (cd frontend && npm install) => deps present
+ • rg -n "VITE_GUARDIAN_API_KEY|GUARDIAN_API_KEY" -S frontend/src guardian || true => env key references confirmed
+ • git status --porcelain -uall => clean before implementation
+ • rg -n "fetch\\(['\"]/api/share|/api/share" frontend/src => share create call located in ShareButton
+ • rg -n "X-API-Key|Authorization|apiKey|VITE_GUARDIAN_API_KEY" frontend/src/lib/api.ts frontend/src -S => auth header patterns confirmed
+ • npm --prefix frontend run build => PASS
+ • git status --porcelain -uall => only ShareButton changed before Commit A
  • Build/test results:
- • npm --prefix frontend run build => PASS/FAIL
+ • npm --prefix frontend run build => PASS
  • Notes:
- • (any nuance)
+ • Share create now sends `X-API-Key` when `VITE_GUARDIAN_API_KEY` is set and logs failures (`console.error`) in addition to toast error state.
+ • Commit A:
+ • 217fb789
+ • Commit B:
+ • <commitB>
  • Final mapping:
- • TASK-2026-02-06-007_frontend_share_create_includes_auth_headers -> [, ]
-
+ • TASK-2026-02-06-007_frontend_share_create_includes_auth_headers -> [217fb789, <commitB>]
