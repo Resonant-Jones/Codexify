@@ -37,7 +37,7 @@ This campaign focuses on:
 
 ## Mapping (placeholders)
 
-TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix -> [<commitA>, <commitB>]
+TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix -> [62b4ba58, <commitB>]
 TASK-2026-02-06-006_frontend_autosave_includes_auth_headers -> [<commitA>, <commitB>]
 TASK-2026-02-06-007_frontend_share_create_includes_auth_headers -> [<commitA>, <commitB>]
 TASK-2026-02-06-008_memory_routes_return_404_on_cross_user_access -> [<commitA>, <commitB>]

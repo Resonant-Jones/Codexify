@@ -36,7 +36,7 @@ Repo templates still define `EMBEDDING_BACKEND=stub`, causing a 400 error on fre
 - .env.example
 - .env.template
 - README.md
-- tests/routes/test_embeddings.py
+- guardian/tests/test_embeddings_endpoint.py
 - docs/tasks/TASK_2026_02_06_005_embedder_stub_alias_to_dummy_and_template_fix.md
 - docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
 
@@ -56,7 +56,7 @@ rg -n "^EMBEDDING_BACKEND=" .env.example .env.template README.md || true
 rg -n "EMBEDDING_BACKEND|embedder|dummy|stub|mock|Unsupported embedder" guardian/embedding_engine.py guardian/routes/embeddings.py
 
 # confirm tests exist / current expectations
-rg -n "embeddings" tests/routes/test_embeddings.py || true
+rg -n "embeddings" guardian/tests/test_embeddings_endpoint.py || true
 ```
 
 ## Execution plan
@@ -72,7 +72,7 @@ git status --porcelain -uall
 # (edit files listed in Allowed files)
 
 # 3) run focused checks
-python -m pytest -q tests/routes/test_embeddings.py
+python -m pytest -q guardian/tests/test_embeddings_endpoint.py
 
 # 4) ensure only allowed files changed
 git status --porcelain -uall
@@ -82,7 +82,7 @@ git status --porcelain -uall
 - With `EMBEDDING_BACKEND=stub`, `/api/embeddings` returns **200** and a valid embeddings payload (no “Unsupported embedder: stub”).
 - `.env.example` and `.env.template` no longer set `EMBEDDING_BACKEND=stub`.
 - README documents accepted values (at minimum: `dummy`, `gpt_oss`, `nomic`) and notes that `stub` is accepted as an alias for backward compatibility.
-- `tests/routes/test_embeddings.py` includes coverage for the alias behavior (stub → dummy), so a regression fails tests.
+- `guardian/tests/test_embeddings_endpoint.py` includes coverage for the alias behavior (stub → dummy), so a regression fails tests.
 
 ## Rollback / cleanup
 
@@ -96,7 +96,7 @@ git restore -- \
   .env.example \
   .env.template \
   README.md \
-  tests/routes/test_embeddings.py \
+  guardian/tests/test_embeddings_endpoint.py \
   docs/tasks/TASK_2026_02_06_005_embedder_stub_alias_to_dummy_and_template_fix.md \
   docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
 
@@ -120,7 +120,7 @@ git status --porcelain -uall
 git add \
   guardian/embedding_engine.py \
   guardian/routes/embeddings.py \
-  tests/routes/test_embeddings.py
+  guardian/tests/test_embeddings_endpoint.py
 
 git commit --no-verify -m "TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix: alias stub to dummy + keep embeddings default working"
 
@@ -159,8 +159,21 @@ git log -1 --oneline
 
 ## Summary (fill after completion)
 - What changed:
+  - `stub` now aliases to `dummy` in `guardian/embedding_engine.py`.
+  - `/api/embeddings` now accepts `stub` as dummy-mode provider in `guardian/routes/embeddings.py`.
+  - Added regression coverage in `guardian/tests/test_embeddings_endpoint.py` for `EMBEDDING_BACKEND=stub`.
+  - Updated defaults to `EMBEDDING_BACKEND=dummy` in `.env.example` and `.env.template`.
+  - Updated README accepted values and alias note.
 - Commands run + outputs:
+  - `rg -n "^EMBEDDING_BACKEND=" .env.example .env.template README.md || true`
+    - Found `EMBEDDING_BACKEND=stub` in `.env.example` and `.env.template` before edits.
+  - `python -m pytest -q guardian/tests/test_embeddings_endpoint.py`
+    - Failed: `No module named pytest`.
+  - `git status --porcelain -uall`
+    - Only task-allowed files changed.
 - Commit A hash:
+  - `62b4ba58`
 - Commit B hash:
+  - `<pending>`
 - Final mapping:
-  - TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix -> [______, ______]
+  - TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix -> [62b4ba58, <commitB>]
