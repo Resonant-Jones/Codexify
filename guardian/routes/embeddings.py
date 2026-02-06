@@ -39,6 +39,7 @@ def embeddings(body: EmbeddingsRequest) -> EmbeddingsResponse:
         raise HTTPException(status_code=400, detail="texts must not be empty")
     raw_embedder = (body.embedder or "").strip()
     provider = raw_embedder.lower()
+    env_provider = ""
     allow_dummy = os.getenv("CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK", "0").lower() in (
         "1",
         "true",
@@ -53,8 +54,8 @@ def embeddings(body: EmbeddingsRequest) -> EmbeddingsResponse:
         ).strip()
         provider = env_provider.lower()
 
-    if provider in ("", "dummy", "mock"):
-        if not raw_embedder and not allow_dummy:
+    if provider in ("", "dummy", "mock", "stub"):
+        if not raw_embedder and not allow_dummy and not env_provider:
             raise HTTPException(
                 status_code=503,
                 detail=(
