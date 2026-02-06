@@ -31,7 +31,7 @@ _ALLOWED_EMBEDDERS = {"dummy", "gpt_oss", "nomic"}
 
 def _normalize_embedder(value: str) -> str:
     embedder = value.strip().lower()
-    if embedder == "mock":
+    if embedder in ("mock", "stub"):
         embedder = "dummy"
     if embedder not in _ALLOWED_EMBEDDERS:
         raise ValueError(f"Unsupported embedder: {embedder}")
