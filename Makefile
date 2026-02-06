@@ -1,10 +1,10 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest
 
 # Python executable
-PYTHON      := python3
-PIP         := pip3
+PYTHON      ?= python
+PIP         ?= pip
 
 # Directories
 SRC_DIR     := guardian
@@ -50,7 +50,16 @@ dev-install: install
 	pre-commit install
 
 # Run tests
-test:
+check-pytest:
+	@$(PYTHON) -m pytest --version >/dev/null 2>&1 || ( \
+		echo "pytest is missing. Install with:"; \
+		echo "  $(PYTHON) -m pip install -r requirements.txt"; \
+		echo "or"; \
+		echo "  $(PYTHON) -m pip install pytest"; \
+		exit 1; \
+	)
+
+test: check-pytest
 	@mkdir -p $(TEST_REPORT_DIR)
 	$(PYTHON) -m pytest -q guardian/tests tests
 
