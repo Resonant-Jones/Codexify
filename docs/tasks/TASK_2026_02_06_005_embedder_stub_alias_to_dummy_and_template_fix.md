@@ -174,6 +174,6 @@ git log -1 --oneline
 - Commit A hash:
   - `62b4ba58`
 - Commit B hash:
-  - `<pending>`
+  - `2738a365`
 - Final mapping:
-  - TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix -> [62b4ba58, <commitB>]
+  - TASK-2026-02-06-005_embedder_stub_alias_to_dummy_and_template_fix -> [62b4ba58, 2738a365]
