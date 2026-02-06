@@ -177,8 +177,18 @@ Update the campaign file mapping line to:
 
 ## Summary (fill after completion)
 - What changed:
+  - Updated `frontend/src/components/editor/CollaborativeNote.tsx` autosave path to use shared `api` client (`/documents/autosave`) so `X-API-Key` injection from `frontend/src/lib/api.ts` applies.
+  - Added autosave failure visibility via `autosaveError` UI state and retained console error logging.
+  - Preserved autosave success indicator with `lastAutosave`.
 - Commands run + outcomes:
+  - `git status --porcelain -uall` (clean before activation; in-scope during execution)
+  - `rg -n "documents/autosave|/api/documents/autosave" frontend/src` (confirmed autosave call site)
+  - `rg -n "X-API-Key|Authorization|VITE_GUARDIAN_API_KEY|GUARDIAN_API_KEY" frontend/src/lib frontend/src` (confirmed canonical auth-header pattern in `frontend/src/lib/api.ts`)
+  - `npm --prefix frontend run build` (PASS; Vite build completed successfully)
+  - `rg -n "autosave" tests guardian/tests || true` (discovery output captured)
 - Commit A:
+  - `e66c1424`
 - Commit B:
+  - `<commitB>`
 - Final mapping line:
-  - `TASK-2026-02-06-006_frontend_autosave_includes_auth_headers -> [<commitA>, <commitB>]`
+  - `TASK-2026-02-06-006_frontend_autosave_includes_auth_headers -> [e66c1424, <commitB>]`
