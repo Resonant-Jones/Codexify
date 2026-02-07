@@ -184,7 +184,7 @@
 
 **Mapping:**
 
-* `TASK-2026-02-06-005_ws_rate_limiting_+_idle_timeout -> [f22b1165, <commitB>]`
+* `TASK-2026-02-06-005_ws_rate_limiting_+_idle_timeout -> [f22b1165, d42bf74d]`
 
 ---
 
