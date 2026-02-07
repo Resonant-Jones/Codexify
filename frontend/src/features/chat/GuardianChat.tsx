@@ -22,6 +22,7 @@ import { ProviderSelect } from "@/components/ProviderSelect";
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST = "One moment—finish the current reply first.";
+const LLM_HEALTH_POLL_MS = 15000;
 
 /**
  * RAG depth modes: Four lenses of consciousness.
@@ -31,6 +32,17 @@ const TURN_LOCK_TOAST = "One moment—finish the current reply first.";
  * - diagnostic: System introspection, sensors, trace-level visibility
  */
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
+
+type LlmHealthStatus = "unknown" | "online" | "offline" | "misconfigured";
+
+type LlmHealthSnapshot = {
+  ok: boolean | null;
+  status: LlmHealthStatus;
+  provider: string | null;
+  model: string | null;
+  error: string | null;
+  checkedAt: number | null;
+};
 
 /**
  * Consciousness synchronization bus for cross-pane awareness.
@@ -111,11 +123,63 @@ export function GuardianChat({
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? "New Chat");
   const triggerReload = useMemo(() => debounce(() => setChatReloadVersion((v) => v + 1), 300), []);
   const { subscribe } = useLiveEvents({ passive: true });
+  const [llmHealth, setLlmHealth] = useState<LlmHealthSnapshot>({
+    ok: null,
+    status: "unknown",
+    provider: null,
+    model: null,
+    error: null,
+    checkedAt: null,
+  });
   const showToast = (message: string) => {
     try {
       window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message, kind: "error" } }));
     } catch {}
   };
+  const refreshLlmHealth = useCallback(async () => {
+    try {
+      const res = await api.get("/health/llm");
+      const data = res?.data ?? {};
+      const rawStatus = String(data?.status ?? "").trim().toLowerCase();
+      const status: LlmHealthStatus =
+        rawStatus === "online" || rawStatus === "offline" || rawStatus === "misconfigured"
+          ? rawStatus
+          : Boolean(data?.ok)
+            ? "online"
+            : "unknown";
+
+      setLlmHealth({
+        ok: typeof data?.ok === "boolean" ? data.ok : status === "online",
+        status,
+        provider: typeof data?.provider === "string" ? data.provider : null,
+        model: typeof data?.model === "string" ? data.model : null,
+        error: typeof data?.error === "string" ? data.error : null,
+        checkedAt: Date.now(),
+      });
+    } catch (err: any) {
+      setLlmHealth({
+        ok: null,
+        status: "unknown",
+        provider: null,
+        model: null,
+        error: err?.message || "LLM health check failed",
+        checkedAt: Date.now(),
+      });
+    }
+  }, []);
+  useEffect(() => {
+    void refreshLlmHealth();
+    if (typeof window === "undefined") return;
+    const id = window.setInterval(() => {
+      void refreshLlmHealth();
+    }, LLM_HEALTH_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [refreshLlmHealth]);
+  const llmBackendUnavailable =
+    llmHealth.status === "offline" || llmHealth.status === "misconfigured";
+  const llmStatusMessage =
+    llmHealth.error
+    || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
   const focusComposer = () => {
     if (typeof document === "undefined") return;
     const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
@@ -313,6 +377,15 @@ export function GuardianChat({
      * title becomes the thread's identity in the distributed awareness network.
      */
     const normalizedUserId = userName || "default";
+    if (llmBackendUnavailable) {
+      const title =
+        llmHealth.status === "misconfigured"
+          ? "LLM backend misconfigured."
+          : "LLM backend offline.";
+      showToast(`${title} ${llmStatusMessage}`);
+      void refreshLlmHealth();
+      return;
+    }
     if (isTurnLocked(effectiveThreadId)) {
       notifyTurnLocked();
       return;
@@ -633,6 +706,37 @@ export function GuardianChat({
           {headerActions}
         </div>
       </header>
+
+      {llmBackendUnavailable && (
+        <div
+          className="mx-4 mt-2 rounded-lg border px-3 py-2 text-xs"
+          style={{
+            borderColor: "var(--panel-border)",
+            color: "var(--text)",
+            background: "color-mix(in oklab, var(--panel-bg) 88%, #f59e0b 12%)",
+          }}
+        >
+          <div className="font-semibold">
+            {llmHealth.status === "misconfigured" ? "LLM backend misconfigured" : "LLM backend offline"}
+          </div>
+          <div className="mt-1 opacity-90">{llmStatusMessage}</div>
+          <div className="mt-1 flex items-center gap-2 opacity-80">
+            <span>
+              Provider: {llmHealth.provider || "unknown"}
+              {llmHealth.model ? ` · Model: ${llmHealth.model}` : ""}
+            </span>
+            <button
+              type="button"
+              className="underline underline-offset-2"
+              onClick={() => {
+                void refreshLlmHealth();
+              }}
+            >
+              Recheck
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Messages region - Flex 1, scrolls independently */}
       <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">

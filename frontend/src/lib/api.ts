@@ -18,7 +18,8 @@ api.interceptors.request.use((config) => {
     const getHeader =
       typeof (headers as { get?: (key: string) => string | undefined }).get ===
       "function"
-        ? (headers as { get: (key: string) => string | undefined }).get
+        ? (key: string) =>
+            (headers as { get: (key: string) => string | undefined }).get(key)
         : undefined;
     const existing =
       getHeader?.("X-API-Key") ??
