@@ -224,8 +224,7 @@ git log -1 --oneline
 
 In `docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md` ensure this line exists and is filled after both commits:
 
-- `TASK-2026-02-06-015_channels_routes_persistence_models -> [<commitA>, <commitB>]`
-- `TASK-2026-02-06-015_channels_routes_persistence_models -> [6b9c4bd7, <commitB>]`
+- `TASK-2026-02-06-015_channels_routes_persistence_models -> [6b9c4bd7, 03ffca55]`
 
 ## Notes / Findings
 
@@ -255,3 +254,4 @@ In `docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md` ensure t
   - Added focused route tests in `guardian/tests/test_channels_routes.py`; targeted test run passed (`3 passed`).
   - Broader selector `pytest -q guardian/tests -k "channels" || true` hit unrelated collection error in `guardian/tests/db/test_seed.py` (`NodeClassAlreadyDefined` in Neo model registry).
   - Commit A created: `6b9c4bd7`.
+  - Commit B created: `03ffca55`.
