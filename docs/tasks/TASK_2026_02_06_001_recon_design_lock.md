@@ -1,8 +1,7 @@
-
 # TASK-2026-02-06-001_recon_+_design_lock
 
 ## Metadata
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Task-ID: TASK-2026-02-06-001_recon_+_design_lock
 - Task title: Recon + Design Lock
 - Task artifact: docs/tasks/TASK_2026_02_06_001_recon_design_lock.md
@@ -34,7 +33,7 @@ Produce an evidence-based “Design Lock” note that names the **exact integrat
 > Do not modify files outside this list.
 
 - docs/tasks/TASK_2026_02_06_001_recon_design_lock.md
-- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+- docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 ## Dependencies / Prereqs (NO GUESSING)
 Run these to confirm you’re in the right repo and the tree is clean:
@@ -87,14 +86,14 @@ git status --porcelain -uall
   - A short summary of findings with file references
 - `git status --porcelain -uall` shows only:
   - `docs/tasks/TASK_2026_02_06_001_recon_design_lock.md`
-  - `docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md`
+  - `docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md`
 
 ## Rollback / cleanup
 ```bash
 cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
 
 git restore -- docs/tasks/TASK_2026_02_06_001_recon_design_lock.md \
-  docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+  docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 git status --porcelain -uall
 ```
@@ -111,7 +110,7 @@ git status --porcelain -uall
 
 # stage only the two allowed docs
 git add docs/tasks/TASK_2026_02_06_001_recon_design_lock.md \
-  docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+  docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 git status --porcelain -uall
 
