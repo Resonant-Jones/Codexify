@@ -204,7 +204,7 @@ git log -1 --oneline
 
 ## Campaign mapping line (update during Commit B)
 Update the campaign file(s) with the real hashes after both commits exist:
-- `TASK-2026-02-06-016_end_to_end_verification_script_docs -> [f3e1f3af, <commitB>]`
+- `TASK-2026-02-06-016_end_to_end_verification_script_docs -> [f3e1f3af, b61260d5]`
 
 ---
 
