@@ -346,7 +346,7 @@
 
 **Mapping:**
 
-* `TASK-2026-02-06-011_browser_approval_workflow_audit -> [5e486996, <commitB>]`
+* `TASK-2026-02-06-011_browser_approval_workflow_audit -> [5e486996, 04fa84ca]`
 
 ---
 
