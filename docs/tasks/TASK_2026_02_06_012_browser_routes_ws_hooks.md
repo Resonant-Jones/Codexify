@@ -198,7 +198,7 @@ git log -1 --oneline
 
 Update the campaign mapping line to:
 
-- `TASK-2026-02-06-012_browser_routes_ws_hooks -> [4b32590b, <commitB>]`
+- `TASK-2026-02-06-012_browser_routes_ws_hooks -> [4b32590b, 42e546d6]`
 
 ---
 
@@ -217,5 +217,6 @@ Update the campaign mapping line to:
   - Added tests in `guardian/tests/realtime/test_browser_routes_ws_hooks.py`; targeted test file passed (`3 passed`).
   - Broad test selector hit an unrelated collection error in `guardian/tests/db/test_seed.py` (`NodeClassAlreadyDefined` between `guardian.db.neo` and `guardian.graph.models`).
   - Commit A created: `4b32590b`.
+  - Commit B created: `42e546d6`.
 - Notes / deviations:
   - `guardian/guardian_api.py` router registration was not changed in this task because it is outside the strict allowed-file list.
