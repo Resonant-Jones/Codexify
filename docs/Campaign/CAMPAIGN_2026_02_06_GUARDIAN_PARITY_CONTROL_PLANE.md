@@ -1,88 +1,37 @@
-# CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
-
-## Campaign Intent
-
-Implement **OpenClaw-like operational breadth** (real-time control plane, scheduling, browser automation, multi-channel messaging) as **native Codexify features** behind the Guardian surface — **no OpenClaw dependency**, only patterns.
-
-### Phases
-
-1. **WebSocket Control Plane (RPC + events)**
-2. **Cron / Scheduled Tasks (DB-backed + worker)**
-3. **Browser Automation (Playwright + approvals)**
-4. **Multi-Channel Messaging (adapter framework + allowlist pairing)**
-
-### Non-Negotiables
-
-* **Security-first always** (auth, rate limits, allowlists, approvals, audit logs)
-* **Everything emits events** (so UI/WS can stay reactive)
-* **Every privileged action is auditable** (params hashed, reasons captured)
-* **No “magic background execution”**: all execution is explicit via workers/queues.
-
----
-
-## Global Campaign Guardrails (Codex Runner Rules)
-
-**Runner MUST:**
-
-* Start each TASK with **repo recon** (search for existing patterns; do not invent parallel frameworks).
-* Prefer reusing:
-
-  * existing auth (`require_api_key` / dependencies)
-  * existing event bus (`event_bus.emit_event`, `subscribe_in_memory`)
-  * existing db model conventions (SQLAlchemy + Alembic)
-* Add tests for:
-
-  * auth bypass attempts
-  * rate limit enforcement
-  * audit log completeness
-* Keep changes per task **reviewable** (avoid mega-diffs; commit boundaries are part of safety).
-
-**Definition of Done (per task):**
-
-* ✅ Code compiles / typechecks
-* ✅ Unit + integration tests added/passing
-* ✅ DB migrations run on clean DB
-* ✅ Minimal docs updated (route/WS usage + env vars)
-
----
-
-## Implementation Map
-
-### Shared “New Top-Level Modules” (target structure)
-
-* `guardian/ws/*`
-* `guardian/cron/*`
-* `guardian/browser/*`
-* `guardian/channels/*`
-* corresponding `guardian/routes/*`
-* models + migrations + tests
-
----
-
 # TASK LIST
+
+## Task artifacts
+
+* **Source of truth:** This campaign file: `docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md`
+* Each TASK has a corresponding artifact file named `TASK_2026_02_06_###_*.md`.
+* Task artifacts must reference this campaign (CAMPAIGN-ID / campaign filename) and must not point at other campaigns.
+* This campaign doc should **not** embed runnable task templates; it only describes intent/guardrails and enumerates tasks.
+
+---
 
 ## TASK-2026-02-06-001 — Recon + Design Lock
 
-**Goal:** Verify existing patterns + decide *exact integration points* before writing new subsystems.
+**Goal:** Establish design parity targets and lock the architectural approach *before* implementing the WS / cron / browser / channels phases.
 
-**Steps:**
+**Deliverables:**
 
-* Locate:
-
-  * current auth dependency for API key verification
-  * event bus entrypoints + outbox pattern
-  * how existing routes register routers / lifespan hooks
-  * test harness patterns (TestClient fixtures, db overrides)
-* Produce a short “Design Lock” note in the campaign file:
-
-  * where WS router will be registered
-  * where scheduler will start
-  * where workers live
-  * which queue mechanism exists (Redis, etc.)
+* Repo recon notes (what already exists we should reuse):
+  * auth patterns (`require_api_key` / dependencies)
+  * event bus usage (`event_bus.emit_event`, `subscribe_in_memory`)
+  * worker/queue conventions (existing workers, task registry patterns)
+  * DB conventions (SQLAlchemy + Alembic patterns)
+* A written **Design Lock** section that states:
+  * where WebSocket modules/routes live
+  * how WS auth handshake is performed
+  * how audit logging is enforced for privileged actions
+  * how cron scheduling/execution is wired (scheduler → queue/worker → events)
+  * how browser approvals + allowlists are enforced
+  * how channel adapters + pairing/allowlists are structured
+* A concrete “Do / Don’t” list to prevent parallel frameworks.
 
 **Exit Criteria:**
 
-* A concrete integration plan that references real code locations (paths + functions).
+* Task artifacts 002..016 can be implemented without ambiguity about module layout, auth strategy, and audit/event expectations.
 
 ---
 
@@ -435,4 +384,3 @@ Implement **OpenClaw-like operational breadth** (real-time control plane, schedu
 * `feat(cron): add scheduler jobs + worker execution`
 * `feat(browser): add playwright sessions + approval workflow`
 * `feat(channels): add adapter framework + slack/discord/telegram`
-
