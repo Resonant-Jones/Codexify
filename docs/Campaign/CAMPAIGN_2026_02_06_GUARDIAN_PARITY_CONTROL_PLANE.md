@@ -107,7 +107,7 @@
 
 **Mapping:**
 
-* `TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [bef02d9c, <commitB>]`
+* `TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [bef02d9c, 3dd76be1]`
 
 ---
 

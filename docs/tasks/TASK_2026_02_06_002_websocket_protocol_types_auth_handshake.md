@@ -177,7 +177,7 @@ git status --porcelain -uall
 ```
 
 ## Mapping
-- TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [<commitA>, <commitB>]
+- TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [bef02d9c, 3dd76be1]
 
 ## Notes
 - Close codes: prefer a stable, test-assertable close code for auth failure vs validation failure.
@@ -197,6 +197,6 @@ git status --porcelain -uall
 - Test results:
   - 5 passed
 - Commit A: bef02d9c
-- Commit B:
+- Commit B: 3dd76be1
 - Final mapping:
-  - TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [bef02d9c, <commitB>]
+  - TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [bef02d9c, 3dd76be1]
