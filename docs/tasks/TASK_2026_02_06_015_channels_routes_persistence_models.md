@@ -225,11 +225,33 @@ git log -1 --oneline
 In `docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md` ensure this line exists and is filled after both commits:
 
 - `TASK-2026-02-06-015_channels_routes_persistence_models -> [<commitA>, <commitB>]`
+- `TASK-2026-02-06-015_channels_routes_persistence_models -> [6b9c4bd7, <commitB>]`
 
 ## Notes / Findings
 
 (Write down discovered canonical patterns here during execution.)
-- Auth dependency used:
-- Router registration location:
-- DB/migration conventions:
-- Test DB conventions:
+- Auth dependency used: `guardian.core.dependencies.require_api_key` with router-level `dependencies=[Depends(require_api_key)]` (pattern used in `guardian/routes/cron.py` and `guardian/routes/browser.py`).
+- Router registration location: `guardian/guardian_api.py` for main app routers (identified via `app.include_router(...)` list); this task only adds `guardian/routes/channels.py` per scope.
+- DB/migration conventions: SQLAlchemy ORM models in `guardian/db/models.py`; Alembic migrations in `guardian/db/migrations/versions/*.py` with typed `revision` and `down_revision` module variables.
+- Test DB conventions: route tests create a local in-memory SQLite DB with `StaticPool` and limited table creation, then inject via route `configure_db(...)` helper (same pattern as `tests/routes/test_cron_routes.py` and `guardian/tests/realtime/test_browser_routes_ws_hooks.py`).
+
+### Commands run + outcomes
+- Commands run:
+  - `python --version`
+  - `pytest --version || true`
+  - `rg -n "include_router|APIRouter" guardian/routes || true`
+  - `rg -n "alembic|migrations/versions" guardian/db guardian || true`
+  - `rg -n "require_api_key|X-API-Key|X-User-Id|Depends\\(" guardian/routes guardian/core guardian || true`
+  - `rg -n "include_router" guardian | head`
+  - `ls -la guardian/db/migrations/versions | head`
+  - `rg -n "TestClient\\(" guardian/tests tests || true`
+  - `pytest -q guardian/tests -k "channels" || true`
+  - `pytest -q guardian/tests/test_channels_routes.py -q`
+  - `rg -n "channel_configs|channel_allowlists|channel_pairings|channel_messages" guardian/db guardian/routes/channels.py guardian/tests/test_channels_routes.py || true`
+- Outcomes:
+  - Added `channel_configs`, `channel_allowlists`, `channel_pairings`, and `channel_messages` ORM models in `guardian/db/models.py`.
+  - Added migration `guardian/db/migrations/versions/f4e7c1a2b3d4_add_channel_tables.py`.
+  - Added auth-protected user-scoped channels router `guardian/routes/channels.py` with configs/allowlist/pairings/messages endpoints.
+  - Added focused route tests in `guardian/tests/test_channels_routes.py`; targeted test run passed (`3 passed`).
+  - Broader selector `pytest -q guardian/tests -k "channels" || true` hit unrelated collection error in `guardian/tests/db/test_seed.py` (`NodeClassAlreadyDefined` in Neo model registry).
+  - Commit A created: `6b9c4bd7`.
