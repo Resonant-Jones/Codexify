@@ -194,7 +194,7 @@ Update this task artifact with:
  • final git status --porcelain -uall output
 
 Update campaign mapping line to:
- • TASK-2026-02-06-010_browser_session_manager_playwright -> [<commitA>, <commitB>]
+ • TASK-2026-02-06-010_browser_session_manager_playwright -> [78b83ad1, d2814e97]
 
 Then:
 
@@ -248,4 +248,4 @@ Notes / Guardrails
   - `guardian/tests/test_browser_allowlist.py`
 - Commit A: `78b83ad1`
 - Campaign mapping line:
-  - `TASK-2026-02-06-010_browser_session_manager_playwright -> [78b83ad1, <commitB>]`
+  - `TASK-2026-02-06-010_browser_session_manager_playwright -> [78b83ad1, d2814e97]`
