@@ -1175,3 +1175,29 @@ class CollaborationAuditLog(Base):
         Index("ix_collab_audit_user", "user_id"),
     )
     __mapper_args__ = {"eager_defaults": True}
+
+
+class WSAuditLog(Base):
+    """Audit trail for websocket RPC requests."""
+
+    __tablename__ = "ws_audit_log"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    connection_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    identity: Mapped[str | None] = mapped_column(String(255))
+    method: Mapped[str] = mapped_column(String(128), nullable=False)
+    params_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_ws_audit_connection_id", "connection_id"),
+        Index("ix_ws_audit_identity", "identity"),
+        Index("ix_ws_audit_created_at", "created_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
