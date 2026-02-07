@@ -312,7 +312,7 @@
 
 **Mapping:**
 
-* `TASK-2026-02-06-010_browser_session_manager_playwright -> [78b83ad1, <commitB>]`
+* `TASK-2026-02-06-010_browser_session_manager_playwright -> [78b83ad1, d2814e97]`
 
 ---
 
