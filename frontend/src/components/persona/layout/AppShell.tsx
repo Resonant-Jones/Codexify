@@ -490,7 +490,7 @@ export default function AppShell({}: PropsWithChildren) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.get("/media/documents", { params: { limit: 200 } });
+        const res = await api.get("/media/documents", { params: { limit: 100 } });
         const data = res?.data;
         const unwrap = (v: any): any => {
           if (!v || typeof v !== "object") return v;
