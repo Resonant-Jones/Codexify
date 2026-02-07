@@ -31,7 +31,7 @@
 # TASK-2026-02-06-004_rpc_method_registry_+_initial_methods: RPC method registry + initial methods
 
 ## TASK METADATA
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Task-ID: TASK-2026-02-06-004_rpc_method_registry_+_initial_methods
 - Title: RPC method registry + initial methods
 - Risk: MED

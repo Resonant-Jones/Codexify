@@ -1,7 +1,7 @@
 # TASK-2026-02-06-016_end_to_end_verification_script_docs — End-to-End Verification Script + Docs
 
 - **Task-ID:** TASK-2026-02-06-016_end_to_end_verification_script_docs
-- **Campaign:** CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- **Campaign:** CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - **Branch:** campaign/2026-02-06/loop-integrity-auth-and-defaults
 - **Commit mode:** two-phase (Commit A = implementation, Commit B = docs finalize + campaign mapping)
 

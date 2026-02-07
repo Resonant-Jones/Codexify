@@ -31,7 +31,7 @@ TASK-2026-02-06-011 — Browser Approval Workflow + Audit
 # TASK-2026-02-06-011_browser_approval_workflow_audit: Browser Approval Workflow + Audit
 
 - **Task-ID:** TASK-2026-02-06-011_browser_approval_workflow_audit
-- **Campaign:** CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- **Campaign:** CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - **Branch (expected):** `campaign/2026-02-06/loop-integrity-auth-and-defaults`
 - **Commit mode:** two-phase (Commit A = implementation, Commit B = docs finalize + mapping)
 
