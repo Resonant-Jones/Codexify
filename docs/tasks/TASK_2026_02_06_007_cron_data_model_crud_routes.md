@@ -261,7 +261,7 @@ git log -1 --oneline
 ## Task summary (fill during execution)
 - Branch: `campaign/2026-02-06/guardian-parity-control-plane`
 - Commit A: `46aed0cf` (`TASK-2026-02-06-007_cron_data_model_crud_routes: cron models + routes + migration`)
-- Commit B: `<commitB>`
+- Commit B: `0b163be1`
 - Files changed:
   - `guardian/routes/cron.py`
   - `guardian/cron/models.py`
