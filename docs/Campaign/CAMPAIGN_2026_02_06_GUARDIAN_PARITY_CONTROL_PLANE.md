@@ -281,7 +281,7 @@
 
 **Mapping:**
 
-* `TASK-2026-02-06-009_cron_to_task_registry_integration -> [dea42fdc, <commitB>]`
+* `TASK-2026-02-06-009_cron_to_task_registry_integration -> [dea42fdc, d3418591]`
 
 ---
 
