@@ -17,7 +17,7 @@ TASK-2026-02-06-009 — Cron ↔ Task Registry Integration
 
 - **Task-ID:** TASK-2026-02-06-009_cron_to_task_registry_integration
 - **Title:** Cron ↔ Task Registry Integration
-- **Branch:** campaign/2026-02-06/loop-integrity-auth-and-defaults
+- **Branch:** campaign/2026-02-06/guardian-parity-control-plane
 - **Commit mode:** two-phase (Commit A = implementation, Commit B = docs finalize + mapping)
 
 ## Objective
@@ -161,15 +161,25 @@ git status --porcelain -uall
 Fill these in after execution:
 
 - **Commands run + outcomes:**
-  - `...`
+  - `git status --porcelain -uall` (clean)
+  - `rg -n "class .*Task|TaskRegistry|TASK_TYPES|register_task|task_registry" guardian/tasks || true`
+  - `rg -n "Cron|cron" guardian/tasks guardian/workers guardian/scheduler guardian/core || true`
+  - `rg -n "TASK_TYPES|TaskRegistry|register_task|resolve_task" guardian/tasks || true`
+  - `ls -la guardian/tasks || true`
+  - `git diff --stat`
+  - `pytest -q -k "task_registry or cron_to_task_registry or CronExecutionTask" || true`
+  - `pytest -q guardian/tests/test_task_registry_cron_execution.py`
 - **Files changed (Commit A):**
-  - `...`
+  - `guardian/tasks/types.py`
+  - `guardian/tests/test_task_registry_cron_execution.py`
 - **Tests run:**
-  - `...`
+  - `pytest -q guardian/tests/test_task_registry_cron_execution.py` -> `2 passed`
+  - broad `-k` run produced no selected tests in this layout
 - **Result:**
-  - `...`
+  - `CronExecutionTask` registered under key `cron.execute`
+  - `task_from_dict` resolves `cron.execute` payloads to `CronExecutionTask`
 
 ## Campaign mapping line
 Update the campaign file mapping when you have hashes:
 
-- `TASK-2026-02-06-009_cron_to_task_registry_integration -> [<commitA>, <commitB>]`
+- `TASK-2026-02-06-009_cron_to_task_registry_integration -> [dea42fdc, <commitB>]`
