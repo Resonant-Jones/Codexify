@@ -1283,3 +1283,137 @@ class CronRun(Base):
         Index("ix_cron_runs_created_at", "created_at"),
     )
     __mapper_args__ = {"eager_defaults": True}
+
+
+class ChannelConfig(Base):
+    """Per-user channel adapter configuration blobs."""
+
+    __tablename__ = "channel_configs"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_json: Mapped[dict] = mapped_column(
+        JSON, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "channel",
+            name="uq_channel_configs_user_channel",
+        ),
+        Index("ix_channel_configs_user_id", "user_id"),
+        Index("ix_channel_configs_channel", "channel"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ChannelAllowlist(Base):
+    """Approved external identities for a user's channel."""
+
+    __tablename__ = "channel_allowlists"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "channel",
+            "external_id",
+            name="uq_channel_allowlists_user_channel_external",
+        ),
+        Index("ix_channel_allowlists_user_channel", "user_id", "channel"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ChannelPairing(Base):
+    """Pairing request/approval state for channel identities."""
+
+    __tablename__ = "channel_pairings"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="pending"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'revoked')",
+            name="channel_pairings_status_check",
+        ),
+        UniqueConstraint(
+            "user_id",
+            "channel",
+            "external_id",
+            name="uq_channel_pairings_user_channel_external",
+        ),
+        Index("ix_channel_pairings_user_channel", "user_id", "channel"),
+        Index("ix_channel_pairings_status", "status"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ChannelMessage(Base):
+    """Inbound/outbound channel message audit entries."""
+
+    __tablename__ = "channel_messages"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    thread_id: Mapped[str | None] = mapped_column(String(255))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    meta_json: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "direction IN ('inbound', 'outbound')",
+            name="channel_messages_direction_check",
+        ),
+        Index("ix_channel_messages_user_channel", "user_id", "channel"),
+        Index("ix_channel_messages_created_at", "created_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
