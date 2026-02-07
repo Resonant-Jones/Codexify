@@ -34,7 +34,7 @@ Frontend autosave requests omit auth headers, causing silent 401 failures.
 # TASK_2026_02_06_006_frontend_autosave_includes_auth_headers
 
 ## Metadata
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Task-ID: TASK-2026-02-06-006_frontend_autosave_includes_auth_headers
 - Risk: HIGH
 - Task artifact: docs/tasks/TASK_2026_02_06_006_frontend_autosave_includes_auth_headers.md
