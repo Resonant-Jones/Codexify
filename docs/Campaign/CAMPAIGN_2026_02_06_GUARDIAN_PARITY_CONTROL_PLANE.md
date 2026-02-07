@@ -260,6 +260,10 @@
 * manual trigger creates cron_run row
 * execution updates status + emits event
 
+**Mapping:**
+
+* `TASK-2026-02-06-008_scheduler_worker_execution -> [dacffa97, <commitB>]`
+
 ---
 
 ## TASK-2026-02-06-009 — Cron ↔ Task Registry Integration

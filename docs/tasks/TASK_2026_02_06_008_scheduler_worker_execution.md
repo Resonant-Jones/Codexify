@@ -21,7 +21,7 @@ TASK-2026-02-06-008 — Scheduler + Worker Execution
 - **Task-ID:** TASK-2026-02-06-008_scheduler_worker_execution
 - **Title:** Scheduler + Worker Execution
 - **Campaign:** CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
-- **Branch:** campaign/2026-02-06/loop-integrity-auth-and-defaults
+- **Branch:** campaign/2026-02-06/guardian-parity-control-plane
 
 ## Objective
 Implement the **actual execution path** end-to-end:
@@ -199,13 +199,27 @@ git log -1 --oneline
 ```
 
 ## Campaign mapping line (to update in campaign doc)
-- TASK-2026-02-06-008_scheduler_worker_execution -> [<commitA>, <commitB>]
+- TASK-2026-02-06-008_scheduler_worker_execution -> [dacffa97, <commitB>]
 
 ## Notes / results
 (As you execute: paste the commands run + key outputs + what changed + hashes here.)
 
 - Commands run:
+  - `git status --porcelain -uall`
+  - `ls -la guardian/cron guardian/workers || true`
+  - `rg -n "cron_job|cron_run|scheduler|APScheduler|cron_worker" guardian | head -n 200`
+  - `python -V`
+  - `pytest --version`
+  - `pytest -q guardian/tests/test_cron_scheduler_worker_execution.py`
+  - `pytest -q guardian/tests -k "cron and (scheduler or worker or execution)"`
 - Key outputs:
+  - `pytest -q guardian/tests/test_cron_scheduler_worker_execution.py` -> `2 passed`
+  - broader `-k` run hit unrelated collection error in `guardian/tests/db/test_seed.py`:
+    `neomodel.exceptions.NodeClassAlreadyDefined`
 - Summary of changes:
-- Commit A:
+  - Added `guardian/cron/scheduler.py` with due-job scan + run creation + queue enqueue + `cron.run.queued` event.
+  - Added `guardian/cron/executor.py` with deterministic `noop` and `webhook` execution behavior.
+  - Added `guardian/workers/cron_worker.py` with queued -> running -> succeeded/failed status transitions and start/success/failure events.
+  - Added `guardian/tests/test_cron_scheduler_worker_execution.py` covering scheduler enqueue path and worker execution status updates.
+- Commit A: `dacffa97`
 - Commit B:
