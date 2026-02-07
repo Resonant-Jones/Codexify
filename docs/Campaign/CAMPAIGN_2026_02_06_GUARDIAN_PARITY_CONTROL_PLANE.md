@@ -162,6 +162,10 @@
 * unknown method returns structured error
 * permission-gated method rejects
 
+**Mapping:**
+
+* `TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [39f6140e, <commitB>]`
+
 ---
 
 ## TASK-2026-02-06-005 — WS Rate Limiting + Idle Timeout
