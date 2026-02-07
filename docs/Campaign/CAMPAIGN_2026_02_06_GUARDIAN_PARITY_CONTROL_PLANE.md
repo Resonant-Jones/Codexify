@@ -344,6 +344,10 @@
 * approval transitions enforced (no double-approve)
 * audit log always written
 
+**Mapping:**
+
+* `TASK-2026-02-06-011_browser_approval_workflow_audit -> [5e486996, <commitB>]`
+
 ---
 
 ## TASK-2026-02-06-012 — Browser Routes + WS Hooks
