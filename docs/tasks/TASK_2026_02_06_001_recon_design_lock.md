@@ -151,4 +151,4 @@ git status --porcelain -uall
   - `nl -ba tests/realtime/conftest.py | sed -n '1,180p'`
   - `nl -ba guardian/tests/conftest.py | sed -n '1,140p'`
 - Final git status: only the two allowed files are modified (campaign + this task artifact).
-- Mapping: `TASK-2026-02-06-001_recon_+_design_lock -> [abc0eee9, n/a]`
+- Mapping: `TASK-2026-02-06-001_recon_+_design_lock -> [abc0eee9, abc0eee9]`
