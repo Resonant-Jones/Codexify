@@ -75,7 +75,7 @@
 * Don't bypass queue/event contracts with ad hoc background threads outside lifespan ownership.
 
 **Mapping placeholder:**
-* `TASK-2026-02-06-001_recon_+_design_lock -> [<commit>, n/a]`
+* `TASK-2026-02-06-001_recon_+_design_lock -> [abc0eee9, n/a]`
 
 ---
 
