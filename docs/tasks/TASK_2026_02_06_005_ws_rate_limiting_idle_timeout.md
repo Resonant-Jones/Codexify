@@ -147,7 +147,7 @@ git status --porcelain -uall
 
 ## Mapping
 - TASK mapping (fill after commits):
-  - TASK-2026-02-06-005_ws_rate_limiting_+_idle_timeout -> [f22b1165, <commitB>]
+  - TASK-2026-02-06-005_ws_rate_limiting_+_idle_timeout -> [f22b1165, d42bf74d]
 
 ## Notes
 - WS entrypoint for this campaign is `guardian/ws/router.py`.
@@ -177,4 +177,4 @@ git status --porcelain -uall
   - `pytest -q tests/realtime` -> pass with expected skips
   - `pytest -q tests/realtime/test_websocket_auth_handshake.py tests/realtime/test_websocket_protocol_validation.py tests/realtime/test_websocket_rpc_methods.py tests/realtime/test_ws_manager.py tests/realtime/test_ws_rate_limit.py tests/realtime/test_ws_idle_timeout.py` -> pass (13 tests)
 - Final mapping:
-  - TASK-2026-02-06-005_ws_rate_limiting_+_idle_timeout -> [f22b1165, <commitB>]
+  - TASK-2026-02-06-005_ws_rate_limiting_+_idle_timeout -> [f22b1165, d42bf74d]
