@@ -238,6 +238,10 @@
 * invalid schedule rejected
 * allowlist blocks forbidden webhook target
 
+**Mapping:**
+
+* `TASK-2026-02-06-007_cron_data_model_crud_routes -> [46aed0cf, <commitB>]`
+
 ---
 
 ## TASK-2026-02-06-008 — Scheduler + Worker Execution
