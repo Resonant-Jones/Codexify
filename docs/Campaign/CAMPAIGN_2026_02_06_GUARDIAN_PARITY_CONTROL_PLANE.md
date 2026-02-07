@@ -182,6 +182,10 @@
 * exceeding rate limit blocks calls
 * idle timeout disconnects
 
+**Mapping:**
+
+* `TASK-2026-02-06-005_ws_rate_limiting_+_idle_timeout -> [f22b1165, <commitB>]`
+
 ---
 
 ## TASK-2026-02-06-006 — WS Route + Audit Log Migration
