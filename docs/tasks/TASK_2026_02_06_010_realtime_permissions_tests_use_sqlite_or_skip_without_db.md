@@ -132,9 +132,9 @@ Summary (fill after completion)
  • Commit A
  • 3f7b9d79
  • Commit B
- • <commitB>
+ • 27d53128
  • Final mapping with real hashes
- • TASK-2026-02-06-010_realtime_permissions_tests_use_sqlite_or_skip_without_db -> [3f7b9d79, <commitB>]
+ • TASK-2026-02-06-010_realtime_permissions_tests_use_sqlite_or_skip_without_db -> [3f7b9d79, 27d53128]
 
 ---
 
@@ -169,4 +169,3 @@ git status --porcelain -uall
 
 
 ⸻
-
