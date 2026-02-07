@@ -175,7 +175,7 @@ git status --porcelain -uall
 ```
 
 ## Mapping
-- TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [39f6140e, <commitB>]
+- TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [39f6140e, f70968ea]
 
 ## Notes
 - If websocket RPC dispatch lives outside `guardian/ws/`, STOP and emit a BLOCKER_PROMPT requesting the exact additional file path(s) to add to Allowed files.
@@ -192,6 +192,6 @@ git status --porcelain -uall
 - Tests:
   - WS targeted suite green (`7 passed`).
 - Commit A: 39f6140e
-- Commit B:
+- Commit B: f70968ea
 - Final mapping:
-  - TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [39f6140e, <commitB>]
+  - TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [39f6140e, f70968ea]
