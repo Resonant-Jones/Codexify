@@ -205,6 +205,10 @@
 * successful call writes audit row
 * failed call writes audit row (status=error)
 
+**Mapping:**
+
+* `TASK-2026-02-06-006_ws_route_audit_log_migration -> [55cf078d, <commitB>]`
+
 ---
 
 ## TASK-2026-02-06-007 — Cron Data Model + CRUD Routes
