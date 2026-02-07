@@ -295,7 +295,7 @@ def memory_update(
     existing = _get_memory_optional(entry_id)
     if existing is not None and existing.get("user_id") != current_user:
         return JSONResponse(
-            status_code=403, content={"ok": False, "error": "forbidden"}
+            status_code=404, content={"ok": False, "error": "not found"}
         )
     chatlog_db.update_memory(
         entry_id,
@@ -354,7 +354,7 @@ def memory_delete(
     existing = _get_memory_optional(entry_id)
     if existing is not None and existing.get("user_id") != current_user:
         return JSONResponse(
-            status_code=403, content={"ok": False, "error": "forbidden"}
+            status_code=404, content={"ok": False, "error": "not found"}
         )
     chatlog_db.delete_memory(entry_id)
     chatlog_db.write_audit_log(

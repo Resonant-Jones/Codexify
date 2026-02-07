@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import api from "@/lib/api";
 
 type PresenceUser = {
   user_id: string;
@@ -47,6 +48,7 @@ export function CollaborativeNote({
   const [activeUsers, setActiveUsers] = useState<PresenceUser[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [lastAutosave, setLastAutosave] = useState<Date | null>(null);
+  const [autosaveError, setAutosaveError] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<UserPermissions | null>(null);
   const [auditHistory, setAuditHistory] = useState<AuditLogEntry[]>([]);
   const [showAuditTrail, setShowAuditTrail] = useState(false);
@@ -191,20 +193,30 @@ export function CollaborativeNote({
   useEffect(() => {
     autosaveTimer.current = setInterval(async () => {
       try {
-        const response = await fetch("/api/documents/autosave", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        await api.post(
+          "/documents/autosave",
+          {
             thread_id: threadId,
             content,
-          }),
-        });
-
-        if (response.ok) {
-          setLastAutosave(new Date());
-        }
+          },
+          authToken
+            ? {
+                headers: {
+                  Authorization: `Bearer ${authToken}`,
+                },
+              }
+            : undefined
+        );
+        setLastAutosave(new Date());
+        setAutosaveError(null);
       } catch (error) {
         console.error("Autosave failed:", error);
+        const status = (
+          error as { response?: { status?: number } } | undefined
+        )?.response?.status;
+        setAutosaveError(
+          status ? `Autosave failed (${status})` : "Autosave failed"
+        );
       }
     }, 15000); // 15 seconds
 
@@ -213,7 +225,7 @@ export function CollaborativeNote({
         clearInterval(autosaveTimer.current);
       }
     };
-  }, [content, threadId]);
+  }, [content, threadId, authToken]);
 
   // Handle local changes
   const handleChange = (value: string) => {
@@ -367,6 +379,17 @@ export function CollaborativeNote({
               }}
             >
               Saved {Math.round((Date.now() - lastAutosave.getTime()) / 1000)}s ago
+            </span>
+          )}
+          {autosaveError && (
+            <span
+              style={{
+                fontSize: 11,
+                color: "#ef4444",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {autosaveError}
             </span>
           )}
 

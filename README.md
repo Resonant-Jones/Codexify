@@ -256,6 +256,7 @@ pnpm --dir frontend/src dev
 - `ALLOW_CLOUD_PROVIDERS=true` + `OPENAI_API_KEY` or `GROQ_API_KEY`
 - `CODEXIFY_VECTOR_STORE=chroma|faiss`
 - `CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1` (allow mock embeddings fallback and `/api/embeddings` dummy mode)
+- `EMBEDDING_BACKEND=dummy|gpt_oss|nomic` (`stub` is accepted as an alias for `dummy`)
 - `GUARDIAN_ENABLE_GRAPH_CONTEXT=true` / `GUARDIAN_ENABLE_GRAPH_LOGGING=true`
 - `ENABLE_CONNECTOR_WORKER=true` (and provider tokens like `GITHUB_TOKEN`)
 - `IMAGE_GEN_PROVIDER` + `IMAGE_GEN_MODEL` (image generation)
