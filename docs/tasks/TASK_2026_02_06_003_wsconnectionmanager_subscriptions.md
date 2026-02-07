@@ -157,7 +157,7 @@ git status --porcelain -uall
 
 ## Mapping
 - Campaign mapping line format (EXACT):
-  - `TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [6f7f2404, <commitB>]`
+  - `TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [6f7f2404, f2452481]`
 
 ## Notes
 - Filename contains a `+` which is non-canonical. Do **not** rename during implementation unless explicitly allowed by campaign/task scope. If you want to normalize it, do it as a docs-only task using `git mv`.
@@ -177,4 +177,4 @@ git status --porcelain -uall
 - Test results:
   - `pytest -q tests/realtime/test_ws_manager.py` -> 4 passed
 - Final mapping:
-  - TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [6f7f2404, <commitB>]
+  - TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [6f7f2404, f2452481]
