@@ -198,15 +198,24 @@ git log -1 --oneline
 
 Update the campaign mapping line to:
 
-- `TASK-2026-02-06-012_browser_routes_ws_hooks -> [<commitA>, <commitB>]`
+- `TASK-2026-02-06-012_browser_routes_ws_hooks -> [4b32590b, <commitB>]`
 
 ---
 
 ## Commands run + outcomes (fill during execution)
 
 - Commands run:
-  - _tbd_
+  - `git status --porcelain -uall`
+  - `rg -n "include_router\\(" guardian | head -n 50`
+  - `rg -n "websocket|WebSocket|ws\\b|subscribe|broadcast|event" guardian/realtime guardian/routes guardian/core || true`
+  - `rg -n "approval|approve|denied|decision" guardian || true`
+  - `pytest -q guardian/tests -k "browser or approval or realtime or websocket" || true`
+  - `pytest -q guardian/tests/realtime/test_browser_routes_ws_hooks.py`
 - Results:
-  - _tbd_
+  - Added browser approval request/session endpoints in `guardian/routes/browser.py`.
+  - Wired event emissions for `browser.approval.requested`, `browser.approval.decided`, and `browser.session.updated`.
+  - Added tests in `guardian/tests/realtime/test_browser_routes_ws_hooks.py`; targeted test file passed (`3 passed`).
+  - Broad test selector hit an unrelated collection error in `guardian/tests/db/test_seed.py` (`NodeClassAlreadyDefined` between `guardian.db.neo` and `guardian.graph.models`).
+  - Commit A created: `4b32590b`.
 - Notes / deviations:
-  - _tbd_
+  - `guardian/guardian_api.py` router registration was not changed in this task because it is outside the strict allowed-file list.

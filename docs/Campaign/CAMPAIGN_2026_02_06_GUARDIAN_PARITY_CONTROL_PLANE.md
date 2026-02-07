@@ -367,6 +367,10 @@
 
 * event emission on approval requested/decided
 
+**Mapping:**
+
+* `TASK-2026-02-06-012_browser_routes_ws_hooks -> [4b32590b, <commitB>]`
+
 ---
 
 ## TASK-2026-02-06-013 — Channel Adapter Framework + Registry
