@@ -421,7 +421,7 @@
 
 **Mapping:**
 
-* `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [966879e0, <commitB>]`
+* `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [966879e0, 049461bc]`
 
 ---
 

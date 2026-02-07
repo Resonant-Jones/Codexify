@@ -195,7 +195,7 @@ git log -1 --oneline
 
 ## Campaign mapping line
 Add/update in the campaign file when hashes are known:
-- `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [966879e0, <commitB>]`
+- `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [966879e0, 049461bc]`
 
 ## Notes / results
 ### Commands run
@@ -228,9 +228,10 @@ Add/update in the campaign file when hashes are known:
   - router outbound test: pass
   - `pytest -q guardian/tests/channels -q`: `10 passed`
 - Commit A created: `966879e0`
+- Commit B created: `049461bc`
 
 ### Deviations
 - None.
 
 ### Final mapping
-- `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [966879e0, <commitB>]`
+- `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [966879e0, 049461bc]`
