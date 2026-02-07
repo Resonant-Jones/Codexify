@@ -1,5 +1,6 @@
 """Tests for collaboration permissions, token auth, and audit logging."""
 
+import os
 import hashlib
 from datetime import datetime
 
@@ -13,6 +14,11 @@ from tests.realtime.conftest import (
     CollaborationAuditLog,
     CollaborationPermission,
     SharedLink,
+)
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("TEST_DATABASE_URL"),
+    reason="Postgres not configured for realtime permission tests (set TEST_DATABASE_URL)",
 )
 
 

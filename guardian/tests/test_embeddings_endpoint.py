@@ -57,3 +57,19 @@ def test_embeddings_endpoint_allows_dummy_fallback(client, monkeypatch):
     assert data["model"] is None
     assert isinstance(data["vectors"], list)
     assert len(data["vectors"]) == 1
+
+
+def test_embeddings_endpoint_allows_stub_alias(client, monkeypatch):
+    monkeypatch.delenv("CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK", raising=False)
+    monkeypatch.delenv("CODEXIFY_EMBEDDINGS_BACKEND", raising=False)
+    monkeypatch.setenv("EMBEDDING_BACKEND", "stub")
+    monkeypatch.delenv("EMBEDDER", raising=False)
+    payload = {"texts": ["hello embeddings"]}
+    response = client.post(
+        "/api/embeddings",
+        headers={"X-API-Key": VALID_KEY},
+        json=payload,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["provider"] == "dummy"
