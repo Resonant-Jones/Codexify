@@ -33,6 +33,50 @@
 
 * Task artifacts 002..016 can be implemented without ambiguity about module layout, auth strategy, and audit/event expectations.
 
+### Design Lock (Task 001 Recon Output)
+
+**Auth entrypoints (reuse, do not fork):**
+* API key verification lives in `guardian/core/dependencies.py` via `verify_api_key()` and `require_api_key()`.
+* App startup hard-fails if `GUARDIAN_API_KEY` is missing in `guardian/guardian_api.py`.
+* Route auth should continue to use `Depends(require_api_key)` and/or router-level dependencies.
+
+**Router registration pattern:**
+* Central registration is in `guardian/guardian_api.py` under the Router Inclusion block (`app.include_router(...)`).
+* New control-plane routers must be registered there; do not add secondary app instances.
+
+**Lifespan and startup wiring:**
+* Startup/shutdown wiring is centralized in `guardian/guardian_api.py` via `app_lifespan()` (`@asynccontextmanager`).
+* Background worker lifecycle follows the existing `_CONNECTOR_WORKER_STOP` and `_CONNECTOR_WORKER_TASK` pattern in that lifespan function.
+* Scheduler baseline exists at `guardian/runtime/tools/scheduler.py` (`scheduler = _GuardianScheduler()` facade).
+
+**Queue/outbox/worker conventions to preserve:**
+* Durable/in-memory event fanout is `guardian/core/event_bus.py` (`emit_event()`, `subscribe_in_memory()`, `configure_event_store()`).
+* Redis queue primitives are in `guardian/queue/redis_queue.py` (`enqueue()`, `dequeue()`, `enqueue_chat_embed()`).
+* Worker entrypoints are module-based under `guardian/workers/` and executed as `python -m guardian.workers.<worker_name>`, mirrored in `docker-compose.yml` services (`worker-chat`, `worker-document-embed`, `worker-chat-embed`, etc.).
+* Existing typed task registry is `guardian/tasks/types.py` (`TASK_TYPE_REGISTRY`, `task_from_dict`); extend this instead of creating a second registry.
+
+**Audit expectations for privileged paths:**
+* Existing audit trail writers are used directly in routes and workers (`chatlog_db.write_audit_log(...)`) and modeled in `guardian/db/models.py` (`AuditLog`, `CollaborationAuditLog`).
+* Existing websocket/audit behavior exists in `guardian/realtime/collaboration.py`; new control-plane websocket flows should follow the same "authorize -> audit -> emit" ordering.
+
+**WebSocket/Cron/Browser/Channels module layout lock:**
+* Keep planned control-plane modules in dedicated namespaces:
+  * WS: `guardian/ws/*` plus route at `guardian/routes/websocket.py`.
+  * Cron: `guardian/cron/*` plus route at `guardian/routes/cron.py`.
+  * Browser: `guardian/browser/*` plus route at `guardian/routes/browser.py`.
+  * Channels: `guardian/channels/*` plus route at `guardian/routes/channels.py`.
+* No conflicting files currently exist under `guardian/ws`, `guardian/cron`, `guardian/browser`, or `guardian/channels`; this avoids collisions with legacy modules.
+
+**Do / Don't guardrails:**
+* Do reuse: `require_api_key`, `app_lifespan`, `event_bus.emit_event/subscribe_in_memory`, `redis_queue.enqueue/dequeue`, and `TASK_TYPE_REGISTRY`.
+* Do place all new router registration in `guardian/guardian_api.py`.
+* Don't add a parallel auth dependency implementation for websocket/cron/browser/channels.
+* Don't introduce a second scheduler abstraction when `guardian/runtime/tools/scheduler.py` can be wrapped.
+* Don't bypass queue/event contracts with ad hoc background threads outside lifespan ownership.
+
+**Mapping placeholder:**
+* `TASK-2026-02-06-001_recon_+_design_lock -> [<commit>, n/a]`
+
 ---
 
 ## TASK-2026-02-06-002 — WebSocket Protocol Types + Auth Handshake

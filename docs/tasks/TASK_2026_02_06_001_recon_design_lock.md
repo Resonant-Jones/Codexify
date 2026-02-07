@@ -129,12 +129,26 @@ git status --porcelain -uall
 
 ## Summary (fill after completion)
 - Findings (paths + symbols):
-  - Auth dependency:
-  - Router registration:
-  - Lifespan/startup:
-  - Queue/workers:
-  - Tests:
+  - Auth dependency: `guardian/core/dependencies.py` -> `verify_api_key()`, `require_api_key()`; startup key guard in `guardian/guardian_api.py`.
+  - Router registration: `guardian/guardian_api.py` -> centralized `app.include_router(...)` block for all route modules.
+  - Lifespan/startup: `guardian/guardian_api.py` -> `app_lifespan()` manages startup/shutdown, connector worker start/stop, and service binding.
+  - Queue/workers: `guardian/core/event_bus.py` (`emit_event`, `subscribe_in_memory`), `guardian/queue/redis_queue.py` (`enqueue`, `dequeue`, `enqueue_chat_embed`), `guardian/tasks/types.py` (`TASK_TYPE_REGISTRY`), `guardian/workers/*` entrypoints + `docker-compose.yml` worker services.
+  - Tests: `tests/routes/conftest.py` (`test_client` fixture with `dependency_overrides`), `tests/realtime/conftest.py` (`db_engine`/`db_session` skip-or-run DB fixtures), `guardian/tests/conftest.py` (`_PatchedTestClient` fixture pattern).
 - Commands run:
-- Final git status:
-- Mapping:
-```
+  - `git status --porcelain -uall`
+  - `rg -n "require_api_key|X-API-Key|GUARDIAN_API_KEY" guardian/core guardian/routes guardian/guardian_api.py -S`
+  - `rg -n "include_router\\(|APIRouter\\(" guardian/guardian_api.py guardian/routes -S`
+  - `rg -n "lifespan|startup|on_event\\(\"startup\"\\)|@app\\.on_event|asynccontextmanager" guardian -S`
+  - `rg -n "redis_queue|enqueue|outbox|worker|document_embed_worker|chat_embedding_worker" guardian docker-compose.yml -S`
+  - `rg -n "TestClient\\(|fixture\\(|monkeypatch|dependency_overrides|override" tests guardian/tests -S`
+  - `rg --files guardian | rg '^guardian/(ws|cron|browser|channels)/'`
+  - `nl -ba guardian/core/dependencies.py | sed -n '108,230p'`
+  - `nl -ba guardian/guardian_api.py | sed -n '150,280p'`
+  - `nl -ba guardian/guardian_api.py | sed -n '420,490p'`
+  - `nl -ba guardian/core/event_bus.py | sed -n '1,140p'`
+  - `nl -ba guardian/queue/redis_queue.py | sed -n '150,250p'`
+  - `nl -ba tests/routes/conftest.py | sed -n '150,240p'`
+  - `nl -ba tests/realtime/conftest.py | sed -n '1,180p'`
+  - `nl -ba guardian/tests/conftest.py | sed -n '1,140p'`
+- Final git status: only the two allowed files are modified (campaign + this task artifact).
+- Mapping: `TASK-2026-02-06-001_recon_+_design_lock -> [<commit>, n/a]`
