@@ -2,7 +2,7 @@
 ## Metadata
 
 - Task-ID: TASK-2026-02-06-007_frontend_share_create_includes_auth_headers
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Branch: campaign/2026-02-06/loop-integrity-auth-and-defaults
 - Task artifact: docs/tasks/TASK_2026_02_06_007_frontend_share_create_includes_auth_headers.md
 - Owner: resonant_jones

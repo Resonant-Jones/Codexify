@@ -32,7 +32,7 @@ TASK-2026-02-06-007 — Cron Data Model + CRUD Routes
 ## Objective
 Implement a **DB-backed cron/scheduler subsystem** with minimal CRUD + run history, wired behind authenticated API routes.
 
-This task is part of **CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS** and must follow Runner_Protocol deterministic execution.
+This task is part of **CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE** and must follow Runner_Protocol deterministic execution.
 
 ## Background / Rationale
 We want first-class scheduled jobs ("cron jobs") in Codexify/Guardian so workflows can be persisted, audited, and executed by workers.

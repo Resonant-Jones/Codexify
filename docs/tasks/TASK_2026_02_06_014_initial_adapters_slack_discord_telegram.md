@@ -23,7 +23,7 @@ TASK-2026-02-06-014 — Initial Adapters (Slack, Discord, Telegram)
 
 - Task-ID: TASK-2026-02-06-014_initial_adapters_slack_discord_telegram
 - Title: Initial adapters (Slack, Discord, Telegram)
-- Campaign: CAMPAIGN-2026-02-06-GUARDIAN-PARITY-CONTROL-PLANE
+- Campaign: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Commit mode: two-phase (Commit A = implementation, Commit B = docs finalize + mapping)
 
 ## Objective

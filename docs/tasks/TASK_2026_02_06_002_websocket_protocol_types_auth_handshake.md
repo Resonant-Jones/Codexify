@@ -29,7 +29,7 @@
 # TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake
 
 ## TASK METADATA
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Task-ID: TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake
 - Title: WebSocket protocol types + auth handshake
 - Task artifact: docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_and_auth_handshake.md
@@ -61,8 +61,7 @@ Introduce a minimal, validated WebSocket message framing layer and a determinist
 - tests/realtime/test_websocket_auth_handshake.py
 - tests/realtime/test_websocket_protocol_validation.py
 - docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_and_auth_handshake.md
-- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
-
+- docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 ## Dependencies / Prereqs (NO GUESSING)
 Run these first and capture outputs in the Summary if anything is surprising.
 
@@ -123,7 +122,7 @@ git restore --staged --worktree \
   tests/realtime/test_websocket_auth_handshake.py \
   tests/realtime/test_websocket_protocol_validation.py \
   docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_and_auth_handshake.md \
-  docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+  docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 git status --porcelain -uall
 ```
@@ -168,7 +167,7 @@ git status --porcelain -uall
 
 git add \
   docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_and_auth_handshake.md \
-  docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+  docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 git commit --no-verify -m "TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake: docs finalize + mapping"
 

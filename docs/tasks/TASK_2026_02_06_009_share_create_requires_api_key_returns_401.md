@@ -33,7 +33,7 @@ Test expects `/api/share` to return 401 without API key, but current behavior re
 
 ## Metadata
 - Task-ID: TASK-2026-02-06-009_share_create_requires_api_key_returns_401
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Task artifact: docs/tasks/TASK_2026_02_06_009_share_create_requires_api_key_returns_401.md
 - Owner: resonant_jones
 - Risk: HIGH

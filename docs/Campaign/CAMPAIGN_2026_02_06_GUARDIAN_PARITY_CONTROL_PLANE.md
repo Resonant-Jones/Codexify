@@ -1,88 +1,81 @@
-# CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
-
-## Campaign Intent
-
-Implement **OpenClaw-like operational breadth** (real-time control plane, scheduling, browser automation, multi-channel messaging) as **native Codexify features** behind the Guardian surface — **no OpenClaw dependency**, only patterns.
-
-### Phases
-
-1. **WebSocket Control Plane (RPC + events)**
-2. **Cron / Scheduled Tasks (DB-backed + worker)**
-3. **Browser Automation (Playwright + approvals)**
-4. **Multi-Channel Messaging (adapter framework + allowlist pairing)**
-
-### Non-Negotiables
-
-* **Security-first always** (auth, rate limits, allowlists, approvals, audit logs)
-* **Everything emits events** (so UI/WS can stay reactive)
-* **Every privileged action is auditable** (params hashed, reasons captured)
-* **No “magic background execution”**: all execution is explicit via workers/queues.
-
----
-
-## Global Campaign Guardrails (Codex Runner Rules)
-
-**Runner MUST:**
-
-* Start each TASK with **repo recon** (search for existing patterns; do not invent parallel frameworks).
-* Prefer reusing:
-
-  * existing auth (`require_api_key` / dependencies)
-  * existing event bus (`event_bus.emit_event`, `subscribe_in_memory`)
-  * existing db model conventions (SQLAlchemy + Alembic)
-* Add tests for:
-
-  * auth bypass attempts
-  * rate limit enforcement
-  * audit log completeness
-* Keep changes per task **reviewable** (avoid mega-diffs; commit boundaries are part of safety).
-
-**Definition of Done (per task):**
-
-* ✅ Code compiles / typechecks
-* ✅ Unit + integration tests added/passing
-* ✅ DB migrations run on clean DB
-* ✅ Minimal docs updated (route/WS usage + env vars)
-
----
-
-## Implementation Map
-
-### Shared “New Top-Level Modules” (target structure)
-
-* `guardian/ws/*`
-* `guardian/cron/*`
-* `guardian/browser/*`
-* `guardian/channels/*`
-* corresponding `guardian/routes/*`
-* models + migrations + tests
-
----
-
 # TASK LIST
+
+## Task artifacts
+
+* **Source of truth:** This campaign file: `docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md`
+* Each TASK has a corresponding artifact file named `TASK_2026_02_06_###_*.md`.
+* Task artifacts must reference this campaign (CAMPAIGN-ID / campaign filename) and must not point at other campaigns.
+* This campaign doc should **not** embed runnable task templates; it only describes intent/guardrails and enumerates tasks.
+
+---
 
 ## TASK-2026-02-06-001 — Recon + Design Lock
 
-**Goal:** Verify existing patterns + decide *exact integration points* before writing new subsystems.
+**Goal:** Establish design parity targets and lock the architectural approach *before* implementing the WS / cron / browser / channels phases.
 
-**Steps:**
+**Deliverables:**
 
-* Locate:
-
-  * current auth dependency for API key verification
-  * event bus entrypoints + outbox pattern
-  * how existing routes register routers / lifespan hooks
-  * test harness patterns (TestClient fixtures, db overrides)
-* Produce a short “Design Lock” note in the campaign file:
-
-  * where WS router will be registered
-  * where scheduler will start
-  * where workers live
-  * which queue mechanism exists (Redis, etc.)
+* Repo recon notes (what already exists we should reuse):
+  * auth patterns (`require_api_key` / dependencies)
+  * event bus usage (`event_bus.emit_event`, `subscribe_in_memory`)
+  * worker/queue conventions (existing workers, task registry patterns)
+  * DB conventions (SQLAlchemy + Alembic patterns)
+* A written **Design Lock** section that states:
+  * where WebSocket modules/routes live
+  * how WS auth handshake is performed
+  * how audit logging is enforced for privileged actions
+  * how cron scheduling/execution is wired (scheduler → queue/worker → events)
+  * how browser approvals + allowlists are enforced
+  * how channel adapters + pairing/allowlists are structured
+* A concrete “Do / Don’t” list to prevent parallel frameworks.
 
 **Exit Criteria:**
 
-* A concrete integration plan that references real code locations (paths + functions).
+* Task artifacts 002..016 can be implemented without ambiguity about module layout, auth strategy, and audit/event expectations.
+
+### Design Lock (Task 001 Recon Output)
+
+**Auth entrypoints (reuse, do not fork):**
+* API key verification lives in `guardian/core/dependencies.py` via `verify_api_key()` and `require_api_key()`.
+* App startup hard-fails if `GUARDIAN_API_KEY` is missing in `guardian/guardian_api.py`.
+* Route auth should continue to use `Depends(require_api_key)` and/or router-level dependencies.
+
+**Router registration pattern:**
+* Central registration is in `guardian/guardian_api.py` under the Router Inclusion block (`app.include_router(...)`).
+* New control-plane routers must be registered there; do not add secondary app instances.
+
+**Lifespan and startup wiring:**
+* Startup/shutdown wiring is centralized in `guardian/guardian_api.py` via `app_lifespan()` (`@asynccontextmanager`).
+* Background worker lifecycle follows the existing `_CONNECTOR_WORKER_STOP` and `_CONNECTOR_WORKER_TASK` pattern in that lifespan function.
+* Scheduler baseline exists at `guardian/runtime/tools/scheduler.py` (`scheduler = _GuardianScheduler()` facade).
+
+**Queue/outbox/worker conventions to preserve:**
+* Durable/in-memory event fanout is `guardian/core/event_bus.py` (`emit_event()`, `subscribe_in_memory()`, `configure_event_store()`).
+* Redis queue primitives are in `guardian/queue/redis_queue.py` (`enqueue()`, `dequeue()`, `enqueue_chat_embed()`).
+* Worker entrypoints are module-based under `guardian/workers/` and executed as `python -m guardian.workers.<worker_name>`, mirrored in `docker-compose.yml` services (`worker-chat`, `worker-document-embed`, `worker-chat-embed`, etc.).
+* Existing typed task registry is `guardian/tasks/types.py` (`TASK_TYPE_REGISTRY`, `task_from_dict`); extend this instead of creating a second registry.
+
+**Audit expectations for privileged paths:**
+* Existing audit trail writers are used directly in routes and workers (`chatlog_db.write_audit_log(...)`) and modeled in `guardian/db/models.py` (`AuditLog`, `CollaborationAuditLog`).
+* Existing websocket/audit behavior exists in `guardian/realtime/collaboration.py`; new control-plane websocket flows should follow the same "authorize -> audit -> emit" ordering.
+
+**WebSocket/Cron/Browser/Channels module layout lock:**
+* Keep planned control-plane modules in dedicated namespaces:
+  * WS: `guardian/ws/*` plus route at `guardian/routes/websocket.py`.
+  * Cron: `guardian/cron/*` plus route at `guardian/routes/cron.py`.
+  * Browser: `guardian/browser/*` plus route at `guardian/routes/browser.py`.
+  * Channels: `guardian/channels/*` plus route at `guardian/routes/channels.py`.
+* No conflicting files currently exist under `guardian/ws`, `guardian/cron`, `guardian/browser`, or `guardian/channels`; this avoids collisions with legacy modules.
+
+**Do / Don't guardrails:**
+* Do reuse: `require_api_key`, `app_lifespan`, `event_bus.emit_event/subscribe_in_memory`, `redis_queue.enqueue/dequeue`, and `TASK_TYPE_REGISTRY`.
+* Do place all new router registration in `guardian/guardian_api.py`.
+* Don't add a parallel auth dependency implementation for websocket/cron/browser/channels.
+* Don't introduce a second scheduler abstraction when `guardian/runtime/tools/scheduler.py` can be wrapped.
+* Don't bypass queue/event contracts with ad hoc background threads outside lifespan ownership.
+
+**Mapping placeholder:**
+* `TASK-2026-02-06-001_recon_+_design_lock -> [<commit>, n/a]`
 
 ---
 
@@ -435,4 +428,3 @@ Implement **OpenClaw-like operational breadth** (real-time control plane, schedu
 * `feat(cron): add scheduler jobs + worker execution`
 * `feat(browser): add playwright sessions + approval workflow`
 * `feat(channels): add adapter framework + slack/discord/telegram`
-
