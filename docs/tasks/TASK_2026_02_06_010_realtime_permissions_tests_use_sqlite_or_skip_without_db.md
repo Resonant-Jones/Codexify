@@ -121,8 +121,20 @@ Mapping
 
 Summary (fill after completion)
  • What changed
+ • Added a module-level `pytest.skipif` guard in `tests/realtime/test_collaboration_permissions.py` to skip realtime permission tests when `TEST_DATABASE_URL` is not set, avoiding Postgres host `OperationalError`.
  • Commands run + results
+ • `python --version` => Python 3.13.9
+ • `python -c "import sqlalchemy; print('sqlalchemy ok')"` => ModuleNotFoundError (system python)
+ • `python -c "import psycopg; print('psycopg ok')"` => ModuleNotFoundError (system python)
+ • `venv/bin/python -m pytest -q tests/realtime/test_collaboration_permissions.py -q` => skipped (no OperationalError)
+ • `pytest -q tests/realtime/test_collaboration_permissions.py -q` => skipped
+ • `git status --porcelain -uall` => only `tests/realtime/test_collaboration_permissions.py` before Commit A
+ • Commit A
+ • 3f7b9d79
+ • Commit B
+ • <commitB>
  • Final mapping with real hashes
+ • TASK-2026-02-06-010_realtime_permissions_tests_use_sqlite_or_skip_without_db -> [3f7b9d79, <commitB>]
 
 ---
 
@@ -157,5 +169,4 @@ git status --porcelain -uall
 
 
 ⸻
-
 
