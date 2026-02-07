@@ -129,6 +129,10 @@
 * subscribe/unsubscribe correctness
 * broadcast routes to correct clients only
 
+**Mapping:**
+
+* `TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [6f7f2404, <commitB>]`
+
 ---
 
 ## TASK-2026-02-06-004 — RPC Method Registry + Initial Methods
