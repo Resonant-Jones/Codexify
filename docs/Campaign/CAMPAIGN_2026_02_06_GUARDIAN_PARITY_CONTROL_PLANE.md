@@ -476,6 +476,10 @@
 * Alembic upgrade head works on clean DB
 * A human can follow the docs and reproduce the flow
 
+**Mapping:**
+
+* `TASK-2026-02-06-016_end_to_end_verification_script_docs -> [f3e1f3af, <commitB>]`
+
 ---
 
 ## Suggested Commit Message Rhythm (per phase)
