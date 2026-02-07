@@ -2,7 +2,7 @@
 
 ## TASK METADATA
 
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Task-ID: TASK-2026-02-06-010_realtime_permissions_tests_use_sqlite_or_skip_without_db
 - Risk: MED
 - Task artifact: docs/tasks/TASK_2026_02_06_010_realtime_permissions_tests_use_sqlite_or_skip_without_db.md

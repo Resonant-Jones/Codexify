@@ -1,7 +1,7 @@
 # TASK-2026-02-06-003_wsconnectionmanager_subscriptions: WSConnectionManager + Subscriptions
 
 ## TASK METADATA
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Task-ID: TASK-2026-02-06-003_wsconnectionmanager_subscriptions
 - Title: WSConnectionManager + subscriptions (central registry + topic pub/sub)
 - Task artifact (current): docs/tasks/TASK_2026_02_06_003_wsconnectionmanager_subscriptions.md

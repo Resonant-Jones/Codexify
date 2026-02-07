@@ -33,7 +33,7 @@ Current behavior returns 403, leaking existence.
 # TASK_2026_02_06_008_memory_routes_return_404_on_cross_user_access
 
 ## Metadata
-- Campaign-ID: CAMPAIGN-2026-02-06-LOOP_INTEGRITY_AUTH_AND_DEFAULTS
+- Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Task-ID: TASK-2026-02-06-008_memory_routes_return_404_on_cross_user_access
 - Risk: HIGH
 - Branch: campaign/2026-02-06/loop-integrity-auth-and-defaults
