@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from guardian.core.config import settings
 from guardian.ws.auth import (
     VALIDATION_FAILURE_CLOSE_CODE,
     WSAuthError,
@@ -23,13 +25,21 @@ from guardian.ws.protocol import (
     error_response,
     parse_request_frame,
 )
+from guardian.ws.rate_limiter import TokenBucketRateLimiter
 
 logger = logging.getLogger(__name__)
 
 PAYLOAD_TOO_LARGE_CLOSE_CODE = 4409
+IDLE_TIMEOUT_CLOSE_CODE = 4408
+MAX_CONNECTIONS_CLOSE_CODE = 4429
 
 router = APIRouter(prefix="/api/ws", tags=["WebSocket"])
 manager = WSConnectionManager()
+rate_limiter = TokenBucketRateLimiter(
+    capacity=settings.WS_RPC_RATE_LIMIT_CAPACITY,
+    refill_per_second=settings.WS_RPC_RATE_LIMIT_REFILL_PER_SECOND,
+    namespace=settings.WS_RPC_RATE_LIMIT_NAMESPACE,
+)
 
 
 @router.websocket("/rpc")
@@ -44,7 +54,17 @@ async def websocket_rpc(websocket: WebSocket) -> None:
         await websocket.close(code=exc.code, reason=exc.reason)
         return
 
+    if settings.WS_RPC_MAX_CONNECTIONS > 0:
+        if manager.connection_count() >= settings.WS_RPC_MAX_CONNECTIONS:
+            await websocket.close(
+                code=MAX_CONNECTIONS_CLOSE_CODE,
+                reason="max_connections_exceeded",
+            )
+            return
+
     await manager.register(websocket)
+    rate_limit_key = f"api_key:{api_key}" if api_key else f"connection:{id(websocket)}"
+    idle_timeout_seconds = max(0.0, float(settings.WS_RPC_IDLE_TIMEOUT_SECONDS))
     ctx = {
         "connection": websocket,
         "manager": manager,
@@ -53,7 +73,19 @@ async def websocket_rpc(websocket: WebSocket) -> None:
     try:
         while True:
             try:
-                raw = await websocket.receive_text()
+                if idle_timeout_seconds > 0:
+                    raw = await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=idle_timeout_seconds,
+                    )
+                else:
+                    raw = await websocket.receive_text()
+            except asyncio.TimeoutError:
+                await websocket.close(
+                    code=IDLE_TIMEOUT_CLOSE_CODE,
+                    reason="idle_timeout",
+                )
+                return
             except WebSocketDisconnect:
                 return
 
@@ -71,6 +103,26 @@ async def websocket_rpc(websocket: WebSocket) -> None:
                     reason="invalid_request_frame",
                 )
                 return
+
+            decision = await rate_limiter.allow(rate_limit_key)
+            if not decision.allowed:
+                error = {
+                    "code": "rate_limited",
+                    "message": "rate limit exceeded",
+                }
+                if decision.retry_after_seconds is not None:
+                    error["retry_after_seconds"] = round(
+                        decision.retry_after_seconds, 4
+                    )
+                await websocket.send_json(
+                    {
+                        "type": "response",
+                        "id": request.id,
+                        "result": None,
+                        "error": error,
+                    }
+                )
+                continue
 
             try:
                 result = await dispatch_rpc_method(
