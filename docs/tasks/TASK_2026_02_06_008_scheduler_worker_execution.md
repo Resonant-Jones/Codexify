@@ -199,7 +199,7 @@ git log -1 --oneline
 ```
 
 ## Campaign mapping line (to update in campaign doc)
-- TASK-2026-02-06-008_scheduler_worker_execution -> [dacffa97, <commitB>]
+- TASK-2026-02-06-008_scheduler_worker_execution -> [dacffa97, 663ba791]
 
 ## Notes / results
 (As you execute: paste the commands run + key outputs + what changed + hashes here.)
@@ -222,4 +222,4 @@ git log -1 --oneline
   - Added `guardian/workers/cron_worker.py` with queued -> running -> succeeded/failed status transitions and start/success/failure events.
   - Added `guardian/tests/test_cron_scheduler_worker_execution.py` covering scheduler enqueue path and worker execution status updates.
 - Commit A: `dacffa97`
-- Commit B:
+- Commit B: `663ba791`

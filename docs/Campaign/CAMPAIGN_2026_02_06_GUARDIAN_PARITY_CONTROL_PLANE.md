@@ -262,7 +262,7 @@
 
 **Mapping:**
 
-* `TASK-2026-02-06-008_scheduler_worker_execution -> [dacffa97, <commitB>]`
+* `TASK-2026-02-06-008_scheduler_worker_execution -> [dacffa97, 663ba791]`
 
 ---
 
