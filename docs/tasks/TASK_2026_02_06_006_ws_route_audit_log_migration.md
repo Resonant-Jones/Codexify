@@ -194,7 +194,7 @@ git log -1 --oneline
 
 Update the campaign file mapping when Commit A and Commit B hashes exist:
 
-- `TASK-2026-02-06-006_ws_route_audit_log_migration -> [55cf078d, <commitB>]`
+- `TASK-2026-02-06-006_ws_route_audit_log_migration -> [55cf078d, d55fc7c9]`
 
 ## Notes / findings (fill during execution)
 
@@ -212,4 +212,4 @@ Update the campaign file mapping when Commit A and Commit B hashes exist:
 - **Commit A:** `55cf078d` (`TASK-2026-02-06-006_ws_route_audit_log_migration: websocket route + ws audit log persistence`)
 - **Implementation outcome:** Canonical websocket route now persists one audit row per handled request with `status`, `params_hash`, and `duration_ms`.
 - **Final mapping (pending Commit B):**
-  - `TASK-2026-02-06-006_ws_route_audit_log_migration -> [55cf078d, <commitB>]`
+  - `TASK-2026-02-06-006_ws_route_audit_log_migration -> [55cf078d, d55fc7c9]`
