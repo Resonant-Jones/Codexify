@@ -3,11 +3,62 @@
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from guardian.core import dependencies
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_non_json_hint(content: bytes) -> Optional[str]:
+    raw = content.lstrip()
+    if not raw:
+        return "Uploaded file is empty."
+    if raw.startswith(b"PK\x03\x04"):
+        return (
+            "Uploaded file appears to be a ZIP archive. "
+            "Extract and upload the JSON export file content."
+        )
+    if raw.startswith(b"<"):
+        return (
+            "Uploaded file appears to be HTML. "
+            "This importer only supports ChatGPT JSON exports."
+        )
+    return None
+
+
+def _validate_chatgpt_export_payload(data: Any) -> List[Dict[str, Any]]:
+    if not isinstance(data, list):
+        raise ValueError(
+            "Invalid export format: expected a JSON array of conversations."
+        )
+
+    if not data:
+        return []
+
+    dict_items = [item for item in data if isinstance(item, dict)]
+    if not dict_items:
+        raise ValueError(
+            "Invalid export format: expected conversation objects in the JSON array."
+        )
+
+    with_mapping = [
+        item for item in dict_items if isinstance(item.get("mapping"), dict)
+    ]
+    if with_mapping:
+        return dict_items
+
+    first = dict_items[0]
+    shared_keys = {"id", "conversation_id", "title", "is_anonymous"}
+    if shared_keys.issubset(set(first.keys())):
+        raise ValueError(
+            "Unsupported ChatGPT export file: this looks like shared_conversations metadata. "
+            "Use the full conversations JSON export (contains a 'mapping' field)."
+        )
+
+    raise ValueError(
+        "Invalid export format: no conversation objects with a 'mapping' field were found."
+    )
 
 
 def _resolve_imports_project_id(chatlog_db) -> int:
@@ -69,13 +120,16 @@ def ingest_chatgpt_export(
         dependencies._vector_store = _vector_store
         logger.info("Initialized VectorStore for migration")
 
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError:
-        raise ValueError("Invalid JSON file")
+    hint = _detect_non_json_hint(content)
+    if hint:
+        raise ValueError(hint)
 
-    if not isinstance(data, list):
-        raise ValueError("Expected a list of conversations")
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        raise ValueError("Invalid JSON file: unable to parse uploaded content.")
+
+    data = _validate_chatgpt_export_payload(parsed)
 
     threads_count = 0
     messages_count = 0
@@ -86,24 +140,12 @@ def ingest_chatgpt_export(
                 raise RuntimeError(
                     "User identity lost during ChatGPT import loop"
                 )
-            # Extract thread metadata
-            title = conv.get("title") or "Imported Chat"
-
-            # Resolve Imports project ID (create if missing to avoid FK error)
-            imports_project_id = _resolve_imports_project_id(chatlog_db)
-
-            # Create thread
-            thread_record = chatlog_db.create_chat_thread(
-                user_id=user_id,
-                title=title,
-                summary="Imported from ChatGPT",
-                project_id=imports_project_id,
-            )
-            thread_id = thread_record["id"]
-            threads_count += 1
 
             # Process messages
             mapping = conv.get("mapping", {})
+            if not isinstance(mapping, dict):
+                logger.warning("Skipping conversation with non-dict mapping")
+                continue
 
             # Linearize messages
             messages = []
@@ -159,6 +201,26 @@ def ingest_chatgpt_export(
 
             # Sort by timestamp
             messages.sort(key=lambda x: x["timestamp"])
+
+            # Avoid creating empty threads for malformed/empty conversations.
+            if not messages:
+                continue
+
+            # Extract thread metadata
+            title = conv.get("title") or "Imported Chat"
+
+            # Resolve Imports project ID (create if missing to avoid FK error)
+            imports_project_id = _resolve_imports_project_id(chatlog_db)
+
+            # Create thread
+            thread_record = chatlog_db.create_chat_thread(
+                user_id=user_id,
+                title=title,
+                summary="Imported from ChatGPT",
+                project_id=imports_project_id,
+            )
+            thread_id = thread_record["id"]
+            threads_count += 1
 
             # Insert messages
             for msg in messages:
