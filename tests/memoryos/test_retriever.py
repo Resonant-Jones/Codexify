@@ -245,3 +245,155 @@ async def test_retrieve_preserves_score_order(sample_results):
     assert results[0]["score"] == 0.76  # First in shuffled list
     assert results[1]["score"] == 0.95
     assert results[2]["score"] == 0.87
+
+
+@pytest.mark.asyncio
+async def test_retrieve_stitches_neighbors_deduplicates_and_sorts():
+    """Semantic hits should stitch neighbor windows into ordered context."""
+    semantic_hits = [
+        {
+            "text": "turn 2",
+            "meta": {
+                "source_thread_id": "thread-a",
+                "source_message_id": "m2",
+                "source_created_at": "2026-02-08T12:02:00+00:00",
+                "turn_index": 2,
+                "message_id": 102,
+            },
+            "score": 0.92,
+        },
+        {
+            "text": "turn 3",
+            "meta": {
+                "source_thread_id": "thread-a",
+                "source_message_id": "m3",
+                "source_created_at": "2026-02-08T12:03:00+00:00",
+                "turn_index": 3,
+                "message_id": 103,
+            },
+            "score": 0.88,
+        },
+    ]
+
+    vector_store = MockVectorStore(semantic_hits)
+    retriever = MemoryOSRetriever(vector_store)
+
+    def fake_neighbors(hit: dict[str, Any]) -> list[dict[str, Any]]:
+        hit_id = hit["metadata"]["source_message_id"]
+        if hit_id == "m2":
+            return [
+                {
+                    "text": "turn 1",
+                    "metadata": {
+                        "source_thread_id": "thread-a",
+                        "source_message_id": "m1",
+                        "source_created_at": "2026-02-08T12:01:00+00:00",
+                        "turn_index": 1,
+                        "message_id": 101,
+                    },
+                    "score": 0.0,
+                },
+                {
+                    "text": "turn 2 duplicate",
+                    "metadata": {
+                        "source_thread_id": "thread-a",
+                        "source_message_id": "m2",
+                        "source_created_at": "2026-02-08T12:02:00+00:00",
+                        "turn_index": 2,
+                        "message_id": 102,
+                    },
+                    "score": 0.0,
+                },
+                {
+                    "text": "turn 3 duplicate",
+                    "metadata": {
+                        "source_thread_id": "thread-a",
+                        "source_message_id": "m3",
+                        "source_created_at": "2026-02-08T12:03:00+00:00",
+                        "turn_index": 3,
+                        "message_id": 103,
+                    },
+                    "score": 0.0,
+                },
+            ]
+        if hit_id == "m3":
+            return [
+                {
+                    "text": "turn 4",
+                    "metadata": {
+                        "source_thread_id": "thread-a",
+                        "source_message_id": "m4",
+                        "source_created_at": "2026-02-08T12:04:00+00:00",
+                        "turn_index": 4,
+                        "message_id": 104,
+                    },
+                    "score": 0.0,
+                },
+                {
+                    "text": "wrong thread",
+                    "metadata": {
+                        "source_thread_id": "thread-b",
+                        "source_message_id": "z1",
+                        "source_created_at": "2026-02-08T11:59:00+00:00",
+                        "turn_index": 1,
+                        "message_id": 201,
+                    },
+                    "score": 0.0,
+                },
+            ]
+        return []
+
+    retriever._fetch_neighbors_for_hit = fake_neighbors  # type: ignore[method-assign]
+
+    results = await retriever.retrieve("chronological context", limit=2)
+
+    ids = [r["metadata"]["source_message_id"] for r in results]
+    assert ids == ["m1", "m2", "m3", "m4"]
+
+    # Duplicate hits keep the highest semantic score.
+    by_id = {r["metadata"]["source_message_id"]: r for r in results}
+    assert by_id["m2"]["score"] == pytest.approx(0.92)
+    assert by_id["m3"]["score"] == pytest.approx(0.88)
+
+    # Monotonic by (timestamp, turn_index, id)
+    ordering = [
+        (
+            r["metadata"]["source_created_at"],
+            r["metadata"]["turn_index"],
+            r["metadata"]["source_message_id"],
+        )
+        for r in results
+    ]
+    assert ordering == sorted(ordering)
+
+
+@pytest.mark.asyncio
+async def test_retrieve_sorts_with_missing_turn_index_by_timestamp():
+    """When turn_index is missing, ordering falls back to timestamp."""
+    semantic_hits = [
+        {
+            "text": "late",
+            "meta": {
+                "source_thread_id": "thread-x",
+                "source_message_id": "m2",
+                "source_created_at": "2026-02-08T12:05:00+00:00",
+            },
+            "score": 0.91,
+        },
+        {
+            "text": "early",
+            "meta": {
+                "source_thread_id": "thread-x",
+                "source_message_id": "m1",
+                "source_created_at": "2026-02-08T12:01:00+00:00",
+            },
+            "score": 0.87,
+        },
+    ]
+    vector_store = MockVectorStore(semantic_hits)
+    retriever = MemoryOSRetriever(vector_store)
+    retriever._fetch_neighbors_for_hit = lambda hit: []  # type: ignore[method-assign]
+
+    results = await retriever.retrieve("sort fallback", limit=2)
+    ids = [r["metadata"]["source_message_id"] for r in results]
+    assert ids == ["m1", "m2"]
