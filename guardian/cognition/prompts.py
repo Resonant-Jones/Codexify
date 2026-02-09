@@ -6,6 +6,7 @@ Imprint_Zero, persona, system-doc, and RAG hint blocks. All storage lookups
 are expected to be handled by the caller (see system_prompt_builder.py).
 """
 
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 
@@ -116,6 +117,66 @@ def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
     return "Context hints:\n" + "\n".join(f"- {h}" for h in hints) + "\n"
 
 
+def _parse_anchor_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _format_memory_anchor(item: Dict[str, Any]) -> str | None:
+    txt = item.get("text") or item.get("content") or ""
+    if not txt:
+        return None
+
+    meta = item.get("metadata")
+    if not isinstance(meta, dict):
+        meta = {}
+
+    timestamp = _parse_anchor_timestamp(meta.get("source_created_at"))
+    if timestamp is None:
+        timestamp = _parse_anchor_timestamp(meta.get("imported_at"))
+    timestamp_label = (
+        timestamp.strftime("%Y-%m-%d %H:%M")
+        if timestamp is not None
+        else "timestamp:unknown"
+    )
+
+    source_thread_id = meta.get("source_thread_id")
+    thread_id = source_thread_id if source_thread_id else meta.get("thread_id")
+    thread_label = str(thread_id) if thread_id not in (None, "") else "unknown"
+
+    turn_index = meta.get("turn_index")
+    try:
+        turn_label = str(int(turn_index))
+    except (TypeError, ValueError):
+        turn_label = "?"
+
+    role = meta.get("role") or item.get("role")
+    if isinstance(role, str) and role.strip():
+        role_label = role.strip()
+    else:
+        role_label = "role:unknown"
+
+    return (
+        f"- [{timestamp_label} | thread:{thread_label} | "
+        f"turn:{turn_label} | {role_label}] {txt}"
+    )
+
+
 def build_context_system_message(
     bundle: Optional[Dict[str, Any]],
 ) -> Optional[str]:
@@ -146,9 +207,9 @@ def build_context_system_message(
     if bundle.get("memory"):
         mem_parts = []
         for item in bundle["memory"]:
-            txt = item.get("text") or item.get("content") or ""
-            if txt:
-                mem_parts.append(f"- {txt}")
+            anchor_line = _format_memory_anchor(item)
+            if anchor_line:
+                mem_parts.append(anchor_line)
         if mem_parts:
             context_parts.append("**Memory Context:**\n" + "\n".join(mem_parts))
 
