@@ -25,6 +25,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SCHEMA_DIR = SCRIPT_DIR / "schemas"
 CAMPAIGN_SCHEMA_PATH = SCHEMA_DIR / "campaign_output.schema.json"
 TASK_RESULT_SCHEMA_PATH = SCHEMA_DIR / "task_result.schema.json"
+MEGA_AUDIT_SCHEMA_PATH = SCHEMA_DIR / "mega_audit_output.schema.json"
+
+# Prompt tokens
+REPO_ROOT_TOKEN = "<REPO_ROOT>"
+MEGA_AUDIT_JSON_TOKEN = "<PASTE MEGA_AUDIT_OUTPUT_JSON_HERE>"
 
 
 class RunnerError(RuntimeError):
@@ -87,22 +92,12 @@ def validate_campaign_payload(payload: dict[str, Any]) -> None:
     required_fields = [
         "campaign_id",
         "campaign_slug",
-        "campaign_doc_path",
         "campaign_markdown",
         "tasks",
     ]
     missing = [field for field in required_fields if field not in payload]
     if missing:
         raise RunnerError(f"Missing campaign fields: {', '.join(missing)}")
-
-    campaign_path = payload["campaign_doc_path"]
-    if not isinstance(
-        campaign_path, str
-    ) or not CAMPAIGN_PATH_PATTERN.fullmatch(campaign_path):
-        raise RunnerError(
-            "Invalid campaign_doc_path. Expected format "
-            f"{DEFAULT_CAMPAIGN_DIR}/CAMPAIGN_YYYY_MM_DD[_SUFFIX].md"
-        )
 
     tasks = payload["tasks"]
     if not isinstance(tasks, list):
@@ -115,7 +110,6 @@ def validate_campaign_payload(payload: dict[str, Any]) -> None:
         "files",
         "tests",
         "commit_message",
-        "task_artifact_path",
         "task_artifact_markdown",
         "activation_prompt",
     ]
@@ -129,15 +123,6 @@ def validate_campaign_payload(payload: dict[str, Any]) -> None:
         if missing_task_fields:
             raise RunnerError(
                 f"Task {index} missing fields: {', '.join(missing_task_fields)}"
-            )
-        task_path = task["task_artifact_path"]
-        if not isinstance(task_path, str) or not TASK_PATH_PATTERN.fullmatch(
-            task_path
-        ):
-            raise RunnerError(
-                "Invalid task_artifact_path for task "
-                f"{index}. Expected format {DEFAULT_TASKS_DIR}/"
-                "TASK_YYYY_MM_DD_NNN_lower_snake_slug.md"
             )
 
 
@@ -184,6 +169,76 @@ def slugify_branch(value: str) -> str:
     if not slug:
         raise RunnerError("campaign_slug must contain valid characters")
     return slug
+
+
+# -------- RUNNER ARTIFACT PATHS + PROMPT RENDERING HELPERS --------
+
+def upper_snake(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", value.strip())
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned.upper() or "CAMPAIGN"
+
+
+def canonical_campaign_doc_path(campaign_slug: str) -> Path:
+    today = date.today().strftime("%Y_%m_%d")
+    return DEFAULT_CAMPAIGN_DIR / f"CAMPAIGN_{today}_{upper_snake(campaign_slug)}.md"
+
+
+def canonical_task_artifact_path(task_id: str, task_slug: str) -> Path:
+    # task_id expected like "TASK_YYYY_MM_DD_NNN_..." or "TASK-..."; we only need NNN.
+    m = re.search(r"(\d{3})", task_id)
+    nnn = m.group(1) if m else "000"
+    today = date.today().strftime("%Y_%m_%d")
+    safe_slug = re.sub(r"[^a-z0-9_]+", "_", task_slug.strip().lower())
+    safe_slug = re.sub(r"_+", "_", safe_slug).strip("_") or "task"
+    return DEFAULT_TASKS_DIR / f"TASK_{today}_{nnn}_{safe_slug}.md"
+
+
+def render_compiler_prompt(template_path: Path, repo_root: Path, mega_audit_payload: dict[str, Any]) -> str:
+    template_text = template_path.read_text(encoding="utf-8")
+    rendered = template_text.replace(REPO_ROOT_TOKEN, str(repo_root))
+    rendered = rendered.replace(MEGA_AUDIT_JSON_TOKEN, json.dumps(mega_audit_payload, indent=2))
+    return rendered
+
+
+def update_campaign_mapping_line(campaign_doc: Path, task_id: str, impl_hash: str, receipt_hash: str) -> None:
+    line = f"{task_id} -> [{impl_hash}, {receipt_hash}]"
+    text = campaign_doc.read_text(encoding="utf-8") if campaign_doc.exists() else ""
+    pattern = re.compile(rf"^{re.escape(task_id)}\s*->\s*\[.*\]$", re.MULTILINE)
+    if pattern.search(text):
+        text = pattern.sub(line, text)
+    else:
+        # Append under a mapping header if present, otherwise append at end.
+        if "## Task Mapping" in text:
+            text = text.rstrip() + "\n" + line + "\n"
+        else:
+            text = text.rstrip() + "\n\n## Task Mapping\n\n" + line + "\n"
+    write_text_file(campaign_doc, text)
+
+
+def append_runner_completion_summary(task_artifact: Path, result: dict[str, Any], impl_hash: str, receipt_hash: str) -> None:
+    status = (result.get("status") or "unknown").strip()
+    tests_ran = result.get("tests_ran")
+    tests_line = "n/a"
+    if isinstance(tests_ran, list):
+        tests_line = ", ".join(str(t) for t in tests_ran) if tests_ran else "(none)"
+    summary = (result.get("summary") or "").strip()
+    notes = (result.get("notes") or "").strip()
+
+    block = (
+        "\n\n## Completion Summary (Runner)\n\n"
+        f"- Status: {status}\n\n"
+        f"- Summary: {summary if summary else '(none)'}\n\n"
+        f"- Implementation commit hash: {impl_hash}\n\n"
+        f"- Receipt update commit hash: {receipt_hash}\n\n"
+        f"- Tests ran: {tests_line}\n"
+    )
+    if notes:
+        block += f"\n- Notes: {notes}\n"
+
+    block += "\n<details>\n<summary>Structured task_result.json</summary>\n\n```json\n" + json.dumps(result, indent=2) + "\n```\n\n</details>\n"
+
+    append_text_file(task_artifact, block)
 
 
 def campaign_branch_name(campaign_slug: str) -> str:
@@ -265,13 +320,23 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
         "Use separate clones/worktrees for true parallelism."
     )
 
+    # Two-stroke pipeline: MEGA audit JSON -> campaign compiler JSON
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
-        output_path = tmp_path / "campaign_output.json"
-        run_codex_exec(
-            args.audit_prompt_file, CAMPAIGN_SCHEMA_PATH, output_path
+
+        mega_out = tmp_path / "mega_audit_output.json"
+        run_codex_exec(args.mega_audit_prompt_file, MEGA_AUDIT_SCHEMA_PATH, mega_out)
+        mega_payload = read_json_file(mega_out)
+
+        compiler_prompt_text = render_compiler_prompt(
+            args.campaign_compiler_prompt_file, Path.cwd(), mega_payload
         )
-        payload = read_json_file(output_path)
+        compiler_prompt_path = tmp_path / "campaign_compiler_prompt.md"
+        compiler_prompt_path.write_text(compiler_prompt_text, encoding="utf-8")
+
+        campaign_out = tmp_path / "campaign_output.json"
+        run_codex_exec(compiler_prompt_path, CAMPAIGN_SCHEMA_PATH, campaign_out)
+        payload = read_json_file(campaign_out)
 
     validate_campaign_payload(payload)
 
@@ -285,17 +350,20 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
     switch_branch(campaign_branch_name(campaign_slug))
     ensure_clean_git("after switching campaign branch")
 
-    campaign_doc_path = Path(payload["campaign_doc_path"])
+    campaign_doc_path = canonical_campaign_doc_path(campaign_slug)
     write_text_file(campaign_doc_path, payload["campaign_markdown"])
 
+    # Write task artifacts with runner-owned canonical paths.
+    task_artifact_paths: dict[str, Path] = {}
     for task in payload["tasks"]:
-        task_path = Path(task["task_artifact_path"])
+        task_id = str(task.get("id") or "")
+        task_slug = str(task.get("slug") or "")
+        task_path = canonical_task_artifact_path(task_id, task_slug)
+        task_artifact_paths[task_id] = task_path
         write_text_file(task_path, task["task_artifact_markdown"])
 
     campaign_id = payload.get("campaign_id", "campaign")
-    artifact_paths = [str(campaign_doc_path)] + [
-        task["task_artifact_path"] for task in payload["tasks"]
-    ]
+    artifact_paths = [str(campaign_doc_path)] + [str(p) for p in task_artifact_paths.values()]
 
     if args.auto_commit:
         git_commit(
@@ -312,12 +380,15 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
     if args.execute and not args.dry_run:
         for task in payload["tasks"]:
             ensure_clean_git("start of task")
-            head_before = git_head_commit()
-            print(f"Executing task {task.get('id', '')}...")
-            result = execute_task(task)
-            head_after_exec = git_head_commit()
+            task_id = str(task.get("id") or "")
+            task_slug = str(task.get("slug") or "")
+            task_artifact_path = task_artifact_paths.get(task_id) or canonical_task_artifact_path(task_id, task_slug)
 
-            # If the agent left changes, the runner commits them.
+            head_before = git_head_commit()
+            print(f"Executing task {task_id}...")
+            result = execute_task(task)
+
+            # If the agent left changes, the runner commits them as the implementation commit.
             if not git_is_clean():
                 if args.auto_commit:
                     git_commit_all(task["commit_message"], args.no_verify)
@@ -326,100 +397,65 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
                         "Auto-commit disabled but task left the tree dirty."
                     )
 
-            ensure_clean_git("after task commit")
-            head_after = git_head_commit()
+            ensure_clean_git("after task implementation commit")
+            impl_hash = git_head_commit()
 
-            # Normalize/fill commit_hash:
-            # - If agent committed: commit_hash should match head_after.
-            # - If runner committed: commit_hash is often empty; fill it with head_after.
-            reported = (result.get("commit_hash") or "").strip()
-            if not reported and head_after != head_before:
-                result["commit_hash"] = head_after
-            elif reported and reported != head_after:
+            # Normalize implementation hash fields.
+            reported = (result.get("implementation_commit_hash") or "").strip() or (result.get("commit_hash") or "").strip()
+            if not reported and impl_hash != head_before:
+                result["commit_hash"] = impl_hash
+                result["implementation_commit_hash"] = impl_hash
+            elif reported and reported != impl_hash:
                 existing_notes = (result.get("notes") or "").strip()
-                note = f"commit_hash mismatch: reported {reported}, head is {head_after}"
+                note = f"implementation commit mismatch: reported {reported}, head is {impl_hash}"
                 result["notes"] = f"{existing_notes} {note}".strip()
                 print(f"Warning: {note}", file=sys.stderr)
+                result["implementation_commit_hash"] = impl_hash
+                result["commit_hash"] = impl_hash
+            else:
+                # Keep consistent fields.
+                result["implementation_commit_hash"] = reported or impl_hash
+                result["commit_hash"] = reported or impl_hash
 
-            if head_after != head_before:
-                task_artifact_path = Path(task["task_artifact_path"])
-                append_text_file(
-                    task_artifact_path,
-                    "\n\n## Runner Result\n\n```json\n"
-                    + json.dumps(result, indent=2)
-                    + "\n```\n",
+            # Receipt update commit (task artifact only).
+            append_runner_completion_summary(task_artifact_path, result, impl_hash, "(see campaign mapping)")
+            if args.auto_commit:
+                receipt_commit_msg = f"{task_id}: receipt update"
+                receipt_hash = git_commit([str(task_artifact_path)], receipt_commit_msg, args.no_verify)
+                ensure_clean_git("after task receipt commit")
+            else:
+                raise RunnerError(
+                    "Auto-commit disabled but runner receipt update would dirty the tree."
                 )
-                if args.auto_commit:
-                    git_commit(
-                        [str(task_artifact_path)],
-                        task["commit_message"],
-                        args.no_verify,
-                    )
-                    ensure_clean_git("after task receipt commit")
-                    head_after = git_head_commit()
-                else:
-                    raise RunnerError(
-                        "Auto-commit disabled but runner result receipt would dirty the tree."
-                    )
 
-            if head_after == head_before:
-                # For a noop task, the receipt commit is the task's commit.
-                if not (result.get("commit_hash") or "").strip():
-                    result["commit_hash"] = git_head_commit()
+            result["receipt_update_commit_hash"] = receipt_hash
 
-                if args.auto_commit and (result.get("status") == "success"):
-                    task_artifact_path = Path(task["task_artifact_path"])
-                    append_text_file(
-                        task_artifact_path,
-                        "\n\n## Runner Result\n\n```json\n"
-                        + json.dumps(result, indent=2)
-                        + "\n```\n",
-                    )
-                    git_commit(
-                        [str(task_artifact_path)],
-                        task["commit_message"],
-                        args.no_verify,
-                    )
-                    ensure_clean_git("after task receipt commit")
-                    head_after = git_head_commit()
-                else:
-                    raise RunnerError(
-                        f"Task {task.get('id', '')} produced no commit."
-                    )
+            # Campaign mapping update as its own commit.
+            update_campaign_mapping_line(campaign_doc_path, task_id, impl_hash, receipt_hash)
+            git_commit([str(campaign_doc_path)], f"Docs: map {task_id}", args.no_verify)
+            ensure_clean_git("after campaign mapping commit")
+
+            if impl_hash == head_before and (result.get("status") != "success"):
+                raise RunnerError(f"Task {task_id} produced no implementation commit.")
     elif args.execute and args.dry_run:
         print("Dry run enabled: skipping task execution.")
 
-    status = git_status_porcelain()
-    if status.strip():
-        dirty_paths = parse_porcelain_paths(status)
-        campaign_path_str = str(campaign_doc_path)
-        if dirty_paths == [campaign_path_str]:
-            if args.auto_commit:
-                git_commit(
-                    [campaign_path_str],
-                    f"Docs: finalize {campaign_id} campaign",
-                    args.no_verify,
-                )
-                ensure_clean_git("after campaign finalize commit")
-            else:
-                raise RunnerError(
-                    "Auto-commit disabled but campaign summary updates "
-                    "left the tree dirty."
-                )
-        else:
-            raise RunnerError(
-                "Unexpected dirty tree after cycle completion: "
-                + ", ".join(dirty_paths)
-            )
+    ensure_clean_git("end of cycle")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Codex Runner")
+    parser = argparse.ArgumentParser(description="Campaign Runner")
     parser.add_argument(
-        "--audit-prompt-file",
+        "--mega-audit-prompt-file",
         type=Path,
         required=True,
-        help="Path to the audit prompt file.",
+        help="Path to the MEGA audit prompt file (outputs mega_audit_output JSON).",
+    )
+    parser.add_argument(
+        "--campaign-compiler-prompt-file",
+        type=Path,
+        required=True,
+        help="Path to the audit→campaign compiler prompt file (ingests MEGA audit JSON, outputs campaign_output JSON).",
     )
     parser.add_argument(
         "--cycles",
@@ -483,9 +519,13 @@ def main() -> int:
     if args.cycles < 1:
         raise RunnerError("--cycles must be >= 1")
 
-    if not args.audit_prompt_file.exists():
+    if not args.mega_audit_prompt_file.exists():
         raise RunnerError(
-            f"Audit prompt file not found: {args.audit_prompt_file}"
+            f"MEGA audit prompt file not found: {args.mega_audit_prompt_file}"
+        )
+    if not args.campaign_compiler_prompt_file.exists():
+        raise RunnerError(
+            f"Campaign compiler prompt file not found: {args.campaign_compiler_prompt_file}"
         )
 
     for cycle_index in range(1, args.cycles + 1):
