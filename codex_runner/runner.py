@@ -253,12 +253,28 @@ def switch_branch(branch_name: str) -> None:
     )
     if create_result.returncode == 0:
         return
+    switch_existing_branch(branch_name)
+
+
+def switch_existing_branch(branch_name: str) -> None:
     switch_result = run_cmd(["git", "switch", branch_name], capture_output=True)
     if switch_result.returncode != 0:
         raise RunnerError(
-            f"Unable to switch to branch '{branch_name}': "
+            f"Unable to switch to existing branch '{branch_name}': "
             f"{switch_result.stderr.strip()}"
         )
+
+
+def git_current_branch() -> str:
+    result = run_cmd(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True
+    )
+    if result.returncode != 0:
+        raise RunnerError(f"git rev-parse --abbrev-ref failed: {result.stderr.strip()}")
+    branch_name = result.stdout.strip()
+    if not branch_name:
+        raise RunnerError("Unable to determine current git branch.")
+    return branch_name
 
 
 def git_head_commit() -> str:
@@ -312,7 +328,9 @@ def execute_task(task: dict[str, Any]) -> dict[str, Any]:
         return read_json_file(output_path)
 
 
-def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
+def run_cycle(
+    args: argparse.Namespace, cycle_index: int, base_branch: str
+) -> None:
     ensure_clean_git("start of cycle")
     print(f"Starting cycle {cycle_index}...")
     print(
@@ -347,7 +365,9 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
         raise RunnerError(
             "git tree is not clean before switching campaign branch"
         )
-    switch_branch(campaign_branch_name(campaign_slug))
+    campaign_branch = campaign_branch_name(campaign_slug)
+    print(f"Switching to campaign branch: {campaign_branch}")
+    switch_branch(campaign_branch)
     ensure_clean_git("after switching campaign branch")
 
     campaign_doc_path = canonical_campaign_doc_path(campaign_slug)
@@ -442,6 +462,12 @@ def run_cycle(args: argparse.Namespace, cycle_index: int) -> None:
 
     ensure_clean_git("end of cycle")
 
+    if args.return_to_base_branch:
+        ensure_clean_git("before returning to base branch")
+        print(f"Returning to base branch: {base_branch}")
+        switch_existing_branch(base_branch)
+        ensure_clean_git("after returning to base branch")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Campaign Runner")
@@ -471,6 +497,25 @@ def parse_args() -> argparse.Namespace:
             "Required. Create/switch to a branch per campaign using "
             "campaign_slug (default behavior)."
         ),
+    )
+    return_group = parser.add_mutually_exclusive_group()
+    return_group.add_argument(
+        "--return-to-base-branch",
+        dest="return_to_base_branch",
+        action="store_true",
+        default=True,
+        help="Return to the original base branch after each cycle (default).",
+    )
+    return_group.add_argument(
+        "--no-return-to-base-branch",
+        dest="return_to_base_branch",
+        action="store_false",
+        help="Stay on the campaign branch after each cycle.",
+    )
+    parser.add_argument(
+        "--allow-detached-head",
+        action="store_true",
+        help="Allow running when the initial git HEAD is detached.",
     )
     verify_group = parser.add_mutually_exclusive_group()
     verify_group.add_argument(
@@ -528,8 +573,15 @@ def main() -> int:
             f"Campaign compiler prompt file not found: {args.campaign_compiler_prompt_file}"
         )
 
+    base_branch = git_current_branch()
+    if base_branch == "HEAD" and not args.allow_detached_head:
+        raise RunnerError(
+            "HEAD is detached. Pass --allow-detached-head to run anyway."
+        )
+    print(f"Base branch: {base_branch}")
+
     for cycle_index in range(1, args.cycles + 1):
-        run_cycle(args, cycle_index)
+        run_cycle(args, cycle_index, base_branch)
 
     return 0
 
