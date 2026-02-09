@@ -140,6 +140,9 @@ services:
 
         echo "[Migrator] Running Alembic migrations..."
         echo "[Migrator] Using Alembic config: $$ALEMBIC_CFG"
+        echo "[Migrator] Clearing Alembic/Python bytecode caches (avoid stale migrations)..."
+        find /app/guardian/db/migrations -name "__pycache__" -type d -print -exec rm -rf {} + || true
+        find /app/guardian/db/migrations -name "*.pyc" -type f -print -delete || true
 
         # Helpful debug if Alembic complains about missing script_location.
         python - <<'PY'
@@ -197,6 +200,7 @@ services:
       # Ensure seed/init code can construct an OpenAI client even when running local-first
       OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
       CODEXIFY_USE_OPENAI: "0"
+      CHATGPT_EXPORT_FILE: "/data/conversation.json"
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
@@ -204,7 +208,7 @@ services:
       - ./scripts:/app/scripts
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
       # Mount data directory for conversations.json
-      - ./data:/data
+      - ./docs:/data
       # Mount conversations.json directly if present
       - ./conversations.json:/app/conversations.json:ro
     depends_on:
