@@ -67,13 +67,13 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["report_id", "type", "path"],
+        "required": ["report_id", "type", "path", "severity_summary", "focus"],
         "properties": {
           "report_id": { "type": "string", "minLength": 1 },
           "type": { "type": "string", "minLength": 1 },
           "path": { "type": "string", "minLength": 1 },
           "severity_summary": {
-            "type": "object",
+            "type": ["object", "null"],
             "additionalProperties": false,
             "required": ["RISK", "WARN", "INFO"],
             "properties": {
@@ -82,7 +82,7 @@
               "INFO": { "type": "integer", "minimum": 0 }
             }
           },
-          "focus": { "type": "string" }
+          "focus": { "type": ["string", "null"] }
         }
       }
     },
