@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from backend.rag import chatgpt_migration
 from backend.rag.chatgpt_migration import ingest_chatgpt_export
 from guardian.core import dependencies
 
@@ -88,3 +89,50 @@ def test_ingest_rejects_html_payload(monkeypatch):
         ingest_chatgpt_export(
             b"<html><body>archive</body></html>", user_id="tester"
         )
+
+
+def test_ingest_tags_imported_messages_with_origin_and_era(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.create_chat_thread.return_value = {"id": 42}
+    mock_db.create_message.return_value = 1
+
+    captured_meta = []
+
+    def capture_temporal_meta(
+        chatlog_db, message_id, merged_meta, source_created_at
+    ):
+        captured_meta.append(dict(merged_meta))
+
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "_vector_store", MagicMock())
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        capture_temporal_meta,
+    )
+
+    export = [
+        {
+            "id": "t1",
+            "title": "Archival Import",
+            "mapping": {
+                "m1": {
+                    "message": {
+                        "author": {"role": "user"},
+                        "content": {"parts": ["Hello"]},
+                        "create_time": 1,
+                    }
+                }
+            },
+        }
+    ]
+
+    stats = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"), user_id="tester"
+    )
+
+    assert stats["messages_imported"] == 1
+    assert captured_meta
+    assert captured_meta[0]["origin"] == "chatgpt_import"
+    assert captured_meta[0]["era"] == "pre_codexify"

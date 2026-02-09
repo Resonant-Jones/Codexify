@@ -38,6 +38,10 @@ class AsyncMockVectorStore:
         return self.results[:k]
 
 
+def _candidate_k(limit: int) -> int:
+    return max(limit * 3, limit + 5)
+
+
 @pytest.fixture
 def sample_results():
     """Sample vector search results."""
@@ -70,7 +74,10 @@ async def test_retrieve_basic(sample_results):
 
     # Verify search was called
     assert len(vector_store.search_calls) == 1
-    assert vector_store.search_calls[0] == ("programming languages", 3)
+    assert vector_store.search_calls[0] == (
+        "programming languages",
+        _candidate_k(3),
+    )
 
     # Verify results
     assert len(results) == 3
@@ -88,7 +95,9 @@ async def test_retrieve_limit(sample_results):
     results = await retriever.retrieve("test query", limit=2)
 
     assert len(results) == 2
-    assert vector_store.search_calls[0][1] == 2  # k=2 passed to search
+    assert vector_store.search_calls[0][1] == _candidate_k(
+        2
+    )  # candidate_k passed to search
 
 
 @pytest.mark.asyncio
@@ -227,7 +236,7 @@ async def test_retrieve_default_limit(sample_results):
     results = await retriever.retrieve("test query")
 
     # Should use default limit=5
-    assert vector_store.search_calls[0][1] == 5
+    assert vector_store.search_calls[0][1] == _candidate_k(5)
 
 
 @pytest.mark.asyncio
@@ -397,3 +406,91 @@ async def test_retrieve_sorts_with_missing_turn_index_by_timestamp():
     results = await retriever.retrieve("sort fallback", limit=2)
     ids = [r["metadata"]["source_message_id"] for r in results]
     assert ids == ["m1", "m2"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_prefers_live_over_archival_by_default():
+    """Default retrieval should deprioritize archival import memories."""
+    semantic_hits = [
+        {
+            "text": "archival memory",
+            "meta": {
+                "source_thread_id": "thread-x",
+                "source_message_id": "a1",
+                "source_created_at": "2026-01-01T10:00:00+00:00",
+                "origin": "chatgpt_import",
+                "era": "pre_codexify",
+            },
+            "score": 0.99,
+        },
+        {
+            "text": "live memory one",
+            "meta": {
+                "source_thread_id": "thread-x",
+                "source_message_id": "l1",
+                "source_created_at": "2026-02-08T12:00:00+00:00",
+                "origin": "live",
+            },
+            "score": 0.92,
+        },
+        {
+            "text": "live memory two",
+            "meta": {
+                "source_thread_id": "thread-x",
+                "source_message_id": "l2",
+                "source_created_at": "2026-02-08T12:01:00+00:00",
+                "origin": "live",
+            },
+            "score": 0.90,
+        },
+    ]
+    vector_store = MockVectorStore(semantic_hits)
+    retriever = MemoryOSRetriever(vector_store)
+    retriever._fetch_neighbors_for_hit = lambda hit: []  # type: ignore[method-assign]
+
+    results = await retriever.retrieve("what is the current status", limit=2)
+
+    ids = {r["metadata"]["source_message_id"] for r in results}
+    assert ids == {"l1", "l2"}
+    for result in results:
+        assert "is_archival" not in result["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_allows_archival_for_history_queries():
+    """History-style queries should allow archival memories back into results."""
+    semantic_hits = [
+        {
+            "text": "archival memory",
+            "meta": {
+                "source_thread_id": "thread-x",
+                "source_message_id": "a1",
+                "source_created_at": "2026-01-01T10:00:00+00:00",
+                "origin": "chatgpt_import",
+                "era": "pre_codexify",
+            },
+            "score": 0.99,
+        },
+        {
+            "text": "live memory",
+            "meta": {
+                "source_thread_id": "thread-x",
+                "source_message_id": "l1",
+                "source_created_at": "2026-02-08T12:00:00+00:00",
+                "origin": "live",
+            },
+            "score": 0.92,
+        },
+    ]
+    vector_store = MockVectorStore(semantic_hits)
+    retriever = MemoryOSRetriever(vector_store)
+    retriever._fetch_neighbors_for_hit = lambda hit: []  # type: ignore[method-assign]
+
+    results = await retriever.retrieve(
+        "from import history what happened before codexify", limit=2
+    )
+
+    by_id = {r["metadata"]["source_message_id"]: r for r in results}
+    assert "a1" in by_id
+    assert by_id["a1"]["metadata"]["is_archival"] is True
+    assert by_id["a1"]["metadata"]["origin"] == "chatgpt_import"

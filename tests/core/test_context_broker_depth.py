@@ -241,9 +241,10 @@ class TestContextBrokerDeepDepth:
         )
 
         # Verify memory search was performed via MemoryOSRetriever (uses vector_store)
-        # Vector store should be called twice: once for semantic (k=4), once for memory (k=5)
+        # Vector store should be called twice: once for semantic (k=4), once
+        # for memory candidate pool k=max(5*3, 5+5)=15.
         assert mock_vector_store.search.call_count == 2
-        mock_vector_store.search.assert_any_call("test query", k=5)
+        mock_vector_store.search.assert_any_call("test query", k=15)
 
     @pytest.mark.asyncio
     async def test_deep_depth_memory_results(self, context_broker):
@@ -413,8 +414,8 @@ class TestContextBrokerParameterization:
         )
 
         # Verify the parameter was passed to MemoryOSRetriever (via vector_store.search)
-        # Should have been called with k=8 for memory search
-        mock_vector_store.search.assert_any_call("test query", k=8)
+        # Should use candidate pool k=max(8*3, 8+5)=24 for memory search
+        mock_vector_store.search.assert_any_call("test query", k=24)
 
     @pytest.mark.asyncio
     async def test_depth_case_insensitive(
