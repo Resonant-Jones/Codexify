@@ -406,6 +406,8 @@ def ingest_chatgpt_export(
                         "source_message_id": str(node_id),
                         "turn_index": turn_index,
                         "source_role_raw": source_role_raw,
+                        "origin": "chatgpt_import",
+                        "era": "pre_codexify",
                     }
                 )
 
@@ -448,6 +450,8 @@ def ingest_chatgpt_export(
                     ],
                     "imported_at": msg["imported_at"].isoformat(),
                     "role": msg["role"],
+                    "origin": msg["origin"],
+                    "era": msg["era"],
                 }
                 if msg["source_role_raw"]:
                     temporal_meta["source_role_raw"] = msg["source_role_raw"]
@@ -490,6 +494,8 @@ def ingest_chatgpt_export(
                             "source_created_at_inferred": msg[
                                 "source_created_at_inferred"
                             ],
+                            "origin": msg["origin"],
+                            "era": msg["era"],
                             "source": "chatgpt_import",
                         }
                         _vector_store.add_texts(

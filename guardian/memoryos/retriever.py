@@ -25,6 +25,7 @@ class MemoryOSRetriever:
         *,
         neighbor_turn_window: int = 4,
         neighbor_time_window_minutes: int = 15,
+        archival_score_penalty: float = 0.85,
     ) -> None:
         """Initialize the retriever with a vector store backend.
 
@@ -38,9 +39,84 @@ class MemoryOSRetriever:
         self.neighbor_time_window_minutes = max(
             1, int(neighbor_time_window_minutes)
         )
+        self.archival_score_penalty = max(
+            0.0, min(1.0, float(archival_score_penalty))
+        )
         logger.info(
             f"[MemoryOSRetriever] Initialized with vector_store: {type(vector_store).__name__}"
         )
+
+    @staticmethod
+    def _is_archival_metadata(meta: dict[str, Any]) -> bool:
+        origin = str(meta.get("origin") or meta.get("source") or "").lower()
+        era = str(meta.get("era") or "").lower()
+        return origin == "chatgpt_import" or era == "pre_codexify"
+
+    @classmethod
+    def _normalize_archival_markers(
+        cls, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        meta = item.get("metadata", {})
+        if not isinstance(meta, dict):
+            return item
+        if cls._is_archival_metadata(meta):
+            meta["is_archival"] = True
+        return item
+
+    @staticmethod
+    def _query_requests_archival(query: str) -> bool:
+        lowered = query.lower()
+        archival_terms = (
+            "history",
+            "historical",
+            "past",
+            "earlier",
+            "previous",
+            "import",
+            "archive",
+            "archival",
+            "before codexify",
+            "chatgpt export",
+        )
+        return any(term in lowered for term in archival_terms)
+
+    def _apply_archival_selection_policy(
+        self, semantic_results: list[dict[str, Any]], query: str, limit: int
+    ) -> list[dict[str, Any]]:
+        if not semantic_results:
+            return []
+
+        normalized = [
+            self._normalize_archival_markers(item) for item in semantic_results
+        ]
+        archival_present = any(
+            self._is_archival_metadata(item.get("metadata", {}))
+            for item in normalized
+        )
+        if not archival_present or self._query_requests_archival(query):
+            return normalized[:limit]
+
+        live_present = any(
+            not self._is_archival_metadata(item.get("metadata", {}))
+            for item in normalized
+        )
+        if not live_present:
+            return normalized[:limit]
+
+        for item in normalized:
+            if self._is_archival_metadata(item.get("metadata", {})):
+                item["score"] = float(item.get("score", 0.0)) * float(
+                    self.archival_score_penalty
+                )
+
+        ranked = sorted(
+            normalized,
+            key=lambda item: (
+                -float(item.get("score", 0.0)),
+                self._coerce_int(item.get("_semantic_rank")) or 0,
+            ),
+        )
+        return ranked[:limit]
 
     @staticmethod
     def _coerce_int(value: Any) -> int | None:
@@ -374,7 +450,8 @@ class MemoryOSRetriever:
         try:
             # Call vector store search (handles embedding generation internally)
             # VectorStore.search() returns [{text, meta, score}]
-            results = self.vector_store.search(query, k=limit)
+            candidate_k = max(limit * 3, limit + 5)
+            results = self.vector_store.search(query, k=candidate_k)
 
             # Handle both sync and async vector stores
             if hasattr(results, "__await__"):
@@ -393,7 +470,10 @@ class MemoryOSRetriever:
                 self._normalize_result(item, semantic_rank=idx)
                 for idx, item in enumerate(results)
             ]
-            ordered = self._stitch_and_sort(standardized)
+            selected = self._apply_archival_selection_policy(
+                standardized, query=query, limit=limit
+            )
+            ordered = self._stitch_and_sort(selected)
 
             elapsed_ms = (time.time() - start_time) * 1000
             logger.debug(
