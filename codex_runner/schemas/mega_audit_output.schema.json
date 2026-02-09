@@ -37,10 +37,8 @@
         },
         "commit": {
           "description": "Optional git commit hash at audit time.",
-          "oneOf": [
-            { "type": "string", "minLength": 0 },
-            { "type": "null" }
-          ]
+          "type": ["string", "null"],
+          "minLength": 0
         }
       }
     },
