@@ -40,11 +40,12 @@ def upgrade() -> None:
         CREATE INDEX IF NOT EXISTS ix_chat_messages_source_thread_created_at
         ON chat_messages (
             (extra_meta->>'source_thread_id'),
-            ((extra_meta->>'source_created_at')::timestamptz)
+            (extra_meta->>'source_created_at')
         )
         WHERE extra_meta ? 'source_thread_id'
           AND extra_meta ? 'source_created_at'
           AND (extra_meta->>'source_created_at') <> ''
+          AND (extra_meta->>'source_created_at') ~ '^\\d{4}-\\d{2}-\\d{2}T'
         """
     )
 
