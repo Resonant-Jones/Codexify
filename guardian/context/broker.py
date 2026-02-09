@@ -44,7 +44,10 @@ class ContextBroker:
         self.memory_retriever = None
         try:
             if vector_store is not None:
-                self.memory_retriever = MemoryOSRetriever(vector_store)
+                self.memory_retriever = MemoryOSRetriever(
+                    vector_store,
+                    chatlog_db=chatlog_db,
+                )
         except Exception as exc:
             logger.debug(
                 "[ContextBroker] Memory retriever init failed: %s", exc

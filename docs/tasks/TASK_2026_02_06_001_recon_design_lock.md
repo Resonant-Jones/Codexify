@@ -122,7 +122,7 @@ git status --porcelain -uall
 ```
 
 ## Mapping
-- TASK-2026-02-06-001_recon_+_design_lock -> [<commit>, n/a]
+- TASK-2026-02-06-001_recon_+_design_lock -> [abc0eee9, n/a]
 
 ## Notes
 - Naming hygiene: this task artifact filename contains `+` and is non-canonical. Do **not** rename during this task; if desired, create a separate docs-only rename task using `git mv`.
@@ -151,4 +151,4 @@ git status --porcelain -uall
   - `nl -ba tests/realtime/conftest.py | sed -n '1,180p'`
   - `nl -ba guardian/tests/conftest.py | sed -n '1,140p'`
 - Final git status: only the two allowed files are modified (campaign + this task artifact).
-- Mapping: `TASK-2026-02-06-001_recon_+_design_lock -> [<commit>, n/a]`
+- Mapping: `TASK-2026-02-06-001_recon_+_design_lock -> [abc0eee9, n/a]`

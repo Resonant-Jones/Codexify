@@ -36,7 +36,7 @@ Create a deterministic, centralized WebSocket connection registry with topic sub
 - guardian/realtime/event_relay.py (or the existing module that defines/uses `subscribe_in_memory()`; update the path once confirmed)
 - tests/realtime/test_ws_manager.py (new test file is allowed)
 - docs/tasks/TASK_2026_02_06_003_wsconnectionmanager_subscriptions.md
-- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+- docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 ## Dependencies / Prereqs (NO GUESSING)
 Run these to confirm the code locations before editing:
@@ -146,7 +146,7 @@ cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
 
 git add \
   docs/tasks/TASK_2026_02_06_003_wsconnectionmanager_subscriptions.md \
-  docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+  docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 git commit --no-verify -m "TASK-2026-02-06-003_wsconnectionmanager_subscriptions: docs finalize + mapping"
 
@@ -157,14 +157,24 @@ git status --porcelain -uall
 
 ## Mapping
 - Campaign mapping line format (EXACT):
-  - `TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [<commitA>, <commitB>]`
+  - `TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [6f7f2404, f2452481]`
 
 ## Notes
 - Filename contains a `+` which is non-canonical. Do **not** rename during implementation unless explicitly allowed by campaign/task scope. If you want to normalize it, do it as a docs-only task using `git mv`.
 
 ## Summary (fill after completion)
 - What changed:
+  - Added `guardian/ws/manager.py` with register/unregister/subscribe/unsubscribe/topic broadcast and stale connection cleanup.
+  - Added `guardian/realtime/event_relay.py` that consumes `event_bus.subscribe_in_memory()` and fans out by topic through `WSConnectionManager`.
+  - Updated `guardian/ws/__init__.py` to export `WSConnectionManager`.
+  - Added `tests/realtime/test_ws_manager.py` covering subscription scoping, broadcast targeting, unregister cleanup, and relay forwarding.
 - Commands run:
+  - `git status --porcelain -uall`
+  - `rg -n "def subscribe_in_memory\\(|subscribe_in_memory\\(" guardian tests -S`
+  - `rg -n "WebSocket|websocket|WSConnection|connection manager" guardian/ws guardian/realtime guardian/routes tests -S`
+  - `python -m pytest -q tests/realtime/test_ws_manager.py` (failed: `No module named pytest` under python3.13)
+  - `pytest -q tests/realtime/test_ws_manager.py` (passed)
 - Test results:
+  - `pytest -q tests/realtime/test_ws_manager.py` -> 4 passed
 - Final mapping:
-  - TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [<commitA>, <commitB>]
+  - TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [6f7f2404, f2452481]

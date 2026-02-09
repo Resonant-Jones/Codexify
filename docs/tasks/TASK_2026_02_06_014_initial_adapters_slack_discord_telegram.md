@@ -195,7 +195,43 @@ git log -1 --oneline
 
 ## Campaign mapping line
 Add/update in the campaign file when hashes are known:
-- `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [<commitA>, <commitB>]`
+- `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [966879e0, 049461bc]`
 
 ## Notes / results
-(When executed, paste: commands run + key outputs + brief summary + both commit hashes.)
+### Commands run
+- `git status --porcelain -uall`
+- `python -V`
+- `pytest --version || true`
+- `rg -n "class .*Adapter|Protocol\\[|ChannelAdapter|adapter" guardian/channels || true`
+- `rg -n "register|registry|ADAPTER" guardian/channels || true`
+- `rg -n "httpx|requests|aiohttp" guardian/channels guardian/tests || true`
+- `rg -n "pytest.*monkeypatch|respx" guardian/tests || true`
+- `pytest -q guardian/tests/channels/test_slack_adapter.py -q`
+- `pytest -q guardian/tests/channels/test_discord_adapter.py -q`
+- `pytest -q guardian/tests/channels/test_telegram_adapter.py -q`
+- `pytest -q guardian/tests/channels/test_channel_router_outbound.py -q`
+- `pytest -q guardian/tests/channels -q`
+
+### Key outputs
+- Added adapters:
+  - `guardian/channels/adapters/slack.py`
+  - `guardian/channels/adapters/discord.py`
+  - `guardian/channels/adapters/telegram.py`
+  - `guardian/channels/adapters/__init__.py`
+- Added tests:
+  - `guardian/tests/channels/test_slack_adapter.py`
+  - `guardian/tests/channels/test_discord_adapter.py`
+  - `guardian/tests/channels/test_telegram_adapter.py`
+  - `guardian/tests/channels/test_channel_router_outbound.py`
+- Test results:
+  - adapter tests: pass
+  - router outbound test: pass
+  - `pytest -q guardian/tests/channels -q`: `10 passed`
+- Commit A created: `966879e0`
+- Commit B created: `049461bc`
+
+### Deviations
+- None.
+
+### Final mapping
+- `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [966879e0, 049461bc]`

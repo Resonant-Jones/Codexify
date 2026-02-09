@@ -32,7 +32,7 @@ TASK-2026-02-06-011 — Browser Approval Workflow + Audit
 
 - **Task-ID:** TASK-2026-02-06-011_browser_approval_workflow_audit
 - **Campaign:** CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
-- **Branch (expected):** `campaign/2026-02-06/loop-integrity-auth-and-defaults`
+- **Branch (expected):** `campaign/2026-02-06/guardian-parity-control-plane`
 - **Commit mode:** two-phase (Commit A = implementation, Commit B = docs finalize + mapping)
 
 ## Goal
@@ -245,10 +245,30 @@ git log -1 --oneline
 (As you execute: paste command outputs, summarize diffs, and fill in the mapping line in the campaign file.)
 
 ### Commands run + key outputs
-- 
+- `git status --porcelain -uall` (clean preflight)
+- `python --version` -> `Python 3.13.9`
+- `python -m pytest --version || true` -> `No module named pytest` in system python
+- `python -m alembic heads || true` -> `No module named alembic` in system python
+- `rg -n "browser" guardian | head`
+- `rg -n "allowlist|allow list|domain" guardian | head`
+- `rg -n "audit" guardian/db guardian/routes guardian/browser || true`
+- `rg -n "approval" guardian || true`
+- `rg -n "include_router\\(" guardian | head`
+- `rg -n "APIRouter\\(" guardian/routes | head`
+- `python -m alembic revision --autogenerate -m "browser approvals and audit log" || true` (skipped by missing module)
+- `python -m alembic upgrade head || true` (skipped by missing module)
+- `python -m pytest -q guardian/tests/realtime/test_browser_approval_workflow.py -q || true` (skipped by missing module)
+- `python -m pytest -q || true` (skipped by missing module)
+- `pytest -q guardian/tests/realtime/test_browser_approval_workflow.py -q` -> `4 passed`
+- `pytest -q || true` -> suite reached `100%` with exit `0`
 
 ### Files changed
-- 
+- `guardian/browser/approval.py`
+- `guardian/browser/__init__.py`
+- `guardian/routes/browser.py`
+- `guardian/db/migrations/versions/b1a2c3d4e5f7_add_browser_approvals_table.py`
+- `guardian/db/migrations/versions/c3d4e5f6a7b8_add_browser_audit_log_table.py`
+- `guardian/tests/realtime/test_browser_approval_workflow.py`
 
 ### Mapping
-- `TASK-2026-02-06-011_browser_approval_workflow_audit -> [<commitA>, <commitB>]`
+- `TASK-2026-02-06-011_browser_approval_workflow_audit -> [5e486996, 04fa84ca]`

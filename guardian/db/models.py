@@ -1175,3 +1175,245 @@ class CollaborationAuditLog(Base):
         Index("ix_collab_audit_user", "user_id"),
     )
     __mapper_args__ = {"eager_defaults": True}
+
+
+class WSAuditLog(Base):
+    """Audit trail for websocket RPC requests."""
+
+    __tablename__ = "ws_audit_log"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    connection_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    identity: Mapped[str | None] = mapped_column(String(255))
+    method: Mapped[str] = mapped_column(String(128), nullable=False)
+    params_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_ws_audit_connection_id", "connection_id"),
+        Index("ix_ws_audit_identity", "identity"),
+        Index("ix_ws_audit_created_at", "created_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class CronJob(Base):
+    """Persisted cron job definitions."""
+
+    __tablename__ = "cron_jobs"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    schedule: Mapped[str] = mapped_column(String(128), nullable=False)
+    job_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="noop"
+    )
+    payload: Mapped[dict] = mapped_column(
+        JSON, nullable=False, server_default="{}"
+    )
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    runs: Mapped[list[CronRun]] = relationship(
+        "CronRun", back_populates="job", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_cron_jobs_is_enabled", "is_enabled"),
+        Index("ix_cron_jobs_updated_at", "updated_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class CronRun(Base):
+    """Execution records for cron job runs."""
+
+    __tablename__ = "cron_runs"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    job_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("cron_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="queued"
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    error: Mapped[str | None] = mapped_column(Text)
+    result: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    job: Mapped[CronJob] = relationship("CronJob", back_populates="runs")
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed')",
+            name="cron_runs_status_check",
+        ),
+        Index("ix_cron_runs_job_id", "job_id"),
+        Index("ix_cron_runs_status", "status"),
+        Index("ix_cron_runs_created_at", "created_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ChannelConfig(Base):
+    """Per-user channel adapter configuration blobs."""
+
+    __tablename__ = "channel_configs"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_json: Mapped[dict] = mapped_column(
+        JSON, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "channel",
+            name="uq_channel_configs_user_channel",
+        ),
+        Index("ix_channel_configs_user_id", "user_id"),
+        Index("ix_channel_configs_channel", "channel"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ChannelAllowlist(Base):
+    """Approved external identities for a user's channel."""
+
+    __tablename__ = "channel_allowlists"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "channel",
+            "external_id",
+            name="uq_channel_allowlists_user_channel_external",
+        ),
+        Index("ix_channel_allowlists_user_channel", "user_id", "channel"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ChannelPairing(Base):
+    """Pairing request/approval state for channel identities."""
+
+    __tablename__ = "channel_pairings"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="pending"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'revoked')",
+            name="channel_pairings_status_check",
+        ),
+        UniqueConstraint(
+            "user_id",
+            "channel",
+            "external_id",
+            name="uq_channel_pairings_user_channel_external",
+        ),
+        Index("ix_channel_pairings_user_channel", "user_id", "channel"),
+        Index("ix_channel_pairings_status", "status"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ChannelMessage(Base):
+    """Inbound/outbound channel message audit entries."""
+
+    __tablename__ = "channel_messages"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    thread_id: Mapped[str | None] = mapped_column(String(255))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    meta_json: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "direction IN ('inbound', 'outbound')",
+            name="channel_messages_direction_check",
+        ),
+        Index("ix_channel_messages_user_channel", "user_id", "channel"),
+        Index("ix_channel_messages_created_at", "created_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}

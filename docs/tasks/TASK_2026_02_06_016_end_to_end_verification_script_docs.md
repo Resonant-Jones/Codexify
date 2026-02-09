@@ -2,7 +2,7 @@
 
 - **Task-ID:** TASK-2026-02-06-016_end_to_end_verification_script_docs
 - **Campaign:** CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
-- **Branch:** campaign/2026-02-06/loop-integrity-auth-and-defaults
+- **Branch:** campaign/2026-02-06/guardian-parity-control-plane
 - **Commit mode:** two-phase (Commit A = implementation, Commit B = docs finalize + campaign mapping)
 
 ## Objective
@@ -204,15 +204,21 @@ git log -1 --oneline
 
 ## Campaign mapping line (update during Commit B)
 Update the campaign file(s) with the real hashes after both commits exist:
-- `TASK-2026-02-06-016_end_to_end_verification_script_docs -> [<commitA>, <commitB>]`
+- `TASK-2026-02-06-016_end_to_end_verification_script_docs -> [f3e1f3af, b61260d5]`
 
 ---
 
 ## Notes / Summary (fill during execution)
 - **Commands run + outcomes:**
-  - (paste outputs or short pass/fail notes)
+  - `ls -la docs/guardian/control-plane.md scripts/verification/e2e_control_plane_checklist.sh scripts/verification/README.md` -> pass
+  - `chmod +x scripts/verification/e2e_control_plane_checklist.sh` -> pass
+  - `rg -n "TODO\\(|TODO:|TBD" docs/guardian/control-plane.md scripts/verification/README.md scripts/verification/e2e_control_plane_checklist.sh || true` -> no TODO/TBD markers
+  - `./scripts/verification/e2e_control_plane_checklist.sh` -> deterministic fail message on dirty tree (`[FAIL] Working tree is not clean. Run: git status --porcelain -uall`), behavior matches task contract
+  - `source venv/bin/activate && pytest -q` -> pass
+  - `pnpm --prefix frontend run build` -> pass
 - **Files changed:**
-  - (list actual)
+  - `docs/guardian/control-plane.md`
+  - `scripts/verification/e2e_control_plane_checklist.sh`
+  - `scripts/verification/README.md`
 - **Gotchas / follow-ups:**
-  - (only if discovered; otherwise “none”)
-
+  - none

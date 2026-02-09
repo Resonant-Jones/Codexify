@@ -146,6 +146,26 @@ class Settings(BaseSettings):
         default=False,
         description="Enable dev-only routes such as /dev/*.",
     )
+    WS_RPC_RATE_LIMIT_CAPACITY: int = Field(
+        default=30,
+        description="Max websocket RPC requests available per token bucket window.",
+    )
+    WS_RPC_RATE_LIMIT_REFILL_PER_SECOND: float = Field(
+        default=10.0,
+        description="Tokens replenished per second for websocket RPC rate limiting.",
+    )
+    WS_RPC_RATE_LIMIT_NAMESPACE: str = Field(
+        default="guardian:ws:rate_limit",
+        description="Redis/in-memory namespace prefix for websocket rate limit keys.",
+    )
+    WS_RPC_IDLE_TIMEOUT_SECONDS: float = Field(
+        default=60.0,
+        description="Max idle seconds for websocket RPC connections before disconnect.",
+    )
+    WS_RPC_MAX_CONNECTIONS: int = Field(
+        default=200,
+        description="Maximum concurrent websocket RPC connections allowed.",
+    )
 
 
 # Create a singleton instance that can be imported across the application

@@ -5,12 +5,17 @@ import hashlib
 import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-IDENTITY_DIR = "/app/guardian/identity"
+# Identity storage location
+# - Allow explicit override via env for unusual deployments.
+# - Otherwise, default to a directory adjacent to this module (works on host + in Docker).
+_DEFAULT_IDENTITY_DIR = str(Path(__file__).resolve().parent / "identity")
+IDENTITY_DIR = os.getenv("CODEXIFY_IDENTITY_DIR", _DEFAULT_IDENTITY_DIR)
 IDENTITY_FILE = os.path.join(IDENTITY_DIR, "user.json")
 
 

@@ -75,7 +75,7 @@
 * Don't bypass queue/event contracts with ad hoc background threads outside lifespan ownership.
 
 **Mapping placeholder:**
-* `TASK-2026-02-06-001_recon_+_design_lock -> [<commit>, n/a]`
+* `TASK-2026-02-06-001_recon_+_design_lock -> [abc0eee9, n/a]`
 
 ---
 
@@ -105,6 +105,10 @@
 * malformed frame rejected
 * oversized payload rejected
 
+**Mapping:**
+
+* `TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [bef02d9c, 3dd76be1]`
+
 ---
 
 ## TASK-2026-02-06-003 — WSConnectionManager + Subscriptions
@@ -124,6 +128,10 @@
 
 * subscribe/unsubscribe correctness
 * broadcast routes to correct clients only
+
+**Mapping:**
+
+* `TASK-2026-02-06-003_wsconnectionmanager_subscriptions -> [6f7f2404, f2452481]`
 
 ---
 
@@ -154,6 +162,10 @@
 * unknown method returns structured error
 * permission-gated method rejects
 
+**Mapping:**
+
+* `TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [39f6140e, f70968ea]`
+
 ---
 
 ## TASK-2026-02-06-005 — WS Rate Limiting + Idle Timeout
@@ -169,6 +181,10 @@
 
 * exceeding rate limit blocks calls
 * idle timeout disconnects
+
+**Mapping:**
+
+* `TASK-2026-02-06-005_ws_rate_limiting_+_idle_timeout -> [f22b1165, d42bf74d]`
 
 ---
 
@@ -188,6 +204,10 @@
 
 * successful call writes audit row
 * failed call writes audit row (status=error)
+
+**Mapping:**
+
+* `TASK-2026-02-06-006_ws_route_audit_log_migration -> [55cf078d, d55fc7c9]`
 
 ---
 
@@ -218,6 +238,10 @@
 * invalid schedule rejected
 * allowlist blocks forbidden webhook target
 
+**Mapping:**
+
+* `TASK-2026-02-06-007_cron_data_model_crud_routes -> [46aed0cf, 0b163be1]`
+
 ---
 
 ## TASK-2026-02-06-008 — Scheduler + Worker Execution
@@ -236,6 +260,10 @@
 * manual trigger creates cron_run row
 * execution updates status + emits event
 
+**Mapping:**
+
+* `TASK-2026-02-06-008_scheduler_worker_execution -> [dacffa97, 663ba791]`
+
 ---
 
 ## TASK-2026-02-06-009 — Cron ↔ Task Registry Integration
@@ -250,6 +278,10 @@
 **Tests:**
 
 * task registry resolves cron task correctly
+
+**Mapping:**
+
+* `TASK-2026-02-06-009_cron_to_task_registry_integration -> [dea42fdc, d3418591]`
 
 ---
 
@@ -277,6 +309,10 @@
 
 * session lifecycle
 * allowlist blocks forbidden domains
+
+**Mapping:**
+
+* `TASK-2026-02-06-010_browser_session_manager_playwright -> [78b83ad1, d2814e97]`
 
 ---
 
@@ -308,6 +344,10 @@
 * approval transitions enforced (no double-approve)
 * audit log always written
 
+**Mapping:**
+
+* `TASK-2026-02-06-011_browser_approval_workflow_audit -> [5e486996, 04fa84ca]`
+
 ---
 
 ## TASK-2026-02-06-012 — Browser Routes + WS Hooks
@@ -326,6 +366,10 @@
 **Tests:**
 
 * event emission on approval requested/decided
+
+**Mapping:**
+
+* `TASK-2026-02-06-012_browser_routes_ws_hooks -> [4b32590b, 42e546d6]`
 
 ---
 
@@ -350,6 +394,10 @@
 * allowlist enforcement works
 * pairing flow works end-to-end
 
+**Mapping:**
+
+* `TASK-2026-02-06-013_channel_adapter_framework_registry -> [9e87ca71, e30dd767]`
+
 ---
 
 ## TASK-2026-02-06-014 — Initial Adapters (Slack, Discord, Telegram)
@@ -371,6 +419,10 @@
 * adapter stubs mocked in tests (don’t hit real APIs)
 * router sends outbound response via adapter
 
+**Mapping:**
+
+* `TASK-2026-02-06-014_initial_adapters_slack_discord_telegram -> [966879e0, 049461bc]`
+
 ---
 
 ## TASK-2026-02-06-015 — Channels Routes + Persistence Models
@@ -391,6 +443,10 @@
 
 * config CRUD
 * message persistence on inbound/outbound
+
+**Mapping:**
+
+* `TASK-2026-02-06-015_channels_routes_persistence_models -> [6b9c4bd7, 03ffca55]`
 
 ---
 
@@ -419,6 +475,10 @@
 * Full `pytest` green
 * Alembic upgrade head works on clean DB
 * A human can follow the docs and reproduce the flow
+
+**Mapping:**
+
+* `TASK-2026-02-06-016_end_to_end_verification_script_docs -> [f3e1f3af, b61260d5]`
 
 ---
 

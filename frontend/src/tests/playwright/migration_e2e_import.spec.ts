@@ -160,7 +160,7 @@ test.describe('ChatGPT migration import', () => {
 
     await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toBeVisible();
 
-    const fileInput = page.locator('input[type="file"][accept=".json"]');
+    const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles({
       name: 'conversations.json',
       mimeType: 'application/json',
