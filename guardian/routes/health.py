@@ -10,6 +10,7 @@ import logging
 import os
 from uuid import uuid4
 
+import requests
 from fastapi import APIRouter, Depends, Response
 
 from guardian.core import metrics
@@ -21,10 +22,114 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Health"])
 
 
+def _resolve_llm_health_endpoints() -> list[str]:
+    raw = (os.getenv("VAULTNODE_HEALTH_ENDPOINTS") or "").strip()
+    if raw:
+        endpoints = [part.strip() for part in raw.split(",") if part.strip()]
+    else:
+        endpoints = ["/healthz", "/ping", "/health", "/api/tags"]
+
+    normalized: list[str] = []
+    for endpoint in endpoints:
+        normalized.append(
+            endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        )
+    return normalized
+
+
+def _probe_local_llm(base_url_v1: str, timeout_seconds: float) -> dict:
+    health_base = (
+        base_url_v1[:-3] if base_url_v1.endswith("/v1") else base_url_v1
+    )
+    endpoints = _resolve_llm_health_endpoints()
+    last_error = "unreachable"
+
+    for endpoint in endpoints:
+        url = f"{health_base}{endpoint}"
+        try:
+            resp = requests.get(url, timeout=timeout_seconds)
+            if 200 <= resp.status_code < 300:
+                return {
+                    "ok": True,
+                    "status": "online",
+                    "checked_endpoint": endpoint,
+                    "http_status": resp.status_code,
+                }
+            last_error = f"HTTP {resp.status_code} from {endpoint}"
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+
+    return {
+        "ok": False,
+        "status": "offline",
+        "checked_endpoints": endpoints,
+        "error": last_error,
+    }
+
+
 @router.get("/health")
 def health():
     """Base health check endpoint for system-level monitoring."""
     return {"status": "ok"}
+
+
+@router.get("/health/llm")
+@router.get("/api/health/llm")
+def health_llm():
+    """
+    Report active LLM provider reachability for UI preflight checks.
+
+    Returns:
+    - status=online when provider appears reachable/configured
+    - status=offline when local provider endpoint is unreachable
+    - status=misconfigured when required provider config is invalid
+    """
+    from guardian.core.ai_router import (
+        _default_model_for_provider,
+        _resolve_local_base,
+    )
+    from guardian.core.config import (
+        LLMConfigError,
+        get_settings,
+        validate_llm_config,
+    )
+
+    settings = get_settings()
+    provider = (settings.LLM_PROVIDER or "local").strip().lower()
+    model = _default_model_for_provider(provider, settings)
+
+    payload = {"provider": provider, "model": model}
+
+    try:
+        validate_llm_config(settings, provider_override=provider)
+    except LLMConfigError as exc:
+        payload.update(
+            {"ok": False, "status": "misconfigured", "error": str(exc)}
+        )
+        return payload
+
+    if provider == "local":
+        timeout = float(os.getenv("HEALTH_LLM_REQUEST_TIMEOUT_SECONDS", "2.5"))
+        try:
+            local_base = _resolve_local_base(settings)
+        except Exception as exc:
+            detail = getattr(exc, "detail", str(exc))
+            payload.update(
+                {"ok": False, "status": "misconfigured", "error": str(detail)}
+            )
+            return payload
+        payload.update(_probe_local_llm(local_base, timeout))
+        return payload
+
+    # Cloud providers: keep the check lightweight and config-based.
+    payload.update(
+        {
+            "ok": True,
+            "status": "online",
+            "mode": "config_only",
+        }
+    )
+    return payload
 
 
 @router.get("/health/chat")

@@ -71,22 +71,20 @@ Only modify or create files in this list. If you discover the correct location d
 - `guardian/routes/cron.py`
 - `guardian/cron/models.py` *(may be created if missing)*
 - `guardian/cron/__init__.py` *(optional if needed for exports)*
+- `guardian/guardian_api.py`
 
 2) DB models + access layer
-- `guardian/db/models/cron.py` *(may be created if repo uses models/* modules)*
-- `guardian/db/models.py` *(ONLY if this repo uses a single models module and cron models must be added there)*
-- `guardian/db/session.py` *(ONLY if required to import/register models; avoid otherwise)*
+- `guardian/db/models.py`
 
 3) Migrations
 - `guardian/db/migrations/versions/*.py` *(new migration(s) only)*
 
 4) Tests
-- `guardian/tests/test_cron_routes.py` *(may be created if missing)*
-- `tests/routes/test_cron_routes.py` *(ONLY if this repo keeps route tests under `tests/routes/` instead of `guardian/tests/`)* 
+- `tests/routes/test_cron_routes.py`
 
 5) Docs updates for this task only
 - `docs/tasks/TASK_2026_02_06_007_cron_data_model_crud_routes.md`
-- `docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md`
+- `docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md`
 
 ### Commit mode
 Two-phase commits:
@@ -198,17 +196,17 @@ cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
 
 # discard uncommitted changes (CAUTION)
 git restore --staged --worktree -- \
+  guardian/guardian_api.py \
   guardian/routes/cron.py \
   guardian/cron/models.py \
-  guardian/db/models/cron.py \
   guardian/db/models.py \
+  guardian/cron/__init__.py \
   guardian/db/migrations/versions \
-  guardian/tests/test_cron_routes.py \
   tests/routes/test_cron_routes.py \
   docs/tasks/TASK_2026_02_06_007_cron_data_model_crud_routes.md \
-  docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+  docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
-git clean -fd -- guardian/cron guardian/tests tests/routes guardian/db/migrations/versions
+git clean -fd -- guardian/cron tests/routes guardian/db/migrations/versions
 
 git status --porcelain -uall
 ```
@@ -228,13 +226,12 @@ cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
 git status --porcelain -uall
 
 git add \
+  guardian/guardian_api.py \
   guardian/routes/cron.py \
   guardian/cron/models.py \
   guardian/cron/__init__.py \
-  guardian/db/models/cron.py \
   guardian/db/models.py \
   guardian/db/migrations/versions \
-  guardian/tests/test_cron_routes.py \
   tests/routes/test_cron_routes.py
 
 git commit --no-verify -m "TASK-2026-02-06-007_cron_data_model_crud_routes: cron models + routes + migration"
@@ -252,7 +249,7 @@ cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
 
 git add \
   docs/tasks/TASK_2026_02_06_007_cron_data_model_crud_routes.md \
-  docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+  docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 git commit --no-verify -m "TASK-2026-02-06-007_cron_data_model_crud_routes: docs finalize + mapping"
 
@@ -262,9 +259,21 @@ git log -1 --oneline
 ---
 
 ## Task summary (fill during execution)
-- Branch:
-- Commit A:
-- Commit B:
+- Branch: `campaign/2026-02-06/guardian-parity-control-plane`
+- Commit A: `46aed0cf` (`TASK-2026-02-06-007_cron_data_model_crud_routes: cron models + routes + migration`)
+- Commit B: `0b163be1`
 - Files changed:
+  - `guardian/routes/cron.py`
+  - `guardian/cron/models.py`
+  - `guardian/cron/__init__.py`
+  - `guardian/db/models.py`
+  - `guardian/db/migrations/versions/e5d6f4a2190c_add_cron_jobs_and_runs.py`
+  - `guardian/guardian_api.py`
+  - `tests/routes/test_cron_routes.py`
 - Commands run + results:
+  - `pytest -q tests/routes/test_cron_routes.py` -> initially failed on SQLite in-memory table visibility; fixed by `StaticPool` in tests.
+  - `pytest -q tests/routes/test_cron_routes.py` -> initially failed on missing auth coverage + SQLite autoincrement for `cron_runs.id`; fixed by router-level dependency and `Integer` PK.
+  - `pytest -q tests/routes/test_cron_routes.py` -> pass (`6 passed`).
 - Notes / follow-ups:
+  - Task implements conservative schedule validation (`@hourly`, `@daily`, `@weekly`, `@monthly`, and `*/N * * * *`).
+  - Webhook targets deny localhost/private/internal addresses by default and support optional `CRON_WEBHOOK_ALLOWLIST`.

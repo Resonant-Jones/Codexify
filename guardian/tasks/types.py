@@ -80,9 +80,33 @@ class ChatCompletionTask(BaseTask):
         )
 
 
+@dataclass
+class CronExecutionTask(BaseTask):
+    """Queue payload for executing a cron run."""
+
+    type: str = "cron.execute"
+    cron_run_id: int = 0
+    cron_job_id: int = 0
+    job_type: str = "noop"
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> CronExecutionTask:
+        base = _base_kwargs(payload or {})
+        base.setdefault("type", cls.type)
+        return cls(
+            cron_run_id=int(payload.get("cron_run_id") or 0),
+            cron_job_id=int(payload.get("cron_job_id") or 0),
+            job_type=str(payload.get("job_type") or "noop").strip().lower(),
+            payload=dict(payload.get("payload") or {}),
+            **base,
+        )
+
+
 TASK_TYPE_REGISTRY: dict[str, type[BaseTask]] = {
     "warmup": WarmupTask,
     "chat_completion": ChatCompletionTask,
+    "cron.execute": CronExecutionTask,
 }
 
 

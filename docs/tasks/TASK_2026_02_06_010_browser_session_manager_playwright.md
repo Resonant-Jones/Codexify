@@ -194,7 +194,7 @@ Update this task artifact with:
  • final git status --porcelain -uall output
 
 Update campaign mapping line to:
- • TASK-2026-02-06-010_browser_session_manager_playwright -> [<commitA>, <commitB>]
+ • TASK-2026-02-06-010_browser_session_manager_playwright -> [78b83ad1, d2814e97]
 
 Then:
 
@@ -220,3 +220,32 @@ Notes / Guardrails
  • session expired
  • Avoid adding new dependencies or wiring routes in this task.
 
+---
+
+## Execution Summary (Commit B)
+
+- Commands run:
+  - `git status --porcelain -uall`
+  - `python --version`
+  - `pytest --version`
+  - `python -c "import playwright; print('playwright import ok')"` (failed: `ModuleNotFoundError`)
+  - `rg -n "STORAGE_BASE_PATH|storage_base_path" guardian | head -n 50`
+  - `rg -n "Playwright|playwright|chromium|browser" guardian | head -n 50`
+  - `rg -n "ALLOWLIST|allowlist|URL_ALLOWLIST|domain allow" guardian | head -n 50`
+  - `python -m compileall guardian/browser/session_manager.py guardian/browser/cdp_bridge.py`
+  - `pytest -q guardian/tests/test_browser_session_manager.py -q`
+  - `pytest -q guardian/tests/test_browser_allowlist.py -q`
+  - `pytest -q`
+- Key results:
+  - Playwright is not installed locally; implementation is defensive and import-gated.
+  - Browser session manager and bridge added under `guardian/browser/`.
+  - Full test suite run completed with exit code `0`.
+- Files changed in Commit A:
+  - `guardian/browser/session_manager.py`
+  - `guardian/browser/cdp_bridge.py`
+  - `guardian/browser/__init__.py`
+  - `guardian/tests/test_browser_session_manager.py`
+  - `guardian/tests/test_browser_allowlist.py`
+- Commit A: `78b83ad1`
+- Campaign mapping line:
+  - `TASK-2026-02-06-010_browser_session_manager_playwright -> [78b83ad1, d2814e97]`

@@ -114,3 +114,7 @@ models/
 # Local temp artifacts
 /guardian/temp/
 /guardian/temp/*.json
+
+# ChatGPT export artifacts
+/data/conversation.json
+/docs/conversation.json

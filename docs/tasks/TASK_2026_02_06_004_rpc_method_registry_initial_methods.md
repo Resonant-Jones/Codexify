@@ -69,7 +69,7 @@ Introduce a minimal, explicit RPC method registry for the websocket layer so tha
 - tests/**/test_*ws*.py
 - tests/**/test_*rpc*.py
 - docs/tasks/TASK_2026_02_06_004_rpc_method_registry_initial_methods.md
-- docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+- docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 ## Dependencies / Prereqs (NO GUESSING)
 Run these first and record any failures in the task summary.
@@ -165,7 +165,7 @@ git status --porcelain -uall
 ```bash
 cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
 
-git add docs/tasks/TASK_2026_02_06_004_rpc_method_registry_initial_methods.md docs/Campaign/CAMPAIGN_2026_02_06_LOOP_INTEGRITY_AUTH_AND_DEFAULTS.md
+git add docs/tasks/TASK_2026_02_06_004_rpc_method_registry_initial_methods.md docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 git commit --no-verify -m "TASK-2026-02-06-004_rpc_method_registry_+_initial_methods: docs finalize + mapping"
 
@@ -175,16 +175,23 @@ git status --porcelain -uall
 ```
 
 ## Mapping
-- TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [<commitA>, <commitB>]
+- TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [39f6140e, f70968ea]
 
 ## Notes
 - If websocket RPC dispatch lives outside `guardian/ws/`, STOP and emit a BLOCKER_PROMPT requesting the exact additional file path(s) to add to Allowed files.
 
 ## Summary (fill after completion)
 - What changed:
+  - Added `guardian/ws/methods.py` with `@rpc_method` decorator, method registry, dispatch logic, and initial handlers (`ping`, `subscribe`, `unsubscribe`, `health.status`, `thread.list`, `chat.send`).
+  - Updated `guardian/ws/router.py` to dispatch request frames via registry and emit structured errors for `unknown_method`, `permission_denied`, and `method_error`.
+  - Added `tests/realtime/test_websocket_rpc_methods.py` for unknown-method error contract and permission-gated method rejection.
 - Commands run + key outputs:
+  - `rg` discovery commands for websocket/rpc and test locations.
+  - `pytest -q tests/realtime/test_websocket_auth_handshake.py tests/realtime/test_websocket_protocol_validation.py tests/realtime/test_websocket_rpc_methods.py` -> `7 passed`.
+  - `python -m pytest -q guardian/tests tests || true` -> `/opt/homebrew/opt/python@3.13/bin/python3.13: No module named pytest`.
 - Tests:
-- Commit A:
-- Commit B:
+  - WS targeted suite green (`7 passed`).
+- Commit A: 39f6140e
+- Commit B: f70968ea
 - Final mapping:
-  - TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [<commitA>, <commitB>]
+  - TASK-2026-02-06-004_rpc_method_registry_+_initial_methods -> [39f6140e, f70968ea]

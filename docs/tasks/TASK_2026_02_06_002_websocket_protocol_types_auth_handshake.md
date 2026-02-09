@@ -32,7 +32,7 @@
 - Campaign-ID: CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE
 - Task-ID: TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake
 - Title: WebSocket protocol types + auth handshake
-- Task artifact: docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_and_auth_handshake.md
+- Task artifact: docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_auth_handshake.md
 - Risk: MED
 - Owner: resonant_jones
 
@@ -60,7 +60,7 @@ Introduce a minimal, validated WebSocket message framing layer and a determinist
 - guardian/core/dependencies.py
 - tests/realtime/test_websocket_auth_handshake.py
 - tests/realtime/test_websocket_protocol_validation.py
-- docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_and_auth_handshake.md
+- docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_auth_handshake.md
 - docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 ## Dependencies / Prereqs (NO GUESSING)
 Run these first and capture outputs in the Summary if anything is surprising.
@@ -121,7 +121,7 @@ git restore --staged --worktree \
   guardian/core/dependencies.py \
   tests/realtime/test_websocket_auth_handshake.py \
   tests/realtime/test_websocket_protocol_validation.py \
-  docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_and_auth_handshake.md \
+  docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_auth_handshake.md \
   docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 git status --porcelain -uall
@@ -166,7 +166,7 @@ cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
 git status --porcelain -uall
 
 git add \
-  docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_and_auth_handshake.md \
+  docs/tasks/TASK_2026_02_06_002_websocket_protocol_types_auth_handshake.md \
   docs/Campaign/CAMPAIGN_2026_02_06_GUARDIAN_PARITY_CONTROL_PLANE.md
 
 git commit --no-verify -m "TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake: docs finalize + mapping"
@@ -177,7 +177,7 @@ git status --porcelain -uall
 ```
 
 ## Mapping
-- TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [<commitA>, <commitB>]
+- TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [bef02d9c, 3dd76be1]
 
 ## Notes
 - Close codes: prefer a stable, test-assertable close code for auth failure vs validation failure.
@@ -185,9 +185,18 @@ git status --porcelain -uall
 
 ## Summary (fill after completion)
 - Changed files:
+  - guardian/ws/__init__.py
+  - guardian/ws/auth.py
+  - guardian/ws/protocol.py
+  - guardian/ws/router.py
+  - tests/realtime/test_websocket_auth_handshake.py
+  - tests/realtime/test_websocket_protocol_validation.py
 - Commands run:
+  - rg discovery checks for auth/router/lifespan/queue/tests references (per checklist)
+  - pytest -q tests/realtime/test_websocket_auth_handshake.py tests/realtime/test_websocket_protocol_validation.py
 - Test results:
-- Commit A:
-- Commit B:
+  - 5 passed
+- Commit A: bef02d9c
+- Commit B: 3dd76be1
 - Final mapping:
-  - TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [<commitA>, <commitB>]
+  - TASK-2026-02-06-002_websocket_protocol_types_and_auth_handshake -> [bef02d9c, 3dd76be1]

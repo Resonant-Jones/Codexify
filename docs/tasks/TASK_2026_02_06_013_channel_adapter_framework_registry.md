@@ -255,7 +255,7 @@ git log -1 --oneline
 
 Update the campaign file mapping to the required format:
 
-- `TASK-2026-02-06-013_channel_adapter_framework_registry -> [<commitA>, <commitB>]`
+- `TASK-2026-02-06-013_channel_adapter_framework_registry -> [9e87ca71, e30dd767]`
 
 ---
 
@@ -263,17 +263,34 @@ Update the campaign file mapping to the required format:
 
 ### Commands run
 
-- …
+- `git status --porcelain -uall`
+- `rg -n "guardian/channels" guardian || true`
+- `rg -n "allowlist|pairing" guardian || true`
+- `rg -n "router\.include_router\(" guardian | head`
+- `pytest -q guardian/tests/test_channel_allowlist.py -q || true`
+- `pytest -q guardian/tests/test_channel_router.py -q || true`
 
 ### Key outputs
 
-- …
+- Added channel framework modules:
+  - `guardian/channels/base.py`
+  - `guardian/channels/registry.py`
+  - `guardian/channels/allowlist.py`
+  - `guardian/channels/router.py`
+  - `guardian/channels/__init__.py`
+- Added tests:
+  - `guardian/tests/test_channel_allowlist.py`
+  - `guardian/tests/test_channel_router.py`
+- Test results:
+  - `test_channel_allowlist.py`: `4 passed`
+  - `test_channel_router.py`: `3 passed`
+- Commit A created: `9e87ca71`
+- Commit B created: `e30dd767`
 
 ### Deviations
 
-- …
+- None.
 
 ### Final mapping
 
-- `TASK-2026-02-06-013_channel_adapter_framework_registry -> [<commitA>, <commitB>]`
-
+- `TASK-2026-02-06-013_channel_adapter_framework_registry -> [9e87ca71, e30dd767]`

@@ -124,6 +124,7 @@ from guardian.routes import (
     admin,
     agent,
     backfill,
+    cron as cron_routes,
     devtools,
     documents,
     embeddings,
@@ -131,6 +132,7 @@ from guardian.routes import (
     health,
     memory,
     migration,
+    websocket as websocket_routes,
 )
 from guardian.routes import neo as neo_routes
 from guardian.routes import research, share, threads
@@ -202,10 +204,12 @@ async def app_lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("[startup] GuardianDB init failed: %s", exc)
     if guardian_db:
+        cron_routes.configure_db(guardian_db)
         documents.configure_db(guardian_db)
         share.configure_db(guardian_db)
+        websocket_routes.configure_db(guardian_db)
         logger.info(
-            "[startup] GuardianDB configured for documents/share routes"
+            "[startup] GuardianDB configured for cron/documents/share/websocket routes"
         )
 
     # Configure durable outbox storage
@@ -463,6 +467,8 @@ app.include_router(codex_router)
 app.include_router(codexify_router)
 app.include_router(migration.router)
 app.include_router(devtools.router)
+app.include_router(websocket_routes.router)
+app.include_router(cron_routes.router)
 
 logger.info("[routers] All routers included")
 
