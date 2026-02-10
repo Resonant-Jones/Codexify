@@ -36,6 +36,11 @@ class RunnerError(RuntimeError):
     pass
 
 
+# Logging helper: prints to STDERR
+def log(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
 def run_cmd(
     args: list[str], *, capture_output: bool = False
 ) -> subprocess.CompletedProcess[str]:
@@ -173,6 +178,7 @@ def slugify_branch(value: str) -> str:
 
 # -------- RUNNER ARTIFACT PATHS + PROMPT RENDERING HELPERS --------
 
+
 def upper_snake(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9]+", "_", value.strip())
     cleaned = re.sub(r"_+", "_", cleaned).strip("_")
@@ -181,7 +187,10 @@ def upper_snake(value: str) -> str:
 
 def canonical_campaign_doc_path(campaign_slug: str) -> Path:
     today = date.today().strftime("%Y_%m_%d")
-    return DEFAULT_CAMPAIGN_DIR / f"CAMPAIGN_{today}_{upper_snake(campaign_slug)}.md"
+    return (
+        DEFAULT_CAMPAIGN_DIR
+        / f"CAMPAIGN_{today}_{upper_snake(campaign_slug)}.md"
+    )
 
 
 def canonical_task_artifact_path(task_id: str, task_slug: str) -> Path:
@@ -194,16 +203,26 @@ def canonical_task_artifact_path(task_id: str, task_slug: str) -> Path:
     return DEFAULT_TASKS_DIR / f"TASK_{today}_{nnn}_{safe_slug}.md"
 
 
-def render_compiler_prompt(template_path: Path, repo_root: Path, mega_audit_payload: dict[str, Any]) -> str:
+def render_compiler_prompt(
+    template_path: Path, repo_root: Path, mega_audit_payload: dict[str, Any]
+) -> str:
     template_text = template_path.read_text(encoding="utf-8")
     rendered = template_text.replace(REPO_ROOT_TOKEN, str(repo_root))
-    rendered = rendered.replace(MEGA_AUDIT_JSON_TOKEN, json.dumps(mega_audit_payload, indent=2))
+    rendered = rendered.replace(
+        MEGA_AUDIT_JSON_TOKEN, json.dumps(mega_audit_payload, indent=2)
+    )
     return rendered
 
 
-def update_campaign_mapping_line(campaign_doc: Path, task_id: str, impl_hash: str, receipt_hash: str) -> None:
+def update_campaign_mapping_line(
+    campaign_doc: Path, task_id: str, impl_hash: str, receipt_hash: str
+) -> None:
     line = f"{task_id} -> [{impl_hash}, {receipt_hash}]"
-    text = campaign_doc.read_text(encoding="utf-8") if campaign_doc.exists() else ""
+    text = (
+        campaign_doc.read_text(encoding="utf-8")
+        if campaign_doc.exists()
+        else ""
+    )
     pattern = re.compile(rf"^{re.escape(task_id)}\s*->\s*\[.*\]$", re.MULTILINE)
     if pattern.search(text):
         text = pattern.sub(line, text)
@@ -216,12 +235,19 @@ def update_campaign_mapping_line(campaign_doc: Path, task_id: str, impl_hash: st
     write_text_file(campaign_doc, text)
 
 
-def append_runner_completion_summary(task_artifact: Path, result: dict[str, Any], impl_hash: str, receipt_hash: str) -> None:
+def append_runner_completion_summary(
+    task_artifact: Path,
+    result: dict[str, Any],
+    impl_hash: str,
+    receipt_hash: str,
+) -> None:
     status = (result.get("status") or "unknown").strip()
     tests_ran = result.get("tests_ran")
     tests_line = "n/a"
     if isinstance(tests_ran, list):
-        tests_line = ", ".join(str(t) for t in tests_ran) if tests_ran else "(none)"
+        tests_line = (
+            ", ".join(str(t) for t in tests_ran) if tests_ran else "(none)"
+        )
     summary = (result.get("summary") or "").strip()
     notes = (result.get("notes") or "").strip()
 
@@ -236,7 +262,11 @@ def append_runner_completion_summary(task_artifact: Path, result: dict[str, Any]
     if notes:
         block += f"\n- Notes: {notes}\n"
 
-    block += "\n<details>\n<summary>Structured task_result.json</summary>\n\n```json\n" + json.dumps(result, indent=2) + "\n```\n\n</details>\n"
+    block += (
+        "\n<details>\n<summary>Structured task_result.json</summary>\n\n```json\n"
+        + json.dumps(result, indent=2)
+        + "\n```\n\n</details>\n"
+    )
 
     append_text_file(task_artifact, block)
 
@@ -270,7 +300,9 @@ def git_current_branch() -> str:
         ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True
     )
     if result.returncode != 0:
-        raise RunnerError(f"git rev-parse --abbrev-ref failed: {result.stderr.strip()}")
+        raise RunnerError(
+            f"git rev-parse --abbrev-ref failed: {result.stderr.strip()}"
+        )
     branch_name = result.stdout.strip()
     if not branch_name:
         raise RunnerError("Unable to determine current git branch.")
@@ -332,8 +364,8 @@ def run_cycle(
     args: argparse.Namespace, cycle_index: int, base_branch: str
 ) -> None:
     ensure_clean_git("start of cycle")
-    print(f"Starting cycle {cycle_index}...")
-    print(
+    log(f"Starting cycle {cycle_index}...")
+    log(
         "Note: concurrent campaigns in the same workdir will serialize in Git. "
         "Use separate clones/worktrees for true parallelism."
     )
@@ -343,7 +375,9 @@ def run_cycle(
         tmp_path = Path(tmpdir)
 
         mega_out = tmp_path / "mega_audit_output.json"
-        run_codex_exec(args.mega_audit_prompt_file, MEGA_AUDIT_SCHEMA_PATH, mega_out)
+        run_codex_exec(
+            args.mega_audit_prompt_file, MEGA_AUDIT_SCHEMA_PATH, mega_out
+        )
         mega_payload = read_json_file(mega_out)
 
         compiler_prompt_text = render_compiler_prompt(
@@ -366,7 +400,7 @@ def run_cycle(
             "git tree is not clean before switching campaign branch"
         )
     campaign_branch = campaign_branch_name(campaign_slug)
-    print(f"Switching to campaign branch: {campaign_branch}")
+    log(f"Switching to campaign branch: {campaign_branch}")
     switch_branch(campaign_branch)
     ensure_clean_git("after switching campaign branch")
 
@@ -383,7 +417,9 @@ def run_cycle(
         write_text_file(task_path, task["task_artifact_markdown"])
 
     campaign_id = payload.get("campaign_id", "campaign")
-    artifact_paths = [str(campaign_doc_path)] + [str(p) for p in task_artifact_paths.values()]
+    artifact_paths = [str(campaign_doc_path)] + [
+        str(p) for p in task_artifact_paths.values()
+    ]
 
     if args.auto_commit:
         git_commit(
@@ -402,10 +438,12 @@ def run_cycle(
             ensure_clean_git("start of task")
             task_id = str(task.get("id") or "")
             task_slug = str(task.get("slug") or "")
-            task_artifact_path = task_artifact_paths.get(task_id) or canonical_task_artifact_path(task_id, task_slug)
+            task_artifact_path = task_artifact_paths.get(
+                task_id
+            ) or canonical_task_artifact_path(task_id, task_slug)
 
             head_before = git_head_commit()
-            print(f"Executing task {task_id}...")
+            log(f"Executing task {task_id}...")
             result = execute_task(task)
 
             # If the agent left changes, the runner commits them as the implementation commit.
@@ -421,7 +459,9 @@ def run_cycle(
             impl_hash = git_head_commit()
 
             # Normalize implementation hash fields.
-            reported = (result.get("implementation_commit_hash") or "").strip() or (result.get("commit_hash") or "").strip()
+            reported = (
+                result.get("implementation_commit_hash") or ""
+            ).strip() or (result.get("commit_hash") or "").strip()
             if not reported and impl_hash != head_before:
                 result["commit_hash"] = impl_hash
                 result["implementation_commit_hash"] = impl_hash
@@ -438,10 +478,16 @@ def run_cycle(
                 result["commit_hash"] = reported or impl_hash
 
             # Receipt update commit (task artifact only).
-            append_runner_completion_summary(task_artifact_path, result, impl_hash, "(see campaign mapping)")
+            append_runner_completion_summary(
+                task_artifact_path, result, impl_hash, "(see campaign mapping)"
+            )
             if args.auto_commit:
                 receipt_commit_msg = f"{task_id}: receipt update"
-                receipt_hash = git_commit([str(task_artifact_path)], receipt_commit_msg, args.no_verify)
+                receipt_hash = git_commit(
+                    [str(task_artifact_path)],
+                    receipt_commit_msg,
+                    args.no_verify,
+                )
                 ensure_clean_git("after task receipt commit")
             else:
                 raise RunnerError(
@@ -451,20 +497,26 @@ def run_cycle(
             result["receipt_update_commit_hash"] = receipt_hash
 
             # Campaign mapping update as its own commit.
-            update_campaign_mapping_line(campaign_doc_path, task_id, impl_hash, receipt_hash)
-            git_commit([str(campaign_doc_path)], f"Docs: map {task_id}", args.no_verify)
+            update_campaign_mapping_line(
+                campaign_doc_path, task_id, impl_hash, receipt_hash
+            )
+            git_commit(
+                [str(campaign_doc_path)], f"Docs: map {task_id}", args.no_verify
+            )
             ensure_clean_git("after campaign mapping commit")
 
             if impl_hash == head_before and (result.get("status") != "success"):
-                raise RunnerError(f"Task {task_id} produced no implementation commit.")
+                raise RunnerError(
+                    f"Task {task_id} produced no implementation commit."
+                )
     elif args.execute and args.dry_run:
-        print("Dry run enabled: skipping task execution.")
+        log("Dry run enabled: skipping task execution.")
 
     ensure_clean_git("end of cycle")
 
     if args.return_to_base_branch:
         ensure_clean_git("before returning to base branch")
-        print(f"Returning to base branch: {base_branch}")
+        log(f"Returning to base branch: {base_branch}")
         switch_existing_branch(base_branch)
         ensure_clean_git("after returning to base branch")
 
@@ -578,7 +630,7 @@ def main() -> int:
         raise RunnerError(
             "HEAD is detached. Pass --allow-detached-head to run anyway."
         )
-    print(f"Base branch: {base_branch}")
+    log(f"Base branch: {base_branch}")
 
     for cycle_index in range(1, args.cycles + 1):
         run_cycle(args, cycle_index, base_branch)
