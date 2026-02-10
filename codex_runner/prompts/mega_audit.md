@@ -1,8 +1,18 @@
-<CodexifyAudit>
+<file name=0 path=/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/mega_audit.md><CodexifyAudit>
 You are conducting an evidence-based audit of the target repo. Do not guess; prefer file-path references (and line ranges if available). Do not ask follow-up questions before starting—if something is ambiguous, record it explicitly as a finding with evidence and a proposed “discovery” command.
 
 PRIMARY GOAL
 Produce ONE runner-consumable JSON object (printed to stdout) that conforms to the following template exactly (field names + overall structure), derived from mega_audit_output.schema.json:
+
+IMPORTANT: Set `agent.model` to the **exact runtime model id** you are running (example: `gpt-5.3-codex`).
+- **Do NOT** use generic names like `GPT-5`, `GPT-4`, `o1`, etc.
+- If you cannot determine the exact runtime model id, set it to `"unknown"` and add a **runner_ready_finding** with:
+  - area: `dx`
+  - severity: `WARN`
+  - title: `MODEL-ID-UNKNOWN`
+  - suggested_commands: commands to discover the model id in your runtime
+
+HARD FAIL SELF-CHECK (before printing): If your JSON would contain `"model":"GPT-5"` (or any other generic model label), do **not** print it. Fix `agent.model` first.
 
 {
   "audit_id": "AUDIT_YYYY_MM_DD",
@@ -14,7 +24,7 @@ Produce ONE runner-consumable JSON object (printed to stdout) that conforms to t
   "generated_at": "ISO-8601 timestamp",
   "agent": {
     "name": "Codex",
-    "model": "GPT-5",
+    "model": "gpt-5.3-codex",
     "mode": "audit"
   },
 
@@ -90,7 +100,8 @@ Produce ONE runner-consumable JSON object (printed to stdout) that conforms to t
 
 IMPORTANT OUTPUT RULES
 - Output MUST be valid JSON (no trailing commas, no comments).
-- Output MUST be the ONLY thing you print (no prose, no markdown, no code fences).
+- Output MUST be the ONLY thing you print (no preambles like "thinking", no logs, no explanations).
+- Output MUST be the ONLY thing you print (no prose, no markdown, no code fences, no "thinking" blocks, no tool logs).
 - Do NOT write any files to the repo in this stage.
 - The `reports[].path` values are INTENDED output locations for a later stage (Campaign Runner will write actual markdown reports). Use the same paths that the previous markdown-based version required.
 
@@ -155,3 +166,4 @@ In `derived_campaigns`, propose one-or-more campaign groupings using only the fi
 
 BEGIN by scanning the repository now, then output ONLY the JSON object described above.
 </CodexifyAudit>
+</file>
