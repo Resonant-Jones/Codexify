@@ -46,3 +46,41 @@ Runner constraints:
 - Must not proceed with dirty tree.
 - Must stop if out-of-scope files appear.
 - Any API contract decision change must be captured in a dedicated Decision task artifact.
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: Implemented thread-document rehydration so generated docs are fetched from backend thread links on app bootstrap and thread switches, and verified persistence with backend + frontend tests.
+
+- Implementation commit hash: e6ac7713b3132f277ed00066a7c145d1f37870ac
+
+- Receipt update commit hash: (see campaign mapping)
+
+- Tests ran: pytest -q guardian/tests/test_document_gen_persist_and_link.py tests/routes/test_thread_documents.py, cd frontend/src && pnpm vitest run test/thread_documents_rehydration.test.tsx
+
+- Notes: Code changes:
+- Added route-aware thread document rehydration in `frontend/src/components/persona/layout/AppShell.tsx:535` and `frontend/src/components/persona/layout/AppShell.tsx:589`, including URL thread parsing, `popstate`/`cfy:threads:refresh` sync, backend fetch from `/threads/{id}/documents`, and deduped merge into document state (`frontend/src/components/persona/layout/AppShell.tsx:157`, `frontend/src/components/persona/layout/AppShell.tsx:654`).
+- Updated generated document event payload to include thread context in `frontend/src/App.tsx:161`.
+- Added frontend regression test for bootstrap + thread-switch rehydration in `frontend/src/tests/thread_documents_rehydration.spec.tsx:1`.
+- Added a vitest-included wrapper to execute that spec under existing include patterns in `frontend/src/test/thread_documents_rehydration.test.tsx:1`.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "Implemented thread-document rehydration so generated docs are fetched from backend thread links on app bootstrap and thread switches, and verified persistence with backend + frontend tests.",
+  "tests_ran": [
+    "pytest -q guardian/tests/test_document_gen_persist_and_link.py tests/routes/test_thread_documents.py",
+    "cd frontend/src && pnpm vitest run test/thread_documents_rehydration.test.tsx"
+  ],
+  "commit_hash": "e6ac7713b3132f277ed00066a7c145d1f37870ac",
+  "implementation_commit_hash": "e6ac7713b3132f277ed00066a7c145d1f37870ac",
+  "receipt_update_commit_hash": "",
+  "notes": "Code changes:\n- Added route-aware thread document rehydration in `frontend/src/components/persona/layout/AppShell.tsx:535` and `frontend/src/components/persona/layout/AppShell.tsx:589`, including URL thread parsing, `popstate`/`cfy:threads:refresh` sync, backend fetch from `/threads/{id}/documents`, and deduped merge into document state (`frontend/src/components/persona/layout/AppShell.tsx:157`, `frontend/src/components/persona/layout/AppShell.tsx:654`).\n- Updated generated document event payload to include thread context in `frontend/src/App.tsx:161`.\n- Added frontend regression test for bootstrap + thread-switch rehydration in `frontend/src/tests/thread_documents_rehydration.spec.tsx:1`.\n- Added a vitest-included wrapper to execute that spec under existing include patterns in `frontend/src/test/thread_documents_rehydration.test.tsx:1`."
+}
+```
+
+</details>
