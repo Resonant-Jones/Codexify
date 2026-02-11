@@ -31,6 +31,24 @@ MEGA_AUDIT_SCHEMA_PATH = SCHEMA_DIR / "mega_audit_output.schema.json"
 REPO_ROOT_TOKEN = "<REPO_ROOT>"
 MEGA_AUDIT_JSON_TOKEN = "<PASTE MEGA_AUDIT_OUTPUT_JSON_HERE>"
 
+TASK_ID_INLINE_PATTERN = re.compile(
+    r"task[-_\s]*id\s*[:：]\s*`?([A-Za-z0-9_+\-]+)`?",
+    re.IGNORECASE,
+)
+TASK_ID_HEADING_PATTERN = re.compile(
+    r"^\s*#+\s*task[-_\s]*id\s*$",
+    re.IGNORECASE,
+)
+TASK_FILENAME_PATTERN = re.compile(
+    r"^TASK_(\d{4})_(\d{2})_(\d{2})_(\d{3})_([a-z0-9_]+)\.md$"
+)
+TASK_RESULT_JSON_BLOCK_PATTERN = re.compile(
+    r"(<summary>Structured task_result\.json</summary>\s*\n\n```json\n)"
+    r"(\{.*?\})"
+    r"(\n```)",
+    re.DOTALL,
+)
+
 
 class RunnerError(RuntimeError):
     pass
@@ -193,14 +211,135 @@ def canonical_campaign_doc_path(campaign_slug: str) -> Path:
     )
 
 
+def normalize_task_id(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
+    return re.sub(r"-+", "-", cleaned).strip("-")
+
+
+def normalize_task_slug(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "_", value.strip().lower())
+    return re.sub(r"_+", "_", cleaned).strip("_")
+
+
+def extract_task_date(task_id: str) -> str:
+    m = re.search(r"(20\d{2})[-_](\d{2})[-_](\d{2})", task_id)
+    if m:
+        return f"{m.group(1)}_{m.group(2)}_{m.group(3)}"
+    return date.today().strftime("%Y_%m_%d")
+
+
+def extract_task_nnn(task_id: str) -> str:
+    matches = re.findall(r"(?:^|[-_])(\d{3})(?=[-_]|$)", task_id)
+    return matches[-1] if matches else ""
+
+
+def extract_slug_from_task_id(task_id: str) -> str:
+    m = re.search(r"(?:^|[-_])\d{3}[-_](.+)$", task_id)
+    if not m:
+        return ""
+    return normalize_task_slug(m.group(1))
+
+
 def canonical_task_artifact_path(task_id: str, task_slug: str) -> Path:
-    # task_id expected like "TASK_YYYY_MM_DD_NNN_..." or "TASK-..."; we only need NNN.
-    m = re.search(r"(\d{3})", task_id)
-    nnn = m.group(1) if m else "000"
-    today = date.today().strftime("%Y_%m_%d")
-    safe_slug = re.sub(r"[^a-z0-9_]+", "_", task_slug.strip().lower())
-    safe_slug = re.sub(r"_+", "_", safe_slug).strip("_") or "task"
-    return DEFAULT_TASKS_DIR / f"TASK_{today}_{nnn}_{safe_slug}.md"
+    nnn = extract_task_nnn(task_id) or "000"
+    task_date = extract_task_date(task_id)
+    safe_slug = normalize_task_slug(task_slug) or extract_slug_from_task_id(
+        task_id
+    )
+    safe_slug = safe_slug or "task"
+    return DEFAULT_TASKS_DIR / f"TASK_{task_date}_{nnn}_{safe_slug}.md"
+
+
+def task_semantic_key(task_id: str, task_slug: str) -> str:
+    nnn = extract_task_nnn(task_id)
+    slug = normalize_task_slug(task_slug) or extract_slug_from_task_id(task_id)
+    if not nnn or not slug:
+        return ""
+    return f"{nnn}:{slug}"
+
+
+def extract_task_id_from_artifact(text: str) -> str:
+    lines = text.splitlines()
+    for line in lines:
+        inline_match = TASK_ID_INLINE_PATTERN.search(line)
+        if inline_match:
+            return inline_match.group(1).strip()
+    for idx, line in enumerate(lines):
+        if not TASK_ID_HEADING_PATTERN.match(line):
+            continue
+        for candidate in lines[idx + 1 : idx + 6]:
+            cleaned = candidate.strip().strip("`").strip("*").strip("-").strip()
+            if re.fullmatch(r"[A-Za-z0-9_+\-]+", cleaned):
+                return cleaned
+    return ""
+
+
+def task_semantic_key_from_path(path: Path) -> str:
+    match = TASK_FILENAME_PATTERN.match(path.name)
+    if not match:
+        return ""
+    return f"{match.group(4)}:{normalize_task_slug(match.group(5))}"
+
+
+def resolve_task_artifact_path(
+    task: dict[str, Any], existing_task_paths: list[Path]
+) -> Path:
+    task_id = str(task.get("id") or "")
+    task_slug = str(task.get("slug") or "")
+    declared_path = str(task.get("task_artifact_path") or "").strip()
+    if declared_path and TASK_PATH_PATTERN.fullmatch(declared_path):
+        preferred = Path(declared_path)
+    else:
+        preferred = canonical_task_artifact_path(task_id, task_slug)
+
+    if preferred.exists():
+        return preferred
+
+    target_id = normalize_task_id(task_id)
+    target_key = task_semantic_key(task_id, task_slug)
+
+    exact_id_matches: list[Path] = []
+    semantic_matches: list[Path] = []
+
+    for candidate in sorted(existing_task_paths):
+        if not candidate.exists() or not candidate.is_file():
+            continue
+
+        candidate_text = candidate.read_text(encoding="utf-8")
+        embedded_task_id = extract_task_id_from_artifact(candidate_text)
+        normalized_embedded = (
+            normalize_task_id(embedded_task_id) if embedded_task_id else ""
+        )
+
+        if (
+            target_id
+            and normalized_embedded
+            and normalized_embedded == target_id
+        ):
+            exact_id_matches.append(candidate)
+            continue
+
+        if target_key:
+            # Collision guard: if this doc embeds a *different* task id, semantic
+            # key fallback is not allowed.
+            if (
+                target_id
+                and normalized_embedded
+                and normalized_embedded != target_id
+            ):
+                continue
+            if task_semantic_key_from_path(candidate) == target_key:
+                semantic_matches.append(candidate)
+                continue
+            embedded_key = task_semantic_key(embedded_task_id, "")
+            if embedded_key and embedded_key == target_key:
+                semantic_matches.append(candidate)
+
+    if exact_id_matches:
+        return exact_id_matches[0]
+    if semantic_matches:
+        return semantic_matches[0]
+    return preferred
 
 
 def render_compiler_prompt(
@@ -241,6 +380,8 @@ def append_runner_completion_summary(
     impl_hash: str,
     receipt_hash: str,
 ) -> None:
+    render_result = dict(result)
+    render_result["receipt_update_commit_hash"] = receipt_hash
     status = (result.get("status") or "unknown").strip()
     tests_ran = result.get("tests_ran")
     tests_line = "n/a"
@@ -264,11 +405,63 @@ def append_runner_completion_summary(
 
     block += (
         "\n<details>\n<summary>Structured task_result.json</summary>\n\n```json\n"
-        + json.dumps(result, indent=2)
+        + json.dumps(render_result, indent=2)
         + "\n```\n\n</details>\n"
     )
 
     append_text_file(task_artifact, block)
+
+
+def replace_last_match(
+    text: str, pattern: re.Pattern[str], replacement: str
+) -> tuple[str, bool]:
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return text, False
+    match = matches[-1]
+    return text[: match.start()] + replacement + text[match.end() :], True
+
+
+def update_task_artifact_receipt_hash(
+    task_artifact: Path, receipt_hash: str
+) -> bool:
+    text = task_artifact.read_text(encoding="utf-8")
+    changed = False
+
+    # Update summary line.
+    summary_line_pattern = re.compile(
+        r"^- Receipt update commit hash: .*$", re.MULTILINE
+    )
+    summary_line = f"- Receipt update commit hash: {receipt_hash}"
+    updated, replaced = replace_last_match(
+        text, summary_line_pattern, summary_line
+    )
+    if replaced and updated != text:
+        text = updated
+        changed = True
+
+    # Update latest structured task_result.json block.
+    matches = list(TASK_RESULT_JSON_BLOCK_PATTERN.finditer(text))
+    if matches:
+        last_match = matches[-1]
+        payload = json.loads(last_match.group(2))
+        if payload.get("receipt_update_commit_hash") != receipt_hash:
+            payload["receipt_update_commit_hash"] = receipt_hash
+            replacement = (
+                last_match.group(1)
+                + json.dumps(payload, indent=2)
+                + last_match.group(3)
+            )
+            text = (
+                text[: last_match.start()]
+                + replacement
+                + text[last_match.end() :]
+            )
+            changed = True
+
+    if changed:
+        write_text_file(task_artifact, text)
+    return changed
 
 
 def campaign_branch_name(campaign_slug: str) -> str:
@@ -344,6 +537,22 @@ def git_commit_all(message: str, no_verify: bool) -> str:
     return git_head_commit()
 
 
+def git_commit_amend(paths: list[str], no_verify: bool) -> str:
+    if paths:
+        add_result = run_cmd(["git", "add", *paths], capture_output=True)
+        if add_result.returncode != 0:
+            raise RunnerError(f"git add failed: {add_result.stderr.strip()}")
+    commit_cmd = ["git", "commit", "--amend", "--no-edit"]
+    if no_verify:
+        commit_cmd.insert(2, "--no-verify")
+    commit_result = run_cmd(commit_cmd, capture_output=True)
+    if commit_result.returncode != 0:
+        raise RunnerError(
+            f"git commit --amend failed: {commit_result.stderr.strip()}"
+        )
+    return git_head_commit()
+
+
 def execute_task(task: dict[str, Any]) -> dict[str, Any]:
     """Run a single task activation prompt via Codex and return the structured result.
 
@@ -407,14 +616,25 @@ def run_cycle(
     campaign_doc_path = canonical_campaign_doc_path(campaign_slug)
     write_text_file(campaign_doc_path, payload["campaign_markdown"])
 
-    # Write task artifacts with runner-owned canonical paths.
+    # Write task artifacts, reusing existing docs when an exact or semantic
+    # match is found.
     task_artifact_paths: dict[str, Path] = {}
+    task_path_to_id: dict[Path, str] = {}
+    existing_task_paths = list(DEFAULT_TASKS_DIR.rglob("TASK_*.md"))
     for task in payload["tasks"]:
         task_id = str(task.get("id") or "")
-        task_slug = str(task.get("slug") or "")
-        task_path = canonical_task_artifact_path(task_id, task_slug)
+        task_path = resolve_task_artifact_path(task, existing_task_paths)
+        prior_task_id = task_path_to_id.get(task_path)
+        if prior_task_id and prior_task_id != task_id:
+            raise RunnerError(
+                "Task artifact path collision detected between "
+                f"{prior_task_id} and {task_id}: {task_path}"
+            )
+        task_path_to_id[task_path] = task_id
         task_artifact_paths[task_id] = task_path
         write_text_file(task_path, task["task_artifact_markdown"])
+        if task_path not in existing_task_paths:
+            existing_task_paths.append(task_path)
 
     campaign_id = payload.get("campaign_id", "campaign")
     artifact_paths = [str(campaign_doc_path)] + [
@@ -437,10 +657,11 @@ def run_cycle(
         for task in payload["tasks"]:
             ensure_clean_git("start of task")
             task_id = str(task.get("id") or "")
-            task_slug = str(task.get("slug") or "")
             task_artifact_path = task_artifact_paths.get(
                 task_id
-            ) or canonical_task_artifact_path(task_id, task_slug)
+            ) or resolve_task_artifact_path(
+                task, list(DEFAULT_TASKS_DIR.rglob("TASK_*.md"))
+            )
 
             head_before = git_head_commit()
             log(f"Executing task {task_id}...")
@@ -477,15 +698,31 @@ def run_cycle(
                 result["implementation_commit_hash"] = reported or impl_hash
                 result["commit_hash"] = reported or impl_hash
 
-            # Receipt update commit (task artifact only).
+            # Receipt update commit (task artifact + campaign mapping).
             append_runner_completion_summary(
-                task_artifact_path, result, impl_hash, "(see campaign mapping)"
+                task_artifact_path, result, impl_hash, "(pending)"
+            )
+            update_campaign_mapping_line(
+                campaign_doc_path, task_id, impl_hash, "(pending)"
             )
             if args.auto_commit:
                 receipt_commit_msg = f"{task_id}: receipt update"
-                receipt_hash = git_commit(
-                    [str(task_artifact_path)],
+                seed_receipt_hash = git_commit(
+                    [str(task_artifact_path), str(campaign_doc_path)],
                     receipt_commit_msg,
+                    args.no_verify,
+                )
+                update_task_artifact_receipt_hash(
+                    task_artifact_path, seed_receipt_hash
+                )
+                update_campaign_mapping_line(
+                    campaign_doc_path,
+                    task_id,
+                    impl_hash,
+                    seed_receipt_hash,
+                )
+                receipt_hash = git_commit_amend(
+                    [str(task_artifact_path), str(campaign_doc_path)],
                     args.no_verify,
                 )
                 ensure_clean_git("after task receipt commit")
@@ -495,15 +732,6 @@ def run_cycle(
                 )
 
             result["receipt_update_commit_hash"] = receipt_hash
-
-            # Campaign mapping update as its own commit.
-            update_campaign_mapping_line(
-                campaign_doc_path, task_id, impl_hash, receipt_hash
-            )
-            git_commit(
-                [str(campaign_doc_path)], f"Docs: map {task_id}", args.no_verify
-            )
-            ensure_clean_git("after campaign mapping commit")
 
             if impl_hash == head_before and (result.get("status") != "success"):
                 raise RunnerError(
