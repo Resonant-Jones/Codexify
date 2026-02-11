@@ -46,3 +46,46 @@ Runner constraints:
 - Must not proceed with dirty tree.
 - Must stop if out-of-scope files appear.
 - Any new architectural decision must be split into a dedicated Decision task artifact.
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: Made the RAG loop test deterministic by explicitly controlling queue consumption and worker completion, then verified with the targeted pytest command.
+
+- Implementation commit hash: afd3fff76079f2323cfde22b95bb074faf33fe9c
+
+- Receipt update commit hash: (see campaign mapping)
+
+- Tests ran: pytest -q tests/routes/test_chat_routes.py::TestChatCompletePost::test_complete_success tests/integration/test_rag_integration_loop.py (pass: 2 passed)
+
+- Notes: Changes made:
+- `tests/routes/test_chat_routes.py:356` now asserts a single deterministic async path for `/chat/{thread_id}/complete`: task is enqueued and `task_id` is returned.
+- `tests/integration/test_rag_integration_loop.py:148` was rewritten to deterministic queue-backed flow:
+  - post user message
+  - dequeue/process chat-embed task
+  - enqueue completion
+  - dequeue/process chat completion worker
+  - wait for `task.completed` event
+  - assert assistant output includes retrieval-backed memory
+- Added explicit queue drains and terminal-event wait helpers in `tests/integration/test_rag_integration_loop.py:114` and `tests/integration/test_rag_integration_loop.py:124`.
+- Reset cached redis client (`redis_queue._CLIENT`) in test setup (`tests/integration/test_rag_integration_loop.py:199`) to prevent cross-test MagicMock leakage from route test fixtures.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "Made the RAG loop test deterministic by explicitly controlling queue consumption and worker completion, then verified with the targeted pytest command.",
+  "tests_ran": [
+    "pytest -q tests/routes/test_chat_routes.py::TestChatCompletePost::test_complete_success tests/integration/test_rag_integration_loop.py (pass: 2 passed)"
+  ],
+  "commit_hash": "afd3fff76079f2323cfde22b95bb074faf33fe9c",
+  "implementation_commit_hash": "afd3fff76079f2323cfde22b95bb074faf33fe9c",
+  "receipt_update_commit_hash": "",
+  "notes": "Changes made:\n- `tests/routes/test_chat_routes.py:356` now asserts a single deterministic async path for `/chat/{thread_id}/complete`: task is enqueued and `task_id` is returned.\n- `tests/integration/test_rag_integration_loop.py:148` was rewritten to deterministic queue-backed flow:\n  - post user message\n  - dequeue/process chat-embed task\n  - enqueue completion\n  - dequeue/process chat completion worker\n  - wait for `task.completed` event\n  - assert assistant output includes retrieval-backed memory\n- Added explicit queue drains and terminal-event wait helpers in `tests/integration/test_rag_integration_loop.py:114` and `tests/integration/test_rag_integration_loop.py:124`.\n- Reset cached redis client (`redis_queue._CLIENT`) in test setup (`tests/integration/test_rag_integration_loop.py:199`) to prevent cross-test MagicMock leakage from route test fixtures."
+}
+```
+
+</details>
