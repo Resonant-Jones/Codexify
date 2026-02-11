@@ -2,6 +2,7 @@
 
 import io
 import logging
+import os
 import platform
 from functools import lru_cache
 from typing import Optional
@@ -10,6 +11,12 @@ import numpy as np
 import soundfile as sf
 import torch
 from transformers import pipeline
+
+# Optional: Qwen3-TTS native runtime (preferred for Qwen/Qwen3-TTS models)
+try:
+    from qwen_tts import Qwen3TTSModel  # type: ignore
+except Exception:  # pragma: no cover
+    Qwen3TTSModel = None  # type: ignore
 
 from .base import TTSBackend
 
@@ -27,6 +34,16 @@ def _detect_device() -> str:
     return "cpu"
 
 
+def _qwen_device_map_and_dtype(device: str):
+    # qwen-tts examples use device_map like "cuda:0".
+    if device == "cuda":
+        return "cuda:0", torch.bfloat16
+    if device == "mps":
+        # MPS generally prefers fp16/bf16, but be conservative if bf16 is unsupported.
+        return "mps", torch.float16
+    return "cpu", torch.float32
+
+
 @lru_cache(maxsize=4)
 def _get_pipeline(model_id: str):
     """
@@ -41,11 +58,36 @@ def _get_pipeline(model_id: str):
     device = _detect_device()
     logger.info(f"Loading TTS model {model_id} on device: {device}")
 
+    # Qwen3-TTS models ship a custom architecture (`qwen3_tts`).
+    # In practice, `transformers.pipeline(..., trust_remote_code=True)` can still fail to
+    # register that architecture depending on the transformers version. Prefer qwen-tts.
+    if model_id.startswith("Qwen/Qwen3-TTS"):
+        if Qwen3TTSModel is None:
+            raise RuntimeError(
+                "qwen-tts is required for Qwen3-TTS models but is not installed in this runtime"
+            )
+        device_map, dtype = _qwen_device_map_and_dtype(device)
+        logger.info(
+            f"Using qwen-tts runtime for {model_id} (device_map={device_map}, dtype={dtype})"
+        )
+        return Qwen3TTSModel.from_pretrained(
+            model_id,
+            device_map=device_map,
+            dtype=dtype,
+        )
+
+    # Non-Qwen models: use transformers pipeline.
+    offline = (
+        os.environ.get("HF_HUB_OFFLINE") == "1"
+        or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+    )
+
     try:
         pipe = pipeline(
             "text-to-speech",
             model=model_id,
             device=device,
+            model_kwargs={"local_files_only": offline},
         )
         logger.info(f"Successfully loaded {model_id}")
         return pipe
@@ -94,13 +136,27 @@ class HuggingFaceTTSBackend(TTSBackend):
         """
         logger.info(f"Synthesizing text: {text[:50]}...")
 
-        # Generate audio
-        result = self.pipeline(text)
+        # Qwen3-TTS via qwen-tts
+        if hasattr(self.pipeline, "generate_custom_voice"):
+            # For CustomVoice models, `speaker` selects a built-in timbre.
+            # Default to a sensible English speaker if none provided.
+            speaker = (
+                voice or os.environ.get("QWEN_TTS_DEFAULT_SPEAKER") or "Ryan"
+            )
+            wavs, sampling_rate = self.pipeline.generate_custom_voice(
+                text=text,
+                speaker=speaker,
+                language="Auto",
+            )
+            audio = wavs[0]
+        else:
+            # Transformers pipeline
+            result = self.pipeline(text)
+            audio = result["audio"]
+            sampling_rate = result["sampling_rate"]
 
         # Extract audio and sampling rate
         # Result format: {"audio": ndarray, "sampling_rate": int}
-        audio = result["audio"]
-        sampling_rate = result["sampling_rate"]
 
         # Normalize to float32
         if audio.dtype != np.float32:
