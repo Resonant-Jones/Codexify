@@ -755,9 +755,9 @@ services:
       PYTHONIOENCODING: utf-8
       PYTHONPATH: /app
       HF_HOME: /root/.cache/huggingface
-      # Default to offline for runtime; use hf-prefetch to populate hf_cache while online.
-      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
-      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
+      # Allow online downloads by default; set to 1 after running hf-prefetch for air-gapped use.
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
     volumes:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
@@ -804,8 +804,28 @@ services:
           }
         fi
 
-        # IMPORTANT: do NOT gate on AutoConfig.for_model("qwen3_tts") — it fails by design here.
-        # Instead, just start the service and let the backend handle trust_remote_code during model load.
+        # When running offline, verify at least one Qwen3-TTS model is cached.
+        python - <<'PY'
+        import os, sys
+        offline = (os.environ.get("HF_HUB_OFFLINE") == "1"
+                   or os.environ.get("TRANSFORMERS_OFFLINE") == "1")
+        if not offline:
+            print("[TTS] Online mode: models will download on first use.")
+            sys.exit(0)
+        hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+        hub_dir = os.path.join(hf_home, "hub")
+        if not os.path.isdir(hub_dir):
+            print(f"[TTS] WARNING: HF cache {hub_dir} missing.", file=sys.stderr)
+            print("[TTS] Run: docker compose run --rm hf-prefetch", file=sys.stderr)
+            sys.exit(1)
+        found = [d for d in os.listdir(hub_dir) if "Qwen3-TTS" in d]
+        if not found:
+            print("[TTS] WARNING: No Qwen3-TTS models in cache.", file=sys.stderr)
+            print("[TTS] Run: docker compose run --rm hf-prefetch", file=sys.stderr)
+            sys.exit(1)
+        print(f"[TTS] Cached models: {found}")
+        PY
+
         echo "[TTS] Starting local TTS service..."
         exec uvicorn backend.tts_service.app:app --host 0.0.0.0 --port 8000
   frontend:

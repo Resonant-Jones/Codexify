@@ -3,7 +3,6 @@
 import io
 import logging
 import os
-import platform
 from functools import lru_cache
 from typing import Optional
 
@@ -27,10 +26,8 @@ def _detect_device() -> str:
     """Detect the best available device for inference."""
     if torch.cuda.is_available():
         return "cuda"
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        # Apple Silicon MPS
-        if platform.system() == "Darwin" and platform.processor() == "arm":
-            return "mps"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
     return "cpu"
 
 
@@ -99,14 +96,16 @@ def _get_pipeline(model_id: str):
 class HuggingFaceTTSBackend(TTSBackend):
     """TTS backend using Hugging Face transformers."""
 
-    def __init__(self, model_id: str):
+    def __init__(self, model_id: str, *, mode: str = "custom_voice"):
         """
         Initialize the Hugging Face TTS backend.
 
         Args:
             model_id: Hugging Face model identifier
+            mode: Synthesis mode - "custom_voice" or "voice_clone"
         """
         self.model_id = model_id
+        self.mode = mode
         self._pipeline = None
 
     @property
@@ -122,6 +121,8 @@ class HuggingFaceTTSBackend(TTSBackend):
         *,
         voice: Optional[str] = None,
         speed: Optional[float] = None,
+        ref_audio: Optional[str] = None,
+        ref_text: Optional[str] = None,
     ) -> tuple[bytes, int]:
         """
         Synthesize speech from text using Hugging Face models.
@@ -129,17 +130,24 @@ class HuggingFaceTTSBackend(TTSBackend):
         Args:
             text: The text to synthesize
             voice: Optional voice identifier (model-specific)
-            speed: Optional speed modifier (not implemented for HF models)
+            speed: Optional speed modifier (not yet supported)
+            ref_audio: Path to reference audio (required for voice_clone mode)
+            ref_text: Transcript of reference audio (for voice_clone mode)
 
         Returns:
             tuple of (wav_bytes, sampling_rate)
         """
+        if speed is not None and speed != 1.0:
+            logger.warning(
+                "speed parameter is not yet supported for HF TTS; "
+                "ignoring speed=%.2f",
+                speed,
+            )
+
         logger.info(f"Synthesizing text: {text[:50]}...")
 
-        # Qwen3-TTS via qwen-tts
+        # Branch 1: Qwen3-TTS CustomVoice models
         if hasattr(self.pipeline, "generate_custom_voice"):
-            # For CustomVoice models, `speaker` selects a built-in timbre.
-            # Default to a sensible English speaker if none provided.
             speaker = (
                 voice or os.environ.get("QWEN_TTS_DEFAULT_SPEAKER") or "Ryan"
             )
@@ -149,14 +157,28 @@ class HuggingFaceTTSBackend(TTSBackend):
                 language="Auto",
             )
             audio = wavs[0]
+
+        # Branch 2: Qwen3-TTS Base models (voice cloning)
+        elif hasattr(self.pipeline, "generate_voice_clone"):
+            if not ref_audio:
+                raise ValueError(
+                    f"Provider uses Base model '{self.model_id}' which "
+                    "requires 'ref_audio' and 'ref_text' for voice cloning. "
+                    "Use a CustomVoice provider for simple text-to-speech."
+                )
+            wavs, sampling_rate = self.pipeline.generate_voice_clone(
+                text=text,
+                ref_audio=ref_audio,
+                ref_text=ref_text or "",
+                language="Auto",
+            )
+            audio = wavs[0]
+
+        # Branch 3: Generic transformers pipeline (non-Qwen models)
         else:
-            # Transformers pipeline
             result = self.pipeline(text)
             audio = result["audio"]
             sampling_rate = result["sampling_rate"]
-
-        # Extract audio and sampling rate
-        # Result format: {"audio": ndarray, "sampling_rate": int}
 
         # Normalize to float32
         if audio.dtype != np.float32:
