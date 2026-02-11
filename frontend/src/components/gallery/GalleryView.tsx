@@ -9,9 +9,11 @@ import PreviewTile from "@/components/gallery/PreviewTile";
 import FrameCard from "@/components/surface/FrameCard";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import useUploader from "@/hooks/useUploader";
+import { buildAuthenticatedFetchInit } from "@/lib/api";
 import { X } from "lucide-react";
 
 export type GalleryItem = {
+  id?: string;
   src: string;
   prompt: string;
   project?: string | number;
@@ -64,7 +66,13 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
     params.set("tag", sourceFilter);
     if (projectId !== null) params.set("project_id", String(projectId));
     const qs = params.toString();
-    fetch(`/api/media/images${qs ? `?${qs}` : ""}`)
+    fetch(
+      `/api/media/images${qs ? `?${qs}` : ""}`,
+      buildAuthenticatedFetchInit(
+        { method: "GET" },
+        { forceApiKey: true }
+      )
+    )
       .then((resp) => {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         return resp.json();
@@ -73,6 +81,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
         // Convert backend image objects to GalleryItem format
         const images = Array.isArray(data.images)
           ? data.images.map((img: any) => ({
+              id: img.id,
               src: img.src_url || img.url,
               prompt: img.filename || "Untitled",
               project: img.project_id,
@@ -135,11 +144,13 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   const uploader = useUploader({
     tag: "gallery",
     projectId,
+    explicitAuth: true,
     onImages: (newImages) => {
       // Add newly uploaded images to the gallery
       setBackendImages((prev) => [
         ...prev,
         ...newImages.map((img: any) => ({
+          id: img?.id,
           src: img?.src || img?.src_url,
           prompt: img?.prompt || img?.filename || "Uploaded image",
           project: img?.project || img?.project_id,
