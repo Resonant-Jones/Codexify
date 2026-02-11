@@ -43,6 +43,29 @@ export type UploadedDocumentItem = {
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const DOC_EXT = new Set([".pdf", ".docx", ".md", ".txt"]);
 
+function buildUploaderHeaders(
+  baseHeaders?: Record<string, string>
+): Record<string, string> | undefined {
+  const headers: Record<string, string> = { ...(baseHeaders ?? {}) };
+  const viteEnv =
+    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
+  const nodeEnv =
+    typeof process !== "undefined" ? ((process as any).env ?? {}) : {};
+  const useProxy =
+    String(viteEnv.VITE_USE_PROXY ?? nodeEnv.VITE_USE_PROXY ?? "true") ===
+    "true";
+  const apiKey = String(
+    viteEnv.VITE_GUARDIAN_API_KEY ?? nodeEnv.VITE_GUARDIAN_API_KEY ?? ""
+  ).trim();
+
+  // In direct-backend mode, uploader requests must authenticate explicitly.
+  if (!useProxy && apiKey) {
+    headers["X-API-Key"] = apiKey;
+  }
+
+  return Object.keys(headers).length ? headers : undefined;
+}
+
 // Convert backend-returned media paths (e.g. "/media/images/...jpg") into an absolute URL
 // so the frontend can render them even when served from a different dev origin (5173 vs 8888).
 export const toAbsoluteMediaUrl = (srcUrl: string) => {
@@ -295,6 +318,7 @@ export function useUploader({
 
             const uploadResp = await fetch("/api/media/upload/image", {
               method: "POST",
+              headers: buildUploaderHeaders(),
               body: formData,
             });
 
@@ -381,6 +405,7 @@ export function useUploader({
             // Try multipart/form-data first (the "standard" upload method).
             let uploadResp = await fetch("/api/media/upload/document", {
               method: "POST",
+              headers: buildUploaderHeaders(),
               body: formData,
             });
 
@@ -446,7 +471,9 @@ export function useUploader({
                 for (const payload of payloads) {
                   const r = await fetch("/api/media/upload/document", {
                     method: "POST",
-                    headers: { "content-type": "application/json" },
+                    headers: buildUploaderHeaders({
+                      "content-type": "application/json",
+                    }),
                     body: JSON.stringify(payload),
                   });
                   lastStatus = r.status;
