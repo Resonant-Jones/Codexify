@@ -37,3 +37,44 @@ Runner constraints:
 - Must not proceed with dirty tree.
 - Must stop if out-of-scope files appear.
 - Any contract decision beyond test correction must be moved to a dedicated Decision task artifact.
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: Updated stale document-generation endpoint tests to align with current route requirements in `guardian/tests/test_document_gen_endpoint.py`.
+
+Changes made:
+- Happy-path test now includes required `thread_id` in request payload.
+- Happy-path test now stubs DB/session thread lookup via `_get_db` so persistence path is valid.
+- Happy-path test now fixes `uuid4` for deterministic `document_id` assertion.
+- Prompt-validation test now includes `thread_id` so it remains focused on prompt validation.
+- Added dedicated failure coverage for missing `thread_id` (`400` with `"thread_id is required"`).
+
+- Implementation commit hash: bbfc81fbeea483fbcb5bda9ef0bce92c46d2423c
+
+- Receipt update commit hash: (see campaign mapping)
+
+- Tests ran: pytest -q guardian/tests/test_document_gen_endpoint.py guardian/tests/test_document_gen_pipeline.py guardian/tests/test_document_gen_persist_and_link.py, pytest -q guardian/tests/test_document_gen_endpoint.py
+
+- Notes: Targeted updated test module passes. The broader 3-file run had one unrelated existing failure: `guardian/tests/test_document_gen_pipeline.py::test_document_gen_requires_api_key` returned 500 (LLM path reached) instead of expected 401.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "Updated stale document-generation endpoint tests to align with current route requirements in `guardian/tests/test_document_gen_endpoint.py`.\n\nChanges made:\n- Happy-path test now includes required `thread_id` in request payload.\n- Happy-path test now stubs DB/session thread lookup via `_get_db` so persistence path is valid.\n- Happy-path test now fixes `uuid4` for deterministic `document_id` assertion.\n- Prompt-validation test now includes `thread_id` so it remains focused on prompt validation.\n- Added dedicated failure coverage for missing `thread_id` (`400` with `\"thread_id is required\"`).",
+  "tests_ran": [
+    "pytest -q guardian/tests/test_document_gen_endpoint.py guardian/tests/test_document_gen_pipeline.py guardian/tests/test_document_gen_persist_and_link.py",
+    "pytest -q guardian/tests/test_document_gen_endpoint.py"
+  ],
+  "commit_hash": "bbfc81fbeea483fbcb5bda9ef0bce92c46d2423c",
+  "implementation_commit_hash": "bbfc81fbeea483fbcb5bda9ef0bce92c46d2423c",
+  "receipt_update_commit_hash": "",
+  "notes": "Targeted updated test module passes. The broader 3-file run had one unrelated existing failure: `guardian/tests/test_document_gen_pipeline.py::test_document_gen_requires_api_key` returned 500 (LLM path reached) instead of expected 401."
+}
+```
+
+</details>
