@@ -8,12 +8,18 @@
     "summary",
     "tests_ran",
     "commit_hash",
+    "implementation_commit_hash",
+    "receipt_update_commit_hash",
     "notes"
   ],
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["success", "failed", "blocked"]
+      "enum": [
+        "success",
+        "failed",
+        "blocked"
+      ]
     },
     "summary": {
       "type": "string"
