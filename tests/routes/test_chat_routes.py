@@ -354,32 +354,24 @@ class TestChatCompletePost:
     """Tests for POST /chat/{thread_id}/complete endpoint."""
 
     def test_complete_success(self, test_client, mock_db):
-        """Test successful completion returns 200 with assistant message or enqueued task."""
+        """Test successful completion deterministically enqueues a task."""
         mock_db.list_messages.return_value = [
             {"role": "user", "content": "Hello"}
         ]
 
-        with patch("guardian.routes.chat._groq_complete") as mock_groq:
-            mock_groq.return_value = "Hello! How can I help?"
-
+        with patch("guardian.routes.chat.enqueue") as mock_enqueue:
             response = test_client.post("/chat/1/complete", json={})
 
             assert response.status_code == 200
             data = response.json()
-            assert data.get("ok", True) is True
+            assert "task_id" in data
+            assert isinstance(data["task_id"], str)
+            assert data["task_id"].strip()
 
-            # Route may be synchronous (returns assistant message) or async/queued (returns task_id).
-            if "message" in data:
-                assert data["message"]["role"] == "assistant"
-                assert data["message"]["content"] == "Hello! How can I help?"
-                # In sync mode, the LLM helper should be called.
-                assert mock_groq.call_count == 1
-            else:
-                assert "task_id" in data
-                assert isinstance(data["task_id"], str)
-                assert data["task_id"].strip()
-                # In async mode, we should not have called the LLM helper directly.
-                assert mock_groq.call_count == 0
+            mock_enqueue.assert_called_once()
+            enqueued_task, queue_name = mock_enqueue.call_args.args
+            assert queue_name == "codexify:queue:chat"
+            assert enqueued_task.thread_id == 1
 
     def test_complete_with_model_override(self, test_client, mock_db):
         """Test completion with custom model parameter."""
