@@ -36,3 +36,45 @@ Runner constraints:
 - Must not proceed with dirty tree.
 - Must stop if out-of-scope files appear.
 - No product decision changes are allowed in this docs-only task.
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: Updated roadmap documentation to reflect current image provider behavior and removed outdated placeholder-image claims in `docs/codexify-mvp-roadmap.md`.
+
+Changes made:
+- Replaced “other providers are stubs” wording with explicit fail-closed behavior language.
+- Updated Stability/Local provider table rows from “Returns 1x1 placeholder” to “Returns HTTP 503 (not implemented)”.
+- Updated supported-model bullets to state Stability/Local are not implemented and return 503.
+- Updated gap-analysis row for generation to reflect OpenAI works while local/stability return 503.
+
+- Implementation commit hash: 60a00801bfaa7848b60f9fee4f4519e6150df11f
+
+- Receipt update commit hash: (see campaign mapping)
+
+- Tests ran: rg -n "Returns 1x1 placeholder|1x1 placeholder" docs/codexify-mvp-roadmap.md (no matches), rg -n "OpenAI|Stability Provider|Local Provider|HTTP 503|not implemented" docs/codexify-mvp-roadmap.md (verified updated statements), git diff -- docs/codexify-mvp-roadmap.md (verified only intended edits), git status --short (only docs/codexify-mvp-roadmap.md modified)
+
+- Notes: No code/runtime changes were required; docs-only update completed.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "Updated roadmap documentation to reflect current image provider behavior and removed outdated placeholder-image claims in `docs/codexify-mvp-roadmap.md`.\n\nChanges made:\n- Replaced \u201cother providers are stubs\u201d wording with explicit fail-closed behavior language.\n- Updated Stability/Local provider table rows from \u201cReturns 1x1 placeholder\u201d to \u201cReturns HTTP 503 (not implemented)\u201d.\n- Updated supported-model bullets to state Stability/Local are not implemented and return 503.\n- Updated gap-analysis row for generation to reflect OpenAI works while local/stability return 503.",
+  "tests_ran": [
+    "rg -n \"Returns 1x1 placeholder|1x1 placeholder\" docs/codexify-mvp-roadmap.md (no matches)",
+    "rg -n \"OpenAI|Stability Provider|Local Provider|HTTP 503|not implemented\" docs/codexify-mvp-roadmap.md (verified updated statements)",
+    "git diff -- docs/codexify-mvp-roadmap.md (verified only intended edits)",
+    "git status --short (only docs/codexify-mvp-roadmap.md modified)"
+  ],
+  "commit_hash": "60a00801bfaa7848b60f9fee4f4519e6150df11f",
+  "implementation_commit_hash": "60a00801bfaa7848b60f9fee4f4519e6150df11f",
+  "receipt_update_commit_hash": "",
+  "notes": "No code/runtime changes were required; docs-only update completed."
+}
+```
+
+</details>
