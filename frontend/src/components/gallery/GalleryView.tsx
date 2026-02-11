@@ -58,6 +58,13 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showImageGen, setShowImageGen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<"uploaded" | "generated">("uploaded");
+  const activeThreadId = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const match = window.location.pathname.match(/\/chat\/(\d+)/i);
+    if (!match) return null;
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, []);
 
   // Fetch images from backend on mount
   useEffect(() => {
@@ -292,7 +299,12 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
           {isLoading && <span className="text-xs opacity-60">Loading...</span>}
         </div>
       </FrameCard>
-      <ImageGenModal open={showImageGen} onOpenChange={setShowImageGen} />
+      <ImageGenModal
+        open={showImageGen}
+        onOpenChange={setShowImageGen}
+        projectId={projectId}
+        threadId={activeThreadId}
+      />
     </div>
   );
 };
