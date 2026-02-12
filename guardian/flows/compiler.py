@@ -8,9 +8,9 @@ from pydantic import ValidationError
 
 from guardian.flows.primitives import PrimitiveRegistry
 from guardian.flows.spec import (
+    CompilationWarning,
     CompiledFlow,
     CompiledStep,
-    CompilationWarning,
     FlowSpec,
 )
 
@@ -61,7 +61,10 @@ def compile_flow(
             )
         )
 
-    if has_side_effects and not spec.policy.allow_side_effects_without_confirmation:
+    if (
+        has_side_effects
+        and not spec.policy.allow_side_effects_without_confirmation
+    ):
         warnings.append(
             CompilationWarning(
                 code="SIDE_EFFECT_POLICY_BLOCK",
@@ -83,7 +86,10 @@ def compile_flow(
             )
         )
 
-    requires_confirmation = bool(warnings) and spec.policy.require_confirmation_below_threshold
+    # Compiler safety warnings are always confirmation-gated. Confidence-threshold
+    # toggles are applied at NL drafting time and must not disable explicit
+    # side-effect safety enforcement.
+    requires_confirmation = bool(warnings)
 
     return CompiledFlow(
         flow_id=spec.flow_id,

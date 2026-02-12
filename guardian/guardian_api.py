@@ -120,11 +120,9 @@ OUTBOX_BATCH_SIZE = int(os.getenv("OUTBOX_BATCH_SIZE", "100"))
 from guardian.realtime import collaboration
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
+from guardian.routes import admin, agent, backfill
+from guardian.routes import cron as cron_routes
 from guardian.routes import (
-    admin,
-    agent,
-    backfill,
-    cron as cron_routes,
     devtools,
     documents,
     embeddings,
@@ -132,10 +130,10 @@ from guardian.routes import (
     health,
     memory,
     migration,
-    websocket as websocket_routes,
 )
 from guardian.routes import neo as neo_routes
 from guardian.routes import research, share, threads
+from guardian.routes import websocket as websocket_routes
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
 from guardian.routes.chat import router as chat_router
@@ -144,6 +142,7 @@ from guardian.routes.codex import router as codex_router
 from guardian.routes.codexify_router import router as codexify_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
+from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
 from guardian.routes.imprint import router as imprint_router
 from guardian.routes.imprint import system_docs_router, system_prompt_router
@@ -461,6 +460,7 @@ app.include_router(federation.router)
 app.include_router(collaboration.router)
 app.include_router(connectors_router)
 app.include_router(media_router, prefix="/api/media")
+app.include_router(flows_router)
 app.include_router(tools_router)
 app.include_router(exports_router)
 app.include_router(codex_router)
