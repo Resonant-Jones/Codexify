@@ -202,6 +202,48 @@ class FlowSpec(BaseModel):
         return self
 
 
+class CompilationWarning(BaseModel):
+    """Compiler warning surfaced to gating and API layers."""
+
+    code: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    step_id: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CompiledStep(BaseModel):
+    """Normalized step validated against primitive contracts."""
+
+    step_id: str
+    primitive: PrimitiveName
+    params: dict[str, Any] = Field(default_factory=dict)
+    side_effecting: bool = False
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CompiledFlow(BaseModel):
+    """Executable deterministic plan produced by the compiler."""
+
+    flow_id: str
+    version: Literal["0.1"] = FLOW_SPEC_VERSION
+    enabled: bool = True
+    trigger: FlowTrigger
+    scope: FlowScope
+    budget: FlowBudget
+    policy: FlowPolicy
+    steps: list[CompiledStep]
+    output: FlowOutput
+    idempotency: FlowIdempotency
+    audit: FlowAudit
+    warnings: list[CompilationWarning] = Field(default_factory=list)
+    has_side_effects: bool = False
+    requires_confirmation: bool = False
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class FlowStepResult(BaseModel):
     """Runtime trace for a single executed step."""
 
