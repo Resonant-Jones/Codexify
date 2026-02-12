@@ -85,7 +85,7 @@ git commit --no-verify -m "TASK-2026-02-12-006_guardian_nl_to_flowspec_two_stage
 git log -1 --oneline
 git status --porcelain -uall
 
-Commit A hash: <FILL_AFTER_COMMIT_A>
+Commit A hash: b4d688b4
 
 Commit B (docs finalize + mapping) — two-phase only
 
@@ -104,40 +104,46 @@ git status --porcelain -uall
 
 Campaign mapping (SOURCE OF TRUTH)
 
-TASK-2026-02-12-006_guardian_nl_to_flowspec_two_stage_gating -> [<commitA>, <commitB>]
+TASK-2026-02-12-006_guardian_nl_to_flowspec_two_stage_gating -> [b4d688b4, <commitB>]
 
 Completion Summary (fill after completion)
 
-Status: DONE | BLOCKED | DEFERRED
+Status: DONE
 
 What changed:
 
-<bullets>
+- Implemented Stage-1 `draft_flow_from_text()` to produce draft FlowSpec, numeric confidence score, and clarifying questions.
+- Implemented Stage-2 `compile_draft_with_gating()` to run `compile_flow()`, evaluate warnings/confidence threshold, and set `needs_confirmation`.
+- Added human-readable proposal summary plus a draft-vs-compiled normalization diff.
 
 Commands run:
 
-<commands>
+git status --porcelain -uall
+.venv/bin/python -c "from guardian.flows.nl_compiler import draft_flow_from_text; print('ok')"
+.venv/bin/python -c "from guardian.flows.nl_compiler import draft_flow_from_text, compile_draft_with_gating; d=draft_flow_from_text('maybe summarize this'); r=compile_draft_with_gating(d); print(type(d.confidence).__name__, d.confidence, r.needs_confirmation, len(d.clarifying_questions))"
+git add guardian/flows/nl_compiler.py guardian/flows/compiler.py guardian/flows/spec.py guardian/flows/primitives.py guardian/routes/flows.py
+git commit --no-verify -m "TASK-2026-02-12-006_guardian_nl_to_flowspec_two_stage_gating: NL->FlowSpec stage1+stage2 gating"
 
 Tests:
 
-python -c "from guardian.flows.nl_compiler import draft_flow_from_text; print('ok')" (pass/fail)
+.venv/bin/python -c "from guardian.flows.nl_compiler import draft_flow_from_text; print('ok')" (pass)
 
 Scope check:
 
-git status clean before starting: yes/no
+git status clean before starting: yes
 
-Only allowed files modified: yes/no
+Only allowed files modified: yes
 
 Commit info:
 
 Commit mode: two-phase
 
-Commit A hash (impl): <…>
+Commit A hash (impl): b4d688b4
 
 Commit B hash (docs finalize): recorded in campaign mapping
 
-Campaign mapping updated: yes/no
+Campaign mapping updated: yes
 
 Notes / gotchas:
 
-<anything important>
+System `python` is missing required dependencies in this shell, so runtime checks were executed via `.venv/bin/python`.
