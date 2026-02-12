@@ -8,6 +8,7 @@ from guardian.flows.spec import (
     FlowStepResult,
     PrimitiveName,
 )
+from guardian.flows.primitives import PrimitiveRegistry, export_primitive_catalog
 
 __all__ = [
     "FLOW_SPEC_VERSION",
@@ -16,4 +17,6 @@ __all__ = [
     "FlowStep",
     "FlowStepResult",
     "PrimitiveName",
+    "PrimitiveRegistry",
+    "export_primitive_catalog",
 ]
