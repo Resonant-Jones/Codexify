@@ -33,6 +33,8 @@ class TTSRequest(BaseModel):
     provider: str
     voice: Optional[str] = None
     speed: Optional[float] = None
+    ref_audio: Optional[str] = None
+    ref_text: Optional[str] = None
 
 
 def _resolve_backend(provider: str) -> TTSBackend:
@@ -64,7 +66,8 @@ def _resolve_backend(provider: str) -> TTSBackend:
                 f"Provider '{provider}' has a placeholder model ID. "
                 "This provider is not yet configured."
             )
-        return HuggingFaceTTSBackend(model_id=model_id)
+        mode = config.get("mode", "custom_voice")
+        return HuggingFaceTTSBackend(model_id=model_id, mode=mode)
     else:
         raise ValueError(f"Unsupported backend type: {backend_type}")
 
@@ -107,6 +110,8 @@ def synthesize_speech(request: TTSRequest):
             text=request.text,
             voice=request.voice,
             speed=request.speed,
+            ref_audio=request.ref_audio,
+            ref_text=request.ref_text,
         )
     except Exception as e:
         logger.error(f"Synthesis failed: {e}", exc_info=True)

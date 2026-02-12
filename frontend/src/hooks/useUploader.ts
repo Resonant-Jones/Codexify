@@ -5,6 +5,7 @@
  * optional disabled gating for turn-based composer locks.
  */
 import { useCallback } from "react";
+import { buildAuthenticatedFetchInit } from "../lib/api";
 
 export type Accepted = ".pdf" | ".docx" | ".md" | ".txt" | ".png" | ".jpg" | ".jpeg" | ".webp";
 
@@ -128,6 +129,7 @@ export function useUploader({
   tag,
   projectId,
   threadId,
+  explicitAuth,
   disabled,
 }: {
   onImages: (items: UploadedImageItem[]) => void;
@@ -137,11 +139,16 @@ export function useUploader({
   tag?: string; // optional source tag (e.g., "chat", "project:<id>")
   projectId?: number | string;
   threadId?: number | string;
+  explicitAuth?: boolean;
   disabled?: boolean;
 }) {
   const accept = ".pdf,.docx,.md,.txt,.png,.jpg,.jpeg,.webp";
+  const forceApiKey = explicitAuth || tag === "gallery";
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
+    const withAuth = (init: RequestInit): RequestInit =>
+      buildAuthenticatedFetchInit(init, { forceApiKey });
+
     if (disabled) {
       // Respect upstream gating (e.g., turn-in-flight) by ignoring new uploads.
       return;
@@ -211,7 +218,7 @@ export function useUploader({
 
       for (const url of candidates) {
         try {
-          const r = await fetch(url, { method: "GET" });
+          const r = await fetch(url, withAuth({ method: "GET" }));
           if (!r.ok) continue;
           const j: any = await r.json();
           const pid = extract(j);
@@ -293,10 +300,13 @@ export function useUploader({
               formData.append("threadId", effectiveThreadId);
             }
 
-            const uploadResp = await fetch("/api/media/upload/image", {
-              method: "POST",
-              body: formData,
-            });
+            const uploadResp = await fetch(
+              "/api/media/upload/image",
+              withAuth({
+                method: "POST",
+                body: formData,
+              })
+            );
 
             if (uploadResp.ok) {
               uploadedImage = await uploadResp.json();
@@ -379,10 +389,13 @@ export function useUploader({
             }
 
             // Try multipart/form-data first (the "standard" upload method).
-            let uploadResp = await fetch("/api/media/upload/document", {
-              method: "POST",
-              body: formData,
-            });
+            let uploadResp = await fetch(
+              "/api/media/upload/document",
+              withAuth({
+                method: "POST",
+                body: formData,
+              })
+            );
 
             // If the backend is currently validating a JSON body (Pydantic model) instead of FormData,
             // it will often return 422 with missing `body.project_id` / `body.thread_id`. In that case,
@@ -444,11 +457,16 @@ export function useUploader({
                 let lastStatus = uploadResp.status;
 
                 for (const payload of payloads) {
-                  const r = await fetch("/api/media/upload/document", {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify(payload),
-                  });
+                  const r = await fetch(
+                    "/api/media/upload/document",
+                    withAuth({
+                      method: "POST",
+                      headers: {
+                        "content-type": "application/json",
+                      },
+                      body: JSON.stringify(payload),
+                    })
+                  );
                   lastStatus = r.status;
                   if (r.ok) {
                     uploadResp = r;
@@ -585,7 +603,7 @@ export function useUploader({
       localStorage.setItem("cfy.hasUserUpload", "true");
     } catch {}
     onAnyUpload?.();
-  }, [disabled, onImages, onDocuments, onAnyUpload, tag, projectId, threadId]);
+  }, [disabled, forceApiKey, onImages, onDocuments, onAnyUpload, tag, projectId, threadId]);
 
   return {
     accept,

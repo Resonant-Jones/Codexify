@@ -521,7 +521,12 @@ export function Composer({
           )}
         </div>
       </div>
-      <ImageGenModal open={showImgGen} onOpenChange={setShowImgGen} />
+      <ImageGenModal
+        open={showImgGen}
+        onOpenChange={setShowImgGen}
+        projectId={resolveProjectId()}
+        threadId={threadId ?? null}
+      />
     </>
   );
 }

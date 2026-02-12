@@ -118,3 +118,23 @@ models/
 # ChatGPT export artifacts
 /data/conversation.json
 /docs/conversation.json
+
+# --- Hugging Face / Transformers caches (TTS + embeddings) ---
+# We mount these via Docker volume in prod/dev; keep any local copies out of git.
+.hf_cache/
+hf_cache/
+.huggingface/
+.huggingface-cache/
+.cache/huggingface/
+**/.cache/huggingface/
+
+# HF Hub snapshot layout (when cached inside a repo-mounted path)
+**/models--*--*/
+**/datasets--*--*/
+**/spaces--*--*/
+
+# Transformers / Torch caches (occasionally used depending on libs)
+.cache/torch/
+**/.cache/torch/
+.cache/transformers/
+**/.cache/transformers/

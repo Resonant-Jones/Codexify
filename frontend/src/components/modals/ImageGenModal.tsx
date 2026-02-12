@@ -5,22 +5,69 @@
  * Uses the backend's configurable provider system (Ollama, DALL-E, Stability, Replicate).
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import api from "@/lib/api";
 
 const DEFAULT_MODELS = ["dall-e-3", "dall-e-2", "sdxl"];
+const PROJECT_ID_STORAGE_KEYS = [
+  "cfy.projectId",
+  "cfy.activeProjectId",
+  "cfy.lastProjectId",
+  "projectId",
+] as const;
+
+function parseScopeId(value: unknown): number | null {
+  if (value == null) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.trunc(parsed);
+}
+
+function inferProjectIdFromPathname(): number | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/\/(?:projects?|p)\/(\d+)/i);
+  if (!match) return null;
+  return parseScopeId(match[1]);
+}
+
+function inferThreadIdFromPathname(): number | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/\/chat\/(\d+)/i);
+  if (!match) return null;
+  return parseScopeId(match[1]);
+}
+
+function inferProjectIdFromStorage(): number | null {
+  if (typeof window === "undefined") return null;
+  for (const key of PROJECT_ID_STORAGE_KEYS) {
+    const raw = window.localStorage.getItem(key);
+    const parsed = parseScopeId(raw);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
 
 interface ImageGenModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Optional callback with the generated image URL/data */
   onImageGenerated?: (imageUrl: string) => void;
+  projectId?: number | string | null;
+  threadId?: number | string | null;
+  userId?: string;
 }
 
-export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGenModalProps) {
+export function ImageGenModal({
+  open,
+  onOpenChange,
+  onImageGenerated,
+  projectId,
+  threadId,
+  userId,
+}: ImageGenModalProps) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState(() => {
     if (typeof window === "undefined") return DEFAULT_MODELS[0];
@@ -41,6 +88,18 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
   }, []);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const resolveScope = useCallback(() => {
+    const resolvedProjectId =
+      parseScopeId(projectId)
+      ?? inferProjectIdFromStorage()
+      ?? inferProjectIdFromPathname()
+      ?? 1;
+    const resolvedThreadId =
+      parseScopeId(threadId)
+      ?? inferThreadIdFromPathname()
+      ?? 1;
+    return { resolvedProjectId, resolvedThreadId };
+  }, [projectId, threadId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,12 +119,13 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
     setError(null);
 
     try {
+      const { resolvedProjectId, resolvedThreadId } = resolveScope();
       const response = await api.post("/api/media/generate/image", {
         prompt: trimmed,
         model: trimmedModel,
-        project_id: 1,  // Default project
-        thread_id: 1,   // Default thread
-        user_id: "default"
+        project_id: resolvedProjectId,
+        thread_id: resolvedThreadId,
+        user_id: userId ?? "default",
       });
 
       const imageUrl = response.data?.src_url;
@@ -75,16 +135,18 @@ export function ImageGenModal({ open, onOpenChange, onImageGenerated }: ImageGen
 
         // Broadcast success for gallery refresh
         try {
-              window.dispatchEvent(new CustomEvent("cfy:gallery:add", {
-                detail: {
-                  items: [{
-                    src: imageUrl,
-                    prompt: trimmed,
-                    mock: false,
-                    tag: "generated"
-                  }]
-                }
-              }));
+          window.dispatchEvent(new CustomEvent("cfy:gallery:add", {
+            detail: {
+              items: [{
+                src: imageUrl,
+                prompt: trimmed,
+                project_id: resolvedProjectId,
+                thread_id: resolvedThreadId,
+                mock: false,
+                tag: "generated",
+              }],
+            },
+          }));
         } catch {}
 
         // Show success toast

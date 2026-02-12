@@ -1,4 +1,3 @@
-````
 # <TASK-ID>: <Title>
 
 ## Metadata
@@ -9,7 +8,7 @@
 - Task artifact: <docs/tasks/TASK_YYYY_MM_DD_NNN_lower_snake_slug.md>
 - Owner: resonant_jones
 - Risk: HIGH | MED | LOW
-- Commit mode: two-phase | one-commit (docs-only)
+- Commit policy: Runner auto-commits after clean-tree invariants; tasks must not include git add/commit steps.
 
 ## Objective
 One sentence describing what will be true when this task is done.
@@ -71,107 +70,25 @@ git checkout -- <path1> <path2>
 git clean -fd -- <path-or-dir>
 ```
 
-## **Commit plan (MANUAL; index.lock workaround)**
+## **Runner commit & receipt policy (AUTOMATIC)**
 
-### **Commit mode rules**
+- **No manual commits.** Do not include `git add` / `git commit` instructions in this task artifact.
+- The runner enforces clean-tree invariants:
+  - Preflight: `git status --porcelain -uall` must be empty before starting.
+  - Scope guard: only **Allowed files (STRICT)** may be modified.
+  - Post-task: the tree must be clean after the runner commits.
+- The runner will create commits automatically for:
+  1) Initial receipt generation (campaign + task artifact creation)
+  2) Task implementation changes
+  3) Receipt updates (completion summary + commit hashes)
 
-- **two-phase** (default): Commit A = implementation/config/tests. Commit B = docs finalize + campaign mapping update.
+## **Campaign mapping (RUNNER-OWNED SOURCE OF TRUTH)**
 
-- **one-commit** (docs-only tasks): implementation/docs are committed together once.
+- The runner will update the campaign doc with a mapping line for this task in this format:
 
----
+  `<TASK-ID> -> [<implementation_commit_hash>, <receipt_update_commit_hash>]`
 
-### **Commit A (implementation) — two-phase only**
-
-- Commit message (EXACT):
-
-  - “: ”
-
-- Manual commands (explicit paths only):
-
-```
-cd <REPO_ROOT>
-
-git status --porcelain -uall
-git add <explicit allowed file paths ONLY (no docs/tasks, no campaign doc unless explicitly required)>
-git commit --no-verify -m "<TASK-ID>: <short action>"
-git log -1 --oneline
-git status --porcelain -uall
-```
-
-- Record the implementation hash here (source of truth for Commit A):
-
-  - Commit A hash: <FILL_AFTER_COMMIT_A>
-
----
-
-### **Commit B (docs finalize + mapping) — two-phase only**
-
-- Purpose:
-
-  - Update **this task artifact** with completion summary (including Commit A hash),
-
-  - Update the **campaign doc mapping line** with both hashes.
-
-- Commit message (EXACT):
-
-  - “: docs finalize + mapping”
-
-- Manual commands:
-
-```
-cd <REPO_ROOT>
-
-git status --porcelain -uall
-git add docs/tasks/<this task artifact filename> docs/Campaign/<this campaign filename>
-git commit --no-verify -m "<TASK-ID>: docs finalize + mapping"
-git log -1 --oneline
-git status --porcelain -uall
-```
-
-- Recording rule (avoids ouroboros/self-referential hash loop):
-
-  - **Commit B hash is recorded in the CAMPAIGN mapping line (source of truth).**
-
-  - (Optional) You may also paste Commit B hash below after the commit is complete.
-
----
-
-### **One-commit mode (docs-only tasks)**
-
-- Commit message (EXACT):
-
-  - “: ”
-
-- Manual commands:
-
-```
-cd <REPO_ROOT>
-
-git status --porcelain -uall
-git add <explicit allowed file paths including docs changes>
-git commit --no-verify -m "<TASK-ID>: <short action>"
-git log -1 --oneline
-git status --porcelain -uall
-```
-
-- Record the hash here:
-
-  - Commit hash: <FILL_AFTER_COMMIT>
-
----
-
-## **Campaign mapping (SOURCE OF TRUTH)**
-
-> This line must exist in the campaign doc and must be updated during Commit B (two-phase) or the single commit (one-commit).
-
- -> [, ]
-
-Notes:
-
-- For **two-phase**, put Commit A and Commit B hashes in this mapping line.
-
-- For **one-commit**, set  to the single hash and  to “n/a” (or repeat the same hash—pick one convention and keep it consistent across the campaign).
+- For no-op tasks, the runner may use a single hash for both fields or set the receipt hash to `n/a` (runner policy).
 
 ## **Completion Summary (fill after completion)**
 
@@ -203,17 +120,13 @@ Notes:
 
   - Only allowed files were modified: yes/no
 
-- Commit info:
+- Commit info (Runner):
 
-  - Commit mode: two-phase | one-commit
+  - Implementation commit hash: <…>
 
-  - Commit A hash (impl): <…>  (two-phase)
+  - Receipt update commit hash: <…>
 
-  - Commit B hash (docs finalize): recorded in campaign mapping (two-phase)
-
-  - Single commit hash: <…> (one-commit)
-
-- Campaign mapping updated: yes/no
+  - Campaign mapping updated by runner: yes/no
 
 - Notes / gotchas:
 

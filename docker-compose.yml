@@ -140,6 +140,9 @@ services:
 
         echo "[Migrator] Running Alembic migrations..."
         echo "[Migrator] Using Alembic config: $$ALEMBIC_CFG"
+        echo "[Migrator] Clearing Alembic/Python bytecode caches (avoid stale migrations)..."
+        find /app/guardian/db/migrations -name "__pycache__" -type d -print -exec rm -rf {} + || true
+        find /app/guardian/db/migrations -name "*.pyc" -type f -print -delete || true
 
         # Helpful debug if Alembic complains about missing script_location.
         python - <<'PY'
@@ -191,12 +194,14 @@ services:
       EMBEDDER_PROVIDER: "local"
       EMBEDDING_BACKEND: "local"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
       # Ensure seed/init code can construct an OpenAI client even when running local-first
       OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
       CODEXIFY_USE_OPENAI: "0"
+      CHATGPT_EXPORT_FILE: "/data/conversation.json"
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
@@ -204,7 +209,7 @@ services:
       - ./scripts:/app/scripts
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
       # Mount data directory for conversations.json
-      - ./data:/data
+      - ./docs:/data
       # Mount conversations.json directly if present
       - ./conversations.json:/app/conversations.json:ro
     depends_on:
@@ -252,6 +257,7 @@ services:
       # Supported provider ids (backend): "local", "groq", "openai"
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
@@ -407,6 +413,7 @@ services:
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
@@ -457,6 +464,7 @@ services:
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
@@ -507,6 +515,7 @@ services:
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
@@ -561,6 +570,7 @@ services:
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
@@ -614,6 +624,7 @@ services:
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
@@ -667,6 +678,7 @@ services:
       NEO4J_BOLT_URL: bolt://neo4j:7687
       EMBED_PROVIDER: "local"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
@@ -684,6 +696,52 @@ services:
         ln -snf /app/codexify /app/Codexify
         exec python -m guardian.workers.graph_backfill_worker
 
+  hf-prefetch:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    profiles:
+      - cli
+    entrypoint:
+      - sh
+      - -lc
+    environment:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "0"
+      TRANSFORMERS_OFFLINE: "0"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      # Comma-separated repo ids
+      HF_PREFETCH_MODELS: "${HF_PREFETCH_MODELS:-Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice,Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign,Qwen/Qwen3-TTS-12Hz-1.7B-Base,Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice,Qwen/Qwen3-TTS-12Hz-0.6B-Base,Qwen/Qwen3-TTS-Tokenizer-12Hz}"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - ./backend:/app/backend
+    restart: "no"
+    command:
+      - |
+        set -e
+        python - <<'PY'
+        import os
+        from huggingface_hub import snapshot_download
+
+        models = [m.strip() for m in os.environ.get("HF_PREFETCH_MODELS", "").split(",") if m.strip()]
+        if not models:
+            raise SystemExit(
+                "HF_PREFETCH_MODELS is empty. Set it to a comma-separated list, e.g. "
+                "HF_PREFETCH_MODELS='coqui/XTTS-v2,facebook/mms-tts-eng'"
+            )
+
+        token = os.environ.get("HF_TOKEN") or None
+        for repo_id in models:
+            print(f"[hf-prefetch] Downloading {repo_id} ...")
+            snapshot_download(repo_id=repo_id, token=token)
+        print("[hf-prefetch] Done.")
+        PY
+
   tts:
     build:
       context: .
@@ -696,8 +754,10 @@ services:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
       PYTHONPATH: /app
-      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
-      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
+      HF_HOME: /root/.cache/huggingface
+      # Allow online downloads by default; set to 1 after running hf-prefetch for air-gapped use.
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
     volumes:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
@@ -705,12 +765,69 @@ services:
     restart: unless-stopped
     command:
       - sh
-      - -c
+      - -lc
       - |
         set -e
+        (set -o pipefail) 2>/dev/null && set -o pipefail || true
+
+        echo "[TTS] Boot preflight..."
+        python -c 'import sys; print("[TTS] python:", sys.version)'
+
+        # Ensure git exists (safe even if already present)
+        if ! command -v git >/dev/null 2>&1; then
+          apt-get update
+          apt-get install -y --no-install-recommends git
+          rm -rf /var/lib/apt/lists/*
+        fi
+
+        echo "[TTS] Upgrading pip tooling..."
+        python -m pip install -U pip setuptools wheel
+
+        echo "[TTS] Installing/upgrading qwen-tts (this pins transformers==4.57.3)..."
+        python -m pip install -U qwen-tts
+
+        # IMPORTANT: do NOT upgrade transformers after qwen-tts installs.
+        echo "[TTS] Installing/upgrading non-transformers deps only..."
+        python -m pip install -U safetensors
+
+        echo "[TTS] Versions:"
+        python -c 'import transformers, pkgutil; print("[TTS] transformers:", transformers.__version__); print("[TTS] qwen_tts present:", pkgutil.find_loader("qwen_tts") is not None)'
+
+        echo "[TTS] Verifying transformers.pipeline is importable..."
+        if ! python -c 'from transformers import pipeline; print("[TTS] OK: transformers.pipeline import works")'; then
+          echo "[TTS] transformers.pipeline import failed; installing torchvision and retrying..."
+          python -m pip install -U torchvision
+          python -c 'from transformers import pipeline; print("[TTS] OK: transformers.pipeline import works after torchvision")' || {
+            echo "[TTS] FATAL: transformers.pipeline still not importable. Print transformers diagnostics:";
+            python -c 'import transformers; print("transformers", transformers.__version__)' || true;
+            exit 1;
+          }
+        fi
+
+        # When running offline, verify at least one Qwen3-TTS model is cached.
+        python - <<'PY'
+        import os, sys
+        offline = (os.environ.get("HF_HUB_OFFLINE") == "1"
+                   or os.environ.get("TRANSFORMERS_OFFLINE") == "1")
+        if not offline:
+            print("[TTS] Online mode: models will download on first use.")
+            sys.exit(0)
+        hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+        hub_dir = os.path.join(hf_home, "hub")
+        if not os.path.isdir(hub_dir):
+            print(f"[TTS] WARNING: HF cache {hub_dir} missing.", file=sys.stderr)
+            print("[TTS] Run: docker compose run --rm hf-prefetch", file=sys.stderr)
+            sys.exit(1)
+        found = [d for d in os.listdir(hub_dir) if "Qwen3-TTS" in d]
+        if not found:
+            print("[TTS] WARNING: No Qwen3-TTS models in cache.", file=sys.stderr)
+            print("[TTS] Run: docker compose run --rm hf-prefetch", file=sys.stderr)
+            sys.exit(1)
+        print(f"[TTS] Cached models: {found}")
+        PY
+
         echo "[TTS] Starting local TTS service..."
         exec uvicorn backend.tts_service.app:app --host 0.0.0.0 --port 8000
-
   frontend:
     build:
       context: ./frontend

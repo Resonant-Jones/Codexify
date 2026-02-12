@@ -468,15 +468,15 @@ GCP_BUCKET=bucket-name
 
 **Status:** ✅ **95% Complete - Production Ready with OpenAI**
 
-Image generation is fully functional with OpenAI DALL-E. Other providers are stubs.
+Image generation is fully functional with OpenAI DALL-E. Local and Stability providers are declared but currently fail closed with explicit HTTP 503 "not implemented" responses.
 
 **What Exists:**
 
 | Component | File Path | Status | Notes |
 |-----------|-----------|--------|-------|
 | **OpenAI Provider** | `guardian/image_gen/providers/openai.py` | ✅ Complete | DALL-E 3 integration, uses `openai` library |
-| **Stability Provider** | `guardian/image_gen/providers/stability.py` | 🔴 Stub | Returns 1x1 placeholder |
-| **Local Provider** | `guardian/image_gen/providers/local.py` | 🔴 Stub | Returns 1x1 placeholder |
+| **Stability Provider** | `guardian/image_gen/providers/stability.py` | 🔴 Not implemented | Returns HTTP 503 (explicit fail-closed behavior) |
+| **Local Provider** | `guardian/image_gen/providers/local.py` | 🔴 Not implemented | Returns HTTP 503 (explicit fail-closed behavior) |
 | **Image Gen Router** | `guardian/image_gen/router.py` | ✅ Complete | Provider resolution, validation |
 | **Generation Endpoint** | `guardian/routes/media.py` POST `/generate/image` | ✅ Complete | Full pipeline (lines 216-276) |
 | **Database Model** | `guardian/db/models.py` `GeneratedImage` | ✅ Complete | Tracks id, project_id, thread_id, user_id, src_url, prompt, model, created_at |
@@ -486,8 +486,8 @@ Image generation is fully functional with OpenAI DALL-E. Other providers are stu
 
 **Supported Models:**
 - ✅ DALL-E 3 (OpenAI)
-- 🔴 Stable Diffusion (Stability AI) - stubbed
-- 🔴 Local models - stubbed
+- 🔴 Stable Diffusion (Stability AI) - not implemented (returns HTTP 503)
+- 🔴 Local models - not implemented (returns HTTP 503)
 
 **Environment Variables:**
 ```bash
@@ -524,7 +524,7 @@ OPENAI_API_KEY=sk-...
 | **4. Enter prompt** | Textarea input | ✅ Working | None |
 | **5. Submit** | POST `/generate/image` | ✅ Working | None |
 | **6. Route to provider** | ImageGenRouter | ✅ Working | None |
-| **7. Generate** | OpenAI provider | ✅ Working (DALL-E), 🔴 Stubs for others | Implement Stability/Local if needed |
+| **7. Generate** | OpenAI provider | ✅ Working (DALL-E); local/stability return HTTP 503 not implemented | Implement Stability/Local if needed |
 | **8. Store image** | StorageManager | ✅ Working | None |
 | **9. Database record** | `GeneratedImage` model | ✅ Working | None |
 | **10. Success response** | src_url returned | ✅ Working | None |
