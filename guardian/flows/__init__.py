@@ -13,6 +13,7 @@ from guardian.flows.spec import (
 )
 from guardian.flows.primitives import PrimitiveRegistry, export_primitive_catalog
 from guardian.flows.compiler import compile_flow
+from guardian.flows.runner import clear_run_cache, run_flow
 
 __all__ = [
     "CompiledFlow",
@@ -27,4 +28,6 @@ __all__ = [
     "PrimitiveRegistry",
     "export_primitive_catalog",
     "compile_flow",
+    "run_flow",
+    "clear_run_cache",
 ]
