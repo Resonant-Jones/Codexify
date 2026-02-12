@@ -84,7 +84,7 @@ Implement a Flow Builder foundation: FlowSpec schema + primitive contracts + Flo
 - TASK-2026-02-12-002_flowspec_models_and_schema_export -> [1fcf4f05, <commitB>]
 - TASK-2026-02-12-003_primitive_contracts_and_registry -> [c77f26de, <commitB>]
 - TASK-2026-02-12-004_flow_compiler_normalize_validate -> [42ee1f1b, <commitB>]
-- TASK-2026-02-12-005_flow_runner_execute_trace -> [<commitA>, <commitB>]
+- TASK-2026-02-12-005_flow_runner_execute_trace -> [e55f6d7d, <commitB>]
 - TASK-2026-02-12-006_guardian_nl_to_flowspec_two_stage_gating -> [<commitA>, <commitB>]
 - TASK-2026-02-12-007_flow_builder_api_endpoints -> [<commitA>, <commitB>]
 - TASK-2026-02-12-008_examples_utterances_to_compiled_flowspec -> [<commitA>, <commitB>]
