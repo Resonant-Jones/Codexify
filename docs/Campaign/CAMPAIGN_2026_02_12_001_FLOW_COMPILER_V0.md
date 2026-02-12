@@ -80,7 +80,7 @@ Implement a Flow Builder foundation: FlowSpec schema + primitive contracts + Flo
 >
 > Update this section as each task completes.
 
-- TASK-2026-02-12-001_repo_scaffold -> [<commitA>, <commitB>]
+- TASK-2026-02-12-001_repo_scaffold -> [f532d9b7, <commitB>]
 - TASK-2026-02-12-002_flowspec_models_and_schema_export -> [<commitA>, <commitB>]
 - TASK-2026-02-12-003_primitive_contracts_and_registry -> [<commitA>, <commitB>]
 - TASK-2026-02-12-004_flow_compiler_normalize_validate -> [<commitA>, <commitB>]
