@@ -88,4 +88,4 @@ Implement a Flow Builder foundation: FlowSpec schema + primitive contracts + Flo
 - TASK-2026-02-12-006_guardian_nl_to_flowspec_two_stage_gating -> [b4d688b4, <commitB>]
 - TASK-2026-02-12-007_flow_builder_api_endpoints -> [f8852244, <commitB>]
 - TASK-2026-02-12-008_examples_utterances_to_compiled_flowspec -> [b81d6690, <commitB>]
-- TASK-2026-02-12-009_tests_and_smoke_script -> [<commitA>, <commitB>]
+- TASK-2026-02-12-009_tests_and_smoke_script -> [cc97f3a5, <commitB>]
