@@ -1,0 +1,454 @@
+{
+  "version": "0.1",
+  "examples": [
+    {
+      "name": "Daily Digest",
+      "utterance": "Every morning at 7:30, give me a digest of yesterday's conversations and 3 actionable items. Save it as a Codex entry.",
+      "flow_spec": {
+        "flow_id": "daily_digest_v1",
+        "version": "0.1",
+        "enabled": true,
+        "trigger": {
+          "type": "cron",
+          "schedule": "30 7 * * *",
+          "event_name": null
+        },
+        "scope": {
+          "user_id": "default",
+          "project_ids": [],
+          "thread_ids": [],
+          "persona": "guardian.digest"
+        },
+        "budget": {
+          "max_steps": 10,
+          "max_tokens": 4000,
+          "timeout_seconds": 120
+        },
+        "policy": {
+          "min_confidence": 0.75,
+          "require_confirmation_below_threshold": true,
+          "allow_side_effects_without_confirmation": true
+        },
+        "steps": [
+          {
+            "step_id": "ctx",
+            "primitive": "assemble_context",
+            "params": {
+              "intent": "Generate a daily digest of yesterday's conversations and identify 3 actionable items.",
+              "sources": {
+                "threads": true,
+                "memory": true,
+                "codex": true,
+                "personal_facts": true
+              },
+              "window": {
+                "threads_hours": 24,
+                "memory_days": 7,
+                "codex_days": 14
+              },
+              "search_depth": 2,
+              "max_items": 50
+            }
+          },
+          {
+            "step_id": "summarize",
+            "primitive": "summarize",
+            "params": {
+              "schema_name": "daily_digest_summary_v1",
+              "instructions": [
+                "Summarize yesterday's activity in 5 to 10 bullets.",
+                "Include only high-signal items."
+              ]
+            }
+          },
+          {
+            "step_id": "actions",
+            "primitive": "extract_actions",
+            "params": {
+              "schema_name": "action_items_v1",
+              "max_actions": 3,
+              "actionable_definition": [
+                "Must start with a verb",
+                "Must be specific and feasible"
+              ]
+            }
+          },
+          {
+            "step_id": "post_thread",
+            "primitive": "create_thread",
+            "params": {
+              "title_template": "Daily Digest - {{date}}",
+              "body_template": {
+                "format": "markdown",
+                "sections": [
+                  {
+                    "title": "Summary",
+                    "from_step": "summarize"
+                  },
+                  {
+                    "title": "Top 3 Actions",
+                    "from_step": "actions"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "step_id": "codex_entry",
+            "primitive": "write_codex_entry",
+            "params": {
+              "title_template": "Daily Digest - {{date}}",
+              "tags": [
+                "digest",
+                "daily"
+              ],
+              "content_from_steps": [
+                "summarize",
+                "actions"
+              ]
+            }
+          },
+          {
+            "step_id": "emit",
+            "primitive": "emit_event",
+            "params": {
+              "event_name": "codexify.flow.daily_digest.completed",
+              "payload_from_steps": [
+                "codex_entry",
+                "post_thread"
+              ]
+            }
+          }
+        ],
+        "output": {
+          "store_as_thread": true,
+          "store_as_codex": true,
+          "emit_event": "codexify.flow.daily_digest.completed"
+        },
+        "idempotency": {
+          "key_template": "daily_digest_v1::{{date}}",
+          "mode": "return_cached"
+        },
+        "audit": {
+          "log_trace": true,
+          "record_cost": true,
+          "redact_fields": [
+            "api_key",
+            "authorization",
+            "cookie"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Weekly Reflection",
+      "utterance": "Every Friday, reflect on my last week: what I avoided, what moved forward, and one experiment for next week.",
+      "flow_spec": {
+        "flow_id": "weekly_reflection_v1",
+        "version": "0.1",
+        "enabled": true,
+        "trigger": {
+          "type": "cron",
+          "schedule": "0 9 * * FRI",
+          "event_name": null
+        },
+        "scope": {
+          "user_id": "default",
+          "project_ids": [],
+          "thread_ids": [],
+          "persona": "guardian.reflection"
+        },
+        "budget": {
+          "max_steps": 12,
+          "max_tokens": 5500,
+          "timeout_seconds": 180
+        },
+        "policy": {
+          "min_confidence": 0.85,
+          "require_confirmation_below_threshold": true,
+          "allow_side_effects_without_confirmation": false
+        },
+        "steps": [
+          {
+            "step_id": "ctx",
+            "primitive": "assemble_context",
+            "params": {
+              "intent": "Reflect on the last week and propose one experiment for next week.",
+              "sources": {
+                "threads": true,
+                "memory": true,
+                "codex": true
+              },
+              "window": {
+                "threads_days": 7,
+                "memory_days": 14,
+                "codex_days": 30
+              },
+              "search_depth": 3,
+              "max_items": 80
+            }
+          },
+          {
+            "step_id": "classify_themes",
+            "primitive": "classify",
+            "params": {
+              "schema_name": "weekly_reflection_themes_v1",
+              "labels": [
+                "progress",
+                "avoidance",
+                "friction",
+                "energy"
+              ],
+              "instructions": [
+                "Classify notable items from context into the labels."
+              ]
+            }
+          },
+          {
+            "step_id": "reflection",
+            "primitive": "summarize",
+            "params": {
+              "schema_name": "weekly_reflection_report_v1",
+              "instructions": [
+                "Produce sections: Avoided, Advanced, Experiment.",
+                "If evidence is thin, mark uncertain."
+              ]
+            }
+          },
+          {
+            "step_id": "actions",
+            "primitive": "extract_actions",
+            "params": {
+              "schema_name": "weekly_next_actions_v1",
+              "max_actions": 5,
+              "actionable_definition": [
+                "Must be a next-week action",
+                "Must be specific"
+              ]
+            }
+          },
+          {
+            "step_id": "post_thread",
+            "primitive": "create_thread",
+            "params": {
+              "title_template": "Weekly Reflection - Week of {{date}}",
+              "body_template": {
+                "format": "markdown",
+                "sections": [
+                  {
+                    "title": "Themes",
+                    "from_step": "classify_themes"
+                  },
+                  {
+                    "title": "Reflection",
+                    "from_step": "reflection"
+                  },
+                  {
+                    "title": "Next Actions",
+                    "from_step": "actions"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "step_id": "codex_entry",
+            "primitive": "write_codex_entry",
+            "params": {
+              "title_template": "Weekly Reflection - {{date}}",
+              "tags": [
+                "reflection",
+                "weekly"
+              ],
+              "content_from_steps": [
+                "classify_themes",
+                "reflection",
+                "actions"
+              ]
+            }
+          },
+          {
+            "step_id": "emit",
+            "primitive": "emit_event",
+            "params": {
+              "event_name": "codexify.flow.weekly_reflection.proposed",
+              "payload_from_steps": [
+                "codex_entry",
+                "post_thread"
+              ]
+            }
+          }
+        ],
+        "output": {
+          "store_as_thread": true,
+          "store_as_codex": true,
+          "emit_event": "codexify.flow.weekly_reflection.proposed"
+        },
+        "idempotency": {
+          "key_template": "weekly_reflection_v1::{{iso_week}}",
+          "mode": "return_cached"
+        },
+        "audit": {
+          "log_trace": true,
+          "record_cost": true,
+          "redact_fields": [
+            "api_key",
+            "authorization",
+            "cookie"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Research Report",
+      "utterance": "Research local-first AI orchestration using my saved docs and recent threads, then write a report in a new thread.",
+      "flow_spec": {
+        "flow_id": "research_report_v1",
+        "version": "0.1",
+        "enabled": true,
+        "trigger": {
+          "type": "manual",
+          "schedule": null,
+          "event_name": null
+        },
+        "scope": {
+          "user_id": "default",
+          "project_ids": [],
+          "thread_ids": [],
+          "persona": "guardian.research"
+        },
+        "budget": {
+          "max_steps": 12,
+          "max_tokens": 7000,
+          "timeout_seconds": 240
+        },
+        "policy": {
+          "min_confidence": 0.7,
+          "require_confirmation_below_threshold": true,
+          "allow_side_effects_without_confirmation": true
+        },
+        "steps": [
+          {
+            "step_id": "ctx",
+            "primitive": "assemble_context",
+            "params": {
+              "intent": "Research local-first AI orchestration using saved docs and recent threads.",
+              "sources": {
+                "threads": true,
+                "memory": true,
+                "codex": true,
+                "documents": true
+              },
+              "query": "local-first AI orchestration",
+              "window": {
+                "threads_days": 30,
+                "memory_days": 60,
+                "codex_days": 180,
+                "documents_days": 365
+              },
+              "search_depth": 3,
+              "max_items": 120
+            }
+          },
+          {
+            "step_id": "retrieve_memory",
+            "primitive": "retrieve_memory",
+            "params": {
+              "query": "local-first AI orchestration",
+              "scope": "all",
+              "k": 12,
+              "confidence_threshold": 0.5,
+              "search_depth": 2
+            }
+          },
+          {
+            "step_id": "report",
+            "primitive": "summarize",
+            "params": {
+              "schema_name": "research_report_v1",
+              "instructions": [
+                "Write sections: Overview, Concepts, Tradeoffs, Recommendations, Sources.",
+                "Label speculation clearly."
+              ]
+            }
+          },
+          {
+            "step_id": "actions",
+            "primitive": "extract_actions",
+            "params": {
+              "schema_name": "research_recommendations_v1",
+              "max_actions": 5,
+              "actionable_definition": [
+                "Must be concrete",
+                "Must be tied to report content"
+              ]
+            }
+          },
+          {
+            "step_id": "post_thread",
+            "primitive": "create_thread",
+            "params": {
+              "title_template": "Research Report - {{query}} - {{date}}",
+              "body_template": {
+                "format": "markdown",
+                "sections": [
+                  {
+                    "title": "Report",
+                    "from_step": "report"
+                  },
+                  {
+                    "title": "Recommendations",
+                    "from_step": "actions"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "step_id": "codex_entry",
+            "primitive": "write_codex_entry",
+            "params": {
+              "title_template": "Research Report - {{query}} - {{date}}",
+              "tags": [
+                "research"
+              ],
+              "content_from_steps": [
+                "report",
+                "actions"
+              ]
+            }
+          },
+          {
+            "step_id": "emit",
+            "primitive": "emit_event",
+            "params": {
+              "event_name": "codexify.flow.research_report.completed",
+              "payload_from_steps": [
+                "codex_entry",
+                "post_thread"
+              ]
+            }
+          }
+        ],
+        "output": {
+          "store_as_thread": true,
+          "store_as_codex": true,
+          "emit_event": "codexify.flow.research_report.completed"
+        },
+        "idempotency": {
+          "key_template": "research_report_v1::{{query}}::{{date}}",
+          "mode": "always_run"
+        },
+        "audit": {
+          "log_trace": true,
+          "record_cost": true,
+          "redact_fields": [
+            "api_key",
+            "authorization",
+            "cookie"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -4,6 +4,8 @@ Google Cloud TTS Provider
 Implementation of TTSProvider for Google Cloud Text-to-Speech API.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 from typing import List, Optional
@@ -11,11 +13,26 @@ from typing import List, Optional
 try:
     from google.api_core import exceptions as google_exceptions
     from google.cloud import texttospeech
-except ImportError:
-    raise ImportError(
-        "Google Cloud TTS dependencies not installed. "
-        "Install with: pip install google-cloud-texttospeech"
-    )
+except ImportError as e:  # pragma: no cover - depends on optional package
+    google_exceptions = None  # type: ignore[assignment]
+    texttospeech = None  # type: ignore[assignment]
+    _IMPORT_ERROR: ImportError | None = e
+else:
+    _IMPORT_ERROR = None
+
+if google_exceptions is None:
+
+    class _MissingGooglePermissionDenied(Exception):
+        """Fallback exception class when google.api_core is unavailable."""
+
+    class _MissingGoogleInvalidArgument(Exception):
+        """Fallback exception class when google.api_core is unavailable."""
+
+    class _MissingGoogleExceptions:
+        PermissionDenied = _MissingGooglePermissionDenied
+        InvalidArgument = _MissingGoogleInvalidArgument
+
+    google_exceptions = _MissingGoogleExceptions()  # type: ignore[assignment]
 
 from ..tts_service import (
     AuthenticationError,
@@ -31,7 +48,7 @@ logger = logging.getLogger(__name__)
 class GoogleProvider(TTSProvider):
     """Google Cloud implementation of TTSProvider."""
 
-    def __init__(self, credentials_path: Optional[str] = None):
+    def __init__(self, credentials_path: str | None = None):
         """
         Initialize Google Cloud TTS provider.
 
@@ -39,6 +56,12 @@ class GoogleProvider(TTSProvider):
             credentials_path: Path to Google Cloud credentials JSON file.
                            If not provided, looks for GOOGLE_APPLICATION_CREDENTIALS env var.
         """
+        if texttospeech is None:
+            raise RuntimeError(
+                "GoogleProvider requires 'google-cloud-texttospeech' but it is not installed. "
+                "Install it or disable the Google provider."
+            ) from _IMPORT_ERROR
+
         if credentials_path:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
 
@@ -56,7 +79,7 @@ class GoogleProvider(TTSProvider):
                 f"Failed to initialize Google Cloud TTS client: {str(e)}"
             )
 
-    def list_voices(self) -> List[str]:
+    def list_voices(self) -> list[str]:
         """
         Get list of available voices.
 
@@ -173,3 +196,7 @@ class GoogleProvider(TTSProvider):
             raise AuthenticationError("Invalid Google Cloud credentials")
         except Exception as e:
             raise SynthesisError(f"Failed to get voice info: {str(e)}")
+
+
+# Backward-compatible alias used by importers that expect this class name.
+GoogleTTSProvider = GoogleProvider

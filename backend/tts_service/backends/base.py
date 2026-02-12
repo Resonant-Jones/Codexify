@@ -14,6 +14,8 @@ class TTSBackend(ABC):
         *,
         voice: Optional[str] = None,
         speed: Optional[float] = None,
+        ref_audio: Optional[str] = None,
+        ref_text: Optional[str] = None,
     ) -> tuple[bytes, int]:
         """
         Synthesize speech from text.
@@ -22,6 +24,8 @@ class TTSBackend(ABC):
             text: The text to synthesize
             voice: Optional voice identifier (backend-specific)
             speed: Optional speed modifier (1.0 = normal)
+            ref_audio: Optional path to reference audio (voice cloning)
+            ref_text: Optional transcript of reference audio
 
         Returns:
             tuple of (wav_bytes, sampling_rate)

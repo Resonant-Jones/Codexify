@@ -158,6 +158,7 @@ export default function App() {
           title: resolvedTitle,
           ext,
           type: "file",
+          thread_id: threadId,
         };
         try {
           window.dispatchEvent(

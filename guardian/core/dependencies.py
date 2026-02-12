@@ -9,26 +9,35 @@ This module is imported by route modules to avoid circular imports
 with guardian_api.py.
 """
 
+import base64
+import hashlib
 import hmac
 import logging
 import os
+import time as time_module
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
 
 from dotenv import load_dotenv
-from fastapi import Depends, Header, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException
 from fastapi.security.api_key import APIKeyHeader
 
 from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
+from guardian.core.auth import verify_session_token
 from guardian.core import event_bus
 from guardian.core.chat_db import ChatDB
 from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.memory.query_memory import memory_store as _memory_store
 from guardian.sensors.state import Sensors
 from guardian.vector.store import VectorStore
+
+try:  # Optional; only used when remote auth mode validates JWT bearer tokens.
+    import jwt  # type: ignore
+except Exception:  # pragma: no cover - optional dependency in some environments
+    jwt = None  # type: ignore[assignment]
 
 # Try to import Groq provider
 try:
@@ -117,21 +126,171 @@ allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
 # =========================
 
 
+def _auth_mode() -> str:
+    """
+    Resolve auth boundary mode.
+
+    - local: static API keys are allowed.
+    - remote: static API keys are rejected; only session/JWT tokens are allowed.
+    """
+    raw = (os.getenv("GUARDIAN_AUTH_MODE") or "local").strip().lower()
+    if raw in {"", "local", "localhost", "loopback"}:
+        return "local"
+    if raw in {"remote", "cloud", "hosted", "public", "prod", "production"}:
+        return "remote"
+    logger.warning(
+        "Unknown GUARDIAN_AUTH_MODE=%r; defaulting to remote mode for safety",
+        raw,
+    )
+    return "remote"
+
+
+def _remote_token_secrets() -> List[str]:
+    """
+    Collect candidate secrets for remote session/JWT validation.
+
+    GUARDIAN_SESSION_SECRET is preferred. GUARDIAN_JWT_SECRET and
+    GUARDIAN_API_KEY are accepted for compatibility with existing setups.
+    """
+    secrets: List[str] = []
+    for env_name in (
+        "GUARDIAN_SESSION_SECRET",
+        "GUARDIAN_JWT_SECRET",
+        "GUARDIAN_API_KEY",
+    ):
+        value = (os.getenv(env_name) or "").strip()
+        if value and value not in secrets:
+            secrets.append(value)
+    return secrets
+
+
+def _is_valid_remote_token(token: str) -> bool:
+    """
+    Validate a remote-mode bearer/cookie token as session or JWT.
+    """
+    raw = token.strip()
+    if not raw:
+        return False
+
+    # First check native Guardian session tokens.
+    ok, _subject = verify_session_token(raw)
+    if ok:
+        return True
+    if _verify_session_token_fallback(raw):
+        return True
+
+    # Then check JWT tokens signed with configured secrets.
+    if jwt is None:
+        return False
+
+    for secret in _remote_token_secrets():
+        try:
+            jwt.decode(
+                raw,
+                secret,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+            return True
+        except Exception:
+            continue
+
+    return False
+
+
+def _verify_session_token_fallback(token: str) -> bool:
+    """
+    Fallback validator for Guardian session tokens.
+
+    `guardian.core.auth.verify_session_token` splits raw token bytes on every '.'
+    and can reject valid tokens when signature bytes contain '.'. This parser uses
+    the first three delimiters only and treats the remainder as signature bytes.
+    """
+    try:
+        raw = base64.urlsafe_b64decode(token.encode("ascii"))
+        dot1 = raw.find(b".")
+        dot2 = raw.find(b".", dot1 + 1) if dot1 >= 0 else -1
+        dot3 = raw.find(b".", dot2 + 1) if dot2 >= 0 else -1
+        if dot1 < 0 or dot2 < 0 or dot3 < 0:
+            return False
+
+        payload = raw[:dot3]
+        exp_raw = raw[dot1 + 1 : dot2]
+        sig = raw[dot3 + 1 :]
+        if not sig:
+            return False
+
+        exp = int(exp_raw.decode("utf-8", "ignore"))
+        if exp < int(time_module.time()):
+            return False
+
+        for secret in _remote_token_secrets():
+            digest = hmac.new(
+                secret.encode("utf-8"),
+                payload,
+                hashlib.sha256,
+            ).digest()
+            if hmac.compare_digest(sig, digest):
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def verify_api_key(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
 ) -> str:
     """
-    Validate API key authentication using dynamic settings.
+    Validate request auth at the local/remote boundary.
 
-    Accepts credentials via:
-    - X-API-Key header
-    - Authorization: Bearer <token>
+    Local mode (default):
+    - Accepts static API keys from X-API-Key and Bearer headers.
 
-    Valid keys are sourced from:
-    - settings.GUARDIAN_API_KEY
-    - settings.GUARDIAN_API_KEYS (comma-separated list)
+    Remote mode:
+    - Rejects static API keys.
+    - Requires session/JWT via Bearer token or gc_session cookie.
     """
+    mode = _auth_mode()
+    if mode == "remote":
+        secrets = _remote_token_secrets()
+        if not secrets:
+            logger.error(
+                "Remote auth mode misconfigured: no session/JWT secret configured"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Server misconfigured: remote auth mode requires "
+                    "GUARDIAN_SESSION_SECRET or GUARDIAN_JWT_SECRET"
+                ),
+            )
+
+        if x_api_key and x_api_key.strip():
+            logger.warning(
+                "Rejected static API key in remote auth mode (local-only key boundary)"
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Remote mode requires session/JWT auth; X-API-Key is local-only",
+            )
+
+        bearer_token: Optional[str] = None
+        if authorization and authorization.lower().startswith("bearer "):
+            bearer_token = authorization[7:].strip() or None
+        if bearer_token and _is_valid_remote_token(bearer_token):
+            return bearer_token
+
+        if gc_session and _is_valid_remote_token(gc_session):
+            return gc_session
+
+        logger.warning("Unauthorized remote auth attempt (session/JWT required)")
+        raise HTTPException(
+            status_code=401,
+            detail="Remote mode requires a valid session/JWT token",
+        )
+
     candidates: List[str] = []
     if x_api_key:
         token = x_api_key.strip()

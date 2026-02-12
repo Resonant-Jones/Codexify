@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "summary": "Runner execute-mode proof passed: semantic task artifacts dedupe across rerun and receipt hash propagation is non-empty in task docs.",
+  "tests_ran": [
+    "python -m py_compile codex_runner/runner.py",
+    "python codex_runner/runner.py --mega-audit-prompt-file <tmp>/mega.md --campaign-compiler-prompt-file <tmp>/compiler.md --execute (run #1)",
+    "python codex_runner/runner.py --mega-audit-prompt-file <tmp>/mega.md --campaign-compiler-prompt-file <tmp>/compiler.md --execute (run #2)"
+  ],
+  "commit_hash": "ae8c198d711c5f063d327fbb8a26311b428616b5",
+  "implementation_commit_hash": "ae8c198d711c5f063d327fbb8a26311b428616b5",
+  "receipt_update_commit_hash": "63972cdf42cec55462b8015e2a2d523be170aedd",
+  "notes": "proof repo: /var/folders/kj/mnb6b7ds2sq__bjhmglf5xyh0000gn/T/runner-proof-8ivopvzv/repo\ncampaign branch: campaign/2026-02-11/runner_dedupe_demo\ntask artifact on branch: docs/tasks/TASK_2026_02_11_012_runner_canonical_task_dedupe_receipt_hash_propagation.md\nartifact count after rerun: 1\nrecent commits:\na725f9d (campaign/2026-02-11/runner_dedupe_demo) Docs: map TASK-2026-02-11-012_runner_canonical_task_dedupe_receipt_hash_propagation\n63972cd TASK-2026-02-11-012_runner_canonical_task_dedupe_receipt_hash_propagation: receipt update\nae8c198 Docs: add CAMPAIGN_2026_02_11_RUNNER_DEDUPE campaign + tasks\nb110a30 Docs: map TASK-2026-02-11-012_runner_canonical_task_dedupe_receipt_hash_propagation\na4e3dc9 TASK-2026-02-11-012_runner_canonical_task_dedupe_receipt_hash_propagation: receipt update\n421b44c Docs: add CAMPAIGN_2026_02_11_RUNNER_DEDUPE campaign + tasks"
+}

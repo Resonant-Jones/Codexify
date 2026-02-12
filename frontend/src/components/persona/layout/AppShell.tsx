@@ -73,6 +73,126 @@ injectCssVars();
    ───────────────────────────────────────────────────────────────────────────── */
 type Resolved = "light" | "dark";
 type LayoutMode = "focus" | "zen";
+type DocItem = DocumentLike & { ext: keyof ExtColors };
+
+function normalizeDoc(raw: any, idx = 0): DocItem {
+  const filename =
+    typeof raw?.filename === "string" && raw.filename.trim()
+      ? raw.filename.trim()
+      : undefined;
+  const title =
+    raw?.title ||
+    raw?.name ||
+    (filename ? filename.replace(/\.[^./\\]+$/, "") : "") ||
+    "Untitled";
+  const extFromFilename = (() => {
+    if (!filename) return undefined;
+    const match = filename.toLowerCase().match(/\.([a-z0-9]+)$/i);
+    return match?.[1];
+  })();
+  // Preserve any existing media URL so WorkspacePane can preview attachments.
+  const srcUrl =
+    (typeof raw?.src_url === "string" && raw.src_url) ||
+    (typeof raw?.srcUrl === "string" && raw.srcUrl) ||
+    (typeof raw?.src === "string" && raw.src) ||
+    (typeof raw?.url === "string" && raw.url) ||
+    undefined;
+  const embeddingStatus =
+    typeof raw?.embeddingStatus === "string"
+      ? raw.embeddingStatus
+      : typeof raw?.embedding_status === "string"
+        ? raw.embedding_status
+        : undefined;
+  const embeddingError =
+    typeof raw?.embeddingError === "string"
+      ? raw.embeddingError
+      : typeof raw?.embedding_error === "string"
+        ? raw.embedding_error
+        : undefined;
+  const embeddingStartedAt =
+    typeof raw?.embeddingStartedAt === "string"
+      ? raw.embeddingStartedAt
+      : typeof raw?.embedding_started_at === "string"
+        ? raw.embedding_started_at
+        : undefined;
+  const embeddingCompletedAt =
+    typeof raw?.embeddingCompletedAt === "string"
+      ? raw.embeddingCompletedAt
+      : typeof raw?.embedding_completed_at === "string"
+        ? raw.embedding_completed_at
+        : undefined;
+  return {
+    id: raw?.id || raw?.document_id || `${title}-${raw?.ext || "md"}-${idx}`,
+    name: raw?.name || filename || title,
+    title,
+    ext: (
+      raw?.ext ||
+      raw?.extension ||
+      raw?.format ||
+      extFromFilename ||
+      "md"
+    ) as keyof ExtColors,
+    type: raw?.type === "codex_entry" ? "codex_entry" : "file",
+    mock: Boolean(raw?.mock),
+    createdAt: raw?.createdAt || raw?.created_at,
+    src_url: srcUrl,
+    embeddingStatus,
+    embeddingError,
+    embeddingStartedAt,
+    embeddingCompletedAt,
+  };
+}
+
+function normalizeDocIdentity(doc: DocumentLike): string {
+  const type = doc?.type === "codex_entry" ? "codex_entry" : "file";
+  const id = typeof doc?.id === "string" ? doc.id.trim() : "";
+  if (id) return `${type}:${id}`;
+  const title = String(doc?.title || doc?.name || "untitled")
+    .trim()
+    .toLowerCase();
+  const ext = String(doc?.ext || "").trim().toLowerCase();
+  return `${type}:${title}:${ext}`;
+}
+
+function dedupeDocItems(items: DocItem[]): DocItem[] {
+  const seen = new Set<string>();
+  const deduped: DocItem[] = [];
+  for (const doc of items) {
+    const key = normalizeDocIdentity(doc);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(doc);
+  }
+  return deduped;
+}
+
+function unwrapDocumentArray(value: any): any[] {
+  const unwrap = (candidate: any): any => {
+    if (!candidate || typeof candidate !== "object") return candidate;
+    return (
+      (candidate as any).documents ??
+      (candidate as any).items ??
+      (candidate as any).data ??
+      (candidate as any).results ??
+      candidate
+    );
+  };
+  const candidate1 = Array.isArray(value) ? value : unwrap(value);
+  const candidate2 = Array.isArray(candidate1) ? candidate1 : unwrap(candidate1);
+  return Array.isArray(candidate2) ? candidate2 : [];
+}
+
+function routeThreadIdFromPath(pathname: string): number | null {
+  const match = pathname.match(/^\/chat\/(\d+)/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readRouteThreadId(): number | null {
+  if (typeof window === "undefined") return null;
+  return routeThreadIdFromPath(window.location.pathname);
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    🧠 SECTION: Theme Preference Handling
@@ -389,7 +509,6 @@ export default function AppShell({}: PropsWithChildren) {
      - `activeDoc`: Which document is open in the workspace.
      - `openDocInPlace`: Helper to open a doc and reveal the workspace pane.
      ───────────────────────────────────────────────────────────────────────────── */
-  type DocItem = DocumentLike & { ext: keyof ExtColors };
   const defaultDocs: DocItem[] = [
     normalizeDoc({ id: "mock-covenant", name: "Covenant", ext: "pdf", mock: true }),
     normalizeDoc({ id: "mock-roadmap", name: "Roadmap", ext: "md", mock: true }),
@@ -408,72 +527,31 @@ export default function AppShell({}: PropsWithChildren) {
       return null;
     }
   };
-  function normalizeDoc(raw: any, idx = 0): DocItem {
-    const filename =
-      typeof raw?.filename === "string" && raw.filename.trim()
-        ? raw.filename.trim()
-        : undefined;
-    const title =
-      raw?.title ||
-      raw?.name ||
-      (filename ? filename.replace(/\.[^./\\]+$/, "") : "") ||
-      "Untitled";
-    const extFromFilename = (() => {
-      if (!filename) return undefined;
-      const match = filename.toLowerCase().match(/\.([a-z0-9]+)$/i);
-      return match?.[1];
-    })();
-    // Preserve any existing media URL so WorkspacePane can preview attachments.
-    const srcUrl =
-      (typeof raw?.src_url === "string" && raw.src_url) ||
-      (typeof raw?.srcUrl === "string" && raw.srcUrl) ||
-      (typeof raw?.src === "string" && raw.src) ||
-      (typeof raw?.url === "string" && raw.url) ||
-      undefined;
-    const embeddingStatus =
-      typeof raw?.embeddingStatus === "string"
-        ? raw.embeddingStatus
-        : typeof raw?.embedding_status === "string"
-          ? raw.embedding_status
-          : undefined;
-    const embeddingError =
-      typeof raw?.embeddingError === "string"
-        ? raw.embeddingError
-        : typeof raw?.embedding_error === "string"
-          ? raw.embedding_error
-          : undefined;
-    const embeddingStartedAt =
-      typeof raw?.embeddingStartedAt === "string"
-        ? raw.embeddingStartedAt
-        : typeof raw?.embedding_started_at === "string"
-          ? raw.embedding_started_at
-          : undefined;
-    const embeddingCompletedAt =
-      typeof raw?.embeddingCompletedAt === "string"
-        ? raw.embeddingCompletedAt
-        : typeof raw?.embedding_completed_at === "string"
-          ? raw.embedding_completed_at
-          : undefined;
-    return {
-      id: raw?.id || raw?.document_id || `${title}-${raw?.ext || "md"}-${idx}`,
-      name: raw?.name || filename || title,
-      title,
-      ext: (raw?.ext || raw?.extension || extFromFilename || "md") as keyof ExtColors,
-      type: raw?.type === "codex_entry" ? "codex_entry" : "file",
-      mock: Boolean(raw?.mock),
-      createdAt: raw?.createdAt || raw?.created_at,
-      src_url: srcUrl,
-      embeddingStatus,
-      embeddingError,
-      embeddingStartedAt,
-      embeddingCompletedAt,
-    };
-  }
   const [documents, setDocuments] = useState<DocItem[]>(() => {
     const cached = readCachedDocuments();
     if (cached) return cached;
     return typeof window === "undefined" ? defaultDocs : defaultDocs;
   });
+  const [threadDocuments, setThreadDocuments] = useState<DocItem[]>([]);
+  const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
+    () => readRouteThreadId()
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const syncRouteThread = () => {
+      setActiveRouteThreadId(readRouteThreadId());
+    };
+    syncRouteThread();
+    window.addEventListener("popstate", syncRouteThread);
+    window.addEventListener("cfy:threads:refresh", syncRouteThread as EventListener);
+    return () => {
+      window.removeEventListener("popstate", syncRouteThread);
+      window.removeEventListener(
+        "cfy:threads:refresh",
+        syncRouteThread as EventListener
+      );
+    };
+  }, []);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
     return readCachedDocuments() ? "cache" : "default";
@@ -491,16 +569,11 @@ export default function AppShell({}: PropsWithChildren) {
     (async () => {
       try {
         const res = await api.get("/media/documents", { params: { limit: 100 } });
-        const data = res?.data;
-        const unwrap = (v: any): any => {
-          if (!v || typeof v !== "object") return v;
-          return (v as any).documents ?? (v as any).items ?? (v as any).data ?? (v as any).results ?? v;
-        };
-        const candidate1 = Array.isArray(data) ? data : unwrap(data);
-        const candidate2 = Array.isArray(candidate1) ? candidate1 : unwrap(candidate1);
-        const docs: any[] = Array.isArray(candidate2) ? candidate2 : [];
+        const docs = unwrapDocumentArray(res?.data);
         if (cancelled) return;
-        const normalized = docs.map((d: any, idx: number) => normalizeDoc(d, idx));
+        const normalized = dedupeDocItems(
+          docs.map((d: any, idx: number) => normalizeDoc(d, idx))
+        );
         setDocuments(normalized);
         setDocumentsSource("backend");
       } catch (err) {
@@ -511,6 +584,46 @@ export default function AppShell({}: PropsWithChildren) {
       cancelled = true;
     };
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeRouteThreadId) {
+      setThreadDocuments([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+    (async () => {
+      try {
+        const res = await api.get(`/threads/${activeRouteThreadId}/documents`);
+        const docs = unwrapDocumentArray(res?.data);
+        if (cancelled) return;
+        const normalized = dedupeDocItems(
+          docs.map((doc: any, idx: number) =>
+            normalizeDoc(
+              {
+                ...doc,
+                name: doc?.name || doc?.title,
+                ext: doc?.format || doc?.ext || "md",
+                type: "file",
+              },
+              idx
+            )
+          )
+        );
+        setThreadDocuments(normalized);
+      } catch (err) {
+        if (cancelled) return;
+        console.warn(
+          `[documents] failed to load thread ${activeRouteThreadId} documents`,
+          err
+        );
+        setThreadDocuments([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRouteThreadId]);
   const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -538,7 +651,10 @@ export default function AppShell({}: PropsWithChildren) {
       mock: false,
     }));
   }, [codexEntries]);
-  const allDocuments = useMemo<DocItem[]>(() => [...codexDocs, ...documents], [codexDocs, documents]);
+  const allDocuments = useMemo<DocItem[]>(
+    () => dedupeDocItems([...codexDocs, ...threadDocuments, ...documents]),
+    [codexDocs, threadDocuments, documents]
+  );
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   // Utility: parse a number from unknown input, fall back & clamp to [0,1]
   function safeNumber(val: unknown, fallback: number): number {
@@ -840,13 +956,11 @@ export default function AppShell({}: PropsWithChildren) {
 
   const deleteDocument = useCallback((doc: DocumentLike) => {
     if (doc.type === "codex_entry") return;
-    setDocuments((prev) =>
-      prev.filter(
-        (d) =>
-          d.type === "codex_entry" ||
-          (d.id !== doc.id && !(d.title === doc.title && d.ext === doc.ext))
-      )
-    );
+    const keepDoc = (d: DocItem) =>
+      d.type === "codex_entry" ||
+      (d.id !== doc.id && !(d.title === doc.title && d.ext === doc.ext));
+    setDocuments((prev) => prev.filter(keepDoc));
+    setThreadDocuments((prev) => prev.filter(keepDoc));
   }, []);
   const deleteGalleryItem = useCallback((src: string) => {
     setGallery((prev) => prev.filter((g) => g.src !== src));
@@ -880,7 +994,12 @@ export default function AppShell({}: PropsWithChildren) {
       const items = (e as CustomEvent).detail?.items || [];
       if (!Array.isArray(items) || items.length === 0) return;
       setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
-      setDocuments((prev) => [...items.map((item: any, idx: number) => normalizeDoc(item, idx)), ...prev]);
+      setDocuments((prev) =>
+        dedupeDocItems([
+          ...items.map((item: any, idx: number) => normalizeDoc(item, idx)),
+          ...prev,
+        ])
+      );
     };
     window.addEventListener("cfy:documents:add", onAdd as EventListener);
     return () => window.removeEventListener("cfy:documents:add", onAdd as EventListener);
@@ -1036,15 +1155,7 @@ export default function AppShell({}: PropsWithChildren) {
       if (!raw) return;
       const doc = normalizeDoc(raw);
       setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
-      setDocuments((prev) => {
-        const exists = prev.some(
-          (d) =>
-            d.id === doc.id ||
-            ((d.title === doc.title || d.name === doc.name) &&
-              d.ext === doc.ext)
-        );
-        return exists ? prev : [doc, ...prev];
-      });
+      setDocuments((prev) => dedupeDocItems([doc, ...prev]));
       openDocInPlace(doc);
     };
     window.addEventListener("cfy:documents:open", onOpen as EventListener);

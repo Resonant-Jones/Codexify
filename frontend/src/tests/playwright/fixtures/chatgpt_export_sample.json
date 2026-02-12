@@ -1,0 +1,33 @@
+[
+  {
+    "id": "fixture-conv-1",
+    "title": "Migration Recall Fixture",
+    "current_node": "m2",
+    "mapping": {
+      "m1": {
+        "id": "m1",
+        "parent": null,
+        "children": ["m2"],
+        "message": {
+          "author": { "role": "user" },
+          "content": {
+            "parts": ["Migration anchor code: ORCHID-POLARIS-719."]
+          },
+          "create_time": 1710000000
+        }
+      },
+      "m2": {
+        "id": "m2",
+        "parent": "m1",
+        "children": [],
+        "message": {
+          "author": { "role": "assistant" },
+          "content": {
+            "parts": ["Imported history available for recall."]
+          },
+          "create_time": 1710000030
+        }
+      }
+    }
+  }
+]
