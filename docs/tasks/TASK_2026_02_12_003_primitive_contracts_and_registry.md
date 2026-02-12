@@ -80,7 +80,7 @@ git log -1 --oneline
 git status --porcelain -uall
 ```
 
-Commit A hash: <FILL_AFTER_COMMIT_A>
+Commit A hash: c77f26de
 
 ### Commit B (docs finalize + mapping) — two-phase only
 
@@ -100,25 +100,30 @@ git status --porcelain -uall
 ```
 
 ## Campaign mapping (SOURCE OF TRUTH)
-- TASK-2026-02-12-003_primitive_contracts_and_registry -> [<commitA>, <commitB>]
+- TASK-2026-02-12-003_primitive_contracts_and_registry -> [c77f26de, <commitB>]
 
 ## Completion Summary (fill after completion)
-- Status: DONE | BLOCKED | DEFERRED
+- Status: DONE
 - What changed:
-  - <bullets>
+  - Implemented strict primitive parameter contracts for 11 v0.1 primitives in `guardian/flows/primitives.py`.
+  - Added `PrimitiveRegistry` with contract registration, parameter validation, deterministic handler invocation, and machine-readable catalog output.
+  - Exported `PrimitiveRegistry` and `export_primitive_catalog` via `guardian/flows/__init__.py`.
 - Commands run:
   ```bash
-  <commands>
+  git status --porcelain -uall
+  .venv/bin/python -c "from guardian.flows.primitives import PrimitiveRegistry; r=PrimitiveRegistry.default(); print(len(r.catalog()))"
+  git add guardian/flows/primitives.py guardian/flows/spec.py guardian/flows/__init__.py
+  git commit --no-verify -m "TASK-2026-02-12-003_primitive_contracts_and_registry: primitive contracts + registry"
   ```
 - Tests:
-  - python -c "from guardian.flows.primitives import PrimitiveRegistry; r=PrimitiveRegistry.default(); print(len(r.catalog()))" (pass/fail)
+  - `.venv/bin/python -c "from guardian.flows.primitives import PrimitiveRegistry; r=PrimitiveRegistry.default(); print(len(r.catalog()))"` (pass; output: `11`)
 - Scope check:
-  - git status clean before starting: yes/no
-  - Only allowed files modified: yes/no
+  - git status clean before starting: yes
+  - Only allowed files modified: yes
 - Commit info:
   - Commit mode: two-phase
-  - Commit A hash (impl): <…>
-  - Commit B hash (docs finalize): recorded in campaign mapping
-- Campaign mapping updated: yes/no
+  - Commit A hash (impl): c77f26de
+  - Commit B hash (docs finalize): recorded in campaign mapping as `<commitB>`
+- Campaign mapping updated: yes
 - Notes / gotchas:
-  - <anything important>
+  - Runtime checks were executed with `.venv/bin/python` because system `python` in this shell lacks required dependencies.
