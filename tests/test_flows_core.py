@@ -72,6 +72,7 @@ def _base_flow_spec() -> dict:
 
 
 def _build_flows_router_test_client():
+    previous_dependencies_module = sys.modules.get("guardian.core.dependencies")
     stub = types.ModuleType("guardian.core.dependencies")
     stub.require_api_key = lambda: "test-key"  # noqa: E731
     sys.modules["guardian.core.dependencies"] = stub
@@ -83,9 +84,17 @@ def _build_flows_router_test_client():
         "flows_router_test_module", module_path
     )
     assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    finally:
+        if previous_dependencies_module is None:
+            sys.modules.pop("guardian.core.dependencies", None)
+        else:
+            sys.modules[
+                "guardian.core.dependencies"
+            ] = previous_dependencies_module
 
     module._FLOWS.clear()
     module._FLOW_RUNS.clear()
@@ -95,6 +104,18 @@ def _build_flows_router_test_client():
     app.include_router(module.router)
     client = TestClient(app)
     return module, client
+
+
+def test_flows_router_test_client_restores_dependencies_module():
+    previous_dependencies_module = sys.modules.get("guardian.core.dependencies")
+    _module, _client = _build_flows_router_test_client()
+    if previous_dependencies_module is None:
+        assert "guardian.core.dependencies" not in sys.modules
+    else:
+        assert (
+            sys.modules.get("guardian.core.dependencies")
+            is previous_dependencies_module
+        )
 
 
 def test_flowspec_validation_rejects_duplicate_step_ids():

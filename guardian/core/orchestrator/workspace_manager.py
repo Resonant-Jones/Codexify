@@ -112,9 +112,20 @@ class WorkspaceManager:
         self.cleanup_worktree(task_id)
 
     def _task_path(self, task_id: str) -> Path:
-        if not task_id or "/" in task_id or "\\" in task_id:
+        if (
+            not task_id
+            or task_id in {".", ".."}
+            or "/" in task_id
+            or "\\" in task_id
+        ):
             raise ValueError(f"Invalid task_id '{task_id}'")
-        return self._worktrees_root / task_id
+        candidate = (self._worktrees_root / task_id).resolve()
+        root = self._worktrees_root.resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"Invalid task_id '{task_id}'") from exc
+        return candidate
 
     def _manifest_path(self, task_id: str) -> Path:
         return self._task_path(task_id) / "manifest.json"
