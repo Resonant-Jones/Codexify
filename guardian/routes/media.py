@@ -29,18 +29,15 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 
 from guardian.core.db import GuardianDB
 from guardian.core.dependencies import verify_api_key
-from guardian.core.storage import (
-    StorageManager,
-    create_storage_from_env,
-    detect_media_type,
-    generate_unique_filename,
-)
+from guardian.core.storage import create_storage_from_env
 from guardian.db.models import (
     GeneratedDocument,
     GeneratedImage,
+    MediaAsset,
     TTSOutput,
     UploadedDocument,
     UploadedImage,
@@ -53,6 +50,18 @@ from guardian.services.document_parsers import (
     extract_docx_text,
     extract_pdf_text,
 )
+from guardian.services.media_identity import (
+    compute_content_hash,
+    compute_identity,
+    display_title_for_asset,
+    ensure_asset_alias,
+    find_existing_asset,
+    find_first_seen_timestamp,
+)
+from guardian.services.media_identity import (
+    resolve_asset as resolve_asset_from_aliases,
+)
+from guardian.services.media_identity import source_label_from_filename, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +152,17 @@ class TTSOutputResponse(BaseModel):
     created_at: str
 
 
+class MediaResolveResponse(BaseModel):
+    asset_id: str
+    src_url: str
+    display_title: str
+    media_kind: str
+    provenance: str
+    source_tag: str
+    created_at: str
+    ingested_at: str
+
+
 # =========================
 # Helper Functions
 # =========================
@@ -162,6 +182,123 @@ def _normalize_source_tag(tag: Optional[str], source_tag: Optional[str]) -> str:
     """Normalize incoming tag values for media records."""
     candidate = (tag or source_tag or "uploaded").strip().lower()
     return candidate or "uploaded"
+
+
+def _compute_identity_with_existing_asset(
+    *,
+    session,
+    project_id: int,
+    media_kind: str,
+    provenance: str,
+    file_data: bytes,
+    human_label: str,
+    original_filename: str | None,
+    mime_type: str | None,
+):
+    content_hash = compute_content_hash(file_data)
+    first_seen_at = find_first_seen_timestamp(
+        session,
+        project_id=project_id,
+        media_kind=media_kind,
+        provenance=provenance,
+        content_hash=content_hash,
+        fallback=utcnow(),
+    )
+    identity = compute_identity(
+        file_data=file_data,
+        media_kind=media_kind,
+        provenance=provenance,
+        human_label=human_label,
+        original_filename=original_filename,
+        mime_type=mime_type,
+        first_seen_at=first_seen_at,
+        content_hash=content_hash,
+    )
+    existing_asset = find_existing_asset(
+        session,
+        project_id=project_id,
+        media_kind=media_kind,
+        provenance=provenance,
+        content_hash=content_hash,
+    )
+    return identity, existing_asset
+
+
+def _create_media_asset(
+    *,
+    session,
+    project_id: int,
+    thread_id: int | None,
+    user_id: str | None,
+    media_kind: str,
+    provenance: str,
+    source_tag: str,
+    src_url: str,
+    mime_type: str | None,
+    filesize: int | None,
+    identity,
+) -> MediaAsset:
+    asset = MediaAsset(
+        id=str(uuid.uuid4()),
+        project_id=project_id,
+        thread_id=thread_id,
+        user_id=user_id,
+        media_kind=media_kind,
+        provenance=provenance,
+        source_tag=source_tag,
+        content_hash=identity.content_hash,
+        deterministic_id=identity.deterministic_id,
+        normalized_slug=identity.normalized_slug,
+        system_name=identity.system_name,
+        storage_prefix=identity.storage_prefix,
+        src_url=src_url,
+        mime_type=mime_type,
+        filesize=filesize,
+    )
+    session.add(asset)
+    return asset
+
+
+def _find_uploaded_image_for_asset(
+    session, asset_id: str
+) -> UploadedImage | None:
+    return (
+        session.query(UploadedImage)
+        .filter(
+            UploadedImage.asset_id == asset_id,
+            UploadedImage.deleted_at.is_(None),
+        )
+        .order_by(UploadedImage.created_at.desc())
+        .first()
+    )
+
+
+def _find_uploaded_document_for_asset(
+    session, asset_id: str
+) -> UploadedDocument | None:
+    return (
+        session.query(UploadedDocument)
+        .filter(
+            UploadedDocument.asset_id == asset_id,
+            UploadedDocument.deleted_at.is_(None),
+        )
+        .order_by(UploadedDocument.created_at.desc())
+        .first()
+    )
+
+
+def _find_generated_image_for_asset(
+    session, asset_id: str
+) -> GeneratedImage | None:
+    return (
+        session.query(GeneratedImage)
+        .filter(
+            GeneratedImage.asset_id == asset_id,
+            GeneratedImage.deleted_at.is_(None),
+        )
+        .order_by(GeneratedImage.created_at.desc())
+        .first()
+    )
 
 
 # =========================
@@ -198,65 +335,267 @@ async def upload_image(
         filesize = len(file_data)
         filename = file.filename or "upload"
         effective_tag = _normalize_source_tag(tag, source_tag)
-
-        # Dedupe by project + filename (+ filesize) before persisting.
+        human_label = source_label_from_filename(
+            filename, fallback="uploaded-image"
+        )
         db = _get_db()
+
+        # First pass: dedupe before any storage write.
         with db.get_session() as session:
-            existing_query = session.query(UploadedImage).filter(
-                UploadedImage.project_id == project_id,
-                UploadedImage.filename == filename,
-                UploadedImage.deleted_at.is_(None),
+            identity, existing_asset = _compute_identity_with_existing_asset(
+                session=session,
+                project_id=project_id,
+                media_kind="image",
+                provenance="uploaded",
+                file_data=file_data,
+                human_label=human_label,
+                original_filename=filename,
+                mime_type=file.content_type,
             )
-            if filesize is not None:
-                existing_query = existing_query.filter(
-                    UploadedImage.filesize == filesize
+            if existing_asset:
+                ensure_asset_alias(
+                    session,
+                    asset_id=existing_asset.id,
+                    alias=filename,
+                    alias_type="original_name",
                 )
-            existing = existing_query.order_by(
-                UploadedImage.created_at.desc()
-            ).first()
-            if existing:
-                if not existing.source_tag:
-                    existing.source_tag = effective_tag
+                existing = _find_uploaded_image_for_asset(
+                    session, existing_asset.id
+                )
+                if existing:
+                    if not existing.source_tag:
+                        existing.source_tag = effective_tag
                     session.commit()
+                    return ImageUploadResponse(
+                        id=existing.id,
+                        src_url=existing.src_url,
+                        filename=existing.filename,
+                        filesize=existing.filesize,
+                        mime_type=existing.mime_type,
+                        source_tag=existing.source_tag,
+                        created_at=(
+                            existing.created_at.isoformat()
+                            if existing.created_at
+                            else datetime.now(timezone.utc).isoformat()
+                        ),
+                    )
+
+                # Backfill link for legacy content when asset exists but origin row does not.
+                linked_image = UploadedImage(
+                    id=str(uuid.uuid4()),
+                    asset_id=existing_asset.id,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    src_url=existing_asset.src_url,
+                    filename=filename,
+                    filesize=filesize or (existing_asset.filesize or 0),
+                    mime_type=file.content_type
+                    or existing_asset.mime_type
+                    or "image/png",
+                    source_tag=effective_tag,
+                )
+                session.add(linked_image)
+                session.commit()
                 return ImageUploadResponse(
-                    id=existing.id,
-                    src_url=existing.src_url,
-                    filename=existing.filename,
-                    filesize=existing.filesize,
-                    mime_type=existing.mime_type,
-                    source_tag=existing.source_tag,
+                    id=linked_image.id,
+                    src_url=linked_image.src_url,
+                    filename=linked_image.filename,
+                    filesize=linked_image.filesize,
+                    mime_type=linked_image.mime_type,
+                    source_tag=linked_image.source_tag,
                     created_at=(
-                        existing.created_at.isoformat()
-                        if existing.created_at
+                        linked_image.created_at.isoformat()
+                        if linked_image.created_at
                         else datetime.now(timezone.utc).isoformat()
                     ),
                 )
 
-        # Generate unique filename
-        unique_filename = generate_unique_filename(filename, prefix="images/")
+        canonical_path = f"{identity.storage_prefix}{identity.system_name}"
 
         # Upload to storage
         src_url = storage.upload_file(
-            file_data, unique_filename, content_type=file.content_type
+            file_data, canonical_path, content_type=file.content_type
         )
 
-        # Save to database
-        image_id = str(uuid.uuid4())
+        image_id = str(uuid.uuid4())  # Origin row ID
 
+        # Second pass: create asset + origin row, tolerate races.
         with db.get_session() as session:
-            uploaded_image = UploadedImage(
-                id=image_id,
-                project_id=project_id,
-                thread_id=thread_id,
-                user_id=user_id,
-                src_url=src_url,
-                filename=filename,
-                filesize=filesize,
-                mime_type=file.content_type,
-                source_tag=effective_tag,
-            )
-            session.add(uploaded_image)
-            session.commit()
+            try:
+                (
+                    identity,
+                    existing_asset,
+                ) = _compute_identity_with_existing_asset(
+                    session=session,
+                    project_id=project_id,
+                    media_kind="image",
+                    provenance="uploaded",
+                    file_data=file_data,
+                    human_label=human_label,
+                    original_filename=filename,
+                    mime_type=file.content_type,
+                )
+                if existing_asset:
+                    ensure_asset_alias(
+                        session,
+                        asset_id=existing_asset.id,
+                        alias=filename,
+                        alias_type="original_name",
+                    )
+                    existing = _find_uploaded_image_for_asset(
+                        session, existing_asset.id
+                    )
+                    if existing:
+                        if not existing.source_tag:
+                            existing.source_tag = effective_tag
+                        session.commit()
+                        return ImageUploadResponse(
+                            id=existing.id,
+                            src_url=existing.src_url,
+                            filename=existing.filename,
+                            filesize=existing.filesize,
+                            mime_type=existing.mime_type,
+                            source_tag=existing.source_tag,
+                            created_at=(
+                                existing.created_at.isoformat()
+                                if existing.created_at
+                                else datetime.now(timezone.utc).isoformat()
+                            ),
+                        )
+                    linked_image = UploadedImage(
+                        id=image_id,
+                        asset_id=existing_asset.id,
+                        project_id=project_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        src_url=existing_asset.src_url,
+                        filename=filename,
+                        filesize=filesize or (existing_asset.filesize or 0),
+                        mime_type=file.content_type
+                        or existing_asset.mime_type
+                        or "image/png",
+                        source_tag=effective_tag,
+                    )
+                    session.add(linked_image)
+                    session.commit()
+                    return ImageUploadResponse(
+                        id=linked_image.id,
+                        src_url=linked_image.src_url,
+                        filename=linked_image.filename,
+                        filesize=linked_image.filesize,
+                        mime_type=linked_image.mime_type,
+                        source_tag=linked_image.source_tag,
+                        created_at=(
+                            linked_image.created_at.isoformat()
+                            if linked_image.created_at
+                            else datetime.now(timezone.utc).isoformat()
+                        ),
+                    )
+
+                asset = _create_media_asset(
+                    session=session,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    media_kind="image",
+                    provenance="uploaded",
+                    source_tag=effective_tag,
+                    src_url=src_url,
+                    mime_type=file.content_type,
+                    filesize=filesize,
+                    identity=identity,
+                )
+                ensure_asset_alias(
+                    session,
+                    asset_id=asset.id,
+                    alias=filename,
+                    alias_type="original_name",
+                )
+                uploaded_image = UploadedImage(
+                    id=image_id,
+                    asset_id=asset.id,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    src_url=src_url,
+                    filename=filename,
+                    filesize=filesize,
+                    mime_type=file.content_type or "image/png",
+                    source_tag=effective_tag,
+                )
+                session.add(uploaded_image)
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                (
+                    identity,
+                    existing_asset,
+                ) = _compute_identity_with_existing_asset(
+                    session=session,
+                    project_id=project_id,
+                    media_kind="image",
+                    provenance="uploaded",
+                    file_data=file_data,
+                    human_label=human_label,
+                    original_filename=filename,
+                    mime_type=file.content_type,
+                )
+                if existing_asset:
+                    ensure_asset_alias(
+                        session,
+                        asset_id=existing_asset.id,
+                        alias=filename,
+                        alias_type="original_name",
+                    )
+                    existing = _find_uploaded_image_for_asset(
+                        session, existing_asset.id
+                    )
+                    if existing:
+                        session.commit()
+                        return ImageUploadResponse(
+                            id=existing.id,
+                            src_url=existing.src_url,
+                            filename=existing.filename,
+                            filesize=existing.filesize,
+                            mime_type=existing.mime_type,
+                            source_tag=existing.source_tag,
+                            created_at=(
+                                existing.created_at.isoformat()
+                                if existing.created_at
+                                else datetime.now(timezone.utc).isoformat()
+                            ),
+                        )
+                    linked_image = UploadedImage(
+                        id=str(uuid.uuid4()),
+                        asset_id=existing_asset.id,
+                        project_id=project_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        src_url=existing_asset.src_url,
+                        filename=filename,
+                        filesize=filesize or (existing_asset.filesize or 0),
+                        mime_type=file.content_type
+                        or existing_asset.mime_type
+                        or "image/png",
+                        source_tag=effective_tag,
+                    )
+                    session.add(linked_image)
+                    session.commit()
+                    return ImageUploadResponse(
+                        id=linked_image.id,
+                        src_url=linked_image.src_url,
+                        filename=linked_image.filename,
+                        filesize=linked_image.filesize,
+                        mime_type=linked_image.mime_type,
+                        source_tag=linked_image.source_tag,
+                        created_at=(
+                            linked_image.created_at.isoformat()
+                            if linked_image.created_at
+                            else datetime.now(timezone.utc).isoformat()
+                        ),
+                    )
+                raise
 
         logger.info(
             f"Image uploaded: {filename} ({filesize} bytes) by user {user_id}"
@@ -368,64 +707,73 @@ async def upload_document(
         filesize = len(file_data)
         filename = file.filename or "upload"
         effective_tag = _normalize_source_tag(tag, source_tag)
-
-        # Dedupe by project + filename (+ filesize) before persisting.
-        db = _get_db()
-        with db.get_session() as session:
-            existing_query = session.query(UploadedDocument).filter(
-                UploadedDocument.project_id == project_id,
-                UploadedDocument.filename == filename,
-                UploadedDocument.deleted_at.is_(None),
-            )
-            if filesize is not None:
-                existing_query = existing_query.filter(
-                    UploadedDocument.filesize == filesize
-                )
-            existing = existing_query.order_by(
-                UploadedDocument.created_at.desc()
-            ).first()
-            if existing:
-                if not existing.source_tag:
-                    existing.source_tag = effective_tag
-                    session.commit()
-                return DocumentUploadResponse(
-                    id=existing.id,
-                    src_url=existing.src_url,
-                    filename=existing.filename,
-                    filesize=existing.filesize,
-                    mime_type=existing.mime_type,
-                    source_tag=existing.source_tag,
-                    parsed_text=existing.parsed_text,
-                    embedding_status=existing.embedding_status,
-                    embedding_error=existing.embedding_error,
-                    embedding_started_at=(
-                        existing.embedding_started_at.isoformat()
-                        if existing.embedding_started_at
-                        else None
-                    ),
-                    embedding_completed_at=(
-                        existing.embedding_completed_at.isoformat()
-                        if existing.embedding_completed_at
-                        else None
-                    ),
-                    created_at=(
-                        existing.created_at.isoformat()
-                        if existing.created_at
-                        else datetime.now(timezone.utc).isoformat()
-                    ),
-                )
-
-        # Generate unique filename
-        unique_filename = generate_unique_filename(
-            filename, prefix="documents/"
+        human_label = source_label_from_filename(
+            filename, fallback="uploaded-document"
         )
+
+        db = _get_db()
+
+        # First pass: dedupe before storage write.
+        with db.get_session() as session:
+            identity, existing_asset = _compute_identity_with_existing_asset(
+                session=session,
+                project_id=project_id,
+                media_kind="document",
+                provenance="uploaded",
+                file_data=file_data,
+                human_label=human_label,
+                original_filename=filename,
+                mime_type=file.content_type,
+            )
+            if existing_asset:
+                ensure_asset_alias(
+                    session,
+                    asset_id=existing_asset.id,
+                    alias=filename,
+                    alias_type="original_name",
+                )
+                existing = _find_uploaded_document_for_asset(
+                    session, existing_asset.id
+                )
+                if existing:
+                    if not existing.source_tag:
+                        existing.source_tag = effective_tag
+                    session.commit()
+                    return DocumentUploadResponse(
+                        id=existing.id,
+                        src_url=existing.src_url,
+                        filename=existing.filename,
+                        filesize=existing.filesize,
+                        mime_type=existing.mime_type,
+                        source_tag=existing.source_tag,
+                        parsed_text=existing.parsed_text,
+                        embedding_status=existing.embedding_status,
+                        embedding_error=existing.embedding_error,
+                        embedding_started_at=(
+                            existing.embedding_started_at.isoformat()
+                            if existing.embedding_started_at
+                            else None
+                        ),
+                        embedding_completed_at=(
+                            existing.embedding_completed_at.isoformat()
+                            if existing.embedding_completed_at
+                            else None
+                        ),
+                        created_at=(
+                            existing.created_at.isoformat()
+                            if existing.created_at
+                            else datetime.now(timezone.utc).isoformat()
+                        ),
+                    )
+
+        canonical_path = f"{identity.storage_prefix}{identity.system_name}"
 
         # Upload to storage
         src_url = storage.upload_file(
-            file_data, unique_filename, content_type=file.content_type
+            file_data, canonical_path, content_type=file.content_type
         )
 
-        # Extract text (basic implementation - could be enhanced)
+        # Extract text for document embedding.
         parsed_text = None
         if (
             file.content_type == "text/plain"
@@ -470,28 +818,234 @@ async def upload_document(
             embedding_error = "parsed_text_missing"
             embedding_completed_at = datetime.now(timezone.utc)
 
-        # Save to database
-        doc_id = str(uuid.uuid4())
+        doc_id = str(uuid.uuid4())  # Origin row ID
+        asset_metadata: dict[str, str | int | None] = {}
 
+        # Second pass: create asset + origin row, tolerate races.
         with db.get_session() as session:
-            uploaded_doc = UploadedDocument(
-                id=doc_id,
-                project_id=project_id,
-                thread_id=thread_id,
-                user_id=user_id,
-                src_url=src_url,
-                filename=filename,
-                filesize=filesize,
-                mime_type=file.content_type,
-                source_tag=effective_tag,
-                parsed_text=parsed_text,
-                embedding_status=embedding_status,
-                embedding_error=embedding_error,
-                embedding_started_at=embedding_started_at,
-                embedding_completed_at=embedding_completed_at,
-            )
-            session.add(uploaded_doc)
-            session.commit()
+            try:
+                (
+                    identity,
+                    existing_asset,
+                ) = _compute_identity_with_existing_asset(
+                    session=session,
+                    project_id=project_id,
+                    media_kind="document",
+                    provenance="uploaded",
+                    file_data=file_data,
+                    human_label=human_label,
+                    original_filename=filename,
+                    mime_type=file.content_type,
+                )
+                if existing_asset:
+                    ensure_asset_alias(
+                        session,
+                        asset_id=existing_asset.id,
+                        alias=filename,
+                        alias_type="original_name",
+                    )
+                    existing = _find_uploaded_document_for_asset(
+                        session, existing_asset.id
+                    )
+                    if existing:
+                        if not existing.source_tag:
+                            existing.source_tag = effective_tag
+                        session.commit()
+                        return DocumentUploadResponse(
+                            id=existing.id,
+                            src_url=existing.src_url,
+                            filename=existing.filename,
+                            filesize=existing.filesize,
+                            mime_type=existing.mime_type,
+                            source_tag=existing.source_tag,
+                            parsed_text=existing.parsed_text,
+                            embedding_status=existing.embedding_status,
+                            embedding_error=existing.embedding_error,
+                            embedding_started_at=(
+                                existing.embedding_started_at.isoformat()
+                                if existing.embedding_started_at
+                                else None
+                            ),
+                            embedding_completed_at=(
+                                existing.embedding_completed_at.isoformat()
+                                if existing.embedding_completed_at
+                                else None
+                            ),
+                            created_at=(
+                                existing.created_at.isoformat()
+                                if existing.created_at
+                                else datetime.now(timezone.utc).isoformat()
+                            ),
+                        )
+                    linked_doc = UploadedDocument(
+                        id=doc_id,
+                        asset_id=existing_asset.id,
+                        project_id=project_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        src_url=existing_asset.src_url,
+                        filename=filename,
+                        filesize=filesize or (existing_asset.filesize or 0),
+                        mime_type=file.content_type
+                        or existing_asset.mime_type
+                        or "application/octet-stream",
+                        source_tag=effective_tag,
+                        parsed_text=parsed_text,
+                        embedding_status=embedding_status,
+                        embedding_error=embedding_error,
+                        embedding_started_at=embedding_started_at,
+                        embedding_completed_at=embedding_completed_at,
+                    )
+                    session.add(linked_doc)
+                    session.commit()
+                    src_url = linked_doc.src_url
+                    asset_metadata = {
+                        "asset_id": existing_asset.id,
+                        "deterministic_id": existing_asset.deterministic_id,
+                        "system_name": existing_asset.system_name,
+                        "normalized_slug": existing_asset.normalized_slug,
+                        "media_kind": existing_asset.media_kind,
+                        "provenance": existing_asset.provenance,
+                        "source_tag": existing_asset.source_tag,
+                        "content_hash": existing_asset.content_hash,
+                    }
+                else:
+                    asset = _create_media_asset(
+                        session=session,
+                        project_id=project_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        media_kind="document",
+                        provenance="uploaded",
+                        source_tag=effective_tag,
+                        src_url=src_url,
+                        mime_type=file.content_type,
+                        filesize=filesize,
+                        identity=identity,
+                    )
+                    ensure_asset_alias(
+                        session,
+                        asset_id=asset.id,
+                        alias=filename,
+                        alias_type="original_name",
+                    )
+                    uploaded_doc = UploadedDocument(
+                        id=doc_id,
+                        asset_id=asset.id,
+                        project_id=project_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        src_url=src_url,
+                        filename=filename,
+                        filesize=filesize,
+                        mime_type=file.content_type
+                        or "application/octet-stream",
+                        source_tag=effective_tag,
+                        parsed_text=parsed_text,
+                        embedding_status=embedding_status,
+                        embedding_error=embedding_error,
+                        embedding_started_at=embedding_started_at,
+                        embedding_completed_at=embedding_completed_at,
+                    )
+                    session.add(uploaded_doc)
+                    session.commit()
+                    asset_metadata = {
+                        "asset_id": asset.id,
+                        "deterministic_id": asset.deterministic_id,
+                        "system_name": asset.system_name,
+                        "normalized_slug": asset.normalized_slug,
+                        "media_kind": asset.media_kind,
+                        "provenance": asset.provenance,
+                        "source_tag": asset.source_tag,
+                        "content_hash": asset.content_hash,
+                    }
+            except IntegrityError:
+                session.rollback()
+                (
+                    identity,
+                    existing_asset,
+                ) = _compute_identity_with_existing_asset(
+                    session=session,
+                    project_id=project_id,
+                    media_kind="document",
+                    provenance="uploaded",
+                    file_data=file_data,
+                    human_label=human_label,
+                    original_filename=filename,
+                    mime_type=file.content_type,
+                )
+                if existing_asset:
+                    ensure_asset_alias(
+                        session,
+                        asset_id=existing_asset.id,
+                        alias=filename,
+                        alias_type="original_name",
+                    )
+                    existing = _find_uploaded_document_for_asset(
+                        session, existing_asset.id
+                    )
+                    if existing:
+                        session.commit()
+                        return DocumentUploadResponse(
+                            id=existing.id,
+                            src_url=existing.src_url,
+                            filename=existing.filename,
+                            filesize=existing.filesize,
+                            mime_type=existing.mime_type,
+                            source_tag=existing.source_tag,
+                            parsed_text=existing.parsed_text,
+                            embedding_status=existing.embedding_status,
+                            embedding_error=existing.embedding_error,
+                            embedding_started_at=(
+                                existing.embedding_started_at.isoformat()
+                                if existing.embedding_started_at
+                                else None
+                            ),
+                            embedding_completed_at=(
+                                existing.embedding_completed_at.isoformat()
+                                if existing.embedding_completed_at
+                                else None
+                            ),
+                            created_at=(
+                                existing.created_at.isoformat()
+                                if existing.created_at
+                                else datetime.now(timezone.utc).isoformat()
+                            ),
+                        )
+                    linked_doc = UploadedDocument(
+                        id=doc_id,
+                        asset_id=existing_asset.id,
+                        project_id=project_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        src_url=existing_asset.src_url,
+                        filename=filename,
+                        filesize=filesize or (existing_asset.filesize or 0),
+                        mime_type=file.content_type
+                        or existing_asset.mime_type
+                        or "application/octet-stream",
+                        source_tag=effective_tag,
+                        parsed_text=parsed_text,
+                        embedding_status=embedding_status,
+                        embedding_error=embedding_error,
+                        embedding_started_at=embedding_started_at,
+                        embedding_completed_at=embedding_completed_at,
+                    )
+                    session.add(linked_doc)
+                    session.commit()
+                    src_url = linked_doc.src_url
+                    asset_metadata = {
+                        "asset_id": existing_asset.id,
+                        "deterministic_id": existing_asset.deterministic_id,
+                        "system_name": existing_asset.system_name,
+                        "normalized_slug": existing_asset.normalized_slug,
+                        "media_kind": existing_asset.media_kind,
+                        "provenance": existing_asset.provenance,
+                        "source_tag": existing_asset.source_tag,
+                        "content_hash": existing_asset.content_hash,
+                    }
+                else:
+                    raise
 
         logger.info(
             f"Document uploaded: {filename} ({filesize} bytes) by user {user_id}"
@@ -509,6 +1063,7 @@ async def upload_document(
                         "user_id": user_id,
                         "project_id": project_id,
                         "thread_id": thread_id,
+                        **asset_metadata,
                     },
                 )
                 logger.info(
@@ -583,6 +1138,11 @@ async def generate_image(request: ImageGenerationRequest):
     """
     db = _get_db()
     image_id = str(uuid.uuid4())
+    project_id = request.project_id or 1
+    thread_id = request.thread_id or 1
+    prompt_alias = (request.prompt or "").strip()
+    if not prompt_alias:
+        prompt_alias = "Generated image"
 
     try:
         # Generate image using configured provider
@@ -591,10 +1151,65 @@ async def generate_image(request: ImageGenerationRequest):
             model=request.model,
         )
 
-        # Save image to storage with unique filename
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
-        filename = f"generated_images/gen_{image_id[:8]}_{timestamp}.png"
+        with db.get_session() as session:
+            identity, existing_asset = _compute_identity_with_existing_asset(
+                session=session,
+                project_id=project_id,
+                media_kind="image",
+                provenance="generated",
+                file_data=image_bytes,
+                human_label=prompt_alias,
+                original_filename=None,
+                mime_type="image/png",
+            )
+            if existing_asset:
+                ensure_asset_alias(
+                    session,
+                    asset_id=existing_asset.id,
+                    alias=prompt_alias,
+                    alias_type="prompt",
+                )
+                existing = _find_generated_image_for_asset(
+                    session, existing_asset.id
+                )
+                if existing:
+                    session.commit()
+                    return ImageGenerationResponse(
+                        id=existing.id,
+                        src_url=existing.src_url,
+                        prompt=existing.prompt,
+                        model=existing.model,
+                        created_at=(
+                            existing.created_at.isoformat()
+                            if existing.created_at
+                            else datetime.now(timezone.utc).isoformat()
+                        ),
+                    )
+                linked = GeneratedImage(
+                    id=image_id,
+                    asset_id=existing_asset.id,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    user_id=request.user_id,
+                    src_url=existing_asset.src_url,
+                    prompt=request.prompt,
+                    model=request.model,
+                )
+                session.add(linked)
+                session.commit()
+                return ImageGenerationResponse(
+                    id=linked.id,
+                    src_url=linked.src_url,
+                    prompt=linked.prompt,
+                    model=linked.model,
+                    created_at=(
+                        linked.created_at.isoformat()
+                        if linked.created_at
+                        else datetime.now(timezone.utc).isoformat()
+                    ),
+                )
 
+        filename = f"{identity.storage_prefix}{identity.system_name}"
         src_url = storage.upload_file(
             image_bytes, filename, content_type="image/png"
         )
@@ -613,19 +1228,123 @@ async def generate_image(request: ImageGenerationRequest):
             detail=f"Image generation failed: {str(exc)}",
         )
 
-    # Track generated image in database
+    # Track generated image with canonical identity
     with db.get_session() as session:
-        generated_image = GeneratedImage(
-            id=image_id,
-            project_id=request.project_id or 1,
-            thread_id=request.thread_id or 1,
-            user_id=request.user_id,
-            src_url=src_url,
-            prompt=request.prompt,
-            model=request.model,
-        )
-        session.add(generated_image)
-        session.commit()
+        try:
+            identity, existing_asset = _compute_identity_with_existing_asset(
+                session=session,
+                project_id=project_id,
+                media_kind="image",
+                provenance="generated",
+                file_data=image_bytes,
+                human_label=prompt_alias,
+                original_filename=None,
+                mime_type="image/png",
+            )
+            if existing_asset:
+                ensure_asset_alias(
+                    session,
+                    asset_id=existing_asset.id,
+                    alias=prompt_alias,
+                    alias_type="prompt",
+                )
+                existing = _find_generated_image_for_asset(
+                    session, existing_asset.id
+                )
+                if existing:
+                    session.commit()
+                    return ImageGenerationResponse(
+                        id=existing.id,
+                        src_url=existing.src_url,
+                        prompt=existing.prompt,
+                        model=existing.model,
+                        created_at=(
+                            existing.created_at.isoformat()
+                            if existing.created_at
+                            else datetime.now(timezone.utc).isoformat()
+                        ),
+                    )
+                generated_image = GeneratedImage(
+                    id=image_id,
+                    asset_id=existing_asset.id,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    user_id=request.user_id,
+                    src_url=existing_asset.src_url,
+                    prompt=request.prompt,
+                    model=request.model,
+                )
+                session.add(generated_image)
+                session.commit()
+                src_url = generated_image.src_url
+            else:
+                asset = _create_media_asset(
+                    session=session,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    user_id=request.user_id,
+                    media_kind="image",
+                    provenance="generated",
+                    source_tag="generated",
+                    src_url=src_url,
+                    mime_type="image/png",
+                    filesize=len(image_bytes),
+                    identity=identity,
+                )
+                ensure_asset_alias(
+                    session,
+                    asset_id=asset.id,
+                    alias=prompt_alias,
+                    alias_type="prompt",
+                )
+                generated_image = GeneratedImage(
+                    id=image_id,
+                    asset_id=asset.id,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    user_id=request.user_id,
+                    src_url=src_url,
+                    prompt=request.prompt,
+                    model=request.model,
+                )
+                session.add(generated_image)
+                session.commit()
+        except IntegrityError:
+            session.rollback()
+            identity, existing_asset = _compute_identity_with_existing_asset(
+                session=session,
+                project_id=project_id,
+                media_kind="image",
+                provenance="generated",
+                file_data=image_bytes,
+                human_label=prompt_alias,
+                original_filename=None,
+                mime_type="image/png",
+            )
+            if existing_asset:
+                ensure_asset_alias(
+                    session,
+                    asset_id=existing_asset.id,
+                    alias=prompt_alias,
+                    alias_type="prompt",
+                )
+                existing = _find_generated_image_for_asset(
+                    session, existing_asset.id
+                )
+                if existing:
+                    session.commit()
+                    return ImageGenerationResponse(
+                        id=existing.id,
+                        src_url=existing.src_url,
+                        prompt=existing.prompt,
+                        model=existing.model,
+                        created_at=(
+                            existing.created_at.isoformat()
+                            if existing.created_at
+                            else datetime.now(timezone.utc).isoformat()
+                        ),
+                    )
+            raise
 
     return ImageGenerationResponse(
         id=image_id,
@@ -739,6 +1458,50 @@ async def get_tts_audio(tts_id: int):
 # =========================
 # List/Query Routes
 # =========================
+
+
+@router.get("/resolve", response_model=MediaResolveResponse, tags=["media"])
+async def resolve_media_asset(
+    project_id: int = Query(...),
+    q: str = Query(...),
+    kind: Optional[str] = Query(None),
+    provenance: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
+):
+    """Resolve fuzzy human labels/aliases to a canonical media asset."""
+    db = _get_db()
+    query = (q or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="q is required")
+
+    normalized_kind = (kind or "").strip().lower() or None
+    normalized_provenance = (provenance or "").strip().lower() or None
+    normalized_tag = (tag or "").strip().lower() or None
+
+    with db.get_session() as session:
+        asset = resolve_asset_from_aliases(
+            session,
+            project_id=project_id,
+            query=query,
+            media_kind=normalized_kind,
+            provenance=normalized_provenance,
+            source_tag=normalized_tag,
+        )
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+        ingested_at = asset.ingested_at or utcnow()
+        display_title = display_title_for_asset(session, asset=asset)
+        return MediaResolveResponse(
+            asset_id=asset.id,
+            src_url=asset.src_url,
+            display_title=display_title,
+            media_kind=asset.media_kind,
+            provenance=asset.provenance,
+            source_tag=asset.source_tag,
+            created_at=ingested_at.isoformat(),
+            ingested_at=ingested_at.isoformat(),
+        )
 
 
 @router.get("/images", tags=["media"])
