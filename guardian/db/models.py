@@ -26,7 +26,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -522,6 +522,115 @@ class AuditLog(Base):
     timestamp: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# New ORM model: BrowserApproval
+class BrowserApproval(Base):
+    """Control-plane approval records for browser/agent operations."""
+
+    __tablename__ = "browser_approvals"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    target: Mapped[str | None] = mapped_column(String(512))
+
+    # Matches index: ix_browser_approvals_status
+    status: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+
+    requested_by: Mapped[str | None] = mapped_column(String(255))
+    request_reason: Mapped[str | None] = mapped_column(Text)
+    decided_by: Mapped[str | None] = mapped_column(String(255))
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+
+    # Matches index: ix_browser_approvals_created_at
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING','APPROVED','DENIED')",
+            name="browser_approvals_status_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Browser Audit Log & Guardian Event Log
+# =========================
+
+
+class BrowserAuditLog(Base):
+    """Control-plane audit log for browser/agent operations."""
+
+    __tablename__ = "browser_audit_log"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    approval_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("browser_approvals.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    target: Mapped[str | None] = mapped_column(String(512))
+
+    # Matches index: ix_browser_audit_log_status
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+
+    actor: Mapped[str | None] = mapped_column(String(255))
+    detail: Mapped[str | None] = mapped_column(Text)
+
+    # Matches index: ix_browser_audit_log_created_at
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class GuardianEventLog(Base):
+    """Append-only event log for Guardian control-plane diagnostics."""
+
+    __tablename__ = "guardian_event_log"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    ts: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    persona_tag: Mapped[str] = mapped_column(Text, nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(Text)
+    message_id: Mapped[str | None] = mapped_column(Text)
+
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    origin: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+
+    payload: Mapped[dict | None] = mapped_column(JSONB)
 
     __mapper_args__ = {"eager_defaults": True}
 
