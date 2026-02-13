@@ -24,6 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -555,12 +556,88 @@ class Message(Base):
 # =========================
 
 
+class MediaAsset(Base):
+    """Canonical identity for ingested media assets."""
+
+    __tablename__ = "media_assets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    thread_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chat_threads.id", ondelete="CASCADE")
+    )
+    user_id: Mapped[str | None] = mapped_column(String(255))
+    media_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    provenance: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_tag: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="uploaded"
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    deterministic_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    normalized_slug: Mapped[str] = mapped_column(String(255), nullable=False)
+    system_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    storage_prefix: Mapped[str] = mapped_column(String(255), nullable=False)
+    src_url: Mapped[str] = mapped_column(Text, nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(128))
+    filesize: Mapped[int | None] = mapped_column(BigInteger)
+    ingested_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "media_kind IN ('document', 'image', 'audio', 'video', 'other')",
+            name="media_assets_media_kind_check",
+        ),
+        CheckConstraint(
+            "provenance IN ('uploaded', 'generated', 'imported', 'system')",
+            name="media_assets_provenance_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MediaAlias(Base):
+    """Human-facing aliases bound to canonical media assets."""
+
+    __tablename__ = "media_aliases"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    asset_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("media_assets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    alias: Mapped[str] = mapped_column(Text, nullable=False)
+    alias_normalized: Mapped[str] = mapped_column(String(512), nullable=False)
+    alias_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "alias_type IN ('original_name', 'prompt', 'user_alias', 'system_generated')",
+            name="media_aliases_alias_type_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
 class GeneratedImage(Base):
     """AI-generated images (DALL-E, Stable Diffusion, etc.)."""
 
     __tablename__ = "generated_images"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    asset_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("media_assets.id", ondelete="SET NULL")
+    )
     project_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
@@ -605,6 +682,9 @@ class UploadedImage(Base):
     __tablename__ = "uploaded_images"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    asset_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("media_assets.id", ondelete="SET NULL")
+    )
     project_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
@@ -700,6 +780,9 @@ class UploadedDocument(Base):
     __tablename__ = "uploaded_documents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    asset_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("media_assets.id", ondelete="SET NULL")
+    )
     project_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("projects.id", ondelete="CASCADE")
     )
@@ -1051,11 +1134,36 @@ Index(
 Index("ix_messages_thread_id_timestamp", Message.thread_id, Message.timestamp)
 
 # Media indexes
+Index("ix_media_assets_project", MediaAsset.project_id)
+Index("ix_media_assets_thread", MediaAsset.thread_id)
+Index("ix_media_assets_content_hash", MediaAsset.content_hash)
+Index("ix_media_assets_deterministic_id", MediaAsset.deterministic_id)
+Index("ix_media_assets_ingested", MediaAsset.ingested_at.desc())
+Index(
+    "ix_media_assets_kind_provenance",
+    MediaAsset.media_kind,
+    MediaAsset.provenance,
+)
+Index(
+    "uq_media_assets_active_identity",
+    MediaAsset.project_id,
+    MediaAsset.media_kind,
+    MediaAsset.provenance,
+    MediaAsset.content_hash,
+    unique=True,
+    postgresql_where=text("deleted_at IS NULL"),
+)
+Index("ix_media_aliases_asset_id", MediaAlias.asset_id)
+Index("ix_media_aliases_alias_normalized", MediaAlias.alias_normalized)
+Index("ix_media_aliases_alias_type", MediaAlias.alias_type)
+
+Index("ix_generated_images_asset_id", GeneratedImage.asset_id)
 Index("ix_generated_images_project", GeneratedImage.project_id)
 Index("ix_generated_images_thread", GeneratedImage.thread_id)
 Index("ix_generated_images_user", GeneratedImage.user_id)
 Index("ix_generated_images_created", GeneratedImage.created_at.desc())
 
+Index("ix_uploaded_images_asset_id", UploadedImage.asset_id)
 Index("ix_uploaded_images_project", UploadedImage.project_id)
 Index("ix_uploaded_images_thread", UploadedImage.thread_id)
 Index("ix_uploaded_images_user", UploadedImage.user_id)
@@ -1067,6 +1175,7 @@ Index("ix_generated_documents_thread", GeneratedDocument.thread_id)
 Index("ix_generated_documents_format", GeneratedDocument.format)
 Index("ix_generated_documents_created", GeneratedDocument.created_at.desc())
 
+Index("ix_uploaded_documents_asset_id", UploadedDocument.asset_id)
 Index("ix_uploaded_documents_project", UploadedDocument.project_id)
 Index("ix_uploaded_documents_thread", UploadedDocument.thread_id)
 Index("ix_uploaded_documents_mime", UploadedDocument.mime_type)

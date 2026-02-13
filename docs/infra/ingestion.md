@@ -39,3 +39,17 @@ curl -s -X POST localhost:8000/api/retrieve -H 'content-type: application/json' 
 ## Notes
 - Defaults are offline-safe. Switch `EMBEDDING_BACKEND=local` only on a machine with the model cached.
 - Index is append-only; re-ingest is fine.
+
+## Unified Media Identity (UIIAL)
+- Every ingested media artifact gets a canonical `media_assets` record.
+- Identity is orthogonal:
+  - `media_kind`: `document | image | audio | video | other`
+  - `provenance`: `uploaded | generated | imported | system`
+- Generated images are represented as `media_kind=image` + `provenance=generated`.
+- Deterministic naming contract:
+  - `deterministic_id = YYYYMMDD-hash8`
+  - `system_name = <deterministic_id>--<normalized_slug>.<ext?>`
+  - Storage path is `MEDIA_STORAGE_PREFIX[(media_kind, provenance)] + system_name`.
+- Human labels are preserved in `media_aliases` and never discarded.
+- `/api/media/upload/document`, `/api/media/upload/image`, and `/api/media/generate/image` all write canonical asset identities and link origin rows via `asset_id`.
+- `/api/media/resolve` resolves user-facing names/prompts/aliases to canonical asset identity.
