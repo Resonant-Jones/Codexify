@@ -47,6 +47,7 @@ import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
 import ContextMenu from "@/components/ui/ContextMenu";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
+import { ShareButton } from "@/components/ShareButton";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -1339,8 +1340,8 @@ export default function AppShell({}: PropsWithChildren) {
           aberration={0}
         />
       )} */}
-      {/* Glass Pill Menu Bar - Left Corner */}
-      <div className="relative z-10 w-full flex justify-start">
+      {/* Glass Pill Menu Bar + Header Actions */}
+      <div className="relative z-10 w-full flex items-center justify-between gap-3">
         <div
           className="glass-pill isolate"
           style={{ paddingTop: "var(--pill-pad-y)", paddingBottom: "var(--pill-pad-y)" }}
@@ -1411,6 +1412,26 @@ export default function AppShell({}: PropsWithChildren) {
 
 
         </div>
+        {activeRouteThreadId != null && (
+          <div className="flex items-center justify-end">
+            <ShareButton
+              targetType="thread"
+              targetId={activeRouteThreadId}
+              className="pill-tab"
+              dataState="inactive"
+              style={{
+                borderRadius: 999,
+                border: "1px solid var(--chip-border)",
+                background: "var(--chip-bg)",
+                color: "var(--text)",
+                fontSize: "0.78rem",
+                fontWeight: 500,
+                boxShadow:
+                  "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* ─────────────────────────────────────────────────────────────────────────────
