@@ -463,7 +463,15 @@ export default function AppShell({}: PropsWithChildren) {
       setProjectModalError(null);
       const iconValue = projectModalIcon.trim() || "📁";
       try {
-        const response = await api.post("/projects", { name: trimmedName, icon: iconValue });
+        // Backend projects routes are mounted at `/projects` (not under `/api`).
+        // Our Axios instance is typically configured with a base of `/api`, so using
+        // a relative URL like "/projects" would become "/api/projects" and 404.
+        // Use an absolute URL to bypass the base prefix while keeping Axios interceptors.
+        const projectsUrl =
+          typeof window !== "undefined"
+            ? `${window.location.origin}/projects`
+            : "/projects";
+        const response = await api.post(projectsUrl, { name: trimmedName, icon: iconValue });
         try {
           window.dispatchEvent(
             new CustomEvent("cfy:projects:refresh", {
@@ -611,8 +619,17 @@ export default function AppShell({}: PropsWithChildren) {
           )
         );
         setThreadDocuments(normalized);
-      } catch (err) {
+      } catch (err: any) {
         if (cancelled) return;
+
+        // If the backend treats "no documents / unknown thread" as 404, treat it as empty
+        // rather than spamming the console (this is a normal state for new threads).
+        const status = err?.response?.status;
+        if (status === 404) {
+          setThreadDocuments([]);
+          return;
+        }
+
         console.warn(
           `[documents] failed to load thread ${activeRouteThreadId} documents`,
           err
