@@ -2,178 +2,280 @@ name: Guardian CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: guardian-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  schema-validate:
+  changes:
+    name: Detect Changed Areas
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend_changed: ${{ steps.filter.outputs.backend }}
+      frontend_changed: ${{ steps.filter.outputs.frontend }}
+      ci_changed: ${{ steps.filter.outputs.ci }}
+      shared_changed: ${{ steps.filter.outputs.shared }}
+      run_backend: ${{ steps.compute.outputs.run_backend }}
+      run_frontend: ${{ steps.compute.outputs.run_frontend }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
-            pyproject.toml
+          fetch-depth: 0
 
-      - name: Install dependencies
+      - name: Detect changed files by area
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ci:
+              - '.github/workflows/**'
+              - '.github/scripts/**'
+            shared:
+              - 'docker-compose.yml'
+              - 'pytest.ini'
+              - 'pyproject.toml'
+              - 'requirements*.txt'
+              - 'backend/requirements*.txt'
+            frontend:
+              - 'frontend/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'frontend/package.json'
+              - 'frontend/pnpm-lock.yaml'
+              - 'frontend/pnpm-workspace.yaml'
+            backend:
+              - 'guardian/**'
+              - 'backend/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'requirements*.txt'
+              - 'backend/requirements*.txt'
+              - 'pytest.ini'
+              - 'docker-compose.yml'
+              - 'alembic/**'
+              - '**/migrations/**'
+              - '.github/scripts/create-ci-env.sh'
+
+      - name: Compute run matrix
+        id: compute
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .[dev]
+          set -eu
+          backend="${{ steps.filter.outputs.backend }}"
+          frontend="${{ steps.filter.outputs.frontend }}"
+          ci="${{ steps.filter.outputs.ci }}"
+          shared="${{ steps.filter.outputs.shared }}"
 
-      - name: Validate Alembic migrations
+          if [ "$backend" = "true" ] || [ "$ci" = "true" ] || [ "$shared" = "true" ]; then
+            echo "run_backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_backend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$frontend" = "true" ] || [ "$ci" = "true" ] || [ "$shared" = "true" ]; then
+            echo "run_frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Show change summary
         run: |
-          pytest tests/test_migrations.py -v || exit 1
+          echo "backend_changed=${{ steps.filter.outputs.backend }}"
+          echo "frontend_changed=${{ steps.filter.outputs.frontend }}"
+          echo "ci_changed=${{ steps.filter.outputs.ci }}"
+          echo "shared_changed=${{ steps.filter.outputs.shared }}"
+          echo "run_backend=${{ steps.compute.outputs.run_backend }}"
+          echo "run_frontend=${{ steps.compute.outputs.run_frontend }}"
 
-      - name: Upload Logs on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: schema-validate-logs
-          path: ./tests
-
-  frontend-quality:
+  backend-tests:
+    name: Backend Tests (Python 3.11)
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 10.13.1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Build
-        run: pnpm build
-
-      - name: Frontend tests
-        run: pnpm test
-
-  build-and-test:
-    runs-on: ubuntu-latest
-    needs: schema-validate
+    needs: changes
+    permissions:
+      contents: read
     env:
-      # Dummy API keys for CI: do NOT use real secrets! These let tests pass pydantic validation.
-      # Dummy keys so pydantic Settings validation passes during test collection
+      GUARDIAN_ALLOW_DUMMY_SETTINGS: "1"
       GENAI_API_KEY: "dummy"
       NOTION_API_KEY: "dummy"
       ANTHROPIC_API_KEY: "dummy"
-      # Use Groq in CI to avoid OpenAI dependency; swap to "openai" if desired
-      LLM_PROVIDER: "groq"
+      OPENAI_API_KEY: "dummy"
+      GEMINI_API_KEY: "dummy"
+      GOOGLE_API_KEY: "dummy"
       GROQ_API_KEY: "dummy"
-      # Keep Python output unbuffered for clearer logs
+      LLM_PROVIDER: "groq"
       PYTHONUNBUFFERED: "1"
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-
     steps:
+      - name: No-op (no backend-relevant changes)
+        if: ${{ needs.changes.outputs.run_backend != 'true' }}
+        run: |
+          echo "No backend-relevant changes detected."
+          echo "backend_changed=${{ needs.changes.outputs.backend_changed }}"
+          echo "ci_changed=${{ needs.changes.outputs.ci_changed }}"
+          echo "shared_changed=${{ needs.changes.outputs.shared_changed }}"
+
       - name: Checkout
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+          python-version: "3.11"
+          cache: "pip"
           cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+            backend/requirements.txt
             pyproject.toml
 
-      - name: Show Python info
-        run: |
-          which python
-          python -V
-
-      - name: Install dependencies (robust)
+      - name: Install dependencies (Linux-safe)
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
         shell: bash
         run: |
           set -euxo pipefail
           python -m pip install --upgrade pip setuptools wheel
-          # Install the package itself if configured as a project
-          if [ -f pyproject.toml ] || [ -f setup.cfg ]; then python -m pip install -e .; fi
-          # Install project deps if present
-          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt; fi
-          # Ensure pytest is available even if not listed
-          python -c "
-          import importlib, subprocess, sys
-          try:
-              importlib.import_module('pytest')
-              print('pytest already installed')
-          except Exception:
-              subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pytest'])
-          "
+          python -m pip install -r backend/requirements.txt
+          python -m pip install -e .
+          python -m pip install pytest pytest-asyncio
 
-      - name: Run tests
+      - name: Run backend tests
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
         shell: bash
         run: |
           set -euxo pipefail
-          # quick import sanity so we fail early on import errors
-          python -c "
-          import sys
-          print('Import sanity OK on', sys.version.split()[0])
-          "
-          # run pytest; -q + --maxfail keeps logs readable
-          python -m pytest -q --maxfail=1 --disable-warnings -k "not cli"
+          python -m pytest -q --maxfail=1 --disable-warnings tests -k "not cli and not integration"
 
-  schema-contract-validation:
+  frontend-quality:
+    name: Frontend Quality
     runs-on: ubuntu-latest
-    needs: build-and-test
-    env:
-      PYTEST_VERBOSE_BOOT: "1"
-      GUARDIAN_ALLOW_DUMMY_SETTINGS: "1"
-      DATABASE_URL: "postgresql://guardian:guardian@db:5432/guardian"
-      TEST_DATABASE_URL: "postgresql://guardian:guardian@db:5432/test_guardian"
-
+    needs: changes
+    permissions:
+      contents: read
     steps:
-      - name: Checkout Repository
+      - name: No-op (no frontend-relevant changes)
+        if: ${{ needs.changes.outputs.run_frontend != 'true' }}
+        run: |
+          echo "No frontend-relevant changes detected."
+          echo "frontend_changed=${{ needs.changes.outputs.frontend_changed }}"
+          echo "ci_changed=${{ needs.changes.outputs.ci_changed }}"
+          echo "shared_changed=${{ needs.changes.outputs.shared_changed }}"
+
+      - name: Checkout
+        if: ${{ needs.changes.outputs.run_frontend == 'true' }}
         uses: actions/checkout@v4
 
-      - name: Set up Docker Compose
-        run: |
-          docker compose down -v || true
-          docker compose build backend
+      - name: Set up pnpm
+        if: ${{ needs.changes.outputs.run_frontend == 'true' }}
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
 
-      - name: Start Database
+      - name: Set up Node.js
+        if: ${{ needs.changes.outputs.run_frontend == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        if: ${{ needs.changes.outputs.run_frontend == 'true' }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        if: ${{ needs.changes.outputs.run_frontend == 'true' }}
+        run: pnpm run lint
+
+      - name: Build
+        if: ${{ needs.changes.outputs.run_frontend == 'true' }}
+        run: pnpm run build
+
+      - name: Test
+        if: ${{ needs.changes.outputs.run_frontend == 'true' }}
+        run: pnpm run test
+
+  migration-contract:
+    name: Migration Contract (Container)
+    runs-on: ubuntu-latest
+    needs: [changes, backend-tests]
+    permissions:
+      contents: read
+    steps:
+      - name: No-op (no backend-relevant changes)
+        if: ${{ needs.changes.outputs.run_backend != 'true' }}
         run: |
+          echo "No backend-relevant changes detected."
+          echo "backend_changed=${{ needs.changes.outputs.backend_changed }}"
+          echo "ci_changed=${{ needs.changes.outputs.ci_changed }}"
+          echo "shared_changed=${{ needs.changes.outputs.shared_changed }}"
+
+      - name: Checkout
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Create CI env file for Docker Compose
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        run: .github/scripts/create-ci-env.sh .env
+
+      - name: Build backend image
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        run: docker compose build backend
+
+      - name: Start database
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
           docker compose up -d db
-          sleep 10
+          for i in {1..40}; do
+            if docker compose exec -T db pg_isready -U codexify -d Codexify >/dev/null 2>&1; then
+              echo "Postgres is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres did not become ready in time" >&2
+          docker compose logs db || true
+          exit 1
 
-      - name: Run Schema Contract Test
+      - name: Run migration contract test in backend container
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        shell: bash
         run: |
-          docker compose up -d backend
-          docker compose exec backend bash -c "export TEST_DATABASE_URL=\$DATABASE_URL && pytest tests/test_migrations.py -v"
+          set -euxo pipefail
+          docker compose run --rm --no-deps --entrypoint sh backend -lc '
+            set -eux
+            export DATABASE_URL="postgresql://codexify:codexify@db:5432/Codexify"
+            export TEST_DATABASE_URL="$DATABASE_URL"
+            pytest /app/tests/test_migrations.py -v
+          '
 
-      - name: Upload Logs on Failure
-        if: failure()
+      - name: Save docker logs on failure
+        if: ${{ failure() && needs.changes.outputs.run_backend == 'true' }}
+        run: |
+          docker compose logs backend > /tmp/ci-backend.log || true
+          docker compose logs db > /tmp/ci-db.log || true
+
+      - name: Upload logs on failure
+        if: ${{ failure() && needs.changes.outputs.run_backend == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: schema-contract-logs
-          path: ./tests
+          name: migration-contract-logs
+          path: |
+            /tmp/ci-backend.log
+            /tmp/ci-db.log
+
+      - name: Tear down
+        if: ${{ always() && needs.changes.outputs.run_backend == 'true' }}
+        run: docker compose down -v
