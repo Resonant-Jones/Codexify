@@ -1,34 +1,50 @@
-name: nightly-smoke
+name: Smoke (Manual)
+
 on:
-  # schedule: [{cron: "0 3 * * *"}]   # 03:00 UTC nightly (disabled)
-  workflow_dispatch:                # allow manual re-runs
+  workflow_dispatch:
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 25             # short fail-fast
+    timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: Create CI env file for Docker Compose
+        run: .github/scripts/create-ci-env.sh .env
+
       - name: Enable BuildKit & Compose v2
         run: |
-          echo "DOCKER_BUILDKIT=1" >> $GITHUB_ENV
+          echo "DOCKER_BUILDKIT=1" >> "$GITHUB_ENV"
           docker compose version
-      - name: Build & start stack
+
+      - name: Build & start smoke stack
         run: |
-          docker compose --profile ci up -d --build
+          docker compose up -d --build db neo4j redis graph-init migrator backend frontend
+
       - name: Probes
         run: |
           curl -f http://localhost:8888/healthz
-          curl -f http://localhost:5173           # vite splash page
-          curl -f -H "X-API-Key: ${{ secrets.CI_GUARDIAN_KEY }}" \
-               http://localhost:8888/events || true # expect 200/SSE
+          curl -f http://localhost:5173
+          curl -f -H "X-API-Key: ci-guardian-key" http://localhost:8888/api/events || true
+
       - name: Validate Alembic/ORM schema contract
+        shell: bash
         run: |
-          docker compose exec backend bash -c "
-            export TEST_DATABASE_URL=\$DATABASE_URL &&
-            pytest tests/test_migrations.py -v"
+          set -euxo pipefail
+          docker compose run --rm --no-deps --entrypoint sh backend -lc '
+            set -eux
+            export DATABASE_URL="postgresql://codexify:codexify@db:5432/Codexify"
+            export TEST_DATABASE_URL="$DATABASE_URL"
+            pytest /app/tests/test_migrations.py -v
+          '
+
       - name: Save backend logs if failed
         if: failure()
-        run: docker compose logs backend
+        run: docker compose logs backend db
+
       - name: Tear down
         if: always()
         run: docker compose down -v
