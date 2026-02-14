@@ -47,6 +47,7 @@ import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
 import ContextMenu from "@/components/ui/ContextMenu";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
+import { ShareButton } from "@/components/ShareButton";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -463,7 +464,15 @@ export default function AppShell({}: PropsWithChildren) {
       setProjectModalError(null);
       const iconValue = projectModalIcon.trim() || "📁";
       try {
-        const response = await api.post("/projects", { name: trimmedName, icon: iconValue });
+        // Backend projects routes are mounted at `/projects` (not under `/api`).
+        // Our Axios instance is typically configured with a base of `/api`, so using
+        // a relative URL like "/projects" would become "/api/projects" and 404.
+        // Use an absolute URL to bypass the base prefix while keeping Axios interceptors.
+        const projectsUrl =
+          typeof window !== "undefined"
+            ? `${window.location.origin}/projects`
+            : "/projects";
+        const response = await api.post(projectsUrl, { name: trimmedName, icon: iconValue });
         try {
           window.dispatchEvent(
             new CustomEvent("cfy:projects:refresh", {
@@ -611,8 +620,17 @@ export default function AppShell({}: PropsWithChildren) {
           )
         );
         setThreadDocuments(normalized);
-      } catch (err) {
+      } catch (err: any) {
         if (cancelled) return;
+
+        // If the backend treats "no documents / unknown thread" as 404, treat it as empty
+        // rather than spamming the console (this is a normal state for new threads).
+        const status = err?.response?.status;
+        if (status === 404) {
+          setThreadDocuments([]);
+          return;
+        }
+
         console.warn(
           `[documents] failed to load thread ${activeRouteThreadId} documents`,
           err
@@ -1322,8 +1340,8 @@ export default function AppShell({}: PropsWithChildren) {
           aberration={0}
         />
       )} */}
-      {/* Glass Pill Menu Bar - Left Corner */}
-      <div className="relative z-10 w-full flex justify-start">
+      {/* Glass Pill Menu Bar + Header Actions */}
+      <div className="relative z-10 w-full flex items-center justify-between gap-3">
         <div
           className="glass-pill isolate"
           style={{ paddingTop: "var(--pill-pad-y)", paddingBottom: "var(--pill-pad-y)" }}
@@ -1394,6 +1412,26 @@ export default function AppShell({}: PropsWithChildren) {
 
 
         </div>
+        {activeRouteThreadId != null && (
+          <div className="flex items-center justify-end">
+            <ShareButton
+              targetType="thread"
+              targetId={activeRouteThreadId}
+              className="pill-tab"
+              dataState="inactive"
+              style={{
+                borderRadius: 999,
+                border: "1px solid var(--chip-border)",
+                background: "var(--chip-bg)",
+                color: "var(--text)",
+                fontSize: "0.78rem",
+                fontWeight: 500,
+                boxShadow:
+                  "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* ─────────────────────────────────────────────────────────────────────────────

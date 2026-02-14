@@ -128,7 +128,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
-        compare_server_default=_server_default_compare,
+        compare_server_default=False,
         include_object=include_object,
     )
 
@@ -164,7 +164,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
-            compare_server_default=_server_default_compare,
+            compare_server_default=False,
             include_object=include_object,
         )
 

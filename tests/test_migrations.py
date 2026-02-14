@@ -86,7 +86,15 @@ def test_migrations_apply_cleanly(tmp_path, monkeypatch):
         if missing:
             pytest.fail(f"Missing tables after migration: {missing}")
 
-        unexpected = sorted(existing_tables - expected_tables)
+        # Tables managed by migrations but intentionally not modeled in Base.
+        allowed_extra_tables = {
+            "guardian_event_log",
+            "browser_approvals",
+            "browser_audit_log",
+        }
+        unexpected = sorted(
+            existing_tables - expected_tables - allowed_extra_tables
+        )
         if unexpected:
             pytest.fail(f"Unexpected tables present: {unexpected}")
 

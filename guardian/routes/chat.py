@@ -32,6 +32,17 @@ from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
 
+# =========================
+# Debug / Dev Tools State
+# =========================
+
+# In-memory store for RAG traces (thread_id -> trace_dict)
+# This is ephemeral and per-process, which is fine for dev debugging.
+_rag_traces: Dict[int, Dict[str, Any]] = {}
+
+# Track latest task_id per thread for debug endpoint.
+_thread_latest_task: Dict[int, str] = {}
+
 # Import shared dependencies from core module (avoids circular imports)
 try:
     from guardian.context.broker import ContextBroker
@@ -48,18 +59,11 @@ try:
         verify_api_key,
     )
 except ImportError as e:
-    logger.warning(f"[chat] Import warning: {e}")
-    chatlog_db = None
-    require_api_key = lambda x: x
-    verify_api_key = lambda x: x
-    _groq_complete = None
-    event_bus = None
-    ContextBroker = None
-    _vector_store = None
-    _memory_store = None
-    _sensors = None
-    DEFAULT_MODEL = None
-    CHAT_PROVIDER = "groq"
+    logger.error(
+        "[chat] Failed to import core dependencies; refusing to start without auth: %s",
+        e,
+    )
+    raise
 
 # Optional AI backend
 try:
@@ -1075,18 +1079,6 @@ async def simple_chat_entrypoint(
     }
 
 
-# =========================
-# Debug / Dev Tools
-# =========================
-
-# In-memory store for RAG traces (thread_id -> trace_dict)
-# This is ephemeral and per-process, which is fine for dev debugging.
-_rag_traces: Dict[int, Dict[str, Any]] = {}
-
-# Track latest task_id per thread for debug endpoint
-_thread_latest_task: Dict[int, str] = {}
-
-
 def _get_trace_from_task_events(task_id: str) -> Optional[Dict[str, Any]]:
     """
     Poll task events stream to extract the trace from task.completed event.
@@ -1182,13 +1174,13 @@ def api_chat_create_thread(
     body: dict = Body(...), api_key: str = Depends(require_api_key)
 ):
     """Compat alias for POST /chat/threads used in tests."""
-    return chat_create_thread(body)
+    return chat_create_thread(body, api_key=api_key)
 
 
 @api_chat_router.get("/threads")
 def api_chat_list_threads(api_key: str = Depends(require_api_key)):
     """Compat alias for GET /chat/threads used in tests."""
-    return chat_list_threads()
+    return chat_list_threads(api_key=api_key)
 
 
 @api_chat_router.post("/{thread_id}/messages")
@@ -1198,7 +1190,7 @@ def api_chat_post_message(
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for POST /chat/{thread_id}/messages used in tests."""
-    return chat_post_message(thread_id, body)
+    return chat_post_message(thread_id, body, api_key=api_key)
 
 
 @api_chat_router.get("/{thread_id}/messages")
@@ -1209,7 +1201,13 @@ def api_chat_list_messages(
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for GET /chat/{thread_id}/messages used in tests."""
-    return chat_list_messages(thread_id, limit, offset)
+    return chat_list_messages(
+        thread_id,
+        limit,
+        offset,
+        include_fact_evidence=False,
+        api_key=api_key,
+    )
 
 
 @api_chat_router.post("/{thread_id}/complete")
@@ -1219,7 +1217,7 @@ async def api_chat_complete(
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
-    return await chat_complete(thread_id, body)
+    return await chat_complete(thread_id, body, api_key=api_key)
 
 
 @api_chat_router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
@@ -1237,7 +1235,7 @@ def api_chat_delete_message(
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for DELETE /chat/{thread_id}/messages/{message_id} used in tests."""
-    return chat_delete_message(thread_id, message_id)
+    return chat_delete_message(thread_id, message_id, api_key=api_key)
 
 
 @api_chat_router.post("/{thread_id}/branch", response_model=ThreadDTO)
@@ -1247,7 +1245,7 @@ def api_branch_thread(
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for POST /chat/{thread_id}/branch used in tests."""
-    return branch_thread(thread_id, body, api_key)
+    return branch_thread(thread_id, body, api_key=api_key)
 
 
 @api_chat_router.patch("/{thread_id}", response_model=ThreadDTO)
@@ -1257,7 +1255,7 @@ def api_update_thread(
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for PATCH /chat/{thread_id} used in tests."""
-    return update_thread(thread_id, payload, api_key)
+    return update_thread(thread_id, payload, api_key=api_key)
 
 
 @api_chat_router.patch("/threads/{thread_id}")
@@ -1267,7 +1265,7 @@ def api_patch_thread(
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for PATCH /chat/threads/{thread_id} used in tests."""
-    return patch_thread(thread_id, body)
+    return patch_thread(thread_id, body, api_key=api_key)
 
 
 @api_chat_router.delete("/threads/{thread_id}")
@@ -1277,4 +1275,4 @@ def api_delete_thread(
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for DELETE /chat/threads/{thread_id} used in tests."""
-    return delete_thread(thread_id, force)
+    return delete_thread(thread_id, force, api_key=api_key)
