@@ -38,6 +38,12 @@ The value is JSON `SessionState` (tabs, activeTabId, drafts, model per tab, vers
 
 Detailed behavior and invariants are documented in `docs/session-spine.md`.
 
+Write-path guarantees:
+
+- Invalid payloads with no valid tabs are rejected (`400`).
+- `activeTabId` is normalized to an existing tab when possible.
+- Corrupt cached JSON is discarded on read and treated as cache miss.
+
 ### Session API Examples
 
 Get session state:
