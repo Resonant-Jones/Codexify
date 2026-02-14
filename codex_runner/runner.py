@@ -412,6 +412,41 @@ def append_runner_completion_summary(
     append_text_file(task_artifact, block)
 
 
+# --- New runner receipt helpers ---
+def append_runner_task_start_summary(
+    task_artifact: Path,
+    task_id: str,
+    campaign_id: str,
+    head_before: str,
+) -> None:
+    block = (
+        "\n\n## Runner Receipt (Start)\n\n"
+        f"- Campaign: {campaign_id}\n\n"
+        f"- Task ID: {task_id}\n\n"
+        f"- Head before: {head_before}\n"
+    )
+    append_text_file(task_artifact, block)
+
+
+def append_runner_task_failure_summary(
+    task_artifact: Path,
+    task_id: str,
+    campaign_id: str,
+    head_before: str,
+    error_message: str,
+) -> None:
+    block = (
+        "\n\n## Completion Summary (Runner)\n\n"
+        "- Status: failed\n\n"
+        f"- Summary: (runner error)\n\n"
+        f"- Head before: {head_before}\n\n"
+        "- Implementation commit hash: (none)\n\n"
+        "- Receipt update commit hash: (pending)\n\n"
+        f"- Notes: {error_message.strip() if error_message else '(no details)'}\n"
+    )
+    append_text_file(task_artifact, block)
+
+
 def replace_last_match(
     text: str, pattern: re.Pattern[str], replacement: str
 ) -> tuple[str, bool]:
@@ -632,7 +667,14 @@ def run_cycle(
             )
         task_path_to_id[task_path] = task_id
         task_artifact_paths[task_id] = task_path
-        write_text_file(task_path, task["task_artifact_markdown"])
+        if task_path.exists():
+            # Preserve any prior runner receipts; append the latest task markdown.
+            append_text_file(
+                task_path,
+                "\n\n---\n\n" + task["task_artifact_markdown"],
+            )
+        else:
+            write_text_file(task_path, task["task_artifact_markdown"])
         if task_path not in existing_task_paths:
             existing_task_paths.append(task_path)
 
@@ -664,79 +706,124 @@ def run_cycle(
             )
 
             head_before = git_head_commit()
-            log(f"Executing task {task_id}...")
-            result = execute_task(task)
-
-            # If the agent left changes, the runner commits them as the implementation commit.
-            if not git_is_clean():
-                if args.auto_commit:
-                    git_commit_all(task["commit_message"], args.no_verify)
-                else:
-                    raise RunnerError(
-                        "Auto-commit disabled but task left the tree dirty."
-                    )
-
-            ensure_clean_git("after task implementation commit")
-            impl_hash = git_head_commit()
-
-            # Normalize implementation hash fields.
-            reported = (
-                result.get("implementation_commit_hash") or ""
-            ).strip() or (result.get("commit_hash") or "").strip()
-            if not reported and impl_hash != head_before:
-                result["commit_hash"] = impl_hash
-                result["implementation_commit_hash"] = impl_hash
-            elif reported and reported != impl_hash:
-                existing_notes = (result.get("notes") or "").strip()
-                note = f"implementation commit mismatch: reported {reported}, head is {impl_hash}"
-                result["notes"] = f"{existing_notes} {note}".strip()
-                print(f"Warning: {note}", file=sys.stderr)
-                result["implementation_commit_hash"] = impl_hash
-                result["commit_hash"] = impl_hash
-            else:
-                # Keep consistent fields.
-                result["implementation_commit_hash"] = reported or impl_hash
-                result["commit_hash"] = reported or impl_hash
-
-            # Receipt update commit (task artifact + campaign mapping).
-            append_runner_completion_summary(
-                task_artifact_path, result, impl_hash, "(pending)"
+            append_runner_task_start_summary(
+                task_artifact_path,
+                task_id,
+                str(campaign_id),
+                head_before,
             )
-            update_campaign_mapping_line(
-                campaign_doc_path, task_id, impl_hash, "(pending)"
-            )
+
+            # Commit the start receipt immediately so we always have a trace.
             if args.auto_commit:
-                receipt_commit_msg = f"{task_id}: receipt update"
-                seed_receipt_hash = git_commit(
-                    [str(task_artifact_path), str(campaign_doc_path)],
-                    receipt_commit_msg,
+                git_commit(
+                    [str(task_artifact_path)],
+                    f"{task_id}: receipt start",
                     args.no_verify,
                 )
-                update_task_artifact_receipt_hash(
-                    task_artifact_path, seed_receipt_hash
+                ensure_clean_git("after task receipt start commit")
+
+            try:
+                log(f"Executing task {task_id}...")
+                result = execute_task(task)
+
+                # If the agent left changes, the runner commits them as the implementation commit.
+                if not git_is_clean():
+                    if args.auto_commit:
+                        git_commit_all(task["commit_message"], args.no_verify)
+                    else:
+                        raise RunnerError(
+                            "Auto-commit disabled but task left the tree dirty."
+                        )
+
+                ensure_clean_git("after task implementation commit")
+                impl_hash = git_head_commit()
+
+                # Normalize implementation hash fields.
+                reported = (
+                    result.get("implementation_commit_hash") or ""
+                ).strip() or (result.get("commit_hash") or "").strip()
+                if not reported and impl_hash != head_before:
+                    result["commit_hash"] = impl_hash
+                    result["implementation_commit_hash"] = impl_hash
+                elif reported and reported != impl_hash:
+                    existing_notes = (result.get("notes") or "").strip()
+                    note = f"implementation commit mismatch: reported {reported}, head is {impl_hash}"
+                    result["notes"] = f"{existing_notes} {note}".strip()
+                    print(f"Warning: {note}", file=sys.stderr)
+                    result["implementation_commit_hash"] = impl_hash
+                    result["commit_hash"] = impl_hash
+                else:
+                    # Keep consistent fields.
+                    result["implementation_commit_hash"] = reported or impl_hash
+                    result["commit_hash"] = reported or impl_hash
+
+                # Receipt update commit (task artifact + campaign mapping).
+                append_runner_completion_summary(
+                    task_artifact_path, result, impl_hash, "(pending)"
                 )
                 update_campaign_mapping_line(
-                    campaign_doc_path,
+                    campaign_doc_path, task_id, impl_hash, "(pending)"
+                )
+                if args.auto_commit:
+                    receipt_commit_msg = f"{task_id}: receipt update"
+                    seed_receipt_hash = git_commit(
+                        [str(task_artifact_path), str(campaign_doc_path)],
+                        receipt_commit_msg,
+                        args.no_verify,
+                    )
+                    update_task_artifact_receipt_hash(
+                        task_artifact_path, seed_receipt_hash
+                    )
+                    update_campaign_mapping_line(
+                        campaign_doc_path,
+                        task_id,
+                        impl_hash,
+                        seed_receipt_hash,
+                    )
+                    receipt_hash = git_commit_amend(
+                        [str(task_artifact_path), str(campaign_doc_path)],
+                        args.no_verify,
+                    )
+                    ensure_clean_git("after task receipt commit")
+                else:
+                    raise RunnerError(
+                        "Auto-commit disabled but runner receipt update would dirty the tree."
+                    )
+
+                result["receipt_update_commit_hash"] = receipt_hash
+
+                # Allow legitimate no-op/skip outcomes to have no impl commit.
+                status_value = (result.get("status") or "").strip().lower()
+                if impl_hash == head_before and status_value not in {
+                    "success",
+                    "no_op",
+                    "noop",
+                    "skipped",
+                }:
+                    raise RunnerError(
+                        f"Task {task_id} produced no implementation commit."
+                    )
+
+            except Exception as exc:
+                # Always write + commit a failure receipt before aborting.
+                append_runner_task_failure_summary(
+                    task_artifact_path,
                     task_id,
-                    impl_hash,
-                    seed_receipt_hash,
+                    str(campaign_id),
+                    head_before,
+                    str(exc),
                 )
-                receipt_hash = git_commit_amend(
-                    [str(task_artifact_path), str(campaign_doc_path)],
-                    args.no_verify,
+                update_campaign_mapping_line(
+                    campaign_doc_path, task_id, head_before, "(failed)"
                 )
-                ensure_clean_git("after task receipt commit")
-            else:
-                raise RunnerError(
-                    "Auto-commit disabled but runner receipt update would dirty the tree."
-                )
-
-            result["receipt_update_commit_hash"] = receipt_hash
-
-            if impl_hash == head_before and (result.get("status") != "success"):
-                raise RunnerError(
-                    f"Task {task_id} produced no implementation commit."
-                )
+                if args.auto_commit:
+                    git_commit(
+                        [str(task_artifact_path), str(campaign_doc_path)],
+                        f"{task_id}: receipt failed",
+                        args.no_verify,
+                    )
+                    ensure_clean_git("after task failure receipt commit")
+                raise
     elif args.execute and args.dry_run:
         log("Dry run enabled: skipping task execution.")
 
