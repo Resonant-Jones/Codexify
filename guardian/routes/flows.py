@@ -80,6 +80,11 @@ async def patch_flow(
     patch: dict[str, Any] = Body(default_factory=dict),
 ) -> dict[str, Any]:
     current = _require_flow(flow_id)
+    if "flow_id" in patch and str(patch["flow_id"]) != flow_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="flow_id cannot be changed via PATCH",
+        )
     merged_payload = _deep_merge(current.model_dump(mode="json"), patch)
     merged_flow = FlowSpec.model_validate(merged_payload)
     _FLOWS[flow_id] = merged_flow
@@ -93,7 +98,9 @@ async def validate_flow(flow_id: str) -> dict[str, Any]:
     return {
         "ok": True,
         "compiled_flow": compiled.model_dump(mode="json"),
-        "warnings": [warning.model_dump(mode="json") for warning in compiled.warnings],
+        "warnings": [
+            warning.model_dump(mode="json") for warning in compiled.warnings
+        ],
         "needs_confirmation": compiled.requires_confirmation,
     }
 

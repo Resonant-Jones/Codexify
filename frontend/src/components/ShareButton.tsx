@@ -1,14 +1,65 @@
-import { useState } from "react";
-import { GuardianAPI } from "../lib/guardianApi";
+import { CSSProperties, useState } from "react";
 
 type ShareButtonProps = {
   targetType: "thread" | "document";
   targetId: number;
+  className?: string;
+  style?: CSSProperties;
+  dataState?: "active" | "inactive";
 };
 
 const API_KEY = (import.meta.env.VITE_GUARDIAN_API_KEY ?? "").trim();
 
-export function ShareButton({ targetType, targetId }: ShareButtonProps) {
+type CopyMethod = "clipboard" | "execCommand" | "prompt" | "none";
+
+async function copyTextWithFallback(text: string): Promise<CopyMethod> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return "clipboard";
+    } catch {
+      // Continue to fallback copy methods below.
+    }
+  }
+
+  if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      if (document.execCommand("copy")) return "execCommand";
+    } catch {
+      // Continue to fallback prompt below.
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  }
+
+  if (typeof window !== "undefined" && typeof window.prompt === "function") {
+    try {
+      window.prompt("Copy link:", text);
+      return "prompt";
+    } catch {
+      // No-op. We'll return "none" below.
+    }
+  }
+
+  return "none";
+}
+
+export function ShareButton({
+  targetType,
+  targetId,
+  className,
+  style,
+  dataState,
+}: ShareButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -44,11 +95,15 @@ export function ShareButton({ targetType, targetId }: ShareButtonProps) {
       const baseUrl = window.location.origin;
       const fullUrl = `${baseUrl}${data.url}`;
 
-      // Copy to clipboard
-      await navigator.clipboard.writeText(fullUrl);
-
-      // Show success toast
-      setToastMessage(`Share link copied! ${fullUrl}`);
+      // Copy to clipboard with fallback support for non-secure or restricted contexts.
+      const copyMethod = await copyTextWithFallback(fullUrl);
+      if (copyMethod === "clipboard" || copyMethod === "execCommand") {
+        setToastMessage(`Share link copied! ${fullUrl}`);
+      } else if (copyMethod === "prompt") {
+        setToastMessage(`Share link ready to copy: ${fullUrl}`);
+      } else {
+        setToastMessage(`Share link created: ${fullUrl}`);
+      }
       setShowToast(true);
       setTimeout(() => setShowToast(false), 3000);
     } catch (error) {
@@ -67,6 +122,8 @@ export function ShareButton({ targetType, targetId }: ShareButtonProps) {
       <button
         onClick={handleShare}
         disabled={isLoading}
+        className={className}
+        data-state={dataState}
         style={{
           padding: "6px 12px",
           borderRadius: 6,
@@ -78,6 +135,7 @@ export function ShareButton({ targetType, targetId }: ShareButtonProps) {
           color: isLoading ? "rgba(0,0,0,.4)" : "rgba(0,0,0,.7)",
           transition: "all 200ms",
           opacity: isLoading ? 0.6 : 1,
+          ...style,
         }}
       >
         {isLoading ? "Creating..." : "Share"}
