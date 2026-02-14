@@ -3,8 +3,8 @@ import logging
 from typing import Any, Dict, Optional, Sequence
 
 import requests
-from requests import exceptions as req_exc
 from fastapi import HTTPException
+from requests import exceptions as req_exc
 
 from guardian.core.config import Settings, get_settings
 
