@@ -132,7 +132,7 @@ from guardian.routes import (
     migration,
 )
 from guardian.routes import neo as neo_routes
-from guardian.routes import research, share, threads
+from guardian.routes import research, share, threads, ui_session
 from guardian.routes import websocket as websocket_routes
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
@@ -469,6 +469,7 @@ app.include_router(migration.router)
 app.include_router(devtools.router)
 app.include_router(websocket_routes.router)
 app.include_router(cron_routes.router)
+app.include_router(ui_session.router)
 
 logger.info("[routers] All routers included")
 

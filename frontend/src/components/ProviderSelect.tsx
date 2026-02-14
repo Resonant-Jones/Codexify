@@ -11,7 +11,14 @@ import { usePreferredProvider } from "@/hooks/usePreferredProvider";
 import { GuardianAPI } from "@/lib/guardianApi";
 import { ChevronDown } from "lucide-react";
 
-export function ProviderSelect() {
+type ProviderSelectProps = {
+  value?: string;
+  onChange?: (value: string) => void;
+};
+
+const DEFAULT_OPTION = "__default__";
+
+export function ProviderSelect({ value, onChange }: ProviderSelectProps) {
   const { provider, setProvider } = usePreferredProvider();
   const [caps, setCaps] = useState<{ chat: string[]; embeddings: string[] }>({ chat: [], embeddings: [] });
 
@@ -22,11 +29,11 @@ export function ProviderSelect() {
   }, []);
 
   const options = React.useMemo(() => {
-    // Include empty string for "default"
-    return ["", ...caps.chat];
+    // Include explicit default option.
+    return [DEFAULT_OPTION, ...caps.chat];
   }, [caps.chat]);
 
-  const displayValue = provider || "default";
+  const selected = value ?? provider ?? "default";
 
   return (
     <DropdownMenu>
@@ -40,7 +47,7 @@ export function ProviderSelect() {
         aria-label="Choose model provider"
       >
         <span className="opacity-70">⚙︎</span>
-        <span className="font-medium">{displayValue}</span>
+        <span className="font-medium">{selected}</span>
         <ChevronDown className="h-3 w-3 opacity-50" />
       </DropdownMenuTrigger>
 
@@ -51,21 +58,33 @@ export function ProviderSelect() {
 
         {options.map((p) => (
           <DropdownMenuItem
-            key={p || "__default"}
-            onClick={() => setProvider(p || null)}
+            key={p}
+            onClick={() => {
+              const next = p === DEFAULT_OPTION ? "default" : p;
+              if (onChange) {
+                onChange(next);
+                return;
+              }
+              setProvider(next === "default" ? null : next);
+            }}
             style={{
               color: "var(--text)",
-              background: (provider ?? "") === p ? "color-mix(in_oklab,var(--panel-bg),var(--accent)_15%)" : "transparent"
+              background:
+                selected === (p === DEFAULT_OPTION ? "default" : p)
+                  ? "color-mix(in_oklab,var(--panel-bg),var(--accent)_15%)"
+                  : "transparent",
             }}
           >
             <span className="flex items-center justify-between w-full">
-              <span>{p || "default"}</span>
-              {(provider ?? "") === p && <span className="text-[var(--accent)]">✓</span>}
+              <span>{p === DEFAULT_OPTION ? "default" : p}</span>
+              {selected === (p === DEFAULT_OPTION ? "default" : p) && (
+                <span className="text-[var(--accent)]">✓</span>
+              )}
             </span>
           </DropdownMenuItem>
         ))}
 
-        {options.length > 1 && (
+        {!onChange && options.length > 1 && (
           <>
             <div className="h-px my-1" style={{ background: "var(--panel-border)" }} />
             <DropdownMenuItem
