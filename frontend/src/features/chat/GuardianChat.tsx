@@ -729,6 +729,7 @@ export function GuardianChat({
           tabs={sessionTabs}
           activeTabId={activeSessionTabId}
           activeModelId={activeModelId || "default"}
+          showTabs={sessionTabs.length > 1}
           onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
           onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
           onOpenTab={() => (onSessionTabOpen ? onSessionTabOpen() : onNewChat())}

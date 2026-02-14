@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
@@ -24,6 +25,7 @@ router = APIRouter(tags=["UI Session"])
 
 SESSION_NAMESPACE = "ui:v1"
 SESSION_STATE_KEY = "session"
+DEFAULT_MODEL_ID = "default"
 DEFAULT_TTL_SECONDS = int(
     os.getenv("UI_SESSION_TTL_SECONDS", str(14 * 24 * 3600))
 )
@@ -65,16 +67,133 @@ def _resolve_ttl(ttl_seconds: int | None) -> int:
     return ttl
 
 
-def _coerce_state(value: Any) -> dict[str, Any] | None:
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _coerce_tab(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
-    tabs = value.get("tabs")
-    active_tab_id = value.get("activeTabId")
-    if not isinstance(tabs, list) or not isinstance(active_tab_id, str):
+    tab_id_raw = value.get("tabId")
+    if not isinstance(tab_id_raw, str):
         return None
-    if "version" not in value:
-        value["version"] = 1
-    return value
+    tab_id = tab_id_raw.strip()
+    if not tab_id:
+        return None
+
+    model_raw = value.get("modelId")
+    model_id = (
+        model_raw.strip()
+        if isinstance(model_raw, str) and model_raw.strip()
+        else DEFAULT_MODEL_ID
+    )
+
+    created_at_raw = value.get("createdAt")
+    created_at = (
+        created_at_raw.strip()
+        if isinstance(created_at_raw, str) and created_at_raw.strip()
+        else _now_iso()
+    )
+    updated_at_raw = value.get("updatedAt")
+    updated_at = (
+        updated_at_raw.strip()
+        if isinstance(updated_at_raw, str) and updated_at_raw.strip()
+        else created_at
+    )
+
+    normalized: dict[str, Any] = {
+        "tabId": tab_id,
+        "modelId": model_id,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+    }
+
+    thread_id_raw = value.get("threadId")
+    if thread_id_raw is not None:
+        thread_id = str(thread_id_raw).strip()
+        if thread_id:
+            normalized["threadId"] = thread_id
+
+    title_raw = value.get("title")
+    if title_raw is not None:
+        title = str(title_raw).strip()
+        if title:
+            normalized["title"] = title
+
+    return normalized
+
+
+def _coerce_state(
+    value: Any,
+    *,
+    user_id: str | None = None,
+    device_id: str | None = None,
+) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    tabs_raw = value.get("tabs")
+    if not isinstance(tabs_raw, list):
+        return None
+
+    tabs: list[dict[str, Any]] = []
+    for tab in tabs_raw:
+        coerced_tab = _coerce_tab(tab)
+        if coerced_tab:
+            tabs.append(coerced_tab)
+
+    # Minimum-one-tab invariant.
+    if not tabs:
+        return None
+
+    tab_ids = {tab["tabId"] for tab in tabs}
+    active_tab_raw = value.get("activeTabId")
+    active_tab_id = (
+        active_tab_raw.strip() if isinstance(active_tab_raw, str) else ""
+    )
+    if not active_tab_id or active_tab_id not in tab_ids:
+        active_tab_id = tabs[0]["tabId"]
+
+    resolved_user = (user_id or value.get("userId") or "").strip()
+    resolved_device = (device_id or value.get("deviceId") or "").strip()
+    if not resolved_user or not resolved_device:
+        return None
+
+    version_raw = value.get("version")
+    version = version_raw if isinstance(version_raw, int) else 1
+    version = max(version, 1)
+
+    updated_at_raw = value.get("updatedAt")
+    updated_at = (
+        updated_at_raw.strip()
+        if isinstance(updated_at_raw, str) and updated_at_raw.strip()
+        else _now_iso()
+    )
+
+    normalized: dict[str, Any] = {
+        "userId": resolved_user,
+        "deviceId": resolved_device,
+        "tabs": tabs,
+        "activeTabId": active_tab_id,
+        "version": version,
+        "updatedAt": updated_at,
+    }
+
+    drafts_raw = value.get("drafts")
+    if isinstance(drafts_raw, dict):
+        drafts: dict[str, str] = {}
+        for tab_id, text in drafts_raw.items():
+            if not isinstance(tab_id, str) or tab_id not in tab_ids:
+                continue
+            if not isinstance(text, str):
+                continue
+            if not text.strip():
+                continue
+            drafts[tab_id] = text
+        if drafts:
+            normalized["drafts"] = drafts
+
+    return normalized
 
 
 @router.get("/api/ui/session")
@@ -100,8 +219,12 @@ def get_ui_session(
         except Exception:
             pass
         return {"ok": True, "state": None}
-    state = _coerce_state(decoded)
+    state = _coerce_state(decoded, user_id=user_id, device_id=device_id)
     if not state:
+        try:
+            client.delete(key)
+        except Exception:
+            pass
         return {"ok": True, "state": None}
     return {"ok": True, "state": state}
 
@@ -112,7 +235,9 @@ def set_ui_session(
     api_key: str = Depends(require_api_key),  # noqa: B008
 ) -> dict[str, Any]:
     _ = api_key
-    state = _coerce_state(dict(body.state))
+    state = _coerce_state(
+        dict(body.state), user_id=body.user_id, device_id=body.device_id
+    )
     if not state:
         raise HTTPException(
             status_code=400, detail="Invalid session state payload"
@@ -149,11 +274,17 @@ def patch_ui_session(
     try:
         decoded = json.loads(raw)
     except json.JSONDecodeError:
-        decoded = {}
+        try:
+            client.delete(key)
+        except Exception:
+            pass
+        return {"ok": True, "state": None}
 
     current = decoded if isinstance(decoded, dict) else {}
     next_state = {**current, **body.patch}
-    coerced = _coerce_state(next_state)
+    coerced = _coerce_state(
+        next_state, user_id=body.user_id, device_id=body.device_id
+    )
     if not coerced:
         raise HTTPException(
             status_code=400, detail="Invalid session patch payload"
