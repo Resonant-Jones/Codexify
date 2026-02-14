@@ -75,6 +75,7 @@ Implemented invariants in `SessionSpine`:
 - New tabs inherit active tab model (or `DEFAULT_MODEL_ID` when no active tab).
 
 5. Always at least one tab:
+- State is never persisted with zero tabs.
 - Closing the last tab creates a replacement tab and keeps session valid.
 
 6. Drafts are per-tab:
@@ -99,6 +100,8 @@ Value schema:
 - Redis value is raw JSON of `SessionState` (not wrapped envelope).
 - API response envelope is `{ "ok": true, "state": <SessionState|null> }`.
 - `PATCH /api/ui/session` applies a shallow top-level merge (`{**current, **patch}`) before validation.
+- Backend write validation rejects payloads that cannot satisfy the minimum-one-tab invariant.
+- Backend normalizes invalid `activeTabId` to the first valid tab.
 
 TTL policy:
 
@@ -128,6 +131,7 @@ Startup path (`GuardianChatWithSidebar`):
 
 2. Hydrate from Redis:
 - `spine.hydrate({ threadId: routeThreadId, modelId: "default" })`
+- If the store read fails (network/Redis/API error), hydrate logs and falls back to default state.
 
 3. Fallback when Redis has no state:
 - Create one default tab (optional route thread id attached).
@@ -175,6 +179,7 @@ Implemented intents and transitions:
 Additional implemented intent used by layout sync:
 - `TAB_SET_THREAD(tabId, threadId?, title?)` (`tabSetThread`)
 - Keeps tab metadata aligned with active thread selection.
+- `threadId` may be unset for a "new chat" tab and is handled as an explicit no-thread state.
 
 ## 7) Draft persistence policy
 
@@ -195,7 +200,7 @@ Expected behavior:
 - `/api/ui/session` returns `503`.
 - Persistence failures log warning (`[session] failed to persist state`).
 - If state is already hydrated, UI continues using local in-memory state.
-- If initial hydrate fails from cold start, first user intent lazily creates default session state in memory.
+- If initial hydrate fails from cold start, SessionSpine immediately initializes a default in-memory state.
 
 2. Redis empty/expired:
 - Hydration creates default state; user can continue immediately.
@@ -266,6 +271,8 @@ Expected UX after restart/flush:
 
 - Tabs moved into a dedicated session layer, not app navigation.
 - Session Pill Rail is rendered inside Guardian chat shell and driven by SessionSpine selectors/intents.
+- Rail UX refinement: when only one tab exists, the tab-pill strip is hidden while the utility cluster stays visible (model picker, new tab, overflow).
+- Close affordance is only shown when multiple tabs are visible.
 - Benefits: snappier local tab switching, consistent single-writer state semantics, and correct per-tab model/draft behavior across reloads on the same device.
 
 ## 11) Implementation references

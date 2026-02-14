@@ -293,6 +293,8 @@ Tabs are session-layer state only (not global app navigation).
 
 Left side is a horizontally scrollable tab-pill strip (open tabs + active tab).
 
+When only one tab exists, the left tab-pill strip is hidden.
+
 Right side is a utility cluster: model picker, New Tab (+), overflow menu.
 
 Rail interactions MUST dispatch SessionSpine intents; rail components MUST NOT mutate tab/session state directly.
