@@ -1,8 +1,9 @@
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 import requests
+from requests import exceptions as req_exc
 from fastapi import HTTPException
 
 from guardian.core.config import Settings, get_settings
@@ -11,6 +12,48 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
+
+
+def _format_local_connect_error(url: str, err: Exception) -> str:
+    """Produce an actionable error message for local inference failures.
+
+    Common pitfall: Docker containers often cannot resolve mDNS `.local` hostnames
+    (e.g. `VaultNode.local`). In that case, use an IP address, a resolvable DNS
+    name, or `host.docker.internal` (when the target is on the host).
+    """
+
+    message = str(err)
+    lowered = message.lower()
+
+    hints = []
+    # DNS / name resolution
+    if (
+        "name or service not known" in lowered
+        or "temporary failure in name resolution" in lowered
+        or "nodename nor servname provided" in lowered
+        or "failed to resolve" in lowered
+    ):
+        hints.append(
+            "DNS resolution failed. If running inside Docker, mDNS `.local` names "
+            "(e.g. VaultNode.local) often do not resolve. Use an IP address or a "
+            "resolvable hostname; if the target is the host machine, try "
+            "`host.docker.internal`."
+        )
+
+    # Connection refused / unreachable
+    if "connection refused" in lowered:
+        hints.append(
+            "Connection refused. Check the remote server is listening on that port "
+            "and is reachable from the backend container/network."
+        )
+    if "timed out" in lowered or "timeout" in lowered:
+        hints.append(
+            "Connection timed out. Check routing/firewalls and consider increasing "
+            "LLM_REQUEST_TIMEOUT_SECONDS."
+        )
+
+    hint_text = " " + " ".join(hints) if hints else ""
+    return f"Local inference request failed for {url}: {message}.{hint_text}".strip()
 
 
 def _resolve_settings(settings: Optional[Settings]) -> Settings:
@@ -52,6 +95,15 @@ def chat_with_ai(
     )
     target_model = model or _default_model_for_provider(provider_name, settings)
 
+    if not target_model:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No model configured for provider. Set LLM_MODEL or the provider-specific "
+                "model setting (e.g. LOCAL_LLM_MODEL / DEFAULT_LOCAL_MODEL)."
+            ),
+        )
+
     if provider_name == "local":
         return call_local(messages, target_model, settings=settings)
     if provider_name == "groq":
@@ -76,6 +128,7 @@ def _resolve_local_base(settings: Settings) -> str:
             status_code=400, detail="LOCAL_BASE_URL is not configured"
         )
     base_url = base_url.rstrip("/")
+    # Normalize accidental trailing `/v1/` (already stripped) and keep explicit versioned paths.
     if base_url.endswith("/v1"):
         return base_url
     return f"{base_url}/v1"
@@ -106,7 +159,8 @@ def call_local(
         payload["max_tokens"] = int(max_tokens)
     base_url = _resolve_local_base(settings)
     url = f"{base_url}/chat/completions"
-    request_timeout = 30 if timeout is None else float(timeout)
+    default_timeout = getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 60)
+    request_timeout = default_timeout if timeout is None else float(timeout)
 
     try:
         response = requests.post(
@@ -115,7 +169,16 @@ def call_local(
         response.raise_for_status()
         data = json.loads(response.content.decode("utf-8"))
         return data["choices"][0]["message"]["content"]
+    except req_exc.RequestException as e:
+        # requests-level failures: DNS, connect, timeout, etc.
+        detail = _format_local_connect_error(url, e)
+        if log_exceptions:
+            logger.exception(detail)
+        else:
+            logger.warning(detail)
+        raise HTTPException(status_code=502, detail=detail)
     except Exception as e:
+        # Non-request exceptions (e.g. JSON decode, unexpected payload shape)
         if log_exceptions:
             logger.exception("Local backend error")
         else:
@@ -186,6 +249,10 @@ def stream_local(
                         yield token
                 except Exception:
                     continue
+    except req_exc.RequestException as e:
+        detail = _format_local_connect_error(url, e)
+        logger.exception(detail)
+        raise HTTPException(status_code=502, detail=detail)
     except Exception as e:
         logger.exception("Local backend stream error")
         raise HTTPException(status_code=502, detail=str(e))
