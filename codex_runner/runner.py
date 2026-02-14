@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +52,76 @@ TASK_RESULT_JSON_BLOCK_PATTERN = re.compile(
 
 class RunnerError(RuntimeError):
     pass
+
+
+# Helper: Parse Codex API error payloads from stderr/stdout (429, usage_limit, etc)
+def _maybe_parse_codex_error_payload(text: str) -> dict[str, Any] | None:
+    """Best-effort extraction of Codex API error JSON embedded in stderr/stdout.
+
+    Codex sometimes prints an escaped JSON payload inside a wrapper like:
+      http 429 Too Many Requests: Some("{\"error\":{...}}")
+
+    This returns the decoded JSON dict if found, otherwise None.
+    """
+    if not text:
+        return None
+
+    # 1) Try to find a raw JSON object that contains an "error" key.
+    json_match = re.search(r"(\{\s*\"error\"\s*:\s*\{.*\}\s*\})", text)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # 2) Try to find an escaped JSON payload inside Some("...")
+    some_match = re.search(r"Some\\(\"(?P<payload>\\{.*?\\})\"\\)", text)
+    if some_match:
+        payload_escaped = some_match.group("payload")
+        try:
+            # The payload is typically backslash-escaped.
+            payload = payload_escaped.encode("utf-8").decode("unicode_escape")
+            return json.loads(payload)
+        except Exception:
+            return None
+
+    return None
+
+
+def _format_codex_usage_limit_note(payload: dict[str, Any] | None) -> str:
+    if not payload:
+        return ""
+    err = payload.get("error")
+    if not isinstance(err, dict):
+        return ""
+    if err.get("type") != "usage_limit_reached":
+        return ""
+
+    resets_at = err.get("resets_at")
+    resets_in = err.get("resets_in_seconds")
+    plan_type = err.get("plan_type")
+
+    parts: list[str] = []
+    if plan_type:
+        parts.append(f"plan_type={plan_type}")
+
+    if isinstance(resets_at, int):
+        try:
+            dt = datetime.fromtimestamp(resets_at)
+            parts.append(
+                f"resets_at={dt.isoformat(sep=' ', timespec='seconds')}"
+            )
+        except Exception:
+            parts.append(f"resets_at={resets_at}")
+
+    if isinstance(resets_in, int):
+        parts.append(f"resets_in_seconds={resets_in}")
+
+    return (
+        "\nNOTE: usage_limit_reached (" + ", ".join(parts) + ")"
+        if parts
+        else "\nNOTE: usage_limit_reached"
+    )
 
 
 # Logging helper: prints to STDERR
@@ -161,29 +231,78 @@ def append_text_file(path: Path, content: str) -> None:
 
 
 def run_codex_exec(
-    prompt_file: Path, output_schema: Path, output_path: Path
+    prompt_file: Path,
+    output_schema: Path,
+    output_path: Path,
+    *,
+    model: str | None = None,
+    config_overrides: list[str] | None = None,
 ) -> None:
     prompt_text = prompt_file.read_text(encoding="utf-8")
-    result = run_cmd(
+
+    cmd: list[str] = ["codex"]
+    if model:
+        cmd.extend(["--model", model])
+    if config_overrides:
+        for cfg in config_overrides:
+            if cfg:
+                cmd.extend(["--config", cfg])
+
+    cmd.extend(
         [
-            "codex",
             "exec",
             "--output-schema",
             str(output_schema),
             "-o",
             str(output_path),
             prompt_text,
-        ],
-        capture_output=True,
+        ]
     )
+
+    result = run_cmd(cmd, capture_output=True)
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         stdout = (result.stdout or "").strip()
+        combined = "\n".join([s for s in [stderr, stdout] if s])
+        parsed = _maybe_parse_codex_error_payload(combined)
+        note = _format_codex_usage_limit_note(parsed)
         raise RunnerError(
             "codex exec failed"
             + (f"\nSTDERR:\n{stderr}" if stderr else "")
             + (f"\nSTDOUT:\n{stdout}" if stdout else "")
+            + (
+                f"\nPARSED_ERROR:\n{json.dumps(parsed, indent=2)}"
+                if parsed
+                else ""
+            )
+            + note
         )
+
+
+# --------- Model selection helper for tasks ---------
+
+
+def select_task_model(
+    args: argparse.Namespace, task: dict[str, Any]
+) -> str | None:
+    """Pick the Codex model for a task.
+
+    Priority:
+      1) risk-specific flags if task includes a risk field (HIGH|MED|LOW)
+      2) --codex-model-task
+      3) --codex-model (global)
+    """
+    risk = str(task.get("risk") or "").strip().lower()
+    if risk in {"high", "h"} and getattr(args, "task_model_high", None):
+        return args.task_model_high
+    if risk in {"med", "medium", "m"} and getattr(args, "task_model_med", None):
+        return args.task_model_med
+    if risk in {"low", "l"} and getattr(args, "task_model_low", None):
+        return args.task_model_low
+
+    return getattr(args, "codex_model_task", None) or getattr(
+        args, "codex_model", None
+    )
 
 
 def slugify_branch(value: str) -> str:
@@ -195,6 +314,14 @@ def slugify_branch(value: str) -> str:
 
 
 # -------- RUNNER ARTIFACT PATHS + PROMPT RENDERING HELPERS --------
+
+
+def runner_failure_receipt_path(cycle_index: int) -> Path:
+    today = date.today().strftime("%Y_%m_%d")
+    return (
+        Path("docs/reports/runner")
+        / f"RUNNER_FAILURE_{today}_cycle_{cycle_index:03d}.md"
+    )
 
 
 def upper_snake(value: str) -> str:
@@ -588,7 +715,149 @@ def git_commit_amend(paths: list[str], no_verify: bool) -> str:
     return git_head_commit()
 
 
-def execute_task(task: dict[str, Any]) -> dict[str, Any]:
+# --------- Macro CLI (presets + loose tokens) ---------
+
+PRESET_CHOICES = ("high", "medium", "low")
+
+# Opinionated defaults. Power users can override any of these with explicit flags.
+PRESET_DEFAULTS: dict[str, dict[str, Any]] = {
+    # Highest quality / most expensive
+    "high": {
+        "codex_model": "gpt-5-codex",
+        "codex_model_audit": None,
+        "codex_model_compiler": None,
+        "codex_model_task": None,
+        # Config is appended; users can still pass their own --codex-config.
+        "codex_config": ["model_reasoning_effort='\"high\"'"],
+    },
+    # Balanced: cheaper planning, strong task execution
+    "medium": {
+        "codex_model": None,
+        "codex_model_audit": "gpt-4.1",
+        "codex_model_compiler": "gpt-4.1",
+        "codex_model_task": "gpt-5-codex",
+        "codex_config": ["model_reasoning_effort='\"medium\"'"],
+    },
+    # Cheapest: mostly for quick iterations / wiring validation
+    "low": {
+        "codex_model": "gpt-4.1",
+        "codex_model_audit": None,
+        "codex_model_compiler": None,
+        "codex_model_task": None,
+        "codex_config": ["model_reasoning_effort='\"low\"'"],
+    },
+}
+
+
+def normalize_macro_argv(argv: list[str]) -> list[str]:
+    """Allow a loose, wordy CLI on top of argparse.
+
+    Examples:
+      codex_runner high cycles 4 no verify branch
+      codex_runner medium execute dry-run
+
+    This transforms common tokens into the canonical flags argparse understands.
+    """
+    if not argv:
+        return argv
+
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        low = tok.lower()
+
+        # Preset as a bare token (only if it's the first non-flag-ish thing)
+        if low in PRESET_CHOICES and not out:
+            out.extend(["--preset", low])
+            i += 1
+            continue
+
+        # Allow: cycles 4
+        if low in {"cycles", "cycle"} and i + 1 < len(argv):
+            out.extend(["--cycles", argv[i + 1]])
+            i += 2
+            continue
+
+        # Allow: execute / run
+        if low in {"execute", "run"}:
+            out.append("--execute")
+            i += 1
+            continue
+
+        # Allow: dry / dry-run
+        if low in {"dry", "dry-run", "dryrun"}:
+            out.append("--dry-run")
+            i += 1
+            continue
+
+        # Allow: verify / no verify
+        if low == "verify":
+            out.append("--verify")
+            i += 1
+            continue
+        if (
+            low == "no"
+            and i + 1 < len(argv)
+            and argv[i + 1].lower() == "verify"
+        ):
+            out.append("--no-verify")
+            i += 2
+            continue
+        if low in {"no-verify", "noverify", "nover"}:
+            out.append("--no-verify")
+            i += 1
+            continue
+
+        # Allow: branch (opinionated: stay on campaign branch after each cycle)
+        if low in {"branch", "stay"}:
+            out.append("--no-return-to-base-branch")
+            i += 1
+            continue
+        if low in {"return", "base"}:
+            out.append("--return-to-base-branch")
+            i += 1
+            continue
+
+        out.append(tok)
+        i += 1
+
+    return out
+
+
+def apply_preset(args: argparse.Namespace) -> None:
+    """Apply --preset defaults without clobbering explicit user flags."""
+    preset = (getattr(args, "preset", None) or "").strip().lower()
+    if not preset:
+        return
+    if preset not in PRESET_DEFAULTS:
+        raise RunnerError(f"Unknown preset: {preset}")
+
+    defaults = PRESET_DEFAULTS[preset]
+
+    # Models: only fill if user did not specify.
+    if not args.codex_model and defaults.get("codex_model"):
+        args.codex_model = defaults["codex_model"]
+    if not args.codex_model_audit and defaults.get("codex_model_audit"):
+        args.codex_model_audit = defaults["codex_model_audit"]
+    if not args.codex_model_compiler and defaults.get("codex_model_compiler"):
+        args.codex_model_compiler = defaults["codex_model_compiler"]
+    if not args.codex_model_task and defaults.get("codex_model_task"):
+        args.codex_model_task = defaults["codex_model_task"]
+
+    # Config: preset config is prepended so user overrides can come later.
+    preset_cfg = defaults.get("codex_config") or []
+    if preset_cfg:
+        merged: list[str] = []
+        for item in list(preset_cfg) + list(args.codex_config or []):
+            if item and item not in merged:
+                merged.append(item)
+        args.codex_config = merged
+
+
+def execute_task(
+    args: argparse.Namespace, task: dict[str, Any]
+) -> dict[str, Any]:
     """Run a single task activation prompt via Codex and return the structured result.
 
     Note: the task agent may or may not perform the git commit itself. The runner is
@@ -600,7 +869,13 @@ def execute_task(task: dict[str, Any]) -> dict[str, Any]:
         prompt_path = tmp_path / "activation_prompt.md"
         output_path = tmp_path / "task_result.json"
         prompt_path.write_text(task["activation_prompt"], encoding="utf-8")
-        run_codex_exec(prompt_path, TASK_RESULT_SCHEMA_PATH, output_path)
+        run_codex_exec(
+            prompt_path,
+            TASK_RESULT_SCHEMA_PATH,
+            output_path,
+            model=select_task_model(args, task),
+            config_overrides=args.codex_config,
+        )
         return read_json_file(output_path)
 
 
@@ -615,40 +890,83 @@ def run_cycle(
     )
 
     # Two-stroke pipeline: MEGA audit JSON -> campaign compiler JSON
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
 
-        mega_out = tmp_path / "mega_audit_output.json"
-        run_codex_exec(
-            args.mega_audit_prompt_file, MEGA_AUDIT_SCHEMA_PATH, mega_out
+            mega_out = tmp_path / "mega_audit_output.json"
+            run_codex_exec(
+                args.mega_audit_prompt_file,
+                MEGA_AUDIT_SCHEMA_PATH,
+                mega_out,
+                model=args.codex_model_audit or args.codex_model,
+                config_overrides=args.codex_config,
+            )
+            mega_payload = read_json_file(mega_out)
+
+            compiler_prompt_text = render_compiler_prompt(
+                args.campaign_compiler_prompt_file, Path.cwd(), mega_payload
+            )
+            compiler_prompt_path = tmp_path / "campaign_compiler_prompt.md"
+            compiler_prompt_path.write_text(
+                compiler_prompt_text, encoding="utf-8"
+            )
+
+            campaign_out = tmp_path / "campaign_output.json"
+            run_codex_exec(
+                compiler_prompt_path,
+                CAMPAIGN_SCHEMA_PATH,
+                campaign_out,
+                model=args.codex_model_compiler or args.codex_model,
+                config_overrides=args.codex_config,
+            )
+            payload = read_json_file(campaign_out)
+    except Exception as exc:
+        # Always produce a deterministic receipt artifact for operators.
+        receipt_path = runner_failure_receipt_path(cycle_index)
+        head = git_head_commit()
+        branch = git_current_branch()
+        content = (
+            "# Runner Failure Receipt\n\n"
+            f"- Date: {date.today().isoformat()}\n"
+            f"- Cycle: {cycle_index}\n"
+            f"- Branch: {branch}\n"
+            f"- Head: {head}\n\n"
+            "## Error\n\n"
+            f"```\n{str(exc)}\n```\n"
         )
-        mega_payload = read_json_file(mega_out)
-
-        compiler_prompt_text = render_compiler_prompt(
-            args.campaign_compiler_prompt_file, Path.cwd(), mega_payload
-        )
-        compiler_prompt_path = tmp_path / "campaign_compiler_prompt.md"
-        compiler_prompt_path.write_text(compiler_prompt_text, encoding="utf-8")
-
-        campaign_out = tmp_path / "campaign_output.json"
-        run_codex_exec(compiler_prompt_path, CAMPAIGN_SCHEMA_PATH, campaign_out)
-        payload = read_json_file(campaign_out)
+        write_text_file(receipt_path, content)
+        if args.auto_commit:
+            git_commit(
+                [str(receipt_path)],
+                f"runner: failure receipt cycle {cycle_index:03d}",
+                args.no_verify,
+            )
+            ensure_clean_git("after runner failure receipt commit")
+        raise
 
     validate_campaign_payload(payload)
 
     campaign_slug = payload.get("campaign_slug", "")
-    if not campaign_slug:
-        raise RunnerError("campaign_slug is required for branch-per-campaign")
-    if not git_is_clean():
-        raise RunnerError(
-            "git tree is not clean before switching campaign branch"
-        )
-    campaign_branch = campaign_branch_name(campaign_slug)
-    log(f"Switching to campaign branch: {campaign_branch}")
-    switch_branch(campaign_branch)
-    ensure_clean_git("after switching campaign branch")
 
-    campaign_doc_path = canonical_campaign_doc_path(campaign_slug)
+    if args.branch_per_campaign:
+        if not campaign_slug:
+            raise RunnerError(
+                "campaign_slug is required for branch-per-campaign"
+            )
+        if not git_is_clean():
+            raise RunnerError(
+                "git tree is not clean before switching campaign branch"
+            )
+        campaign_branch = campaign_branch_name(campaign_slug)
+        log(f"Switching to campaign branch: {campaign_branch}")
+        switch_branch(campaign_branch)
+        ensure_clean_git("after switching campaign branch")
+
+    safe_campaign_slug = (
+        campaign_slug or payload.get("campaign_id", "campaign") or "campaign"
+    )
+    campaign_doc_path = canonical_campaign_doc_path(str(safe_campaign_slug))
     write_text_file(campaign_doc_path, payload["campaign_markdown"])
 
     # Write task artifacts, reusing existing docs when an exact or semantic
@@ -724,7 +1042,7 @@ def run_cycle(
 
             try:
                 log(f"Executing task {task_id}...")
-                result = execute_task(task)
+                result = execute_task(args, task)
 
                 # If the agent left changes, the runner commits them as the implementation commit.
                 if not git_is_clean():
@@ -851,19 +1169,90 @@ def parse_args() -> argparse.Namespace:
         help="Path to the audit→campaign compiler prompt file (ingests MEGA audit JSON, outputs campaign_output JSON).",
     )
     parser.add_argument(
+        "--preset",
+        choices=PRESET_CHOICES,
+        default=None,
+        help=(
+            "Optional macro preset for common configurations: high, medium, low. "
+            "You can also pass the preset as a bare first token, e.g. `codex_runner high ...`."
+        ),
+    )
+    parser.add_argument(
+        "--codex-model",
+        dest="codex_model",
+        default=None,
+        help=(
+            "Optional. Codex model to use for all stages unless overridden by a stage-specific flag. "
+            "Example: gpt-5-codex, gpt-5.2, gpt-4.1"
+        ),
+    )
+    parser.add_argument(
+        "--codex-model-audit",
+        dest="codex_model_audit",
+        default=None,
+        help="Optional. Override model for the MEGA audit stage.",
+    )
+    parser.add_argument(
+        "--codex-model-compiler",
+        dest="codex_model_compiler",
+        default=None,
+        help="Optional. Override model for the campaign compiler stage.",
+    )
+    parser.add_argument(
+        "--codex-model-task",
+        dest="codex_model_task",
+        default=None,
+        help="Optional. Override model for task execution (unless risk-specific flags are used).",
+    )
+    parser.add_argument(
+        "--task-model-high",
+        dest="task_model_high",
+        default=None,
+        help="Optional. Model override when task risk is HIGH.",
+    )
+    parser.add_argument(
+        "--task-model-med",
+        dest="task_model_med",
+        default=None,
+        help="Optional. Model override when task risk is MED/MEDIUM.",
+    )
+    parser.add_argument(
+        "--task-model-low",
+        dest="task_model_low",
+        default=None,
+        help="Optional. Model override when task risk is LOW.",
+    )
+    parser.add_argument(
+        "--codex-config",
+        dest="codex_config",
+        action="append",
+        default=[],
+        help=(
+            "Optional. Pass-through Codex config override(s). Repeatable. "
+            "Values are TOML, e.g. --codex-config model_reasoning_effort='\"low\"'"
+        ),
+    )
+    parser.add_argument(
         "--cycles",
         type=int,
         default=1,
         help="Number of audit cycles to run.",
     )
-    parser.add_argument(
+    branch_group = parser.add_mutually_exclusive_group()
+    branch_group.add_argument(
         "--branch-per-campaign",
+        dest="branch_per_campaign",
         action="store_true",
         default=True,
         help=(
-            "Required. Create/switch to a branch per campaign using "
-            "campaign_slug (default behavior)."
+            "Create/switch to a branch per campaign using campaign_slug (default)."
         ),
+    )
+    branch_group.add_argument(
+        "--no-branch-per-campaign",
+        dest="branch_per_campaign",
+        action="store_false",
+        help="Disable branch-per-campaign behavior.",
     )
     return_group = parser.add_mutually_exclusive_group()
     return_group.add_argument(
@@ -922,7 +1311,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Generate artifacts but skip task execution.",
     )
-    return parser.parse_args()
+    argv = normalize_macro_argv(sys.argv[1:])
+    args = parser.parse_args(argv)
+    apply_preset(args)
+    return args
 
 
 def main() -> int:

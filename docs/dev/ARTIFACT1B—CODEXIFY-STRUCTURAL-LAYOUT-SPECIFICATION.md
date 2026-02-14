@@ -281,6 +281,22 @@ Height: 100%
 
 No extra wrappers outside token-approved structure
 
+Session Pill Rail (implemented):
+
+Placement:
+
+Directly below the Guardian header and above the message region/composer rail.
+
+Responsibilities:
+
+Tabs are session-layer state only (not global app navigation).
+
+Left side is a horizontally scrollable tab-pill strip (open tabs + active tab).
+
+Right side is a utility cluster: model picker, New Tab (+), overflow menu.
+
+Rail interactions MUST dispatch SessionSpine intents; rail components MUST NOT mutate tab/session state directly.
+
 B. DOCUMENTS VIEW
 
 2-column split:

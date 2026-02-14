@@ -15,6 +15,13 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import useImprintZero from "@/imprint/useImprintZero";
 import ImprintZeroToast from "@/imprint/ImprintZeroToast";
+import { RedisSessionStateStore } from "@/state/session/SessionStateStore";
+import { SessionSpine } from "@/state/session/SessionSpine";
+import {
+  DEFAULT_MODEL_ID,
+  type SessionState,
+  type TabId,
+} from "@/state/session/types";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -31,6 +38,20 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
     && (a.parentId ?? null) === (b.parentId ?? null)
     && (a.archivedAt ?? null) === (b.archivedAt ?? null);
 };
+
+const DEVICE_ID_STORAGE_KEY = "cfy.deviceId";
+
+function getOrCreateDeviceId(): string {
+  if (typeof window === "undefined") return "server-device";
+  const existing = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+  if (existing && existing.trim()) return existing.trim();
+  const generated =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `device-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  window.localStorage.setItem(DEVICE_ID_STORAGE_KEY, generated);
+  return generated;
+}
 
 
 export default function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillConsumed, onWorkspaceToggle }) {
@@ -61,6 +82,9 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
+  const [sessionSpine, setSessionSpine] = React.useState<SessionSpine | null>(null);
+  const [sessionState, setSessionState] = React.useState<SessionState | null>(null);
+  const [sessionReady, setSessionReady] = React.useState(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
   const imprintZero = useImprintZero();
@@ -71,6 +95,78 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     if (match && match[1]) return match[1];
     return null;
   }, []);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    let mounted = true;
+    const store = new RedisSessionStateStore();
+    const spine = new SessionSpine({
+      userId: (userName || "default").trim() || "default",
+      deviceId: getOrCreateDeviceId(),
+      store,
+      defaultModelId: DEFAULT_MODEL_ID,
+    });
+
+    const unsubscribe = spine.subscribe((next) => {
+      if (!mounted) return;
+      setSessionState(next);
+    });
+
+    setSessionSpine(spine);
+    void spine
+      .hydrate({
+        threadId: resolveRouteThreadId() ?? undefined,
+        modelId: DEFAULT_MODEL_ID,
+      })
+      .finally(() => {
+        if (mounted) setSessionReady(true);
+      });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [resolveRouteThreadId, userName]);
+
+  const activeSessionTab = React.useMemo(() => {
+    if (!sessionState) return null;
+    return (
+      sessionState.tabs.find((tab) => tab.tabId === sessionState.activeTabId) ??
+      null
+    );
+  }, [sessionState]);
+  const activeSessionTabId = activeSessionTab?.tabId ?? null;
+  const activeSessionModelId = activeSessionTab?.modelId ?? DEFAULT_MODEL_ID;
+  const activeSessionDraft =
+    activeSessionTabId && sessionState?.drafts
+      ? sessionState.drafts[activeSessionTabId] ?? ""
+      : "";
+
+  React.useEffect(() => {
+    if (!sessionReady || !activeSessionTab) return;
+    const targetThreadId = activeSessionTab.threadId ?? null;
+    if (targetThreadId === activeId) return;
+    setActiveId(targetThreadId);
+    if (typeof window !== "undefined") {
+      if (targetThreadId) {
+        window.history.pushState({}, "", `/chat/${targetThreadId}`);
+      } else {
+        window.history.pushState({}, "", "/chat");
+      }
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+  }, [activeId, activeSessionTab, sessionReady]);
+
+  React.useEffect(() => {
+    if (!sessionReady || !sessionSpine || !activeSessionTabId) return;
+    if (!activeId) return;
+    const activeThread = threads.find((thread) => thread.id === activeId);
+    sessionSpine.tabSetThread(
+      activeSessionTabId,
+      activeId,
+      activeThread?.title || undefined
+    );
+  }, [activeId, activeSessionTabId, sessionReady, sessionSpine, threads]);
   // Workspace panel toggle event listener
   React.useEffect(() => {
     const onToggleWorkspace = () => {
@@ -252,6 +348,33 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     }
   }, [mapThreadRecord, userName, guardianName]);
 
+  const handleSessionTabOpen = React.useCallback(() => {
+    if (!sessionSpine) {
+      void handleNewChat();
+      return;
+    }
+    const current = threads.find((thread) => thread.id === activeId);
+    sessionSpine.tabOpen(activeId ?? undefined, current?.title);
+  }, [activeId, handleNewChat, sessionSpine, threads]);
+
+  const handleSessionTabActivate = React.useCallback((tabId: TabId) => {
+    sessionSpine?.tabActivate(tabId);
+  }, [sessionSpine]);
+
+  const handleSessionTabClose = React.useCallback((tabId: TabId) => {
+    sessionSpine?.tabClose(tabId);
+  }, [sessionSpine]);
+
+  const handleSessionModelChange = React.useCallback((modelId: string) => {
+    if (!sessionSpine || !activeSessionTabId) return;
+    sessionSpine.tabSetModel(activeSessionTabId, modelId);
+  }, [activeSessionTabId, sessionSpine]);
+
+  const handleSessionDraftChange = React.useCallback((text: string) => {
+    if (!sessionSpine || !activeSessionTabId) return;
+    sessionSpine.tabSetDraft(activeSessionTabId, text);
+  }, [activeSessionTabId, sessionSpine]);
+
   // Heuristic prompt detector
   function isLikelyPrompt(text: string): boolean {
     if (!text) return false;
@@ -425,11 +548,15 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   const handleSelectThread = React.useCallback((id: string) => {
     setActiveId(id);
+    if (sessionSpine && activeSessionTabId) {
+      const selected = threads.find((thread) => thread.id === id);
+      sessionSpine.tabSetThread(activeSessionTabId, id, selected?.title);
+    }
     if (typeof window !== "undefined") {
       window.history.pushState({}, "", `/chat/${id}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
     }
-  }, []);
+  }, [activeSessionTabId, sessionSpine, threads]);
 
 
   // Guarantee at least one thread exists and is active (on mount or when threads/activeId changes)
@@ -938,8 +1065,20 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   onArchiveThread={handleArchiveThread}
                   onSidebarToggle={toggleSidebar}
                   isSidebarVisible={isSidebarOpen}
+                  sessionTabs={sessionState?.tabs ?? []}
+                  activeSessionTabId={sessionState?.activeTabId ?? null}
+                  activeModelId={activeSessionModelId}
+                  activeDraft={activeSessionDraft}
+                  onSessionTabActivate={handleSessionTabActivate}
+                  onSessionTabClose={handleSessionTabClose}
+                  onSessionTabOpen={handleSessionTabOpen}
+                  onSessionModelChange={handleSessionModelChange}
+                  onSessionDraftChange={handleSessionDraftChange}
                   onBack={() => {
                     setActiveId(null);
+                    if (sessionSpine && activeSessionTabId) {
+                      sessionSpine.tabSetThread(activeSessionTabId, undefined, "New Chat");
+                    }
                     if (typeof window !== "undefined") {
                       window.history.pushState({}, "", "/guardian");
                     }

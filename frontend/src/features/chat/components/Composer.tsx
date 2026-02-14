@@ -46,6 +46,8 @@ export function Composer({
   threadId,
   isSending,
   isTurnInFlight,
+  draftValue,
+  onDraftValueChange,
 }: {
   onSend: (t: string) => Promise<void> | void;
   prefill?: string;
@@ -53,11 +55,16 @@ export function Composer({
   threadId?: number;
   isSending?: boolean;
   isTurnInFlight?: boolean;
+  draftValue?: string;
+  onDraftValueChange?: (value: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
   // Initialize with saved draft if available
   const [value, setValue] = useState(() => {
+    if (typeof draftValue === "string") {
+      return draftValue;
+    }
     if (threadId && typeof window !== "undefined") {
       try {
         const saved = sessionStorage.getItem(`composer-draft-${threadId}`);
@@ -92,8 +99,15 @@ export function Composer({
     showToast("One moment—finish the current reply first.");
   };
 
+  useEffect(() => {
+    if (typeof draftValue !== "string") return;
+    if (draftValue === value) return;
+    setValue(draftValue);
+  }, [draftValue, value]);
+
   // Auto-save draft to sessionStorage
   useEffect(() => {
+    if (onDraftValueChange) return;
     if (threadId && typeof window !== "undefined") {
       try {
         if (value.trim()) {
@@ -103,7 +117,7 @@ export function Composer({
         }
       } catch {}
     }
-  }, [value, threadId]);
+  }, [onDraftValueChange, value, threadId]);
 
   // Revoke object URLs on unmount to avoid leaking blob URLs.
   useEffect(() => {
@@ -241,10 +255,11 @@ export function Composer({
   useEffect(() => {
     if (prefill && prefill !== value) {
       setValue(prefill);
+      onDraftValueChange?.(prefill);
       setTimeout(() => ref.current?.focus(), 0);
       onPrefillConsumed && onPrefillConsumed();
     }
-  }, [prefill]);
+  }, [onDraftValueChange, onPrefillConsumed, prefill, value]);
   async function send() {
     if (effectiveSending || uploading) return;
     if (turnLocked) {
@@ -281,6 +296,7 @@ export function Composer({
 
       // Clear the draft after a successful send.
       setValue("");
+      onDraftValueChange?.("");
       setDraftAttachments((prev) => {
         for (const attachment of prev) {
           if (attachment.previewUrl) {
@@ -370,7 +386,11 @@ export function Composer({
             <Textarea
               ref={ref}
               value={value}
-              onChange={(e) => setValue(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setValue(next);
+                onDraftValueChange?.(next);
+              }}
               placeholder="Write a message…"
               onPaste={onPaste}
               onKeyDown={(e) => {
