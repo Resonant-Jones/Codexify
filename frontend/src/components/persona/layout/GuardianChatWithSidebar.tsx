@@ -135,6 +135,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       null
     );
   }, [sessionState]);
+  const sessionControlsThreadSelection = sessionReady && Boolean(activeSessionTab);
   const activeSessionTabId = activeSessionTab?.tabId ?? null;
   const activeSessionModelId = activeSessionTab?.modelId ?? DEFAULT_MODEL_ID;
   const activeSessionDraft =
@@ -567,10 +568,20 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       void handleNewChat();
       return;
     }
+    // Once session hydration completes, SessionSpine owns active thread selection.
+    if (sessionControlsThreadSelection) {
+      return;
+    }
     if (!activeId) {
       setActiveId(threads[0]?.id ?? null);
     }
-  }, [threadsLoaded, threads.length, activeId, handleNewChat]); // Depend on length, not array identity
+  }, [
+    sessionControlsThreadSelection,
+    threadsLoaded,
+    threads.length,
+    activeId,
+    handleNewChat,
+  ]); // Depend on length, not array identity
 
   React.useEffect(() => {
     const onPopstate = () => {
@@ -591,6 +602,20 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     // Always return a usable thread object for GuardianChat
     let found = threads.find((t) => t.id === activeId) || null;
     if (found) return found;
+    // A tab with no bound thread intentionally represents "new chat".
+    if (!activeId) {
+      return {
+        id: "temp",
+        title: "New Chat",
+        lastMessage: "",
+        unread: 0,
+        participants: [
+          { id: "me", name: userName || "You" },
+          { id: "bot", name: guardianName || "Guardian" },
+        ],
+        messages: [],
+      };
+    }
     if (threads.length > 0) return threads[0];
     // Fallback to a synthetic blank thread
     return {

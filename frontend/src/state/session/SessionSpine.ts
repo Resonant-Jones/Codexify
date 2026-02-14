@@ -72,7 +72,12 @@ export class SessionSpine {
   }
 
   async hydrate(options: HydrateOptions = {}): Promise<SessionState> {
-    const loaded = await this.store.getSessionState(this.userId, this.deviceId);
+    let loaded: SessionState | null = null;
+    try {
+      loaded = await this.store.getSessionState(this.userId, this.deviceId);
+    } catch (error) {
+      console.warn("[session] failed to hydrate state; using defaults", error);
+    }
     const next = loaded
       ? this.normalizeState(loaded)
       : this.createDefaultState(options);
@@ -201,12 +206,17 @@ export class SessionSpine {
     });
   }
 
-  tabSetThread(tabId: TabId, threadId?: string, title?: string): void {
+  tabSetThread(
+    tabId: TabId,
+    threadId?: string | null,
+    title?: string | null
+  ): void {
     this.mutate((current) => {
       const tab = current.tabs.find((candidate) => candidate.tabId === tabId);
       if (!tab) return;
       const nextThreadId = threadId?.trim() || undefined;
-      const nextTitle = title?.trim() || tab.title;
+      const providedTitle = title?.trim() || undefined;
+      const nextTitle = providedTitle ?? (nextThreadId ? tab.title : undefined);
       if (tab.threadId === nextThreadId && tab.title === nextTitle) return;
       tab.threadId = nextThreadId;
       tab.title = nextTitle;
