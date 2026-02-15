@@ -71,6 +71,11 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _session_cache_client() -> Any:
+    """Always resolve cache client via the shared redis_queue factory."""
+    return get_redis_client()
+
+
 def _decode_cached_json(raw: Any) -> Any | None:
     """Decode JSON payloads from cache/redis safely.
 
@@ -230,7 +235,7 @@ def get_ui_session(
 ) -> dict[str, Any]:
     _ = api_key
     key = make_session_key(user_id, device_id)
-    client = get_redis_client()
+    client = _session_cache_client()
     try:
         raw = client.get(key)
     except Exception as exc:  # pragma: no cover - network/runtime failure path
@@ -270,7 +275,7 @@ def set_ui_session(
     ttl_seconds = _resolve_ttl(body.ttl_seconds)
     payload = json.dumps(state, separators=(",", ":"), default=str)
 
-    client = get_redis_client()
+    client = _session_cache_client()
     try:
         client.setex(key, ttl_seconds, payload)
     except Exception as exc:  # pragma: no cover - network/runtime failure path
@@ -285,7 +290,7 @@ def patch_ui_session(
 ) -> dict[str, Any]:
     _ = api_key
     key = make_session_key(body.user_id, body.device_id)
-    client = get_redis_client()
+    client = _session_cache_client()
     try:
         raw = client.get(key)
     except Exception as exc:  # pragma: no cover - network/runtime failure path
@@ -326,7 +331,7 @@ def delete_ui_session(
 ) -> dict[str, Any]:
     _ = api_key
     key = make_session_key(user_id, device_id)
-    client = get_redis_client()
+    client = _session_cache_client()
     try:
         client.delete(key)
     except Exception as exc:  # pragma: no cover - network/runtime failure path
