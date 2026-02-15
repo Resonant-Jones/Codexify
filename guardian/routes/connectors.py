@@ -578,7 +578,11 @@ async def _run_db(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
-router = APIRouter(prefix="/api/connectors", tags=["Connectors"])
+router = APIRouter(
+    prefix="/api/connectors",
+    tags=["Connectors"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @router.get("")
@@ -680,7 +684,7 @@ def connector_status(connector_name: str) -> Dict[str, Any]:
 
 
 @router.post("/{name}/ingest")
-def api_ingest_connector(name: str, api_key: str = Depends(require_api_key)):
+def api_ingest_connector(name: str):
     """One-shot transform of GitHub raw_documents -> memory_entries for this connector.
     Returns insert count and totals; also emits a `memory.ingest` SSE event via the durable outbox.
     """

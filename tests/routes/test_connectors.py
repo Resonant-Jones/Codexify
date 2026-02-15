@@ -12,10 +12,15 @@ Tests:
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from guardian.core.auth import issue_session_token
 
 # Import functions to test
 from guardian.routes.connectors import (
@@ -29,6 +34,7 @@ from guardian.routes.connectors import (
     _connector_worker,
     get_connector_worker_stats,
 )
+from guardian.routes.connectors import router as connectors_router
 
 
 class TestBackoffCalculation:
@@ -435,3 +441,84 @@ class TestConnectorWorkerStats:
             assert stats["poll_cycles"] >= 1
             assert stats["empty_config_cycles"] >= 1
             assert stats["db_errors"] == 0  # No errors in this test
+
+
+@contextmanager
+def _connectors_client(
+    monkeypatch,
+    *,
+    exposure_mode: str,
+    auth_mode: str,
+    api_key: str = "local-test-key",
+    session_secret: str | None = None,
+):
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", exposure_mode)
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", auth_mode)
+    monkeypatch.setenv("GUARDIAN_API_KEY", api_key)
+    if session_secret is not None:
+        monkeypatch.setenv("GUARDIAN_SESSION_SECRET", session_secret)
+    else:
+        monkeypatch.delenv("GUARDIAN_SESSION_SECRET", raising=False)
+    monkeypatch.delenv("GUARDIAN_JWT_SECRET", raising=False)
+
+    mock_db = MagicMock()
+    mock_db.list_connector_configs_with_last_run.return_value = []
+
+    with patch("guardian.routes.connectors.chatlog_db", mock_db):
+        app = FastAPI()
+        app.include_router(connectors_router)
+        with TestClient(app) as client:
+            yield client
+
+
+def test_connectors_public_allowlist_rejects_unauthenticated_requests(
+    monkeypatch,
+):
+    with _connectors_client(
+        monkeypatch,
+        exposure_mode="public_allowlist",
+        auth_mode="local",
+        session_secret="remote-session-secret",
+    ) as client:
+        response = client.get("/api/connectors")
+
+    assert response.status_code == 401
+    assert "session/jwt" in str(response.json().get("detail", "")).lower()
+
+
+def test_connectors_local_safe_accepts_local_dev_api_key(monkeypatch):
+    with _connectors_client(
+        monkeypatch,
+        exposure_mode="local_safe",
+        auth_mode="local",
+        api_key="local-test-key",
+    ) as client:
+        response = client.get(
+            "/api/connectors", headers={"X-API-Key": "local-test-key"}
+        )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_connectors_public_allowlist_accepts_valid_bearer(monkeypatch):
+    with _connectors_client(
+        monkeypatch,
+        exposure_mode="public_allowlist",
+        auth_mode="local",
+        session_secret="remote-session-secret",
+    ) as client:
+        session_token, _expires = issue_session_token(
+            subject="connectors-route-auth-test",
+            ttl_seconds=60,
+        )
+        response = client.get(
+            "/api/connectors",
+            headers={
+                "Authorization": f"Bearer {session_token}",
+                "X-API-Key": "",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == []
