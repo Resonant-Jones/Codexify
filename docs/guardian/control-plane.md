@@ -45,6 +45,40 @@ Write-path guarantees:
 - Corrupt cached JSON is discarded on read and treated as cache miss.
 - Draft sync policy is local-first in the composer; `/api/ui/session` writes occur on debounced or boundary commits, not per keystroke.
 
+### Auth Readiness Gate (Frontend)
+
+Frontend startup now uses a single auth-readiness state:
+
+- `status`: `unknown | authenticated | unauthenticated`
+- `ready`: `true` only after auth has been resolved from token/dev-key inputs
+- `token`: optional cached bearer token (when present)
+
+Protected startup behavior:
+
+- `/api/ui/session` hydration and persistence are gated behind authenticated+ready state.
+- Thread/document startup fetches are gated behind authenticated+ready state.
+- Gated skips are normal and logged once at debug level (no warning/error spam).
+
+401 behavior:
+
+- First HTTP `401` transitions auth state to `unauthenticated`.
+- Protected polling/retries are expected to stop at the caller gate until re-authentication.
+- No automatic retry loop is performed for `401`.
+
+### SSE Auth + Backoff Policy
+
+SSE connection to `/api/events` follows auth-readiness:
+
+- Connect only when auth is `ready` and `authenticated`.
+- Do not connect while auth is `unknown` or `unauthenticated`.
+- On transition to `unauthenticated`, close EventSource and stop reconnect attempts.
+
+Reconnect policy for non-auth failures:
+
+- Exponential steps with jitter: `250ms -> 500ms -> 1s -> 2s -> 5s (max)`
+- Backoff step logging is emitted at most once per step.
+- Event-level failure spam is intentionally suppressed.
+
 ### Session API Examples
 
 Get session state:

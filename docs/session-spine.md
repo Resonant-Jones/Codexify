@@ -138,6 +138,15 @@ Startup path (`GuardianChatWithSidebar`):
 - Create one default tab (optional route thread id attached).
 - Persist fallback state immediately.
 
+Auth readiness behavior:
+
+- SessionSpine now accepts gate callbacks:
+  - `canHydrate(): boolean`
+  - `canPersist(): boolean`
+- Frontend wiring passes auth-gated callbacks, so session cache traffic is skipped while auth is unresolved or unauthenticated.
+- When hydrate is gated, spine initializes local default state without hitting `/api/ui/session`.
+- When persist is gated, local state updates continue but Redis write attempts are skipped (silent, no warning spam).
+
 Corrupt/invalid Redis payload handling:
 - Corrupt JSON on GET: backend deletes key and returns `state: null`.
 - Structurally invalid state: treated as `state: null`.
@@ -225,6 +234,12 @@ Expected behavior:
 - If state is already hydrated, UI continues using local in-memory state.
 - If initial hydrate fails from cold start, SessionSpine immediately initializes a default in-memory state.
 
+Auth-gated startup (normal path):
+
+- If auth is `unknown`, SessionSpine hydration/persistence is skipped until auth resolves.
+- If auth resolves to `unauthenticated`, SessionSpine runs local-only state and does not call `/api/ui/session`.
+- These skips are expected behavior and should not be treated as runtime errors.
+
 2. Redis empty/expired:
 - Hydration creates default state; user can continue immediately.
 
@@ -306,6 +321,7 @@ Frontend:
 - `frontend/src/state/session/types.ts`
 - `frontend/src/state/session/SessionStateStore.ts`
 - `frontend/src/state/session/SessionSpine.ts`
+- `frontend/src/lib/authState.ts`
 - `frontend/src/state/session/hooks.ts`
 - `frontend/src/components/SessionRail/SessionRail.tsx`
 - `frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx`
