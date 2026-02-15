@@ -1,4 +1,8 @@
 import axios from "axios";
+import {
+  markAuthUnauthenticatedFrom401,
+  syncAuthStateFromCredentials,
+} from "@/lib/authState";
 
 function readRuntimeEnv(name: string, fallback = ""): string {
   const viteEnv =
@@ -87,21 +91,39 @@ export function getDevApiKey(): string {
   return resolveDevApiKey();
 }
 
-export function setAuthToken(token: string | null): void {
-  const normalized = normalizeAuthToken(token);
+function applyAuthToken(
+  normalized: string | null,
+  options: { syncAuthState?: boolean } = {}
+): void {
+  const syncAuthState = options.syncAuthState ?? true;
   cachedAuthToken = normalized;
   loadedAuthToken = true;
 
-  if (typeof window === "undefined") return;
-  try {
-    if (normalized) {
-      window.sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, normalized);
-    } else {
-      window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  if (typeof window !== "undefined") {
+    try {
+      if (normalized) {
+        window.sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, normalized);
+      } else {
+        window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage failures (private mode / SSR fallback).
     }
-  } catch {
-    // Ignore storage failures (private mode / SSR fallback).
   }
+
+  if (syncAuthState) {
+    // Keep auth gate state synchronized with credential changes.
+    syncAuthStateFromCredentials();
+  }
+}
+
+export function setAuthToken(token: string | null): void {
+  const normalized = normalizeAuthToken(token);
+  applyAuthToken(normalized, { syncAuthState: true });
+}
+
+function clearAuthTokenAfterUnauthorized(): void {
+  applyAuthToken(null, { syncAuthState: false });
 }
 
 function applyAuthHeaders(headers: Record<string, string>): void {
@@ -214,5 +236,16 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      clearAuthTokenAfterUnauthorized();
+      markAuthUnauthenticatedFrom401();
+    }
+    return Promise.reject(error);
+  }
+);
 
 export default api;
