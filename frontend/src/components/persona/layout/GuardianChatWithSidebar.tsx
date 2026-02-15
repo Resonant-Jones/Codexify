@@ -18,8 +18,12 @@ import ImprintZeroToast from "@/imprint/ImprintZeroToast";
 import { RedisSessionStateStore } from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import {
+  useSessionActiveModelId,
+  useSessionActiveTab,
+  useSessionRailSlice,
+} from "@/state/session/hooks";
+import {
   DEFAULT_MODEL_ID,
-  type SessionState,
   type TabId,
 } from "@/state/session/types";
 
@@ -83,7 +87,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
   const [sessionSpine, setSessionSpine] = React.useState<SessionSpine | null>(null);
-  const [sessionState, setSessionState] = React.useState<SessionState | null>(null);
   const [sessionReady, setSessionReady] = React.useState(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
@@ -107,11 +110,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       defaultModelId: DEFAULT_MODEL_ID,
     });
 
-    const unsubscribe = spine.subscribe((next) => {
-      if (!mounted) return;
-      setSessionState(next);
-    });
-
     setSessionSpine(spine);
     void spine
       .hydrate({
@@ -124,24 +122,24 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
     return () => {
       mounted = false;
-      unsubscribe();
     };
   }, [resolveRouteThreadId, userName]);
-
-  const activeSessionTab = React.useMemo(() => {
-    if (!sessionState) return null;
-    return (
-      sessionState.tabs.find((tab) => tab.tabId === sessionState.activeTabId) ??
-      null
-    );
-  }, [sessionState]);
+  const sessionRail = useSessionRailSlice(sessionSpine);
+  const activeSessionTab = useSessionActiveTab(sessionSpine);
+  const activeSessionTabId = sessionRail.activeTabId;
+  const activeSessionModelId = useSessionActiveModelId(
+    sessionSpine,
+    DEFAULT_MODEL_ID
+  );
+  const [activeSessionDraftSeed, setActiveSessionDraftSeed] = React.useState("");
+  React.useEffect(() => {
+    if (!sessionSpine || !activeSessionTabId) {
+      setActiveSessionDraftSeed("");
+      return;
+    }
+    setActiveSessionDraftSeed(sessionSpine.getDraft(activeSessionTabId));
+  }, [activeSessionTabId, sessionSpine]);
   const sessionControlsThreadSelection = sessionReady && Boolean(activeSessionTab);
-  const activeSessionTabId = activeSessionTab?.tabId ?? null;
-  const activeSessionModelId = activeSessionTab?.modelId ?? DEFAULT_MODEL_ID;
-  const activeSessionDraft =
-    activeSessionTabId && sessionState?.drafts
-      ? sessionState.drafts[activeSessionTabId] ?? ""
-      : "";
 
   React.useEffect(() => {
     if (!sessionReady || !activeSessionTab) return;
@@ -1090,10 +1088,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   onArchiveThread={handleArchiveThread}
                   onSidebarToggle={toggleSidebar}
                   isSidebarVisible={isSidebarOpen}
-                  sessionTabs={sessionState?.tabs ?? []}
-                  activeSessionTabId={sessionState?.activeTabId ?? null}
+                  sessionTabs={sessionRail.tabs}
+                  activeSessionTabId={activeSessionTabId}
                   activeModelId={activeSessionModelId}
-                  activeDraft={activeSessionDraft}
+                  activeDraft={activeSessionDraftSeed}
                   onSessionTabActivate={handleSessionTabActivate}
                   onSessionTabClose={handleSessionTabClose}
                   onSessionTabOpen={handleSessionTabOpen}

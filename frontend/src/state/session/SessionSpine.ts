@@ -229,6 +229,8 @@ export class SessionSpine {
       (current) => {
         if (!current.tabs.some((tab) => tab.tabId === tabId)) return;
         const nextDraft = text ?? "";
+        const currentDraft = current.drafts?.[tabId] ?? "";
+        if (nextDraft === currentDraft) return;
         const drafts = { ...(current.drafts || {}) };
         if (!nextDraft.trim()) {
           delete drafts[tabId];

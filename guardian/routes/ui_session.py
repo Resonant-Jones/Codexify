@@ -71,6 +71,32 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _decode_cached_json(raw: Any) -> Any | None:
+    """Decode JSON payloads from cache/redis safely.
+
+    Redis clients typically return `bytes`. Tests/mocks may return unexpected
+    types (e.g., MagicMock). Treat unsupported types as corrupt payloads.
+    """
+
+    if raw is None:
+        return None
+
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            text = raw.decode("utf-8")
+        except Exception:
+            return None
+    elif isinstance(raw, str):
+        text = raw
+    else:
+        return None
+
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def _coerce_tab(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
@@ -209,11 +235,8 @@ def get_ui_session(
         raw = client.get(key)
     except Exception as exc:  # pragma: no cover - network/runtime failure path
         raise HTTPException(status_code=503, detail=f"redis_unavailable: {exc}")
-    if not raw:
-        return {"ok": True, "state": None}
-    try:
-        decoded = json.loads(raw)
-    except json.JSONDecodeError:
+    decoded = _decode_cached_json(raw)
+    if decoded is None:
         try:
             client.delete(key)
         except Exception:
@@ -268,12 +291,8 @@ def patch_ui_session(
     except Exception as exc:  # pragma: no cover - network/runtime failure path
         raise HTTPException(status_code=503, detail=f"redis_unavailable: {exc}")
 
-    if not raw:
-        return {"ok": True, "state": None}
-
-    try:
-        decoded = json.loads(raw)
-    except json.JSONDecodeError:
+    decoded = _decode_cached_json(raw)
+    if decoded is None:
         try:
             client.delete(key)
         except Exception:

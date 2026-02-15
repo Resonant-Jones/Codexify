@@ -813,6 +813,7 @@ export function GuardianChat({
             threadId={effectiveThreadId ?? undefined}
             isTurnInFlight={isTurnLocked(effectiveThreadId)}
             draftValue={activeDraft}
+            draftScopeKey={activeSessionTabId ?? "global"}
             onDraftValueChange={onSessionDraftChange}
           />
         </div>

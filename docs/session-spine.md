@@ -81,6 +81,7 @@ Implemented invariants in `SessionSpine`:
 6. Drafts are per-tab:
 - Stored in `state.drafts[tabId]`.
 - Empty/whitespace draft removes that tab draft entry.
+- Draft updates are committed on debounced/boundary events, not on every keystroke.
 
 7. Stream/run scoping in this slice:
 - No explicit tabId/runId stale-token guard is implemented in this SessionSpine slice.
@@ -184,6 +185,13 @@ Additional implemented intent used by layout sync:
 ## 7) Draft persistence policy
 
 Implemented policy:
+- Composer is local-first while typing.
+- Draft commits to SessionSpine happen on:
+  - debounce window (`350ms` idle)
+  - blur
+  - tab scope switch
+  - send
+  - best-effort `beforeunload`
 - Drafts are cache-backed in Redis as part of `SessionState.drafts`.
 - Presence of any draft upgrades session TTL request to draft TTL window (30 days).
 - No Postgres draft checkpoint is implemented in this slice.
@@ -192,7 +200,22 @@ Compatibility fallback:
 - `Composer` still has thread-scoped `sessionStorage` fallback when no controlled draft callback is provided.
 - In Guardian chat integration, controlled draft callback is provided by SessionSpine path.
 
-## 8) Failure modes and recovery
+## 8) Selector subscriptions and render scope
+
+Guardian chat no longer subscribes to full `SessionState` for rendering.
+
+Implemented selector hooks in `frontend/src/state/session/hooks.ts`:
+- `useSessionRailSlice()`
+- `useSessionActiveTab()`
+- `useSessionActiveModelId()`
+- `useSessionActiveThreadId()`
+
+Render-scope intent:
+- Session rail/model controls subscribe only to tabs + active tab/model slices.
+- Draft typing remains local in `Composer` and does not force global layout updates per keypress.
+- Equality-gated selectors preserve stable slice identity when non-relevant state changes (for example, draft-only updates).
+
+## 9) Failure modes and recovery
 
 Expected behavior:
 
@@ -212,7 +235,7 @@ Expected behavior:
 - Open-tab context and drafts can disappear.
 - Thread/message history remains intact from durable backend store.
 
-## 9) Debugging and operations
+## 10) Debugging and operations
 
 Required env/config:
 - `REDIS_URL` (shared Redis connection, default `redis://redis:6379/0`)
@@ -267,20 +290,23 @@ Expected UX after restart/flush:
 - Reload starts from default single-tab session.
 - Existing persisted threads/messages still load from backend history.
 
-## 10) What changed and why
+## 11) What changed and why
 
 - Tabs moved into a dedicated session layer, not app navigation.
 - Session Pill Rail is rendered inside Guardian chat shell and driven by SessionSpine selectors/intents.
 - Rail UX refinement: when only one tab exists, the tab-pill strip is hidden while the utility cluster stays visible (model picker, new tab, overflow).
 - Close affordance is only shown when multiple tabs are visible.
+- Draft sync refinement: typing path is local-first, with debounced/boundary commits to spine/cache.
+- Subscription refinement: non-draft UI elements do not re-render on draft keystrokes.
 - Benefits: snappier local tab switching, consistent single-writer state semantics, and correct per-tab model/draft behavior across reloads on the same device.
 
-## 11) Implementation references
+## 12) Implementation references
 
 Frontend:
 - `frontend/src/state/session/types.ts`
 - `frontend/src/state/session/SessionStateStore.ts`
 - `frontend/src/state/session/SessionSpine.ts`
+- `frontend/src/state/session/hooks.ts`
 - `frontend/src/components/SessionRail/SessionRail.tsx`
 - `frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx`
 - `frontend/src/features/chat/GuardianChat.tsx`
