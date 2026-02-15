@@ -394,7 +394,10 @@ async def generate_document(
 
 
 @router.get("/api/threads/{thread_id}/documents")
-async def get_thread_documents(thread_id: int) -> dict[str, Any]:
+async def get_thread_documents(
+    thread_id: int,
+    _api_key: str = Depends(require_api_key),
+) -> dict[str, Any]:
     """
     Get all documents linked to a thread.
 

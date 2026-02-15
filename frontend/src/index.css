@@ -249,6 +249,118 @@ html, body {
     inset 0 1px 0 rgba(255,255,255,0.22);
 }
 
+/* Session rail hierarchy: quiet substrate + focused active tab signal */
+.session-rail {
+  border-color: color-mix(in oklab, var(--panel-border) 80%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.02)),
+    color-mix(in oklab, var(--panel-bg) 66%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+}
+
+.dark .session-rail {
+  border-color: color-mix(in oklab, var(--panel-border) 88%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.01)),
+    color-mix(in oklab, var(--panel-bg) 82%, black 18%);
+}
+
+.session-rail__tab-shell {
+  border: 1px solid color-mix(in oklab, var(--panel-border) 78%, transparent);
+  border-radius: var(--tile-radius, 20px);
+  backdrop-filter: blur(10px) saturate(128%);
+  -webkit-backdrop-filter: blur(10px) saturate(128%);
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .12s ease;
+}
+
+.session-rail__tab-shell[data-state="inactive"] {
+  background: color-mix(in oklab, var(--panel-bg) 56%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.session-rail__tab-shell[data-state="inactive"]:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--panel-border) 92%, transparent);
+  background: color-mix(in oklab, var(--panel-bg) 64%, transparent);
+}
+
+.session-rail__tab-shell[data-state="active"] {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--accent-strong) 40%, var(--panel-border) 60%);
+  background: color-mix(in oklab, var(--panel-bg) 86%, var(--accent-strong) 14%);
+  box-shadow:
+    0 8px 16px color-mix(in oklab, var(--accent-strong) 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -2px 0 color-mix(in oklab, var(--accent-strong) 70%, transparent);
+}
+
+.session-rail .session-rail__tab {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: color-mix(in oklab, var(--text) 72%, var(--muted) 28%);
+  font-weight: 500;
+}
+
+.session-rail .session-rail__tab[data-state="inactive"] {
+  opacity: 0.84;
+}
+
+.session-rail .session-rail__tab[data-state="inactive"]:hover {
+  color: color-mix(in oklab, var(--text) 88%, var(--muted) 12%);
+}
+
+.session-rail .session-rail__tab[data-state="active"] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.session-rail__close {
+  color: color-mix(in oklab, var(--text) 64%, transparent);
+  opacity: 0.68;
+  transition: background .16s ease, color .16s ease, opacity .16s ease;
+}
+
+.session-rail__tab-shell[data-state="inactive"] .session-rail__close {
+  opacity: 0.56;
+}
+
+.session-rail__close:hover {
+  opacity: 0.95;
+  color: var(--text);
+  background: color-mix(in oklab, var(--panel-bg) 90%, var(--text) 10%);
+}
+
+.session-rail__tools {
+  border: 1px solid color-mix(in oklab, var(--panel-border) 76%, transparent);
+  border-radius: 999px;
+  padding: 0.15rem;
+  background: color-mix(in oklab, var(--panel-bg) 62%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.session-rail__model-trigger {
+  transition: background .16s ease, transform .12s ease;
+}
+
+.session-rail__model-trigger:hover {
+  transform: translateY(-1px);
+}
+
+.session-rail__tool-btn {
+  color: color-mix(in oklab, var(--text) 78%, transparent);
+}
+
+.session-rail__tool-btn:hover {
+  background: color-mix(in oklab, var(--panel-bg) 92%, var(--text) 8%);
+  color: var(--text);
+}
+
 /* Perfect square color swatches */
 .color-swatch {
   -webkit-appearance: none;

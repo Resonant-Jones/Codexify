@@ -7,12 +7,19 @@ from typing import Any
 
 import requests
 
-from guardian.channels.base import Adapter, AdapterContext, InboundMessage, OutboundMessage
+from guardian.channels.base import (
+    Adapter,
+    AdapterContext,
+    InboundMessage,
+    OutboundMessage,
+)
 
 
 class TelegramAdapter(Adapter):
     def __init__(self, *, bot_token: str | None = None) -> None:
-        self._bot_token = (bot_token or os.getenv("GUARDIAN_TELEGRAM_BOT_TOKEN", "")).strip()
+        self._bot_token = (
+            bot_token or os.getenv("GUARDIAN_TELEGRAM_BOT_TOKEN", "")
+        ).strip()
 
     @property
     def adapter_id(self) -> str:
@@ -21,9 +28,17 @@ class TelegramAdapter(Adapter):
     def parse_inbound(
         self, payload: dict[str, Any], ctx: AdapterContext
     ) -> InboundMessage:
-        message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
-        chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
-        sender = message.get("from") if isinstance(message.get("from"), dict) else {}
+        message = (
+            payload.get("message")
+            if isinstance(payload.get("message"), dict)
+            else {}
+        )
+        chat = (
+            message.get("chat") if isinstance(message.get("chat"), dict) else {}
+        )
+        sender = (
+            message.get("from") if isinstance(message.get("from"), dict) else {}
+        )
         return InboundMessage(
             channel_id=str(chat.get("id") or payload.get("channel_id") or ""),
             sender_id=str(sender.get("id") or payload.get("sender_id") or ""),
@@ -32,7 +47,9 @@ class TelegramAdapter(Adapter):
         )
 
     def send(self, outbound: OutboundMessage, ctx: AdapterContext) -> None:
-        result = self.send_message(chat_id=outbound.channel_id, text=outbound.text)
+        result = self.send_message(
+            chat_id=outbound.channel_id, text=outbound.text
+        )
         if not result["success"]:
             raise ValueError(f"telegram send failed: {result['error']}")
 
@@ -78,15 +95,18 @@ class TelegramAdapter(Adapter):
             return {
                 "success": False,
                 "provider": "telegram",
-                "error": str(body.get("description") or f"http_{response.status_code}"),
+                "error": str(
+                    body.get("description") or f"http_{response.status_code}"
+                ),
                 "message_id": None,
             }
 
-        result = body.get("result") if isinstance(body.get("result"), dict) else {}
+        result = (
+            body.get("result") if isinstance(body.get("result"), dict) else {}
+        )
         return {
             "success": True,
             "provider": "telegram",
             "error": None,
             "message_id": result.get("message_id"),
         }
-

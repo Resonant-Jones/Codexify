@@ -1,0 +1,31 @@
+version: 1
+
+profiles:
+  minimal_health:
+    allow:
+      - method: GET
+        path: /health
+      - method: GET
+        path: /ping
+
+  connectors_runtime:
+    allow:
+      - method: GET
+        path: /health
+      - method: GET
+        path: /ping
+      # Example: allow connector HTTP routes if/when exposed
+      - method: GET
+        prefix: /api/connectors
+      - method: POST
+        prefix: /api/connectors
+
+  # Optional: websocket profile example
+  ws_only:
+    allow:
+      - method: GET
+        path: /health
+      - method: GET
+        path: /ping
+      - method: GET
+        prefix: /api/ws

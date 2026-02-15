@@ -8,8 +8,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
-from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from guardian.browser import approval
 from guardian.routes import browser as browser_routes
@@ -52,7 +52,9 @@ def approval_db() -> _DB:
 
 
 @pytest.fixture
-def browser_client(monkeypatch: pytest.MonkeyPatch, approval_db: _DB) -> TestClient:
+def browser_client(
+    monkeypatch: pytest.MonkeyPatch, approval_db: _DB
+) -> TestClient:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
     app = FastAPI()
     app.include_router(browser_routes.router)
@@ -130,7 +132,9 @@ def test_routes_list_and_decide(browser_client: TestClient) -> None:
     )
     headers = {"X-API-Key": "test-api-key"}
 
-    list_response = browser_client.get("/api/browser/approvals", headers=headers)
+    list_response = browser_client.get(
+        "/api/browser/approvals", headers=headers
+    )
     assert list_response.status_code == 200
     assert list_response.json()["count"] >= 1
 

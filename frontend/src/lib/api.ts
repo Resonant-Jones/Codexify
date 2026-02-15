@@ -9,15 +9,17 @@ function readRuntimeEnv(name: string, fallback = ""): string {
   return String(raw ?? "");
 }
 
-function resolveApiKey(): string {
-  return readRuntimeEnv("VITE_GUARDIAN_API_KEY").trim();
+function isDevRuntime(): boolean {
+  const viteEnv =
+    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
+  if (typeof viteEnv.DEV === "boolean") return viteEnv.DEV;
+  const raw = readRuntimeEnv("NODE_ENV", "development").trim().toLowerCase();
+  return raw !== "production";
 }
 
-function resolveUseProxy(): boolean {
-  const raw = readRuntimeEnv("VITE_USE_PROXY", "true")
-    .trim()
-    .toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
+function resolveDevApiKey(): string {
+  if (!isDevRuntime()) return "";
+  return readRuntimeEnv("VITE_GUARDIAN_DEV_API_KEY").trim();
 }
 
 function toHeaderRecord(headers?: HeadersInit): Record<string, string> {
@@ -49,18 +51,72 @@ function hasHeader(
   return Object.keys(headers).some((k) => k.toLowerCase() === target);
 }
 
+const AUTH_TOKEN_STORAGE_KEY = "guardian.auth.token";
+let cachedAuthToken: string | null = null;
+let loadedAuthToken = false;
+
+function normalizeAuthToken(token: string | null | undefined): string | null {
+  if (typeof token !== "string") return null;
+  const trimmed = token.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readStoredAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return normalizeAuthToken(
+      window.sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function getAuthToken(): string | null {
+  if (!loadedAuthToken) {
+    cachedAuthToken = readStoredAuthToken();
+    loadedAuthToken = true;
+  }
+  return cachedAuthToken;
+}
+
+export function setAuthToken(token: string | null): void {
+  const normalized = normalizeAuthToken(token);
+  cachedAuthToken = normalized;
+  loadedAuthToken = true;
+
+  if (typeof window === "undefined") return;
+  try {
+    if (normalized) {
+      window.sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, normalized);
+    } else {
+      window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage failures (private mode / SSR fallback).
+  }
+}
+
+function applyAuthHeaders(headers: Record<string, string>): void {
+  const token = getAuthToken();
+  if (token && !hasHeader(headers, "Authorization")) {
+    headers.Authorization = `Bearer ${token}`;
+    return;
+  }
+
+  const devApiKey = resolveDevApiKey();
+  if (!token && devApiKey && !hasHeader(headers, "X-API-Key")) {
+    headers["X-API-Key"] = devApiKey;
+  }
+}
+
 export function buildAuthenticatedFetchInit(
   init: RequestInit = {},
   options: { forceApiKey?: boolean } = {}
 ): RequestInit {
+  void options;
   const headers = toHeaderRecord(init.headers);
-  const apiKey = resolveApiKey();
-  const shouldAttachApiKey =
-    !!apiKey && (options.forceApiKey || !resolveUseProxy());
-
-  if (shouldAttachApiKey && !hasHeader(headers, "X-API-Key")) {
-    headers["X-API-Key"] = apiKey;
-  }
+  applyAuthHeaders(headers);
 
   return {
     ...init,
@@ -98,43 +154,54 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const apiKey = resolveApiKey();
+  const headers = config.headers ?? {};
+  const getHeader =
+    typeof (headers as { get?: (key: string) => string | undefined }).get ===
+    "function"
+      ? (key: string) =>
+          (headers as { get: (key: string) => string | undefined }).get(key)
+      : undefined;
+  const setHeader =
+    typeof (headers as { set?: (key: string, value: string) => void }).set ===
+    "function"
+      ? (key: string, value: string) =>
+          (headers as { set: (key: string, value: string) => void }).set(
+            key,
+            value
+          )
+      : (key: string, value: string) => {
+          (headers as Record<string, string>)[key] = value;
+        };
 
-  if (apiKey) {
-    const headers = config.headers ?? {};
-    const getHeader =
-      typeof (headers as { get?: (key: string) => string | undefined }).get ===
-      "function"
-        ? (key: string) =>
-            (headers as { get: (key: string) => string | undefined }).get(key)
-        : undefined;
-    const existing =
-      getHeader?.("X-API-Key") ??
-      getHeader?.("x-api-key") ??
-      (headers as Record<string, string | undefined>)["X-API-Key"] ??
-      (headers as Record<string, string | undefined>)["x-api-key"];
-    if (!existing) {
-      if (
-        typeof (headers as { set?: (key: string, value: string) => void }).set ===
-        "function"
-      ) {
-        (headers as { set: (key: string, value: string) => void }).set(
-          "X-API-Key",
-          apiKey
-        );
-      } else {
-        (headers as Record<string, string>)["X-API-Key"] = apiKey;
-      }
+  const existingAuthorization =
+    getHeader?.("Authorization") ??
+    getHeader?.("authorization") ??
+    (headers as Record<string, string | undefined>)["Authorization"] ??
+    (headers as Record<string, string | undefined>)["authorization"];
+  const existingApiKey =
+    getHeader?.("X-API-Key") ??
+    getHeader?.("x-api-key") ??
+    (headers as Record<string, string | undefined>)["X-API-Key"] ??
+    (headers as Record<string, string | undefined>)["x-api-key"];
+
+  const token = getAuthToken();
+  if (token && !existingAuthorization) {
+    setHeader("Authorization", `Bearer ${token}`);
+  } else if (!token) {
+    const devApiKey = resolveDevApiKey();
+    if (devApiKey && !existingAuthorization && !existingApiKey) {
+      setHeader("X-API-Key", devApiKey);
     }
-    config.headers = headers;
   }
+  config.headers = headers;
+
   const baseURL = String(
     config.baseURL ?? api.defaults.baseURL ?? ""
   ).replace(/\/+$/, "");
   if (
-    baseURL.endsWith("/api")
-    && typeof config.url === "string"
-    && config.url.startsWith("/api/")
+    baseURL.endsWith("/api") &&
+    typeof config.url === "string" &&
+    config.url.startsWith("/api/")
   ) {
     config.url = config.url.replace(/^\/api/, "");
   }

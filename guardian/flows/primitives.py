@@ -124,7 +124,9 @@ class PrimitiveRegistration:
 def _stub_handler(name: PrimitiveName) -> PrimitiveHandler:
     """Return deterministic no-op handler for registry bootstrap."""
 
-    def _handler(params: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    def _handler(
+        params: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
         return {
             "primitive": name,
             "ok": True,
@@ -142,7 +144,9 @@ class PrimitiveRegistry:
     def __init__(self) -> None:
         self._entries: dict[PrimitiveName, PrimitiveRegistration] = {}
 
-    def register(self, contract: PrimitiveContract, handler: PrimitiveHandler) -> None:
+    def register(
+        self, contract: PrimitiveContract, handler: PrimitiveHandler
+    ) -> None:
         self._entries[contract.name] = PrimitiveRegistration(
             contract=contract, handler=handler
         )
@@ -187,7 +191,7 @@ class PrimitiveRegistry:
         return entries
 
     @classmethod
-    def default(cls) -> "PrimitiveRegistry":
+    def default(cls) -> PrimitiveRegistry:
         registry = cls()
         contracts: list[PrimitiveContract] = [
             PrimitiveContract(
@@ -256,6 +260,8 @@ class PrimitiveRegistry:
         return registry
 
 
-def export_primitive_catalog(registry: PrimitiveRegistry | None = None) -> list[dict[str, Any]]:
+def export_primitive_catalog(
+    registry: PrimitiveRegistry | None = None,
+) -> list[dict[str, Any]]:
     """Return a machine-readable primitive catalog."""
     return (registry or PrimitiveRegistry.default()).catalog()

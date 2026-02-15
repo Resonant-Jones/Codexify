@@ -6,7 +6,7 @@ from typing import Dict
 
 from guardian.channels.base import Adapter
 
-_ADAPTERS: Dict[str, Adapter] = {}
+_ADAPTERS: dict[str, Adapter] = {}
 
 
 def register_adapter(adapter: Adapter) -> None:
@@ -33,4 +33,3 @@ def clear_adapters() -> None:
     """Test helper to reset global adapter registry."""
 
     _ADAPTERS.clear()
-

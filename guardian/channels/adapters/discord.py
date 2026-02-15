@@ -7,7 +7,12 @@ from typing import Any
 
 import requests
 
-from guardian.channels.base import Adapter, AdapterContext, InboundMessage, OutboundMessage
+from guardian.channels.base import (
+    Adapter,
+    AdapterContext,
+    InboundMessage,
+    OutboundMessage,
+)
 
 
 class DiscordAdapter(Adapter):
@@ -23,7 +28,11 @@ class DiscordAdapter(Adapter):
     def parse_inbound(
         self, payload: dict[str, Any], ctx: AdapterContext
     ) -> InboundMessage:
-        author = payload.get("author") if isinstance(payload.get("author"), dict) else {}
+        author = (
+            payload.get("author")
+            if isinstance(payload.get("author"), dict)
+            else {}
+        )
         return InboundMessage(
             channel_id=str(payload.get("channel_id") or ""),
             sender_id=str(author.get("id") or payload.get("sender_id") or ""),
@@ -68,7 +77,9 @@ class DiscordAdapter(Adapter):
             return {
                 "success": False,
                 "provider": "discord",
-                "error": str(body.get("message") or f"http_{response.status_code}"),
+                "error": str(
+                    body.get("message") or f"http_{response.status_code}"
+                ),
                 "message_id": None,
             }
         return {
@@ -77,4 +88,3 @@ class DiscordAdapter(Adapter):
             "error": None,
             "message_id": body.get("id"),
         }
-

@@ -32,9 +32,12 @@ const API_BASE =
   (import.meta as any).env.GUARDIAN_API_BASE ||
   "/api"; // default to Vite dev proxy
 
-const API_KEY = (import.meta as any).env.VITE_GUARDIAN_API_KEY || "";
+const DEV_API_KEY =
+  import.meta.env.DEV
+    ? ((import.meta as any).env.VITE_GUARDIAN_DEV_API_KEY || "").trim()
+    : "";
 
-configureGC({ base: API_BASE, token: API_KEY });
+configureGC({ base: API_BASE, token: DEV_API_KEY || undefined });
 
 // ---- env diagnostics (safe to keep)
 try {
@@ -42,24 +45,26 @@ try {
   (window as any).__GC_ENV__ = {
     mode: import.meta.env.MODE,
     base: API_BASE,
-    keyPresent: !!API_KEY,
-    guardianKeyPresent: !!(import.meta.env as any).VITE_GUARDIAN_API_KEY,
+    keyPresent: !!DEV_API_KEY,
+    guardianDevKeyPresent: !!(import.meta.env as any).VITE_GUARDIAN_DEV_API_KEY,
   };
   console.info('[gc] env snapshot', {
     mode: (window as any).__GC_ENV__?.mode,
     base: (window as any).__GC_ENV__?.base,
     keyPresent: (window as any).__GC_ENV__?.keyPresent,
-    guardianKeyPresent: (window as any).__GC_ENV__?.guardianKeyPresent,
+    guardianDevKeyPresent: (window as any).__GC_ENV__?.guardianDevKeyPresent,
   });
 } catch (err) {
   console.warn('[gc] env snapshot failed', err);
 }
 // ---- end env diagnostics
 
-if (!API_KEY) {
-  console.warn("[gc] No API key provided; endpoints that require auth will return 401. Set VITE_GUARDIAN_API_KEY.");
-} else {
-  const masked = String(API_KEY);
+if (!DEV_API_KEY && import.meta.env.DEV) {
+  console.info(
+    "[gc] Dev API key override disabled. Provide VITE_GUARDIAN_DEV_API_KEY only when needed for local-safe auth."
+  );
+} else if (DEV_API_KEY) {
+  const masked = String(DEV_API_KEY);
   console.info("[gc] Backend configured:", { base: API_BASE, key: `${masked.slice(0,4)}…${masked.slice(-4)}` });
 }
 

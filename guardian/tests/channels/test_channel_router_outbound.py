@@ -24,14 +24,18 @@ def test_router_invokes_registered_adapter_send(monkeypatch) -> None:
 
     captured: dict[str, Any] = {}
 
-    def _fake_post(url: str, headers: dict[str, str], json: dict[str, Any], timeout: int):
+    def _fake_post(
+        url: str, headers: dict[str, str], json: dict[str, Any], timeout: int
+    ):
         captured["url"] = url
         captured["headers"] = headers
         captured["json"] = json
         captured["timeout"] = timeout
         return _Resp(200, {"ok": True, "ts": "171.0002"})
 
-    monkeypatch.setattr("guardian.channels.adapters.slack.requests.post", _fake_post)
+    monkeypatch.setattr(
+        "guardian.channels.adapters.slack.requests.post", _fake_post
+    )
     adapter = SlackAdapter(bot_token="xoxb-test")
     registry.register_adapter(adapter)
 
@@ -44,4 +48,3 @@ def test_router_invokes_registered_adapter_send(monkeypatch) -> None:
     assert result["ok"] is True
     assert captured["json"]["channel"] == "room-1"
     assert captured["json"]["text"] == "ack: hi"
-

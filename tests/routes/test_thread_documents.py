@@ -11,12 +11,15 @@ Tests cover:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
+from guardian.core.auth import issue_session_token
 from guardian.routes import documents
 
 
@@ -479,3 +482,98 @@ class TestDatabaseErrors:
 
         assert exc_info.value.status_code == 500
         assert "Failed to retrieve thread documents" in exc_info.value.detail
+
+
+@contextmanager
+def _thread_documents_client(
+    monkeypatch,
+    *,
+    exposure_mode: str,
+    auth_mode: str,
+    session_secret: str | None = None,
+    api_key: str = "local-test-key",
+):
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", exposure_mode)
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", auth_mode)
+    monkeypatch.setenv("GUARDIAN_API_KEY", api_key)
+    if session_secret is not None:
+        monkeypatch.setenv("GUARDIAN_SESSION_SECRET", session_secret)
+    else:
+        monkeypatch.delenv("GUARDIAN_SESSION_SECRET", raising=False)
+    monkeypatch.delenv("GUARDIAN_JWT_SECRET", raising=False)
+
+    mock_db = MagicMock()
+    mock_session = MagicMock()
+    mock_db.get_session.return_value.__enter__.return_value = mock_session
+
+    mock_thread = MagicMock()
+    mock_thread.id = 1
+
+    thread_query = MagicMock()
+    thread_query.filter_by.return_value.first.return_value = mock_thread
+
+    links_query = MagicMock()
+    links_query.filter_by.return_value.order_by.return_value.all.return_value = (
+        []
+    )
+
+    mock_session.query.side_effect = [thread_query, links_query]
+
+    documents.configure_db(mock_db)
+
+    app = FastAPI()
+    app.include_router(documents.router)
+    with TestClient(app) as client:
+        client.headers.pop("x-api-key", None)
+        client.headers.pop("X-API-Key", None)
+        yield client
+
+
+def test_thread_documents_list_denies_unauthenticated_in_public_allowlist(
+    monkeypatch,
+):
+    with _thread_documents_client(
+        monkeypatch,
+        exposure_mode="public_allowlist",
+        auth_mode="local",
+        session_secret="remote-session-secret",
+    ) as client:
+        response = client.get("/api/threads/1/documents")
+
+    assert response.status_code == 401
+    assert "session/jwt" in str(response.json().get("detail", "")).lower()
+
+
+def test_thread_documents_list_allows_local_api_key_in_local_safe(monkeypatch):
+    with _thread_documents_client(
+        monkeypatch,
+        exposure_mode="local_safe",
+        auth_mode="local",
+        api_key="local-test-key",
+    ) as client:
+        response = client.get(
+            "/api/threads/1/documents", headers={"X-API-Key": "local-test-key"}
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "documents": []}
+
+
+def test_thread_documents_list_allows_bearer_in_public_allowlist(monkeypatch):
+    with _thread_documents_client(
+        monkeypatch,
+        exposure_mode="public_allowlist",
+        auth_mode="local",
+        session_secret="remote-session-secret",
+    ) as client:
+        session_token, _expires = issue_session_token(
+            subject="thread-documents-route-auth-test",
+            ttl_seconds=60,
+        )
+        response = client.get(
+            "/api/threads/1/documents",
+            headers={"Authorization": f"Bearer {session_token}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "documents": []}

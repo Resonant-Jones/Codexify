@@ -1,7 +1,7 @@
 """Tests for collaboration permissions, token auth, and audit logging."""
 
-import os
 import hashlib
+import os
 from datetime import datetime
 
 import pytest
