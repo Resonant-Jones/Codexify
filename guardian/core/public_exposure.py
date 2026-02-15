@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import yaml
 from fastapi.responses import JSONResponse
@@ -31,11 +31,11 @@ class PublicAllowlist:
         self._rules = rules
 
     @classmethod
-    def deny_all(cls) -> PublicAllowlist:
+    def deny_all(cls) -> Self:
         return cls(rules=[])
 
     @classmethod
-    def load(cls, routes_file: str, profile: str) -> PublicAllowlist:
+    def load(cls, routes_file: str, profile: str) -> Self:
         try:
             data = _load_yaml(routes_file)
             rules = _validate_and_parse_rules(data, profile)
