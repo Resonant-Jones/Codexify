@@ -3,6 +3,8 @@ import os
 
 import uvicorn
 
+CANONICAL_ASGI_APP = "guardian.guardian_api:app"
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -34,7 +36,7 @@ def main() -> None:
     args = parser.parse_args()
 
     uvicorn.run(
-        "guardian.server.app:app",
+        CANONICAL_ASGI_APP,
         host=args.host,
         port=args.port,
         reload=args.reload,
