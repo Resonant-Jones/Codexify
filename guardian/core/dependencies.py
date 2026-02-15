@@ -26,8 +26,8 @@ from fastapi.security.api_key import APIKeyHeader
 
 from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
-from guardian.core.auth import verify_session_token
 from guardian.core import event_bus
+from guardian.core.auth import verify_session_token
 from guardian.core.chat_db import ChatDB
 from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.memory.query_memory import memory_store as _memory_store
@@ -285,7 +285,9 @@ def verify_api_key(
         if gc_session and _is_valid_remote_token(gc_session):
             return gc_session
 
-        logger.warning("Unauthorized remote auth attempt (session/JWT required)")
+        logger.warning(
+            "Unauthorized remote auth attempt (session/JWT required)"
+        )
         raise HTTPException(
             status_code=401,
             detail="Remote mode requires a valid session/JWT token",

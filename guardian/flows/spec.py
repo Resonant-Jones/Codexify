@@ -34,15 +34,23 @@ class FlowTrigger(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def validate_trigger(self) -> "FlowTrigger":
+    def validate_trigger(self) -> FlowTrigger:
         if self.type == "cron" and not self.schedule:
-            raise ValueError("trigger.schedule is required when trigger.type='cron'")
+            raise ValueError(
+                "trigger.schedule is required when trigger.type='cron'"
+            )
         if self.type != "cron" and self.schedule is not None:
-            raise ValueError("trigger.schedule is only valid when trigger.type='cron'")
+            raise ValueError(
+                "trigger.schedule is only valid when trigger.type='cron'"
+            )
         if self.type == "event" and not self.event_name:
-            raise ValueError("trigger.event_name is required when trigger.type='event'")
+            raise ValueError(
+                "trigger.event_name is required when trigger.type='event'"
+            )
         if self.type != "event" and self.event_name is not None:
-            raise ValueError("trigger.event_name is only valid when trigger.type='event'")
+            raise ValueError(
+                "trigger.event_name is only valid when trigger.type='event'"
+            )
         return self
 
 
@@ -160,7 +168,9 @@ class FlowIdempotency(BaseModel):
     """Idempotency policy for deduplicating executions."""
 
     key_template: str | None = None
-    mode: Literal["return_cached", "always_run", "skip_if_running"] = "return_cached"
+    mode: Literal[
+        "return_cached", "always_run", "skip_if_running"
+    ] = "return_cached"
 
     model_config = ConfigDict(extra="forbid")
 
@@ -193,7 +203,7 @@ class FlowSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def validate_step_ids_and_budget(self) -> "FlowSpec":
+    def validate_step_ids_and_budget(self) -> FlowSpec:
         step_ids = [step.step_id for step in self.steps]
         if len(step_ids) != len(set(step_ids)):
             raise ValueError("steps.step_id values must be unique")
@@ -268,9 +278,9 @@ class FlowRun(BaseModel):
     run_id: str = Field(min_length=1)
     flow_id: str = Field(min_length=1)
     version: Literal["0.1"] = FLOW_SPEC_VERSION
-    status: Literal["pending", "running", "success", "failed", "blocked", "cached"] = (
-        "pending"
-    )
+    status: Literal[
+        "pending", "running", "success", "failed", "blocked", "cached"
+    ] = "pending"
     started_at: datetime = Field(
         default_factory=lambda: datetime.now(tz=timezone.utc)
     )
