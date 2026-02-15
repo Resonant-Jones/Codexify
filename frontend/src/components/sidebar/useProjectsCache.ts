@@ -123,7 +123,7 @@ export function useProjectsCache({
 
   const refreshProjectsFromServer = useCallback(async () => {
     try {
-      const res = await api.get("/projects");
+      const res = await api.get("/api/projects");
       const list = normalizeProjectsResponse(res);
       if (Array.isArray(list) && list.length) {
         setProjectList((prev) => {
