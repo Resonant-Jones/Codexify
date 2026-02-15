@@ -19,7 +19,10 @@ function isDevRuntime(): boolean {
 
 function resolveDevApiKey(): string {
   if (!isDevRuntime()) return "";
-  return readRuntimeEnv("VITE_GUARDIAN_DEV_API_KEY").trim();
+  const explicitDevKey = readRuntimeEnv("VITE_GUARDIAN_DEV_API_KEY").trim();
+  if (explicitDevKey) return explicitDevKey;
+  // Backward-compat: existing local setups may still use VITE_GUARDIAN_API_KEY.
+  return readRuntimeEnv("VITE_GUARDIAN_API_KEY").trim();
 }
 
 function toHeaderRecord(headers?: HeadersInit): Record<string, string> {
@@ -78,6 +81,10 @@ export function getAuthToken(): string | null {
     loadedAuthToken = true;
   }
   return cachedAuthToken;
+}
+
+export function getDevApiKey(): string {
+  return resolveDevApiKey();
 }
 
 export function setAuthToken(token: string | null): void {

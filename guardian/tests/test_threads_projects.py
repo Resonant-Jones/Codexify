@@ -79,10 +79,10 @@ def test_project_patch_and_delete_ejects_threads():
     pid = _create_project_row()
     tid = _create_thread_row(project_id=pid)
     # Rename project
-    r = client.patch(f"/projects/{pid}", json={"name": "Renamed"})
+    r = client.patch(f"/api/projects/{pid}", json={"name": "Renamed"})
     assert r.status_code == 200 and r.json().get("ok")
     # Delete project -> thread survives, project_id becomes NULL
-    r = client.delete(f"/projects/{pid}")
+    r = client.delete(f"/api/projects/{pid}")
     assert r.status_code == 200 and r.json().get("ok")
     with sqlite3.connect(settings.GUARDIAN_DB_PATH) as conn:
         c = conn.cursor()
