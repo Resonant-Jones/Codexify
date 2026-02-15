@@ -100,7 +100,7 @@ describe("CreateProjectModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /create project/i }));
 
     await waitFor(() => {
-      expect(mockApi.post).toHaveBeenCalledWith("/projects", {
+      expect(mockApi.post).toHaveBeenCalledWith("/api/projects", {
         name: "Delta",
         icon: "📁",
         description: "",

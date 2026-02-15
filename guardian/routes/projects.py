@@ -68,6 +68,33 @@ def list_projects():
     return projects
 
 
+@router.post("")
+@api_router.post("")
+def create_project(body: ProjectCreate):
+    """
+    Create a new project.
+
+    Args:
+        body: Project name and optional description
+
+    Returns:
+        Created project dict with id, name, description
+    """
+    try:
+        project_id = chatlog_db.create_project(
+            body.name, body.description or ""
+        )
+        return {
+            "id": project_id,
+            "name": body.name,
+            "description": body.description or "",
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": str(e)}
+        )
+
+
 @router.patch("/{project_id}")
 @api_router.patch("/{project_id}")
 def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
