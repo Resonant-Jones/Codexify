@@ -60,6 +60,12 @@ from guardian.core.dependencies import (
     init_services,
     require_api_key,
 )
+from guardian.core.public_exposure import (
+    DEFAULT_EXPOSURE_MODE,
+    DEFAULT_PROFILE,
+    DEFAULT_ROUTES_FILE,
+    PublicExposureMiddleware,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue
 from guardian.tasks.types import WarmupTask
@@ -342,6 +348,25 @@ app = FastAPI(
     description="Unified API for chat, memory, connectors, and tools",
     version="1.0.0",
     lifespan=app_lifespan,
+)
+
+exposure_mode = os.getenv("GUARDIAN_EXPOSURE_MODE", DEFAULT_EXPOSURE_MODE)
+public_routes_file = os.getenv(
+    "GUARDIAN_PUBLIC_ROUTES_FILE", DEFAULT_ROUTES_FILE
+)
+public_profile = os.getenv("GUARDIAN_PUBLIC_PROFILE", DEFAULT_PROFILE)
+
+app.add_middleware(
+    PublicExposureMiddleware,
+    exposure_mode=exposure_mode,
+    routes_file=public_routes_file,
+    profile=public_profile,
+)
+logger.info(
+    "[public_exposure] mode=%s profile=%s routes_file=%s",
+    exposure_mode,
+    public_profile,
+    public_routes_file,
 )
 
 
