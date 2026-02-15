@@ -5,20 +5,28 @@
  * Uses the existing usePreferredProvider hook and GuardianAPI capabilities.
  */
 
+import { ChevronDown } from "lucide-react";
 import React, { useEffect, useState } from "react";
+
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePreferredProvider } from "@/hooks/usePreferredProvider";
 import { GuardianAPI } from "@/lib/guardianApi";
-import { ChevronDown } from "lucide-react";
 
 type ProviderSelectProps = {
   value?: string;
   onChange?: (value: string) => void;
+  triggerClassName?: string;
+  triggerStyle?: React.CSSProperties;
 };
 
 const DEFAULT_OPTION = "__default__";
 
-export function ProviderSelect({ value, onChange }: ProviderSelectProps) {
+export function ProviderSelect({
+  value,
+  onChange,
+  triggerClassName,
+  triggerStyle,
+}: ProviderSelectProps) {
   const { provider, setProvider } = usePreferredProvider();
   const [caps, setCaps] = useState<{ chat: string[]; embeddings: string[] }>({ chat: [], embeddings: [] });
 
@@ -38,11 +46,12 @@ export function ProviderSelect({ value, onChange }: ProviderSelectProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-full border transition-colors hover:bg-[color-mix(in_oklab,var(--panel-bg),var(--panel-border)_15%)]"
+        className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-full border transition-colors hover:bg-[color-mix(in_oklab,var(--panel-bg),var(--panel-border)_15%)] ${triggerClassName ?? ""}`.trim()}
         style={{
           borderColor: "var(--panel-border)",
           background: "var(--panel-bg)",
-          color: "var(--text)"
+          color: "var(--text)",
+          ...triggerStyle,
         }}
         aria-label="Choose model provider"
       >
