@@ -116,6 +116,31 @@ describe("SessionSpine", () => {
     expect(persisted?.drafts?.[active.tabId]).toBe("hello draft");
   });
 
+  it("coalesces rapid draft persistence writes", async () => {
+    const store = new InMemorySessionStateStore();
+    const setSpy = vi.spyOn(store, "setSessionState");
+    const spine = new SessionSpine({
+      userId: "user-1",
+      deviceId: "device-1",
+      store,
+      defaultModelId: "default",
+    });
+    await spine.hydrate({ threadId: "101", title: "Alpha", modelId: "default" });
+    setSpy.mockClear();
+
+    const active = spine.getActiveTab();
+    if (!active) throw new Error("Expected active tab");
+
+    spine.tabSetDraft(active.tabId, "h");
+    spine.tabSetDraft(active.tabId, "he");
+    spine.tabSetDraft(active.tabId, "hel");
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    const persisted = await store.getSessionState("user-1", "device-1");
+    expect(persisted?.drafts?.[active.tabId]).toBe("hel");
+  });
+
   it("closing the final tab always leaves one valid active tab", async () => {
     const store = new InMemorySessionStateStore();
     const spine = new SessionSpine({

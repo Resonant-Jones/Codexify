@@ -15,6 +15,7 @@ import api from "@/lib/api";
 
 const ACCEPTED_ATTACHMENTS =
   "image/*,application/pdf,text/plain,text/markdown,.md,.txt";
+const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
 
 function inferProjectIdFromLocation(fallback = 1): number {
   if (typeof window === "undefined") return fallback;
@@ -47,6 +48,8 @@ export function Composer({
   isSending,
   isTurnInFlight,
   draftValue,
+  draftScopeKey,
+  draftSyncDebounceMs,
   onDraftValueChange,
 }: {
   onSend: (t: string) => Promise<void> | void;
@@ -56,12 +59,16 @@ export function Composer({
   isSending?: boolean;
   isTurnInFlight?: boolean;
   draftValue?: string;
+  draftScopeKey?: string;
+  draftSyncDebounceMs?: number;
   onDraftValueChange?: (value: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
-
-  // Initialize with saved draft if available
-  const [value, setValue] = useState(() => {
+  const syncDebounceMs = Math.max(
+    0,
+    draftSyncDebounceMs ?? DEFAULT_DRAFT_SYNC_DEBOUNCE_MS
+  );
+  const resolveInitialDraft = (): string => {
     if (typeof draftValue === "string") {
       return draftValue;
     }
@@ -72,7 +79,13 @@ export function Composer({
       } catch {}
     }
     return "";
-  });
+  };
+
+  // Initialize with saved draft if available
+  const [value, setValue] = useState(() => resolveInitialDraft());
+  const valueRef = useRef(value);
+  const lastCommittedDraftRef = useRef(value);
+  const draftCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [internalSending, setInternalSending] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -99,11 +112,53 @@ export function Composer({
     showToast("One moment—finish the current reply first.");
   };
 
+  const clearDraftCommitTimer = () => {
+    if (!draftCommitTimerRef.current) return;
+    clearTimeout(draftCommitTimerRef.current);
+    draftCommitTimerRef.current = null;
+  };
+
+  const commitDraftNow = (nextValue = valueRef.current) => {
+    if (!onDraftValueChange) return;
+    clearDraftCommitTimer();
+    if (lastCommittedDraftRef.current === nextValue) return;
+    lastCommittedDraftRef.current = nextValue;
+    onDraftValueChange(nextValue);
+  };
+
+  const scheduleDraftCommit = (nextValue = valueRef.current) => {
+    if (!onDraftValueChange) return;
+    clearDraftCommitTimer();
+    if (lastCommittedDraftRef.current === nextValue) return;
+    draftCommitTimerRef.current = setTimeout(() => {
+      draftCommitTimerRef.current = null;
+      if (lastCommittedDraftRef.current === nextValue) return;
+      lastCommittedDraftRef.current = nextValue;
+      onDraftValueChange(nextValue);
+    }, syncDebounceMs);
+  };
+
   useEffect(() => {
-    if (typeof draftValue !== "string") return;
-    if (draftValue === value) return;
-    setValue(draftValue);
-  }, [draftValue, value]);
+    valueRef.current = value;
+  }, [value]);
+
+  // Flush pending draft for previous scope before switching tabs/unmounting.
+  useEffect(() => {
+    return () => {
+      commitDraftNow(valueRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftScopeKey, onDraftValueChange]);
+
+  // Re-initialize local draft when the active tab scope changes.
+  useEffect(() => {
+    const initial = resolveInitialDraft();
+    clearDraftCommitTimer();
+    valueRef.current = initial;
+    lastCommittedDraftRef.current = initial;
+    setValue(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftScopeKey, draftValue, threadId]);
 
   // Auto-save draft to sessionStorage
   useEffect(() => {
@@ -122,6 +177,7 @@ export function Composer({
   // Revoke object URLs on unmount to avoid leaking blob URLs.
   useEffect(() => {
     return () => {
+      clearDraftCommitTimer();
       for (const attachment of draftAttachments) {
         if (attachment.previewUrl) {
           try {
@@ -132,6 +188,18 @@ export function Composer({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onBeforeUnload = () => {
+      commitDraftNow(valueRef.current);
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onDraftValueChange]);
 
   const buildChatAttachmentMessage = (items: UploadedAttachment[], bodyText: string) => {
     const lines: string[] = [];
@@ -255,11 +323,13 @@ export function Composer({
   useEffect(() => {
     if (prefill && prefill !== value) {
       setValue(prefill);
-      onDraftValueChange?.(prefill);
+      valueRef.current = prefill;
+      commitDraftNow(prefill);
       setTimeout(() => ref.current?.focus(), 0);
       onPrefillConsumed && onPrefillConsumed();
     }
-  }, [onDraftValueChange, onPrefillConsumed, prefill, value]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onPrefillConsumed, prefill, value]);
   async function send() {
     if (effectiveSending || uploading) return;
     if (turnLocked) {
@@ -292,11 +362,13 @@ export function Composer({
         return;
       }
 
+      commitDraftNow(valueRef.current);
       await onSend(message);
 
       // Clear the draft after a successful send.
       setValue("");
-      onDraftValueChange?.("");
+      valueRef.current = "";
+      commitDraftNow("");
       setDraftAttachments((prev) => {
         for (const attachment of prev) {
           if (attachment.previewUrl) {
@@ -389,8 +461,10 @@ export function Composer({
               onChange={(e) => {
                 const next = e.target.value;
                 setValue(next);
-                onDraftValueChange?.(next);
+                valueRef.current = next;
+                scheduleDraftCommit(next);
               }}
+              onBlur={() => commitDraftNow(valueRef.current)}
               placeholder="Write a message…"
               onPaste={onPaste}
               onKeyDown={(e) => {

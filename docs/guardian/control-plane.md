@@ -43,6 +43,7 @@ Write-path guarantees:
 - Invalid payloads with no valid tabs are rejected (`400`).
 - `activeTabId` is normalized to an existing tab when possible.
 - Corrupt cached JSON is discarded on read and treated as cache miss.
+- Draft sync policy is local-first in the composer; `/api/ui/session` writes occur on debounced or boundary commits, not per keystroke.
 
 ### Session API Examples
 
