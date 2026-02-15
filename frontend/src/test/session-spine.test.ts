@@ -280,6 +280,43 @@ describe("SessionSpine", () => {
     expect(hydrated.tabs).toHaveLength(1);
     expect(hydrated.activeTabId).toBe(hydrated.tabs[0].tabId);
   });
+
+  it("skips backend hydration when auth gate blocks hydrate", async () => {
+    const store = new InMemorySessionStateStore();
+    const getSpy = vi.spyOn(store, "getSessionState");
+    const spine = new SessionSpine({
+      userId: "user-1",
+      deviceId: "device-1",
+      store,
+      defaultModelId: "default",
+      canHydrate: () => false,
+    });
+
+    const hydrated = await spine.hydrate({ threadId: "101", modelId: "default" });
+    expect(getSpy).not.toHaveBeenCalled();
+    expect(hydrated.tabs).toHaveLength(1);
+    expect(hydrated.tabs[0].threadId).toBe("101");
+  });
+
+  it("skips persistence when auth gate blocks persist", async () => {
+    const store = new InMemorySessionStateStore();
+    const setSpy = vi.spyOn(store, "setSessionState");
+    const spine = new SessionSpine({
+      userId: "user-1",
+      deviceId: "device-1",
+      store,
+      defaultModelId: "default",
+      canPersist: () => false,
+    });
+
+    await spine.hydrate({ threadId: "101", modelId: "default" });
+    const active = spine.getActiveTab();
+    if (!active) throw new Error("Expected active tab");
+
+    spine.tabSetDraft(active.tabId, "gated draft");
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(setSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("RedisSessionStateStore", () => {

@@ -22,6 +22,7 @@ export interface GuardianEventSourceOptions {
   withCredentials?: boolean; // Whether consciousness credentials flow across boundaries
   heartbeatTimeout?: number; // Temporal boundary before consciousness validation required
   retryInterval?: number; // Duration between consciousness reconnection attempts
+  onUnauthorized?: () => void;
 }
 
 type MessageListener = (event: MessageEvent<string>) => void;
@@ -54,23 +55,27 @@ export class GuardianEventSource extends EventTarget {
   private readonly headers: Record<string, string>;
   private retryInterval: number;
   private readonly heartbeatTimeout: number | null;
+  private readonly onUnauthorized: (() => void) | null;
 
   private abortController: AbortController | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   private closedByClient = false;
   private lastEventId = "";
+  private reconnectAttempt = 0;
+  private lastLoggedBackoffStep: number | null = null;
 
   constructor(url: string, options: GuardianEventSourceOptions = {}) {
     super();
     this.url = url;
     this.headers = options.headers ? { ...options.headers } : {};
     this.withCredentials = Boolean(options.withCredentials);
-    this.retryInterval = options.retryInterval ?? 3000;
+    this.retryInterval = Math.max(250, options.retryInterval ?? 250);
     this.heartbeatTimeout =
       options.heartbeatTimeout === undefined
         ? 45000
         : options.heartbeatTimeout;
+    this.onUnauthorized = options.onUnauthorized ?? null;
 
     if (typeof window === "undefined" || typeof fetch !== "function") {
       console.warn("GuardianEventSource requires a browser fetch implementation.");
@@ -122,6 +127,11 @@ export class GuardianEventSource extends EventTarget {
         cache: "no-store",
       });
 
+      if (response.status === 401) {
+        this.handleUnauthorized();
+        return;
+      }
+
       if (!response.ok) {
         throw new Error(`SSE request failed with status ${response.status}`);
       }
@@ -132,6 +142,8 @@ export class GuardianEventSource extends EventTarget {
       }
 
       this.readyState = GuardianEventSource.OPEN;
+      this.reconnectAttempt = 0;
+      this.lastLoggedBackoffStep = null;
       this.bumpHeartbeat();
       const openEvent = new Event("open");
       this.onopen?.(openEvent);
@@ -235,14 +247,13 @@ export class GuardianEventSource extends EventTarget {
   }
 
   private scheduleRetry(interval: number): void {
-    this.retryInterval = Math.max(1000, interval);
+    this.retryInterval = Math.max(250, Math.min(interval, 5000));
   }
 
-  private dispatchError(error: Error): void {
+  private dispatchError(_error: Error): void {
     const event = new Event("error");
     this.onerror?.(event);
     this.dispatchEvent(event);
-    console.warn("GuardianEventSource error", error);
   }
 
   private handleStreamEnd(): void {
@@ -257,12 +268,38 @@ export class GuardianEventSource extends EventTarget {
     if (this.reconnectTimer) {
       return;
     }
+    const stepLadder = [250, 500, 1000, 2000, 5000];
+    const ladderDelay =
+      stepLadder[Math.min(this.reconnectAttempt, stepLadder.length - 1)];
+    const baseDelay = Math.max(ladderDelay, this.retryInterval);
+    const jitterFactor = 0.8 + Math.random() * 0.4;
+    const jitteredDelay = Math.max(1, Math.round(baseDelay * jitterFactor));
+    this.reconnectAttempt += 1;
+    if (this.lastLoggedBackoffStep !== baseDelay) {
+      this.lastLoggedBackoffStep = baseDelay;
+      console.info(`[SSE] reconnect scheduled in ${jitteredDelay}ms`);
+    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (!this.closedByClient) {
         this.startStream();
       }
-    }, this.retryInterval);
+    }, jitteredDelay);
+  }
+
+  private handleUnauthorized(): void {
+    if (this.closedByClient) return;
+    this.closedByClient = true;
+    this.readyState = GuardianEventSource.CLOSED;
+    this.clearHeartbeat();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.abortController?.abort();
+    this.abortController = null;
+    this.onUnauthorized?.();
+    this.dispatchEvent(new Event("unauthorized"));
   }
 
   private bumpHeartbeat(): void {
