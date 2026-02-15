@@ -34,10 +34,10 @@ export const Threads = {
   del: (id: number | string) => req(`/threads/${id}`, { method: 'DELETE' })
 };
 export const Projects = {
-  list: () => req('/projects'),
+  list: () => req('/api/projects'),
   create: (body: { name: string; description?: string }) =>
-    req('/projects', { method: 'POST', body: JSON.stringify(body) }),
-  del: (id: number | string) => req(`/projects/${id}`, { method: 'DELETE' })
+    req('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
+  del: (id: number | string) => req(`/api/projects/${id}`, { method: 'DELETE' })
 };
 export const Notes = {
   log:(b:any)=>req('/log',{method:'POST',body:JSON.stringify(b)}),

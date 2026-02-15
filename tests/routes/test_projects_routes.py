@@ -14,7 +14,7 @@ class TestProjectsPatch:
         """Test successful project name update returns 200."""
         payload = {"name": "Updated Project Name"}
 
-        response = test_client.patch("/projects/1", json=payload)
+        response = test_client.patch("/api/projects/1", json=payload)
 
         assert response.status_code == 200
         data = response.json()
@@ -27,7 +27,7 @@ class TestProjectsPatch:
         """Test successful project description update returns 200."""
         payload = {"description": "Updated project description"}
 
-        response = test_client.patch("/projects/1", json=payload)
+        response = test_client.patch("/api/projects/1", json=payload)
 
         assert response.status_code == 200
         data = response.json()
@@ -40,7 +40,7 @@ class TestProjectsPatch:
         """Test updating both name and description simultaneously."""
         payload = {"name": "New Name", "description": "New description"}
 
-        response = test_client.patch("/projects/1", json=payload)
+        response = test_client.patch("/api/projects/1", json=payload)
 
         assert response.status_code == 200
         data = response.json()
@@ -53,7 +53,7 @@ class TestProjectsPatch:
         """Test patching project with empty payload still succeeds."""
         payload = {}
 
-        response = test_client.patch("/projects/1", json=payload)
+        response = test_client.patch("/api/projects/1", json=payload)
 
         assert response.status_code == 200
         # Should call update_project with None values
@@ -68,7 +68,7 @@ class TestProjectsPatch:
         )
 
         payload = {"name": "New Name"}
-        response = test_client.patch("/projects/1", json=payload)
+        response = test_client.patch("/api/projects/1", json=payload)
 
         assert response.status_code == 400
         data = response.json()
@@ -78,7 +78,9 @@ class TestProjectsPatch:
     def test_patch_project_invalid_id(self, test_client, mock_db):
         """Test patching project with invalid ID type."""
         # FastAPI should handle path parameter validation
-        response = test_client.patch("/projects/invalid", json={"name": "Test"})
+        response = test_client.patch(
+            "/api/projects/invalid", json={"name": "Test"}
+        )
 
         # FastAPI returns 422 for validation errors
         assert response.status_code == 422
@@ -87,7 +89,7 @@ class TestProjectsPatch:
         """Test patching project with null name."""
         payload = {"name": None}
 
-        response = test_client.patch("/projects/1", json=payload)
+        response = test_client.patch("/api/projects/1", json=payload)
 
         assert response.status_code == 200
         mock_db.update_project.assert_called_once_with(
@@ -98,7 +100,7 @@ class TestProjectsPatch:
         """Test patching project with empty string name."""
         payload = {"name": ""}
 
-        response = test_client.patch("/projects/1", json=payload)
+        response = test_client.patch("/api/projects/1", json=payload)
 
         assert response.status_code == 200
         # Empty string should be passed as-is
@@ -112,7 +114,7 @@ class TestProjectsDelete:
 
     def test_delete_project_success(self, test_client, mock_db):
         """Test successful project deletion returns 200."""
-        response = test_client.delete("/projects/1")
+        response = test_client.delete("/api/projects/1")
 
         assert response.status_code == 200
         data = response.json()
@@ -125,7 +127,7 @@ class TestProjectsDelete:
         """Test deleting non-existent project returns 404."""
         mock_db.delete_project.return_value = False
 
-        response = test_client.delete("/projects/999")
+        response = test_client.delete("/api/projects/999")
 
         assert response.status_code == 404
         data = response.json()
@@ -134,7 +136,7 @@ class TestProjectsDelete:
 
     def test_delete_project_ejects_threads_first(self, test_client, mock_db):
         """Test project deletion ejects threads before deleting."""
-        response = test_client.delete("/projects/1")
+        response = test_client.delete("/api/projects/1")
 
         assert response.status_code == 200
         # Verify eject was called before delete
@@ -160,7 +162,7 @@ class TestProjectsDelete:
             "Eject failed"
         )
 
-        response = test_client.delete("/projects/1")
+        response = test_client.delete("/api/projects/1")
 
         # Should still attempt to delete project
         assert response.status_code == 200
@@ -170,7 +172,7 @@ class TestProjectsDelete:
         """Test project deletion handles database errors."""
         mock_db.delete_project.side_effect = Exception("Foreign key constraint")
 
-        response = test_client.delete("/projects/1")
+        response = test_client.delete("/api/projects/1")
 
         assert response.status_code == 400
         data = response.json()
@@ -179,7 +181,7 @@ class TestProjectsDelete:
 
     def test_delete_project_invalid_id(self, test_client, mock_db):
         """Test deleting project with invalid ID type."""
-        response = test_client.delete("/projects/invalid")
+        response = test_client.delete("/api/projects/invalid")
 
         # FastAPI returns 422 for path parameter validation errors
         assert response.status_code == 422
@@ -187,7 +189,7 @@ class TestProjectsDelete:
     def test_delete_default_project(self, test_client, mock_db):
         """Test deleting default project (Loose Threads, id=1)."""
         # This should work technically, but might have special handling
-        response = test_client.delete("/projects/1")
+        response = test_client.delete("/api/projects/1")
 
         # If it succeeds, verify behavior
         if response.status_code == 200:
@@ -204,12 +206,12 @@ class TestProjectsIntegration:
         """Test updating then deleting a project in sequence."""
         # First, patch the project
         patch_response = test_client.patch(
-            "/projects/2", json={"name": "To Be Deleted"}
+            "/api/projects/2", json={"name": "To Be Deleted"}
         )
         assert patch_response.status_code == 200
 
         # Then delete it
-        delete_response = test_client.delete("/projects/2")
+        delete_response = test_client.delete("/api/projects/2")
         assert delete_response.status_code == 200
 
         # Verify both operations were called
@@ -221,7 +223,7 @@ class TestProjectsIntegration:
         # Patch multiple projects
         for project_id in [1, 2, 3]:
             response = test_client.patch(
-                f"/projects/{project_id}",
+                f"/api/projects/{project_id}",
                 json={"name": f"Project {project_id}"},
             )
             assert response.status_code == 200

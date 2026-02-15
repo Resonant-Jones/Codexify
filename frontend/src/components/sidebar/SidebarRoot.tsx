@@ -209,7 +209,7 @@ export default function SidebarRoot({
           created = await onCreateProject(data);
         } else {
           const icon = data.icon?.trim() || "📁";
-          const resp = await api.post("/projects", { name, icon, description: "" });
+          const resp = await api.post("/api/projects", { name, icon, description: "" });
           const payload = resp?.data ?? {};
           const createdId = payload?.id ?? payload?.project_id;
           if (createdId) {
