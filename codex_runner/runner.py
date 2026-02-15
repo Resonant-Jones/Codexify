@@ -734,7 +734,7 @@ PRESET_DEFAULTS: dict[str, dict[str, Any]] = {
         "codex_model_compiler": None,
         "codex_model_task": None,
         # Config is appended; users can still pass their own --codex-config.
-        "codex_config": ["model_reasoning_effort='\"high\"'"],
+        "codex_config": ['model_reasoning_effort="high"'],
     },
     # Balanced: cheaper planning, strong task execution
     "medium": {
@@ -742,7 +742,7 @@ PRESET_DEFAULTS: dict[str, dict[str, Any]] = {
         "codex_model_audit": "gpt-4.1",
         "codex_model_compiler": "gpt-4.1",
         "codex_model_task": "gpt-5-codex",
-        "codex_config": ["model_reasoning_effort='\"medium\"'"],
+        "codex_config": ['model_reasoning_effort="medium"'],
     },
     # Cheapest: mostly for quick iterations / wiring validation
     "low": {
@@ -750,7 +750,7 @@ PRESET_DEFAULTS: dict[str, dict[str, Any]] = {
         "codex_model_audit": None,
         "codex_model_compiler": None,
         "codex_model_task": None,
-        "codex_config": ["model_reasoning_effort='\"low\"'"],
+        "codex_config": ['model_reasoning_effort="low"'],
     },
 }
 
@@ -1235,7 +1235,7 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help=(
             "Optional. Pass-through Codex config override(s). Repeatable. "
-            "Values are TOML, e.g. --codex-config model_reasoning_effort='\"low\"'"
+            'Values are TOML, e.g. --codex-config model_reasoning_effort="low"'
         ),
     )
     parser.add_argument(
