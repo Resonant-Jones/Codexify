@@ -86,6 +86,7 @@ class ChatThread(Base):
     project_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("projects.id")
     )
+    active_profile_id: Mapped[str | None] = mapped_column(String(128))
     parent_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id")
     )

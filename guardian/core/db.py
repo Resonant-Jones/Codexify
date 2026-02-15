@@ -187,6 +187,7 @@ class _PostgresGuardianDB:
         summary: str = "",
         project_id: Optional[int] = None,
         parent_id: Optional[int] = None,
+        active_profile_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a new chat thread."""
         with self.get_session() as session:
@@ -196,6 +197,7 @@ class _PostgresGuardianDB:
                 summary=summary,
                 project_id=project_id,
                 parent_id=parent_id,
+                active_profile_id=active_profile_id,
             )
             session.add(thread)
             session.commit()
@@ -207,6 +209,7 @@ class _PostgresGuardianDB:
                 "summary": thread.summary,
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
+                "active_profile_id": thread.active_profile_id,
                 "archived_at": (
                     thread.archived_at.isoformat()
                     if thread.archived_at
@@ -264,6 +267,7 @@ class _PostgresGuardianDB:
                     "summary": t.summary,
                     "project_id": t.project_id,
                     "parent_id": t.parent_id,
+                    "active_profile_id": t.active_profile_id,
                     "archived_at": t.archived_at.isoformat()
                     if t.archived_at
                     else None,
@@ -291,6 +295,7 @@ class _PostgresGuardianDB:
                 "summary": thread.summary,
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
+                "active_profile_id": thread.active_profile_id,
                 "archived_at": (
                     thread.archived_at.isoformat()
                     if thread.archived_at
@@ -326,6 +331,8 @@ class _PostgresGuardianDB:
         summary: Optional[str] = None,
         project_id: Optional[int] = None,
         project_id_set: bool = False,
+        active_profile_id: Optional[str] = None,
+        active_profile_id_set: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Update thread fields."""
         with self.get_session() as session:
@@ -339,9 +346,79 @@ class _PostgresGuardianDB:
                 thread.summary = summary
             if project_id_set:
                 thread.project_id = project_id
+            if active_profile_id_set:
+                thread.active_profile_id = active_profile_id
 
             session.commit()
             return self.get_chat_thread(thread_id)
+
+    def set_thread_active_profile_id(
+        self, thread_id: int, profile_id: Optional[str]
+    ) -> bool:
+        with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if not thread:
+                return False
+            thread.active_profile_id = profile_id
+            session.commit()
+            return True
+
+    def update_thread_metadata(
+        self, thread_id: int, metadata: Dict[str, Any]
+    ) -> bool:
+        # SQL path keeps this working even if ORM model doesn't map `metadata`.
+        payload = metadata or {}
+        with self.get_session() as session:
+            result = session.execute(
+                text(
+                    """
+                    UPDATE chat_threads
+                    SET metadata = CAST(:metadata AS JSONB), updated_at = now()
+                    WHERE id = :thread_id
+                    """
+                ),
+                {
+                    "metadata": json.dumps(payload),
+                    "thread_id": thread_id,
+                },
+            )
+            session.commit()
+            return bool(result.rowcount)
+
+    def set_thread_profile_overrides(
+        self, thread_id: int, overrides: Dict[str, Any]
+    ) -> bool:
+        with self.get_session() as session:
+            row = session.execute(
+                text("SELECT metadata FROM chat_threads WHERE id = :thread_id"),
+                {"thread_id": thread_id},
+            ).fetchone()
+            if row is None:
+                return False
+            metadata = row[0] or {}
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except Exception:
+                    metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata["profile_overrides"] = dict(overrides or {})
+            result = session.execute(
+                text(
+                    """
+                    UPDATE chat_threads
+                    SET metadata = CAST(:metadata AS JSONB), updated_at = now()
+                    WHERE id = :thread_id
+                    """
+                ),
+                {
+                    "metadata": json.dumps(metadata),
+                    "thread_id": thread_id,
+                },
+            )
+            session.commit()
+            return bool(result.rowcount)
 
     def archive_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
         """Archive a thread."""
@@ -398,6 +475,7 @@ class _PostgresGuardianDB:
                     "summary": t.summary,
                     "project_id": t.project_id,
                     "parent_id": t.parent_id,
+                    "active_profile_id": t.active_profile_id,
                     "archived_at": t.archived_at.isoformat()
                     if t.archived_at
                     else None,

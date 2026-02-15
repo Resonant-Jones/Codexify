@@ -228,3 +228,54 @@ def test_patch_flow_rejects_flow_id_mutation():
 
     missing_new = client.get("/api/flows/mutated_flow_v2", headers=headers)
     assert missing_new.status_code == 404
+
+
+def test_flow_run_persists_profile_override_payload():
+    module, client = _build_flows_router_test_client()
+    headers = {"X-API-Key": "test-key"}
+    flow_spec = _base_flow_spec()
+    flow_spec["scope"]["thread_ids"] = ["7"]
+
+    created = client.post("/api/flows", json=flow_spec, headers=headers)
+    assert created.status_code == 201
+
+    calls: dict[str, object] = {}
+
+    class _Resolved:
+        active_profile_id = "local_mode"
+        provider_override = "local"
+        model_override = "mlx-community/Llama-3B"
+
+    def _fake_persist(thread_id, payload, chatlog_db=None):
+        calls["thread_id"] = thread_id
+        calls["payload"] = payload
+        calls["chatlog_db"] = chatlog_db
+        return _Resolved()
+
+    module.persist_flow_profile_override = _fake_persist
+    module._runtime_deps = lambda: (object(), None)
+
+    run = client.post(
+        "/api/flows/unit_test_flow_v1/run",
+        json={
+            "context": {
+                "date": "2026-02-12",
+                "profile_override_payload": {
+                    "profile_id": "local_mode",
+                    "provider_override": "local",
+                    "system_prompt_blocks": {
+                        "behavior": "Prefer local-only execution."
+                    },
+                },
+            },
+            "confirmed": True,
+        },
+        headers=headers,
+    )
+    assert run.status_code == 200
+    body = run.json()
+    assert body["ok"] is True
+    applied = body["run"]["output"]["profile_override"]
+    assert applied["ok"] is True
+    assert applied["thread_id"] == 7
+    assert calls["thread_id"] == 7
