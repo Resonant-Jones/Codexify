@@ -67,4 +67,3 @@ def reset_state() -> None:
 
     _ALLOWED.clear()
     _CODES.clear()
-

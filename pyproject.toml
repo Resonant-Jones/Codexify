@@ -56,6 +56,7 @@ rag = [
 guardian = "guardian.cli.memoryos_cli:cli"
 guardian-diag = "guardian.tui.diag_app:main"
 guardian-main = "guardian.guardian_main:app"
+# Launches guardian.guardian_api:app via guardian.server.run:main.
 guardian-api = "guardian.server.run:main"
 codexify = "scripts.chatgpt_import.cli_migrate:app"
 

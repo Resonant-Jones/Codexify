@@ -95,4 +95,3 @@ def test_router_unknown_adapter_returns_deterministic_error() -> None:
         "error": "unknown_adapter",
         "adapter_id": "missing",
     }
-

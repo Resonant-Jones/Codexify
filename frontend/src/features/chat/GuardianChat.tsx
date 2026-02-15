@@ -7,7 +7,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { debounce } from "lodash-es";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronRight, MoreVertical, Plus, Sparkles, Layers, SquareStack } from "lucide-react";
+import { ChevronRight, MoreVertical, Sparkles, Layers, SquareStack } from "lucide-react";
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
@@ -17,7 +17,8 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { setTrace } from "@/state/contextTrace";
 import TraceButton from "./components/TraceButton";
-import { ProviderSelect } from "@/components/ProviderSelect";
+import SessionRail from "@/components/SessionRail/SessionRail";
+import type { SessionTab, TabId } from "@/state/session/types";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -81,6 +82,15 @@ export function GuardianChat({
   onSidebarToggle,
   isSidebarVisible = true,
   bare = false,
+  sessionTabs = [],
+  activeSessionTabId = null,
+  activeModelId = "default",
+  activeDraft = "",
+  onSessionTabActivate,
+  onSessionTabClose,
+  onSessionTabOpen,
+  onSessionModelChange,
+  onSessionDraftChange,
 }: {
   guardianName: string;
   userName: string;
@@ -96,6 +106,15 @@ export function GuardianChat({
   isSidebarVisible?: boolean;
   onBack?: () => void;
   bare?: boolean;
+  sessionTabs?: SessionTab[];
+  activeSessionTabId?: TabId | null;
+  activeModelId?: string;
+  activeDraft?: string;
+  onSessionTabActivate?: (tabId: TabId) => void;
+  onSessionTabClose?: (tabId: TabId) => void;
+  onSessionTabOpen?: () => void;
+  onSessionModelChange?: (modelId: string) => void;
+  onSessionDraftChange?: (text: string) => void;
 }) {
   // RAG depth selector: User's control of perceptual awareness
   const [depth, setDepth] = useState<DepthMode>("normal");
@@ -210,7 +229,11 @@ export function GuardianChat({
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
     try {
-      const response = await api.post(`/chat/${tid}/complete`, { depth_mode: depth });
+      const response = await api.post(`/chat/${tid}/complete`, {
+        depth_mode: depth,
+        provider:
+          activeModelId && activeModelId !== "default" ? activeModelId : undefined,
+      });
       console.log(`[guardian] Completing with depth=${depth}`);
 
       // Capture task_id for completion state tracking
@@ -488,9 +511,6 @@ export function GuardianChat({
 
   const headerActions = (
     <div className="flex items-center gap-1">
-      {/* Provider Selector (Moved from Composer) */}
-      <ProviderSelect />
-
       {/* RAG Depth Selector */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -526,9 +546,6 @@ export function GuardianChat({
 
       <TraceButton threadId={effectiveThreadId} />
 
-      <button type="button" className="icon-inline" aria-label="New chat" onClick={onNewChat} style={{ borderRadius: "var(--radius-micro)" }}>
-        <Plus className="h-5 w-5" />
-      </button>
       <button
         type="button"
         className="icon-inline"
@@ -707,6 +724,19 @@ export function GuardianChat({
         </div>
       </header>
 
+      {sessionTabs.length > 0 && (
+        <SessionRail
+          tabs={sessionTabs}
+          activeTabId={activeSessionTabId}
+          activeModelId={activeModelId || "default"}
+          showTabs={sessionTabs.length > 1}
+          onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
+          onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
+          onOpenTab={() => (onSessionTabOpen ? onSessionTabOpen() : onNewChat())}
+          onSetModel={(modelId) => onSessionModelChange?.(modelId)}
+        />
+      )}
+
       {llmBackendUnavailable && (
         <div
           className="mx-4 mt-2 rounded-lg border px-3 py-2 text-xs"
@@ -782,6 +812,9 @@ export function GuardianChat({
             }}
             threadId={effectiveThreadId ?? undefined}
             isTurnInFlight={isTurnLocked(effectiveThreadId)}
+            draftValue={activeDraft}
+            draftScopeKey={activeSessionTabId ?? "global"}
+            onDraftValueChange={onSessionDraftChange}
           />
         </div>
       </div>

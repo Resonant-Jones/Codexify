@@ -4,14 +4,15 @@ import { resolve } from 'path'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
-const API_KEY = (process.env.VITE_GUARDIAN_API_KEY ?? '').trim();
-const API_HEADERS = API_KEY ? { 'X-API-Key': API_KEY } : {};
+const IS_DEV = process.env.NODE_ENV !== 'production';
+const DEV_API_KEY = IS_DEV
+  ? (process.env.VITE_GUARDIAN_DEV_API_KEY ?? '').trim()
+  : '';
+const DEV_API_HEADERS = DEV_API_KEY ? { 'X-API-Key': DEV_API_KEY } : {};
 const PROXY_TARGET =
   process.env.VITE_PROXY_TARGET ||
   process.env.VITE_BACKEND_URL ||
   'http://localhost:8888';
-
-const IS_DEV = process.env.NODE_ENV !== 'production';
 
 export default defineConfig({
   root: resolve(__dirname),
@@ -25,14 +26,12 @@ export default defineConfig({
     {
       name: 'inject-guardian-key',
       configureServer(server) {
-        const UI_KEY = (process.env.VITE_GUARDIAN_API_KEY ?? '').trim();
+        if (!IS_DEV || !DEV_API_KEY) return;
         server.middlewares.use((req, _res, next) => {
           // Node lowercases header names; add the expected API key header for all /api* routes
           if (req.url && req.url.startsWith('/api')) {
-            if (UI_KEY) {
-              if (!req.headers['x-api-key']) req.headers['x-api-key'] = UI_KEY;       // primary, matches OpenAPI
-              if (!req.headers['x-guardian-key']) req.headers['x-guardian-key'] = UI_KEY; // optional legacy header
-            }
+            if (!req.headers['x-api-key']) req.headers['x-api-key'] = DEV_API_KEY;       // primary, matches OpenAPI
+            if (!req.headers['x-guardian-key']) req.headers['x-guardian-key'] = DEV_API_KEY; // optional legacy header
           }
           next();
         });
@@ -92,15 +91,15 @@ export default defineConfig({
         proxyTimeout: 0,
         timeout: 0,
         headers: {
-          ...API_HEADERS,
+          ...DEV_API_HEADERS,
           'accept': 'text/event-stream',
           'cache-control': 'no-cache',
           'connection': 'keep-alive',
         },
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {
-            if (API_KEY) {
-              try { proxyReq.setHeader('X-API-Key', API_KEY); } catch {}
+            if (DEV_API_KEY) {
+              try { proxyReq.setHeader('X-API-Key', DEV_API_KEY); } catch {}
             }
           });
           proxy.on('error', (err) => {
@@ -115,21 +114,21 @@ export default defineConfig({
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        headers: API_HEADERS,
+        headers: DEV_API_HEADERS,
       },
       // Threads alias (/api/threads -> /threads, /api/thread -> /thread)
       '^/api/threads(?=/|$)': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        headers: API_HEADERS,
+        headers: DEV_API_HEADERS,
         rewrite: (p) => p.replace(/^\/api\//, '/'),
       },
       '^/api/thread(?=/|$)': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        headers: API_HEADERS,
+        headers: DEV_API_HEADERS,
         rewrite: (p) => p.replace(/^\/api\//, '/'),
       },
       // Projects
@@ -137,7 +136,7 @@ export default defineConfig({
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        headers: API_HEADERS,
+        headers: DEV_API_HEADERS,
         rewrite: (p) => p.replace(/^\/api\//, '/'),
       },
 
@@ -147,7 +146,7 @@ export default defineConfig({
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-        headers: API_HEADERS,
+        headers: DEV_API_HEADERS,
         rewrite: (p) => p.replace(/^\/api\/api/, '/api'),
       },
 
@@ -157,7 +156,7 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         headers: {
-          ...API_HEADERS,
+          ...DEV_API_HEADERS,
         },
 
         // Let Vite serve source files itself instead of proxying them
@@ -169,9 +168,9 @@ export default defineConfig({
 
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {
-            if (API_KEY) {
+            if (DEV_API_KEY) {
               try {
-                proxyReq.setHeader('X-API-Key', API_KEY);
+                proxyReq.setHeader('X-API-Key', DEV_API_KEY);
               } catch {}
             }
           });

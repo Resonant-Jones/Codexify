@@ -8,8 +8,7 @@ from typing import Any
 import pytest
 
 from guardian.core import dependencies
-from guardian.queue import task_events
-from guardian.queue import redis_queue
+from guardian.queue import redis_queue, task_events
 from guardian.queue.redis_queue import dequeue, dequeue_chat_embed
 from guardian.routes import chat as chat_routes
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
@@ -129,9 +128,7 @@ async def _wait_for_terminal_event(
     events: list[dict[str, Any]] = []
 
     while asyncio.get_running_loop().time() < deadline:
-        batch = task_events.read_events(
-            task_id, last_id, count=100, block_ms=5
-        )
+        batch = task_events.read_events(task_id, last_id, count=100, block_ms=5)
         if batch:
             for event_id, event in batch:
                 last_id = event_id
@@ -257,7 +254,9 @@ async def test_rag_integration_memory_loop(monkeypatch):
 
         messages = chatlog.list_messages(1, limit=50, offset=0)
         assistant_messages = [
-            message for message in messages if message.get("role") == "assistant"
+            message
+            for message in messages
+            if message.get("role") == "assistant"
         ]
         assert assistant_messages
         assistant_text = str(assistant_messages[-1].get("content") or "")

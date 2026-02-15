@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from guardian.tasks.types import (
-    CronExecutionTask,
     TASK_TYPE_REGISTRY,
+    CronExecutionTask,
     task_from_dict,
 )
 

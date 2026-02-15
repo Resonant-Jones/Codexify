@@ -30,7 +30,9 @@ def test_telegram_success_normalized(monkeypatch) -> None:
         captured["timeout"] = timeout
         return _Resp(200, {"ok": True, "result": {"message_id": 9001}})
 
-    monkeypatch.setattr("guardian.channels.adapters.telegram.requests.post", _fake_post)
+    monkeypatch.setattr(
+        "guardian.channels.adapters.telegram.requests.post", _fake_post
+    )
     adapter = TelegramAdapter(bot_token="bot-token")
 
     result = adapter.send_message(chat_id="123", text="hello")
@@ -49,10 +51,11 @@ def test_telegram_vendor_error_normalized(monkeypatch) -> None:
     def _fake_post(url: str, json: dict[str, Any], timeout: int):
         return _Resp(200, {"ok": False, "description": "chat not found"})
 
-    monkeypatch.setattr("guardian.channels.adapters.telegram.requests.post", _fake_post)
+    monkeypatch.setattr(
+        "guardian.channels.adapters.telegram.requests.post", _fake_post
+    )
     adapter = TelegramAdapter(bot_token="bot-token")
 
     result = adapter.send_message(chat_id="123", text="hello")
     assert result["success"] is False
     assert result["error"] == "chat not found"
-

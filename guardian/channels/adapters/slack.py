@@ -7,7 +7,12 @@ from typing import Any
 
 import requests
 
-from guardian.channels.base import Adapter, AdapterContext, InboundMessage, OutboundMessage
+from guardian.channels.base import (
+    Adapter,
+    AdapterContext,
+    InboundMessage,
+    OutboundMessage,
+)
 
 
 class SlackAdapter(Adapter):
@@ -18,7 +23,9 @@ class SlackAdapter(Adapter):
         default_channel: str | None = None,
         base_url: str = "https://slack.com/api",
     ) -> None:
-        self._bot_token = (bot_token or os.getenv("GUARDIAN_SLACK_BOT_TOKEN", "")).strip()
+        self._bot_token = (
+            bot_token or os.getenv("GUARDIAN_SLACK_BOT_TOKEN", "")
+        ).strip()
         self._default_channel = (default_channel or "").strip()
         self._base_url = base_url.rstrip("/")
 
@@ -30,8 +37,12 @@ class SlackAdapter(Adapter):
         self, payload: dict[str, Any], ctx: AdapterContext
     ) -> InboundMessage:
         return InboundMessage(
-            channel_id=str(payload.get("channel") or payload.get("channel_id") or ""),
-            sender_id=str(payload.get("user") or payload.get("sender_id") or ""),
+            channel_id=str(
+                payload.get("channel") or payload.get("channel_id") or ""
+            ),
+            sender_id=str(
+                payload.get("user") or payload.get("sender_id") or ""
+            ),
             text=str(payload.get("text") or ""),
             raw=payload,
         )
@@ -98,7 +109,9 @@ class SlackAdapter(Adapter):
             return {
                 "success": False,
                 "provider": "slack",
-                "error": str(body.get("error") or f"http_{response.status_code}"),
+                "error": str(
+                    body.get("error") or f"http_{response.status_code}"
+                ),
                 "message_id": None,
             }
 
@@ -108,4 +121,3 @@ class SlackAdapter(Adapter):
             "error": None,
             "message_id": body.get("ts"),
         }
-

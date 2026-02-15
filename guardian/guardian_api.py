@@ -60,6 +60,12 @@ from guardian.core.dependencies import (
     init_services,
     require_api_key,
 )
+from guardian.core.public_exposure import (
+    DEFAULT_EXPOSURE_MODE,
+    DEFAULT_PROFILE,
+    DEFAULT_ROUTES_FILE,
+    PublicExposureMiddleware,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue
 from guardian.tasks.types import WarmupTask
@@ -132,7 +138,7 @@ from guardian.routes import (
     migration,
 )
 from guardian.routes import neo as neo_routes
-from guardian.routes import research, share, threads
+from guardian.routes import research, share, threads, ui_session
 from guardian.routes import websocket as websocket_routes
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
@@ -344,6 +350,25 @@ app = FastAPI(
     lifespan=app_lifespan,
 )
 
+exposure_mode = os.getenv("GUARDIAN_EXPOSURE_MODE", DEFAULT_EXPOSURE_MODE)
+public_routes_file = os.getenv(
+    "GUARDIAN_PUBLIC_ROUTES_FILE", DEFAULT_ROUTES_FILE
+)
+public_profile = os.getenv("GUARDIAN_PUBLIC_PROFILE", DEFAULT_PROFILE)
+
+app.add_middleware(
+    PublicExposureMiddleware,
+    exposure_mode=exposure_mode,
+    routes_file=public_routes_file,
+    profile=public_profile,
+)
+logger.info(
+    "[public_exposure] mode=%s profile=%s routes_file=%s",
+    exposure_mode,
+    public_profile,
+    public_routes_file,
+)
+
 
 def _get_request_id(request: Request) -> str:
     request_id = getattr(request.state, "request_id", None)
@@ -469,6 +494,7 @@ app.include_router(migration.router)
 app.include_router(devtools.router)
 app.include_router(websocket_routes.router)
 app.include_router(cron_routes.router)
+app.include_router(ui_session.router)
 
 logger.info("[routers] All routers included")
 

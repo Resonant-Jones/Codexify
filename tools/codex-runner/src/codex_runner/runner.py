@@ -11,10 +11,9 @@ import tempfile
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import date
+from importlib import resources
 from pathlib import Path
 from typing import Any, Iterator
-
-from importlib import resources
 
 DEFAULT_CAMPAIGN_DIR = Path("docs/Campaign")
 DEFAULT_TASKS_DIR = Path("docs/tasks")
@@ -238,7 +237,9 @@ def resource_path(override: Path | None, relative_path: str) -> Iterator[Path]:
         yield override
         return
     # Keep the resource in scope for the lifetime of the caller.
-    with resources.as_file(resources.files("codex_runner") / relative_path) as path:
+    with resources.as_file(
+        resources.files("codex_runner") / relative_path
+    ) as path:
         yield path
 
 
@@ -250,7 +251,9 @@ def load_resources(config: RunnerConfig) -> Iterator[RunnerResources]:
             resource_path(config.campaign_schema_path, CAMPAIGN_SCHEMA_RESOURCE)
         )
         task_result_schema = stack.enter_context(
-            resource_path(config.task_result_schema_path, TASK_RESULT_SCHEMA_RESOURCE)
+            resource_path(
+                config.task_result_schema_path, TASK_RESULT_SCHEMA_RESOURCE
+            )
         )
         yield RunnerResources(
             campaign_schema_path=campaign_schema,
@@ -575,7 +578,9 @@ def run_preview_cycle(
     )
 
 
-def run_cycle(config: RunnerConfig, resources: RunnerResources, cycle_index: int) -> None:
+def run_cycle(
+    config: RunnerConfig, resources: RunnerResources, cycle_index: int
+) -> None:
     """Run a single audit -> campaign -> task cycle."""
     ensure_clean_git("start of cycle", config.repo_root, config.debug)
     print(f"Starting cycle {cycle_index}...")
@@ -618,7 +623,9 @@ def run_cycle(config: RunnerConfig, resources: RunnerResources, cycle_index: int
         config.repo_root,
         config.debug,
     )
-    ensure_clean_git("after switching campaign branch", config.repo_root, config.debug)
+    ensure_clean_git(
+        "after switching campaign branch", config.repo_root, config.debug
+    )
 
     campaign_doc_path = config.repo_root / campaign_doc_relative
     write_text_file(campaign_doc_path, payload["campaign_markdown"])
@@ -641,7 +648,9 @@ def run_cycle(config: RunnerConfig, resources: RunnerResources, cycle_index: int
             config.repo_root,
             config.debug,
         )
-        ensure_clean_git("after campaign artifact commit", config.repo_root, config.debug)
+        ensure_clean_git(
+            "after campaign artifact commit", config.repo_root, config.debug
+        )
     elif not git_is_clean(config.repo_root, config.debug):
         raise RunnerError(
             "Auto-commit disabled but campaign artifacts changed the tree."
@@ -673,13 +682,17 @@ def run_cycle(config: RunnerConfig, resources: RunnerResources, cycle_index: int
                         "Auto-commit disabled but task left the tree dirty."
                     )
 
-            ensure_clean_git("after task commit", config.repo_root, config.debug)
+            ensure_clean_git(
+                "after task commit", config.repo_root, config.debug
+            )
             head_after = git_head_commit(config.repo_root, config.debug)
             if head_after == head_before:
                 # Task produced no changes/commit. For deterministic loops, record the
                 # structured result into the task artifact and commit that receipt.
                 if config.auto_commit and (result.get("status") == "success"):
-                    task_artifact_path = config.repo_root / task["task_artifact_path"]
+                    task_artifact_path = (
+                        config.repo_root / task["task_artifact_path"]
+                    )
                     append_text_file(
                         task_artifact_path,
                         "\n\n## Runner Result\n\n```json\n"
@@ -744,7 +757,9 @@ def run(config: RunnerConfig) -> int:
     if config.cycles < 1:
         raise RunnerError("--cycles must be >= 1")
     if config.preview and (config.execute or config.dry_run):
-        raise RunnerError("--preview cannot be combined with --execute or --dry-run")
+        raise RunnerError(
+            "--preview cannot be combined with --execute or --dry-run"
+        )
     if not config.audit_prompt_file.exists():
         raise RunnerError(
             f"Audit prompt file not found: {config.audit_prompt_file}"

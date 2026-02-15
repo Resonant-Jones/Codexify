@@ -5,4 +5,3 @@ from guardian.channels.adapters.slack import SlackAdapter
 from guardian.channels.adapters.telegram import TelegramAdapter
 
 __all__ = ["SlackAdapter", "DiscordAdapter", "TelegramAdapter"]
-

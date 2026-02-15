@@ -6,7 +6,13 @@ import json
 import os
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+)
 
 MAX_PAYLOAD_BYTES = int(os.getenv("GUARDIAN_WS_MAX_PAYLOAD_BYTES", "65536"))
 
@@ -59,7 +65,9 @@ class RPCEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
-def enforce_payload_size(raw: str | bytes, max_bytes: int = MAX_PAYLOAD_BYTES) -> None:
+def enforce_payload_size(
+    raw: str | bytes, max_bytes: int = MAX_PAYLOAD_BYTES
+) -> None:
     """Fail fast on oversized websocket payloads before JSON parsing."""
 
     size = len(raw.encode("utf-8")) if isinstance(raw, str) else len(raw)
