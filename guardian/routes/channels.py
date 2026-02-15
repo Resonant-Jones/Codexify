@@ -361,5 +361,7 @@ async def list_messages(
             .limit(limit)
             .all()
         )
-        return {"items": [_serialize_message(row) for row in rows], "count": len(rows)}
-
+        return {
+            "items": [_serialize_message(row) for row in rows],
+            "count": len(rows),
+        }

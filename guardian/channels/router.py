@@ -9,7 +9,11 @@ from guardian.channels.allowlist import (
     is_allowed,
     redeem_pairing_code,
 )
-from guardian.channels.base import AdapterContext, InboundMessage, OutboundMessage
+from guardian.channels.base import (
+    AdapterContext,
+    InboundMessage,
+    OutboundMessage,
+)
 from guardian.channels.registry import get_adapter
 
 
@@ -69,4 +73,3 @@ def handle_inbound(
         "thread_id": thread_id,
         "sent": True,
     }
-

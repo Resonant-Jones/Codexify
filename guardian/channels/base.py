@@ -52,4 +52,3 @@ class Adapter(ABC):
         self, payload: dict[str, Any], ctx: AdapterContext
     ) -> InboundMessage:
         """Convert provider payloads into the canonical inbound model."""
-

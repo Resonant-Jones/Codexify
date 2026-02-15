@@ -35,4 +35,3 @@ __all__ = [
     "list_adapters",
     "handle_inbound",
 ]
-
