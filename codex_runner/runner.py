@@ -317,9 +317,15 @@ def slugify_branch(value: str) -> str:
 
 
 def runner_failure_receipt_path(cycle_index: int) -> Path:
+    """Path for deterministic runner failure receipts.
+
+    These are meant to be *committable* operator receipts, so we keep them in
+    docs/tasks (which is tracked) rather than docs/reports (which is ignored).
+    """
     today = date.today().strftime("%Y_%m_%d")
     return (
-        Path("docs/reports/runner")
+        DEFAULT_TASKS_DIR
+        / "runner"
         / f"RUNNER_FAILURE_{today}_cycle_{cycle_index:03d}.md"
     )
 
