@@ -126,6 +126,25 @@ allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
 # =========================
 
 
+def _exposure_mode() -> str:
+    """
+    Resolve endpoint exposure mode.
+
+    - local_safe: default development boundary.
+    - public_allowlist: externally exposed boundary.
+    """
+    raw = (os.getenv("GUARDIAN_EXPOSURE_MODE") or "local_safe").strip().lower()
+    if raw in {"", "local_safe", "local"}:
+        return "local_safe"
+    if raw in {"public_allowlist"}:
+        return "public_allowlist"
+    logger.warning(
+        "Unknown GUARDIAN_EXPOSURE_MODE=%r; defaulting to local_safe",
+        raw,
+    )
+    return "local_safe"
+
+
 def _auth_mode() -> str:
     """
     Resolve auth boundary mode.
@@ -133,6 +152,9 @@ def _auth_mode() -> str:
     - local: static API keys are allowed.
     - remote: static API keys are rejected; only session/JWT tokens are allowed.
     """
+    if _exposure_mode() == "public_allowlist":
+        return "remote"
+
     raw = (os.getenv("GUARDIAN_AUTH_MODE") or "local").strip().lower()
     if raw in {"", "local", "localhost", "loopback"}:
         return "local"
@@ -251,9 +273,20 @@ def verify_api_key(
     Remote mode:
     - Rejects static API keys.
     - Requires session/JWT via Bearer token or gc_session cookie.
+
+    Note: GUARDIAN_EXPOSURE_MODE=public_allowlist always forces remote mode.
     """
     mode = _auth_mode()
     if mode == "remote":
+        if x_api_key and x_api_key.strip():
+            logger.warning(
+                "Rejected static API key in remote auth mode (local-only key boundary)"
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Remote mode requires session/JWT auth; X-API-Key is local-only",
+            )
+
         secrets = _remote_token_secrets()
         if not secrets:
             logger.error(
@@ -265,15 +298,6 @@ def verify_api_key(
                     "Server misconfigured: remote auth mode requires "
                     "GUARDIAN_SESSION_SECRET or GUARDIAN_JWT_SECRET"
                 ),
-            )
-
-        if x_api_key and x_api_key.strip():
-            logger.warning(
-                "Rejected static API key in remote auth mode (local-only key boundary)"
-            )
-            raise HTTPException(
-                status_code=401,
-                detail="Remote mode requires session/JWT auth; X-API-Key is local-only",
             )
 
         bearer_token: Optional[str] = None
