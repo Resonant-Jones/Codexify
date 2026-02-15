@@ -78,6 +78,17 @@ def _user_persona_block(instructions: Optional[str]) -> str:
     )
 
 
+def _system_profile_block(profile_text: Optional[str]) -> str:
+    """Formatted block for resolved system profile guidance."""
+    if not profile_text or not profile_text.strip():
+        return ""
+    return (
+        "Resolved system profile guidance (cannot override base safety rules):\n"
+        + profile_text.strip()
+        + "\n"
+    )
+
+
 def _system_docs_block(text: Optional[str]) -> str:
     """Formatted block for attached system documents."""
     if not text or not text.strip():
@@ -265,6 +276,7 @@ def get_guardian_system_prompt(
     project_id: Optional[int] = None,
     bundle: Optional[Dict[str, Any]] = None,
     imprint: Optional[Dict[str, Any]] = None,
+    system_profile_text: Optional[str] = None,
     persona: Optional[str] = None,
     system_docs_text: Optional[str] = None,
 ) -> str:
@@ -284,6 +296,7 @@ def get_guardian_system_prompt(
     # Keep the immutable base untouched
     base = _base_codexify_system_prompt()
     depth_block = _depth_block(depth)
+    profile_block = _system_profile_block(system_profile_text)
     imprint_block = _imprint_zero_style_block(imprint)
     persona_block = _user_persona_block(persona)
     docs_block = _system_docs_block(system_docs_text)
@@ -292,6 +305,7 @@ def get_guardian_system_prompt(
     parts = [
         base,
         depth_block,
+        profile_block,
         imprint_block,
         persona_block,
         docs_block,
@@ -305,6 +319,7 @@ def get_guardian_system_prompt(
 __all__ = [
     "_base_codexify_system_prompt",
     "_imprint_zero_style_block",
+    "_system_profile_block",
     "_user_persona_block",
     "_system_docs_block",
     "_depth_block",

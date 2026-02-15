@@ -7,6 +7,9 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from guardian.cognition.system_profiles.resolver import (
+    persist_flow_profile_override,
+)
 from guardian.core.dependencies import require_api_key
 from guardian.flows.compiler import compile_flow
 from guardian.flows.runner import run_flow
@@ -48,6 +51,69 @@ def _require_flow(flow_id: str) -> FlowSpec:
             detail=f"Flow '{flow_id}' not found",
         )
     return flow
+
+
+def _coerce_thread_id(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _resolve_thread_id(flow: FlowSpec, context: dict[str, Any]) -> int | None:
+    for key in ("thread_id", "chat_thread_id"):
+        parsed = _coerce_thread_id(context.get(key))
+        if parsed is not None:
+            return parsed
+    if len(flow.scope.thread_ids) == 1:
+        return _coerce_thread_id(flow.scope.thread_ids[0])
+    return None
+
+
+def _looks_like_profile_payload(payload: Any) -> bool:
+    return isinstance(payload, dict) and isinstance(
+        payload.get("profile_id"), str
+    )
+
+
+def _extract_profile_override_payload(
+    run: FlowRun, context: dict[str, Any]
+) -> dict[str, Any] | None:
+    candidates: list[dict[str, Any]] = []
+    direct_context = context.get("profile_override_payload")
+    if _looks_like_profile_payload(direct_context):
+        candidates.append(direct_context)
+
+    output_payload = run.output.get("profile_override_payload")
+    if _looks_like_profile_payload(output_payload):
+        candidates.append(output_payload)
+
+    step_outputs = run.output.get("step_outputs")
+    if isinstance(step_outputs, dict):
+        for output in step_outputs.values():
+            if not isinstance(output, dict):
+                continue
+            nested = output.get("profile_override_payload")
+            if _looks_like_profile_payload(nested):
+                candidates.append(nested)
+            elif _looks_like_profile_payload(output):
+                candidates.append(output)
+
+    if not candidates:
+        return None
+    return candidates[-1]
+
+
+def _runtime_deps() -> tuple[Any | None, Any | None]:
+    try:
+        from guardian.core import dependencies as core_dependencies
+
+        db = getattr(core_dependencies, "chatlog_db", None)
+        bus = getattr(core_dependencies, "event_bus", None)
+        return db, bus
+    except Exception:
+        return None, None
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -112,6 +178,66 @@ async def run_flow_now(flow_id: str, body: FlowRunRequest) -> dict[str, Any]:
     run_context = dict(body.context)
     run_context["confirmed"] = body.confirmed
     run = run_flow(compiled, context=run_context)
+
+    profile_override_payload = _extract_profile_override_payload(
+        run, run_context
+    )
+    if profile_override_payload:
+        thread_id = _resolve_thread_id(flow, run_context)
+        applied: dict[str, Any]
+        if thread_id is None:
+            applied = {
+                "ok": False,
+                "reason": "thread_id_unresolved",
+                "profile_override_payload": profile_override_payload,
+            }
+        else:
+            db, bus = _runtime_deps()
+            if db is None:
+                applied = {
+                    "ok": False,
+                    "reason": "chat_db_unavailable",
+                    "thread_id": thread_id,
+                    "profile_override_payload": profile_override_payload,
+                }
+            else:
+                try:
+                    resolved = persist_flow_profile_override(
+                        thread_id,
+                        profile_override_payload,
+                        chatlog_db=db,
+                    )
+                    applied = {
+                        "ok": True,
+                        "thread_id": thread_id,
+                        "active_profile_id": resolved.active_profile_id,
+                        "provider_override": resolved.provider_override,
+                        "model_override": resolved.model_override,
+                        "profile_override_payload": profile_override_payload,
+                    }
+                    if bus is not None and hasattr(bus, "emit_event"):
+                        try:
+                            bus.emit_event(
+                                "thread.profile.override.applied",
+                                {
+                                    "thread_id": thread_id,
+                                    "flow_id": flow_id,
+                                    "active_profile_id": resolved.active_profile_id,
+                                    "provider_override": resolved.provider_override,
+                                    "model_override": resolved.model_override,
+                                },
+                            )
+                        except Exception:
+                            pass
+                except Exception as exc:
+                    applied = {
+                        "ok": False,
+                        "reason": str(exc),
+                        "thread_id": thread_id,
+                        "profile_override_payload": profile_override_payload,
+                    }
+        run.output["profile_override"] = applied
+
     _FLOW_RUNS.setdefault(flow_id, []).append(run)
     _RUN_INDEX[run.run_id] = run
     return {"ok": True, "run": run.model_dump(mode="json")}

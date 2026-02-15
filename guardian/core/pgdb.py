@@ -300,6 +300,11 @@ class PgDB(ChatDB):
                 row["parent_id"] = int(parent)
             except (TypeError, ValueError):
                 pass
+        active_profile_id = row.get("active_profile_id")
+        if active_profile_id is None:
+            row["active_profile_id"] = None
+        elif not isinstance(active_profile_id, str):
+            row["active_profile_id"] = str(active_profile_id)
         metadata = row.get("metadata")
         if isinstance(metadata, str):
             try:
@@ -321,6 +326,7 @@ class PgDB(ChatDB):
         is_diary: bool = False,
         exclude_from_identity: bool = False,
         metadata: dict | None = None,
+        active_profile_id: str | None = None,
     ) -> dict[str, Any]:
         """Manifest a new conversation thread in the distributed consciousness.
 
@@ -333,9 +339,9 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, created_at, updated_at
+                        INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata, active_profile_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, active_profile_id, created_at, updated_at
                         """,
                         (
                             user_id,
@@ -346,6 +352,7 @@ class PgDB(ChatDB):
                             is_diary,
                             exclude_from_identity,
                             _to_json(metadata),
+                            active_profile_id,
                         ),
                     )
                     row = cur.fetchone()
@@ -378,6 +385,7 @@ class PgDB(ChatDB):
         is_diary: bool = False,
         exclude_from_identity: bool = False,
         metadata: dict | None = None,
+        active_profile_id: str | None = None,
     ) -> dict[str, Any]:
         metadata = metadata or {}
         existing = self.get_chat_thread(thread_id)
@@ -388,10 +396,10 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata, active_profile_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO NOTHING
-                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, created_at, updated_at
+                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, active_profile_id, created_at, updated_at
                         """,
                         (
                             thread_id,
@@ -403,6 +411,7 @@ class PgDB(ChatDB):
                             is_diary,
                             exclude_from_identity,
                             _to_json(metadata),
+                            active_profile_id,
                         ),
                     )
                     row = cur.fetchone()
@@ -433,7 +442,7 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
                         FROM chat_threads
                         WHERE user_id = %s
                         ORDER BY created_at DESC
@@ -479,7 +488,7 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
                         FROM chat_threads
                         WHERE id = %s
                         """,
@@ -519,7 +528,7 @@ class PgDB(ChatDB):
             params.append(project_id)
 
         query = (
-            "SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at "
+            "SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at "
             "FROM chat_threads"
         )
         if clauses:
@@ -568,6 +577,8 @@ class PgDB(ChatDB):
         summary: str | None = None,
         project_id: int | None = None,
         project_id_set: bool = False,
+        active_profile_id: str | None = None,
+        active_profile_id_set: bool = False,
     ):
         """Patch fields on a thread and return the updated row."""
         fields: list[str] = []
@@ -581,6 +592,9 @@ class PgDB(ChatDB):
         if project_id_set:
             fields.append("project_id = %s")
             params.append(project_id)
+        if active_profile_id_set:
+            fields.append("active_profile_id = %s")
+            params.append(active_profile_id)
 
         now = datetime.now(timezone.utc)
         fields.append("updated_at = %s")
@@ -596,6 +610,61 @@ class PgDB(ChatDB):
                 updated = cur.rowcount > 0
         return updated
 
+    def set_thread_active_profile_id(
+        self, thread_id: int, profile_id: str | None
+    ) -> bool:
+        """Set `active_profile_id` for a thread."""
+        now = datetime.now(timezone.utc)
+        with self._connect() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE chat_threads
+                        SET active_profile_id = %s, updated_at = %s
+                        WHERE id = %s
+                        """,
+                        (profile_id, now, thread_id),
+                    )
+                    return cur.rowcount > 0
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                return False
+
+    def update_thread_metadata(
+        self, thread_id: int, metadata: dict[str, Any]
+    ) -> bool:
+        """Replace thread metadata payload."""
+        now = datetime.now(timezone.utc)
+        with self._connect() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE chat_threads
+                        SET metadata = %s, updated_at = %s
+                        WHERE id = %s
+                        """,
+                        (_to_json(metadata or {}), now, thread_id),
+                    )
+                    return cur.rowcount > 0
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                return False
+
+    def set_thread_profile_overrides(
+        self, thread_id: int, overrides: dict[str, Any]
+    ) -> bool:
+        """Upsert profile override payloads inside thread metadata."""
+        thread = self.get_chat_thread(thread_id)
+        if not thread:
+            return False
+        metadata = thread.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata["profile_overrides"] = dict(overrides or {})
+        return self.update_thread_metadata(thread_id, metadata)
+
     def archive_thread(self, thread_id: int) -> dict[str, Any] | None:
         now = datetime.now(timezone.utc)
         with self._connect() as conn:
@@ -606,7 +675,7 @@ class PgDB(ChatDB):
                         UPDATE chat_threads
                         SET archived_at = %s, updated_at = %s
                         WHERE id = %s
-                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
                         """,
                         (now, now, thread_id),
                     )
@@ -642,7 +711,7 @@ class PgDB(ChatDB):
                         UPDATE chat_threads
                         SET archived_at = NULL, updated_at = %s
                         WHERE id = %s
-                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
                         """,
                         (now, thread_id),
                     )
@@ -846,7 +915,7 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, created_at, updated_at
+                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
                         FROM chat_threads
                         WHERE parent_id = %s
                         """,
@@ -1896,6 +1965,24 @@ def fetch_threads_for_user(
 
     try:
         try:
+            cur.execute(
+                """
+                SELECT id, user_id, title, summary, project_id, parent_id,
+                       archived_at, metadata, active_profile_id, created_at, updated_at
+                FROM chat_threads
+                WHERE user_id = %s
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (user_id,),
+            )
+        except pg_errors.UndefinedColumn:
+            conn.rollback()
+            try:
+                cur.close()
+            except Exception:
+                pass
+            cur = conn.cursor(name=cursor_name)
+            cur.itersize = max(int(chunk_size), 1)
             cur.execute(
                 """
                 SELECT id, user_id, title, summary, project_id, parent_id,

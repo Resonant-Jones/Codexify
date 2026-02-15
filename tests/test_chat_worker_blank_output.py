@@ -27,7 +27,7 @@ def test_worker_replaces_blank_output(monkeypatch):
     )
 
     async def fake_build_messages(_task):
-        return [], "groq", "model", {}, None
+        return [], "groq", "model", {}, None, None
 
     monkeypatch.setattr(
         chat_worker, "_build_messages_for_llm", fake_build_messages

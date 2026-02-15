@@ -100,6 +100,13 @@ try:  # pragma: no cover - prompts are optional in some deployments
 except Exception:
     build_guardian_system_prompt = None
 
+try:
+    from guardian.cognition.system_profiles.resolver import (
+        resolve_thread_system_profile,
+    )
+except Exception:
+    resolve_thread_system_profile = None
+
 
 # Pydantic models for thread operations
 class ThreadDTO(BaseModel):
@@ -1079,21 +1086,19 @@ async def simple_chat_entrypoint(
     }
 
 
-def _get_trace_from_task_events(task_id: str) -> Optional[Dict[str, Any]]:
+def _get_task_completed_payload(task_id: str) -> Optional[Dict[str, Any]]:
     """
-    Poll task events stream to extract the trace from task.completed event.
-    Returns the trace dict if found, None otherwise.
+    Read task events and return the most recent task.completed payload.
     """
     try:
-        # Read task events, starting from beginning
         events = task_events.read_events(task_id, "0", count=100, block_ms=1000)
+        completed_payload: Dict[str, Any] | None = None
         for _, event in events:
             if event.get("type") == "task.completed":
                 data = event.get("data", {})
-                trace = data.get("trace")
-                if trace:
-                    return trace
-        return None
+                if isinstance(data, dict):
+                    completed_payload = data
+        return completed_payload
     except Exception as exc:
         logger.debug("[chat] failed to read task events for trace: %s", exc)
         return None
@@ -1110,18 +1115,68 @@ def get_latest_rag_trace(
     falls back to in-memory cache otherwise.
     Returns empty arrays if no trace is available.
     """
-    # Try to get trace from task events if we have a recent task
+    trace: Dict[str, Any] | None = None
+    profile_debug: Dict[str, Any] = {
+        "active_profile_id": None,
+        "provider_override": None,
+        "model_override": None,
+    }
+
+    # Try to get trace + profile data from task events if we have a recent task
     task_id = _thread_latest_task.get(thread_id)
     if task_id:
-        trace = _get_trace_from_task_events(task_id)
-        if trace:
-            _rag_traces[thread_id] = trace  # Cache it
-            return trace
+        completed_payload = _get_task_completed_payload(task_id)
+        if completed_payload:
+            payload_trace = completed_payload.get("trace")
+            if isinstance(payload_trace, dict):
+                trace = dict(payload_trace)
+                _rag_traces[thread_id] = trace  # Cache it
+            for key in (
+                "active_profile_id",
+                "provider_override",
+                "model_override",
+            ):
+                profile_debug[key] = completed_payload.get(key)
 
     # Fall back to in-memory cache
-    trace = _rag_traces.get(thread_id)
+    if trace is None:
+        cached = _rag_traces.get(thread_id)
+        if isinstance(cached, dict):
+            trace = dict(cached)
+
     if not trace:
-        return {"documents": [], "graph": []}
+        trace = {"documents": [], "graph": []}
+    else:
+        trace.setdefault("documents", [])
+        trace.setdefault("graph", [])
+
+    if resolve_thread_system_profile and (
+        profile_debug["active_profile_id"] is None
+        or profile_debug["provider_override"] is None
+        or profile_debug["model_override"] is None
+    ):
+        with_profile = None
+        try:
+            with_profile = resolve_thread_system_profile(
+                thread_id, chatlog_db=chatlog_db
+            )
+        except Exception:
+            with_profile = None
+        if with_profile is not None:
+            if profile_debug["active_profile_id"] is None:
+                profile_debug["active_profile_id"] = (
+                    with_profile.active_profile_id
+                    or with_profile.profile_id
+                    or None
+                )
+            if profile_debug["provider_override"] is None:
+                profile_debug[
+                    "provider_override"
+                ] = with_profile.provider_override
+            if profile_debug["model_override"] is None:
+                profile_debug["model_override"] = with_profile.model_override
+
+    trace.update(profile_debug)
     return trace
 
 

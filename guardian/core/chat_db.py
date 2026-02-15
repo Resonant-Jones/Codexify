@@ -114,6 +114,8 @@ class ChatDB(ABC):
         summary: str | None = None,
         project_id: int | None = None,
         project_id_set: bool = False,
+        active_profile_id: str | None = None,
+        active_profile_id_set: bool = False,
     ) -> bool:
         """Update a chat thread.
 
@@ -123,9 +125,56 @@ class ChatDB(ABC):
             summary (Optional[str], optional): The new summary. Defaults to None.
             project_id (Optional[int], optional): The new project ID. Defaults to None.
             project_id_set (bool, optional): True to set project_id even when None.
+            active_profile_id (Optional[str], optional): The active system profile id.
+            active_profile_id_set (bool, optional): True to set active_profile_id even when None.
 
         Returns:
             None
+        """
+        ...
+
+    @abstractmethod
+    def set_thread_active_profile_id(
+        self, thread_id: int, profile_id: str | None
+    ) -> bool:
+        """Set active profile id for a thread.
+
+        Args:
+            thread_id (int): The target thread.
+            profile_id (Optional[str]): Profile id to set, or None to clear.
+
+        Returns:
+            bool: True when a row was updated.
+        """
+        ...
+
+    @abstractmethod
+    def update_thread_metadata(
+        self, thread_id: int, metadata: dict[str, Any]
+    ) -> bool:
+        """Replace thread metadata payload.
+
+        Args:
+            thread_id (int): The target thread.
+            metadata (dict[str, Any]): New metadata payload.
+
+        Returns:
+            bool: True when a row was updated.
+        """
+        ...
+
+    @abstractmethod
+    def set_thread_profile_overrides(
+        self, thread_id: int, overrides: dict[str, Any]
+    ) -> bool:
+        """Upsert profile overrides in thread metadata.
+
+        Args:
+            thread_id (int): The target thread.
+            overrides (dict[str, Any]): Mapping profile_id -> payload.
+
+        Returns:
+            bool: True when a row was updated.
         """
         ...
 

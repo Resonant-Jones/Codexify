@@ -57,6 +57,19 @@ try:  # pragma: no cover - prompts are optional in some deployments
 except Exception:  # pragma: no cover - optional dependency
     build_guardian_system_prompt = None
 
+try:
+    from guardian.cognition.system_profiles.resolver import (
+        ResolvedSystemProfile,
+        resolve_thread_system_profile,
+    )
+except Exception:  # pragma: no cover - optional dependency
+    ResolvedSystemProfile = Any  # type: ignore[assignment,misc]
+
+    def resolve_thread_system_profile(
+        thread_id: int, *, chatlog_db: Any | None = None
+    ):
+        return None
+
 
 def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
     try:
@@ -305,7 +318,12 @@ def _maybe_add_vision_summary(
 async def _build_messages_for_llm(
     task: ChatCompletionTask,
 ) -> tuple[
-    list[dict[str, str]], str, str, dict[str, Any], dict[str, Any] | None
+    list[dict[str, str]],
+    str,
+    str,
+    dict[str, Any],
+    dict[str, Any] | None,
+    ResolvedSystemProfile | None,
 ]:
     settings = get_settings()
     provider = (
@@ -313,21 +331,6 @@ async def _build_messages_for_llm(
         .strip()
         .lower()
     )
-
-    if is_cloud_provider(provider) and not settings.ALLOW_CLOUD_PROVIDERS:
-        raise LLMConfigError(
-            "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
-        )
-
-    if validate_llm_config:
-        try:
-            validate_llm_config(settings, provider_override=provider)
-        except LLMConfigError as exc:
-            logger.warning(
-                "[chat-worker] LLM config error provider=%s detail=%s",
-                provider,
-                exc,
-            )
 
     user_system_override = task.system_override
     if isinstance(user_system_override, str):
@@ -343,6 +346,38 @@ async def _build_messages_for_llm(
     )
     if not thread_info:
         raise ValueError("thread_not_found")
+
+    profile: ResolvedSystemProfile | None = None
+    try:
+        profile = resolve_thread_system_profile(
+            thread_id,
+            chatlog_db=dependencies.chatlog_db,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[chat-worker] system profile resolve failed thread_id=%s err=%s",
+            thread_id,
+            exc,
+        )
+        profile = None
+
+    if profile and profile.provider_override:
+        provider = profile.provider_override.strip().lower()
+
+    if is_cloud_provider(provider) and not settings.ALLOW_CLOUD_PROVIDERS:
+        raise LLMConfigError(
+            "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
+        )
+
+    if validate_llm_config:
+        try:
+            validate_llm_config(settings, provider_override=provider)
+        except LLMConfigError as exc:
+            logger.warning(
+                "[chat-worker] LLM config error provider=%s detail=%s",
+                provider,
+                exc,
+            )
 
     limit = int(task.max_context or 50)
     items = dependencies.chatlog_db.list_messages(
@@ -418,6 +453,7 @@ async def _build_messages_for_llm(
                 project_id=project_id_for_prompt,
                 depth=depth,
                 bundle=bundle,
+                profile=profile,
             )
             token_est = prompt_meta.get(
                 "estimated_tokens", _estimate_tokens(system_content)
@@ -472,6 +508,8 @@ async def _build_messages_for_llm(
         logger.warning("[chat-worker] media attachment parsing failed: %s", exc)
 
     model = task.model
+    if not model and profile and profile.model_override:
+        model = profile.model_override
     if not model and provider == "local":
         model = (
             settings.LOCAL_LLM_MODEL
@@ -482,7 +520,7 @@ async def _build_messages_for_llm(
     if not model:
         model = dependencies.DEFAULT_MODEL or ""
 
-    return messages_for_llm, provider, model, bundle, trace
+    return messages_for_llm, provider, model, bundle, trace, profile
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
@@ -500,9 +538,14 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     )
 
     try:
-        messages_for_llm, provider, model, bundle, trace = asyncio.run(
-            _build_messages_for_llm(task)
-        )
+        (
+            messages_for_llm,
+            provider,
+            model,
+            bundle,
+            trace,
+            profile,
+        ) = asyncio.run(_build_messages_for_llm(task))
         if is_cancelled(task.task_id):
             _safe_publish(
                 task.task_id,
@@ -518,9 +561,15 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         assistant_text = ""
         try:
             if provider == "local":
+                temperature_override = (
+                    profile.temperature_override
+                    if profile and profile.temperature_override is not None
+                    else None
+                )
                 token_stream = stream_local(
                     messages_for_llm,
                     model,
+                    temperature=temperature_override,
                 )
                 try:
                     for token in token_stream:
@@ -618,6 +667,18 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "provider": provider,
                     "model": model,
                     "trace": trace or {},
+                    "active_profile_id": (
+                        profile.active_profile_id if profile else None
+                    ),
+                    "provider_override": (
+                        profile.provider_override if profile else None
+                    ),
+                    "model_override": (
+                        profile.model_override if profile else None
+                    ),
+                    "temperature_override": (
+                        profile.temperature_override if profile else None
+                    ),
                 },
             )
             logger.info(

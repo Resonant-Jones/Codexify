@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from guardian.cognition.imprints import store as imprint_store
 from guardian.cognition.personas import store as persona_store
 from guardian.cognition.system_docs import store as system_doc_store
+from guardian.cognition.system_profiles.resolver import ResolvedSystemProfile
 from guardian.cognition.system_prompt_builder import (
     build_guardian_system_prompt,
 )
@@ -92,3 +93,37 @@ def test_build_guardian_system_prompt_truncates_docs_when_over_cap():
     )
     assert meta["estimated_tokens"] <= 200
     assert meta["docs_truncated"] is True
+
+
+def test_build_guardian_system_prompt_inserts_profile_block_before_persona():
+    Session = setup_session()
+    imprint_store._set_session_factory(Session)
+    persona_store._set_session_factory(Session)
+    system_doc_store._set_session_factory(Session)
+
+    persona_store.set_persona("user-3", None, body="Persona guidance.")
+    profile = ResolvedSystemProfile(
+        profile_id="local_mode",
+        active_profile_id="local_mode",
+        source="catalog",
+        provider_override="local",
+        system_prompt_blocks={
+            "behavior": "Profile behavior guidance.",
+            "constraints": "Profile constraint guidance.",
+        },
+    )
+
+    prompt, meta = build_guardian_system_prompt(
+        user_id="user-3",
+        project_id=None,
+        depth="normal",
+        bundle=None,
+        profile=profile,
+    )
+
+    assert "Resolved system profile guidance" in prompt
+    assert "Profile behavior guidance." in prompt
+    assert meta["segments"]["profile"] > 0
+    assert prompt.index("Resolved system profile guidance") < prompt.index(
+        "User-provided persona instructions"
+    )
