@@ -39,3 +39,120 @@
 - command -v npx >/dev/null
 - test -n ${GUARDIAN_API_KEY:-} || { echo 'Missing GUARDIAN_API_KEY'; exit 1; }
 - test -n ${VITE_GUARDIAN_API_KEY:-} || { echo 'Missing VITE_GUARDIAN_API_KEY'; exit 1; }
+
+
+---
+
+# Task 003 — Backend: Make `/media` Serving Reliable on Fresh Runtime (FINDING-2026-02-16-005)
+
+Preflight: git status --porcelain -uall must be empty
+
+## STOP Conditions
+1) If preflight is not empty, STOP and run:
+- `git status --porcelain -uall`
+- `git restore --staged --worktree -- .`
+- `git clean -fd`
+
+2) If any out-of-scope files appear at any point, STOP and run:
+- `git status --porcelain -uall`
+- `git restore --staged --worktree -- .`
+- `git clean -fd`
+
+## Finding
+- ID: `FINDING-2026-02-16-005`
+- Severity: `WARN` (map to task risk: MED)
+- Title: Media URLs depend on conditional `/media` static mount that may be absent on fresh runtime
+
+## Outcome (must be observable)
+- A fresh `docker compose up` reliably serves media URLs returned by the API (no manual directory creation required).
+- The conditional mount behavior is removed or made safe by ensuring the base directory exists before the mount decision.
+
+### Implementation Notes (2026-02-16)
+- `guardian/core/storage.ensure_storage_base_path()` now creates the storage directory during env bootstrap, allowing `guardian/guardian_api.py` to always mount `/media` deterministically on startup.
+
+## Allowed Files (strict)
+- `guardian/guardian_api.py`
+- `guardian/core/storage.py`
+- `docker-compose.yml`
+- `docs/**/*.md`
+
+## Dependencies / Prereqs (deterministic checks)
+- `docker --version`
+- `docker compose version`
+
+## Command Checklist
+1) Preflight:
+- `git status --porcelain -uall`
+
+2) Inspect current behavior (audit context):
+- Review static mount logic in `guardian/guardian_api.py` (audit evidence lines L442-L450).
+- Review storage base path defaults / directory creation in `guardian/core/storage.py` (audit evidence lines L485-L508).
+
+3) Implement:
+- Ensure the storage base directory exists before app startup static mounting decisions.
+- Make `/media` serving deterministic for fresh runtimes (either always mount + create dir, or mount after ensuring dir exists).
+- If behavior changes, document it in `docs/`.
+
+4) Validate (basic service startup and route visibility):
+- `docker compose up -d db redis backend`
+- `curl -sS http://localhost:8888/openapi.json | rg -n "\/api\/media\/upload\/image|\/api\/media\/upload\/document|\/api\/media\/images|\/media" || true`
+
+5) Scope check:
+- `git status --porcelain -uall`
+
+## Expected Outputs (success signals)
+- Fresh backend startup does not depend on a pre-existing host/container directory for `/media` serving.
+- Media upload/list routes continue to exist (OpenAPI grep finds expected endpoints).
+- `git status --porcelain -uall` shows modifications only within Allowed Files.
+
+## Rollback / Cleanup Commands
+- `git restore --source=HEAD --staged --worktree -- guardian/guardian_api.py guardian/core/storage.py docker-compose.yml`
+- `git restore --source=HEAD --staged --worktree -- docs`
+- `git clean -fd`
+
+
+## Runner Receipt (Start)
+
+- Campaign: CAMPAIGN_2026_02_16_COMPILED_AUDIT
+
+- Task ID: 003
+
+- Head before: e4087a2a6f4d2304810b61a2c1af14acd7e18775
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: Media storage bootstrap now creates and mounts deterministically; Docker validation blocked by socket permissions.
+
+- Implementation commit hash: f7f348dd0d056a38d98282be98ccabeb2e779641
+
+- Receipt update commit hash: e3da9a122b86d27056530e3e41358d8365db0a54
+
+- Tests ran: docker --version, docker compose version, docker compose up -d db redis backend (fails: permission denied to Docker socket), curl -sS http://localhost:8888/openapi.json | rg ... (blocked because compose failed), git status --porcelain -uall
+
+- Notes: Need user to rerun docker compose and OpenAPI grep once Docker socket access works.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "Media storage bootstrap now creates and mounts deterministically; Docker validation blocked by socket permissions.",
+  "tests_ran": [
+    "docker --version",
+    "docker compose version",
+    "docker compose up -d db redis backend (fails: permission denied to Docker socket)",
+    "curl -sS http://localhost:8888/openapi.json | rg ... (blocked because compose failed)",
+    "git status --porcelain -uall"
+  ],
+  "commit_hash": "f7f348dd0d056a38d98282be98ccabeb2e779641",
+  "implementation_commit_hash": "f7f348dd0d056a38d98282be98ccabeb2e779641",
+  "receipt_update_commit_hash": "e3da9a122b86d27056530e3e41358d8365db0a54",
+  "notes": "Need user to rerun docker compose and OpenAPI grep once Docker socket access works."
+}
+```
+
+</details>

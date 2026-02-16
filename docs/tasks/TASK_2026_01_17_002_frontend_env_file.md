@@ -62,7 +62,7 @@ git commit -m "docs(task): finalize TASK-2026-01-17-002 summary"
 - Checks:
   - `docker compose config -q`: pass
   - `docker compose up -d frontend`: pass
-  - `docker compose exec -T frontend printenv | grep -E "^VITE_GUARDIAN_API_KEY="`: `VITE_GUARDIAN_API_KEY=001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e`
+- `docker compose exec -T frontend printenv | grep -E "^VITE_GUARDIAN_API_KEY="`: `VITE_GUARDIAN_API_KEY=<dev-only-same-as-backend>`
 - git status: clean
 - Commit mode: two-phase
 - Implementation hash: 58fe9b5493ed998c0fd6f43c7ab540940ed8f943

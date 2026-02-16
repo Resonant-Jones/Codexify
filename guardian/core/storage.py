@@ -482,28 +482,29 @@ def detect_media_type(filename: str) -> str:
 # =========================
 # Configuration Loading
 # =========================
-def create_storage_from_env() -> "StorageManager":
-    """
-    Create a StorageManager based on environment configuration.
-
-    Behavior:
-    - If STORAGE_BASE_PATH is set, always use that as the base path.
-    - Otherwise, when running under pytest (detected via PYTEST_CURRENT_TEST or presence of pytest in sys.modules),
-      use a writable temporary directory under the system temp dir.
-    - For normal runtime, default to /app/media (container default).
-    """
-    url_prefix = os.getenv("STORAGE_URL_PREFIX", "/media")
-
+def _resolve_storage_base_path() -> Path:
+    """Determine which filesystem path should back media storage."""
     base_path_env = os.getenv("STORAGE_BASE_PATH")
     is_pytest = "pytest" in sys.modules or os.environ.get("PYTEST_CURRENT_TEST")
 
     if base_path_env:
-        base_path = Path(base_path_env)
-    elif is_pytest:
+        return Path(base_path_env)
+    if is_pytest:
         # Test environment: avoid writing to read-only /app
-        base_path = Path(tempfile.gettempdir()) / "codexify_media"
-    else:
-        # Default container path (Docker runtime)
-        base_path = Path("/app/media")
+        return Path(tempfile.gettempdir()) / "codexify_media"
+    # Default container path (Docker runtime)
+    return Path("/app/media")
 
+
+def ensure_storage_base_path() -> Path:
+    """Return the storage base path and ensure the directory exists."""
+    base_path = _resolve_storage_base_path()
+    base_path.mkdir(parents=True, exist_ok=True)
+    return base_path
+
+
+def create_storage_from_env() -> "StorageManager":
+    """Create a StorageManager based on environment configuration."""
+    url_prefix = os.getenv("STORAGE_URL_PREFIX", "/media")
+    base_path = ensure_storage_base_path()
     return StorageManager("local", base_path=base_path, url_prefix=url_prefix)

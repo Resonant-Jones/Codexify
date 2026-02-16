@@ -34,3 +34,111 @@
 - command -v rg >/dev/null
 - command -v npx >/dev/null
 - test -n ${GUARDIAN_API_KEY:-} || { echo 'Missing GUARDIAN_API_KEY'; exit 1; }
+
+
+---
+
+# Task 004 — Frontend: Settings Migration Uses Canonical Authenticated Endpoint (FINDING-2026-02-16-004)
+
+Preflight: git status --porcelain -uall must be empty
+
+## STOP Conditions
+1) If preflight is not empty, STOP and run:
+- `git status --porcelain -uall`
+- `git restore --staged --worktree -- .`
+- `git clean -fd`
+
+2) If any out-of-scope files appear at any point, STOP and run:
+- `git status --porcelain -uall`
+- `git restore --staged --worktree -- .`
+- `git clean -fd`
+
+## Finding
+- ID: `FINDING-2026-02-16-004`
+- Severity: `WARN` (map to task risk: MED)
+- Title: Migration loop has conflicting client behavior: SettingsView uses legacy route without API key
+
+## Outcome (must be observable)
+- All migration UI entry points use the canonical endpoint `/api/upload-chatgpt-export` via an authenticated API client (includes `X-API-Key` or the project’s standard auth mechanism).
+- No user-facing UI path posts to legacy `/upload-chatgpt-export` without auth.
+
+## Allowed Files (strict)
+- `frontend/src/components/settings/SettingsView.tsx`
+- `frontend/src/components/modals/ChatGPTImportModal.tsx`
+- `frontend/src/**/*.ts`
+- `frontend/src/**/*.tsx`
+- `frontend/src/tests/playwright/migration_e2e_import.spec.ts`
+- `docs/**/*.md`
+
+## Command Checklist
+1) Preflight:
+- `git status --porcelain -uall`
+
+2) Locate all callers (audit-suggested):
+- `rg -n "upload-chatgpt-export" frontend/src guardian/routes/migration.py -S`
+
+3) Implement:
+- Update `SettingsView.tsx` so it routes imports through the same canonical path and authenticated client used elsewhere (e.g., behavior consistent with `ChatGPTImportModal`).
+- Ensure required headers are included (at minimum align with app’s API client patterns).
+- If Playwright expectations need adjustment, update `migration_e2e_import.spec.ts` to reflect canonical behavior (only if tests fail due to this change).
+
+4) Verify (static verification):
+- Re-run: `rg -n "upload-chatgpt-export" frontend/src guardian/routes/migration.py -S`
+- Confirm SettingsView no longer references legacy `/upload-chatgpt-export`.
+
+5) Scope check:
+- `git status --porcelain -uall`
+
+## Expected Outputs (success signals)
+- `rg` shows no SettingsView usage of legacy `/upload-chatgpt-export`.
+- Canonical `/api/upload-chatgpt-export` is used consistently.
+- `git status --porcelain -uall` shows modifications only within Allowed Files.
+
+## Rollback / Cleanup Commands
+- `git restore --source=HEAD --staged --worktree -- frontend/src/components/settings/SettingsView.tsx`
+- `git restore --source=HEAD --staged --worktree -- frontend/src/components/modals/ChatGPTImportModal.tsx`
+- `git restore --source=HEAD --staged --worktree -- frontend/src/tests/playwright/migration_e2e_import.spec.ts`
+- `git restore --source=HEAD --staged --worktree -- frontend/src`
+- `git restore --source=HEAD --staged --worktree -- docs`
+- `git clean -fd`
+
+
+## Runner Receipt (Start)
+
+- Campaign: CAMPAIGN_2026_02_16_COMPILED_AUDIT
+
+- Task ID: 004
+
+- Head before: ecc0d69c4fc0f1e679f681b1edf0811512c1df84
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: SettingsView now routes ChatGPT imports through the authenticated `/api/upload-chatgpt-export` client; ripgrep shows no legacy `/upload-chatgpt-export` usage there. Preflight stayed clean and only the allowed file changed.
+
+- Implementation commit hash: 011838c656da427f0374dd0e951f5fc39cc8c661
+
+- Receipt update commit hash: b895b87d42e96f80a039c1a8557f9987d5c0b458
+
+- Tests ran: (none)
+
+- Notes: Key edits: `frontend/src/components/settings/SettingsView.tsx:14` now imports `@/lib/api`; `:156-173` swaps the legacy `fetch('/upload-chatgpt-export')` call for `api.post('/api/upload-chatgpt-export', …)` including the `X-User-Id` header and zero timeout, mirroring `ChatGPTImportModal`. Errors now surface API-provided detail text. Verification: `rg -n "upload-chatgpt-export" frontend/src guardian/routes/migration.py -S` shows SettingsView only hits `/api/upload-chatgpt-export`; only allowed file is modified per `git status`. Tests not run (not requested); consider `npx playwright test src/tests/playwright/migration_e2e_import.spec.ts` next if you want runtime assurance.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "SettingsView now routes ChatGPT imports through the authenticated `/api/upload-chatgpt-export` client; ripgrep shows no legacy `/upload-chatgpt-export` usage there. Preflight stayed clean and only the allowed file changed.",
+  "tests_ran": [],
+  "commit_hash": "011838c656da427f0374dd0e951f5fc39cc8c661",
+  "implementation_commit_hash": "011838c656da427f0374dd0e951f5fc39cc8c661",
+  "receipt_update_commit_hash": "b895b87d42e96f80a039c1a8557f9987d5c0b458",
+  "notes": "Key edits: `frontend/src/components/settings/SettingsView.tsx:14` now imports `@/lib/api`; `:156-173` swaps the legacy `fetch('/upload-chatgpt-export')` call for `api.post('/api/upload-chatgpt-export', \u2026)` including the `X-User-Id` header and zero timeout, mirroring `ChatGPTImportModal`. Errors now surface API-provided detail text. Verification: `rg -n \"upload-chatgpt-export\" frontend/src guardian/routes/migration.py -S` shows SettingsView only hits `/api/upload-chatgpt-export`; only allowed file is modified per `git status`. Tests not run (not requested); consider `npx playwright test src/tests/playwright/migration_e2e_import.spec.ts` next if you want runtime assurance."
+}
+```
+
+</details>

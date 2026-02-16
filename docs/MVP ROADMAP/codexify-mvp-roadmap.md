@@ -1473,7 +1473,7 @@ IMAGE_GEN_PROVIDER=openai  # only option for MVP
 # OPENAI_API_KEY already set above
 
 # API
-GUARDIAN_API_KEY=001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e
+GUARDIAN_API_KEY=<dev-local-api-key>
 PORT=8888
 
 # Storage

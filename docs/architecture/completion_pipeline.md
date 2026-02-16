@@ -49,7 +49,22 @@ UI
    - `POST /api/chat/{thread_id}/complete` -> `guardian/routes/chat.py::chat_complete`  
    - Validates thread + context; enqueues `ChatCompletionTask` to Redis via `guardian/queue/redis_queue.py::enqueue`.  
    - Emits `task.created` to task events stream (`guardian/queue/task_events.py`).  
-   - Failure points: thread not found (404), queue unavailable (503).
+   - Failure points: thread not found (404), queue unavailable (503).  
+   - Response contract (async-by-default):  
+     ```json
+     {
+       "ok": true,
+       "task_id": "task-123",
+       "thread_id": 42,
+       "depth_mode": "normal",
+       "messages_url": "/api/chat/42/messages",
+       "trace_url": "/api/chat/debug/rag-trace/42/latest"
+     }
+     ```  
+     - UI uses `task_id` to show completion progress (spinner/lock).  
+     - UI refreshes chat history via `messages_url` (or existing polling helpers).  
+     - UI fetches the latest RAG trace **after** the assistant message lands by calling `trace_url`.  
+     - No synchronous `context` blob is returned; the worker is responsible for emitting `task.completed` with trace data that the debug endpoint surfaces.
 
 3) Worker dequeues task  
    - `guardian/workers/chat_worker.py::run_forever` -> `_run_chat_task`  
