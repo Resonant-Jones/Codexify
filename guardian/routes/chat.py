@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.core.event_graph import get_event_writer
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     acquire_turn_lock,
@@ -194,6 +195,36 @@ def _estimate_tokens(text: Optional[str]) -> int:
     return max(1, length // 4)
 
 
+def _emit_thread_update_event(
+    *,
+    thread_id: int,
+    actor_user_id: str | None,
+    project_id: int | None,
+    idempotency_suffix: str,
+    payload: dict[str, Any],
+    parent_event_id: int | None = None,
+) -> None:
+    try:
+        idempotency_key = f"thread.update:{thread_id}:{idempotency_suffix}"
+        get_event_writer().emit_event(
+            event_type="thread.update",
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            thread_id=thread_id,
+            entity_type="thread",
+            entity_id=str(thread_id),
+            payload=payload,
+            parent_event_id=parent_event_id,
+            idempotency_key=idempotency_key,
+        )
+    except Exception:
+        logger.debug(
+            "[thread.update] event graph emit failed thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+
+
 # Helper functions
 def _normalize_thread_title(raw: Optional[str]) -> Optional[str]:
     if raw is None:
@@ -297,6 +328,16 @@ def _apply_thread_update(
             thread_id,
             list(changes.keys()) or updated_field_keys or list(payload.keys()),
         )
+        _emit_thread_update_event(
+            thread_id=thread_id,
+            actor_user_id=refreshed.get("user_id"),
+            project_id=refreshed.get("project_id"),
+            idempotency_suffix=f"meta:{refreshed.get('updated_at') or datetime.now(timezone.utc).isoformat()}",
+            payload={
+                "thread_id": thread_id,
+                "changed_fields": sorted(changes.keys()),
+            },
+        )
 
     if archived_requested is True:
         # Archive if not already archived
@@ -311,6 +352,16 @@ def _apply_thread_update(
                     "chat_thread",
                     str(thread_id),
                     user_id=archived.get("user_id", "default"),
+                )
+                _emit_thread_update_event(
+                    thread_id=thread_id,
+                    actor_user_id=archived.get("user_id"),
+                    project_id=archived.get("project_id"),
+                    idempotency_suffix=f"archive:{archived.get('archived_at') or datetime.now(timezone.utc).isoformat()}",
+                    payload={
+                        "thread_id": thread_id,
+                        "archived": True,
+                    },
                 )
         else:
             logger.debug("Thread %s already archived", thread_id)
@@ -329,6 +380,16 @@ def _apply_thread_update(
                     "chat_thread",
                     str(thread_id),
                     user_id=unarchived.get("user_id", "default"),
+                )
+                _emit_thread_update_event(
+                    thread_id=thread_id,
+                    actor_user_id=unarchived.get("user_id"),
+                    project_id=unarchived.get("project_id"),
+                    idempotency_suffix=f"unarchive:{unarchived.get('updated_at') or datetime.now(timezone.utc).isoformat()}",
+                    payload={
+                        "thread_id": thread_id,
+                        "archived": False,
+                    },
                 )
         else:
             logger.debug("Thread %s already unarchived", thread_id)
@@ -534,6 +595,17 @@ def chat_post_message(
             "message_id": mid,
             "role": role,
             "content": content,
+        },
+    )
+    _emit_thread_update_event(
+        thread_id=thread_id,
+        actor_user_id=str(owner),
+        project_id=default_project_id,
+        idempotency_suffix=f"message:{mid}",
+        payload={
+            "thread_id": thread_id,
+            "message_id": mid,
+            "role": role,
         },
     )
 

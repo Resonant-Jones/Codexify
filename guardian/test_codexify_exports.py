@@ -1,6 +1,15 @@
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from guardian.core.event_graph import (
+    _set_session_factory,
+    get_event_writer,
+    reset_event_writer,
+)
+from guardian.db.models import Base, EventGraphEvent
 
 
 def test_save_entry_filename_prefix_and_template(monkeypatch):
@@ -253,3 +262,57 @@ def test_api_error_mapping_invalid_folder(monkeypatch):
         api.save_entry(req)
     assert exc.value.status_code == 400
     assert "Invalid or missing Drive folder" in exc.value.detail
+
+
+def test_save_entry_emits_codex_result_with_parent_lineage(monkeypatch):
+    from guardian.server import codexify_api as api
+
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine, tables=[EventGraphEvent.__table__])
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, future=True
+    )
+    _set_session_factory(Session)
+    reset_event_writer()
+
+    writer = get_event_writer()
+    parent_event_id = writer.emit_event(
+        event_type="thread.update",
+        actor_user_id="u1",
+        project_id=1,
+        thread_id=42,
+        entity_type="thread",
+        entity_id="42",
+        payload={"thread_id": 42, "message_id": 99},
+        parent_event_id=None,
+        idempotency_key="thread.update:42:message:99",
+    )
+
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+    monkeypatch.setattr(
+        api, "build_drive_service", lambda logger=None: object()
+    )
+
+    def fake_export(*args, **kwargs):
+        return {
+            "id": "file123",
+            "name": "entry.md",
+            "webViewLink": "https://drive.google.com/file/d/file123/view",
+        }
+
+    monkeypatch.setattr(api, "export_to_gdrive", fake_export)
+
+    req = api.SaveEntryRequest(
+        title="Lineage Entry",
+        body="Body",
+        format="md",
+        dry_run=False,
+        front_matter={"thread_id": 42, "message_id": 99, "project_id": 1},
+    )
+    response = api.save_entry(req)
+    assert response["ok"] is True
+
+    emitted = writer.get_event_by_idempotency("codex.result:file123:42:99")
+    assert emitted is not None
+    assert emitted.event_type == "codex.result"
+    assert emitted.parent_event_id == parent_event_id

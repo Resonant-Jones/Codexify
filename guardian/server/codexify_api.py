@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from guardian.codexify import create_notion_database_from_records
+from guardian.core.event_graph import get_event_writer
 from guardian.export_engine import (
     export_records,
     export_to_gdrive,
@@ -189,6 +190,58 @@ def _with_links(result: Any) -> dict[str, Any]:
             _id = str(it)
             files.append({"id": _id, "webViewLink": _FILE_LINK.format(id=_id)})
     return {"files": files, "count": len(files)}
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _emit_codex_result_event(req: SaveEntryRequest, result: Any) -> None:
+    links = _with_links(result)
+    files = links.get("files") or []
+    first = files[0] if files else {}
+    codex_entry_id = (
+        (first or {}).get("id")
+        or (first or {}).get("name")
+        or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    )
+
+    front_matter = req.front_matter or {}
+    source_thread_id = _coerce_int(
+        front_matter.get("source_thread_id") or front_matter.get("thread_id")
+    )
+    source_message_id = _coerce_int(
+        front_matter.get("source_message_id") or front_matter.get("message_id")
+    )
+
+    parent_event_id = None
+    if source_thread_id is not None:
+        parent_event_id = get_event_writer().get_latest_event_id(
+            thread_id=source_thread_id,
+            event_type="thread.update",
+        )
+
+    idempotency_key = f"codex.result:{codex_entry_id}:{source_thread_id or 'na'}:{source_message_id or 'na'}"
+    get_event_writer().emit_event(
+        event_type="codex.result",
+        actor_user_id=None,
+        project_id=_coerce_int(front_matter.get("project_id")),
+        thread_id=source_thread_id,
+        entity_type="codex",
+        entity_id=str(codex_entry_id),
+        payload={
+            "codex_entry_id": codex_entry_id,
+            "source_thread_id": source_thread_id,
+            "source_message_id": source_message_id,
+            "format": req.format,
+            "result_count": links.get("count"),
+        },
+        parent_event_id=parent_event_id,
+        idempotency_key=idempotency_key,
+    )
 
 
 @router.get("/folder-id")
@@ -538,6 +591,14 @@ def save_entry(req: SaveEntryRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    try:
+        _emit_codex_result_event(req, result)
+    except Exception:
+        logger.debug(
+            "[codex.result] event graph emit failed",
+            exc_info=True,
+        )
 
     if req.return_links:
         enriched = _with_links(result)

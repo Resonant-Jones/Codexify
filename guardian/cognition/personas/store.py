@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import sessionmaker
 
 from guardian.core.dependencies import get_database_dsn
+from guardian.core.event_graph import get_event_writer
 from guardian.db.models import Persona
 
 _SessionFactory: sessionmaker | None = None
@@ -132,6 +133,35 @@ def _activate_persona_with_scope(
         session.add(persona)
         session.commit()
         session.refresh(persona)
+        try:
+            activated_at = (
+                persona.updated_at
+                or persona.created_at
+                or datetime.now(timezone.utc)
+            )
+            idempotency_key = "persona.set:{user_id}:{project_id}:{persona_id}:{activated_at}".format(
+                user_id=persona.user_id,
+                project_id=persona.project_id,
+                persona_id=persona.id,
+                activated_at=activated_at.isoformat(),
+            )
+            get_event_writer().emit_event(
+                event_type="persona.set",
+                actor_user_id=persona.user_id,
+                project_id=persona.project_id,
+                thread_id=None,
+                entity_type="persona",
+                entity_id=str(persona.id),
+                payload={
+                    "persona_id": persona.id,
+                    "source": persona.source,
+                },
+                parent_event_id=None,
+                idempotency_key=idempotency_key,
+            )
+        except Exception:
+            # Event emission is best-effort and must not block activation.
+            pass
         return persona
 
 

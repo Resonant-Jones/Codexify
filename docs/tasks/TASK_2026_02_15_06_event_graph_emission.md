@@ -210,3 +210,38 @@ Constraints
 - Do not modify flow permission logic.
 
 This task establishes the audit + lineage backbone for provenance and sync.
+
+---
+
+Execution Notes (2026-02-16)
+
+- Added first-class event model `EventGraphEvent` in `guardian/db/models.py` with required audit fields:
+  - `event_id`, `event_type`, `occurred_at`, `actor_user_id`, `project_id`, `thread_id`,
+    `entity_type`, `entity_id`, `idempotency_key`, `parent_event_id`, `payload_json`
+  - indexes:
+    - `(event_type, occurred_at)`
+    - `(thread_id, occurred_at)`
+    - `(entity_type, entity_id)`
+    - unique `idempotency_key`
+- Added migration `guardian/db/migrations/versions/a7c9d1e2f3b4_add_event_graph_events.py`.
+- Added event writer module `guardian/core/event_graph.py`:
+  - `emit_event(...)` idempotent upsert by `idempotency_key`
+  - `list_events_by_thread(...)`
+  - `get_event_by_idempotency(...)`
+  - `get_latest_event_id(...)`
+  - payload sanitization excludes raw content/body/text keys by default
+- Wired `thread.update` emission in `guardian/routes/chat.py` for:
+  - message append
+  - metadata updates
+  - archive/unarchive transitions
+- Wired `persona.set` emission in `guardian/cognition/personas/store.py` on activation.
+- Wired `codex.result` emission in `guardian/server/codexify_api.py` on save/export:
+  - stable idempotency key using codex entry + source thread/message references
+  - lineage parent resolves to latest `thread.update` for `source_thread_id` when available
+- Added/updated tests:
+  - `tests/core/test_event_graph.py`
+  - `tests/routes/test_event_graph_emission.py`
+  - `guardian/test_codexify_exports.py`
+- Validation run:
+  - `pytest -q tests/core/test_event_graph.py tests/routes/test_event_graph_emission.py guardian/test_codexify_exports.py`
+  - `pytest -q tests/system_prompt/test_stores.py tests/routes/test_chat_system_prompt_integration.py`
