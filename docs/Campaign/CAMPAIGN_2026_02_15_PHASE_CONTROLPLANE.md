@@ -449,7 +449,7 @@ Implement enforceable runtime boundaries for the Control Plane phase:
 
 7. TASK-2026-02-15-07_codex_entry_lineage_enforcement
    - Task artifact: `docs/tasks/TASK_2026_02_15_07_codex_entry_lineage_enforcement.md`
-   - Task mapping: `TASK-2026-02-15-07_codex_entry_lineage_enforcement -> [<commitA>, <commitB>]`
+   - Task mapping: `TASK-2026-02-15-07_codex_entry_lineage_enforcement -> [0220018a, <commitB>]`
 
 8. TASK-2026-02-15-08_token_cost_ui_warning
    - Task artifact: `docs/tasks/TASK_2026_02_15_08_token_cost_ui_warning.md`
@@ -464,5 +464,5 @@ Implement enforceable runtime boundaries for the Control Plane phase:
 - TASK-2026-02-15-04_modular_system_prompt_builder -> [96aff28f, <commitB>]
 - TASK-2026-02-15-05_persistent_imprint_persona_storage -> [dc08aa16, <commitB>]
 - TASK-2026-02-15-06_event_graph_emission -> [e1f8f37e, <commitB>]
-- TASK-2026-02-15-07_codex_entry_lineage_enforcement -> [<commitA>, <commitB>]
+- TASK-2026-02-15-07_codex_entry_lineage_enforcement -> [0220018a, <commitB>]
 - TASK-2026-02-15-08_token_cost_ui_warning -> [<commitA>, <commitB>]
