@@ -96,6 +96,7 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
     try:
         meta = {
             "thread_id": thread_id,
+            "namespace": "thread:" + str(thread_id),
             "role": role,
             "message_id": message_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),

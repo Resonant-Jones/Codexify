@@ -6,6 +6,8 @@ Groq chat adapter.
 import os
 from typing import Iterator, Optional
 
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+
 from .base import ChatProvider
 
 try:
@@ -21,6 +23,10 @@ class GroqChat(ChatProvider):
     name = "groq"
 
     def __init__(self, api_key: Optional[str] = None, timeout: float = 60.0):
+        try:
+            assert_egress_allowed("groq")
+        except EgressDeniedError as exc:
+            raise RuntimeError(str(exc)) from exc
         if Groq is None:
             raise RuntimeError("groq package not installed")
         self.client = Groq(api_key=api_key or os.getenv("GROQ_API_KEY"))

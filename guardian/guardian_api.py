@@ -50,7 +50,11 @@ logger = logging.getLogger(__name__)
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
-from guardian.core.config import get_settings
+from guardian.core.config import (
+    ConfigCoherenceError,
+    assert_config_coherence,
+    get_settings,
+)
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
     ENABLE_CONNECTOR_WORKER,
@@ -59,6 +63,12 @@ from guardian.core.dependencies import (
     init_database,
     init_services,
     require_api_key,
+)
+from guardian.core.outbox import (
+    normalize_outbox_tenant_id,
+    parse_last_event_id,
+    parse_outbox_batch_size,
+    parse_outbox_poll_interval,
 )
 from guardian.core.public_exposure import (
     DEFAULT_EXPOSURE_MODE,
@@ -120,8 +130,15 @@ dependencies.init_database()
 chatlog_db = dependencies.chatlog_db
 
 # Feature flags
-OUTBOX_POLL_INTERVAL = float(os.getenv("OUTBOX_POLL_INTERVAL", "1.0"))
-OUTBOX_BATCH_SIZE = int(os.getenv("OUTBOX_BATCH_SIZE", "100"))
+OUTBOX_POLL_INTERVAL = parse_outbox_poll_interval(
+    os.getenv("OUTBOX_POLL_INTERVAL", "1.0")
+)
+OUTBOX_BATCH_SIZE = parse_outbox_batch_size(
+    os.getenv("OUTBOX_BATCH_SIZE", "100")
+)
+OUTBOX_TENANT_ID = normalize_outbox_tenant_id(
+    os.getenv("OUTBOX_TENANT_ID", "default")
+)
 
 
 from guardian.realtime import collaboration
@@ -183,6 +200,12 @@ async def app_lifespan(app: FastAPI):
     logger.info("[startup] Guardian API starting...")
 
     settings = get_settings()
+    try:
+        assert_config_coherence(settings)
+    except ConfigCoherenceError as exc:
+        logger.error("[startup] Config coherence check failed: %s", exc)
+        raise
+
     if getattr(settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
         logger.info("[graph] Knowledge graph context: ENABLED (Neo4j)")
     else:
@@ -548,10 +571,7 @@ async def stream_events(
 
     async def event_stream() -> AsyncGenerator[str, None]:
         # Prefer explicit header over query, fall back to zero.
-        try:
-            last_id = int(last_event_id_header or last_id_query or 0)
-        except (TypeError, ValueError):
-            last_id = 0
+        last_id = parse_last_event_id(last_event_id_header, last_id_query)
 
         # Initial retry hint expected by many SSE clients.
         yield "retry: 3000\n\n"
@@ -564,15 +584,32 @@ async def stream_events(
                 break
 
             events = event_bus.fetch_events_after(
-                last_id, limit=OUTBOX_BATCH_SIZE
+                last_id,
+                limit=OUTBOX_BATCH_SIZE,
+                tenant_id=OUTBOX_TENANT_ID,
             )
             max_id_seen = last_id
 
             if events:
                 for ev in events:
-                    ev_id = ev.get("id")
+                    ev_id_raw = ev.get("id")
                     topic = ev.get("topic") or "message"
                     payload = ev.get("payload") or {}
+                    raw_tenant = ev.get("tenant_id")
+                    event_tenant = normalize_outbox_tenant_id(
+                        raw_tenant if isinstance(raw_tenant, str) else None
+                    )
+                    if event_tenant != OUTBOX_TENANT_ID:
+                        continue
+
+                    try:
+                        ev_id = int(ev_id_raw)
+                    except (TypeError, ValueError):
+                        logger.debug(
+                            "[outbox] skipping event with invalid id=%r",
+                            ev_id_raw,
+                        )
+                        continue
 
                     try:
                         data_str = json.dumps(payload, default=str)
@@ -593,7 +630,10 @@ async def stream_events(
                 # Clean up delivered events
                 if max_id_seen > 0:
                     try:
-                        event_bus.delete_events_through(max_id_seen)
+                        event_bus.delete_events_through(
+                            max_id_seen,
+                            tenant_id=OUTBOX_TENANT_ID,
+                        )
                     except Exception:
                         pass
 

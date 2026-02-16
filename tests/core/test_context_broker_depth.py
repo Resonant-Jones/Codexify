@@ -148,7 +148,9 @@ class TestContextBrokerNormalDepth:
         )
 
         # Verify semantic search was performed
-        mock_vector_store.search.assert_called_once_with("test query", k=4)
+        mock_vector_store.search.assert_called_once_with(
+            "test query", k=4, namespace="thread:1"
+        )
 
     @pytest.mark.asyncio
     async def test_normal_depth_default_mode(
@@ -229,7 +231,9 @@ class TestContextBrokerDeepDepth:
         # Note: In deep mode, vector store is called twice (semantic + memory via MemoryOSRetriever)
         assert mock_vector_store.search.call_count >= 1
         # First call should be for semantic search
-        mock_vector_store.search.assert_any_call("test query", k=4)
+        mock_vector_store.search.assert_any_call(
+            "test query", k=4, namespace="thread:1"
+        )
 
     @pytest.mark.asyncio
     async def test_deep_depth_searches_memory(
@@ -244,7 +248,9 @@ class TestContextBrokerDeepDepth:
         # Vector store should be called twice: once for semantic (k=4), once
         # for memory candidate pool k=max(5*3, 5+5)=15.
         assert mock_vector_store.search.call_count == 2
-        mock_vector_store.search.assert_any_call("test query", k=15)
+        mock_vector_store.search.assert_any_call(
+            "test query", k=15, namespace="thread:1"
+        )
 
     @pytest.mark.asyncio
     async def test_deep_depth_memory_results(self, context_broker):
@@ -330,7 +336,9 @@ class TestContextBrokerDiagnosticDepth:
         # Verify semantic search was performed
         # Note: In diagnostic mode, vector store is called twice (semantic + memory via MemoryOSRetriever)
         assert mock_vector_store.search.call_count >= 1
-        mock_vector_store.search.assert_any_call("test query", k=4)
+        mock_vector_store.search.assert_any_call(
+            "test query", k=4, namespace="thread:1"
+        )
 
     @pytest.mark.asyncio
     async def test_diagnostic_depth_searches_memory(
@@ -404,7 +412,9 @@ class TestContextBrokerParameterization:
         )
 
         # Verify the parameter was passed
-        mock_vector_store.search.assert_called_once_with("test query", k=10)
+        mock_vector_store.search.assert_called_once_with(
+            "test query", k=10, namespace="thread:1"
+        )
 
     @pytest.mark.asyncio
     async def test_custom_k_memory(self, context_broker, mock_vector_store):
@@ -415,7 +425,9 @@ class TestContextBrokerParameterization:
 
         # Verify the parameter was passed to MemoryOSRetriever (via vector_store.search)
         # Should use candidate pool k=max(8*3, 8+5)=24 for memory search
-        mock_vector_store.search.assert_any_call("test query", k=24)
+        mock_vector_store.search.assert_any_call(
+            "test query", k=24, namespace="thread:1"
+        )
 
     @pytest.mark.asyncio
     async def test_depth_case_insensitive(
@@ -486,7 +498,7 @@ class TestContextBrokerErrorHandling:
         error_vector_store = MagicMock()
         call_count = [0]
 
-        def search_side_effect(query, k):
+        def search_side_effect(query, k, namespace=None):
             call_count[0] += 1
             if call_count[0] == 1:  # First call (semantic) succeeds
                 return [{"text": "semantic"}]

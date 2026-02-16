@@ -100,6 +100,8 @@ If you want cloud models instead of local:
 
 ```env
 ALLOW_CLOUD_PROVIDERS=true
+CODEXIFY_LOCAL_ONLY_MODE=false
+CODEXIFY_EGRESS_ALLOWLIST=openai   # or groq
 LLM_PROVIDER=openai   # or groq
 OPENAI_API_KEY=...
 # GROQ_API_KEY=...
@@ -259,7 +261,11 @@ pnpm --dir frontend/src dev
 - `DATABASE_URL` (or `GUARDIAN_DATABASE_URL`) - no DB, no chat/memory persistence.
 
 ### Common optional settings
-- `ALLOW_CLOUD_PROVIDERS=true` + `OPENAI_API_KEY` or `GROQ_API_KEY`
+- Cloud LLM usage requires all of:
+  - `ALLOW_CLOUD_PROVIDERS=true`
+  - `CODEXIFY_LOCAL_ONLY_MODE=false`
+  - `CODEXIFY_EGRESS_ALLOWLIST=openai` (or `groq`)
+  - `OPENAI_API_KEY` (or `GROQ_API_KEY`)
 - `CODEXIFY_VECTOR_STORE=chroma|faiss`
 - `CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1` (allow mock embeddings fallback and `/api/embeddings` dummy mode)
 - `EMBEDDING_BACKEND=dummy|gpt_oss|nomic` (`stub` is accepted as an alias for `dummy`)
@@ -433,8 +439,10 @@ Start with the document that matches your goal:
   How UI state, rendering, and agent perception are structured.
 
 ### 6. Security & integrity
-- **SECURITY.md**
-- **SECURITY_HARDENING_PLAN.md**
+- **docs/SECURITY.md**
+- **docs/CONFIGURATION.md**
+- **docs/security/auth-boundary-decision.md**
+- **docs/dev/SECURITY_HARDENING_PLAN.md**
   Threat model, guardrails, and non-goals.
 
 ### 7. Contributing
@@ -477,8 +485,10 @@ Start with the document that matches your goal:
 
 ### 6. Security & integrity
 
-* **SECURITY.md**
-* **SECURITY_HARDENING_PLAN.md**
+* **docs/SECURITY.md**
+* **docs/CONFIGURATION.md**
+* **docs/security/auth-boundary-decision.md**
+* **docs/dev/SECURITY_HARDENING_PLAN.md**
   Threat model, guardrails, and non-goals.
 
 ### 7. Contributing

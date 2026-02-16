@@ -5,13 +5,15 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+SERVER_USER_ID = "local_user"
+
 
 @pytest.fixture
 def mock_facts_db(mock_db):
     mock_db.list_facts.return_value = [
         {
             "id": 1,
-            "user_id": "test_user",
+            "user_id": SERVER_USER_ID,
             "key": "location",
             "value": "NYC",
             "status": "candidate",
@@ -22,7 +24,7 @@ def mock_facts_db(mock_db):
     mock_db.create_fact.return_value = 1
     mock_db.get_fact.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": SERVER_USER_ID,
         "key": "location",
         "value": "NYC",
         "status": "candidate",
@@ -31,7 +33,7 @@ def mock_facts_db(mock_db):
     }
     mock_db.update_fact.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": SERVER_USER_ID,
         "key": "location",
         "value": "NYC",
         "status": "verified",
@@ -46,12 +48,15 @@ def mock_facts_db(mock_db):
 
 @pytest.fixture
 def auth_headers():
-    return {"X-API-Key": "test-api-key", "X-User-Id": "test_user"}
+    return {"X-API-Key": "test-api-key", "X-User-Id": "spoofed_user"}
 
 
 @pytest.fixture
 def facts_test_client(mock_facts_db, mock_auth, monkeypatch, tmp_path):
     monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path / "media"))
+    monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", SERVER_USER_ID)
+    monkeypatch.setenv("DEBUG", "false")
+    monkeypatch.setenv("LOCAL_DEV", "false")
 
     with patch("guardian.vector.store.VectorStore"):
         with patch("logging.info"):
@@ -90,8 +95,9 @@ def test_list_personal_facts(facts_test_client, auth_headers, mock_facts_db):
     response = facts_test_client.get("/personal-facts", headers=auth_headers)
     assert response.status_code == 200
     mock_facts_db.list_facts.assert_called_once()
-    call_kwargs = mock_facts_db.list_facts.call_args.kwargs
-    assert call_kwargs["active_only"] is True
+    call_args = mock_facts_db.list_facts.call_args
+    assert call_args.args[0] == SERVER_USER_ID
+    assert call_args.kwargs["active_only"] is True
 
 
 def test_create_personal_fact(facts_test_client, auth_headers, mock_facts_db):
@@ -102,6 +108,8 @@ def test_create_personal_fact(facts_test_client, auth_headers, mock_facts_db):
     )
     assert response.status_code == 200
     mock_facts_db.create_fact.assert_called_once()
+    call_args = mock_facts_db.create_fact.call_args.args
+    assert call_args[0] == SERVER_USER_ID
 
 
 def test_get_personal_fact(facts_test_client, auth_headers, mock_facts_db):

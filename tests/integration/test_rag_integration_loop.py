@@ -179,6 +179,190 @@ async def test_rag_integration_memory_loop(monkeypatch):
         for token in output.split():
             yield token + " "
 
+    # Keep this test hermetic: avoid Postgres/Docker DNS ("db") dependencies during prompt build.
+    # The RAG loop wiring is what we want to validate here, not DB-backed prompt assembly.
+    monkeypatch.setenv("GUARDIAN_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    system_prompt_text = f"**Memory Context:**\n{memory_text}\n"
+
+    def fake_build_system_prompt(*_args: Any, **_kwargs: Any):
+        return system_prompt_text
+
+    def fake_build_guardian_system_prompt(*_args: Any, **_kwargs: Any):
+        # Newer worker seam returns (system_prompt_text, meta)
+        return (
+            system_prompt_text,
+            {
+                "threshold": {"status": "unknown"},
+                "estimated_total_tokens": None,
+            },
+        )
+
+    # Patch common seams used by the chat worker / prompt builders.
+    # The implementation has moved around a few times, so we patch broadly (raising=False)
+    # and also stub any DB-backed imprint lookups that would otherwise hit SQLAlchemy.
+    monkeypatch.setattr(
+        chat_worker,
+        "build_system_prompt",
+        fake_build_system_prompt,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_build_system_prompt",
+        fake_build_system_prompt,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "build_system_prompt_text",
+        fake_build_system_prompt,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "build_guardian_system_prompt",
+        fake_build_guardian_system_prompt,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "build_guardian_system_prompt_text",
+        fake_build_system_prompt,
+        raising=False,
+    )
+
+    # Prevent DB-backed imprint reads from breaking hermetic tests (e.g., sqlite :memory: has no tables).
+    try:
+        from guardian.cognition.imprints import (
+            store as imprint_store,  # type: ignore
+        )
+
+        monkeypatch.setattr(
+            imprint_store,
+            "get_active_imprint",
+            lambda *_a, **_k: None,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            imprint_store,
+            "load_active_imprint",
+            lambda *_a, **_k: None,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            imprint_store, "get_imprint", lambda *_a, **_k: None, raising=False
+        )
+
+        # Some branches resolve persona via DB during prompt build; keep test hermetic.
+        try:
+            from guardian.cognition.personas import (
+                store as persona_store,  # type: ignore
+            )
+
+            monkeypatch.setattr(
+                persona_store,
+                "get_active_persona",
+                lambda *_a, **_k: None,
+                raising=False,
+            )
+            monkeypatch.setattr(
+                persona_store,
+                "load_active_persona",
+                lambda *_a, **_k: None,
+                raising=False,
+            )
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # Patch known builder modules (system + modular prompt builders).
+    try:
+        from guardian.cognition import (
+            system_prompt_builder as spb,  # type: ignore
+        )
+
+        monkeypatch.setattr(
+            spb, "build_system_prompt", fake_build_system_prompt, raising=False
+        )
+        monkeypatch.setattr(
+            spb,
+            "build_system_prompt_text",
+            fake_build_system_prompt,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            spb,
+            "build_chat_system_prompt",
+            fake_build_system_prompt,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            spb,
+            "build_system_messages",
+            lambda *_a, **_k: [
+                {"role": "system", "content": system_prompt_text}
+            ],
+            raising=False,
+        )
+        monkeypatch.setattr(
+            spb,
+            "build_system_prompt_messages",
+            lambda *_a, **_k: [
+                {"role": "system", "content": system_prompt_text}
+            ],
+            raising=False,
+        )
+        monkeypatch.setattr(
+            spb,
+            "build_guardian_system_prompt",
+            fake_build_guardian_system_prompt,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            spb,
+            "build_guardian_system_prompt_text",
+            fake_build_system_prompt,
+            raising=False,
+        )
+    except Exception:
+        pass
+
+    try:
+        from guardian.cognition import (
+            modular_prompt_builder as mpb,  # type: ignore
+        )
+
+        monkeypatch.setattr(
+            mpb, "build_system_prompt", fake_build_system_prompt, raising=False
+        )
+        monkeypatch.setattr(
+            mpb,
+            "build_system_prompt_text",
+            fake_build_system_prompt,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            mpb,
+            "build_system_messages",
+            lambda *_a, **_k: [
+                {"role": "system", "content": system_prompt_text}
+            ],
+            raising=False,
+        )
+        monkeypatch.setattr(
+            mpb,
+            "build_system_prompt_messages",
+            lambda *_a, **_k: [
+                {"role": "system", "content": system_prompt_text}
+            ],
+            raising=False,
+        )
+    except Exception:
+        pass
+
     monkeypatch.setattr(dependencies, "chatlog_db", chatlog)
     monkeypatch.setattr(dependencies, "_vector_store", vector_store)
     monkeypatch.setattr(dependencies, "_memory_store", memory_store)

@@ -30,6 +30,8 @@ type SessionRailProps = {
   profiles?: SystemProfileOption[];
   profileSwitching?: boolean;
   showTabs?: boolean;
+  providerMenuOpenSignal?: number;
+  cloudProvidersDisabled?: boolean;
   onActivateTab: (tabId: TabId) => void;
   onCloseTab: (tabId: TabId) => void;
   onOpenTab: () => void;
@@ -88,6 +90,8 @@ export function SessionRail({
   profiles = FALLBACK_PROFILES,
   profileSwitching = false,
   showTabs,
+  providerMenuOpenSignal,
+  cloudProvidersDisabled = false,
   onActivateTab,
   onCloseTab,
   onOpenTab,
@@ -209,6 +213,8 @@ export function SessionRail({
           onChange={onSetModel}
           triggerClassName="session-rail__model-trigger"
           triggerStyle={SESSION_RAIL_STYLES.modelTrigger}
+          openSignal={providerMenuOpenSignal}
+          cloudProvidersDisabled={cloudProvidersDisabled}
         />
         <button
           type="button"

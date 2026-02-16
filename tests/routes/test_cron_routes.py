@@ -138,6 +138,8 @@ def test_cron_invalid_schedule_rejected(
 
 
 def test_cron_webhook_forbidden_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEXIFY_LOCAL_ONLY_MODE", "false")
+    monkeypatch.setenv("CODEXIFY_EGRESS_ALLOWLIST", "webhook")
     client = _client(monkeypatch)
     headers = {"X-API-Key": _API_KEY}
 
@@ -156,7 +158,32 @@ def test_cron_webhook_forbidden_target(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "forbidden" in response.json()["detail"]
 
 
+def test_cron_webhook_egress_blocked_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEXIFY_LOCAL_ONLY_MODE", raising=False)
+    monkeypatch.delenv("CODEXIFY_EGRESS_ALLOWLIST", raising=False)
+    client = _client(monkeypatch)
+    headers = {"X-API-Key": _API_KEY}
+
+    response = client.post(
+        "/api/cron/jobs",
+        headers=headers,
+        json={
+            "name": "Webhook Blocked By Egress",
+            "schedule": "@hourly",
+            "job_type": "webhook",
+            "payload": {"url": "https://api.example.com/hook"},
+            "is_enabled": True,
+        },
+    )
+    assert response.status_code == 403
+    assert "LOCAL_ONLY_MODE" in response.json()["detail"]
+
+
 def test_cron_webhook_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEXIFY_LOCAL_ONLY_MODE", "false")
+    monkeypatch.setenv("CODEXIFY_EGRESS_ALLOWLIST", "webhook")
     monkeypatch.setenv("CRON_WEBHOOK_ALLOWLIST", "api.example.com")
     client = _client(monkeypatch)
     headers = {"X-API-Key": _API_KEY}

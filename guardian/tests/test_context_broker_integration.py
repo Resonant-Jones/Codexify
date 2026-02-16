@@ -15,10 +15,15 @@ class DummyChatlog:
 
 class DummyVector:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, int]] = []
+        self.calls: list[tuple[str, int, str | None]] = []
 
-    def search(self, query: str, k: int = 5) -> list[dict[str, Any]]:
-        self.calls.append((query, k))
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        namespace: str | None = None,
+    ) -> list[dict[str, Any]]:
+        self.calls.append((query, k, namespace))
         return [
             {
                 "id": "doc-1",
@@ -43,7 +48,7 @@ async def test_context_broker_assemble_integration():
         user_id="default",
     )
 
-    assert vector.calls == [("hello", 4)]
+    assert vector.calls == [("hello", 4, "thread:1")]
     assert context["messages"] == [{"role": "user", "content": "hello"}]
     assert context["semantic"] == [
         {

@@ -7,6 +7,7 @@ from typing import Iterator
 import requests
 
 from guardian.config import settings
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 
 # Streaming-capable Groq Chat client
 # Read from settings if present, otherwise use sensible defaults.
@@ -31,6 +32,10 @@ class GroqChatClient:
         self, prompt: str, model: str = "llama-3.1-70b-versatile"
     ) -> str:
         """Synchronous call to Groq chat completions."""
+        try:
+            assert_egress_allowed("groq")
+        except EgressDeniedError as exc:
+            raise RuntimeError(str(exc)) from exc
         model_name = model.split(":", 1)[-1]
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -52,6 +57,10 @@ class GroqChatClient:
         self, prompt: str, model: str = "llama-3.1-70b-versatile"
     ) -> Iterator[str]:
         """Stream tokens from Groq chat completions via SSE."""
+        try:
+            assert_egress_allowed("groq")
+        except EgressDeniedError as exc:
+            raise RuntimeError(str(exc)) from exc
         model_name = model.split(":", 1)[-1]
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -93,6 +102,10 @@ def get_groq_chat() -> GroqChatClient | None:
     """
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
+        return None
+    try:
+        assert_egress_allowed("groq")
+    except EgressDeniedError:
         return None
     api_url = getattr(settings, "GROQ_API_URL", GROQ_API_URL)
     return GroqChatClient(api_url=api_url, api_key=api_key)

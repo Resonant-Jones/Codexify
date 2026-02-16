@@ -1,4 +1,5 @@
 import pytest
+from fastapi import HTTPException
 
 from guardian.core.ai_router import chat_with_ai
 from guardian.core.config import Settings
@@ -19,6 +20,9 @@ class _FakeResponse:
 def _fake_settings(provider: str) -> Settings:
     return Settings(
         LLM_PROVIDER=provider,
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="openai,groq",
         GROQ_API_KEY="groq-key",
         OPENAI_API_KEY="openai-key",
         LLM_MODEL="moonshotai-kimi-k2-instruct-9050",
@@ -84,3 +88,24 @@ def test_chat_with_ai_groq_override_not_openai(monkeypatch):
         "api.groq.com/openai/v1/chat/completions" in u for u in calls["urls"]
     )
     assert not any("api.openai.com" in u for u in calls["urls"])
+
+
+def test_chat_with_ai_openai_blocked_when_local_only_enabled(monkeypatch):
+    def fake_post(url, json, headers, timeout):  # pragma: no cover
+        return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = Settings(
+        LLM_PROVIDER="openai",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        CODEXIFY_EGRESS_ALLOWLIST="openai",
+        OPENAI_API_KEY="openai-key",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        chat_with_ai([{"role": "user", "content": "hi"}], settings=settings)
+
+    assert exc.value.status_code == 403
+    assert "LOCAL_ONLY_MODE" in str(exc.value.detail)

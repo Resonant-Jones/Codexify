@@ -12,11 +12,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 
@@ -146,3 +147,87 @@ def require_user(
     """
     user_id = identity or auth_identity
     return AuthenticatedUser(id=user_id, kind=auth_identity)
+
+
+def _canonical_trust_policy_json(
+    policy_json: str,
+) -> tuple[str, dict[str, Any]]:
+    payload = json.loads(policy_json)
+    if not isinstance(payload, dict):
+        raise ValueError("Trust policy must be a JSON object")
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return canonical, payload
+
+
+def _policy_hmac_key(signing_key: str | None = None) -> bytes | None:
+    resolved = (
+        signing_key
+        or os.getenv("GUARDIAN_FEDERATION_POLICY_SIGNING_KEY")
+        or os.getenv("GUARDIAN_SESSION_SECRET")
+        or os.getenv("GUARDIAN_API_KEY")
+    )
+    if not resolved:
+        return None
+    return resolved.encode("utf-8")
+
+
+def _decode_sig(sig: str) -> bytes | None:
+    raw = (sig or "").strip()
+    if not raw:
+        return None
+    padded = raw + ("=" * (-len(raw) % 4))
+    try:
+        return base64.urlsafe_b64decode(padded.encode("ascii"))
+    except Exception:
+        return None
+
+
+def sign_federation_trust_policy(policy_json: str, signing_key: str) -> str:
+    """
+    Produce a base64url HMAC-SHA256 signature for a federation trust policy.
+    """
+    canonical, _payload = _canonical_trust_policy_json(policy_json)
+    digest = hmac.new(
+        signing_key.encode("utf-8"),
+        canonical.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def verify_federation_trust_policy(
+    policy_json: str | None,
+    signature: str | None,
+    *,
+    signing_key: str | None = None,
+) -> tuple[bool, dict[str, Any] | None]:
+    """
+    Validate a signed federation trust policy.
+
+    Returns:
+        (is_valid, parsed_policy_or_none)
+    """
+    if not policy_json or not signature:
+        return False, None
+
+    key = _policy_hmac_key(signing_key)
+    if key is None:
+        return False, None
+
+    try:
+        canonical, payload = _canonical_trust_policy_json(policy_json)
+    except Exception:
+        return False, None
+
+    expected = hmac.new(
+        key,
+        canonical.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    provided = _decode_sig(signature)
+    if provided is None:
+        return False, None
+    if not hmac.compare_digest(expected, provided):
+        return False, None
+
+    return True, payload
