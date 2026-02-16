@@ -527,6 +527,12 @@ def codex_entry_export_compat(entry_id: str):
     return RedirectResponse(url=f"/api/codex/entries/{entry_id}/export")
 
 
+@app.get("/codex/{entry_id}/source", include_in_schema=False)
+def codex_entry_source_compat(entry_id: str):
+    """Compatibility alias for codex source provenance route."""
+    return RedirectResponse(url=f"/api/codex/{entry_id}/source")
+
+
 @app.get("/api/events", tags=["Events"])
 async def stream_events(
     request: Request,

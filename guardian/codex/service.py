@@ -93,6 +93,18 @@ def _parse_entry(path: Path, include_body: bool = False) -> CodexEntry:
     message_ids = fm.get("message_ids") or []
     if not isinstance(message_ids, list):
         message_ids = [message_ids]
+    message_ids = [str(m) for m in message_ids if m]
+
+    source_thread_id = fm.get("source_thread_id") or fm.get("thread_id")
+    source_message_id = (
+        fm.get("source_message_id")
+        or fm.get("message_id")
+        or (message_ids[0] if message_ids else None)
+    )
+    lineage_missing = source_thread_id in (None, "") or source_message_id in (
+        None,
+        "",
+    )
 
     entry = CodexEntry(
         id=fm.get("id") or _entry_id(path),
@@ -101,8 +113,21 @@ def _parse_entry(path: Path, include_body: bool = False) -> CodexEntry:
         ext="codex",
         created_at=created_at,
         updated_at=updated_at,
-        thread_id=fm.get("thread_id"),
-        message_ids=[str(m) for m in message_ids if m],
+        thread_id=str(source_thread_id)
+        if source_thread_id
+        else fm.get("thread_id"),
+        source_thread_id=(
+            str(source_thread_id)
+            if source_thread_id not in (None, "")
+            else None
+        ),
+        source_message_id=(
+            str(source_message_id)
+            if source_message_id not in (None, "")
+            else None
+        ),
+        message_ids=message_ids,
+        lineage_missing=lineage_missing,
         author_id=fm.get("author"),
         heat_score=(
             None

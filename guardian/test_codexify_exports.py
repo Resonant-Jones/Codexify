@@ -1,20 +1,75 @@
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from guardian.core.event_graph import (
-    _set_session_factory,
-    get_event_writer,
-    reset_event_writer,
+from guardian.codex.lineage import (
+    _set_session_factory as _set_lineage_session_factory,
 )
+from guardian.codex.lineage import (
+    reset_session_factory as reset_lineage_session_factory,
+)
+from guardian.core.event_graph import (
+    _set_session_factory as _set_event_graph_session_factory,
+)
+from guardian.core.event_graph import get_event_writer, reset_event_writer
 from guardian.db.models import Base, EventGraphEvent
+
+
+@pytest.fixture(autouse=True)
+def _reset_lineage_state():
+    reset_lineage_session_factory()
+    yield
+    reset_lineage_session_factory()
+
+
+def _seed_lineage_rows(
+    Session: sessionmaker, *, thread_id: int, message_id: int
+) -> None:
+    with Session() as session:
+        session.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS chat_threads (id INTEGER PRIMARY KEY)"
+            )
+        )
+        session.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id INTEGER PRIMARY KEY,
+                    thread_id INTEGER NOT NULL
+                )
+                """
+            )
+        )
+        session.execute(
+            text("INSERT INTO chat_threads (id) VALUES (:thread_id)"),
+            {"thread_id": thread_id},
+        )
+        session.execute(
+            text(
+                "INSERT INTO chat_messages (id, thread_id) VALUES (:message_id, :thread_id)"
+            ),
+            {"message_id": message_id, "thread_id": thread_id},
+        )
+        session.commit()
+
+
+def _setup_lineage_db(*, thread_id: int = 1, message_id: int = 1):
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, future=True
+    )
+    _seed_lineage_rows(Session, thread_id=thread_id, message_id=message_id)
+    _set_lineage_session_factory(Session)
+    return Session
 
 
 def test_save_entry_filename_prefix_and_template(monkeypatch):
     from guardian.server import codexify_api as api
 
+    _setup_lineage_db(thread_id=1, message_id=1)
     calls = {}
 
     def fake_export(
@@ -49,7 +104,11 @@ def test_save_entry_filename_prefix_and_template(monkeypatch):
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     req = api.SaveEntryRequest(
-        title="Test Title", body="Body", format="md", dry_run=False
+        title="Test Title",
+        body="Body",
+        format="md",
+        dry_run=False,
+        front_matter={"source_thread_id": 1, "source_message_id": 1},
     )
     resp = api.save_entry(req)
     assert resp["ok"] is True
@@ -216,6 +275,8 @@ def test_api_error_mapping_permission_denied(monkeypatch):
 
     from guardian.server import codexify_api as api
 
+    _setup_lineage_db(thread_id=1, message_id=1)
+
     # Patch build service and export to raise 403
     monkeypatch.setattr(
         api, "build_drive_service", lambda logger=None: object()
@@ -227,7 +288,13 @@ def test_api_error_mapping_permission_denied(monkeypatch):
     monkeypatch.setattr(api, "export_to_gdrive", raiser)
 
     # Prepare request
-    req = api.SaveEntryRequest(title="T", body="B", format="md", dry_run=False)
+    req = api.SaveEntryRequest(
+        title="T",
+        body="B",
+        format="md",
+        dry_run=False,
+        front_matter={"source_thread_id": 1, "source_message_id": 1},
+    )
     with pytest.raises(api.HTTPException) as exc:
         api.save_entry(req)
     assert exc.value.status_code == 400
@@ -248,6 +315,8 @@ def test_api_error_mapping_invalid_folder(monkeypatch):
 
     from guardian.server import codexify_api as api
 
+    _setup_lineage_db(thread_id=1, message_id=1)
+
     monkeypatch.setattr(
         api, "build_drive_service", lambda logger=None: object()
     )
@@ -257,7 +326,13 @@ def test_api_error_mapping_invalid_folder(monkeypatch):
 
     monkeypatch.setattr(api, "export_to_gdrive", raiser)
 
-    req = api.SaveEntryRequest(title="T", body="B", format="md", dry_run=False)
+    req = api.SaveEntryRequest(
+        title="T",
+        body="B",
+        format="md",
+        dry_run=False,
+        front_matter={"source_thread_id": 1, "source_message_id": 1},
+    )
     with pytest.raises(api.HTTPException) as exc:
         api.save_entry(req)
     assert exc.value.status_code == 400
@@ -272,7 +347,9 @@ def test_save_entry_emits_codex_result_with_parent_lineage(monkeypatch):
     Session = sessionmaker(
         bind=engine, autoflush=False, autocommit=False, future=True
     )
-    _set_session_factory(Session)
+    _set_event_graph_session_factory(Session)
+    _seed_lineage_rows(Session, thread_id=42, message_id=99)
+    _set_lineage_session_factory(Session)
     reset_event_writer()
 
     writer = get_event_writer()
@@ -307,7 +384,11 @@ def test_save_entry_emits_codex_result_with_parent_lineage(monkeypatch):
         body="Body",
         format="md",
         dry_run=False,
-        front_matter={"thread_id": 42, "message_id": 99, "project_id": 1},
+        front_matter={
+            "source_thread_id": 42,
+            "source_message_id": 99,
+            "project_id": 1,
+        },
     )
     response = api.save_entry(req)
     assert response["ok"] is True
@@ -316,3 +397,33 @@ def test_save_entry_emits_codex_result_with_parent_lineage(monkeypatch):
     assert emitted is not None
     assert emitted.event_type == "codex.result"
     assert emitted.parent_event_id == parent_event_id
+
+
+def test_save_entry_requires_lineage_fields():
+    from guardian.server import codexify_api as api
+
+    req = api.SaveEntryRequest(title="No lineage", body="B", format="md")
+    with pytest.raises(api.HTTPException) as exc:
+        api.save_entry(req)
+    assert exc.value.status_code == 400
+    assert "source_thread_id and source_message_id are required" in str(
+        exc.value.detail
+    )
+
+
+def test_save_entry_rejects_unknown_lineage():
+    from guardian.server import codexify_api as api
+
+    _setup_lineage_db(thread_id=1, message_id=1)
+    req = api.SaveEntryRequest(
+        title="Bad lineage",
+        body="B",
+        format="md",
+        front_matter={"source_thread_id": 1, "source_message_id": 999},
+    )
+    with pytest.raises(api.HTTPException) as exc:
+        api.save_entry(req)
+    assert exc.value.status_code == 404
+    assert "source_message_id 999 was not found in thread 1" in str(
+        exc.value.detail
+    )

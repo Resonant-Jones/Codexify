@@ -157,3 +157,40 @@ Constraints
 - Do not implement new flow logic.
 
 This task makes Codex Entries trustworthy, auditable artifacts rather than detached notes.
+
+---
+
+Execution Notes (2026-02-16)
+
+- Added shared lineage enforcement module `guardian/codex/lineage.py`:
+  - parses required lineage fields from front matter (`source_thread_id`, `source_message_id`)
+  - validates referential integrity against `chat_threads` and `chat_messages`
+  - normalizes front matter to always include canonical lineage keys
+- Enforced fail-closed lineage validation in codex entry write path:
+  - updated `guardian/server/codexify_api.py` `save_entry(...)` to require valid lineage before preview/export
+  - missing lineage now returns HTTP 400
+  - unknown thread/message lineage now returns HTTP 404
+- Extended codex entry metadata model + parsing for lineage:
+  - `guardian/codex/models.py` now includes `source_thread_id`, `source_message_id`, `lineage_missing`
+  - `guardian/codex/service.py` now maps legacy/frontmatter aliases into canonical lineage fields
+- Added jump-to-source endpoint:
+  - `GET /api/codex/{entry_id}/source` in `guardian/routes/codex.py`
+  - response includes:
+    - `codex_entry_id`
+    - `source_thread_id`
+    - `source_message_id`
+    - optional `message_index` when derivable from `message_ids`
+  - endpoint does not return full message content
+- Added legacy compatibility redirect in `guardian/guardian_api.py`:
+  - `/codex/{entry_id}/source` -> `/api/codex/{entry_id}/source`
+- Added tests:
+  - `guardian/test_codexify_exports.py`
+    - save-entry requires lineage
+    - invalid lineage rejected
+    - valid lineage succeeds and emits `codex.result` with parent linkage
+  - `tests/routes/test_codex_lineage_routes.py`
+    - source endpoint returns thread/message lineage references
+    - source endpoint rejects entries missing required lineage
+- Validation run:
+  - `pytest -q guardian/test_codexify_exports.py tests/routes/test_codex_lineage_routes.py`
+  - `pytest -q tests/core/test_event_graph.py tests/routes/test_event_graph_emission.py guardian/test_codexify_exports.py tests/routes/test_codex_lineage_routes.py`
