@@ -211,7 +211,7 @@ Establish a hardened, predictable security baseline for single-user deployments:
 | TASK_2026_02_16_06_plugin_loader_consolidation.md | `0329032a78b11a09ac35b6aa9035260db0ad72cf` | `<this-commit>` |
 | TASK_2026_02_16_07_docs_alignment_for_security_posture.md | `40386d4eb5344d25626357cd70a4ab047e72004f` | `<this-commit>` |
 | TASK_2026_02_16_08_outbox_delivery_safety_review.md | `be713fc039edc254cb01f5d6b179eed8da4e01f1` | `<this-commit>` |
-| TASK_2026_02_16_09_offline_banner_provider_reroute.md | `<hash-a9>` | `<hash-b9>` |
+| TASK_2026_02_16_09_offline_banner_provider_reroute.md | `d23f0504f2dad5d33a7a50045f8f27834af6d462` | `<this-commit>` |
 
 ---
 

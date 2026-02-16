@@ -7,28 +7,26 @@ TASK-2026-02-16-009_offline_banner_provider_reroute
 When the LLM backend is offline, provide an inline way to switch/reroute providers from the offline banner so work can continue without leaving chat.
 
 ## Files Touched
-- frontend/src/features/chat/GuardianChat.tsx (or actual owner of chat header/offline banner)
-- offline banner component owner (discovered via ripgrep)
-- focused frontend test file(s) validating offline switch-provider behavior
+- frontend/src/features/chat/GuardianChat.tsx
+- frontend/src/components/SessionRail/SessionRail.tsx
+- frontend/src/components/ProviderSelect.tsx
+- frontend/src/features/chat/__tests__/GuardianChat.offline-banner.test.tsx
 
 ## Tests Run
-- `pnpm --dir frontend/src test <relevant_test_file> -- --runInBand`
-- (if full suite is run) note unrelated pre-existing failures explicitly
+- `pnpm --dir frontend/src test features/chat/__tests__/GuardianChat.offline-banner.test.tsx -- --runInBand`
+  - Result: pass (`1 passed`, no unrelated failures in this focused run)
 
 ## Notes / Risks
-- Keep UI compact and calm; avoid large new controls.
-- Do not add token counter back to header.
-- Respect local-only/cloud-disabled posture:
-  - if cloud providers are disabled, selector and messaging must reflect allowed providers only.
-- Discovery commands:
-  - `rg -n "LLM backend offline|ConnectTimeout|/api/tags|Recheck" frontend/src -S`
-  - `rg -n "provider|LLM_PROVIDER|model.*offline|Provider:" frontend/src/features/chat frontend/src/components -S`
-- Preferred wiring:
-  - open/toggle existing provider selector state in-place (no duplicate settings UI).
-  - alternate only if needed: open Persona settings provider section.
+- Discovery confirmed the offline banner owner is `GuardianChat.tsx`, and provider selector owner is `SessionRail -> ProviderSelect`.
+- Added compact `Switch provider` action in the offline banner, visible in offline/misconfigured states.
+- Wired reroute action to existing provider selector UI by sending an open signal from `GuardianChat` through `SessionRail` into `ProviderSelect` (no duplicate settings surface).
+- Added cloud-disabled gating support:
+  - detect cloud-disabled signal from LLM health error payload (`ALLOW_CLOUD_PROVIDERS=false`)
+  - show `Cloud providers disabled by config.` messaging in banner and provider menu
+  - filter known cloud provider options from selector when cloud providers are disabled.
 
 ## Commit A
-- `<pending>`
+- `d23f0504f2dad5d33a7a50045f8f27834af6d462`
 
 ## Commit B
-- `<pending>`
+- `<this-commit>`
