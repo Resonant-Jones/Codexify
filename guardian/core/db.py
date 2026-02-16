@@ -123,6 +123,16 @@ class _PostgresGuardianDB:
             session.commit()
             return project.id
 
+    def get_project_identity_depth(self, project_id: Optional[int]) -> str:
+        if not project_id:
+            return "light"
+        with self.get_session() as session:
+            project = session.query(Project).filter_by(id=project_id).first()
+            if not project:
+                return "light"
+            depth = str(getattr(project, "identity_depth", "light")).lower()
+            return "deep" if depth == "deep" else "light"
+
     def list_projects(self) -> List[Dict[str, Any]]:
         """List all projects."""
         with self.get_session() as session:
@@ -188,6 +198,8 @@ class _PostgresGuardianDB:
         project_id: Optional[int] = None,
         parent_id: Optional[int] = None,
         active_profile_id: Optional[str] = None,
+        diary_mode: bool = False,
+        modeling_excluded: bool = False,
     ) -> Dict[str, Any]:
         """Create a new chat thread."""
         with self.get_session() as session:
@@ -198,6 +210,10 @@ class _PostgresGuardianDB:
                 project_id=project_id,
                 parent_id=parent_id,
                 active_profile_id=active_profile_id,
+                is_diary=diary_mode,
+                diary_mode=diary_mode,
+                exclude_from_identity=modeling_excluded,
+                modeling_excluded=modeling_excluded,
             )
             session.add(thread)
             session.commit()
@@ -210,6 +226,10 @@ class _PostgresGuardianDB:
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
                 "active_profile_id": thread.active_profile_id,
+                "is_diary": bool(thread.is_diary),
+                "diary_mode": bool(thread.diary_mode),
+                "exclude_from_identity": bool(thread.exclude_from_identity),
+                "modeling_excluded": bool(thread.modeling_excluded),
                 "archived_at": (
                     thread.archived_at.isoformat()
                     if thread.archived_at
@@ -232,8 +252,16 @@ class _PostgresGuardianDB:
         project_id: Optional[int] = None,
         is_diary: bool = False,
         exclude_from_identity: bool = False,
+        diary_mode: Optional[bool] = None,
+        modeling_excluded: Optional[bool] = None,
     ) -> None:
         """Ensure thread exists, create if missing."""
+        diary_flag = is_diary if diary_mode is None else diary_mode
+        modeling_flag = (
+            exclude_from_identity
+            if modeling_excluded is None
+            else modeling_excluded
+        )
         with self.get_session() as session:
             thread = session.query(ChatThread).filter_by(id=thread_id).first()
             if not thread:
@@ -243,8 +271,10 @@ class _PostgresGuardianDB:
                     title=title,
                     summary=summary,
                     project_id=project_id,
-                    is_diary=is_diary,
-                    exclude_from_identity=exclude_from_identity,
+                    is_diary=diary_flag,
+                    diary_mode=diary_flag,
+                    exclude_from_identity=modeling_flag,
+                    modeling_excluded=modeling_flag,
                 )
                 session.add(thread)
                 session.commit()
@@ -268,6 +298,10 @@ class _PostgresGuardianDB:
                     "project_id": t.project_id,
                     "parent_id": t.parent_id,
                     "active_profile_id": t.active_profile_id,
+                    "is_diary": bool(t.is_diary),
+                    "diary_mode": bool(t.diary_mode),
+                    "exclude_from_identity": bool(t.exclude_from_identity),
+                    "modeling_excluded": bool(t.modeling_excluded),
                     "archived_at": t.archived_at.isoformat()
                     if t.archived_at
                     else None,
@@ -296,6 +330,10 @@ class _PostgresGuardianDB:
                 "project_id": thread.project_id,
                 "parent_id": thread.parent_id,
                 "active_profile_id": thread.active_profile_id,
+                "is_diary": bool(thread.is_diary),
+                "diary_mode": bool(thread.diary_mode),
+                "exclude_from_identity": bool(thread.exclude_from_identity),
+                "modeling_excluded": bool(thread.modeling_excluded),
                 "archived_at": (
                     thread.archived_at.isoformat()
                     if thread.archived_at

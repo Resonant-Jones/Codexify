@@ -52,6 +52,9 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     icon: Mapped[str | None] = mapped_column(String(16))
+    identity_depth: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="light", server_default="light"
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -60,6 +63,13 @@ class Project(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "identity_depth IN ('light','deep')",
+            name="projects_identity_depth_check",
+        ),
     )
 
     __mapper_args__ = {"eager_defaults": True}
@@ -96,7 +106,13 @@ class ChatThread(Base):
     is_diary: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    diary_mode: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     exclude_from_identity: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    modeling_excluded: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     created_at: Mapped[datetime] = mapped_column(
