@@ -117,3 +117,43 @@ Preflight: git status --porcelain -uall must be empty
 - Task ID: 007
 
 - Head before: 48f76d608b558d485345997629226127fa31eeac
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: **Task 007 Artifact**
+- Documented the deterministic validation procedure in `docs/guardian/doc_upload_embedding_validation.md:1-87`, including prerequisite checks, the audit-specified docker/curl commands, the mandated `curl … || true` route sanity check, and an explicit pass/fail matrix covering upload, listing, embedding, and worker health.
+- Added `scripts/validate_doc_upload_embedding.sh:1-199`, an executable validator that enforces a clean git tree, boots `db redis backend worker-document-embed`, issues the audited upload/list calls, asserts JSON fields (id/src_url/embedding_status/project_id), polls `/api/media/documents` until `embedding_status` becomes `ready`, and fails fast if the worker exits or returns `failed`.
+
+Execution notes
+- Ran the required `curl -sS … /api/media/documents?limit=5 || true`; it failed to connect because nothing is listening on `localhost:8888` yet, which is expected until the stack is running.
+- Didn’t run the new validator (needs a live backend, GUARDIAN_API_KEY, and compose services); run `./scripts/validate_doc_upload_embedding.sh` once those are available to confirm the loop.
+
+Next steps
+1. Export `GUARDIAN_API_KEY`, start docker compose, and run the validator to capture a PASS log for the audit trail.
+2. If `/media` URLs remain unreachable, note the block in the operator log per the doc and coordinate with Task 003 owners.
+
+- Implementation commit hash: 910cb682009f3249051406c4741c39ad99a8d9ec
+
+- Receipt update commit hash: 80115d93844754c1471ca637c77d6c22a2ae46ea
+
+- Tests ran: (none)
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "**Task 007 Artifact**\n- Documented the deterministic validation procedure in `docs/guardian/doc_upload_embedding_validation.md:1-87`, including prerequisite checks, the audit-specified docker/curl commands, the mandated `curl \u2026 || true` route sanity check, and an explicit pass/fail matrix covering upload, listing, embedding, and worker health.\n- Added `scripts/validate_doc_upload_embedding.sh:1-199`, an executable validator that enforces a clean git tree, boots `db redis backend worker-document-embed`, issues the audited upload/list calls, asserts JSON fields (id/src_url/embedding_status/project_id), polls `/api/media/documents` until `embedding_status` becomes `ready`, and fails fast if the worker exits or returns `failed`.\n\nExecution notes\n- Ran the required `curl -sS \u2026 /api/media/documents?limit=5 || true`; it failed to connect because nothing is listening on `localhost:8888` yet, which is expected until the stack is running.\n- Didn\u2019t run the new validator (needs a live backend, GUARDIAN_API_KEY, and compose services); run `./scripts/validate_doc_upload_embedding.sh` once those are available to confirm the loop.\n\nNext steps\n1. Export `GUARDIAN_API_KEY`, start docker compose, and run the validator to capture a PASS log for the audit trail.\n2. If `/media` URLs remain unreachable, note the block in the operator log per the doc and coordinate with Task 003 owners.",
+  "tests_ran": [],
+  "commit_hash": "910cb682009f3249051406c4741c39ad99a8d9ec",
+  "implementation_commit_hash": "910cb682009f3249051406c4741c39ad99a8d9ec",
+  "receipt_update_commit_hash": "80115d93844754c1471ca637c77d6c22a2ae46ea",
+  "notes": ""
+}
+```
+
+</details>
