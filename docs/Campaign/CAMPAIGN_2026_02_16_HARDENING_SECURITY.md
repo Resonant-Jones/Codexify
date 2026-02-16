@@ -204,7 +204,7 @@ Establish a hardened, predictable security baseline for single-user deployments:
 |--------------|--------------------------|---------------------------|
 | TASK_2026_02_16_01_single_user_identity_contract.md | `10322d4a091d340353de6b61f984954da2a10318` | `4f74c22e19027b7afccd9eb69bcd3d66e2394be8` |
 | TASK_2026_02_16_02_lock_down_egress_by_default.md   | `6841529bec1f1bb575d082b866cd1a1842a96ea3` | `2091b4d829132ca49954e6a9b2753f57ec640db9` |
-| TASK_2026_02_16_03_namespace_vector_retrieval_single_user.md | `<hash-a3>` | `<hash-b3>` |
+| TASK_2026_02_16_03_namespace_vector_retrieval_single_user.md | `a30da6248d36cb4ec7e3ce78e2adfe33248f8626` | `<this-commit>` |
 | TASK_2026_02_16_04_config_unification_or_startup_assertions.md | `<hash-a4>` | `<hash-b4>` |
 | TASK_2026_02_16_05_federation_guardrails.md | `<hash-a5>` | `<hash-b5>` |
 | TASK_2026_02_16_06_plugin_loader_consolidation.md | `<hash-a6>` | `<hash-b6>` |
