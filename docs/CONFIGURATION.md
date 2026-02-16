@@ -1,0 +1,92 @@
+# Configuration Reference
+
+This document focuses on security-relevant runtime configuration.
+
+Canonical sources:
+- Runtime settings model: `guardian/core/config.py`
+- Auth/identity behavior: `guardian/core/dependencies.py`
+- Egress policy engine: `guardian/core/egress.py`
+- Federation policy verification: `guardian/core/auth.py`, `guardian/routes/federation.py`
+
+## Identity and Auth Boundary
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CODEXIFY_SINGLE_USER_ID` | `local` (implicit) | Canonical server-side single-user identity. |
+| `GUARDIAN_AUTH_MODE` | `local` | `local` allows static API key auth; `remote` requires session/JWT. |
+| `GUARDIAN_API_KEY` | unset | API key used in local auth mode and compatibility fallback contexts. |
+| `GUARDIAN_API_KEYS` | unset | Optional comma-separated additional API keys. |
+| `GUARDIAN_SESSION_SECRET` | unset | Preferred signing secret for session/JWT validation in remote mode. |
+| `GUARDIAN_JWT_SECRET` | unset | Optional JWT secret fallback in remote mode. |
+| `DEBUG` | `false` (runtime default) | Enables debug behaviors; can permit `X-User-Id` override in local workflows. |
+| `LOCAL_DEV` | `false` | Alternate local-dev toggle for `X-User-Id` override. |
+
+Notes:
+- `X-User-Id` is ignored unless `DEBUG=true` or `LOCAL_DEV=true`.
+- In `GUARDIAN_AUTH_MODE=remote`, static API-key auth for protected routes is rejected.
+
+## Egress and Provider Controls
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CODEXIFY_LOCAL_ONLY_MODE` | `true` | Master fail-closed egress gate. |
+| `CODEXIFY_EGRESS_ALLOWLIST` | empty | Comma-separated allowed outbound targets when local-only mode is disabled. |
+| `ALLOW_CLOUD_PROVIDERS` | `false` | Additional gate for cloud LLM targets (`openai`, `groq`). |
+| `LLM_PROVIDER` | `local` | Active chat provider (`local`, `openai`, `groq`). |
+| `OPENAI_API_KEY` | unset | Required for OpenAI usage when enabled. |
+| `GROQ_API_KEY` | unset | Required for Groq usage when enabled. |
+| `ELEVENLABS_API_KEY` | unset | Required for ElevenLabs TTS when enabled. |
+
+Allowlist target names currently enforced in code:
+- `openai`, `groq`, `elevenlabs`, `federation`, `webhook`
+
+### Enabling a cloud LLM safely
+
+Example (OpenAI):
+
+```env
+ALLOW_CLOUD_PROVIDERS=true
+CODEXIFY_LOCAL_ONLY_MODE=false
+CODEXIFY_EGRESS_ALLOWLIST=openai
+LLM_PROVIDER=openai
+OPENAI_API_KEY=...
+```
+
+Without this full set, egress remains blocked by policy.
+
+## Federation Controls
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GUARDIAN_FEDERATION_ENABLED` | `false` | Master gate for federation endpoints. |
+| `GUARDIAN_FEDERATION_REQUIRE_SIGNED_POLICY` | `true` | Require signed trust policy for federation requests. |
+| `GUARDIAN_FEDERATION_TRUST_POLICY_JSON` | unset | JSON trust policy document. |
+| `GUARDIAN_FEDERATION_TRUST_POLICY_SIGNATURE` | unset | Base64url HMAC signature for trust policy JSON. |
+| `GUARDIAN_FEDERATION_POLICY_SIGNING_KEY` | unset | Key used to verify trust policy signatures. |
+
+Notes:
+- Federation request paths also require egress allowlist permission (`federation`).
+- Federation should remain disabled unless trust policy and peer controls are configured.
+
+## Plugin Loader Surface
+
+Plugin loading is centralized through `guardian/core/plugins.py`.
+
+Behavior:
+- Runtime loader access via `get_runtime_plugin_loader()`.
+- Guarded runtime initialization via `load_runtime_plugins()`.
+- Manifest discovery via `list_plugin_manifests()` with dedupe and entrypoint scheme checks.
+
+## Startup Coherence Checks
+
+`guardian/guardian_api.py` performs a startup coherence assertion via:
+- `guardian/core/config.py:assert_config_coherence`
+
+Current overlapping security-relevant fields checked:
+- `GUARDIAN_API_KEY`
+- `GUARDIAN_API_KEYS`
+- `GUARDIAN_DATABASE_URL`
+- `OPENAI_API_KEY`
+- `GROQ_API_KEY`
+
+If config systems disagree on these values, startup fails fast.
