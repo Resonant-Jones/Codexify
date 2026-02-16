@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from guardian.cognition.imprints.store import get_active_imprint
+from guardian.cognition.identity_resolution import (
+    resolve_imprint,
+    resolve_persona,
+)
 from guardian.cognition.modular_prompt_builder import (
     PromptBudgets,
     build_system_prompt,
 )
-from guardian.cognition.personas.store import get_active_persona
 from guardian.cognition.prompts import (
     _base_codexify_system_prompt,
     _depth_block,
@@ -109,25 +111,38 @@ def build_guardian_system_prompt(
         system_prompt (str): the single system message to prepend
         meta (dict): size estimates and segment breakdown
     """
-    imprint = get_active_imprint(user_id, project_id)
-    persona_row = get_active_persona(user_id, project_id)
+    bundle_payload = bundle if isinstance(bundle, dict) else {}
+    resolved_imprint = resolve_imprint(user_id, project_id)
+    resolved_persona = resolve_persona(
+        user_id,
+        project_id,
+        requested_persona_id_or_name=bundle_payload.get("requested_persona"),
+    )
     docs = get_docs_for(user_id, project_id)
 
-    persona_body = persona_row.body if persona_row else None
-    imprint_data = None
-    if imprint:
-        imprint_data = {
-            "guardian_name": getattr(imprint, "guardian_name", None),
-            "preferred_name": getattr(imprint, "preferred_name", None),
-            "style": getattr(imprint, "style", None),
-            "grammar_prefs": getattr(imprint, "grammar_prefs", None),
-            "metrics": getattr(imprint, "metrics", None),
-            "heat_score": getattr(imprint, "heat_score", None),
-        }
+    persona_body = resolved_persona.body or None
+    imprint_data = {
+        "guardian_name": resolved_imprint.guardian_name,
+        "preferred_name": resolved_imprint.preferred_name,
+        "style": resolved_imprint.style,
+        "grammar_prefs": resolved_imprint.grammar_prefs,
+        "metrics": resolved_imprint.metrics,
+        "heat_score": resolved_imprint.heat_score,
+    }
+    if not any(
+        [
+            imprint_data.get("guardian_name"),
+            imprint_data.get("preferred_name"),
+            imprint_data.get("style"),
+            imprint_data.get("grammar_prefs"),
+            imprint_data.get("metrics"),
+            imprint_data.get("heat_score"),
+        ]
+    ):
+        imprint_data = None
 
     docs_block = _build_docs_block(docs)
     profile_text = _render_profile_guidance(profile)
-    bundle_payload = bundle if isinstance(bundle, dict) else {}
 
     scratchpad_parts = [
         _depth_block(depth).strip(),
@@ -179,6 +194,8 @@ def build_guardian_system_prompt(
             if isinstance(profile, dict)
             else None
         ),
+        "resolved_persona_source": resolved_persona.source,
+        "resolved_imprint_source": resolved_imprint.source,
     }
     meta["docs_estimated_tokens"] = estimate_token_cost_for_docs(docs)
     return system_prompt, meta
