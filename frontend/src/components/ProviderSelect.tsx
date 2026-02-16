@@ -20,10 +20,21 @@ type ProviderSelectProps = {
   cloudProvidersDisabled?: boolean;
 };
 
-type CatalogModel = { id: string; label: string };
+type CatalogModel = {
+  id: string;
+  displayName: string;
+  contextWindow?: number;
+  capabilities?: {
+    vision?: boolean;
+    tools?: boolean;
+    streaming?: boolean;
+  };
+};
+
 type CatalogProvider = {
   id: string;
-  label: string;
+  displayName: string;
+  enabled: boolean;
   authorized: boolean;
   available: boolean;
   disabled_reason?: string;
@@ -57,7 +68,8 @@ export function ProviderSelect({
         .filter((entry): entry is CatalogProvider => Boolean(entry) && typeof entry === "object")
         .map((entry) => ({
           id: String(entry.id || "").trim(),
-          label: String(entry.label || entry.id || "").trim(),
+          displayName: String((entry as any).displayName || (entry as any).label || entry.id || "").trim(),
+          enabled: Boolean((entry as any).enabled),
           authorized: Boolean(entry.authorized),
           available: Boolean(entry.available),
           disabled_reason:
@@ -69,12 +81,25 @@ export function ProviderSelect({
                 .filter((model): model is CatalogModel => Boolean(model) && typeof model === "object")
                 .map((model) => ({
                   id: String(model.id || "").trim(),
-                  label: String(model.label || model.id || "").trim(),
+                  displayName: String((model as any).displayName || (model as any).label || model.id || "").trim(),
+                  contextWindow:
+                    typeof (model as any).contextWindow === "number"
+                      ? (model as any).contextWindow
+                      : undefined,
+                  capabilities:
+                    typeof (model as any).capabilities === "object"
+                    && (model as any).capabilities
+                      ? {
+                          vision: Boolean((model as any).capabilities.vision),
+                          tools: Boolean((model as any).capabilities.tools),
+                          streaming: Boolean((model as any).capabilities.streaming),
+                        }
+                      : undefined,
                 }))
                 .filter((model) => model.id.length > 0)
             : [],
         }))
-        .filter((entry) => entry.id.length > 0);
+        .filter((entry) => entry.id.length > 0 && entry.enabled);
 
       setProviders(normalizedProviders);
       setActiveProviderId((previous) =>
@@ -89,6 +114,10 @@ export function ProviderSelect({
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    void loadCatalog();
+  }, [loadCatalog]);
 
   useEffect(() => {
     if (typeof openSignal !== "number" || openSignal <= 0) return;
@@ -112,15 +141,6 @@ export function ProviderSelect({
 
   const selectedRaw = String(value ?? provider ?? "default").trim() || "default";
 
-  const selectedModel = useMemo(() => {
-    if (selectedRaw === "default") return null;
-    for (const providerEntry of providers) {
-      const match = providerEntry.models.find((model) => model.id === selectedRaw);
-      if (match) return match;
-    }
-    return null;
-  }, [providers, selectedRaw]);
-
   const selectedProvider = useMemo(() => {
     if (selectedRaw === "default") return null;
     const byModel = providers.find((entry) =>
@@ -130,10 +150,10 @@ export function ProviderSelect({
     return providers.find((entry) => entry.id === selectedRaw) ?? null;
   }, [providers, selectedRaw]);
 
-  const triggerLabel =
-    selectedRaw === "default"
-      ? "default"
-      : selectedModel?.label || selectedProvider?.label || selectedRaw;
+  const triggerProviderLabel =
+    selectedProvider?.displayName
+    || providers[0]?.displayName
+    || "Provider";
 
   const activeProvider = useMemo(
     () =>
@@ -146,6 +166,11 @@ export function ProviderSelect({
   const applySelection = useCallback(
     (modelId: string, providerId?: string | null) => {
       if (onChange) {
+        if (providerId) {
+          setProvider(providerId);
+        } else if (modelId === "default") {
+          setProvider(null);
+        }
         onChange(modelId);
         return;
       }
@@ -178,10 +203,10 @@ export function ProviderSelect({
           color: "var(--text)",
           ...triggerStyle,
         }}
-        aria-label="Choose model provider"
+        aria-label="Open provider selector"
       >
-        <span className="opacity-70">⚙︎</span>
-        <span className="font-medium">{triggerLabel}</span>
+        <span className="opacity-90">⚡</span>
+        <span className="font-medium">{triggerProviderLabel}</span>
         <ChevronDown className="h-3 w-3 opacity-50" />
       </DropdownMenuTrigger>
 
@@ -200,7 +225,7 @@ export function ProviderSelect({
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
           ) : null}
-          <span>{activeProvider ? `${activeProvider.label} models` : "Model Provider"}</span>
+          <span>{activeProvider ? `${activeProvider.displayName} Models` : "Select Provider"}</span>
         </div>
 
         {loading ? (
@@ -211,27 +236,7 @@ export function ProviderSelect({
         ) : loadError ? (
           <div className="px-3 py-2 text-xs opacity-80">{loadError}</div>
         ) : activeProvider ? (
-          <>
-            <DropdownMenuItem
-              onClick={() => {
-                applySelection("default", null);
-                setOpen(false);
-              }}
-              style={{
-                color: "var(--text)",
-                background:
-                  selectedRaw === "default"
-                    ? "color-mix(in_oklab,var(--panel-bg),var(--accent)_15%)"
-                    : "transparent",
-              }}
-            >
-              <span className="flex items-center justify-between w-full">
-                <span>default</span>
-                {selectedRaw === "default" ? (
-                  <span className="text-[var(--accent)]">✓</span>
-                ) : null}
-              </span>
-            </DropdownMenuItem>
+          <div className="transition-all duration-150 ease-out">
             {activeProvider.models.map((model) => (
               <DropdownMenuItem
                 key={model.id}
@@ -249,10 +254,20 @@ export function ProviderSelect({
                 }}
               >
                 <span className="flex items-center justify-between w-full gap-2">
-                  <span className="truncate">{model.label}</span>
-                  {selectedRaw === model.id ? (
-                    <span className="text-[var(--accent)]">✓</span>
-                  ) : null}
+                  <span className="truncate">{model.displayName}</span>
+                  <span className="inline-flex items-center gap-1">
+                    {typeof model.contextWindow === "number" ? (
+                      <span
+                        className="rounded-full border px-1.5 py-0.5 text-[9px] opacity-70"
+                        style={{ borderColor: "var(--panel-border)" }}
+                      >
+                        {Math.round(model.contextWindow / 1000)}k
+                      </span>
+                    ) : null}
+                    {selectedRaw === model.id ? (
+                      <span className="text-[var(--accent)]">✓</span>
+                    ) : null}
+                  </span>
                 </span>
               </DropdownMenuItem>
             ))}
@@ -267,29 +282,9 @@ export function ProviderSelect({
                 {activeProvider.disabled_reason}
               </div>
             ) : null}
-          </>
+          </div>
         ) : (
-          <>
-            <DropdownMenuItem
-              onClick={() => {
-                applySelection("default", null);
-                setOpen(false);
-              }}
-              style={{
-                color: "var(--text)",
-                background:
-                  selectedRaw === "default"
-                    ? "color-mix(in_oklab,var(--panel-bg),var(--accent)_15%)"
-                    : "transparent",
-              }}
-            >
-              <span className="flex items-center justify-between w-full">
-                <span>default</span>
-                {selectedRaw === "default" ? (
-                  <span className="text-[var(--accent)]">✓</span>
-                ) : null}
-              </span>
-            </DropdownMenuItem>
+          <div className="transition-all duration-150 ease-out">
             {providers.map((entry) => (
               <DropdownMenuItem
                 key={entry.id}
@@ -300,7 +295,7 @@ export function ProviderSelect({
                 style={{ color: "var(--text)" }}
               >
                 <span className="flex items-center justify-between w-full gap-2">
-                  <span className="truncate">{entry.label}</span>
+                  <span className="truncate">{entry.displayName}</span>
                   {!entry.available ? (
                     <span className="text-[10px] opacity-70">Unavailable</span>
                   ) : null}
@@ -310,7 +305,7 @@ export function ProviderSelect({
             {providers.length === 0 ? (
               <div className="px-3 py-2 text-xs opacity-75">No providers available.</div>
             ) : null}
-          </>
+          </div>
         )}
 
         {cloudProvidersDisabled ? (

@@ -132,7 +132,7 @@ describe("GuardianChat offline provider reroute", () => {
     expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("1");
   });
 
-  it("routes cloud status icon to the provider section in the lightning popover", async () => {
+  it("opens provider controls from the lightning popover provider section", async () => {
     render(
       <GuardianChat
         guardianName="Guardian"
@@ -153,16 +153,24 @@ describe("GuardianChat offline provider reroute", () => {
       />
     );
 
-    const cloudTrigger = await screen.findByRole("button", {
-      name: "Open provider controls",
-    });
+    const promptCostTrigger = await screen.findByTestId(
+      "prompt-cost-trigger"
+    );
     expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("0");
 
-    fireEvent.click(cloudTrigger);
-    expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("1");
+    fireEvent.click(promptCostTrigger);
     expect(screen.getByTestId("prompt-cost-popover")).toBeInTheDocument();
+
+    const providersTab = screen.getByRole("button", { name: "Providers" });
+    fireEvent.click(providersTab);
     expect(
       screen.getByTestId("prompt-cost-providers-panel")
     ).toBeInTheDocument();
+
+    const openProvider = screen.getByRole("button", {
+      name: "Open provider picker",
+    });
+    fireEvent.click(openProvider);
+    expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("1");
   });
 });
