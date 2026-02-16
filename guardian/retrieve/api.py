@@ -17,5 +17,9 @@ def health_vector():
 def retrieve(body: Dict[str, Any]):
     q = str(body.get("q") or "").strip()
     k = int(body.get("k") or 5)
-    matches = _store.search(q, k=k) if q else []
+    namespace = body.get("namespace")
+    if q and namespace:
+        matches = _store.search(q, k=k, namespace=str(namespace))
+    else:
+        matches = _store.search(q, k=k) if q else []
     return {"matches": matches}

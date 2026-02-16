@@ -28,12 +28,14 @@ class EmbedRequest(BaseModel):
     text: str
     tags: Optional[List[str]] = None
     metadata: Optional[dict[str, Any]] = None
+    namespace: Optional[str] = None
 
 
 class SearchRequest(BaseModel):
     """Payload for the /search endpoint."""
 
     query: str
+    namespace: Optional[str] = None
 
 
 # ----------------------------------------------------------------------
@@ -73,6 +75,8 @@ async def embed_endpoint(payload: EmbedRequest) -> dict[str, Any]:
             md.update(payload.metadata)
         if payload.tags:
             md["tags"] = list(payload.tags)
+        if payload.namespace:
+            md["namespace"] = payload.namespace
 
         # VectorStore handles embedding internally now
         vector_store.add_texts([{"text": payload.text, "meta": md}])
@@ -89,7 +93,14 @@ async def search_endpoint(payload: SearchRequest) -> dict[str, Any]:
     query text. Returns the top 5 results with similarity scores.
     """
     try:
-        results = vector_store.search(payload.query, k=5)
+        if payload.namespace:
+            results = vector_store.search(
+                payload.query,
+                k=5,
+                namespace=payload.namespace,
+            )
+        else:
+            results = vector_store.search(payload.query, k=5)
         return {"results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
