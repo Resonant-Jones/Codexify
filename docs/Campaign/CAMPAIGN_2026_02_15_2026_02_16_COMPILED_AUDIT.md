@@ -39,3 +39,4 @@ Close the highest-risk configuration hygiene issue and make the MVP core loops d
 ## Task Mapping
 
 001 -> [c48d3adc2cbe33610fa45516525c8fcbbbe71fc1, a6a7d9a5e4ef495eed8669c201d3e3b05071e6d7]
+002 -> [e545e04c071db781d2756a245eba91aab5e9fb72, b3c4d495ee80a42c0cc8531689f7809ad0f59e14]
