@@ -72,6 +72,12 @@ The repo includes `.env.template` and `.env.example`, which are aligned and act 
 cp .env.template .env
 ```
 
+#### Env Security Guardrails
+- `.env` stays ignored (`.gitignore` enforces this); never push or share the file.
+- Generate a long random `GUARDIAN_API_KEY` per environment and rotate it often.
+- `VITE_GUARDIAN_API_KEY` is strictly for localhost/trusted builds so the browser can talk to the backend. Leave it empty for any shared, hosted, or production deployment—shipping it would leak backend access.
+- Remote/hosted deployments must instead use `GUARDIAN_AUTH_MODE=remote` and session/JWT auth (see `docs/security/auth-boundary-decision.md`).
+
 Minimum variables required for the **default Compose stack**:
 
 ```env

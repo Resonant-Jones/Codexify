@@ -59,6 +59,7 @@ Use `.env.local` only for machine-specific overrides, and avoid changing docs/ex
 2) Secrets: where to put keys
  • Backend dev key: set GUARDIAN_API_KEY in .env.
  • Frontend: only for local dev, you can mirror the key as VITE_GUARDIAN_API_KEY in .env so the browser can call the dev API.
+ • Never ship or publish the value of VITE_GUARDIAN_API_KEY. If the UI is hosted anywhere outside localhost/trusted LAN, leave it empty and rely on session/JWT auth via `GUARDIAN_AUTH_MODE=remote`.
  • Prefer keeping the key out of browser code: for dev, let the Vite dev proxy attach X-API-Key server-side when possible.
  • For production, do not expose secrets in Vite env; frontends can’t keep secrets. Use a server/proxy to attach headers.
 
