@@ -106,3 +106,12 @@ Preflight: git status --porcelain -uall must be empty
 - `git restore --source=HEAD --staged --worktree -- guardian/guardian_api.py guardian/core/storage.py docker-compose.yml`
 - `git restore --source=HEAD --staged --worktree -- docs`
 - `git clean -fd`
+
+
+## Runner Receipt (Start)
+
+- Campaign: CAMPAIGN_2026_02_16_COMPILED_AUDIT
+
+- Task ID: 003
+
+- Head before: e4087a2a6f4d2304810b61a2c1af14acd7e18775
