@@ -437,7 +437,7 @@ Implement enforceable runtime boundaries for the Control Plane phase:
 
 4. TASK-2026-02-15-04_modular_system_prompt_builder
    - Task artifact: `docs/tasks/TASK_2026_02_15_04_modular_system_prompt_builder.md`
-   - Task mapping: `TASK-2026-02-15-04_modular_system_prompt_builder -> [<commitA>, <commitB>]`
+   - Task mapping: `TASK-2026-02-15-04_modular_system_prompt_builder -> [96aff28f, <commitB>]`
 
 5. TASK-2026-02-15-05_persistent_imprint_persona_storage
    - Task artifact: `docs/tasks/TASK_2026_02_15_05_persistent_imprint_persona_storage.md`
@@ -461,7 +461,7 @@ Implement enforceable runtime boundaries for the Control Plane phase:
 - TASK-2026-02-15-01_iddb_layer_enforcement -> [717adcc3, <commitB>]
 - TASK-2026-02-15-02_flow_authentication_boundary -> [8f0c50b8, <commitB>]
 - TASK-2026-02-15-03_cli_sandboxed_project_execution -> [5bc57a61, <commitB>]
-- TASK-2026-02-15-04_modular_system_prompt_builder -> [<commitA>, <commitB>]
+- TASK-2026-02-15-04_modular_system_prompt_builder -> [96aff28f, <commitB>]
 - TASK-2026-02-15-05_persistent_imprint_persona_storage -> [<commitA>, <commitB>]
 - TASK-2026-02-15-06_event_graph_emission -> [<commitA>, <commitB>]
 - TASK-2026-02-15-07_codex_entry_lineage_enforcement -> [<commitA>, <commitB>]
