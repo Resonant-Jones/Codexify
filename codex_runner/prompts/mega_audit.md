@@ -4,13 +4,11 @@ You are conducting an evidence-based audit of the target repo. Do not guess; pre
 PRIMARY GOAL
 Produce ONE runner-consumable JSON object (printed to stdout) that conforms to the following template exactly (field names + overall structure), derived from mega_audit_output.schema.json:
 
-IMPORTANT: Set `agent.model` to the **exact runtime model id** you are running (example: `gpt-5.3-codex`).
-- **Do NOT** use generic names like `GPT-5`, `GPT-4`, `o1`, etc.
-- If you cannot determine the exact runtime model id, set it to `"unknown"` and add a **runner_ready_finding** with:
-  - area: `dx`
-  - severity: `WARN`
-  - title: `MODEL-ID-UNKNOWN`
-  - suggested_commands: commands to discover the model id in your runtime
+IMPORTANT: Determine `agent.model` by running `python codex_runner/model_id_helper.py` before assembling the JSON.
+- This helper prints exactly one line `MODEL_ID=<value>` after checking (in order) `CODEX_MODEL`, `OPENAI_MODEL`, then the Codex CLI config.
+- Use the `<value>` portion verbatim for `agent.model` (example: output `MODEL_ID=gpt-5.3-codex` → `"agent.model": "gpt-5.3-codex"`).
+- If the helper emits `MODEL_ID=unknown`, still set `agent.model` to `"unknown"` **and** add a `dx`/`WARN` runner_ready_finding titled `MODEL-ID-UNKNOWN` that records the helper command under `suggested_commands`.
+- Do **not** guess or use generic labels like `GPT-5`; rerun the helper if needed.
 
 HARD FAIL SELF-CHECK (before printing): If your JSON would contain `"model":"GPT-5"` (or any other generic model label), do **not** print it. Fix `agent.model` first.
 
