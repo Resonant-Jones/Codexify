@@ -303,7 +303,9 @@ async def websocket_rpc(websocket: WebSocket) -> None:
                 )
                 continue
             except Exception as exc:
-                logger.warning("[ws.rpc] method %s failed: %s", request.method, exc)
+                logger.warning(
+                    "[ws.rpc] method %s failed: %s", request.method, exc
+                )
                 response = error_response(
                     request_id=request.id,
                     code="method_error",

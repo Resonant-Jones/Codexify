@@ -64,7 +64,9 @@ async def test_event_relay_forwards_in_memory_events_to_subscribers() -> None:
     await manager.subscribe(ws, "relay.topic")
 
     stop_event = asyncio.Event()
-    relay_task = asyncio.create_task(run_event_relay(manager, stop_event=stop_event))
+    relay_task = asyncio.create_task(
+        run_event_relay(manager, stop_event=stop_event)
+    )
     try:
         # Give relay loop a tick to register its in-memory subscription.
         await asyncio.sleep(0.01)

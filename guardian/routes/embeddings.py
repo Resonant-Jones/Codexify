@@ -40,7 +40,9 @@ def embeddings(body: EmbeddingsRequest) -> EmbeddingsResponse:
     raw_embedder = (body.embedder or "").strip()
     provider = raw_embedder.lower()
     env_provider = ""
-    allow_dummy = os.getenv("CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK", "0").lower() in (
+    allow_dummy = os.getenv(
+        "CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK", "0"
+    ).lower() in (
         "1",
         "true",
         "yes",

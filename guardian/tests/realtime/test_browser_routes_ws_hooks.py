@@ -85,7 +85,9 @@ class _FakeSessionManager:
 
 
 @pytest.fixture
-def browser_ws_client(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, list[tuple[str, dict]]]:
+def browser_ws_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[TestClient, list[tuple[str, dict]]]:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
     db = _DB()
     approval.configure_db(db)
@@ -104,12 +106,18 @@ def browser_ws_client(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, list
     return TestClient(app), emitted
 
 
-def test_approval_request_emits_event(browser_ws_client: tuple[TestClient, list[tuple[str, dict]]]) -> None:
+def test_approval_request_emits_event(
+    browser_ws_client: tuple[TestClient, list[tuple[str, dict]]]
+) -> None:
     client, emitted = browser_ws_client
     resp = client.post(
         "/api/browser/approvals/request",
         headers={"X-API-Key": "test-api-key"},
-        json={"operation": "evaluate", "target": "https://example.com", "reason": "needs review"},
+        json={
+            "operation": "evaluate",
+            "target": "https://example.com",
+            "reason": "needs review",
+        },
     )
     assert resp.status_code == 200
     assert emitted
@@ -117,7 +125,9 @@ def test_approval_request_emits_event(browser_ws_client: tuple[TestClient, list[
     assert emitted[-1][1]["approval_id"] == resp.json()["id"]
 
 
-def test_approval_decision_emits_event(browser_ws_client: tuple[TestClient, list[tuple[str, dict]]]) -> None:
+def test_approval_decision_emits_event(
+    browser_ws_client: tuple[TestClient, list[tuple[str, dict]]]
+) -> None:
     client, emitted = browser_ws_client
     create_resp = client.post(
         "/api/browser/approvals/request",
@@ -135,7 +145,9 @@ def test_approval_decision_emits_event(browser_ws_client: tuple[TestClient, list
     assert emitted[-1][1]["approval_id"] == approval_id
 
 
-def test_session_updates_emit_event(browser_ws_client: tuple[TestClient, list[tuple[str, dict]]]) -> None:
+def test_session_updates_emit_event(
+    browser_ws_client: tuple[TestClient, list[tuple[str, dict]]]
+) -> None:
     client, emitted = browser_ws_client
 
     create_resp = client.post(

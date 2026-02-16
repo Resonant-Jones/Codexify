@@ -56,9 +56,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_browser_audit_log_status", table_name="browser_audit_log"
-    )
+    op.drop_index("ix_browser_audit_log_status", table_name="browser_audit_log")
     op.drop_index(
         "ix_browser_audit_log_created_at", table_name="browser_audit_log"
     )

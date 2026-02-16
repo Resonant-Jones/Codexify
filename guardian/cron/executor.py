@@ -20,7 +20,9 @@ def _dispatch_webhook(
         headers={**headers, "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:  # nosec B310
+    with urllib.request.urlopen(
+        request, timeout=timeout_seconds
+    ) as response:  # nosec B310
         return int(getattr(response, "status", 200))
 
 
