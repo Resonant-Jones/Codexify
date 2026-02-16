@@ -229,6 +229,7 @@ export function GuardianChat({
   const [profileSwitching, setProfileSwitching] = useState(false);
   const [promptCostSummary, setPromptCostSummary] = useState<SystemPromptSummary | null>(null);
   const [promptCostPopoverOpen, setPromptCostPopoverOpen] = useState(false);
+  const [providerMenuOpenSignal, setProviderMenuOpenSignal] = useState(0);
   const promptCostPopoverRef = useRef<HTMLDivElement | null>(null);
   const showToast = useCallback((message: string) => {
     try {
@@ -319,6 +320,9 @@ export function GuardianChat({
   }, [refreshLlmHealth]);
   const llmBackendUnavailable =
     llmHealth.status === "offline" || llmHealth.status === "misconfigured";
+  const cloudProvidersDisabled = /ALLOW_CLOUD_PROVIDERS\s*=\s*false/i.test(
+    llmHealth.error || ""
+  );
   const llmStatusMessage =
     llmHealth.error
     || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
@@ -349,6 +353,13 @@ export function GuardianChat({
   const notifyTurnLocked = () => {
     showToast(TURN_LOCK_TOAST);
   };
+  const requestProviderSwitch = useCallback(() => {
+    if (sessionTabs.length <= 0) {
+      showToast("Provider selector unavailable in this view.");
+      return;
+    }
+    setProviderMenuOpenSignal((prev) => prev + 1);
+  }, [sessionTabs.length, showToast]);
   const getDepthForThread = useCallback(
     (threadId: number): DepthMode =>
       lastCompletionDepthRef.current[threadId] ?? depth,
@@ -1206,6 +1217,8 @@ export function GuardianChat({
           activeProfileMode={resolvedProfile.mode}
           profiles={availableProfiles}
           profileSwitching={profileSwitching}
+          providerMenuOpenSignal={providerMenuOpenSignal}
+          cloudProvidersDisabled={cloudProvidersDisabled}
           showTabs={sessionTabs.length > 1}
           onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
           onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
@@ -1242,6 +1255,14 @@ export function GuardianChat({
             <button
               type="button"
               className="underline underline-offset-2"
+              title="Open provider selector"
+              onClick={requestProviderSwitch}
+            >
+              Switch provider
+            </button>
+            <button
+              type="button"
+              className="underline underline-offset-2"
               onClick={() => {
                 void refreshLlmHealth();
               }}
@@ -1249,6 +1270,9 @@ export function GuardianChat({
               Recheck
             </button>
           </div>
+          {cloudProvidersDisabled ? (
+            <div className="mt-1 opacity-80">Cloud providers disabled by config.</div>
+          ) : null}
         </div>
       )}
 
