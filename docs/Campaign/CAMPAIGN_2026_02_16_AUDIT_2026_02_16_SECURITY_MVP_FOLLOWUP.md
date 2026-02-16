@@ -22,3 +22,7 @@ Execution order:
 1) TASK-001..TASK-004 (RISK + blocking correctness)
 2) TASK-005..TASK-012 (MVP closure + contract alignment)
 3) TASK-013 (matrix/harness traceability)
+
+## Task Mapping
+
+TASK-2026-02-16-001 -> [bd8941f99d2f0e111f6ad850b34be8d2b90905ad, 36de5dca5f96a739a27bdad53cdeb30aa4bf38ef]
