@@ -58,6 +58,11 @@ def compile_flow(
                 primitive=step.primitive,
                 params=normalized_params,
                 side_effecting=side_effecting,
+                required_scopes=step.required_scopes,
+                external_domain=step.external_domain,
+                requires_network=step.requires_network,
+                requests_auth=step.requests_auth,
+                requested_scopes=step.requested_scopes,
             )
         )
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
@@ -29,6 +30,15 @@ _RUN_INDEX: dict[str, FlowRun] = {}
 class FlowRunRequest(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
     confirmed: bool = False
+    execution_context: dict[str, Any] | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FlowImportRequest(BaseModel):
+    source: str = Field(min_length=1)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    imported_at: datetime | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -140,6 +150,17 @@ async def get_flow(flow_id: str) -> dict[str, Any]:
     return {"ok": True, "flow": flow.model_dump(mode="json")}
 
 
+@router.post("/import")
+async def import_flow(_payload: FlowImportRequest) -> dict[str, Any]:
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=(
+            "Flow import/install is disabled for MVP. "
+            "Only user-created local flow definitions are supported."
+        ),
+    )
+
+
 @router.patch("/{flow_id}")
 async def patch_flow(
     flow_id: str,
@@ -177,6 +198,14 @@ async def run_flow_now(flow_id: str, body: FlowRunRequest) -> dict[str, Any]:
     compiled = compile_flow(flow)
     run_context = dict(body.context)
     run_context["confirmed"] = body.confirmed
+    supplied_execution_context = run_context.pop("execution_context", None)
+    merged_execution_context: dict[str, Any] = {}
+    if isinstance(supplied_execution_context, dict):
+        merged_execution_context.update(supplied_execution_context)
+    if isinstance(body.execution_context, dict):
+        merged_execution_context.update(body.execution_context)
+    merged_execution_context.setdefault("pre_authenticated", True)
+    run_context["execution_context"] = merged_execution_context
     run = run_flow(compiled, context=run_context)
 
     profile_override_payload = _extract_profile_override_payload(
