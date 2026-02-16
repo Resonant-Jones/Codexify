@@ -87,6 +87,11 @@ def delete_events_through(last_id: int, tenant_id: str | None = None) -> None:
     _store.delete_events_through(last_id, tenant_id)
 
 
+def delete_events_up_to(last_id: int, tenant_id: str | None = None) -> None:
+    """Backward-compatible alias for ``delete_events_through``."""
+    delete_events_through(last_id, tenant_id)
+
+
 def is_persistent_enabled() -> bool:
     """Return True when a durable event store is configured."""
     return _store is not None
