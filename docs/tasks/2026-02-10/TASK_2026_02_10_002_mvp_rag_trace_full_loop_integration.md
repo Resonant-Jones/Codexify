@@ -110,3 +110,12 @@ PY`
 - `git restore --source=HEAD --staged --worktree -- codex_runner`
 - `git restore --source=HEAD --staged --worktree -- docs`
 - `git clean -fd`
+
+
+## Runner Receipt (Start)
+
+- Campaign: CAMPAIGN_2026_02_16_COMPILED_AUDIT
+
+- Task ID: 002
+
+- Head before: 981ed80e2b4a7d390abddf86faea4b4a34b76463
