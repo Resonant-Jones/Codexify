@@ -380,3 +380,89 @@ This is a sovereign runtime.
 And now you’re not scattered.
 
 You’re holding the control plane.
+
+# CAMPAIGN-2026-02-15_PHASE_CONTROLPLANE
+
+## Metadata
+- Campaign-ID: CAMPAIGN-2026-02-15_PHASE_CONTROLPLANE
+- Repo: /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
+- Branch: <BASE_BRANCH_NAME>
+- Baseline commit (HEAD at campaign start): <BASELINE_COMMIT_HASH>
+- Runner Protocol: Runner_Protocol.md
+- Constraints:
+  - Manual commits required (index.lock may block git add/commit in Runner env)
+  - Two-phase commit per task:
+    - Commit A = implementation/test/config
+    - Commit B = docs finalize (campaign mapping update only)
+  - DO NOT create new campaign/task directories for this campaign.
+  - Task artifacts already exist; update/append those files in place.
+
+## Goal
+Implement enforceable runtime boundaries for the Control Plane phase:
+- Memory architecture separation (IDDB) with modeling exclusion.
+- Flow execution hardening (pre-auth only; no mid-flow auth injection).
+- CLI sandboxing per project root.
+- Modular system prompt assembly with token estimation.
+- Persistent imprint/persona storage with precedence rules.
+- Event graph emission with lineage.
+- Codex entry lineage enforcement.
+- Token cost UI transparency.
+
+## Definition of Done
+- Guardian can operate app primitives safely.
+- Flows are pre-authenticated and non-interruptible.
+- IDDB layers are enforced at the storage boundary (diary excluded from modeling).
+- Persona + Imprint are persistent and precedence is deterministic.
+- CLI surface is sandboxed per project root.
+- System prompt assembly is modular and token-aware.
+- Event Graph emits traceable lineage events.
+- Imported/installed flows cannot exfiltrate sensitive data.
+
+## Task Index
+> Each task has an existing task artifact in `docs/tasks/`.
+> Each task maps to two commits: [CommitA, CommitB].
+> Commit B should update ONLY this campaign file unless explicitly required.
+
+1. TASK-2026-02-15-01_iddb_layer_enforcement
+   - Task artifact: `docs/tasks/TASK_2026_02_15_01_iddb_layer_enforcement.md`
+   - Task mapping: `TASK-2026-02-15-01_iddb_layer_enforcement -> [<commitA>, <commitB>]`
+
+2. TASK-2026-02-15-02_flow_authentication_boundary
+   - Task artifact: `docs/tasks/TASK_2026_02_15_02_flow_authentication_boundary.md`
+   - Task mapping: `TASK-2026-02-15-02_flow_authentication_boundary -> [<commitA>, <commitB>]`
+
+3. TASK-2026-02-15-03_cli_sandboxed_project_execution
+   - Task artifact: `docs/tasks/TASK_2026_02_15_03_cli_sandboxed_project_execution.md`
+   - Task mapping: `TASK-2026-02-15-03_cli_sandboxed_project_execution -> [<commitA>, <commitB>]`
+
+4. TASK-2026-02-15-04_modular_system_prompt_builder
+   - Task artifact: `docs/tasks/TASK_2026_02_15_04_modular_system_prompt_builder.md`
+   - Task mapping: `TASK-2026-02-15-04_modular_system_prompt_builder -> [<commitA>, <commitB>]`
+
+5. TASK-2026-02-15-05_persistent_imprint_persona_storage
+   - Task artifact: `docs/tasks/TASK_2026_02_15_05_persistent_imprint_persona_storage.md`
+   - Task mapping: `TASK-2026-02-15-05_persistent_imprint_persona_storage -> [<commitA>, <commitB>]`
+
+6. TASK-2026-02-15-06_event_graph_emission
+   - Task artifact: `docs/tasks/TASK_2026_02_15_06_event_graph_emission.md`
+   - Task mapping: `TASK-2026-02-15-06_event_graph_emission -> [<commitA>, <commitB>]`
+
+7. TASK-2026-02-15-07_codex_entry_lineage_enforcement
+   - Task artifact: `docs/tasks/TASK_2026_02_15_07_codex_entry_lineage_enforcement.md`
+   - Task mapping: `TASK-2026-02-15-07_codex_entry_lineage_enforcement -> [<commitA>, <commitB>]`
+
+8. TASK-2026-02-15-08_token_cost_ui_warning
+   - Task artifact: `docs/tasks/TASK_2026_02_15_08_token_cost_ui_warning.md`
+   - Task mapping: `TASK-2026-02-15-08_token_cost_ui_warning -> [<commitA>, <commitB>]`
+
+## Final Mapping (authoritative)
+> Update this section as each task completes.
+
+- TASK-2026-02-15-01_iddb_layer_enforcement -> [<commitA>, <commitB>]
+- TASK-2026-02-15-02_flow_authentication_boundary -> [<commitA>, <commitB>]
+- TASK-2026-02-15-03_cli_sandboxed_project_execution -> [<commitA>, <commitB>]
+- TASK-2026-02-15-04_modular_system_prompt_builder -> [<commitA>, <commitB>]
+- TASK-2026-02-15-05_persistent_imprint_persona_storage -> [<commitA>, <commitB>]
+- TASK-2026-02-15-06_event_graph_emission -> [<commitA>, <commitB>]
+- TASK-2026-02-15-07_codex_entry_lineage_enforcement -> [<commitA>, <commitB>]
+- TASK-2026-02-15-08_token_cost_ui_warning -> [<commitA>, <commitB>]
