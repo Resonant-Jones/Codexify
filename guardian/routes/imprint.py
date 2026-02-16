@@ -5,6 +5,8 @@ Imprint_Zero routes: proposal, acceptance, status, and system prompt summary.
 from __future__ import annotations
 
 import logging
+import os
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
@@ -35,6 +37,90 @@ system_prompt_router = APIRouter(
     prefix="/api/system_prompt", tags=["SystemPrompt"]
 )
 system_docs_router = APIRouter(prefix="/api/system_docs", tags=["SystemDocs"])
+
+DEFAULT_WARN_TOKENS = 6000
+DEFAULT_HARD_TOKENS = 8000
+
+
+def _parse_threshold_env(value: str | None, default: int) -> int:
+    try:
+        parsed = int(str(value).strip()) if value is not None else default
+        return parsed if parsed > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _resolve_prompt_thresholds() -> tuple[int, int]:
+    warn_tokens = _parse_threshold_env(
+        os.getenv("SYSTEM_PROMPT_WARN_TOKENS"),
+        DEFAULT_WARN_TOKENS,
+    )
+    hard_tokens = _parse_threshold_env(
+        os.getenv("SYSTEM_PROMPT_HARD_TOKENS"),
+        DEFAULT_HARD_TOKENS,
+    )
+    if hard_tokens < warn_tokens:
+        hard_tokens = warn_tokens
+    return warn_tokens, hard_tokens
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_segments(raw_segments: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+
+    if isinstance(raw_segments, list):
+        for segment in raw_segments:
+            if not isinstance(segment, dict):
+                continue
+            name = str(segment.get("name") or "").strip()
+            if not name:
+                continue
+            normalized.append(
+                {
+                    "name": name,
+                    "chars": _coerce_int(segment.get("chars")) or 0,
+                    "estimated_tokens": _coerce_int(
+                        segment.get("estimated_tokens")
+                    )
+                    or 0,
+                    "truncated": bool(segment.get("truncated")),
+                }
+            )
+        return normalized
+
+    if isinstance(raw_segments, dict):
+        for key, value in raw_segments.items():
+            name = str(key).strip()
+            if not name:
+                continue
+            chars = _coerce_int(value) or 0
+            normalized.append(
+                {
+                    "name": name,
+                    "chars": chars,
+                    "estimated_tokens": max(1, chars // 4) if chars > 0 else 0,
+                    "truncated": False,
+                }
+            )
+    return normalized
+
+
+def _threshold_status(
+    estimated_tokens_total: int | None, warn_tokens: int, hard_tokens: int
+) -> str:
+    if estimated_tokens_total is None:
+        return "unknown"
+    if estimated_tokens_total >= hard_tokens:
+        return "hard"
+    if estimated_tokens_total >= warn_tokens:
+        return "warn"
+    return "ok"
 
 
 def _resolve_user_project(
@@ -362,6 +448,8 @@ def system_prompt_summary(
 ):
     """Return system prompt meta for the current user/project."""
     user_id, resolved_project, _ = _resolve_user_project(thread_id, project_id)
+    warn_tokens, hard_tokens = _resolve_prompt_thresholds()
+    generated_at = datetime.now(timezone.utc).isoformat()
     try:
         if not build_guardian_system_prompt:
             raise RuntimeError("system prompt builder unavailable")
@@ -373,23 +461,58 @@ def system_prompt_summary(
         )
     except Exception as e:
         logger.warning("[system_prompt] summary failed: %s", e)
-        return JSONResponse(
-            status_code=500,
-            content={"ok": False, "error": "system prompt unavailable"},
-        )
+        return {
+            "estimated_tokens_total": None,
+            "threshold": {
+                "warn_tokens": warn_tokens,
+                "hard_tokens": hard_tokens,
+                "status": "unknown",
+            },
+            "segments": [],
+            "docs_count": None,
+            "generated_at": generated_at,
+            # Legacy compatibility payload
+            "estimated_tokens": None,
+            "cap_tokens": None,
+            "docs_truncated": False,
+            "overflow": False,
+            "warnings": [],
+        }
 
-    warnings = []
-    if meta.get("estimated_tokens", 0) > 1500:
-        warnings.append("System prompt is large and may increase cost/latency.")
-    if meta.get("docs_truncated"):
+    segments = _normalize_segments(meta.get("segments"))
+    estimated_tokens_total = _coerce_int(
+        meta.get("estimated_tokens_total", meta.get("estimated_tokens"))
+    )
+    if estimated_tokens_total is None:
+        estimated_tokens_total = sum(
+            int(segment.get("estimated_tokens") or 0) for segment in segments
+        )
+    status = _threshold_status(estimated_tokens_total, warn_tokens, hard_tokens)
+
+    warnings: list[str] = []
+    if status == "warn":
+        warnings.append(
+            "System prompt is approaching the configured token threshold."
+        )
+    elif status == "hard":
+        warnings.append("System prompt exceeds the configured hard threshold.")
+    if bool(meta.get("docs_truncated")):
         warnings.append("System docs truncated due to token budget.")
 
     return {
-        "estimated_tokens": meta.get("estimated_tokens"),
+        "estimated_tokens_total": estimated_tokens_total,
+        "threshold": {
+            "warn_tokens": warn_tokens,
+            "hard_tokens": hard_tokens,
+            "status": status,
+        },
+        "segments": segments,
         "docs_count": meta.get("docs_count"),
-        "segments": meta.get("segments"),
+        "generated_at": generated_at,
+        # Legacy compatibility payload
+        "estimated_tokens": estimated_tokens_total,
         "cap_tokens": meta.get("cap_tokens"),
-        "docs_truncated": meta.get("docs_truncated"),
+        "docs_truncated": bool(meta.get("docs_truncated")),
         "overflow": meta.get("overflow"),
         "warnings": warnings,
     }
