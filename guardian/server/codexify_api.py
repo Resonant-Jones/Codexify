@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from guardian.codex.lineage import normalize_front_matter
 from guardian.codexify import create_notion_database_from_records
 from guardian.core.event_graph import get_event_writer
 from guardian.export_engine import (
@@ -482,6 +483,16 @@ def codexify_create(req: NotionImportRequest):
 @router.post("/save-entry")
 def save_entry(req: SaveEntryRequest):
     """Preview and optionally export a single entry to Google Drive."""
+    try:
+        normalized_front_matter, _ = normalize_front_matter(req.front_matter)
+        req = req.model_copy(update={"front_matter": normalized_front_matter})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
     # Build single-record payload
     records: list[dict[str, Any]] = [{"title": req.title, "body": req.body}]
     # Preview formatted content

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Response
 
+from guardian.codex.lineage import ensure_lineage_exists, parse_lineage
 from guardian.codex.service import (
     list_codex_entries,
     load_codex_entry,
@@ -32,6 +32,9 @@ def _summary_payload(entry) -> dict:
         "created_at": _iso(entry.created_at),
         "updated_at": _iso(entry.updated_at),
         "thread_id": entry.thread_id,
+        "source_thread_id": entry.source_thread_id,
+        "source_message_id": entry.source_message_id,
+        "lineage_missing": entry.lineage_missing,
         "author_id": entry.author_id,
         "heat_score": entry.heat_score,
     }
@@ -55,6 +58,41 @@ async def codex_entry(entry_id: str) -> dict:
         "message_ids": entry.message_ids,
         "body": read_codex_body(entry),
     }
+
+
+@router.get("/api/codex/{entry_id}/source", tags=["codex"])
+async def codex_entry_source(entry_id: str) -> dict:
+    try:
+        entry = load_codex_entry(entry_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Codex entry not found")
+
+    try:
+        lineage = parse_lineage(entry.frontmatter)
+        ensure_lineage_exists(lineage)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    payload: dict[str, object] = {
+        "codex_entry_id": entry.id,
+        "source_thread_id": lineage.source_thread_id,
+        "source_message_id": lineage.source_message_id,
+    }
+
+    message_index = None
+    if entry.message_ids:
+        try:
+            message_index = entry.message_ids.index(
+                str(lineage.source_message_id)
+            )
+        except ValueError:
+            message_index = None
+    if message_index is not None:
+        payload["message_index"] = message_index
+
+    return payload
 
 
 @router.get("/api/codex/entries/{entry_id}/export", tags=["codex"])
