@@ -40,3 +40,116 @@
 - test -n ${REDIS_URL:-} || { echo 'Missing REDIS_URL'; exit 1; }
 - test -n ${DATABASE_URL:-} || { echo 'Missing DATABASE_URL'; exit 1; }
 - test -n ${CODEXIFY_VECTOR_STORE:-} || { echo 'Missing CODEXIFY_VECTOR_STORE'; exit 1; }
+
+
+---
+
+# Task 002 — DX: Deterministic Model-ID Discovery + Prompt Guidance (FINDING-2026-02-16-002)
+
+Preflight: git status --porcelain -uall must be empty
+
+## STOP Conditions
+1) If preflight is not empty, STOP and run:
+- `git status --porcelain -uall`
+- `git restore --staged --worktree -- .`
+- `git clean -fd`
+
+2) If any out-of-scope files appear at any point, STOP and run:
+- `git status --porcelain -uall`
+- `git restore --staged --worktree -- .`
+- `git clean -fd`
+
+## Finding
+- ID: `FINDING-2026-02-16-002`
+- Severity: `WARN` (map to task risk: LOW)
+- Title: MODEL-ID-UNKNOWN
+
+## Outcome (must be observable)
+- A deterministic command/script exists in-repo that prints a single “best available” model identifier for this runtime (based on env/config discovery), suitable for setting `agent.model` in future audits.
+- `codex_runner/prompts/mega_audit.md` is updated to instruct the auditing agent how to populate `agent.model` deterministically (prefer exact model id; fallback to explicit `unknown` plus captured discovery output).
+
+## Allowed Files (strict)
+- `codex_runner/prompts/mega_audit.md`
+- `codex_runner/**/*.md`
+- `codex_runner/**/*.sh`
+- `codex_runner/**/*.py`
+- `docs/**/*.md`
+
+## Command Checklist
+1) Preflight:
+- `git status --porcelain -uall`
+
+2) Discovery commands (audit-suggested; must remain runnable):
+- `printenv | rg -i 'CODEX|MODEL|OPENAI' || true`
+- `python - <<'PY'
+import os
+keys = [k for k in os.environ if ('MODEL' in k.upper() or 'CODEX' in k.upper() or 'OPENAI' in k.upper())]
+for k in sorted(keys):
+    print(f"{k}={os.environ.get(k)}")
+PY`
+- `codex --version || true`
+- `codex config list || true`
+
+3) Implement:
+- Add a small deterministic helper (shell or python) under `codex_runner/` that:
+  - checks (in order) `CODEX_MODEL`, `OPENAI_MODEL`, then any Codex CLI config if available
+  - prints one line: `MODEL_ID=<value>`
+  - if nothing is available, prints `MODEL_ID=unknown` (still exit 0)
+- Update `codex_runner/prompts/mega_audit.md` so the audit output sets `agent.model` to that `MODEL_ID` value.
+
+4) Scope check:
+- `git status --porcelain -uall`
+
+## Expected Outputs (success signals)
+- Running the helper prints exactly one `MODEL_ID=...` line (either a concrete id or `unknown`).
+- `codex_runner/prompts/mega_audit.md` includes deterministic instructions referencing the helper and/or env vars.
+- `git status --porcelain -uall` shows modifications only within Allowed Files.
+
+## Rollback / Cleanup Commands
+- `git restore --source=HEAD --staged --worktree -- codex_runner/prompts/mega_audit.md`
+- `git restore --source=HEAD --staged --worktree -- codex_runner`
+- `git restore --source=HEAD --staged --worktree -- docs`
+- `git clean -fd`
+
+
+## Runner Receipt (Start)
+
+- Campaign: CAMPAIGN_2026_02_16_COMPILED_AUDIT
+
+- Task ID: 002
+
+- Head before: 981ed80e2b4a7d390abddf86faea4b4a34b76463
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: New deterministic helper + prompt update to tie `agent.model` to its output.
+
+- Implementation commit hash: e545e04c071db781d2756a245eba91aab5e9fb72
+
+- Receipt update commit hash: b3c4d495ee80a42c0cc8531689f7809ad0f59e14
+
+- Tests ran: python codex_runner/model_id_helper.py
+
+- Notes: Files touched: codex_runner/model_id_helper.py, codex_runner/prompts/mega_audit.md.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "New deterministic helper + prompt update to tie `agent.model` to its output.",
+  "tests_ran": [
+    "python codex_runner/model_id_helper.py"
+  ],
+  "commit_hash": "e545e04c071db781d2756a245eba91aab5e9fb72",
+  "implementation_commit_hash": "e545e04c071db781d2756a245eba91aab5e9fb72",
+  "receipt_update_commit_hash": "b3c4d495ee80a42c0cc8531689f7809ad0f59e14",
+  "notes": "Files touched: codex_runner/model_id_helper.py, codex_runner/prompts/mega_audit.md."
+}
+```
+
+</details>

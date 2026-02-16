@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import SegmentedThemeControl from "@/components/settings/SegmentedThemeControl";
 import { ThemeMode, ExtColors } from "@/types/ui";
 import { ImagePlus } from "lucide-react";
+import api from "@/lib/api";
 
 type SettingsProps = {
   mode: "light" | "dark" | "system";
@@ -152,30 +153,27 @@ export function SettingsView({ mode, setMode, guardianName, setGuardianName, use
     formData.append("file", chatGPTFile);
 
     try {
-      const res = await fetch("/upload-chatgpt-export", {
-        method: "POST",
+      const response = await api.post("/api/upload-chatgpt-export", formData, {
         headers: {
           "X-User-Id": userName || "user",
         },
-        body: formData,
+        timeout: 0,
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.details || data.error || "Migration failed");
-      }
-
       setMigrationStats({
-        threads: data.threads_imported,
-        messages: data.messages_imported,
+        threads: response.data.threads_imported,
+        messages: response.data.messages_imported,
       });
       setMigrationStatus("success");
       setChatGPTFile(null); // Clear file after success
     } catch (err: any) {
       console.error("Migration error:", err);
       setMigrationStatus("error");
-      setMigrationError(err.message || "Failed to migrate data");
+      const detail =
+        err?.response?.data?.detail ??
+        err?.response?.data?.error ??
+        err?.message;
+      setMigrationError(detail || "Failed to migrate data");
     }
   }
 

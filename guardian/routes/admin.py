@@ -6,8 +6,8 @@ Diagnostic and administrative endpoints including health checks,
 session token management, and configuration debugging.
 
 Admin-protected endpoints require:
-- X-Admin-Token header matching GUARDIAN_ADMIN_TOKEN, OR
-- DEBUG=true environment variable (development only)
+- X-Admin-Token header matching GUARDIAN_ADMIN_TOKEN
+- Optional local debug bypass with explicit dev-mode opt-in
 """
 
 import logging
@@ -50,9 +50,58 @@ class SessionRequest(BaseModel):
     ttl_seconds: int | None = None
 
 
-# Admin token from environment (optional, for stricter access control)
-ADMIN_TOKEN = os.getenv("GUARDIAN_ADMIN_TOKEN")
-DEBUG_MODE = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
+TRUE_VALUES = {"true", "1", "yes", "on"}
+LOCAL_AUTH_MODES = {"", "local", "localhost", "loopback"}
+REMOTE_AUTH_MODES = {
+    "remote",
+    "cloud",
+    "hosted",
+    "public",
+    "prod",
+    "production",
+}
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in TRUE_VALUES
+
+
+def _is_local_auth_boundary() -> bool:
+    exposure_mode = (
+        (os.getenv("GUARDIAN_EXPOSURE_MODE") or "local_safe").strip().lower()
+    )
+    if exposure_mode == "public_allowlist":
+        return False
+
+    auth_mode = (os.getenv("GUARDIAN_AUTH_MODE") or "local").strip().lower()
+    if auth_mode in REMOTE_AUTH_MODES:
+        return False
+    if auth_mode in LOCAL_AUTH_MODES:
+        return True
+
+    logger.warning(
+        "[admin] Unknown GUARDIAN_AUTH_MODE=%r; treating as remote for safety",
+        auth_mode,
+    )
+    return False
+
+
+def _debug_admin_bypass_enabled() -> bool:
+    # DEBUG bypass is only allowed inside the local auth boundary.
+    return _env_bool("DEBUG", default=False) and _is_local_auth_boundary()
+
+
+def _session_cookie_secure_flag() -> bool:
+    # Secure by default. Local HTTP cookies are only allowed with explicit
+    # dev mode opt-in inside the local auth boundary.
+    if _is_local_auth_boundary() and _env_bool(
+        "GUARDIAN_DEV_MODE", default=False
+    ):
+        return False
+    return True
 
 
 def require_admin(
@@ -64,7 +113,7 @@ def require_admin(
 
     Access is granted if ANY of the following conditions are met:
     1. X-Admin-Token header matches GUARDIAN_ADMIN_TOKEN environment variable
-    2. DEBUG=true environment variable is set (development only)
+    2. Local debug bypass is enabled via env: DEBUG=true inside the local auth boundary
     3. Future: User role verification (when RBAC is fully implemented)
 
     Args:
@@ -72,7 +121,7 @@ def require_admin(
         x_api_key: Regular API key (for context/logging)
 
     Returns:
-        str: Access method used ("admin_token", "debug_mode")
+        str: Access method used ("admin_token", "debug_local_opt_in")
 
     Raises:
         HTTPException: 403 if access is denied
@@ -81,17 +130,22 @@ def require_admin(
         - Info: Successful admin access with method used
         - Warning: Failed admin access attempts
     """
-    # Method 1: Check X-Admin-Token header
-    if x_admin_token and ADMIN_TOKEN:
-        if secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+    admin_token = (os.getenv("GUARDIAN_ADMIN_TOKEN") or "").strip()
+    debug_mode = _env_bool("DEBUG", default=False)
+    dev_mode = _env_bool("GUARDIAN_DEV_MODE", default=False)
+    local_auth_boundary = _is_local_auth_boundary()
+
+    # Method 1: Check X-Admin-Token header.
+    if x_admin_token and admin_token:
+        if secrets.compare_digest(x_admin_token, admin_token):
             logger.info(
                 "[admin] Admin access granted via X-Admin-Token (token=%s...)",
                 x_admin_token[:8] if len(x_admin_token) > 8 else "short",
             )
             return "admin_token"
 
-    # Method 2: Check DEBUG mode (development only)
-    if DEBUG_MODE:
+    # Method 2: Local DEBUG bypass (local boundary only).
+    if _debug_admin_bypass_enabled():
         logger.info(
             "[admin] Admin access granted via DEBUG mode (api_key=%s)",
             x_api_key[:8] + "..."
@@ -106,10 +160,14 @@ def require_admin(
 
     # Access denied - log the attempt
     logger.warning(
-        "[admin] Admin access DENIED - missing admin token or debug mode "
-        "(admin_token_provided=%s, debug_mode=%s, api_key=%s)",
+        "[admin] Admin access DENIED "
+        "(admin_token_configured=%s, admin_token_provided=%s, debug_mode=%s, "
+        "dev_mode=%s, local_boundary=%s, api_key=%s)",
+        bool(admin_token),
         bool(x_admin_token),
-        DEBUG_MODE,
+        debug_mode,
+        dev_mode,
+        local_auth_boundary,
         x_api_key[:8] + "..." if x_api_key and len(x_api_key) > 8 else "none",
     )
 
@@ -118,8 +176,9 @@ def require_admin(
         detail={
             "error": "Admin access required",
             "message": "This endpoint requires admin privileges. "
-            "Provide X-Admin-Token header or enable DEBUG mode.",
-            "required": "X-Admin-Token header or DEBUG=true environment",
+            "Provide X-Admin-Token or enable local debug opt-in "
+            "(DEBUG + GUARDIAN_DEV_MODE in local auth mode).",
+            "required": "X-Admin-Token header (preferred) or explicit local debug opt-in",
         },
     )
 
@@ -225,14 +284,14 @@ def create_session_cookie(
         subject="web", ttl_seconds=body.ttl_seconds or 24 * 3600
     )
     max_age = body.ttl_seconds or 24 * 3600
-    # NOTE: set secure=True when serving over HTTPS
+    secure_cookie = _session_cookie_secure_flag()
     response.set_cookie(
         "gc_session",
         token,
         max_age=max_age,
         httponly=True,
         samesite="Lax",
-        secure=False,
+        secure=secure_cookie,
     )
     return {"ok": True, "expires": exp}
 
@@ -252,7 +311,7 @@ def authz_debug(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
 ):
     """Return the masked API key received via X-API-Key, masked for safety.
-    This endpoint requires admin privileges (X-Admin-Token header or DEBUG=true).
+    This endpoint requires admin privileges.
     """
     key = x_api_key or ""
     masked = (key[:4] + "…" + key[-4:]) if len(key) > 8 else key
@@ -267,7 +326,7 @@ def authz_debug(
 def debug_config(access_method: str = Depends(require_admin)):
     """
     Return a small, masked snapshot of runtime config useful for local debugging.
-    This endpoint requires admin privileges (X-Admin-Token header or DEBUG=true).
+    This endpoint requires admin privileges.
     """
     env = os.getenv("GUARDIAN_ENV", "development")
     api_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()

@@ -867,7 +867,17 @@ async def chat_complete(
         task.origin,
         thread_id,
     )
-    return {"task_id": task.task_id, "depth_mode": effective_depth_mode}
+    messages_url = f"/api/chat/{thread_id}/messages"
+    trace_url = f"/api/chat/debug/rag-trace/{thread_id}/latest"
+
+    return {
+        "ok": True,
+        "task_id": task.task_id,
+        "thread_id": thread_id,
+        "depth_mode": effective_depth_mode,
+        "messages_url": messages_url,
+        "trace_url": trace_url,
+    }
 
 
 @router.get("/{thread_id}/profile")
