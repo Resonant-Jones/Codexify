@@ -91,8 +91,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_cron_runs_job_id", "cron_runs", ["job_id"], unique=False)
-    op.create_index("ix_cron_runs_status", "cron_runs", ["status"], unique=False)
+    op.create_index(
+        "ix_cron_runs_job_id", "cron_runs", ["job_id"], unique=False
+    )
+    op.create_index(
+        "ix_cron_runs_status", "cron_runs", ["status"], unique=False
+    )
     op.create_index(
         "ix_cron_runs_created_at", "cron_runs", ["created_at"], unique=False
     )

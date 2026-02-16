@@ -10,10 +10,20 @@ from datetime import datetime, timezone
 from typing import Any
 
 from guardian.flows.primitives import PrimitiveRegistry
+from guardian.flows.security import (
+    FlowSecurityError,
+    build_preflight_contract,
+    build_step_spec,
+    coerce_execution_context,
+    validate_preflight_contract,
+    validate_step,
+)
 from guardian.flows.spec import CompiledFlow, FlowRun, FlowStepResult
 
 _RUN_CACHE: dict[str, FlowRun] = {}
-_REDACT_RE = re.compile(r"(api[_-]?key|authorization|cookie|token|secret)", re.IGNORECASE)
+_REDACT_RE = re.compile(
+    r"(api[_-]?key|authorization|cookie|token|secret)", re.IGNORECASE
+)
 
 
 def clear_run_cache() -> None:
@@ -21,7 +31,9 @@ def clear_run_cache() -> None:
     _RUN_CACHE.clear()
 
 
-def _coerce_compiled_flow(compiled_flow: CompiledFlow | dict[str, Any]) -> CompiledFlow:
+def _coerce_compiled_flow(
+    compiled_flow: CompiledFlow | dict[str, Any]
+) -> CompiledFlow:
     if isinstance(compiled_flow, CompiledFlow):
         return compiled_flow
     return CompiledFlow.model_validate(compiled_flow)
@@ -36,7 +48,9 @@ def _estimate_tokens(payload: Any) -> int:
     return max(1, len(serialized) // 4)
 
 
-def _render_template(template: str | None, values: dict[str, Any]) -> str | None:
+def _render_template(
+    template: str | None, values: dict[str, Any]
+) -> str | None:
     if not template:
         return None
     rendered = template
@@ -45,7 +59,9 @@ def _render_template(template: str | None, values: dict[str, Any]) -> str | None
     return rendered
 
 
-def _redact_payload(payload: dict[str, Any], explicit_redactions: list[str]) -> dict[str, Any]:
+def _redact_payload(
+    payload: dict[str, Any], explicit_redactions: list[str]
+) -> dict[str, Any]:
     redactions = {field.lower() for field in explicit_redactions}
     sanitized: dict[str, Any] = {}
     for key, value in payload.items():
@@ -100,6 +116,7 @@ def run_flow(
         status="running",
         idempotency_key=idempotency_key,
     )
+    run.warnings = [warning.message for warning in compiled.warnings]
 
     if not compiled.enabled:
         run.status = "blocked"
@@ -107,7 +124,9 @@ def run_flow(
         run.ended_at = _utcnow()
         return run
 
-    if compiled.requires_confirmation and not run_context.get("confirmed", False):
+    if compiled.requires_confirmation and not run_context.get(
+        "confirmed", False
+    ):
         run.status = "blocked"
         run.needs_confirmation = True
         run.error = "Flow requires confirmation before side effects are allowed"
@@ -121,11 +140,33 @@ def run_flow(
         run.ended_at = _utcnow()
         return run
 
+    try:
+        execution_context = coerce_execution_context(
+            run_context.get("execution_context"),
+            run_id=run_id,
+        )
+    except Exception as exc:
+        run.status = "failed"
+        run.error = f"invalid_execution_context: {exc}"
+        run.ended_at = _utcnow()
+        return run
+
+    step_specs = [build_step_spec(step) for step in compiled.steps]
+    preflight_contract = build_preflight_contract(step_specs)
+    run.output = {"preflight_contract": preflight_contract}
+    try:
+        validate_preflight_contract(preflight_contract, execution_context)
+    except FlowSecurityError as exc:
+        run.status = "blocked"
+        run.error = f"{exc.code}: {exc.message}"
+        run.ended_at = _utcnow()
+        return run
+
     started_monotonic = time.monotonic()
     consumed_tokens = 0
     step_outputs: dict[str, dict[str, Any]] = {}
 
-    for step in compiled.steps:
+    for step, step_spec in zip(compiled.steps, step_specs):
         elapsed = time.monotonic() - started_monotonic
         if elapsed > compiled.budget.timeout_seconds:
             run.status = "failed"
@@ -138,7 +179,30 @@ def run_flow(
             break
 
         step_started = _utcnow()
-        sanitized_params = _redact_payload(step.params, compiled.audit.redact_fields)
+        sanitized_params = _redact_payload(
+            step.params, compiled.audit.redact_fields
+        )
+
+        try:
+            validate_step(step_spec, execution_context)
+        except FlowSecurityError as exc:
+            step_error = f"{exc.code}: {exc.message}"
+            run.step_results.append(
+                FlowStepResult(
+                    step_id=step.step_id,
+                    primitive=step.primitive,
+                    status="blocked",
+                    started_at=step_started,
+                    ended_at=_utcnow(),
+                    params_redacted=sanitized_params,
+                    output={},
+                    error=step_error,
+                    token_usage=0,
+                )
+            )
+            run.status = "blocked"
+            run.error = step_error
+            break
 
         try:
             output = primitive_registry.invoke(
@@ -150,7 +214,9 @@ def run_flow(
                     "context": run_context,
                 },
             )
-            consumed_tokens += _estimate_tokens(step.params) + _estimate_tokens(output)
+            consumed_tokens += _estimate_tokens(step.params) + _estimate_tokens(
+                output
+            )
             step_status = "ok"
             step_error: str | None = None
         except Exception as exc:  # pragma: no cover - defensive path
@@ -187,11 +253,13 @@ def run_flow(
     if run.status == "running":
         run.status = "success"
 
-    run.output = {"step_outputs": step_outputs}
-    run.warnings = [warning.message for warning in compiled.warnings]
+    run.output["step_outputs"] = step_outputs
     run.ended_at = _utcnow()
 
-    if idempotency_key and compiled.idempotency.mode in {"return_cached", "skip_if_running"}:
+    if idempotency_key and compiled.idempotency.mode in {
+        "return_cached",
+        "skip_if_running",
+    }:
         _RUN_CACHE[idempotency_key] = run
 
     return run

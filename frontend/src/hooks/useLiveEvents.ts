@@ -3,8 +3,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GuardianEventSource } from "@/lib/guardianEventSource";
-import { GUARDIAN_API_BASE, GUARDIAN_API_KEY } from "@/lib/env";
+import { GUARDIAN_API_BASE } from "@/lib/env";
 import { combineBaseAndPath } from "@/lib/urlJoin";
+import { buildAuthenticatedFetchInit } from "@/lib/api";
+import {
+  checkAuthGate,
+  markAuthUnauthenticatedFrom401,
+  useAuthState,
+} from "@/lib/authState";
 
 const EVENT_ENDPOINT = "/api/events";
 const DEFAULT_EVENT_TYPES = [
@@ -14,6 +20,7 @@ const DEFAULT_EVENT_TYPES = [
   "thread.created",
   "thread.branch",
   "thread.archived",
+  "thread.profile.switched",
   "connector.status",
   "connector.sync",
 ];
@@ -45,6 +52,7 @@ export interface UseLiveEventsResult {
  */
 export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEventsResult {
   const { passive = false } = options;
+  const auth = useAuthState();
   const [connected, setConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null);
   const listenersRef = useRef<Map<string, Set<(event: LiveEvent) => void>>>(
@@ -126,6 +134,11 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     if (typeof window === "undefined") {
       return;
     }
+    if (!checkAuthGate(auth, "SSE connect")) {
+      connectedRef.current = false;
+      setConnected(false);
+      return;
+    }
     isUnmountedRef.current = false;
 
     // Build absolute URL + resume from server outbox
@@ -136,17 +149,23 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
 
     // Only send an API key header when we actually have a key.
     // Sending an empty X-API-Key causes noisy 401s and prevents proxy-based auth injection.
-    const headers: Record<string, string> = {
+    const authInit = buildAuthenticatedFetchInit({
+      headers: {
+        Accept: "text/event-stream",
+        "Cache-Control": "no-cache",
+      },
+    });
+    const headers = (authInit.headers as Record<string, string>) ?? {
       Accept: "text/event-stream",
       "Cache-Control": "no-cache",
     };
-    if (GUARDIAN_API_KEY) {
-      headers["X-API-Key"] = GUARDIAN_API_KEY;
-    }
 
     const eventSource = new GuardianEventSource(url, {
       headers,
-      withCredentials: false,
+      withCredentials: authInit.credentials === "include",
+      onUnauthorized: () => {
+        markAuthUnauthenticatedFrom401();
+      },
     });
     let isCancelled = false;
 
@@ -178,7 +197,6 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       if (!passive) {
         scheduleLastEventUpdate(payload);
       }
-      console.debug("[SSE] event", payload);
       const listeners = listenersRef.current;
       const specific = listeners.get(payload.type);
       if (specific) {
@@ -195,13 +213,12 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     const handleOpen = () => {
       if (isCancelled) return;
       updateConnected(true);
-      console.info(`[SSE] Connected to ${streamUrl}`);
+      console.info(`[SSE] connected ${streamUrl}`);
     };
 
-    const handleError = (evt: Event) => {
+    const handleError = (_evt: Event) => {
       if (isCancelled) return;
       updateConnected(false);
-      console.warn("[SSE] connection issue", evt);
     };
 
     eventSource.addEventListener("open", handleOpen as EventListener);
@@ -237,7 +254,16 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     };
     // Note: updateConnected and scheduleLastEventUpdate are intentionally omitted from deps
     // as they are stable refs and including them would cause unnecessary reconnections
-  }, [passive, streamUrl, isSameEvent]);
+  }, [
+    auth.ready,
+    auth.status,
+    auth.token,
+    passive,
+    streamUrl,
+    isSameEvent,
+    scheduleLastEventUpdate,
+    updateConnected,
+  ]);
 
   const subscribe = useCallback(
     (eventType: string, handler: (event: LiveEvent) => void) => {

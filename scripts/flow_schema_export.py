@@ -22,7 +22,9 @@ def build_schema_bundle() -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Export FlowSpec JSON Schemas.")
+    parser = argparse.ArgumentParser(
+        description="Export FlowSpec JSON Schemas."
+    )
     parser.add_argument(
         "--out",
         type=Path,

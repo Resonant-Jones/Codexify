@@ -4,6 +4,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { configureGC } from "./dcw-services/gc";
 import { GuardianAPI } from "./lib/guardianApi";
+import { resolveAuthStateOnBoot } from "./lib/authState";
 // Tailwind base/utilities and app entry
 ;(window as any).GuardianAPI = GuardianAPI;
 declare global {
@@ -67,6 +68,8 @@ if (!DEV_API_KEY && import.meta.env.DEV) {
   const masked = String(DEV_API_KEY);
   console.info("[gc] Backend configured:", { base: API_BASE, key: `${masked.slice(0,4)}…${masked.slice(-4)}` });
 }
+
+resolveAuthStateOnBoot();
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {

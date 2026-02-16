@@ -31,7 +31,9 @@ async def run_event_relay(
     try:
         while not stop_event.is_set():
             try:
-                message = await asyncio.wait_for(queue.get(), timeout=poll_timeout)
+                message = await asyncio.wait_for(
+                    queue.get(), timeout=poll_timeout
+                )
             except asyncio.TimeoutError:
                 continue
             if not isinstance(message, dict):

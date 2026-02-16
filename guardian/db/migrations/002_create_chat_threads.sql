@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS chat_threads (
     title TEXT,
     summary TEXT,
     project_id INTEGER,
+    active_profile_id TEXT,
     parent_id INTEGER,
     archived_at TIMESTAMPTZ DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

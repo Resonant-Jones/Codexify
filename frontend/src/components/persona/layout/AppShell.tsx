@@ -40,6 +40,7 @@ import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWit
 import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
@@ -292,6 +293,7 @@ function writeSessionOverride(v: Resolved | null) {
    background visuals, modular design tokens, and view routing.
    ───────────────────────────────────────────────────────────────────────────── */
 export default function AppShell({}: PropsWithChildren) {
+  const auth = useAuthState();
   // Surface continuation summaries as toasts (PCX_CONTINUE_002)
   React.useEffect(() => {
     const handler = (e: Event) => {
@@ -575,6 +577,11 @@ export default function AppShell({}: PropsWithChildren) {
   }, [documents, documentsSource]);
   useEffect(() => {
     let cancelled = false;
+    if (!checkAuthGate(auth, "documents list load")) {
+      return () => {
+        cancelled = true;
+      };
+    }
     (async () => {
       try {
         const res = await api.get("/media/documents", { params: { limit: 100 } });
@@ -592,10 +599,16 @@ export default function AppShell({}: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [auth]);
   useEffect(() => {
     let cancelled = false;
     if (!activeRouteThreadId) {
+      setThreadDocuments([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (!checkAuthGate(auth, "documents thread load")) {
       setThreadDocuments([]);
       return () => {
         cancelled = true;
@@ -641,7 +654,7 @@ export default function AppShell({}: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [activeRouteThreadId]);
+  }, [activeRouteThreadId, auth]);
   const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -1184,6 +1197,9 @@ export default function AppShell({}: PropsWithChildren) {
       );
   }, [openDocInPlace, normalizeDoc]);
   const createThreadFromDashboard = useCallback(async () => {
+    if (!checkAuthGate(auth, "threads create")) {
+      return;
+    }
     const userId = userName || "default";
     try {
       const response = await api.post("/chat/threads", { title: "New Chat", user_id: userId });
@@ -1213,7 +1229,7 @@ export default function AppShell({}: PropsWithChildren) {
     } catch (err) {
       console.warn("[dashboard] failed to create thread", err);
     }
-  }, [userName]);
+  }, [auth, userName]);
   // Use an active wallpaper for refractive glass; fall back to first gallery image if none chosen yet
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");

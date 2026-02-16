@@ -15,6 +15,7 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import useImprintZero from "@/imprint/useImprintZero";
 import ImprintZeroToast from "@/imprint/ImprintZeroToast";
+import PromptCostIndicator from "@/features/chat/components/PromptCostIndicator";
 import { RedisSessionStateStore } from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import {
@@ -26,6 +27,11 @@ import {
   DEFAULT_MODEL_ID,
   type TabId,
 } from "@/state/session/types";
+import {
+  checkAuthGate,
+  requireAuthReady,
+  useAuthState,
+} from "@/lib/authState";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -40,7 +46,10 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
     && (a.unread ?? 0) === (b.unread ?? 0)
     && (a.projectId ?? null) === (b.projectId ?? null)
     && (a.parentId ?? null) === (b.parentId ?? null)
-    && (a.archivedAt ?? null) === (b.archivedAt ?? null);
+    && (a.archivedAt ?? null) === (b.archivedAt ?? null)
+    && (a.activeProfileId ?? null) === (b.activeProfileId ?? null)
+    && (a.providerOverride ?? null) === (b.providerOverride ?? null)
+    && (a.modelOverride ?? null) === (b.modelOverride ?? null);
 };
 
 const DEVICE_ID_STORAGE_KEY = "cfy.deviceId";
@@ -59,6 +68,7 @@ function getOrCreateDeviceId(): string {
 
 
 export default function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillConsumed, onWorkspaceToggle }) {
+  const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
     if (typeof window === "undefined") return true;
     const stored = localStorage.getItem("cfy.sidebarVisible");
@@ -88,6 +98,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
   const [sessionSpine, setSessionSpine] = React.useState<SessionSpine | null>(null);
   const [sessionReady, setSessionReady] = React.useState(false);
+  const sessionHydratedRef = React.useRef(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
   const imprintZero = useImprintZero();
@@ -101,29 +112,62 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
-    let mounted = true;
     const store = new RedisSessionStateStore();
     const spine = new SessionSpine({
       userId: (userName || "default").trim() || "default",
       deviceId: getOrCreateDeviceId(),
       store,
       defaultModelId: DEFAULT_MODEL_ID,
+      canHydrate: () => requireAuthReady("session hydrate"),
+      canPersist: () => requireAuthReady("session persist"),
     });
 
     setSessionSpine(spine);
-    void spine
+    sessionHydratedRef.current = false;
+  }, [userName]);
+
+  React.useEffect(() => {
+    if (!sessionSpine) return;
+    let cancelled = false;
+
+    if (!auth.ready) {
+      setSessionReady(false);
+      sessionHydratedRef.current = false;
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (auth.status !== "authenticated") {
+      setSessionReady(true);
+      sessionHydratedRef.current = false;
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (sessionHydratedRef.current) {
+      setSessionReady(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    sessionHydratedRef.current = true;
+    setSessionReady(false);
+    void sessionSpine
       .hydrate({
         threadId: resolveRouteThreadId() ?? undefined,
         modelId: DEFAULT_MODEL_ID,
       })
       .finally(() => {
-        if (mounted) setSessionReady(true);
+        if (!cancelled) setSessionReady(true);
       });
 
     return () => {
-      mounted = false;
+      cancelled = true;
     };
-  }, [resolveRouteThreadId, userName]);
+  }, [auth.ready, auth.status, resolveRouteThreadId, sessionSpine]);
   const sessionRail = useSessionRailSlice(sessionSpine);
   const activeSessionTab = useSessionActiveTab(sessionSpine);
   const activeSessionTabId = sessionRail.activeTabId;
@@ -275,6 +319,11 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const projectVal = raw.project_id ?? raw.projectId ?? null;
       const parentVal = raw.parent_id ?? raw.parentId ?? null;
       const archivedVal = raw.archived_at ?? raw.archivedAt ?? null;
+      const activeProfileVal =
+        raw.active_profile_id ?? raw.activeProfileId ?? null;
+      const providerOverrideVal =
+        raw.provider_override ?? raw.providerOverride ?? null;
+      const modelOverrideVal = raw.model_override ?? raw.modelOverride ?? null;
       const metadata = raw.metadata ?? raw.meta ?? null;
       return {
         id: String(rawId),
@@ -289,6 +338,12 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         projectId: projectVal != null ? String(projectVal) : null,
         parentId: parentVal != null ? String(parentVal) : null,
         archivedAt: archivedVal ? String(archivedVal) : null,
+        activeProfileId:
+          activeProfileVal != null ? String(activeProfileVal) : null,
+        providerOverride:
+          providerOverrideVal != null ? String(providerOverrideVal) : null,
+        modelOverride:
+          modelOverrideVal != null ? String(modelOverrideVal) : null,
         metadata: metadata,
       };
     },
@@ -296,6 +351,9 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   );
 
   const handleNewChat = React.useCallback(async () => {
+    if (!checkAuthGate(auth, "threads create")) {
+      return null;
+    }
     try {
       const res = await api.post("/chat/threads", {
         title: "New Chat",
@@ -345,7 +403,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       setActiveId("temp");
       return fallback;
     }
-  }, [mapThreadRecord, userName, guardianName]);
+  }, [auth, mapThreadRecord, userName, guardianName]);
 
   const handleSessionTabOpen = React.useCallback(() => {
     if (!sessionSpine) {
@@ -427,6 +485,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   // ----- Thread loader (hoisted early to avoid TDZ) -----
   const loadThreads = React.useCallback(async () => {
+    if (!checkAuthGate(auth, "threads load")) {
+      setThreadsLoaded(true);
+      return;
+    }
     try {
       const res = await api.get("/chat/threads");
       const data = res?.data;
@@ -474,7 +536,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     } finally {
       setThreadsLoaded(true);
     }
-  }, [handleNewChat, mapThreadRecord, resolveRouteThreadId]); // Remove threads dependency to avoid loops
+  }, [auth, handleNewChat, mapThreadRecord, resolveRouteThreadId]); // Remove threads dependency to avoid loops
 
   React.useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -495,6 +557,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   const handleBranchThread = React.useCallback(
     async (threadId: number, options?: { title?: string }) => {
+      if (!checkAuthGate(auth, "threads branch")) return;
       try {
         const payload = options?.title && options.title.trim().length
           ? { title: options.title.trim() }
@@ -515,11 +578,12 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         console.warn("[guardian] failed to branch thread", err);
       }
     },
-    [mapThreadRecord]
+    [auth, mapThreadRecord]
   );
 
   const handleArchiveThread = React.useCallback(
     async (threadId: number) => {
+      if (!checkAuthGate(auth, "threads archive")) return;
       try {
         await api.patch(`/chat/${threadId}`, { archived: true });
         const idStr = String(threadId);
@@ -542,7 +606,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         console.warn("[guardian] failed to archive thread", err);
       }
     },
-    [activeId]
+    [activeId, auth]
   );
 
   const handleSelectThread = React.useCallback((id: string) => {
@@ -818,6 +882,34 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       });
     });
 
+    const offProfileSwitched = subscribe("thread.profile.switched", (event) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const tid = payload?.thread_id ?? payload?.threadId;
+      if (!tid) return;
+      const idStr = String(tid);
+      const activeProfileId =
+        payload?.active_profile_id ?? payload?.activeProfileId ?? null;
+      const providerOverride =
+        payload?.provider_override ?? payload?.providerOverride ?? null;
+      const modelOverride =
+        payload?.model_override ?? payload?.modelOverride ?? null;
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id !== idStr
+            ? thread
+            : {
+                ...thread,
+                activeProfileId:
+                  activeProfileId != null ? String(activeProfileId) : null,
+                providerOverride:
+                  providerOverride != null ? String(providerOverride) : null,
+                modelOverride:
+                  modelOverride != null ? String(modelOverride) : null,
+              }
+        )
+      );
+    });
+
     const offThreadCreated = subscribe("thread.created", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
       console.info("[live] thread.created", payload);
@@ -864,6 +956,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     return () => {
       offMessage();
       offThreadUpdated();
+      offProfileSwitched();
       offThreadCreated();
       offThreadBranched();
       offThreadArchived();
@@ -1052,12 +1145,13 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           >
             <div className="flex h-full min-h-0 overflow-hidden flex-col">
               <PromptLibraryPortal />
-              {(imprintZero.status?.system_prompt_meta?.warnings?.length || 0) > 0 && (
+              <PromptCostIndicator summary={imprintZero.status?.system_prompt_meta} />
+              {auth.ready && auth.status === "unauthenticated" && (
                 <div
                   className="mx-4 mt-3 rounded-lg border px-3 py-2 text-xs"
                   style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
                 >
-                  {(imprintZero.status?.system_prompt_meta?.warnings || []).join(" ")}
+                  Authentication required. Please sign in or set a dev key.
                 </div>
               )}
               {showWorkspacePanel && (

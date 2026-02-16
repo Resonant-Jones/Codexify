@@ -120,7 +120,9 @@ class BrowserSessionManager:
         self.prune_expired_sessions()
         session = self._sessions.get(session_id)
         if session is None:
-            raise BrowserSessionNotFoundError(f"session not found: {session_id}")
+            raise BrowserSessionNotFoundError(
+                f"session not found: {session_id}"
+            )
         self._touch(session)
         return session
 
@@ -197,16 +199,12 @@ class BrowserSessionManager:
                     return
             elif host == pattern:
                 return
-        raise BrowserAllowlistViolationError(
-            f"host not allowlisted: {host}"
-        )
+        raise BrowserAllowlistViolationError(f"host not allowlisted: {host}")
 
     @staticmethod
     def _parse_allowlist(value: str) -> list[str]:
         return [
-            part.strip().lower()
-            for part in value.split(",")
-            if part.strip()
+            part.strip().lower() for part in value.split(",") if part.strip()
         ]
 
 

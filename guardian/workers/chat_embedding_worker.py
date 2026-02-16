@@ -15,9 +15,7 @@ from guardian.vector.store import VectorStore
 
 logger = logging.getLogger(__name__)
 
-QUEUE_NAME = os.getenv(
-    "CHAT_EMBED_QUEUE_NAME", "codexify:queue:chat-embed"
-)
+QUEUE_NAME = os.getenv("CHAT_EMBED_QUEUE_NAME", "codexify:queue:chat-embed")
 
 
 def _utc_now_iso() -> str:

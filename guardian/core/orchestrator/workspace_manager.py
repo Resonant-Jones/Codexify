@@ -5,6 +5,13 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+from guardian.core.orchestrator.cli_sandbox import (
+    CommandCatalog,
+    CommandExecutor,
+    WorkspaceRootManager,
+)
 
 
 @dataclass
@@ -17,6 +24,7 @@ class WorkspaceManager:
         root = self.repo_root if self.repo_root is not None else Path.cwd()
         self.repo_root = root.resolve()
         self._worktrees_root = self.repo_root / ".codexify" / "worktrees"
+        self._command_catalog = CommandCatalog.default(root=self.repo_root)
 
     def create_worktree(
         self,
@@ -64,17 +72,32 @@ class WorkspaceManager:
         return task_path
 
     def run_in_worktree(
-        self, task_id: str, cmd: list[str]
+        self,
+        task_id: str,
+        command_id: str,
+        params: dict[str, Any] | None = None,
+        *,
+        allow_network: bool = False,
     ) -> subprocess.CompletedProcess[str]:
+        if not command_id or not isinstance(command_id, str):
+            raise ValueError("command_id must be a non-empty string")
         manifest = self._load_manifest(task_id)
         task_path = Path(manifest["path"])
-        return subprocess.run(
-            cmd,
-            cwd=task_path,
-            check=False,
-            capture_output=True,
-            text=True,
+        root_manager = WorkspaceRootManager(task_path)
+        executor = CommandExecutor(
+            workspace_root_manager=root_manager,
+            command_catalog=self._command_catalog,
+            run_command=subprocess.run,
         )
+        return executor.execute(
+            command_id=command_id,
+            params=params or {},
+            workspace_root=task_path,
+            allow_network=allow_network,
+        )
+
+    def list_command_ids(self) -> list[str]:
+        return self._command_catalog.ids()
 
     def cleanup_worktree(self, task_id: str) -> None:
         task_path = self._task_path(task_id)

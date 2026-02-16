@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import json
 import logging
 import os
 import re
@@ -56,6 +58,19 @@ try:  # pragma: no cover - prompts are optional in some deployments
     )
 except Exception:  # pragma: no cover - optional dependency
     build_guardian_system_prompt = None
+
+try:
+    from guardian.cognition.system_profiles.resolver import (
+        ResolvedSystemProfile,
+        resolve_thread_system_profile,
+    )
+except Exception:  # pragma: no cover - optional dependency
+    ResolvedSystemProfile = Any  # type: ignore[assignment,misc]
+
+    def resolve_thread_system_profile(
+        thread_id: int, *, chatlog_db: Any | None = None
+    ):
+        return None
 
 
 def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
@@ -305,7 +320,13 @@ def _maybe_add_vision_summary(
 async def _build_messages_for_llm(
     task: ChatCompletionTask,
 ) -> tuple[
-    list[dict[str, str]], str, str, dict[str, Any], dict[str, Any] | None
+    list[dict[str, str]],
+    str,
+    str,
+    dict[str, Any],
+    dict[str, Any] | None,
+    ResolvedSystemProfile | None,
+    dict[str, Any],
 ]:
     settings = get_settings()
     provider = (
@@ -313,21 +334,6 @@ async def _build_messages_for_llm(
         .strip()
         .lower()
     )
-
-    if is_cloud_provider(provider) and not settings.ALLOW_CLOUD_PROVIDERS:
-        raise LLMConfigError(
-            "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
-        )
-
-    if validate_llm_config:
-        try:
-            validate_llm_config(settings, provider_override=provider)
-        except LLMConfigError as exc:
-            logger.warning(
-                "[chat-worker] LLM config error provider=%s detail=%s",
-                provider,
-                exc,
-            )
 
     user_system_override = task.system_override
     if isinstance(user_system_override, str):
@@ -343,6 +349,38 @@ async def _build_messages_for_llm(
     )
     if not thread_info:
         raise ValueError("thread_not_found")
+
+    profile: ResolvedSystemProfile | None = None
+    try:
+        profile = resolve_thread_system_profile(
+            thread_id,
+            chatlog_db=dependencies.chatlog_db,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[chat-worker] system profile resolve failed thread_id=%s err=%s",
+            thread_id,
+            exc,
+        )
+        profile = None
+
+    if profile and profile.provider_override:
+        provider = profile.provider_override.strip().lower()
+
+    if is_cloud_provider(provider) and not settings.ALLOW_CLOUD_PROVIDERS:
+        raise LLMConfigError(
+            "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
+        )
+
+    if validate_llm_config:
+        try:
+            validate_llm_config(settings, provider_override=provider)
+        except LLMConfigError as exc:
+            logger.warning(
+                "[chat-worker] LLM config error provider=%s detail=%s",
+                provider,
+                exc,
+            )
 
     limit = int(task.max_context or 50)
     items = dependencies.chatlog_db.list_messages(
@@ -418,6 +456,7 @@ async def _build_messages_for_llm(
                 project_id=project_id_for_prompt,
                 depth=depth,
                 bundle=bundle,
+                profile=profile,
             )
             token_est = prompt_meta.get(
                 "estimated_tokens", _estimate_tokens(system_content)
@@ -443,12 +482,13 @@ async def _build_messages_for_llm(
             "Answer concisely, avoid speculation, and clearly mark any uncertainty."
         )
 
-    messages_for_llm.append({"role": "system", "content": system_content})
+    system_sections = [system_content]
     context_message = build_context_system_message(bundle)
     if context_message:
-        messages_for_llm.append({"role": "system", "content": context_message})
-    messages_for_llm.extend(context)
+        system_sections.append("=== CONTEXT BUNDLE ===\n" + context_message)
 
+    media_note: str | None = None
+    vision_note: str | None = None
     # Attach media references/vision summaries for any upload markers.
     try:
         markers: list[tuple[str, str]] = []
@@ -459,19 +499,26 @@ async def _build_messages_for_llm(
                 markers, thread_id=thread_id, project_id=project_id_for_prompt
             )
             media_note = _build_media_system_message(media_items)
-            if media_note:
-                messages_for_llm.append(
-                    {"role": "system", "content": media_note}
-                )
             vision_note = _maybe_add_vision_summary(media_items, provider)
-            if vision_note:
-                messages_for_llm.append(
-                    {"role": "system", "content": vision_note}
-                )
     except Exception as exc:
         logger.warning("[chat-worker] media attachment parsing failed: %s", exc)
 
+    if media_note:
+        system_sections.append("=== MEDIA ATTACHMENTS ===\n" + media_note)
+    if vision_note:
+        system_sections.append("=== VISION SUMMARY ===\n" + vision_note)
+
+    single_system_message = "\n\n".join(
+        block.strip() for block in system_sections if block and block.strip()
+    )
+    messages_for_llm.append(
+        {"role": "system", "content": single_system_message}
+    )
+    messages_for_llm.extend(context)
+
     model = task.model
+    if not model and profile and profile.model_override:
+        model = profile.model_override
     if not model and provider == "local":
         model = (
             settings.LOCAL_LLM_MODEL
@@ -482,7 +529,42 @@ async def _build_messages_for_llm(
     if not model:
         model = dependencies.DEFAULT_MODEL or ""
 
-    return messages_for_llm, provider, model, bundle, trace
+    model_mode = (profile.mode if profile and profile.mode else None) or (
+        "local" if provider == "local" else "cloud"
+    )
+    injection_seed = {
+        "active_profile_id": (profile.active_profile_id if profile else None),
+        "profile_id": profile.profile_id if profile else None,
+        "provider": provider,
+        "model": model,
+        "depth_mode": depth,
+        "system_prompt": (
+            messages_for_llm[0].get("content", "")
+            if messages_for_llm and messages_for_llm[0].get("role") == "system"
+            else ""
+        ),
+    }
+    injection_hash = hashlib.sha256(
+        json.dumps(injection_seed, sort_keys=True, ensure_ascii=True).encode(
+            "utf-8"
+        )
+    ).hexdigest()[:16]
+
+    runtime_meta = {
+        "injection_hash": injection_hash,
+        "retrieval_mode": depth,
+        "model_mode": model_mode,
+    }
+
+    return (
+        messages_for_llm,
+        provider,
+        model,
+        bundle,
+        trace,
+        profile,
+        runtime_meta,
+    )
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
@@ -500,8 +582,24 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     )
 
     try:
-        messages_for_llm, provider, model, bundle, trace = asyncio.run(
-            _build_messages_for_llm(task)
+        (
+            messages_for_llm,
+            provider,
+            model,
+            bundle,
+            trace,
+            profile,
+            runtime_meta,
+        ) = asyncio.run(_build_messages_for_llm(task))
+        logger.info(
+            "[chat-worker] runtime_meta thread=%s active_profile_id=%s injection_hash=%s retrieval_mode=%s model_mode=%s provider=%s model=%s",
+            task.thread_id,
+            profile.active_profile_id if profile else None,
+            runtime_meta.get("injection_hash"),
+            runtime_meta.get("retrieval_mode"),
+            runtime_meta.get("model_mode"),
+            provider,
+            model,
         )
         if is_cancelled(task.task_id):
             _safe_publish(
@@ -518,9 +616,15 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         assistant_text = ""
         try:
             if provider == "local":
+                temperature_override = (
+                    profile.temperature_override
+                    if profile and profile.temperature_override is not None
+                    else None
+                )
                 token_stream = stream_local(
                     messages_for_llm,
                     model,
+                    temperature=temperature_override,
                 )
                 try:
                     for token in token_stream:
@@ -618,6 +722,21 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "provider": provider,
                     "model": model,
                     "trace": trace or {},
+                    "active_profile_id": (
+                        profile.active_profile_id if profile else None
+                    ),
+                    "provider_override": (
+                        profile.provider_override if profile else None
+                    ),
+                    "model_override": (
+                        profile.model_override if profile else None
+                    ),
+                    "temperature_override": (
+                        profile.temperature_override if profile else None
+                    ),
+                    "injection_hash": runtime_meta.get("injection_hash"),
+                    "retrieval_mode": runtime_meta.get("retrieval_mode"),
+                    "model_mode": runtime_meta.get("model_mode"),
                 },
             )
             logger.info(

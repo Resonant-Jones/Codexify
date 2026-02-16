@@ -7,6 +7,7 @@ import api from "@/lib/api";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ImagePlus, X } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
+import { checkAuthGate, useAuthState } from "@/lib/authState";
 
 import GalleryPreviewTile from "@/components/gallery/PreviewTile";
 
@@ -60,6 +61,7 @@ export default function DashboardView({
   onNavigateGallery,
   threadGridRows,
 }: DashboardViewProps) {
+  const auth = useAuthState();
   const [pinnedThreads, setPinnedThreads] = React.useState<
     { id: string; title: string; lastMessage?: string; archivedAt?: string | null }[]
   >([]);
@@ -84,6 +86,12 @@ export default function DashboardView({
 
   React.useEffect(() => {
     let cancelled = false;
+    if (!checkAuthGate(auth, "threads list load")) {
+      if (!cancelled) setPinnedThreads([]);
+      return () => {
+        cancelled = true;
+      };
+    }
     (async () => {
       try {
         const res = await api.get("/chat/threads");
@@ -105,11 +113,17 @@ export default function DashboardView({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [auth]);
 
   // Load recent documents from API (PCX_UI_QUIKWINS_002)
   React.useEffect(() => {
     let cancelled = false;
+    if (!checkAuthGate(auth, "documents list load")) {
+      if (!cancelled) setRecentDocs([]);
+      return () => {
+        cancelled = true;
+      };
+    }
     (async () => {
       try {
         // NOTE: `api` is configured with the `/api` base; keep paths base-relative.
@@ -158,7 +172,7 @@ export default function DashboardView({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [auth]);
 
   const openThread = (id: string) => {
     if (typeof window !== "undefined") {

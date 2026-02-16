@@ -184,8 +184,7 @@ async def create_cron_job(
 
 
 @router.get("/jobs", response_model=list[CronJobResponse])
-async def list_cron_jobs(
-) -> list[dict[str, Any]]:
+async def list_cron_jobs() -> list[dict[str, Any]]:
     db = _get_db()
     with db.get_session() as session:
         jobs = (
