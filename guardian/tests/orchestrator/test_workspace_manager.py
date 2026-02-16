@@ -88,20 +88,25 @@ def test_run_in_worktree_executes_with_task_working_directory(
     )
     manager = WorkspaceManager(repo_root=repo_root)
     completed = subprocess.CompletedProcess(
-        args=["echo", "ok"], returncode=0, stdout="ok\n", stderr=""
+        args=["git", "status", "--short"],
+        returncode=0,
+        stdout="ok\n",
+        stderr="",
     )
 
     with patch(
         "guardian.core.orchestrator.workspace_manager.subprocess.run",
         return_value=completed,
     ) as run_mock:
-        result = manager.run_in_worktree("task-001", ["echo", "ok"])
+        result = manager.run_in_worktree("task-001", "git_status")
 
     assert result is completed
-    run_mock.assert_called_once_with(
-        ["echo", "ok"],
-        cwd=task_path,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    run_mock.assert_called_once()
+    args, kwargs = run_mock.call_args
+    assert args[0] == ["git", "status", "--short"]
+    assert kwargs["cwd"] == task_path
+    assert kwargs["check"] is False
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    assert kwargs["timeout"] == 60
+    assert kwargs["env"]["CODEXIFY_NETWORK_EGRESS"] == "disabled"
