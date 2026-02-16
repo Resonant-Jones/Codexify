@@ -20,6 +20,7 @@ const DEFAULT_EVENT_TYPES = [
   "thread.created",
   "thread.branch",
   "thread.archived",
+  "thread.profile.switched",
   "connector.status",
   "connector.sync",
 ];

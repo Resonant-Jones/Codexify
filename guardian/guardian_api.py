@@ -158,6 +158,7 @@ from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_loose_threads_project
 from guardian.routes.projects import router as projects_router
+from guardian.routes.tools import api_router as api_tools_router
 from guardian.routes.tools import router as tools_router
 
 # =========================
@@ -489,6 +490,7 @@ app.include_router(connectors_router)
 app.include_router(media_router, prefix="/api/media")
 app.include_router(flows_router)
 app.include_router(tools_router)
+app.include_router(api_tools_router)
 app.include_router(exports_router)
 app.include_router(codex_router)
 app.include_router(codexify_router)

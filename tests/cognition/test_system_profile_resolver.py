@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from guardian.cognition.system_profiles.resolver import (
+    list_available_system_profiles,
     persist_flow_profile_override,
     resolve_thread_system_profile,
     switch_thread_profile,
@@ -79,3 +80,13 @@ def test_switch_thread_profile_updates_thread_state():
     resolved = resolve_thread_system_profile(1, chatlog_db=db)
     assert resolved.active_profile_id == "local_mode"
     assert resolved.provider_override == "local"
+
+
+def test_list_available_profiles_includes_defaults():
+    db = _FakeChatDB()
+
+    profiles = list_available_system_profiles(thread_id=1, chatlog_db=db)
+    profile_ids = {profile["id"] for profile in profiles}
+
+    assert "default" in profile_ids
+    assert "local_mode" in profile_ids
