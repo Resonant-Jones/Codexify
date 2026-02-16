@@ -67,6 +67,9 @@ Preflight: git status --porcelain -uall must be empty
 - A fresh `docker compose up` reliably serves media URLs returned by the API (no manual directory creation required).
 - The conditional mount behavior is removed or made safe by ensuring the base directory exists before the mount decision.
 
+### Implementation Notes (2026-02-16)
+- `guardian/core/storage.ensure_storage_base_path()` now creates the storage directory during env bootstrap, allowing `guardian/guardian_api.py` to always mount `/media` deterministically on startup.
+
 ## Allowed Files (strict)
 - `guardian/guardian_api.py`
 - `guardian/core/storage.py`
