@@ -593,7 +593,7 @@ async def stream_events(
                 # Clean up delivered events
                 if max_id_seen > 0:
                     try:
-                        event_bus.delete_events_up_to(max_id_seen)
+                        event_bus.delete_events_through(max_id_seen)
                     except Exception:
                         pass
 
