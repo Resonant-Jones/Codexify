@@ -5,6 +5,7 @@ import type { PromptCostStatus, SystemPromptSummary } from "@/imprint/api";
 
 type PromptCostIndicatorProps = {
   summary?: SystemPromptSummary | null;
+  variant?: "banner" | "popover";
 };
 
 const STATUS_LABEL: Record<PromptCostStatus, string> = {
@@ -30,13 +31,32 @@ const STATUS_HELPER: Record<PromptCostStatus, string> = {
 
 export default function PromptCostIndicator({
   summary,
+  variant = "popover",
 }: PromptCostIndicatorProps) {
   const status: PromptCostStatus = summary?.threshold?.status ?? "unknown";
   const estimatedTotal =
     summary?.estimated_tokens_total ?? summary?.estimated_tokens ?? null;
   const warnings = summary?.warnings || [];
+  const helperText = warnings.length > 0 ? warnings.join(" ") : STATUS_HELPER[status];
+  const tokenText = typeof estimatedTotal === "number" ? String(estimatedTotal) : "\u2014";
   const [showTokens, setShowTokens] = useState(false);
   const hasEstimatedTotal = typeof estimatedTotal === "number";
+
+  if (variant === "popover") {
+    return (
+      <div
+        className="space-y-1 text-xs leading-snug text-[var(--text)]"
+        role="status"
+        aria-live="polite"
+        data-testid="prompt-cost-indicator"
+        data-variant="popover"
+      >
+        <div className="font-medium">{STATUS_LABEL[status]}</div>
+        <div className="opacity-85">{helperText}</div>
+        <div className="tabular-nums opacity-80">Tokens: {tokenText}</div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -47,6 +67,7 @@ export default function PromptCostIndicator({
       role="status"
       aria-live="polite"
       data-testid="prompt-cost-indicator"
+      data-variant="banner"
     >
       <div className="flex items-center justify-between gap-3">
         <span className="font-semibold tracking-wide">
@@ -74,9 +95,7 @@ export default function PromptCostIndicator({
           ) : null}
         </span>
       </div>
-      <div className="mt-1 opacity-85">
-        {warnings.length > 0 ? warnings.join(" ") : STATUS_HELPER[status]}
-      </div>
+      <div className="mt-1 opacity-85">{helperText}</div>
     </div>
   );
 }
