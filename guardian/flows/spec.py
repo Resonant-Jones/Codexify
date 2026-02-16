@@ -90,6 +90,11 @@ class StepBase(BaseModel):
 
     step_id: str = Field(min_length=1, max_length=128)
     params: dict[str, Any] = Field(default_factory=dict)
+    required_scopes: list[str] = Field(default_factory=list)
+    external_domain: str | None = None
+    requires_network: bool = False
+    requests_auth: bool = False
+    requested_scopes: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -229,6 +234,11 @@ class CompiledStep(BaseModel):
     primitive: PrimitiveName
     params: dict[str, Any] = Field(default_factory=dict)
     side_effecting: bool = False
+    required_scopes: list[str] = Field(default_factory=list)
+    external_domain: str | None = None
+    requires_network: bool = False
+    requests_auth: bool = False
+    requested_scopes: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 
