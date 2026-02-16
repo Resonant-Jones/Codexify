@@ -22,6 +22,12 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _thread_namespace(thread_id: Any) -> str:
+    if thread_id is None:
+        return "global"
+    return f"thread:{thread_id}"
+
+
 def process_chat_embed_task(
     payload: dict[str, Any] | None,
     *,
@@ -38,6 +44,7 @@ def process_chat_embed_task(
 
     meta = {
         "thread_id": payload.get("thread_id"),
+        "namespace": _thread_namespace(payload.get("thread_id")),
         "role": payload.get("role"),
         "message_id": payload.get("message_id"),
         "timestamp": _utc_now_iso(),

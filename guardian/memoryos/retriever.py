@@ -413,7 +413,10 @@ class MemoryOSRetriever:
         return ordered
 
     async def retrieve(
-        self, query: str, limit: int = 5
+        self,
+        query: str,
+        limit: int = 5,
+        namespace: str | None = None,
     ) -> list[dict[str, Any]]:
         """Retrieve semantically similar documents for a given query.
 
@@ -425,6 +428,7 @@ class MemoryOSRetriever:
         Args:
             query: The search query string
             limit: Maximum number of results to return (default: 5)
+            namespace: Optional vector namespace filter
 
         Returns:
             List of result dictionaries with schema:
@@ -451,7 +455,14 @@ class MemoryOSRetriever:
             # Call vector store search (handles embedding generation internally)
             # VectorStore.search() returns [{text, meta, score}]
             candidate_k = max(limit * 3, limit + 5)
-            results = self.vector_store.search(query, k=candidate_k)
+            try:
+                results = self.vector_store.search(
+                    query,
+                    k=candidate_k,
+                    namespace=namespace,
+                )
+            except TypeError:
+                results = self.vector_store.search(query, k=candidate_k)
 
             # Handle both sync and async vector stores
             if hasattr(results, "__await__"):

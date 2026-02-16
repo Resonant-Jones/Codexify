@@ -72,6 +72,19 @@ def _normalize_metadatas(
     return cleaned
 
 
+def _normalize_namespace(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _namespace_matches(meta: dict[str, Any], namespace: str | None) -> bool:
+    if namespace is None:
+        return True
+    return _normalize_namespace(meta.get("namespace")) == namespace
+
+
 def _normalize_embeddings(arr: np.ndarray) -> np.ndarray:
     if arr.size == 0:
         return arr
@@ -278,12 +291,18 @@ class LocalSemanticEmbedder:
         )
         return {"store": "chroma", "count": len(text_list)}
 
-    def search(self, query: str, k: int = 5) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        namespace: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Search the configured vector store for semantically similar text."""
         if not query or not str(query).strip():
             return []
         if k <= 0:
             return []
+        normalized_namespace = _normalize_namespace(namespace)
 
         if self.store == "faiss":
             if self._index is None or not self._texts:
@@ -292,12 +311,17 @@ class LocalSemanticEmbedder:
             if vectors.size == 0:
                 return []
             vectors = _normalize_embeddings(vectors)
-            scores, indices = self._index.search(vectors, k)
+            search_k = (
+                len(self._texts) if normalized_namespace is not None else k
+            )
+            scores, indices = self._index.search(vectors, search_k)
             results: list[dict[str, Any]] = []
             for idx, score in zip(indices[0], scores[0]):
                 if idx < 0 or idx >= len(self._texts):
                     continue
                 meta = self._metadatas[idx]
+                if not _namespace_matches(meta, normalized_namespace):
+                    continue
                 results.append(
                     {
                         "text": self._texts[idx],
@@ -306,6 +330,8 @@ class LocalSemanticEmbedder:
                         "score": float(score),
                     }
                 )
+                if len(results) >= k:
+                    break
             return results
 
         if self._chroma_collection is None:
@@ -313,9 +339,13 @@ class LocalSemanticEmbedder:
         vectors = self._embed_np([str(query)])
         if vectors.size == 0:
             return []
-        result = self._chroma_collection.query(
-            query_embeddings=vectors.tolist(), n_results=k
-        )
+        query_kwargs: dict[str, Any] = {
+            "query_embeddings": vectors.tolist(),
+            "n_results": k,
+        }
+        if normalized_namespace is not None:
+            query_kwargs["where"] = {"namespace": normalized_namespace}
+        result = self._chroma_collection.query(**query_kwargs)
         docs = result.get("documents", [[]])[0] or []
         metas = result.get("metadatas", [[]])[0] or []
         distances = result.get("distances", [[]])[0] or []
