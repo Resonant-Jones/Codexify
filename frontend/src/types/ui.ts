@@ -9,6 +9,8 @@ export type Message = {
   status?: "sending" | "sent" | "delivered" | "read";
 };
 
+export type ProfileMode = "local" | "cloud";
+
 export type Thread = {
   id: string;
   title: string;
@@ -19,6 +21,12 @@ export type Thread = {
   projectId?: string | null;
   parentId?: string | null;
   archivedAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+  activeProfileId?: string | null;
+  profileName?: string | null;
+  profileMode?: ProfileMode | null;
+  providerOverride?: string | null;
+  modelOverride?: string | null;
 };
 
 export type ExtColors = {

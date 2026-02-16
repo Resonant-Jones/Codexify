@@ -54,6 +54,8 @@ def test_tools_execute_switches_profile_and_emits_event(monkeypatch):
         api_key="test",
     )
     job_id = response["job_id"]
+    assert response["status"] == "done"
+    assert response["result"]["ok"] is True
     result = tools.JOBS[job_id]["result"]
 
     assert result["ok"] is True
@@ -61,3 +63,30 @@ def test_tools_execute_switches_profile_and_emits_event(monkeypatch):
     assert result["provider_override"] == "local"
     assert events
     assert events[0][0] == "thread.profile.switched"
+
+    status = tools.tools_job_status(job_id, api_key="test")
+    assert status["job_id"] == job_id
+    assert status["status"] == "done"
+    assert status["result"]["active_profile_id"] == "local_mode"
+
+
+def test_tools_execute_supports_set_profile_alias(monkeypatch):
+    fake_db = _FakeChatDB()
+    monkeypatch.setattr(tools, "chatlog_db", fake_db)
+    monkeypatch.setattr(
+        tools,
+        "event_bus",
+        SimpleNamespace(emit_event=lambda *_args, **_kwargs: None),
+    )
+    tools.JOBS.clear()
+
+    response = tools.tools_execute(
+        tools.ToolRequest(
+            name="set_profile",
+            args={"thread_id": 1, "profile_id": "local_mode"},
+        ),
+        api_key="test",
+    )
+
+    assert response["result"]["ok"] is True
+    assert response["result"]["active_profile_id"] == "local_mode"

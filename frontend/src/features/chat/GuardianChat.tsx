@@ -45,6 +45,69 @@ type LlmHealthSnapshot = {
   checkedAt: number | null;
 };
 
+type ProfileMode = "local" | "cloud";
+
+type SystemProfileOption = {
+  id: string;
+  name: string;
+  mode: ProfileMode;
+  providerOverride?: string | null;
+  modelOverride?: string | null;
+};
+
+type ResolvedProfileState = {
+  id: string;
+  name: string;
+  mode: ProfileMode;
+  providerOverride: string | null;
+  modelOverride: string | null;
+};
+
+const PROFILE_FALLBACK_OPTIONS: SystemProfileOption[] = [
+  { id: "default", name: "Default", mode: "cloud" },
+  { id: "cloud_mode", name: "Cloud Profile", mode: "cloud" },
+  { id: "local_mode", name: "Local Mode", mode: "local" },
+];
+
+function profileModeFromValue(value: unknown): ProfileMode {
+  return String(value ?? "").trim().toLowerCase() === "local"
+    ? "local"
+    : "cloud";
+}
+
+function normalizeProfileId(value: unknown): string {
+  const cleaned = String(value ?? "").trim();
+  return cleaned || "default";
+}
+
+function normalizeProfileName(value: unknown, profileId: string): string {
+  const cleaned = String(value ?? "").trim();
+  if (cleaned) return cleaned;
+  return (
+    profileId
+      .replace(/[_-]+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (ch) => ch.toUpperCase()) || "Profile"
+  );
+}
+
+function normalizeProfileOption(
+  raw: any,
+  fallbackId?: string
+): SystemProfileOption | null {
+  if (!raw || typeof raw !== "object") return null;
+  const id = normalizeProfileId(raw.id ?? raw.profile_id ?? fallbackId ?? "default");
+  return {
+    id,
+    name: normalizeProfileName(raw.name, id),
+    mode: profileModeFromValue(raw.mode ?? raw.provider_override),
+    providerOverride:
+      raw.provider_override != null ? String(raw.provider_override) : null,
+    modelOverride:
+      raw.model_override != null ? String(raw.model_override) : null,
+  };
+}
+
 /**
  * Consciousness synchronization bus for cross-pane awareness.
  *
@@ -150,11 +213,63 @@ export function GuardianChat({
     error: null,
     checkedAt: null,
   });
-  const showToast = (message: string) => {
+  const [availableProfiles, setAvailableProfiles] = useState<SystemProfileOption[]>(PROFILE_FALLBACK_OPTIONS);
+  const [resolvedProfile, setResolvedProfile] = useState<ResolvedProfileState>({
+    id: "default",
+    name: "Default",
+    mode: "cloud",
+    providerOverride: null,
+    modelOverride: null,
+  });
+  const [profileSwitching, setProfileSwitching] = useState(false);
+  const showToast = useCallback((message: string) => {
     try {
-      window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message, kind: "error" } }));
+      window.dispatchEvent(
+        new CustomEvent("cfy:toast", { detail: { message, kind: "error" } })
+      );
     } catch {}
-  };
+  }, []);
+  const resolveProfileIdFromCommand = useCallback(
+    (text: string): string | null => {
+      const normalized = text.trim().toLowerCase();
+      if (!normalized) return null;
+      if (!/\b(switch|activate|use|set)\b/.test(normalized)) return null;
+
+      const localIntent = /\b(local|offline)\b/.test(normalized);
+      const cloudIntent = /\b(cloud|online|remote)\b/.test(normalized);
+      const defaultIntent = /\b(default)\b/.test(normalized);
+      if (!localIntent && !cloudIntent && !defaultIntent) return null;
+
+      const options = availableProfiles.length
+        ? availableProfiles
+        : PROFILE_FALLBACK_OPTIONS;
+
+      if (localIntent) {
+        const local =
+          options.find((profile) => profile.mode === "local") ||
+          options.find((profile) =>
+            /\blocal|offline\b/i.test(profile.id + " " + profile.name)
+          );
+        return local?.id || "local_mode";
+      }
+
+      if (defaultIntent) {
+        const defaultProfile = options.find((profile) => profile.id === "default");
+        if (defaultProfile) return defaultProfile.id;
+      }
+
+      if (cloudIntent || defaultIntent) {
+        const cloud =
+          options.find((profile) => profile.mode === "cloud") ||
+          options.find((profile) =>
+            /\bcloud|remote\b/i.test(profile.id + " " + profile.name)
+          );
+        return cloud?.id || "default";
+      }
+      return null;
+    },
+    [availableProfiles]
+  );
   const refreshLlmHealth = useCallback(async () => {
     try {
       const res = await api.get("/health/llm");
@@ -288,6 +403,139 @@ export function GuardianChat({
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
 
+  const refreshThreadProfile = useCallback(
+    async (threadId: number) => {
+      try {
+        const response = await api.get(`/chat/${threadId}/profile`);
+        const data = response?.data ?? {};
+        const profileRaw = data?.profile ?? null;
+        const profilesRaw = Array.isArray(data?.profiles) ? data.profiles : [];
+
+        const parsedProfiles = profilesRaw
+          .map((entry: any) => normalizeProfileOption(entry))
+          .filter(Boolean) as SystemProfileOption[];
+
+        if (parsedProfiles.length > 0) {
+          setAvailableProfiles(parsedProfiles);
+        } else {
+          setAvailableProfiles(PROFILE_FALLBACK_OPTIONS);
+        }
+
+        const parsedProfile = normalizeProfileOption(profileRaw);
+        if (parsedProfile) {
+          setResolvedProfile({
+            id: parsedProfile.id,
+            name: parsedProfile.name,
+            mode: parsedProfile.mode,
+            providerOverride: parsedProfile.providerOverride || null,
+            modelOverride: parsedProfile.modelOverride || null,
+          });
+          return parsedProfile;
+        }
+      } catch (err) {
+        console.debug("[guardian] profile refresh failed", err);
+      }
+
+      const fallbackId = normalizeProfileId(
+        (activeThread as any)?.activeProfileId ??
+          (activeThread as any)?.active_profile_id ??
+          "default"
+      );
+      const fallbackMode = profileModeFromValue(
+        (activeThread as any)?.profileMode ??
+          (activeThread as any)?.providerOverride ??
+          (activeThread as any)?.provider_override
+      );
+      setAvailableProfiles(PROFILE_FALLBACK_OPTIONS);
+      setResolvedProfile({
+        id: fallbackId,
+        name: normalizeProfileName(
+          (activeThread as any)?.profileName,
+          fallbackId
+        ),
+        mode: fallbackMode,
+        providerOverride:
+          (activeThread as any)?.providerOverride ??
+          (activeThread as any)?.provider_override ??
+          null,
+        modelOverride:
+          (activeThread as any)?.modelOverride ??
+          (activeThread as any)?.model_override ??
+          null,
+      });
+      return null;
+    },
+    [activeThread]
+  );
+
+  const switchThreadProfile = useCallback(
+    async (threadId: number, profileId: string): Promise<boolean> => {
+      setProfileSwitching(true);
+      try {
+        const response = await api.post("/tools/execute", {
+          name: "guardian.profile.switch",
+          args: { thread_id: threadId, profile_id: profileId },
+        });
+        const result = response?.data?.result;
+        if (result && result.ok === false) {
+          const detail =
+            typeof result.error === "string"
+              ? result.error
+              : "Profile switch failed";
+          throw new Error(detail);
+        }
+        await refreshThreadProfile(threadId);
+        emitThreadsRefresh("refresh", {
+          reason: "profile-switch",
+          id: String(threadId),
+          profile_id: profileId,
+        });
+        return true;
+      } catch (err: any) {
+        const message =
+          err?.message || "Unable to switch profile. Please try again.";
+        showToast(message);
+        return false;
+      } finally {
+        setProfileSwitching(false);
+      }
+    },
+    [refreshThreadProfile, showToast]
+  );
+
+  useEffect(() => {
+    if (effectiveThreadId == null) {
+      setAvailableProfiles(PROFILE_FALLBACK_OPTIONS);
+      const fallbackId = normalizeProfileId(
+        (activeThread as any)?.activeProfileId ??
+          (activeThread as any)?.active_profile_id ??
+          "default"
+      );
+      setResolvedProfile({
+        id: fallbackId,
+        name: normalizeProfileName(
+          (activeThread as any)?.profileName,
+          fallbackId
+        ),
+        mode: profileModeFromValue(
+          (activeThread as any)?.profileMode ??
+            (activeThread as any)?.providerOverride ??
+            (activeThread as any)?.provider_override
+        ),
+        providerOverride:
+          (activeThread as any)?.providerOverride ??
+          (activeThread as any)?.provider_override ??
+          null,
+        modelOverride:
+          (activeThread as any)?.modelOverride ??
+          (activeThread as any)?.model_override ??
+          null,
+      });
+      return;
+    }
+    void refreshThreadProfile(effectiveThreadId);
+  }, [activeThread, effectiveThreadId, refreshThreadProfile]);
+
   useEffect(() => () => triggerReload.cancel(), [triggerReload]);
 
   // Keep local thread title in sync with upstream threads when relevant
@@ -316,10 +564,23 @@ export function GuardianChat({
       }
     });
 
+    const offProfileSwitched = subscribe("thread.profile.switched", (event) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const incomingId = Number(payload?.thread_id ?? payload?.threadId);
+      if (
+        Number.isFinite(incomingId) &&
+        effectiveThreadId != null &&
+        incomingId === effectiveThreadId
+      ) {
+        void refreshThreadProfile(incomingId);
+      }
+    });
+
     return () => {
       offThread();
+      offProfileSwitched();
     };
-  }, [effectiveThreadId, subscribe]);
+  }, [effectiveThreadId, refreshThreadProfile, subscribe]);
   useEffect(() => {
     const offMessage = subscribe("message.created", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
@@ -400,7 +661,10 @@ export function GuardianChat({
      * title becomes the thread's identity in the distributed awareness network.
      */
     const normalizedUserId = userName || "default";
-    if (llmBackendUnavailable) {
+    const requestedProfileId = resolveProfileIdFromCommand(text);
+    const isProfileCommand =
+      effectiveThreadId != null && Boolean(requestedProfileId);
+    if (llmBackendUnavailable && !isProfileCommand) {
       const title =
         llmHealth.status === "misconfigured"
           ? "LLM backend misconfigured."
@@ -411,6 +675,39 @@ export function GuardianChat({
     }
     if (isTurnLocked(effectiveThreadId)) {
       notifyTurnLocked();
+      return;
+    }
+    if (effectiveThreadId != null && requestedProfileId) {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${effectiveThreadId}`);
+      }
+      try {
+        await onSendMessage(text);
+        const switched = await switchThreadProfile(
+          effectiveThreadId,
+          requestedProfileId
+        );
+        if (switched) {
+          const selected =
+            availableProfiles.find(
+              (profile) => profile.id === requestedProfileId
+            ) ||
+            PROFILE_FALLBACK_OPTIONS.find(
+              (profile) => profile.id === requestedProfileId
+            );
+          const label = selected?.name || requestedProfileId;
+          await api.post(`/chat/${effectiveThreadId}/messages`, {
+            role: "assistant",
+            content: `Profile switched to ${label}. Next completion will use this profile.`,
+            user_id: normalizedUserId,
+          });
+          triggerReload();
+        }
+      } catch (error) {
+        console.error("[guardian] profile switch command failed", error);
+        showToast("Profile switch failed.");
+        throw error;
+      }
       return;
     }
     if (!effectiveThreadId) {
@@ -729,11 +1026,23 @@ export function GuardianChat({
           tabs={sessionTabs}
           activeTabId={activeSessionTabId}
           activeModelId={activeModelId || "default"}
+          activeProfileId={resolvedProfile.id}
+          activeProfileName={resolvedProfile.name}
+          activeProfileMode={resolvedProfile.mode}
+          profiles={availableProfiles}
+          profileSwitching={profileSwitching}
           showTabs={sessionTabs.length > 1}
           onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
           onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
           onOpenTab={() => (onSessionTabOpen ? onSessionTabOpen() : onNewChat())}
           onSetModel={(modelId) => onSessionModelChange?.(modelId)}
+          onSetProfile={(profileId) => {
+            if (effectiveThreadId == null) {
+              showToast("Thread is not persisted yet.");
+              return;
+            }
+            void switchThreadProfile(effectiveThreadId, profileId);
+          }}
         />
       )}
 

@@ -154,7 +154,12 @@ async def test_rag_integration_memory_loop(monkeypatch):
     vector_store = VectorStore()
     memory_store = object()
 
-    def fake_stream_local(messages: list[dict[str, str]], _model: str):
+    def fake_stream_local(
+        messages: list[dict[str, str]],
+        _model: str,
+        temperature: float | None = None,
+        **_kwargs,
+    ):
         system_text = "\n".join(
             str(message.get("content") or "")
             for message in messages

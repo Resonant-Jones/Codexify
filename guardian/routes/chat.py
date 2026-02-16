@@ -102,9 +102,11 @@ except Exception:
 
 try:
     from guardian.cognition.system_profiles.resolver import (
+        list_available_system_profiles,
         resolve_thread_system_profile,
     )
 except Exception:
+    list_available_system_profiles = None
     resolve_thread_system_profile = None
 
 
@@ -771,6 +773,65 @@ async def chat_complete(
     return {"task_id": task.task_id}
 
 
+@router.get("/{thread_id}/profile")
+def chat_get_thread_profile(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
+    """Return resolved profile state + available profile catalog for a thread."""
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    resolved_profile: dict[str, Any] | None = None
+    if resolve_thread_system_profile:
+        try:
+            resolved = resolve_thread_system_profile(
+                thread_id, chatlog_db=chatlog_db
+            )
+            resolved_profile = resolved.model_dump(
+                mode="json", exclude_none=True
+            )
+        except Exception as exc:
+            logger.warning(
+                "[chat.profile] resolve failed thread_id=%s err=%s",
+                thread_id,
+                exc,
+            )
+
+    available_profiles: list[dict[str, Any]] = []
+    if list_available_system_profiles:
+        try:
+            available_profiles = list_available_system_profiles(
+                thread_id=thread_id,
+                chatlog_db=chatlog_db,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[chat.profile] catalog load failed thread_id=%s err=%s",
+                thread_id,
+                exc,
+            )
+
+    if resolved_profile is None:
+        active_profile_id = thread.get("active_profile_id")
+        resolved_profile = {
+            "profile_id": active_profile_id or "default",
+            "active_profile_id": active_profile_id,
+            "name": "Default"
+            if not active_profile_id
+            else str(active_profile_id),
+            "mode": "cloud",
+            "source": "fallback",
+        }
+
+    return {
+        "ok": True,
+        "thread_id": thread_id,
+        "profile": resolved_profile,
+        "profiles": available_profiles,
+    }
+
+
 @router.delete("/{thread_id}/messages/{message_id}")
 def chat_delete_message(
     thread_id: int,
@@ -1120,6 +1181,9 @@ def get_latest_rag_trace(
         "active_profile_id": None,
         "provider_override": None,
         "model_override": None,
+        "injection_hash": None,
+        "retrieval_mode": None,
+        "model_mode": None,
     }
 
     # Try to get trace + profile data from task events if we have a recent task
@@ -1135,6 +1199,9 @@ def get_latest_rag_trace(
                 "active_profile_id",
                 "provider_override",
                 "model_override",
+                "injection_hash",
+                "retrieval_mode",
+                "model_mode",
             ):
                 profile_debug[key] = completed_payload.get(key)
 
@@ -1175,6 +1242,8 @@ def get_latest_rag_trace(
                 ] = with_profile.provider_override
             if profile_debug["model_override"] is None:
                 profile_debug["model_override"] = with_profile.model_override
+            if profile_debug["model_mode"] is None:
+                profile_debug["model_mode"] = with_profile.mode
 
     trace.update(profile_debug)
     return trace
@@ -1273,6 +1342,14 @@ async def api_chat_complete(
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
     return await chat_complete(thread_id, body, api_key=api_key)
+
+
+@api_chat_router.get("/{thread_id}/profile")
+def api_chat_get_thread_profile(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
+    """Compat alias for GET /chat/{thread_id}/profile."""
+    return chat_get_thread_profile(thread_id, api_key=api_key)
 
 
 @api_chat_router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])

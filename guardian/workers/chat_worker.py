@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import json
 import logging
 import os
 import re
@@ -324,6 +326,7 @@ async def _build_messages_for_llm(
     dict[str, Any],
     dict[str, Any] | None,
     ResolvedSystemProfile | None,
+    dict[str, Any],
 ]:
     settings = get_settings()
     provider = (
@@ -520,7 +523,42 @@ async def _build_messages_for_llm(
     if not model:
         model = dependencies.DEFAULT_MODEL or ""
 
-    return messages_for_llm, provider, model, bundle, trace, profile
+    model_mode = (profile.mode if profile and profile.mode else None) or (
+        "local" if provider == "local" else "cloud"
+    )
+    injection_seed = {
+        "active_profile_id": (profile.active_profile_id if profile else None),
+        "profile_id": profile.profile_id if profile else None,
+        "provider": provider,
+        "model": model,
+        "depth_mode": depth,
+        "system_prompt": (
+            messages_for_llm[0].get("content", "")
+            if messages_for_llm and messages_for_llm[0].get("role") == "system"
+            else ""
+        ),
+    }
+    injection_hash = hashlib.sha256(
+        json.dumps(injection_seed, sort_keys=True, ensure_ascii=True).encode(
+            "utf-8"
+        )
+    ).hexdigest()[:16]
+
+    runtime_meta = {
+        "injection_hash": injection_hash,
+        "retrieval_mode": depth,
+        "model_mode": model_mode,
+    }
+
+    return (
+        messages_for_llm,
+        provider,
+        model,
+        bundle,
+        trace,
+        profile,
+        runtime_meta,
+    )
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
@@ -545,7 +583,18 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             bundle,
             trace,
             profile,
+            runtime_meta,
         ) = asyncio.run(_build_messages_for_llm(task))
+        logger.info(
+            "[chat-worker] runtime_meta thread=%s active_profile_id=%s injection_hash=%s retrieval_mode=%s model_mode=%s provider=%s model=%s",
+            task.thread_id,
+            profile.active_profile_id if profile else None,
+            runtime_meta.get("injection_hash"),
+            runtime_meta.get("retrieval_mode"),
+            runtime_meta.get("model_mode"),
+            provider,
+            model,
+        )
         if is_cancelled(task.task_id):
             _safe_publish(
                 task.task_id,
@@ -679,6 +728,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "temperature_override": (
                         profile.temperature_override if profile else None
                     ),
+                    "injection_hash": runtime_meta.get("injection_hash"),
+                    "retrieval_mode": runtime_meta.get("retrieval_mode"),
+                    "model_mode": runtime_meta.get("model_mode"),
                 },
             )
             logger.info(

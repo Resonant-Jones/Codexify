@@ -45,7 +45,10 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
     && (a.unread ?? 0) === (b.unread ?? 0)
     && (a.projectId ?? null) === (b.projectId ?? null)
     && (a.parentId ?? null) === (b.parentId ?? null)
-    && (a.archivedAt ?? null) === (b.archivedAt ?? null);
+    && (a.archivedAt ?? null) === (b.archivedAt ?? null)
+    && (a.activeProfileId ?? null) === (b.activeProfileId ?? null)
+    && (a.providerOverride ?? null) === (b.providerOverride ?? null)
+    && (a.modelOverride ?? null) === (b.modelOverride ?? null);
 };
 
 const DEVICE_ID_STORAGE_KEY = "cfy.deviceId";
@@ -315,6 +318,11 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const projectVal = raw.project_id ?? raw.projectId ?? null;
       const parentVal = raw.parent_id ?? raw.parentId ?? null;
       const archivedVal = raw.archived_at ?? raw.archivedAt ?? null;
+      const activeProfileVal =
+        raw.active_profile_id ?? raw.activeProfileId ?? null;
+      const providerOverrideVal =
+        raw.provider_override ?? raw.providerOverride ?? null;
+      const modelOverrideVal = raw.model_override ?? raw.modelOverride ?? null;
       const metadata = raw.metadata ?? raw.meta ?? null;
       return {
         id: String(rawId),
@@ -329,6 +337,12 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         projectId: projectVal != null ? String(projectVal) : null,
         parentId: parentVal != null ? String(parentVal) : null,
         archivedAt: archivedVal ? String(archivedVal) : null,
+        activeProfileId:
+          activeProfileVal != null ? String(activeProfileVal) : null,
+        providerOverride:
+          providerOverrideVal != null ? String(providerOverrideVal) : null,
+        modelOverride:
+          modelOverrideVal != null ? String(modelOverrideVal) : null,
         metadata: metadata,
       };
     },
@@ -867,6 +881,34 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       });
     });
 
+    const offProfileSwitched = subscribe("thread.profile.switched", (event) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const tid = payload?.thread_id ?? payload?.threadId;
+      if (!tid) return;
+      const idStr = String(tid);
+      const activeProfileId =
+        payload?.active_profile_id ?? payload?.activeProfileId ?? null;
+      const providerOverride =
+        payload?.provider_override ?? payload?.providerOverride ?? null;
+      const modelOverride =
+        payload?.model_override ?? payload?.modelOverride ?? null;
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id !== idStr
+            ? thread
+            : {
+                ...thread,
+                activeProfileId:
+                  activeProfileId != null ? String(activeProfileId) : null,
+                providerOverride:
+                  providerOverride != null ? String(providerOverride) : null,
+                modelOverride:
+                  modelOverride != null ? String(modelOverride) : null,
+              }
+        )
+      );
+    });
+
     const offThreadCreated = subscribe("thread.created", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
       console.info("[live] thread.created", payload);
@@ -913,6 +955,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     return () => {
       offMessage();
       offThreadUpdated();
+      offProfileSwitched();
       offThreadCreated();
       offThreadBranched();
       offThreadArchived();
