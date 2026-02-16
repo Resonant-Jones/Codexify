@@ -209,7 +209,7 @@ Establish a hardened, predictable security baseline for single-user deployments:
 | TASK_2026_02_16_05_federation_guardrails.md | `46ac90155dd28c2669400a92d4dddc083396223e` | `<this-commit>` |
 | TASK_2026_02_16_06_plugin_loader_consolidation.md | `0329032a78b11a09ac35b6aa9035260db0ad72cf` | `<this-commit>` |
 | TASK_2026_02_16_07_docs_alignment_for_security_posture.md | `40386d4eb5344d25626357cd70a4ab047e72004f` | `<this-commit>` |
-| TASK_2026_02_16_08_outbox_delivery_safety_review.md | `<hash-a8>` | `<hash-b8>` |
+| TASK_2026_02_16_08_outbox_delivery_safety_review.md | `be713fc039edc254cb01f5d6b179eed8da4e01f1` | `<this-commit>` |
 
 ---
 
