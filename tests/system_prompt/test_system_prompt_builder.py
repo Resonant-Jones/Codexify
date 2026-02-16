@@ -63,6 +63,10 @@ def test_build_guardian_system_prompt_includes_segments():
     assert "Auri" in prompt
     assert "You love testing." in prompt
     assert "Doc One" in prompt
+    assert "=== BASE SYSTEM ===" in prompt
+    assert "=== IMPRINT_ZERO ===" in prompt
+    assert "=== PERSONA ===" in prompt
+    assert "=== SYSTEM DOCS ===" in prompt
     assert meta["estimated_tokens"] > 0
     assert meta["docs_count"] == 1
 
@@ -95,7 +99,7 @@ def test_build_guardian_system_prompt_truncates_docs_when_over_cap():
     assert meta["docs_truncated"] is True
 
 
-def test_build_guardian_system_prompt_inserts_profile_block_before_persona():
+def test_build_guardian_system_prompt_includes_profile_guidance_in_scratchpad():
     Session = setup_session()
     imprint_store._set_session_factory(Session)
     persona_store._set_session_factory(Session)
@@ -123,7 +127,7 @@ def test_build_guardian_system_prompt_inserts_profile_block_before_persona():
 
     assert "Resolved system profile guidance" in prompt
     assert "Profile behavior guidance." in prompt
-    assert meta["segments"]["profile"] > 0
-    assert prompt.index("Resolved system profile guidance") < prompt.index(
-        "User-provided persona instructions"
-    )
+    assert "=== SCRATCHPAD ===" in prompt
+    segments = {segment["name"]: segment for segment in meta["segments"]}
+    assert segments["scratchpad"]["chars"] > 0
+    assert prompt.index("=== PERSONA ===") < prompt.index("=== SCRATCHPAD ===")
