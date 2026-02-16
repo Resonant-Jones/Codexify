@@ -482,12 +482,13 @@ async def _build_messages_for_llm(
             "Answer concisely, avoid speculation, and clearly mark any uncertainty."
         )
 
-    messages_for_llm.append({"role": "system", "content": system_content})
+    system_sections = [system_content]
     context_message = build_context_system_message(bundle)
     if context_message:
-        messages_for_llm.append({"role": "system", "content": context_message})
-    messages_for_llm.extend(context)
+        system_sections.append("=== CONTEXT BUNDLE ===\n" + context_message)
 
+    media_note: str | None = None
+    vision_note: str | None = None
     # Attach media references/vision summaries for any upload markers.
     try:
         markers: list[tuple[str, str]] = []
@@ -498,17 +499,22 @@ async def _build_messages_for_llm(
                 markers, thread_id=thread_id, project_id=project_id_for_prompt
             )
             media_note = _build_media_system_message(media_items)
-            if media_note:
-                messages_for_llm.append(
-                    {"role": "system", "content": media_note}
-                )
             vision_note = _maybe_add_vision_summary(media_items, provider)
-            if vision_note:
-                messages_for_llm.append(
-                    {"role": "system", "content": vision_note}
-                )
     except Exception as exc:
         logger.warning("[chat-worker] media attachment parsing failed: %s", exc)
+
+    if media_note:
+        system_sections.append("=== MEDIA ATTACHMENTS ===\n" + media_note)
+    if vision_note:
+        system_sections.append("=== VISION SUMMARY ===\n" + vision_note)
+
+    single_system_message = "\n\n".join(
+        block.strip() for block in system_sections if block and block.strip()
+    )
+    messages_for_llm.append(
+        {"role": "system", "content": single_system_message}
+    )
+    messages_for_llm.extend(context)
 
     model = task.model
     if not model and profile and profile.model_override:
