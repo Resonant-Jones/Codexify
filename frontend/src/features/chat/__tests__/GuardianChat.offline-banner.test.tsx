@@ -66,8 +66,16 @@ vi.mock("@/features/chat/components/PromptCostIndicator", () => ({
 }));
 
 vi.mock("@/components/SessionRail/SessionRail", () => ({
-  default: ({ providerMenuOpenSignal }: { providerMenuOpenSignal?: number }) => (
-    <div data-testid="provider-open-signal">{String(providerMenuOpenSignal ?? 0)}</div>
+  default: ({
+    providerMenuOpenSignal,
+    providerPickerOpenSignal,
+  }: {
+    providerMenuOpenSignal?: number;
+    providerPickerOpenSignal?: number;
+  }) => (
+    <div data-testid="provider-open-signal">
+      {String(providerPickerOpenSignal ?? providerMenuOpenSignal ?? 0)}
+    </div>
   ),
 }));
 
@@ -122,5 +130,39 @@ describe("GuardianChat offline provider reroute", () => {
 
     fireEvent.click(switchButton);
     expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("1");
+  });
+
+  it("routes cloud status icon to the provider section in the lightning popover", async () => {
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "draft", title: "Draft" } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            title: "Tab 1",
+            modelId: "default",
+            createdAt: "2026-02-16T00:00:00.000Z",
+            updatedAt: "2026-02-16T00:00:00.000Z",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    const cloudTrigger = await screen.findByRole("button", {
+      name: "Open provider controls",
+    });
+    expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("0");
+
+    fireEvent.click(cloudTrigger);
+    expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("1");
+    expect(screen.getByTestId("prompt-cost-popover")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("prompt-cost-providers-panel")
+    ).toBeInTheDocument();
   });
 });
