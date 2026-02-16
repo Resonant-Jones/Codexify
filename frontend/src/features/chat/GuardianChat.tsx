@@ -1148,44 +1148,51 @@ export function GuardianChat({
     <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
       {/* Header - Flex Item (Sticky behavior handled by layout if needed, but flex is safer for resizing) */}
       <header
-        className="shrink-0 z-20 flex items-center justify-between gap-2 px-4 py-3"
-        style={{
-          background: "var(--panel-bg)",
-          borderBottom: "1px solid var(--panel-border)",
-          color: "var(--text)",
-        }}
+        className="shrink-0 z-20 px-4 py-3"
       >
-        {/* Left section: mobile back + chevron */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {onSidebarToggle && (
-            <button
-              type="button"
-              className="icon-inline"
-              aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
-              onClick={onSidebarToggle}
-              disabled={!onSidebarToggle}
-              style={{ borderRadius: "var(--radius-micro)" }}
-            >
-              <ChevronRight
-                className={`h-5 w-5 transition-transform duration-200 ${
-                  isSidebarVisible ? "rotate-180" : ""
-                }`}
-              />
-            </button>
-          )}
-        </div>
-
-        {/* Center section: centered title */}
         <div
-          className="absolute left-1/2 -translate-x-1/2 truncate font-semibold max-w-[50%]"
-          style={{ color: "var(--text)" }}
+          className="relative flex items-center justify-between gap-2 rounded-full border px-3 py-2"
+          style={{
+            borderColor: "var(--panel-border)",
+            background:
+              "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 88%, transparent)",
+            color: "var(--text)",
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 18px rgba(0,0,0,0.10)",
+          }}
         >
-          {threadTitle}
-        </div>
+          {/* Left section: mobile back + chevron */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {onSidebarToggle && (
+              <button
+                type="button"
+                className="icon-inline"
+                aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
+                onClick={onSidebarToggle}
+                disabled={!onSidebarToggle}
+                style={{ borderRadius: "var(--radius-micro)" }}
+              >
+                <ChevronRight
+                  className={`h-5 w-5 transition-transform duration-200 ${
+                    isSidebarVisible ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+            )}
+          </div>
 
-        {/* Right section: header actions */}
-        <div className="flex items-center gap-1 justify-end flex-shrink-0">
-          {headerActions}
+          {/* Center section: centered title */}
+          <div
+            className="absolute left-1/2 -translate-x-1/2 truncate font-semibold max-w-[50%]"
+            style={{ color: "var(--text)" }}
+          >
+            {threadTitle}
+          </div>
+
+          {/* Right section: header actions */}
+          <div className="flex items-center gap-1 justify-end flex-shrink-0">
+            {headerActions}
+          </div>
         </div>
       </header>
 
