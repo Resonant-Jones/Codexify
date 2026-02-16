@@ -71,6 +71,17 @@ def _base_flow_spec() -> dict:
     }
 
 
+def _execution_context(**overrides) -> dict:
+    context = {
+        "pre_authenticated": True,
+        "granted_scopes": [],
+        "allowed_external_domains": [],
+        "allow_network_egress": False,
+    }
+    context.update(overrides)
+    return context
+
+
 def _build_flows_router_test_client():
     previous_dependencies_module = sys.modules.get("guardian.core.dependencies")
     stub = types.ModuleType("guardian.core.dependencies")
@@ -195,10 +206,20 @@ def test_run_flow_minimal_path_and_idempotency_cache():
     clear_run_cache()
     compiled = compile_flow(_base_flow_spec())
     first = run_flow(
-        compiled, context={"date": "2026-02-12", "confirmed": True}
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(),
+        },
     )
     second = run_flow(
-        compiled, context={"date": "2026-02-12", "confirmed": True}
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(),
+        },
     )
 
     assert first.status == "success"
@@ -279,3 +300,113 @@ def test_flow_run_persists_profile_override_payload():
     assert applied["ok"] is True
     assert applied["thread_id"] == 7
     assert calls["thread_id"] == 7
+
+
+def test_run_flow_fails_closed_when_pre_auth_missing():
+    clear_run_cache()
+    compiled = compile_flow(_base_flow_spec())
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(pre_authenticated=False),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "pre_auth_required" in run.error
+
+
+def test_run_flow_blocks_when_step_scope_not_granted():
+    clear_run_cache()
+    flow = _base_flow_spec()
+    flow["steps"][0]["required_scopes"] = ["memory.read"]
+    compiled = compile_flow(flow)
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(granted_scopes=[]),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "missing_scopes" in run.error
+
+
+def test_run_flow_blocks_step_scope_escalation_attempt():
+    clear_run_cache()
+    flow = _base_flow_spec()
+    flow["steps"][0]["requested_scopes"] = ["memory.write"]
+    compiled = compile_flow(flow)
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(
+                granted_scopes=["memory.read"]
+            ),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "scope_escalation_forbidden" in run.error
+
+
+def test_run_flow_blocks_network_when_egress_not_allowed():
+    clear_run_cache()
+    flow = _base_flow_spec()
+    flow["steps"][0]["requires_network"] = True
+    flow["steps"][0]["external_domain"] = "api.example.com"
+    compiled = compile_flow(flow)
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(allow_network_egress=False),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "network_egress_blocked" in run.error
+
+
+def test_run_flow_blocks_unapproved_external_domain():
+    clear_run_cache()
+    flow = _base_flow_spec()
+    flow["steps"][0]["requires_network"] = True
+    flow["steps"][0]["external_domain"] = "api.example.com"
+    compiled = compile_flow(flow)
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(
+                allow_network_egress=True,
+                allowed_external_domains=["internal.example.com"],
+            ),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "external_domain_not_allowed" in run.error
+
+
+def test_flows_import_is_disabled_for_mvp():
+    _module, client = _build_flows_router_test_client()
+    headers = {"X-API-Key": "test-key"}
+    response = client.post(
+        "/api/flows/import",
+        json={
+            "source": "transferable",
+            "payload": {"flow_id": "external-flow"},
+        },
+        headers=headers,
+    )
+    assert response.status_code == 501
+    assert "disabled for MVP" in response.json()["detail"]

@@ -164,3 +164,33 @@ Constraints
 - Do not loosen existing auth requirements.
 
 This task establishes the flow execution security boundary that all future flows must pass through.
+
+---
+
+Execution Notes (2026-02-16)
+
+- Added runtime security models and guards in `guardian/flows/security.py`:
+  - `FlowExecutionContext`
+  - `FlowStepSpec`
+  - preflight contract builder/validator
+  - per-step enforcement for pre-auth, scope boundaries, no mid-run auth, and network/domain gates
+- Extended flow schema + compiler to carry security metadata on each step:
+  - `required_scopes`
+  - `requires_network`
+  - `external_domain`
+  - `requests_auth`
+  - `requested_scopes`
+- Enforced security boundary in `guardian/flows/runner.py` before primitive execution:
+  - execution context coercion
+  - preflight contract validation (fail closed)
+  - per-step validation (fail closed) before primitive invoke
+- Added API hard gate for transferable import in `guardian/routes/flows.py`:
+  - `POST /api/flows/import` returns explicit MVP-disabled error
+  - flow run route now forwards/normalizes execution context
+- Added backend tests in `tests/test_flows_core.py` for:
+  - pre-auth failure
+  - missing scope failure
+  - scope escalation/mutation failure
+  - network egress blocked failure
+  - unapproved external domain failure
+  - flow import disabled gate

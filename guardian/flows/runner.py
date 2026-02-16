@@ -10,6 +10,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from guardian.flows.primitives import PrimitiveRegistry
+from guardian.flows.security import (
+    FlowSecurityError,
+    build_preflight_contract,
+    build_step_spec,
+    coerce_execution_context,
+    validate_preflight_contract,
+    validate_step,
+)
 from guardian.flows.spec import CompiledFlow, FlowRun, FlowStepResult
 
 _RUN_CACHE: dict[str, FlowRun] = {}
@@ -108,6 +116,7 @@ def run_flow(
         status="running",
         idempotency_key=idempotency_key,
     )
+    run.warnings = [warning.message for warning in compiled.warnings]
 
     if not compiled.enabled:
         run.status = "blocked"
@@ -131,11 +140,33 @@ def run_flow(
         run.ended_at = _utcnow()
         return run
 
+    try:
+        execution_context = coerce_execution_context(
+            run_context.get("execution_context"),
+            run_id=run_id,
+        )
+    except Exception as exc:
+        run.status = "failed"
+        run.error = f"invalid_execution_context: {exc}"
+        run.ended_at = _utcnow()
+        return run
+
+    step_specs = [build_step_spec(step) for step in compiled.steps]
+    preflight_contract = build_preflight_contract(step_specs)
+    run.output = {"preflight_contract": preflight_contract}
+    try:
+        validate_preflight_contract(preflight_contract, execution_context)
+    except FlowSecurityError as exc:
+        run.status = "blocked"
+        run.error = f"{exc.code}: {exc.message}"
+        run.ended_at = _utcnow()
+        return run
+
     started_monotonic = time.monotonic()
     consumed_tokens = 0
     step_outputs: dict[str, dict[str, Any]] = {}
 
-    for step in compiled.steps:
+    for step, step_spec in zip(compiled.steps, step_specs):
         elapsed = time.monotonic() - started_monotonic
         if elapsed > compiled.budget.timeout_seconds:
             run.status = "failed"
@@ -151,6 +182,27 @@ def run_flow(
         sanitized_params = _redact_payload(
             step.params, compiled.audit.redact_fields
         )
+
+        try:
+            validate_step(step_spec, execution_context)
+        except FlowSecurityError as exc:
+            step_error = f"{exc.code}: {exc.message}"
+            run.step_results.append(
+                FlowStepResult(
+                    step_id=step.step_id,
+                    primitive=step.primitive,
+                    status="blocked",
+                    started_at=step_started,
+                    ended_at=_utcnow(),
+                    params_redacted=sanitized_params,
+                    output={},
+                    error=step_error,
+                    token_usage=0,
+                )
+            )
+            run.status = "blocked"
+            run.error = step_error
+            break
 
         try:
             output = primitive_registry.invoke(
@@ -201,8 +253,7 @@ def run_flow(
     if run.status == "running":
         run.status = "success"
 
-    run.output = {"step_outputs": step_outputs}
-    run.warnings = [warning.message for warning in compiled.warnings]
+    run.output["step_outputs"] = step_outputs
     run.ended_at = _utcnow()
 
     if idempotency_key and compiled.idempotency.mode in {
