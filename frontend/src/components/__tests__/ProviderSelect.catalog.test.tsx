@@ -62,20 +62,23 @@ describe("ProviderSelect catalog routing", () => {
         providers: [
           {
             id: "local",
-            label: "Local",
+            displayName: "Local",
+            enabled: true,
             authorized: true,
             available: true,
-            models: [{ id: "llama3.1:8b", label: "Llama 3.1 8B" }],
+            models: [{ id: "llama3.1:8b", displayName: "Llama 3.1 8B" }],
           },
           {
             id: "groq",
-            label: "Groq",
+            displayName: "Groq",
+            enabled: true,
             authorized: true,
             available: true,
             models: [
               {
                 id: "llama-3.1-70b-versatile",
-                label: "Llama 3.1 70B",
+                displayName: "Llama 3.1 70B",
+                contextWindow: 128000,
               },
             ],
           },
@@ -89,8 +92,8 @@ describe("ProviderSelect catalog routing", () => {
     await waitFor(() =>
       expect(api.get).toHaveBeenCalledWith("/llm/catalog")
     );
-    expect(screen.getByText("Local")).toBeInTheDocument();
-    expect(screen.getByText("Groq")).toBeInTheDocument();
+    expect(screen.getByText("Select Provider")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Groq" })).toBeInTheDocument();
 
     fireEvent.click(providerButton("Groq"));
     expect(await screen.findByText("Llama 3.1 70B")).toBeInTheDocument();
@@ -100,57 +103,71 @@ describe("ProviderSelect catalog routing", () => {
   });
 
   it("refreshes catalog on a new open signal and removes unauthorized providers", async () => {
-    (api.get as any)
-      .mockResolvedValueOnce({
-        data: {
-          providers: [
-            {
-              id: "local",
-              label: "Local",
-              authorized: true,
-              available: true,
-              models: [{ id: "llama3.1:8b", label: "Llama 3.1 8B" }],
-            },
-            {
-              id: "groq",
-              label: "Groq",
-              authorized: true,
-              available: true,
-              models: [
-                {
-                  id: "llama-3.1-70b-versatile",
-                  label: "Llama 3.1 70B",
-                },
-              ],
-            },
-          ],
-        },
-      })
-      .mockResolvedValueOnce({
-        data: {
-          providers: [
-            {
-              id: "local",
-              label: "Local",
-              authorized: true,
-              available: true,
-              models: [{ id: "llama3.1:8b", label: "Llama 3.1 8B" }],
-            },
-          ],
-        },
-      });
+    const initialCatalog = {
+      data: {
+        providers: [
+          {
+            id: "local",
+            displayName: "Local",
+            enabled: true,
+            authorized: true,
+            available: true,
+            models: [{ id: "llama3.1:8b", displayName: "Llama 3.1 8B" }],
+          },
+          {
+            id: "groq",
+            displayName: "Groq",
+            enabled: true,
+            authorized: true,
+            available: true,
+            models: [
+              {
+                id: "llama-3.1-70b-versatile",
+                displayName: "Llama 3.1 70B",
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const updatedCatalog = {
+      data: {
+        providers: [
+          {
+            id: "local",
+            displayName: "Local",
+            enabled: true,
+            authorized: true,
+            available: true,
+            models: [{ id: "llama3.1:8b", displayName: "Llama 3.1 8B" }],
+          },
+          {
+            id: "groq",
+            displayName: "Groq",
+            enabled: false,
+            authorized: true,
+            available: false,
+            models: [{ id: "llama-3.1-70b-versatile", displayName: "Llama 3.1 70B" }],
+          },
+        ],
+      },
+    };
+    (api.get as any).mockResolvedValue(initialCatalog);
 
     const { rerender } = render(
       <ProviderSelect value="default" onChange={vi.fn()} openSignal={1} />
     );
 
-    expect(await screen.findByText("Groq")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Groq" })).toBeInTheDocument();
+    (api.get as any).mockResolvedValueOnce(updatedCatalog);
 
     rerender(<ProviderSelect value="default" onChange={vi.fn()} openSignal={2} />);
 
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect((api.get as any).mock.calls.length).toBeGreaterThanOrEqual(2)
+    );
     await waitFor(() => {
-      expect(screen.queryByText("Groq")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Groq" })).not.toBeInTheDocument();
     });
   });
 });

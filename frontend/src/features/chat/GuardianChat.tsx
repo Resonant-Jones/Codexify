@@ -7,7 +7,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { debounce } from "lodash-es";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronRight, Cloud, MoreVertical, Sparkles, Layers, SquareStack, Zap } from "lucide-react";
+import { ChevronRight, MoreVertical, Sparkles, Layers, SquareStack, Zap } from "lucide-react";
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
@@ -442,11 +442,26 @@ export function GuardianChat({
   );
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
+    const selected = String(activeModelId || "").trim();
+    const hasSelection = selected.length > 0 && selected !== "default";
+    const knownProviders = new Set([
+      "local",
+      "openai",
+      "anthropic",
+      "gemini",
+      "groq",
+    ]);
+    const providerSelection = hasSelection && knownProviders.has(selected)
+      ? selected
+      : undefined;
+    const modelSelection = hasSelection && !knownProviders.has(selected)
+      ? selected
+      : undefined;
     try {
       const response = await api.post(`/chat/${tid}/complete`, {
         depth_mode: depth,
-        provider:
-          activeModelId && activeModelId !== "default" ? activeModelId : undefined,
+        provider: providerSelection,
+        model: modelSelection,
       });
       console.log(`[guardian] Completing with depth=${depth}`);
 
@@ -955,12 +970,6 @@ export function GuardianChat({
     promptCostSummary?.threshold?.status ?? "unknown";
   const showPromptCostDot =
     promptCostStatus === "warn" || promptCostStatus === "hard";
-  const cloudStatusDotClass =
-    llmHealth.status === "online"
-      ? "bg-emerald-400"
-      : llmHealth.status === "offline" || llmHealth.status === "misconfigured"
-        ? "bg-rose-400"
-        : "bg-amber-400";
 
   const headerActions = (
     <div className="flex items-center gap-1">
@@ -996,22 +1005,6 @@ export function GuardianChat({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <button
-        type="button"
-        className="icon-inline relative"
-        aria-label="Open provider controls"
-        title={`Provider controls (${llmHealth.status})`}
-        onClick={() => requestProviderSwitch({ openPopover: true })}
-        style={{ borderRadius: "var(--radius-micro)" }}
-        data-testid="connections-status-trigger"
-      >
-        <Cloud className="h-5 w-5" />
-        <span
-          className={`absolute right-[0.1rem] top-[0.1rem] h-1.5 w-1.5 rounded-full ${cloudStatusDotClass}`}
-          aria-hidden="true"
-        />
-      </button>
 
       <div
         ref={promptCostPopoverRef}
