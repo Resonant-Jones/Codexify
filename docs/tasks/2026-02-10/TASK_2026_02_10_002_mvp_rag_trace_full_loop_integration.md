@@ -119,3 +119,37 @@ PY`
 - Task ID: 002
 
 - Head before: 981ed80e2b4a7d390abddf86faea4b4a34b76463
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: New deterministic helper + prompt update to tie `agent.model` to its output.
+
+- Implementation commit hash: e545e04c071db781d2756a245eba91aab5e9fb72
+
+- Receipt update commit hash: b3c4d495ee80a42c0cc8531689f7809ad0f59e14
+
+- Tests ran: python codex_runner/model_id_helper.py
+
+- Notes: Files touched: codex_runner/model_id_helper.py, codex_runner/prompts/mega_audit.md.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "New deterministic helper + prompt update to tie `agent.model` to its output.",
+  "tests_ran": [
+    "python codex_runner/model_id_helper.py"
+  ],
+  "commit_hash": "e545e04c071db781d2756a245eba91aab5e9fb72",
+  "implementation_commit_hash": "e545e04c071db781d2756a245eba91aab5e9fb72",
+  "receipt_update_commit_hash": "b3c4d495ee80a42c0cc8531689f7809ad0f59e14",
+  "notes": "Files touched: codex_runner/model_id_helper.py, codex_runner/prompts/mega_audit.md."
+}
+```
+
+</details>
