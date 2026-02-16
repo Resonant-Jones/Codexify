@@ -63,7 +63,9 @@ async def websocket_rpc(websocket: WebSocket) -> None:
             return
 
     await manager.register(websocket)
-    rate_limit_key = f"api_key:{api_key}" if api_key else f"connection:{id(websocket)}"
+    rate_limit_key = (
+        f"api_key:{api_key}" if api_key else f"connection:{id(websocket)}"
+    )
     idle_timeout_seconds = max(0.0, float(settings.WS_RPC_IDLE_TIMEOUT_SECONDS))
     ctx = {
         "connection": websocket,
@@ -147,7 +149,9 @@ async def websocket_rpc(websocket: WebSocket) -> None:
                 await websocket.send_json(response.model_dump())
                 continue
             except Exception as exc:
-                logger.warning("[ws.rpc] method %s failed: %s", request.method, exc)
+                logger.warning(
+                    "[ws.rpc] method %s failed: %s", request.method, exc
+                )
                 response = error_response(
                     request_id=request.id,
                     code="method_error",

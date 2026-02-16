@@ -72,9 +72,13 @@ class TokenBucketRateLimiter:
     async def _allow_memory(self, key: str, cost: float) -> RateLimitDecision:
         now = time.time()
         async with self._memory_lock:
-            tokens, last_refill = self._memory_state.get(key, (self._capacity, now))
+            tokens, last_refill = self._memory_state.get(
+                key, (self._capacity, now)
+            )
             elapsed = max(0.0, now - last_refill)
-            tokens = min(self._capacity, tokens + (elapsed * self._refill_per_second))
+            tokens = min(
+                self._capacity, tokens + (elapsed * self._refill_per_second)
+            )
             if tokens >= cost:
                 tokens -= cost
                 decision = RateLimitDecision(
@@ -115,7 +119,9 @@ class TokenBucketRateLimiter:
                     tokens = float(parsed.get("tokens", self._capacity))
                     last_refill = float(parsed.get("last_refill", now))
             elapsed = max(0.0, now - last_refill)
-            tokens = min(self._capacity, tokens + (elapsed * self._refill_per_second))
+            tokens = min(
+                self._capacity, tokens + (elapsed * self._refill_per_second)
+            )
             if tokens >= cost:
                 tokens -= cost
                 decision = RateLimitDecision(
@@ -141,7 +147,10 @@ class TokenBucketRateLimiter:
             )
             return decision
         except Exception as exc:  # pragma: no cover - fallback safety
-            logger.warning("[ws.rate_limit] redis unavailable, using memory fallback: %s", exc)
+            logger.warning(
+                "[ws.rate_limit] redis unavailable, using memory fallback: %s",
+                exc,
+            )
             await self._disable_redis_client()
             return None
 
@@ -170,7 +179,10 @@ class TokenBucketRateLimiter:
             self._redis_client = client
             return client
         except Exception as exc:  # pragma: no cover - fallback safety
-            logger.warning("[ws.rate_limit] redis connect failed, using memory fallback: %s", exc)
+            logger.warning(
+                "[ws.rate_limit] redis connect failed, using memory fallback: %s",
+                exc,
+            )
             self._redis_disabled = True
             return None
 

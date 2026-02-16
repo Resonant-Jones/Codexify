@@ -58,7 +58,9 @@ async def authenticate_websocket(
         return _validate_api_key(query_token)
 
     try:
-        raw = await asyncio.wait_for(websocket.receive_text(), timeout=timeout_seconds)
+        raw = await asyncio.wait_for(
+            websocket.receive_text(), timeout=timeout_seconds
+        )
     except asyncio.TimeoutError as exc:
         raise WSAuthError(
             code=AUTH_FAILURE_CLOSE_CODE,
@@ -80,7 +82,9 @@ async def authenticate_websocket(
             reason="auth_required",
         )
 
-    frame_token = str(payload.get("api_key") or payload.get("token") or "").strip()
+    frame_token = str(
+        payload.get("api_key") or payload.get("token") or ""
+    ).strip()
     if not frame_token:
         raise WSAuthError(
             code=AUTH_FAILURE_CLOSE_CODE,

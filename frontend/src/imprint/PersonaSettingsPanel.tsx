@@ -21,6 +21,18 @@ export default function PersonaSettingsPanel({ open, onClose }: Props) {
 
   const meta = imprint.status?.system_prompt_meta;
   const warnings = meta?.warnings || [];
+  const totalTokens =
+    meta?.estimated_tokens_total ?? meta?.estimated_tokens ?? "—";
+  const thresholdStatus = (meta?.threshold?.status || "unknown").toUpperCase();
+  const segmentTokenMap = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    const segments = Array.isArray(meta?.segments) ? meta.segments : [];
+    for (const segment of segments) {
+      if (!segment?.name) continue;
+      map[segment.name] = Number(segment.estimated_tokens || 0);
+    }
+    return map;
+  }, [meta?.segments]);
 
   return (
     <div className="fixed inset-0 z-[250] flex items-center justify-center">
@@ -78,11 +90,11 @@ export default function PersonaSettingsPanel({ open, onClose }: Props) {
               System Prompt Summary
             </div>
             <div className="text-xs" style={{ color: "var(--text)" }}>
-              Tokens ~ {meta?.estimated_tokens ?? "—"} | Cap {meta?.cap_tokens ?? "—"}
+              Tokens ~ {totalTokens} | Status {thresholdStatus}
             </div>
             <div className="text-xs opacity-70" style={{ color: "var(--muted)" }}>
-              Base: {meta?.segments?.base ?? 0} | Persona: {meta?.segments?.persona ?? 0} | Docs:{" "}
-              {meta?.segments?.system_docs ?? 0}
+              Base: {segmentTokenMap.base ?? 0} | Persona: {segmentTokenMap.persona ?? 0} | Docs:{" "}
+              {segmentTokenMap.system_docs ?? 0}
             </div>
             {warnings.length > 0 && (
               <div

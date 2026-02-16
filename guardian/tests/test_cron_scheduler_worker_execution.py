@@ -103,12 +103,19 @@ def test_cron_worker_execution_marks_run_succeeded() -> None:
 
     called: list[tuple[str, dict[str, Any] | None]] = []
 
-    def _executor(*, job_type: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    def _executor(
+        *, job_type: str, payload: dict[str, Any] | None
+    ) -> dict[str, Any]:
         called.append((job_type, payload))
         return {"ok": True, "echo": payload}
 
     ok = process_cron_message(
-        {"cron_run_id": run_id, "cron_job_id": job_id, "job_type": "noop", "payload": {"k": 1}},
+        {
+            "cron_run_id": run_id,
+            "cron_job_id": job_id,
+            "job_type": "noop",
+            "payload": {"k": 1},
+        },
         db=db,
         executor=_executor,
         emit_events=False,

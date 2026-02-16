@@ -5,11 +5,18 @@ Imprint_Zero routes: proposal, acceptance, status, and system prompt summary.
 from __future__ import annotations
 
 import logging
+import os
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from guardian.cognition.identity_policy import (
+    can_run_deep_identity_modeling,
+    normalize_identity_depth,
+    thread_blocks_identity_modeling,
+)
 from guardian.cognition.imprints import store as imprint_store
 from guardian.cognition.personas import store as persona_store
 from guardian.cognition.system_docs import store as system_doc_store
@@ -30,6 +37,90 @@ system_prompt_router = APIRouter(
     prefix="/api/system_prompt", tags=["SystemPrompt"]
 )
 system_docs_router = APIRouter(prefix="/api/system_docs", tags=["SystemDocs"])
+
+DEFAULT_WARN_TOKENS = 6000
+DEFAULT_HARD_TOKENS = 8000
+
+
+def _parse_threshold_env(value: str | None, default: int) -> int:
+    try:
+        parsed = int(str(value).strip()) if value is not None else default
+        return parsed if parsed > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _resolve_prompt_thresholds() -> tuple[int, int]:
+    warn_tokens = _parse_threshold_env(
+        os.getenv("SYSTEM_PROMPT_WARN_TOKENS"),
+        DEFAULT_WARN_TOKENS,
+    )
+    hard_tokens = _parse_threshold_env(
+        os.getenv("SYSTEM_PROMPT_HARD_TOKENS"),
+        DEFAULT_HARD_TOKENS,
+    )
+    if hard_tokens < warn_tokens:
+        hard_tokens = warn_tokens
+    return warn_tokens, hard_tokens
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_segments(raw_segments: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+
+    if isinstance(raw_segments, list):
+        for segment in raw_segments:
+            if not isinstance(segment, dict):
+                continue
+            name = str(segment.get("name") or "").strip()
+            if not name:
+                continue
+            normalized.append(
+                {
+                    "name": name,
+                    "chars": _coerce_int(segment.get("chars")) or 0,
+                    "estimated_tokens": _coerce_int(
+                        segment.get("estimated_tokens")
+                    )
+                    or 0,
+                    "truncated": bool(segment.get("truncated")),
+                }
+            )
+        return normalized
+
+    if isinstance(raw_segments, dict):
+        for key, value in raw_segments.items():
+            name = str(key).strip()
+            if not name:
+                continue
+            chars = _coerce_int(value) or 0
+            normalized.append(
+                {
+                    "name": name,
+                    "chars": chars,
+                    "estimated_tokens": max(1, chars // 4) if chars > 0 else 0,
+                    "truncated": False,
+                }
+            )
+    return normalized
+
+
+def _threshold_status(
+    estimated_tokens_total: int | None, warn_tokens: int, hard_tokens: int
+) -> str:
+    if estimated_tokens_total is None:
+        return "unknown"
+    if estimated_tokens_total >= hard_tokens:
+        return "hard"
+    if estimated_tokens_total >= warn_tokens:
+        return "warn"
+    return "ok"
 
 
 def _resolve_user_project(
@@ -53,17 +144,45 @@ def _resolve_user_project(
     return user_id, resolved_project, thread
 
 
+def _resolve_project_identity_depth(project_id: int | None) -> str:
+    if not project_id or not chatlog_db:
+        return "light"
+    getter = getattr(chatlog_db, "get_project_identity_depth", None)
+    if not callable(getter):
+        return "light"
+    try:
+        return normalize_identity_depth(getter(project_id))
+    except Exception as e:
+        logger.warning(
+            "[imprint] failed to resolve identity_depth project=%s: %s",
+            project_id,
+            e,
+        )
+        return "light"
+
+
 def _identity_updates_allowed(
-    user_id: str, thread: dict[str, Any] | None
+    user_id: str,
+    thread: dict[str, Any] | None,
+    *,
+    project_identity_depth: str = "light",
+    requested_depth: str = "light",
 ) -> bool:
     settings = user_settings_store.get_user_settings(user_id)
     memory_mode = settings.get("memory_mode", "deep")
-    if thread:
-        if thread.get("exclude_from_identity"):
-            return False
-        if thread.get("is_diary") and settings.get("diary_requires_unlock"):
-            return False
+    if thread_blocks_identity_modeling(thread):
+        return False
+    if (
+        thread
+        and bool(thread.get("is_diary") or thread.get("diary_mode"))
+        and settings.get("diary_requires_unlock")
+    ):
+        return False
     if memory_mode == "none":
+        return False
+    if normalize_identity_depth(requested_depth) == "deep" and (
+        not can_run_deep_identity_modeling(project_identity_depth)
+    ):
         return False
     return True
 
@@ -105,10 +224,19 @@ def get_imprint_status(
     except Exception as e:
         logger.warning("[imprint] system prompt meta failed: %s", e)
 
-    segments_present = {}
-    if system_prompt_meta.get("segments"):
+    segments_present: dict[str, bool] = {}
+    segments_payload = system_prompt_meta.get("segments")
+    if isinstance(segments_payload, list):
+        for segment in segments_payload:
+            if not isinstance(segment, dict):
+                continue
+            name = segment.get("name")
+            if not isinstance(name, str):
+                continue
+            segments_present[name] = int(segment.get("chars") or 0) > 0
+    elif isinstance(segments_payload, dict):
         segments_present = {
-            k: (v > 0) for k, v in system_prompt_meta["segments"].items()
+            str(k): int(v) > 0 for k, v in segments_payload.items()
         }
 
     return {
@@ -131,7 +259,7 @@ def get_imprint_status(
             "estimated_tokens": system_prompt_meta.get("estimated_tokens"),
             "docs_count": system_prompt_meta.get("docs_count"),
             "segments_present": segments_present,
-            "segments": system_prompt_meta.get("segments", {}),
+            "segments": system_prompt_meta.get("segments", []),
         },
     }
 
@@ -171,8 +299,19 @@ def create_imprint_proposal(body: dict[str, Any] = Body(default_factory=dict)):
     user_id, resolved_project, thread = _resolve_user_project(
         thread_id, project_id
     )
+    requested_depth = str(
+        body.get("requested_depth")
+        or body.get("identity_modeling_depth")
+        or "light"
+    )
+    project_identity_depth = _resolve_project_identity_depth(resolved_project)
 
-    if not _identity_updates_allowed(user_id, thread):
+    if not _identity_updates_allowed(
+        user_id,
+        thread,
+        project_identity_depth=project_identity_depth,
+        requested_depth=requested_depth,
+    ):
         raise HTTPException(
             status_code=403, detail="identity updates disabled for this context"
         )
@@ -233,7 +372,12 @@ def accept_imprint(body: dict[str, Any] = Body(...)):
     _, _, thread = _resolve_user_project(
         body.get("thread_id"), resolved_project
     )
-    if not _identity_updates_allowed(user_id, thread):
+    project_identity_depth = _resolve_project_identity_depth(resolved_project)
+    if not _identity_updates_allowed(
+        user_id,
+        thread,
+        project_identity_depth=project_identity_depth,
+    ):
         raise HTTPException(
             status_code=403, detail="identity updates disabled for this context"
         )
@@ -304,6 +448,8 @@ def system_prompt_summary(
 ):
     """Return system prompt meta for the current user/project."""
     user_id, resolved_project, _ = _resolve_user_project(thread_id, project_id)
+    warn_tokens, hard_tokens = _resolve_prompt_thresholds()
+    generated_at = datetime.now(timezone.utc).isoformat()
     try:
         if not build_guardian_system_prompt:
             raise RuntimeError("system prompt builder unavailable")
@@ -315,23 +461,58 @@ def system_prompt_summary(
         )
     except Exception as e:
         logger.warning("[system_prompt] summary failed: %s", e)
-        return JSONResponse(
-            status_code=500,
-            content={"ok": False, "error": "system prompt unavailable"},
-        )
+        return {
+            "estimated_tokens_total": None,
+            "threshold": {
+                "warn_tokens": warn_tokens,
+                "hard_tokens": hard_tokens,
+                "status": "unknown",
+            },
+            "segments": [],
+            "docs_count": None,
+            "generated_at": generated_at,
+            # Legacy compatibility payload
+            "estimated_tokens": None,
+            "cap_tokens": None,
+            "docs_truncated": False,
+            "overflow": False,
+            "warnings": [],
+        }
 
-    warnings = []
-    if meta.get("estimated_tokens", 0) > 1500:
-        warnings.append("System prompt is large and may increase cost/latency.")
-    if meta.get("docs_truncated"):
+    segments = _normalize_segments(meta.get("segments"))
+    estimated_tokens_total = _coerce_int(
+        meta.get("estimated_tokens_total", meta.get("estimated_tokens"))
+    )
+    if estimated_tokens_total is None:
+        estimated_tokens_total = sum(
+            int(segment.get("estimated_tokens") or 0) for segment in segments
+        )
+    status = _threshold_status(estimated_tokens_total, warn_tokens, hard_tokens)
+
+    warnings: list[str] = []
+    if status == "warn":
+        warnings.append(
+            "System prompt is approaching the configured token threshold."
+        )
+    elif status == "hard":
+        warnings.append("System prompt exceeds the configured hard threshold.")
+    if bool(meta.get("docs_truncated")):
         warnings.append("System docs truncated due to token budget.")
 
     return {
-        "estimated_tokens": meta.get("estimated_tokens"),
+        "estimated_tokens_total": estimated_tokens_total,
+        "threshold": {
+            "warn_tokens": warn_tokens,
+            "hard_tokens": hard_tokens,
+            "status": status,
+        },
+        "segments": segments,
         "docs_count": meta.get("docs_count"),
-        "segments": meta.get("segments"),
+        "generated_at": generated_at,
+        # Legacy compatibility payload
+        "estimated_tokens": estimated_tokens_total,
         "cap_tokens": meta.get("cap_tokens"),
-        "docs_truncated": meta.get("docs_truncated"),
+        "docs_truncated": bool(meta.get("docs_truncated")),
         "overflow": meta.get("overflow"),
         "warnings": warnings,
     }
@@ -348,7 +529,12 @@ def update_persona(body: dict[str, Any] = Body(...)):
     user_id, resolved_project, thread = _resolve_user_project(
         thread_id, project_id
     )
-    if not _identity_updates_allowed(user_id, thread):
+    project_identity_depth = _resolve_project_identity_depth(resolved_project)
+    if not _identity_updates_allowed(
+        user_id,
+        thread,
+        project_identity_depth=project_identity_depth,
+    ):
         raise HTTPException(
             status_code=403, detail="identity updates disabled for this context"
         )

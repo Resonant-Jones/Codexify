@@ -174,7 +174,9 @@ async def create_session() -> dict[str, Any]:
                 "error": str(exc),
             },
         )
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
     data = _serialize_session(session)
     _emit(
         "browser.session.updated",
@@ -201,7 +203,9 @@ async def get_session(session_id: str) -> dict[str, Any]:
                 "error": str(exc),
             },
         )
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     data = _serialize_session(session)
     _emit(
         "browser.session.updated",

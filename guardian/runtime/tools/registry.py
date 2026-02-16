@@ -203,6 +203,40 @@ def generate_tools_manifest() -> list[dict[str, Any]]:
             },
         }
     )
+    tools.append(
+        {
+            "type": "function",
+            "function": {
+                "name": "guardian.profile.switch",
+                "description": "Switch the active system profile for a thread. Applies to the next completion.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "profile_id": {"type": "string"},
+                        "thread_id": {"type": "integer"},
+                    },
+                    "required": ["profile_id"],
+                },
+            },
+        }
+    )
+    tools.append(
+        {
+            "type": "function",
+            "function": {
+                "name": "set_profile",
+                "description": "Switch the active system profile for the current thread.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "profile_id": {"type": "string"},
+                        "thread_id": {"type": "integer"},
+                    },
+                    "required": ["profile_id"],
+                },
+            },
+        }
+    )
     return tools
 
 

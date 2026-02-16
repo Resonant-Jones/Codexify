@@ -71,6 +71,17 @@ def _base_flow_spec() -> dict:
     }
 
 
+def _execution_context(**overrides) -> dict:
+    context = {
+        "pre_authenticated": True,
+        "granted_scopes": [],
+        "allowed_external_domains": [],
+        "allow_network_egress": False,
+    }
+    context.update(overrides)
+    return context
+
+
 def _build_flows_router_test_client():
     previous_dependencies_module = sys.modules.get("guardian.core.dependencies")
     stub = types.ModuleType("guardian.core.dependencies")
@@ -195,10 +206,20 @@ def test_run_flow_minimal_path_and_idempotency_cache():
     clear_run_cache()
     compiled = compile_flow(_base_flow_spec())
     first = run_flow(
-        compiled, context={"date": "2026-02-12", "confirmed": True}
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(),
+        },
     )
     second = run_flow(
-        compiled, context={"date": "2026-02-12", "confirmed": True}
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(),
+        },
     )
 
     assert first.status == "success"
@@ -228,3 +249,164 @@ def test_patch_flow_rejects_flow_id_mutation():
 
     missing_new = client.get("/api/flows/mutated_flow_v2", headers=headers)
     assert missing_new.status_code == 404
+
+
+def test_flow_run_persists_profile_override_payload():
+    module, client = _build_flows_router_test_client()
+    headers = {"X-API-Key": "test-key"}
+    flow_spec = _base_flow_spec()
+    flow_spec["scope"]["thread_ids"] = ["7"]
+
+    created = client.post("/api/flows", json=flow_spec, headers=headers)
+    assert created.status_code == 201
+
+    calls: dict[str, object] = {}
+
+    class _Resolved:
+        active_profile_id = "local_mode"
+        provider_override = "local"
+        model_override = "mlx-community/Llama-3B"
+
+    def _fake_persist(thread_id, payload, chatlog_db=None):
+        calls["thread_id"] = thread_id
+        calls["payload"] = payload
+        calls["chatlog_db"] = chatlog_db
+        return _Resolved()
+
+    module.persist_flow_profile_override = _fake_persist
+    module._runtime_deps = lambda: (object(), None)
+
+    run = client.post(
+        "/api/flows/unit_test_flow_v1/run",
+        json={
+            "context": {
+                "date": "2026-02-12",
+                "profile_override_payload": {
+                    "profile_id": "local_mode",
+                    "provider_override": "local",
+                    "system_prompt_blocks": {
+                        "behavior": "Prefer local-only execution."
+                    },
+                },
+            },
+            "confirmed": True,
+        },
+        headers=headers,
+    )
+    assert run.status_code == 200
+    body = run.json()
+    assert body["ok"] is True
+    applied = body["run"]["output"]["profile_override"]
+    assert applied["ok"] is True
+    assert applied["thread_id"] == 7
+    assert calls["thread_id"] == 7
+
+
+def test_run_flow_fails_closed_when_pre_auth_missing():
+    clear_run_cache()
+    compiled = compile_flow(_base_flow_spec())
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(pre_authenticated=False),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "pre_auth_required" in run.error
+
+
+def test_run_flow_blocks_when_step_scope_not_granted():
+    clear_run_cache()
+    flow = _base_flow_spec()
+    flow["steps"][0]["required_scopes"] = ["memory.read"]
+    compiled = compile_flow(flow)
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(granted_scopes=[]),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "missing_scopes" in run.error
+
+
+def test_run_flow_blocks_step_scope_escalation_attempt():
+    clear_run_cache()
+    flow = _base_flow_spec()
+    flow["steps"][0]["requested_scopes"] = ["memory.write"]
+    compiled = compile_flow(flow)
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(
+                granted_scopes=["memory.read"]
+            ),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "scope_escalation_forbidden" in run.error
+
+
+def test_run_flow_blocks_network_when_egress_not_allowed():
+    clear_run_cache()
+    flow = _base_flow_spec()
+    flow["steps"][0]["requires_network"] = True
+    flow["steps"][0]["external_domain"] = "api.example.com"
+    compiled = compile_flow(flow)
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(allow_network_egress=False),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "network_egress_blocked" in run.error
+
+
+def test_run_flow_blocks_unapproved_external_domain():
+    clear_run_cache()
+    flow = _base_flow_spec()
+    flow["steps"][0]["requires_network"] = True
+    flow["steps"][0]["external_domain"] = "api.example.com"
+    compiled = compile_flow(flow)
+    run = run_flow(
+        compiled,
+        context={
+            "date": "2026-02-12",
+            "confirmed": True,
+            "execution_context": _execution_context(
+                allow_network_egress=True,
+                allowed_external_domains=["internal.example.com"],
+            ),
+        },
+    )
+    assert run.status == "blocked"
+    assert run.error is not None
+    assert "external_domain_not_allowed" in run.error
+
+
+def test_flows_import_is_disabled_for_mvp():
+    _module, client = _build_flows_router_test_client()
+    headers = {"X-API-Key": "test-key"}
+    response = client.post(
+        "/api/flows/import",
+        json={
+            "source": "transferable",
+            "payload": {"flow_id": "external-flow"},
+        },
+        headers=headers,
+    )
+    assert response.status_code == 501
+    assert "disabled for MVP" in response.json()["detail"]

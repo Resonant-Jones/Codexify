@@ -28,6 +28,8 @@ type SessionSpineConfig = {
   defaultModelId?: string;
   ttlSeconds?: number;
   draftsTtlSeconds?: number;
+  canHydrate?: () => boolean;
+  canPersist?: () => boolean;
 };
 
 function nowIso(): string {
@@ -56,6 +58,8 @@ export class SessionSpine {
   private readonly defaultModelId: string;
   private readonly ttlSeconds: number;
   private readonly draftsTtlSeconds: number;
+  private readonly canHydrate: () => boolean;
+  private readonly canPersist: () => boolean;
   private readonly listeners = new Set<SessionListener>();
 
   private state: SessionState | null = null;
@@ -69,9 +73,19 @@ export class SessionSpine {
     this.defaultModelId = (config.defaultModelId || DEFAULT_MODEL_ID).trim() || DEFAULT_MODEL_ID;
     this.ttlSeconds = config.ttlSeconds ?? SESSION_TTL_SECONDS;
     this.draftsTtlSeconds = config.draftsTtlSeconds ?? SESSION_DRAFTS_TTL_SECONDS;
+    this.canHydrate = config.canHydrate ?? (() => true);
+    this.canPersist = config.canPersist ?? (() => true);
   }
 
   async hydrate(options: HydrateOptions = {}): Promise<SessionState> {
+    if (!this.canHydrate()) {
+      const next = this.createDefaultState(options);
+      this.state = next;
+      this.hydrated = true;
+      this.emit();
+      return copyState(next);
+    }
+
     let loaded: SessionState | null = null;
     try {
       loaded = await this.store.getSessionState(this.userId, this.deviceId);
@@ -302,6 +316,7 @@ export class SessionSpine {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
     }
+    if (!this.canPersist()) return;
     try {
       await this.store.setSessionState(
         this.userId,

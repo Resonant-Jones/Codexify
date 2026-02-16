@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -136,18 +137,68 @@ def test_system_prompt_summary():
     meta = {
         "estimated_tokens": 1200,
         "docs_count": 1,
-        "segments": {"base": 10, "persona": 5},
+        "segments": [
+            {
+                "name": "base",
+                "chars": 40,
+                "estimated_tokens": 10,
+                "truncated": False,
+            }
+        ],
     }
     with patch.object(
         imprint_routes,
         "build_guardian_system_prompt",
-        return_value=("prompt", meta),
+        return_value=("SECRET_PROMPT_CONTENT", meta),
     ):
         resp = client.get("/api/system_prompt/summary")
     assert resp.status_code == 200
     body = resp.json()
     assert body["estimated_tokens"] == 1200
+    assert body["estimated_tokens_total"] == 1200
     assert body["docs_count"] == 1
+    assert body["threshold"]["status"] == "ok"
+    assert body["segments"][0]["name"] == "base"
+    assert "SECRET_PROMPT_CONTENT" not in json.dumps(body)
+
+
+def test_system_prompt_summary_threshold_boundaries():
+    app = make_app()
+    client = TestClient(app)
+
+    with patch.object(
+        imprint_routes,
+        "build_guardian_system_prompt",
+        return_value=("prompt", {"estimated_tokens": 6100, "segments": []}),
+    ):
+        warn_resp = client.get("/api/system_prompt/summary")
+    assert warn_resp.status_code == 200
+    assert warn_resp.json()["threshold"]["status"] == "warn"
+
+    with patch.object(
+        imprint_routes,
+        "build_guardian_system_prompt",
+        return_value=("prompt", {"estimated_tokens": 8100, "segments": []}),
+    ):
+        hard_resp = client.get("/api/system_prompt/summary")
+    assert hard_resp.status_code == 200
+    assert hard_resp.json()["threshold"]["status"] == "hard"
+
+
+def test_system_prompt_summary_unknown_when_builder_unavailable():
+    app = make_app()
+    client = TestClient(app)
+
+    with patch.object(
+        imprint_routes,
+        "build_guardian_system_prompt",
+        side_effect=RuntimeError("boom"),
+    ):
+        resp = client.get("/api/system_prompt/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["threshold"]["status"] == "unknown"
+    assert body["estimated_tokens_total"] is None
 
 
 def test_system_docs_toggle():

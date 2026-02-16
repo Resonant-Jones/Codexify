@@ -52,6 +52,9 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     icon: Mapped[str | None] = mapped_column(String(16))
+    identity_depth: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="light", server_default="light"
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -60,6 +63,13 @@ class Project(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "identity_depth IN ('light','deep')",
+            name="projects_identity_depth_check",
+        ),
     )
 
     __mapper_args__ = {"eager_defaults": True}
@@ -86,6 +96,7 @@ class ChatThread(Base):
     project_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("projects.id")
     )
+    active_profile_id: Mapped[str | None] = mapped_column(String(128))
     parent_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id")
     )
@@ -95,7 +106,13 @@ class ChatThread(Base):
     is_diary: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    diary_mode: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     exclude_from_identity: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    modeling_excluded: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -498,6 +515,36 @@ class EventOutbox(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class EventGraphEvent(Base):
+    """Durable audit/lineage event row with idempotent write key."""
+
+    __tablename__ = "event_graph_events"
+
+    event_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    actor_user_id: Mapped[str | None] = mapped_column(String(255))
+    project_id: Mapped[int | None] = mapped_column(Integer)
+    thread_id: Mapped[int | None] = mapped_column(Integer)
+    entity_type: Mapped[str | None] = mapped_column(String(64))
+    entity_id: Mapped[str | None] = mapped_column(String(255))
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True
+    )
+    parent_event_id: Mapped[int | None] = mapped_column(BigInteger)
+    payload_json: Mapped[dict | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql")
     )
 
     __mapper_args__ = {"eager_defaults": True}
@@ -1237,6 +1284,21 @@ Index(
     "ix_events_outbox_status_created",
     EventOutbox.status,
     EventOutbox.created_at,
+)
+Index(
+    "ix_event_graph_event_type_occurred",
+    EventGraphEvent.event_type,
+    EventGraphEvent.occurred_at,
+)
+Index(
+    "ix_event_graph_thread_occurred",
+    EventGraphEvent.thread_id,
+    EventGraphEvent.occurred_at,
+)
+Index(
+    "ix_event_graph_entity",
+    EventGraphEvent.entity_type,
+    EventGraphEvent.entity_id,
 )
 
 # Legacy indexes

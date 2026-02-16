@@ -21,6 +21,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
 
+from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.core.event_graph import get_event_writer
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     acquire_turn_lock,
@@ -99,6 +101,15 @@ try:  # pragma: no cover - prompts are optional in some deployments
     )
 except Exception:
     build_guardian_system_prompt = None
+
+try:
+    from guardian.cognition.system_profiles.resolver import (
+        list_available_system_profiles,
+        resolve_thread_system_profile,
+    )
+except Exception:
+    list_available_system_profiles = None
+    resolve_thread_system_profile = None
 
 
 # Pydantic models for thread operations
@@ -182,6 +193,36 @@ def _estimate_tokens(text: Optional[str]) -> int:
     except Exception:
         return 0
     return max(1, length // 4)
+
+
+def _emit_thread_update_event(
+    *,
+    thread_id: int,
+    actor_user_id: str | None,
+    project_id: int | None,
+    idempotency_suffix: str,
+    payload: dict[str, Any],
+    parent_event_id: int | None = None,
+) -> None:
+    try:
+        idempotency_key = f"thread.update:{thread_id}:{idempotency_suffix}"
+        get_event_writer().emit_event(
+            event_type="thread.update",
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            thread_id=thread_id,
+            entity_type="thread",
+            entity_id=str(thread_id),
+            payload=payload,
+            parent_event_id=parent_event_id,
+            idempotency_key=idempotency_key,
+        )
+    except Exception:
+        logger.debug(
+            "[thread.update] event graph emit failed thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
 
 
 # Helper functions
@@ -287,6 +328,16 @@ def _apply_thread_update(
             thread_id,
             list(changes.keys()) or updated_field_keys or list(payload.keys()),
         )
+        _emit_thread_update_event(
+            thread_id=thread_id,
+            actor_user_id=refreshed.get("user_id"),
+            project_id=refreshed.get("project_id"),
+            idempotency_suffix=f"meta:{refreshed.get('updated_at') or datetime.now(timezone.utc).isoformat()}",
+            payload={
+                "thread_id": thread_id,
+                "changed_fields": sorted(changes.keys()),
+            },
+        )
 
     if archived_requested is True:
         # Archive if not already archived
@@ -301,6 +352,16 @@ def _apply_thread_update(
                     "chat_thread",
                     str(thread_id),
                     user_id=archived.get("user_id", "default"),
+                )
+                _emit_thread_update_event(
+                    thread_id=thread_id,
+                    actor_user_id=archived.get("user_id"),
+                    project_id=archived.get("project_id"),
+                    idempotency_suffix=f"archive:{archived.get('archived_at') or datetime.now(timezone.utc).isoformat()}",
+                    payload={
+                        "thread_id": thread_id,
+                        "archived": True,
+                    },
                 )
         else:
             logger.debug("Thread %s already archived", thread_id)
@@ -319,6 +380,16 @@ def _apply_thread_update(
                     "chat_thread",
                     str(thread_id),
                     user_id=unarchived.get("user_id", "default"),
+                )
+                _emit_thread_update_event(
+                    thread_id=thread_id,
+                    actor_user_id=unarchived.get("user_id"),
+                    project_id=unarchived.get("project_id"),
+                    idempotency_suffix=f"unarchive:{unarchived.get('updated_at') or datetime.now(timezone.utc).isoformat()}",
+                    payload={
+                        "thread_id": thread_id,
+                        "archived": False,
+                    },
                 )
         else:
             logger.debug("Thread %s already unarchived", thread_id)
@@ -526,6 +597,17 @@ def chat_post_message(
             "content": content,
         },
     )
+    _emit_thread_update_event(
+        thread_id=thread_id,
+        actor_user_id=str(owner),
+        project_id=default_project_id,
+        idempotency_suffix=f"message:{mid}",
+        payload={
+            "thread_id": thread_id,
+            "message_id": mid,
+            "role": role,
+        },
+    )
 
     # Auto-embed message
     _embed_message(thread_id, role, content, mid)
@@ -718,12 +800,36 @@ async def chat_complete(
             status_code=400, detail="Thread has no usable context"
         )
 
+    requested_depth_mode = str(body.depth_mode or "normal").strip().lower()
+    effective_depth_mode = body.depth_mode
+    if requested_depth_mode == "deep":
+        project_depth = "light"
+        project_id = (
+            thread_exists.get("project_id")
+            if isinstance(thread_exists, dict)
+            else None
+        )
+        getter = getattr(chatlog_db, "get_project_identity_depth", None)
+        if callable(getter):
+            try:
+                project_depth = str(getter(project_id) or "light").lower()
+            except Exception:
+                project_depth = "light"
+        if not can_run_deep_identity_modeling(project_depth):
+            effective_depth_mode = "normal"
+            logger.info(
+                "[chat.complete] downgraded depth_mode=deep to normal thread_id=%s project_id=%s identity_depth=%s",
+                thread_id,
+                project_id,
+                project_depth,
+            )
+
     task = ChatCompletionTask(
         thread_id=thread_id,
         provider=provider,
         model=body.model,
         max_context=body.max_context,
-        depth_mode=body.depth_mode,
+        depth_mode=effective_depth_mode,
         system_override=user_system_override,
         origin="api:chat.complete",
     )
@@ -761,7 +867,66 @@ async def chat_complete(
         task.origin,
         thread_id,
     )
-    return {"task_id": task.task_id}
+    return {"task_id": task.task_id, "depth_mode": effective_depth_mode}
+
+
+@router.get("/{thread_id}/profile")
+def chat_get_thread_profile(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
+    """Return resolved profile state + available profile catalog for a thread."""
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    resolved_profile: dict[str, Any] | None = None
+    if resolve_thread_system_profile:
+        try:
+            resolved = resolve_thread_system_profile(
+                thread_id, chatlog_db=chatlog_db
+            )
+            resolved_profile = resolved.model_dump(
+                mode="json", exclude_none=True
+            )
+        except Exception as exc:
+            logger.warning(
+                "[chat.profile] resolve failed thread_id=%s err=%s",
+                thread_id,
+                exc,
+            )
+
+    available_profiles: list[dict[str, Any]] = []
+    if list_available_system_profiles:
+        try:
+            available_profiles = list_available_system_profiles(
+                thread_id=thread_id,
+                chatlog_db=chatlog_db,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[chat.profile] catalog load failed thread_id=%s err=%s",
+                thread_id,
+                exc,
+            )
+
+    if resolved_profile is None:
+        active_profile_id = thread.get("active_profile_id")
+        resolved_profile = {
+            "profile_id": active_profile_id or "default",
+            "active_profile_id": active_profile_id,
+            "name": "Default"
+            if not active_profile_id
+            else str(active_profile_id),
+            "mode": "cloud",
+            "source": "fallback",
+        }
+
+    return {
+        "ok": True,
+        "thread_id": thread_id,
+        "profile": resolved_profile,
+        "profiles": available_profiles,
+    }
 
 
 @router.delete("/{thread_id}/messages/{message_id}")
@@ -1079,21 +1244,19 @@ async def simple_chat_entrypoint(
     }
 
 
-def _get_trace_from_task_events(task_id: str) -> Optional[Dict[str, Any]]:
+def _get_task_completed_payload(task_id: str) -> Optional[Dict[str, Any]]:
     """
-    Poll task events stream to extract the trace from task.completed event.
-    Returns the trace dict if found, None otherwise.
+    Read task events and return the most recent task.completed payload.
     """
     try:
-        # Read task events, starting from beginning
         events = task_events.read_events(task_id, "0", count=100, block_ms=1000)
+        completed_payload: Dict[str, Any] | None = None
         for _, event in events:
             if event.get("type") == "task.completed":
                 data = event.get("data", {})
-                trace = data.get("trace")
-                if trace:
-                    return trace
-        return None
+                if isinstance(data, dict):
+                    completed_payload = data
+        return completed_payload
     except Exception as exc:
         logger.debug("[chat] failed to read task events for trace: %s", exc)
         return None
@@ -1110,18 +1273,76 @@ def get_latest_rag_trace(
     falls back to in-memory cache otherwise.
     Returns empty arrays if no trace is available.
     """
-    # Try to get trace from task events if we have a recent task
+    trace: Dict[str, Any] | None = None
+    profile_debug: Dict[str, Any] = {
+        "active_profile_id": None,
+        "provider_override": None,
+        "model_override": None,
+        "injection_hash": None,
+        "retrieval_mode": None,
+        "model_mode": None,
+    }
+
+    # Try to get trace + profile data from task events if we have a recent task
     task_id = _thread_latest_task.get(thread_id)
     if task_id:
-        trace = _get_trace_from_task_events(task_id)
-        if trace:
-            _rag_traces[thread_id] = trace  # Cache it
-            return trace
+        completed_payload = _get_task_completed_payload(task_id)
+        if completed_payload:
+            payload_trace = completed_payload.get("trace")
+            if isinstance(payload_trace, dict):
+                trace = dict(payload_trace)
+                _rag_traces[thread_id] = trace  # Cache it
+            for key in (
+                "active_profile_id",
+                "provider_override",
+                "model_override",
+                "injection_hash",
+                "retrieval_mode",
+                "model_mode",
+            ):
+                profile_debug[key] = completed_payload.get(key)
 
     # Fall back to in-memory cache
-    trace = _rag_traces.get(thread_id)
+    if trace is None:
+        cached = _rag_traces.get(thread_id)
+        if isinstance(cached, dict):
+            trace = dict(cached)
+
     if not trace:
-        return {"documents": [], "graph": []}
+        trace = {"documents": [], "graph": []}
+    else:
+        trace.setdefault("documents", [])
+        trace.setdefault("graph", [])
+
+    if resolve_thread_system_profile and (
+        profile_debug["active_profile_id"] is None
+        or profile_debug["provider_override"] is None
+        or profile_debug["model_override"] is None
+    ):
+        with_profile = None
+        try:
+            with_profile = resolve_thread_system_profile(
+                thread_id, chatlog_db=chatlog_db
+            )
+        except Exception:
+            with_profile = None
+        if with_profile is not None:
+            if profile_debug["active_profile_id"] is None:
+                profile_debug["active_profile_id"] = (
+                    with_profile.active_profile_id
+                    or with_profile.profile_id
+                    or None
+                )
+            if profile_debug["provider_override"] is None:
+                profile_debug[
+                    "provider_override"
+                ] = with_profile.provider_override
+            if profile_debug["model_override"] is None:
+                profile_debug["model_override"] = with_profile.model_override
+            if profile_debug["model_mode"] is None:
+                profile_debug["model_mode"] = with_profile.mode
+
+    trace.update(profile_debug)
     return trace
 
 
@@ -1218,6 +1439,14 @@ async def api_chat_complete(
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
     return await chat_complete(thread_id, body, api_key=api_key)
+
+
+@api_chat_router.get("/{thread_id}/profile")
+def api_chat_get_thread_profile(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
+    """Compat alias for GET /chat/{thread_id}/profile."""
+    return chat_get_thread_profile(thread_id, api_key=api_key)
 
 
 @api_chat_router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])

@@ -36,7 +36,9 @@ class _FakeDB:
         return _FakeSession(self.rows)
 
 
-def _build_client(monkeypatch: pytest.MonkeyPatch, fake_db: _FakeDB) -> TestClient:
+def _build_client(
+    monkeypatch: pytest.MonkeyPatch, fake_db: _FakeDB
+) -> TestClient:
     ws_routes = import_module("guardian.routes.websocket")
     monkeypatch.setattr(ws_routes, "manager", WSConnectionManager())
     monkeypatch.setattr(
@@ -65,7 +67,9 @@ def test_ws_route_writes_audit_row_on_success(
     client = _build_client(monkeypatch, fake_db)
 
     with client.websocket_connect("/api/ws/rpc?api_key=test-api-key") as ws:
-        ws.send_json({"type": "request", "id": "1", "method": "ping", "params": {}})
+        ws.send_json(
+            {"type": "request", "id": "1", "method": "ping", "params": {}}
+        )
         response = ws.receive_json()
 
     assert response["error"] is None

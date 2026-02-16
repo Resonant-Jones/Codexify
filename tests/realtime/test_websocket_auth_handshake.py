@@ -13,7 +13,9 @@ def _build_client() -> TestClient:
     return TestClient(app)
 
 
-def test_ws_auth_rejects_missing_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ws_auth_rejects_missing_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
     client = _build_client()
 
