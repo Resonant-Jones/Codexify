@@ -138,10 +138,19 @@ def get_imprint_status(
     except Exception as e:
         logger.warning("[imprint] system prompt meta failed: %s", e)
 
-    segments_present = {}
-    if system_prompt_meta.get("segments"):
+    segments_present: dict[str, bool] = {}
+    segments_payload = system_prompt_meta.get("segments")
+    if isinstance(segments_payload, list):
+        for segment in segments_payload:
+            if not isinstance(segment, dict):
+                continue
+            name = segment.get("name")
+            if not isinstance(name, str):
+                continue
+            segments_present[name] = int(segment.get("chars") or 0) > 0
+    elif isinstance(segments_payload, dict):
         segments_present = {
-            k: (v > 0) for k, v in system_prompt_meta["segments"].items()
+            str(k): int(v) > 0 for k, v in segments_payload.items()
         }
 
     return {
@@ -164,7 +173,7 @@ def get_imprint_status(
             "estimated_tokens": system_prompt_meta.get("estimated_tokens"),
             "docs_count": system_prompt_meta.get("docs_count"),
             "segments_present": segments_present,
-            "segments": system_prompt_meta.get("segments", {}),
+            "segments": system_prompt_meta.get("segments", []),
         },
     }
 
