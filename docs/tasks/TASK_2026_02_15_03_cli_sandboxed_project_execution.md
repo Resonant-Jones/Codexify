@@ -165,3 +165,34 @@ Constraints
 - Do not add arbitrary shell execution.
 
 This task creates the minimal safe substrate for project-scoped terminal work.
+
+---
+
+Execution Notes (2026-02-16)
+
+- Added sandboxed CLI execution primitives in `guardian/core/orchestrator/cli_sandbox.py`:
+  - `WorkspaceRootManager` with root detection precedence:
+    - `.codexify_root` marker file
+    - nearest `.git` ancestor
+    - fallback to cwd
+  - `WorkspaceRoot` registration and path validation helpers:
+    - `resolve_under_root`, `validate_read`, `validate_write`, `validate_exec`
+  - `CommandDefinition`, `CommandCatalog`, and `CommandExecutor`
+  - default command registry:
+    - `git_status`
+    - `git_diff`
+    - `pytest`
+    - `pnpm_test` only when `pnpm-lock.yaml` exists at root
+- Wired execution boundary into `WorkspaceManager.run_in_worktree`:
+  - command_id-only execution path
+  - deterministic `cwd=workspace_root`
+  - params validation through command catalog
+  - network default-deny gate for commands marked `requires_network`
+  - timeout and max-output policy enforcement
+- Updated orchestrator exports in `guardian/core/orchestrator/__init__.py` to include new sandbox classes.
+- Added tests covering:
+  - traversal/absolute/symlink escape rejection
+  - valid in-root path acceptance
+  - unknown command_id rejection
+  - cwd root enforcement
+  - default-deny network policy
