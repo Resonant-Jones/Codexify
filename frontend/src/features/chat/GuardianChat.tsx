@@ -7,7 +7,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { debounce } from "lodash-es";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronRight, MoreVertical, Sparkles, Layers, SquareStack } from "lucide-react";
+import { ChevronRight, MoreVertical, Sparkles, Layers, SquareStack, Zap } from "lucide-react";
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
@@ -16,10 +16,11 @@ import api from "@/lib/api";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { setTrace } from "@/state/contextTrace";
-import TraceButton from "./components/TraceButton";
+import PromptCostIndicator from "./components/PromptCostIndicator";
 import SessionRail from "@/components/SessionRail/SessionRail";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
+import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -226,6 +227,9 @@ export function GuardianChat({
     modelOverride: null,
   });
   const [profileSwitching, setProfileSwitching] = useState(false);
+  const [promptCostSummary, setPromptCostSummary] = useState<SystemPromptSummary | null>(null);
+  const [promptCostPopoverOpen, setPromptCostPopoverOpen] = useState(false);
+  const promptCostPopoverRef = useRef<HTMLDivElement | null>(null);
   const showToast = useCallback((message: string) => {
     try {
       window.dispatchEvent(
@@ -474,6 +478,17 @@ export function GuardianChat({
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
 
+  const refreshPromptCostSummary = useCallback(async (threadId: number | null) => {
+    try {
+      const params = threadId != null ? { thread_id: threadId } : undefined;
+      const data = await fetchSystemPromptSummary(params);
+      setPromptCostSummary(data ?? null);
+    } catch (error) {
+      console.debug("[guardian] prompt cost summary refresh failed", error);
+      setPromptCostSummary(null);
+    }
+  }, []);
+
   const refreshThreadProfile = useCallback(
     async (threadId: number) => {
       try {
@@ -606,6 +621,41 @@ export function GuardianChat({
     }
     void refreshThreadProfile(effectiveThreadId);
   }, [activeThread, effectiveThreadId, refreshThreadProfile]);
+
+  useEffect(() => {
+    setPromptCostPopoverOpen(false);
+  }, [effectiveThreadId]);
+
+  useEffect(() => {
+    if (!promptCostPopoverOpen || typeof document === "undefined") return;
+    const onDocumentPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (promptCostPopoverRef.current?.contains(target)) return;
+      setPromptCostPopoverOpen(false);
+    };
+    const onDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPromptCostPopoverOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocumentPointerDown);
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocumentPointerDown);
+      document.removeEventListener("keydown", onDocumentKeyDown);
+    };
+  }, [promptCostPopoverOpen]);
+
+  const handlePromptCostToggle = useCallback(() => {
+    setPromptCostPopoverOpen((previous) => {
+      const next = !previous;
+      if (next) {
+        void refreshPromptCostSummary(effectiveThreadId);
+      }
+      return next;
+    });
+  }, [effectiveThreadId, refreshPromptCostSummary]);
 
   useEffect(() => () => triggerReload.cancel(), [triggerReload]);
 
@@ -878,6 +928,11 @@ export function GuardianChat({
     diagnostic: "System introspection + trace visibility",
   };
 
+  const promptCostStatus: PromptCostStatus =
+    promptCostSummary?.threshold?.status ?? "unknown";
+  const showPromptCostDot =
+    promptCostStatus === "warn" || promptCostStatus === "hard";
+
   const headerActions = (
     <div className="flex items-center gap-1">
       {/* RAG Depth Selector */}
@@ -913,7 +968,48 @@ export function GuardianChat({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <TraceButton threadId={effectiveThreadId} />
+      <div
+        ref={promptCostPopoverRef}
+        className="relative"
+        data-testid="prompt-cost-popover-anchor"
+      >
+        <button
+          type="button"
+          className="icon-inline relative"
+          aria-label="Prompt cost details"
+          aria-expanded={promptCostPopoverOpen}
+          aria-controls="prompt-cost-popover"
+          onClick={handlePromptCostToggle}
+          style={{ borderRadius: "var(--radius-micro)" }}
+          data-testid="prompt-cost-trigger"
+        >
+          <Zap className="h-5 w-5" />
+          {showPromptCostDot ? (
+            <span
+              className={`absolute right-[0.1rem] top-[0.1rem] h-1.5 w-1.5 rounded-full ${
+                promptCostStatus === "hard" ? "bg-rose-400" : "bg-amber-400"
+              }`}
+              aria-hidden="true"
+            />
+          ) : null}
+        </button>
+        {promptCostPopoverOpen ? (
+          <div
+            id="prompt-cost-popover"
+            role="dialog"
+            aria-label="Prompt cost"
+            data-testid="prompt-cost-popover"
+            className="absolute right-0 top-[calc(100%+0.4rem)] z-30 min-w-[16rem] rounded-lg border px-3 py-2 shadow-xl"
+            style={{
+              borderColor: "var(--panel-border)",
+              background: "var(--panel-sheet)",
+              color: "var(--text)",
+            }}
+          >
+            <PromptCostIndicator summary={promptCostSummary} variant="popover" />
+          </div>
+        ) : null}
+      </div>
 
       <button
         type="button"

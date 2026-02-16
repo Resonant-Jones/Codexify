@@ -5,7 +5,7 @@ import type { PromptCostStatus, SystemPromptSummary } from "@/imprint/api";
 
 type PromptCostIndicatorProps = {
   summary?: SystemPromptSummary | null;
-  variant?: "banner" | "popover";
+  variant?: "auto" | "banner" | "popover";
 };
 
 const STATUS_LABEL: Record<PromptCostStatus, string> = {
@@ -31,7 +31,7 @@ const STATUS_HELPER: Record<PromptCostStatus, string> = {
 
 export default function PromptCostIndicator({
   summary,
-  variant = "popover",
+  variant = "auto",
 }: PromptCostIndicatorProps) {
   const status: PromptCostStatus = summary?.threshold?.status ?? "unknown";
   const estimatedTotal =
@@ -41,6 +41,10 @@ export default function PromptCostIndicator({
   const tokenText = typeof estimatedTotal === "number" ? String(estimatedTotal) : "\u2014";
   const [showTokens, setShowTokens] = useState(false);
   const hasEstimatedTotal = typeof estimatedTotal === "number";
+
+  if (variant === "auto") {
+    return null;
+  }
 
   if (variant === "popover") {
     return (
