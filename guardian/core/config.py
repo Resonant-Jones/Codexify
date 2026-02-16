@@ -173,6 +173,26 @@ class Settings(BaseSettings):
         default=False,
         description="Enable dev-only routes such as /dev/*.",
     )
+    GUARDIAN_FEDERATION_ENABLED: bool = Field(
+        default=False,
+        description="Master gate for all federation endpoints.",
+    )
+    GUARDIAN_FEDERATION_REQUIRE_SIGNED_POLICY: bool = Field(
+        default=True,
+        description="Require a valid signed trust policy before federation requests are accepted.",
+    )
+    GUARDIAN_FEDERATION_TRUST_POLICY_JSON: str | None = Field(
+        default=None,
+        description="JSON trust policy controlling allowed federation peers/origins.",
+    )
+    GUARDIAN_FEDERATION_TRUST_POLICY_SIGNATURE: str | None = Field(
+        default=None,
+        description="Base64url HMAC signature for GUARDIAN_FEDERATION_TRUST_POLICY_JSON.",
+    )
+    GUARDIAN_FEDERATION_POLICY_SIGNING_KEY: str | None = Field(
+        default=None,
+        description="Optional signing key used to verify federation trust policy signatures.",
+    )
     WS_RPC_RATE_LIMIT_CAPACITY: int = Field(
         default=30,
         description="Max websocket RPC requests available per token bucket window.",

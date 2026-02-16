@@ -4,17 +4,18 @@ Handles session exchange, token generation, and relay channel
 establishment between federated Codexify nodes.
 """
 
+import json
 import logging
-import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import jwt
 import requests
 from fastapi import (
     APIRouter,
+    Depends,
     HTTPException,
     Query,
     WebSocket,
@@ -24,6 +25,9 @@ from fastapi import (
 from pydantic import BaseModel, Field
 
 from guardian.core import event_bus
+from guardian.core.auth import verify_federation_trust_policy
+from guardian.core.config import get_settings
+from guardian.core.dependencies import require_api_key
 from guardian.core.egress import require_egress_allowed
 from guardian.federation.diff_engine import DiffEngine, DiffEntry
 from guardian.federation.diff_store import get_diff_store
@@ -39,13 +43,147 @@ from guardian.federation.manifest import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/federation", tags=["federation"])
+router = APIRouter(
+    prefix="/api/federation",
+    tags=["federation"],
+    dependencies=[Depends(require_api_key)],
+)
 
 # Module-level state for this node
 _node_id: Optional[str] = None
 _private_key: Optional[str] = None
 _public_key: Optional[str] = None
 _relay_endpoint: Optional[str] = None
+
+
+def _normalize_origin(url: str) -> str | None:
+    raw = str(url or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def _as_str_set(values: Any) -> set[str]:
+    if not isinstance(values, list):
+        return set()
+    result: set[str] = set()
+    for value in values:
+        text = str(value).strip()
+        if text:
+            result.add(text)
+    return result
+
+
+def _policy_allows_open_enrollment(policy: dict[str, Any]) -> bool:
+    return bool(policy.get("allow_open_enrollment", False))
+
+
+def _load_trust_policy() -> dict[str, Any]:
+    settings = get_settings()
+
+    if not bool(getattr(settings, "GUARDIAN_FEDERATION_ENABLED", False)):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Federation is disabled " "(GUARDIAN_FEDERATION_ENABLED=false)."
+            ),
+        )
+
+    raw_policy = getattr(
+        settings, "GUARDIAN_FEDERATION_TRUST_POLICY_JSON", None
+    )
+    raw_signature = getattr(
+        settings, "GUARDIAN_FEDERATION_TRUST_POLICY_SIGNATURE", None
+    )
+    require_signed = bool(
+        getattr(settings, "GUARDIAN_FEDERATION_REQUIRE_SIGNED_POLICY", True)
+    )
+    signing_key = getattr(
+        settings, "GUARDIAN_FEDERATION_POLICY_SIGNING_KEY", None
+    )
+
+    if require_signed:
+        valid, policy = verify_federation_trust_policy(
+            raw_policy,
+            raw_signature,
+            signing_key=signing_key,
+        )
+        if not valid or not isinstance(policy, dict):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Federation trust policy signature is missing or invalid."
+                ),
+            )
+        return policy
+
+    if not raw_policy:
+        return {}
+
+    try:
+        parsed = json.loads(str(raw_policy))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Invalid federation trust policy JSON: {exc}",
+        ) from exc
+
+    if not isinstance(parsed, dict):
+        raise HTTPException(
+            status_code=503,
+            detail="Federation trust policy must be a JSON object.",
+        )
+    return parsed
+
+
+def _enforce_node_allowed(
+    policy: dict[str, Any],
+    node_id: str | None,
+    *,
+    label: str,
+) -> None:
+    if _policy_allows_open_enrollment(policy):
+        return
+    allowed_nodes = _as_str_set(policy.get("allowed_nodes"))
+    if not allowed_nodes:
+        raise HTTPException(
+            status_code=403,
+            detail="Federation trust policy does not allow any peer nodes.",
+        )
+    normalized = str(node_id or "").strip()
+    if not normalized or (
+        "*" not in allowed_nodes and normalized not in allowed_nodes
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Federation {label} node is not allowed by trust policy.",
+        )
+
+
+def _enforce_target_origin_allowed(
+    policy: dict[str, Any],
+    target_url: str,
+) -> None:
+    if _policy_allows_open_enrollment(policy):
+        return
+    allowed_origins = _as_str_set(policy.get("allowed_origins"))
+    if not allowed_origins:
+        raise HTTPException(
+            status_code=403,
+            detail="Federation trust policy does not allow any peer origins.",
+        )
+
+    origin = _normalize_origin(target_url)
+    if not origin:
+        raise HTTPException(status_code=400, detail="Invalid target_node_url")
+    if "*" not in allowed_origins and origin not in allowed_origins:
+        raise HTTPException(
+            status_code=403,
+            detail="Federation target origin is not allowed by trust policy.",
+        )
 
 
 def configure_federation(
@@ -134,8 +272,10 @@ async def get_node_manifest() -> Dict[str, Any]:
     Returns:
         Signed NodeManifest
     """
+    _load_trust_policy()
+
     try:
-        node_id, private_key, public_key, relay_endpoint = _get_config()
+        node_id, private_key, _public_key, relay_endpoint = _get_config()
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -171,10 +311,12 @@ async def request_session(body: SessionRequestBody) -> Dict[str, Any]:
     Returns:
         SessionResponse with relay URL and token
     """
+    policy = _load_trust_policy()
+    _enforce_target_origin_allowed(policy, body.target_node_url)
     require_egress_allowed("federation")
 
     try:
-        node_id, private_key, public_key, relay_endpoint = _get_config()
+        node_id, private_key, _public_key, _relay_endpoint = _get_config()
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -203,6 +345,7 @@ async def request_session(body: SessionRequestBody) -> Dict[str, Any]:
         raise HTTPException(
             status_code=400, detail="Invalid peer manifest signature"
         )
+    _enforce_node_allowed(policy, target_manifest.node_id, label="target")
 
     # Cache the peer manifest
     manager.cache_peer_manifest(target_manifest)
@@ -279,8 +422,10 @@ async def accept_session(
     Returns:
         Acceptance confirmation with relay connection details
     """
+    policy = _load_trust_policy()
+
     try:
-        node_id, private_key, public_key, relay_endpoint = _get_config()
+        node_id, _private_key, _public_key, relay_endpoint = _get_config()
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -296,6 +441,7 @@ async def accept_session(
         raise HTTPException(
             status_code=400, detail="Missing source_node_id in token"
         )
+    _enforce_node_allowed(policy, source_node_id, label="source")
 
     # Get source node's manifest from cache or reject
     source_manifest = manager.get_peer_manifest(source_node_id)
@@ -355,6 +501,15 @@ async def ws_federation_relay(
         relay_id: Relay session ID
         token: JWT authentication token
     """
+    try:
+        _load_trust_policy()
+    except HTTPException as exc:
+        await ws.close(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason=str(exc.detail),
+        )
+        return
+
     relay = manager.get_relay_session(relay_id)
     if not relay:
         await ws.close(
@@ -495,8 +650,10 @@ async def push_diff(body: DiffPushRequest) -> Dict[str, Any]:
     Returns:
         Confirmation with new version
     """
+    _load_trust_policy()
+
     try:
-        node_id, private_key, public_key, relay_endpoint = _get_config()
+        _get_config()
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -606,6 +763,8 @@ async def pull_diffs(
     Returns:
         List of DiffEntry objects in version order
     """
+    _load_trust_policy()
+
     try:
         store = get_diff_store()
 
@@ -681,8 +840,10 @@ async def update_graph(body: GraphUpdateRequest) -> Dict[str, Any]:
     Returns:
         Confirmation with update count
     """
+    _load_trust_policy()
+
     try:
-        node_id, private_key, public_key, relay_endpoint = _get_config()
+        _get_config()
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -755,6 +916,8 @@ async def get_graph_snapshot() -> Dict[str, Any]:
     Returns:
         GraphSnapshotResponse with all nodes and edges
     """
+    _load_trust_policy()
+
     try:
         store = get_graph_store()
         snapshot = store.export_snapshot()
@@ -788,6 +951,8 @@ async def get_graph_statistics() -> Dict[str, Any]:
     Returns:
         Graph statistics including node/edge counts and types
     """
+    _load_trust_policy()
+
     try:
         store = get_graph_store()
         stats = store.get_statistics()
