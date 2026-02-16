@@ -120,3 +120,12 @@ Preflight: git status --porcelain -uall must be empty
 - `git restore --source=HEAD --staged --worktree -- frontend/src`
 - `git restore --source=HEAD --staged --worktree -- docs`
 - `git clean -fd`
+
+
+## Runner Receipt (Start)
+
+- Campaign: CAMPAIGN_2026_02_16_COMPILED_AUDIT
+
+- Task ID: 005
+
+- Head before: 95e291d2b93090dcefb41196be3e13bfe1780853
