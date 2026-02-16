@@ -108,3 +108,38 @@ Preflight: git status --porcelain -uall must be empty
 - Task ID: 006
 
 - Head before: 58a7f6e9d18622c53ab1724ce3388141cb83c9ce
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: Added deterministic RAG loop validation script + doc; docker/openapi commands couldn’t run here (no socket / backend).
+
+- Implementation commit hash: 17b463c5798aefb54ff1a80a21d5f790414e1ac0
+
+- Receipt update commit hash: 4f7589fdbf0879b52da6e6015a7bbfa5c2f32155
+
+- Tests ran: docker compose up -d db redis backend worker-chat (fails: sandbox denied docker sock), curl -sS http://localhost:8888/openapi.json | rg ... (fails: backend unreachable)
+
+- Notes: Script is executable; see docs/guardian/rag-loop-validation.md for usage detail.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "Added deterministic RAG loop validation script + doc; docker/openapi commands couldn\u2019t run here (no socket / backend).",
+  "tests_ran": [
+    "docker compose up -d db redis backend worker-chat (fails: sandbox denied docker sock)",
+    "curl -sS http://localhost:8888/openapi.json | rg ... (fails: backend unreachable)"
+  ],
+  "commit_hash": "17b463c5798aefb54ff1a80a21d5f790414e1ac0",
+  "implementation_commit_hash": "17b463c5798aefb54ff1a80a21d5f790414e1ac0",
+  "receipt_update_commit_hash": "4f7589fdbf0879b52da6e6015a7bbfa5c2f32155",
+  "notes": "Script is executable; see docs/guardian/rag-loop-validation.md for usage detail."
+}
+```
+
+</details>
