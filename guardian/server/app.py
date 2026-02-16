@@ -113,6 +113,14 @@ app.include_router(flows_router)
 def configure_guardian_db() -> None:
     logger = logging.getLogger(__name__)
     try:
+        from guardian.core.config import assert_config_coherence, get_settings
+
+        assert_config_coherence(get_settings())
+    except Exception as exc:
+        logger.error("[startup] Config coherence check failed: %s", exc)
+        raise
+
+    try:
         guardian_db = load_guardian_db_from_env()
     except Exception as exc:
         logger.warning("[startup] GuardianDB init failed: %s", exc)

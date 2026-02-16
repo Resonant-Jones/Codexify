@@ -1,4 +1,6 @@
 # guardian/core/config.py
+import os
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -109,6 +111,18 @@ class Settings(BaseSettings):
         default=None,
         description="Optional override for the OpenAI API base URL.",
     )
+    GUARDIAN_API_KEY: str | None = Field(
+        default=None,
+        description="Primary API key for Guardian HTTP auth.",
+    )
+    GUARDIAN_API_KEYS: str | None = Field(
+        default=None,
+        description="Comma-separated additional API keys for Guardian HTTP auth.",
+    )
+    GUARDIAN_DATABASE_URL: str | None = Field(
+        default=None,
+        description="Primary Postgres connection URL for Guardian chatlog DB.",
+    )
     DATA_STORAGE_PATH: str = Field(
         default="./data", description="Path for MemoryOS data storage."
     )
@@ -191,6 +205,107 @@ class LLMConfigError(Exception):
     """Raised when LLM provider configuration is invalid."""
 
 
+class ConfigCoherenceError(RuntimeError):
+    """Raised when config sources disagree on security-relevant values."""
+
+
+_COHERENCE_FIELDS = (
+    "GUARDIAN_API_KEY",
+    "GUARDIAN_API_KEYS",
+    "GUARDIAN_DATABASE_URL",
+    "OPENAI_API_KEY",
+    "GROQ_API_KEY",
+)
+
+_TRUTHY = ("1", "true", "yes", "on")
+_PROVIDER_BY_BACKEND = {
+    "ollama": "local",
+    "local": "local",
+    "openai": "openai",
+    "groq": "groq",
+}
+
+
+def _normalize_optional(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _normalize_provider(value: object) -> str | None:
+    raw = _normalize_optional(value)
+    if raw is None:
+        return None
+    lowered = raw.lower()
+    return _PROVIDER_BY_BACKEND.get(lowered, lowered)
+
+
+def _normalize_db_url(value: object) -> str | None:
+    url = _normalize_optional(value)
+    if url and url.startswith("postgresql+"):
+        return "postgresql://" + url.split("://", 1)[1]
+    return url
+
+
+def _load_legacy_settings_for_coherence() -> object | None:
+    """
+    Load legacy guardian.config settings for cross-system coherence checks.
+
+    Returns None when the legacy module is unavailable or fails to load.
+    """
+    try:
+        from guardian.config.core import get_settings as get_legacy_settings
+
+        return get_legacy_settings()
+    except Exception:
+        return None
+
+
+def _coherence_mismatches(core: Settings, legacy: object) -> list[str]:
+    mismatches: list[str] = []
+
+    for field in _COHERENCE_FIELDS:
+        core_val = getattr(core, field, None)
+        legacy_val = getattr(legacy, field, None)
+        if field == "GUARDIAN_DATABASE_URL":
+            core_norm = _normalize_db_url(core_val)
+            legacy_norm = _normalize_db_url(legacy_val)
+        else:
+            core_norm = _normalize_optional(core_val)
+            legacy_norm = _normalize_optional(legacy_val)
+        if core_norm != legacy_norm:
+            mismatches.append(
+                f"{field}: core={core_norm!r} legacy={legacy_norm!r}"
+            )
+
+    if (
+        os.getenv("LLM_PROVIDER") is not None
+        or os.getenv("AI_BACKEND") is not None
+    ):
+        core_provider = _normalize_provider(core.LLM_PROVIDER)
+        legacy_provider = _normalize_provider(
+            getattr(legacy, "AI_BACKEND", None)
+        )
+        if core_provider != legacy_provider:
+            mismatches.append(
+                "LLM_PROVIDER/AI_BACKEND: "
+                f"core={core_provider!r} legacy={legacy_provider!r}"
+            )
+
+    if os.getenv("CLOUD_ONLY") is not None:
+        legacy_cloud_only = (
+            _normalize_optional(getattr(legacy, "CLOUD_ONLY", None)) or ""
+        ).lower() in _TRUTHY
+        if legacy_cloud_only and not bool(core.ALLOW_CLOUD_PROVIDERS):
+            mismatches.append(
+                "CLOUD_ONLY requires ALLOW_CLOUD_PROVIDERS=true "
+                f"(core={core.ALLOW_CLOUD_PROVIDERS!r}, legacy={legacy_cloud_only!r})"
+            )
+
+    return mismatches
+
+
 def is_cloud_provider(provider: str | None) -> bool:
     if not provider:
         return False
@@ -245,3 +360,24 @@ def validate_llm_config(
 def get_settings() -> Settings:
     """Return the shared Settings instance for dependency injection."""
     return settings
+
+
+def assert_config_coherence(core_settings: Settings | None = None) -> None:
+    """
+    Ensure security-relevant settings are coherent across config systems.
+
+    Raises ConfigCoherenceError when guardian.core.config and guardian.config.core
+    disagree on overlapping critical settings.
+    """
+    legacy_settings = _load_legacy_settings_for_coherence()
+    if legacy_settings is None:
+        return
+
+    core = core_settings or get_settings()
+    mismatches = _coherence_mismatches(core, legacy_settings)
+    if mismatches:
+        detail = "; ".join(mismatches)
+        raise ConfigCoherenceError(
+            "Configuration coherence check failed: "
+            f"{detail}. Resolve mismatches or use a single settings source."
+        )
