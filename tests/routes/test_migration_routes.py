@@ -5,8 +5,19 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
+
 from backend.rag import chatgpt_migration
 from guardian.core import dependencies
+
+SERVER_USER_ID = "local_user"
+
+
+@pytest.fixture(autouse=True)
+def _single_user_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", SERVER_USER_ID)
+    monkeypatch.setenv("DEBUG", "false")
+    monkeypatch.setenv("LOCAL_DEV", "false")
 
 
 class StubVectorStore:
@@ -58,7 +69,7 @@ def _post_export(test_client, path: str):
     return test_client.post(
         path,
         files=files,
-        headers={"X-User-Id": "test_user"},
+        headers={"X-User-Id": "spoofed_user"},
     )
 
 
@@ -80,6 +91,9 @@ def test_migration_endpoint_registered(test_client):
         data = res.json()
         assert data["threads_imported"] == 1
         assert data["messages_imported"] == 2
+    assert len(mock_ingest.call_args_list) == 2
+    for call in mock_ingest.call_args_list:
+        assert call.kwargs["user_id"] == SERVER_USER_ID
 
 
 def test_migration_accepts_valid_content_even_with_non_json_filename(
@@ -104,11 +118,12 @@ def test_migration_accepts_valid_content_even_with_non_json_filename(
         response = test_client.post(
             "/api/upload-chatgpt-export",
             files=files,
-            headers={"X-User-Id": "test_user"},
+            headers={"X-User-Id": "spoofed_user"},
         )
 
     assert response.status_code == 200
     mock_ingest.assert_called_once()
+    assert mock_ingest.call_args.kwargs["user_id"] == SERVER_USER_ID
 
 
 def test_migration_route_executes_real_ingest_and_embeds(
@@ -163,7 +178,7 @@ def test_migration_route_executes_real_ingest_and_embeds(
     response = test_client.post(
         "/api/upload-chatgpt-export",
         files=files,
-        headers={"X-User-Id": "test_user"},
+        headers={"X-User-Id": "spoofed_user"},
     )
 
     assert response.status_code == 200
@@ -172,3 +187,6 @@ def test_migration_route_executes_real_ingest_and_embeds(
     assert data["messages_imported"] == 2
     assert len(vector_store.items) == 2
     assert "ORBIT-ROUTE-314" in str(vector_store.items[0].get("text", ""))
+    assert (
+        mock_db.create_chat_thread.call_args.kwargs["user_id"] == SERVER_USER_ID
+    )
