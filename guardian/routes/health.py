@@ -11,10 +11,11 @@ import os
 from uuid import uuid4
 
 import requests
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from guardian.core import metrics
 from guardian.core.dependencies import DB_BACKEND, get_database_dsn
+from guardian.core.llm_catalog import build_llm_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,12 @@ def health_llm():
         }
     )
     return payload
+
+
+@router.get("/api/llm/catalog")
+def llm_catalog(include: str | None = Query(default=None)):
+    include_all = str(include or "").strip().lower() == "all"
+    return build_llm_catalog(include_all=include_all)
 
 
 @router.get("/health/chat")
