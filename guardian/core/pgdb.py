@@ -1856,17 +1856,17 @@ class PgDB(ChatDB):
             )
 
     def list_events_after(
-        self, last_id: int, limit: int = 100
+        self,
+        last_id: int,
+        limit: int = 100,
+        tenant_id: str | None = None,
     ) -> list[dict[str, Any]]:
         self._ensure_events_outbox_table()
         with self._sa_session() as session:
-            rows = (
-                session.query(EventOutbox)
-                .filter(EventOutbox.id > last_id)
-                .order_by(EventOutbox.id.asc())
-                .limit(limit)
-                .all()
-            )
+            query = session.query(EventOutbox).filter(EventOutbox.id > last_id)
+            if tenant_id:
+                query = query.filter(EventOutbox.tenant_id == tenant_id)
+            rows = query.order_by(EventOutbox.id.asc()).limit(limit).all()
             events: list[dict[str, Any]] = []
             for row in rows:
                 created = row.created_at
