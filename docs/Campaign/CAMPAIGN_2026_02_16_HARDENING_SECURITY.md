@@ -202,8 +202,8 @@ Establish a hardened, predictable security baseline for single-user deployments:
 
 | Task Artifact | Commit Hash (Code/Tests) | Commit Hash (Docs/Mapping) |
 |--------------|--------------------------|---------------------------|
-| TASK_2026_02_16_01_single_user_identity_contract.md | `10322d4a091d340353de6b61f984954da2a10318` | `<this-commit>` |
-| TASK_2026_02_16_02_lock_down_egress_by_default.md   | `<hash-a2>` | `<hash-b2>` |
+| TASK_2026_02_16_01_single_user_identity_contract.md | `10322d4a091d340353de6b61f984954da2a10318` | `4f74c22e19027b7afccd9eb69bcd3d66e2394be8` |
+| TASK_2026_02_16_02_lock_down_egress_by_default.md   | `6841529bad60dc9d54bbf4736f07f7896995224b` | `<this-commit>` |
 | TASK_2026_02_16_03_namespace_vector_retrieval_single_user.md | `<hash-a3>` | `<hash-b3>` |
 | TASK_2026_02_16_04_config_unification_or_startup_assertions.md | `<hash-a4>` | `<hash-b4>` |
 | TASK_2026_02_16_05_federation_guardrails.md | `<hash-a5>` | `<hash-b5>` |
