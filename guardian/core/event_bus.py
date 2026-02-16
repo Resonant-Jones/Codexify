@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from guardian.core.chat_db import ChatDB
 from guardian.core.event_contracts import coerce_event_payload
+from guardian.core.outbox import normalize_outbox_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -52,20 +53,21 @@ def emit_event(
     topic: str, payload: dict[str, Any], *, tenant_id: str = "default"
 ) -> None:
     """Persist an event or fall back to the in-memory hub."""
+    normalized_tenant = normalize_outbox_tenant_id(tenant_id)
     normalized = coerce_event_payload(topic, payload)
     if normalized is None:
         # Drop no-op payloads so consumers only see semantic changes.
         logger.debug("[outbox] drop %s event with empty delta", topic)
         return
     if _store is not None:
-        _store.append_event(topic, normalized, tenant_id=tenant_id)
-        _publish_in_memory(topic, normalized, tenant_id)
+        _store.append_event(topic, normalized, tenant_id=normalized_tenant)
+        _publish_in_memory(topic, normalized, normalized_tenant)
         return
     if _fallback_emitter is not None:
         _fallback_emitter(topic, normalized)
-        _publish_in_memory(topic, normalized, tenant_id)
+        _publish_in_memory(topic, normalized, normalized_tenant)
     else:
-        _publish_in_memory(topic, normalized, tenant_id)
+        _publish_in_memory(topic, normalized, normalized_tenant)
         if not _subscribers:
             logger.debug(
                 "Dropping event %s; no event store, fallback, or in-memory subscribers",
@@ -73,11 +75,37 @@ def emit_event(
             )
 
 
-def fetch_events_after(last_id: int, limit: int = 100) -> list[dict[str, Any]]:
+def fetch_events_after(
+    last_id: int,
+    limit: int = 100,
+    tenant_id: str | None = None,
+) -> list[dict[str, Any]]:
     """Return events whose IDs are greater than ``last_id`` ordered ascending."""
     if _store is None:
         return []
-    return _store.list_events_after(last_id, limit)
+    if tenant_id is None:
+        return _store.list_events_after(last_id, limit)
+
+    normalized_tenant = normalize_outbox_tenant_id(tenant_id)
+    try:
+        return _store.list_events_after(
+            last_id,
+            limit,
+            tenant_id=normalized_tenant,
+        )
+    except TypeError:
+        # Backward-compatibility fallback for test stubs/store adapters that
+        # have not yet adopted tenant-aware list_events_after signatures.
+        events = _store.list_events_after(last_id, limit)
+        filtered: list[dict[str, Any]] = []
+        for event in events:
+            raw_tenant = event.get("tenant_id")
+            event_tenant = normalize_outbox_tenant_id(
+                raw_tenant if isinstance(raw_tenant, str) else None
+            )
+            if event_tenant == normalized_tenant:
+                filtered.append(event)
+        return filtered
 
 
 def delete_events_through(last_id: int, tenant_id: str | None = None) -> None:

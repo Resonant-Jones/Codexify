@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 try:
     from guardian.core.dependencies import (
         chatlog_db,
+        get_request_user_id,
         init_database,
         require_api_key,
     )
@@ -24,6 +25,9 @@ except Exception:  # pragma: no cover - fallback for import issues
 
     def require_api_key(api_key: str = "") -> str:  # type: ignore[unused-argument]
         return api_key
+
+    def get_request_user_id() -> str:  # type: ignore[unused-argument]
+        return "local"
 
 
 def _get_chatlog_db():
@@ -37,9 +41,9 @@ def _get_chatlog_db():
 
 
 def get_current_user(
-    x_user_id: str | None = Header(None, alias="X-User-Id"),
+    current_user: str = Depends(get_request_user_id),
 ) -> str:
-    return x_user_id or "default"
+    return current_user
 
 
 router = APIRouter(prefix="/personal-facts", tags=["Personal Facts"])

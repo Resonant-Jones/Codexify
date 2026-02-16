@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+SERVER_USER_ID = "local_user"
+
 
 @pytest.fixture
 def mock_memory_db(mock_db):
@@ -21,7 +23,7 @@ def mock_memory_db(mock_db):
     mock_db.list_memories.return_value = [
         {
             "id": 1,
-            "user_id": "test_user",
+            "user_id": SERVER_USER_ID,
             "silo": "midterm",
             "content": "Test memory",
             "tags": "test",
@@ -33,7 +35,7 @@ def mock_memory_db(mock_db):
     mock_db.count_memories.return_value = 1
     mock_db.get_memory.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": SERVER_USER_ID,
         "silo": "midterm",
         "content": "Test memory",
         "tags": "test",
@@ -52,19 +54,19 @@ def mock_memory_db(mock_db):
 
 @pytest.fixture
 def auth_headers():
-    """Return headers with API key and user ID for authenticated requests."""
+    """Return headers with API key and spoofed user ID."""
     return {
         "X-API-Key": "test-api-key",
-        "X-User-Id": "test_user",
+        "X-User-Id": "spoofed_user",
     }
 
 
 @pytest.fixture
 def other_user_headers():
-    """Return headers with API key and different user ID."""
+    """Return headers with API key and different spoofed user ID."""
     return {
         "X-API-Key": "test-api-key",
-        "X-User-Id": "other_user",
+        "X-User-Id": "other_spoofed_user",
     }
 
 
@@ -72,6 +74,9 @@ def other_user_headers():
 def memory_test_client(mock_memory_db, mock_auth, monkeypatch, tmp_path):
     """Return TestClient with memory route support."""
     monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path / "media"))
+    monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", SERVER_USER_ID)
+    monkeypatch.setenv("DEBUG", "false")
+    monkeypatch.setenv("LOCAL_DEV", "false")
 
     with patch("logging.info"):
         with patch("guardian.guardian_api.chatlog_db", mock_memory_db):
@@ -144,12 +149,12 @@ class TestMemoryAuthentication:
 
 
 class TestMemoryUserScoping:
-    """Test user-scoped data access for memory operations."""
+    """Test server-derived user-scoped data access for memory operations."""
 
     def test_list_memories_filters_by_user(
         self, memory_test_client, auth_headers, mock_memory_db
     ):
-        """Test that listing memories filters by authenticated user."""
+        """Test that listing memories filters by server-derived user."""
         response = memory_test_client.get(
             "/api/memory/midterm", headers=auth_headers
         )
@@ -158,12 +163,12 @@ class TestMemoryUserScoping:
         # Verify user_id was passed to database method
         mock_memory_db.list_memories.assert_called_once()
         call_kwargs = mock_memory_db.list_memories.call_args.kwargs
-        assert call_kwargs.get("user_id") == "test_user"
+        assert call_kwargs.get("user_id") == SERVER_USER_ID
 
     def test_create_memory_uses_authenticated_user(
         self, memory_test_client, auth_headers, mock_memory_db
     ):
-        """Test that creating memory uses authenticated user ID."""
+        """Test that creating memory uses server-derived user ID."""
         response = memory_test_client.post(
             "/api/memory/midterm",
             headers=auth_headers,
@@ -174,21 +179,34 @@ class TestMemoryUserScoping:
         # Verify user_id was passed to add_memory
         mock_memory_db.add_memory.assert_called_once()
         call_args = mock_memory_db.add_memory.call_args.args
-        assert call_args[0] == "test_user"  # First argument is user_id
+        assert call_args[0] == SERVER_USER_ID  # First argument is user_id
+
+    def test_x_user_id_header_is_ignored_without_debug_flags(
+        self, memory_test_client, mock_memory_db
+    ):
+        """Test that X-User-Id does not override identity when debug flags are off."""
+        response = memory_test_client.post(
+            "/api/memory/midterm",
+            headers={"X-API-Key": "test-api-key", "X-User-Id": "attacker"},
+            json={"content": "Test memory", "tags": ["test"], "pinned": False},
+        )
+        assert response.status_code == 200
+        call_args = mock_memory_db.add_memory.call_args.args
+        assert call_args[0] == SERVER_USER_ID
 
     def test_update_memory_checks_ownership(
         self, memory_test_client, other_user_headers, mock_memory_db
     ):
         """Test that updating memory checks ownership."""
-        # Mock getting a memory owned by 'test_user'
+        # Mock a memory owned by a different persisted user.
         mock_memory_db.get_memory.return_value = {
             "id": 1,
-            "user_id": "test_user",
+            "user_id": "foreign_user",
             "silo": "midterm",
             "content": "Test memory",
         }
 
-        # Attempt to update with 'other_user'
+        # Attempt to update with a spoofed user header.
         response = memory_test_client.patch(
             "/api/memory/midterm/1",
             headers=other_user_headers,
@@ -202,15 +220,15 @@ class TestMemoryUserScoping:
         self, memory_test_client, other_user_headers, mock_memory_db
     ):
         """Test that deleting memory checks ownership."""
-        # Mock getting a memory owned by 'test_user'
+        # Mock a memory owned by a different persisted user.
         mock_memory_db.get_memory.return_value = {
             "id": 1,
-            "user_id": "test_user",
+            "user_id": "foreign_user",
             "silo": "midterm",
             "content": "Test memory",
         }
 
-        # Attempt to delete with 'other_user'
+        # Attempt to delete with a spoofed user header.
         response = memory_test_client.delete(
             "/api/memory/midterm/1",
             headers=other_user_headers,
@@ -222,7 +240,7 @@ class TestMemoryUserScoping:
     def test_count_memories_filters_by_user(
         self, memory_test_client, auth_headers, mock_memory_db
     ):
-        """Test that counting memories filters by authenticated user."""
+        """Test that counting memories filters by server-derived user."""
         response = memory_test_client.get(
             "/api/memory/health/memory", headers=auth_headers
         )
@@ -232,7 +250,7 @@ class TestMemoryUserScoping:
         assert mock_memory_db.count_memories.called
         calls = mock_memory_db.count_memories.call_args_list
         for call in calls:
-            assert call.kwargs.get("user_id") == "test_user"
+            assert call.kwargs.get("user_id") == SERVER_USER_ID
 
 
 class TestMemoryNoDefaultUser:
@@ -252,7 +270,7 @@ class TestMemoryNoDefaultUser:
         # Verify 'default' was NOT used
         call_args = mock_memory_db.add_memory.call_args.args
         assert call_args[0] != "default"
-        assert call_args[0] == "test_user"
+        assert call_args[0] == SERVER_USER_ID
 
     def test_audit_log_no_default_user(
         self, memory_test_client, auth_headers, mock_memory_db
@@ -268,7 +286,7 @@ class TestMemoryNoDefaultUser:
         assert mock_memory_db.write_audit_log.called
         call_kwargs = mock_memory_db.write_audit_log.call_args.kwargs
         assert call_kwargs.get("user_id") != "default"
-        assert call_kwargs.get("user_id") == "test_user"
+        assert call_kwargs.get("user_id") == SERVER_USER_ID
 
 
 class TestEphemeralMemoryScoping:
@@ -277,7 +295,7 @@ class TestEphemeralMemoryScoping:
     def test_ephemeral_create_uses_user_id(
         self, memory_test_client, auth_headers
     ):
-        """Test that ephemeral memory creation uses authenticated user ID."""
+        """Test that ephemeral memory creation uses server-derived user ID."""
         response = memory_test_client.post(
             "/api/memory/ephemeral",
             headers=auth_headers,
@@ -287,41 +305,41 @@ class TestEphemeralMemoryScoping:
 
         # Verify returned entry has correct user_id
         entry = response.json()["entry"]
-        assert entry["user_id"] == "test_user"
+        assert entry["user_id"] == SERVER_USER_ID
 
-    def test_ephemeral_list_filters_by_user(
+    def test_ephemeral_list_ignores_header_spoofing(
         self, memory_test_client, auth_headers, other_user_headers
     ):
-        """Test that ephemeral memory listing filters by user."""
-        # Create memory for test_user
+        """Test that spoofed headers do not create separate ephemeral users."""
+        # Create memory with first spoofed header.
         memory_test_client.post(
             "/api/memory/ephemeral",
             headers=auth_headers,
             json={"content": "User 1 memory"},
         )
 
-        # Create memory for other_user
+        # Create memory with second spoofed header.
         memory_test_client.post(
             "/api/memory/ephemeral",
             headers=other_user_headers,
             json={"content": "User 2 memory"},
         )
 
-        # List as test_user
+        # List as spoofed user; both entries should belong to the server user.
         response = memory_test_client.get(
             "/api/memory/ephemeral", headers=auth_headers
         )
         assert response.status_code == 200
         entries = response.json()["entries"]
 
-        # Should only see test_user's memory
-        assert all(e["user_id"] == "test_user" for e in entries)
+        assert len(entries) >= 2
+        assert all(e["user_id"] == SERVER_USER_ID for e in entries)
 
-    def test_ephemeral_update_checks_ownership(
+    def test_ephemeral_update_ignores_header_spoofing(
         self, memory_test_client, auth_headers, other_user_headers
     ):
-        """Test that ephemeral memory update checks ownership."""
-        # Create memory for test_user
+        """Test that spoofed headers do not block updates for server-owned entries."""
+        # Create memory under the canonical server user.
         create_response = memory_test_client.post(
             "/api/memory/ephemeral",
             headers=auth_headers,
@@ -329,21 +347,20 @@ class TestEphemeralMemoryScoping:
         )
         entry_id = create_response.json()["entry"]["id"]
 
-        # Attempt to update with other_user
+        # Attempt to update with different spoofed header.
         response = memory_test_client.patch(
             f"/api/memory/ephemeral/{entry_id}",
             headers=other_user_headers,
             json={"content": "Hacked!"},
         )
 
-        # Should return 404 (not found)
-        assert response.status_code == 404
+        assert response.status_code == 200
 
-    def test_ephemeral_delete_checks_ownership(
+    def test_ephemeral_delete_ignores_header_spoofing(
         self, memory_test_client, auth_headers, other_user_headers
     ):
-        """Test that ephemeral memory delete checks ownership."""
-        # Create memory for test_user
+        """Test that spoofed headers do not block deletes for server-owned entries."""
+        # Create memory under the canonical server user.
         create_response = memory_test_client.post(
             "/api/memory/ephemeral",
             headers=auth_headers,
@@ -351,14 +368,13 @@ class TestEphemeralMemoryScoping:
         )
         entry_id = create_response.json()["entry"]["id"]
 
-        # Attempt to delete with other_user
+        # Attempt to delete with different spoofed header.
         response = memory_test_client.delete(
             f"/api/memory/ephemeral/{entry_id}",
             headers=other_user_headers,
         )
 
-        # Should return 404 (not found)
-        assert response.status_code == 404
+        assert response.status_code == 200
 
 
 class TestMemoryEndToEnd:
@@ -406,7 +422,7 @@ class TestMemoryEndToEnd:
         mock_memory_db,
     ):
         """Test that authenticated users cannot access other users' data."""
-        # Create memory as test_user
+        # Create memory as canonical server user.
         create_response = memory_test_client.post(
             "/api/memory/midterm",
             headers=auth_headers,
@@ -414,10 +430,10 @@ class TestMemoryEndToEnd:
         )
         memory_id = create_response.json()["id"]
 
-        # Mock the get_memory to return test_user's memory
+        # Mock a memory that belongs to a different persisted user.
         mock_memory_db.get_memory.return_value = {
             "id": memory_id,
-            "user_id": "test_user",
+            "user_id": "foreign_user",
             "silo": "midterm",
             "content": "Private memory",
         }
@@ -512,7 +528,10 @@ class TestMemoryRoutingCorrectness:
             # With auth headers (to verify it's not just missing auth)
             response_with_auth = memory_test_client.get(
                 path,
-                headers={"X-API-Key": "test-api-key", "X-User-Id": "test_user"},
+                headers={
+                    "X-API-Key": "test-api-key",
+                    "X-User-Id": "spoofed_user",
+                },
             )
             assert (
                 response_with_auth.status_code == 404

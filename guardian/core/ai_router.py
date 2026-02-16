@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from requests import exceptions as req_exc
 
 from guardian.core.config import Settings, get_settings
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +261,11 @@ def stream_local(
 
 def call_groq(messages, model: str, *, settings: Optional[Settings] = None):
     settings = _resolve_settings(settings)
+    try:
+        assert_egress_allowed("groq", settings=settings)
+    except EgressDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
     api_key = settings.GROQ_API_KEY
     if not api_key:
         raise HTTPException(
@@ -290,6 +296,11 @@ def call_groq(messages, model: str, *, settings: Optional[Settings] = None):
 
 def call_openai(messages, model: str, *, settings: Optional[Settings] = None):
     settings = _resolve_settings(settings)
+    try:
+        assert_egress_allowed("openai", settings=settings)
+    except EgressDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
     api_key = settings.OPENAI_API_KEY
     if not api_key:
         raise HTTPException(

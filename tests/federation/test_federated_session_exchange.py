@@ -8,13 +8,17 @@ Tests cover:
 - Error handling (expired tokens, invalid signatures, rate limiting)
 """
 
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
 import pytest
+from fastapi import HTTPException
 
+from guardian.core.auth import sign_federation_trust_policy
 from guardian.federation.manager import FederationManager, RelaySession
 from guardian.federation.manifest import (
     NodeManifest,
@@ -22,7 +26,40 @@ from guardian.federation.manifest import (
     sign_manifest,
     verify_manifest,
 )
-from guardian.routes.federation import SessionRequestBody, configure_federation
+
+
+def _signed_federation_settings(
+    *,
+    enabled: bool = True,
+    require_signed_policy: bool = True,
+    policy: dict | None = None,
+) -> SimpleNamespace:
+    policy_dict = policy or {
+        "allowed_origins": ["https://peer.example.com"],
+        "allowed_nodes": ["node-beta"],
+        "allow_open_enrollment": False,
+    }
+    policy_json = json.dumps(policy_dict)
+    signature = (
+        sign_federation_trust_policy(policy_json, "policy-secret")
+        if require_signed_policy
+        else None
+    )
+    return SimpleNamespace(
+        GUARDIAN_FEDERATION_ENABLED=enabled,
+        GUARDIAN_FEDERATION_REQUIRE_SIGNED_POLICY=require_signed_policy,
+        GUARDIAN_FEDERATION_TRUST_POLICY_JSON=policy_json,
+        GUARDIAN_FEDERATION_TRUST_POLICY_SIGNATURE=signature,
+        GUARDIAN_FEDERATION_POLICY_SIGNING_KEY="policy-secret",
+    )
+
+
+from guardian.routes.federation import (
+    SessionRequestBody,
+    accept_session,
+    configure_federation,
+    request_session,
+)
 
 
 class TestManifestSigningAndVerification:
@@ -484,6 +521,142 @@ class TestFederationConfiguration:
 
         # Configuration should succeed with auto-generated keys
         assert True
+
+    @pytest.mark.asyncio
+    async def test_request_session_blocked_when_federation_disabled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        settings = _signed_federation_settings(enabled=False)
+        monkeypatch.setattr(
+            "guardian.routes.federation.get_settings",
+            lambda: settings,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await request_session(
+                SessionRequestBody(
+                    target_node_url="https://peer.example.com",
+                    document_id="doc-123",
+                    user_id="user-123",
+                )
+            )
+
+        assert exc.value.status_code == 403
+        assert "disabled" in str(exc.value.detail).lower()
+
+    @pytest.mark.asyncio
+    async def test_request_session_requires_signed_policy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        settings = _signed_federation_settings()
+        settings.GUARDIAN_FEDERATION_TRUST_POLICY_SIGNATURE = None
+        monkeypatch.setattr(
+            "guardian.routes.federation.get_settings",
+            lambda: settings,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await request_session(
+                SessionRequestBody(
+                    target_node_url="https://peer.example.com",
+                    document_id="doc-123",
+                    user_id="user-123",
+                )
+            )
+
+        assert exc.value.status_code == 503
+        assert "signature" in str(exc.value.detail).lower()
+
+    @pytest.mark.asyncio
+    async def test_request_session_rejects_disallowed_target_origin(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        settings = _signed_federation_settings(
+            policy={
+                "allowed_origins": ["https://trusted.example.com"],
+                "allowed_nodes": ["node-beta"],
+            }
+        )
+        monkeypatch.setattr(
+            "guardian.routes.federation.get_settings",
+            lambda: settings,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await request_session(
+                SessionRequestBody(
+                    target_node_url="https://peer.example.com",
+                    document_id="doc-123",
+                    user_id="user-123",
+                )
+            )
+
+        assert exc.value.status_code == 403
+        assert "origin" in str(exc.value.detail).lower()
+
+    @pytest.mark.asyncio
+    async def test_accept_session_rejects_untrusted_source_node(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        private_key, public_key = generate_keypair()
+        configure_federation(
+            node_id="node-alpha",
+            relay_endpoint="wss://alpha.example.com/api/federation/relay",
+            private_key=private_key,
+            public_key=public_key,
+        )
+        settings = _signed_federation_settings(
+            policy={
+                "allowed_origins": ["https://peer.example.com"],
+                "allowed_nodes": ["node-trusted"],
+            }
+        )
+        monkeypatch.setattr(
+            "guardian.routes.federation.get_settings",
+            lambda: settings,
+        )
+        token = jwt.encode(
+            {"source_node_id": "node-untrusted"},
+            "test-secret",
+            algorithm="HS256",
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await accept_session(relay_id="relay-123", token=token)
+
+        assert exc.value.status_code == 403
+        assert "source node" in str(exc.value.detail).lower()
+
+    @pytest.mark.asyncio
+    async def test_request_session_blocked_by_egress_policy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        settings = _signed_federation_settings()
+        monkeypatch.setattr(
+            "guardian.routes.federation.get_settings",
+            lambda: settings,
+        )
+        private_key, public_key = generate_keypair()
+        configure_federation(
+            node_id="node-alpha",
+            relay_endpoint="wss://alpha.example.com/api/federation/relay",
+            private_key=private_key,
+            public_key=public_key,
+        )
+        monkeypatch.delenv("CODEXIFY_LOCAL_ONLY_MODE", raising=False)
+        monkeypatch.delenv("CODEXIFY_EGRESS_ALLOWLIST", raising=False)
+
+        with pytest.raises(HTTPException) as exc:
+            await request_session(
+                SessionRequestBody(
+                    target_node_url="https://peer.example.com",
+                    document_id="doc-123",
+                    user_id="user-123",
+                )
+            )
+
+        assert exc.value.status_code == 403
+        assert "LOCAL_ONLY_MODE" in str(exc.value.detail)
 
 
 class TestManifestCapabilities:

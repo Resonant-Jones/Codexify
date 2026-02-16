@@ -1,4 +1,8 @@
 # guardian/core/config.py
+import logging
+import os
+from dataclasses import dataclass
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,11 +21,32 @@ class Settings(BaseSettings):
         default="local",
         description="The LLM provider to use ('local', 'groq', 'openai').",
     )
+    CODEXIFY_CONFIG_SOURCE: str = Field(
+        default="strict",
+        description=(
+            "Select which settings system coherence checks should trust: "
+            "'strict' (default, fail closed on mismatch), 'core' (trust guardian.core.config), "
+            "or 'legacy' (trust guardian.config.core)."
+        ),
+    )
     ALLOW_CLOUD_PROVIDERS: bool = Field(
         default=False,
         description=(
             "Safety switch: when false, cloud providers (openai/groq) are disallowed and local must be used. "
             "Set to true only if you intentionally want cloud fallback."
+        ),
+    )
+    CODEXIFY_LOCAL_ONLY_MODE: bool = Field(
+        default=True,
+        description=(
+            "Fail-closed egress guard. When true, all outbound non-local egress is blocked."
+        ),
+    )
+    CODEXIFY_EGRESS_ALLOWLIST: str = Field(
+        default="",
+        description=(
+            "Comma-separated outbound capability allowlist used when CODEXIFY_LOCAL_ONLY_MODE=false. "
+            "Supported entries include: openai, groq, elevenlabs, federation, webhook."
         ),
     )
     LLM_MODEL: str = Field(
@@ -96,6 +121,18 @@ class Settings(BaseSettings):
         default=None,
         description="Optional override for the OpenAI API base URL.",
     )
+    GUARDIAN_API_KEY: str | None = Field(
+        default=None,
+        description="Primary API key for Guardian HTTP auth.",
+    )
+    GUARDIAN_API_KEYS: str | None = Field(
+        default=None,
+        description="Comma-separated additional API keys for Guardian HTTP auth.",
+    )
+    GUARDIAN_DATABASE_URL: str | None = Field(
+        default=None,
+        description="Primary Postgres connection URL for Guardian chatlog DB.",
+    )
     DATA_STORAGE_PATH: str = Field(
         default="./data", description="Path for MemoryOS data storage."
     )
@@ -146,6 +183,26 @@ class Settings(BaseSettings):
         default=False,
         description="Enable dev-only routes such as /dev/*.",
     )
+    GUARDIAN_FEDERATION_ENABLED: bool = Field(
+        default=False,
+        description="Master gate for all federation endpoints.",
+    )
+    GUARDIAN_FEDERATION_REQUIRE_SIGNED_POLICY: bool = Field(
+        default=True,
+        description="Require a valid signed trust policy before federation requests are accepted.",
+    )
+    GUARDIAN_FEDERATION_TRUST_POLICY_JSON: str | None = Field(
+        default=None,
+        description="JSON trust policy controlling allowed federation peers/origins.",
+    )
+    GUARDIAN_FEDERATION_TRUST_POLICY_SIGNATURE: str | None = Field(
+        default=None,
+        description="Base64url HMAC signature for GUARDIAN_FEDERATION_TRUST_POLICY_JSON.",
+    )
+    GUARDIAN_FEDERATION_POLICY_SIGNING_KEY: str | None = Field(
+        default=None,
+        description="Optional signing key used to verify federation trust policy signatures.",
+    )
     WS_RPC_RATE_LIMIT_CAPACITY: int = Field(
         default=30,
         description="Max websocket RPC requests available per token bucket window.",
@@ -172,10 +229,253 @@ class Settings(BaseSettings):
 settings = Settings()
 
 CLOUD_LLM_PROVIDERS = {"openai", "groq"}
+_VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
+_SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+_LOGGED_COHERENCE_SOURCES: set[str] = set()
+logger = logging.getLogger(__name__)
 
 
 class LLMConfigError(Exception):
     """Raised when LLM provider configuration is invalid."""
+
+
+class ConfigCoherenceError(RuntimeError):
+    """Raised when config sources disagree on security-relevant values."""
+
+
+_COHERENCE_FIELDS = (
+    "GUARDIAN_API_KEY",
+    "GUARDIAN_API_KEYS",
+    "GUARDIAN_DATABASE_URL",
+    "OPENAI_API_KEY",
+    "GROQ_API_KEY",
+)
+
+_TRUTHY = ("1", "true", "yes", "on")
+_PROVIDER_BY_BACKEND = {
+    "ollama": "local",
+    "local": "local",
+    "openai": "openai",
+    "groq": "groq",
+}
+
+
+@dataclass(frozen=True)
+class _CoherenceMismatch:
+    label: str
+    core_value: object
+    legacy_value: object
+    core_env_keys: tuple[str, ...]
+    legacy_env_keys: tuple[str, ...]
+
+
+def _normalize_optional(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _normalize_provider(value: object) -> str | None:
+    raw = _normalize_optional(value)
+    if raw is None:
+        return None
+    lowered = raw.lower()
+    return _PROVIDER_BY_BACKEND.get(lowered, lowered)
+
+
+def _normalize_db_url(value: object) -> str | None:
+    url = _normalize_optional(value)
+    if url and url.startswith("postgresql+"):
+        return "postgresql://" + url.split("://", 1)[1]
+    return url
+
+
+def _load_legacy_settings_for_coherence() -> object | None:
+    """
+    Load legacy guardian.config settings for cross-system coherence checks.
+
+    Returns None when the legacy module is unavailable or fails to load.
+    """
+    try:
+        from guardian.config.core import get_settings as get_legacy_settings
+
+        return get_legacy_settings()
+    except Exception:
+        return None
+
+
+def _normalize_config_source(value: object) -> str:
+    raw = (_normalize_optional(value) or "strict").lower()
+    if raw not in _VALID_CONFIG_SOURCES:
+        raise ConfigCoherenceError(
+            "Invalid CODEXIFY_CONFIG_SOURCE="
+            f"{raw!r}. Expected one of: strict, core, legacy."
+        )
+    return raw
+
+
+def _mask_env_value(env_key: str, value: str) -> str:
+    upper = env_key.upper()
+    if any(marker in upper for marker in _SENSITIVE_ENV_MARKERS):
+        return "<redacted>"
+    return value
+
+
+def _format_source(keys: tuple[str, ...], effective_value: object) -> str:
+    declared: list[str] = []
+    for env_key in keys:
+        raw = os.getenv(env_key)
+        if raw is None:
+            continue
+        declared.append(f"{env_key}={_mask_env_value(env_key, raw)}")
+    if declared:
+        return ", ".join(declared)
+
+    if not keys:
+        return f"<unknown> (effective={effective_value!r})"
+
+    if len(keys) == 1:
+        return f"{keys[0]}=<unset> (effective={effective_value!r})"
+    return f"{'|'.join(keys)}=<unset> (effective={effective_value!r})"
+
+
+def _format_coherence_error(mismatches: list[_CoherenceMismatch]) -> str:
+    lines = ["Configuration coherence check failed:"]
+    for mismatch in mismatches:
+        lines.append(
+            f"- {mismatch.label}: core={mismatch.core_value!r} "
+            f"legacy={mismatch.legacy_value!r}"
+        )
+        lines.append(
+            "  Core source: "
+            + _format_source(mismatch.core_env_keys, mismatch.core_value)
+        )
+        lines.append(
+            "  Legacy source: "
+            + _format_source(mismatch.legacy_env_keys, mismatch.legacy_value)
+        )
+        lines.append(
+            "  Fix: remove one set OR set CODEXIFY_CONFIG_SOURCE=core|legacy"
+        )
+    return "\n".join(lines)
+
+
+def _validate_legacy_llm_config(legacy: object) -> None:
+    provider = _normalize_provider(getattr(legacy, "AI_BACKEND", None))
+    if not provider:
+        raise ConfigCoherenceError(
+            "Legacy settings invalid: AI_BACKEND is empty."
+        )
+    if provider == "local":
+        return
+
+    if provider == "openai":
+        if not _normalize_optional(getattr(legacy, "OPENAI_API_KEY", None)):
+            raise ConfigCoherenceError(
+                "Legacy settings invalid: OPENAI_API_KEY is required when AI_BACKEND=openai."
+            )
+        return
+
+    if provider == "groq":
+        if not _normalize_optional(getattr(legacy, "GROQ_API_KEY", None)):
+            raise ConfigCoherenceError(
+                "Legacy settings invalid: GROQ_API_KEY is required when AI_BACKEND=groq."
+            )
+        return
+
+    if provider == "gemini":
+        if not (
+            _normalize_optional(getattr(legacy, "GENAI_API_KEY", None))
+            or _normalize_optional(getattr(legacy, "GOOGLE_API_KEY", None))
+        ):
+            raise ConfigCoherenceError(
+                "Legacy settings invalid: GENAI_API_KEY or GOOGLE_API_KEY is required when AI_BACKEND=gemini."
+            )
+        return
+
+    if provider == "anthropic":
+        if not _normalize_optional(getattr(legacy, "ANTHROPIC_API_KEY", None)):
+            raise ConfigCoherenceError(
+                "Legacy settings invalid: ANTHROPIC_API_KEY is required when AI_BACKEND=anthropic."
+            )
+        return
+
+    raise ConfigCoherenceError(
+        f"Legacy settings invalid: unsupported AI_BACKEND={provider!r}."
+    )
+
+
+def _log_coherence_source_once(source: str) -> None:
+    if source in _LOGGED_COHERENCE_SOURCES:
+        return
+    _LOGGED_COHERENCE_SOURCES.add(source)
+    logger.info(
+        "[config] Coherence mode selected: CODEXIFY_CONFIG_SOURCE=%s",
+        source,
+    )
+
+
+def _coherence_mismatches(
+    core: Settings, legacy: object
+) -> list[_CoherenceMismatch]:
+    mismatches: list[_CoherenceMismatch] = []
+
+    for field in _COHERENCE_FIELDS:
+        core_val = getattr(core, field, None)
+        legacy_val = getattr(legacy, field, None)
+        if field == "GUARDIAN_DATABASE_URL":
+            core_norm = _normalize_db_url(core_val)
+            legacy_norm = _normalize_db_url(legacy_val)
+        else:
+            core_norm = _normalize_optional(core_val)
+            legacy_norm = _normalize_optional(legacy_val)
+        if core_norm != legacy_norm:
+            mismatches.append(
+                _CoherenceMismatch(
+                    label=field,
+                    core_value=core_norm,
+                    legacy_value=legacy_norm,
+                    core_env_keys=(field,),
+                    legacy_env_keys=(field,),
+                )
+            )
+
+    if (
+        os.getenv("LLM_PROVIDER") is not None
+        or os.getenv("AI_BACKEND") is not None
+    ):
+        core_provider = _normalize_provider(core.LLM_PROVIDER)
+        legacy_provider = _normalize_provider(
+            getattr(legacy, "AI_BACKEND", None)
+        )
+        if core_provider != legacy_provider:
+            mismatches.append(
+                _CoherenceMismatch(
+                    label="LLM_PROVIDER/AI_BACKEND",
+                    core_value=core_provider,
+                    legacy_value=legacy_provider,
+                    core_env_keys=("LLM_PROVIDER",),
+                    legacy_env_keys=("AI_BACKEND",),
+                )
+            )
+
+    if os.getenv("CLOUD_ONLY") is not None:
+        legacy_cloud_only = (
+            _normalize_optional(getattr(legacy, "CLOUD_ONLY", None)) or ""
+        ).lower() in _TRUTHY
+        if legacy_cloud_only and not bool(core.ALLOW_CLOUD_PROVIDERS):
+            mismatches.append(
+                _CoherenceMismatch(
+                    label=("CLOUD_ONLY requires ALLOW_CLOUD_PROVIDERS=true"),
+                    core_value=bool(core.ALLOW_CLOUD_PROVIDERS),
+                    legacy_value=legacy_cloud_only,
+                    core_env_keys=("ALLOW_CLOUD_PROVIDERS",),
+                    legacy_env_keys=("CLOUD_ONLY",),
+                )
+            )
+
+    return mismatches
 
 
 def is_cloud_provider(provider: str | None) -> bool:
@@ -232,3 +532,37 @@ def validate_llm_config(
 def get_settings() -> Settings:
     """Return the shared Settings instance for dependency injection."""
     return settings
+
+
+def assert_config_coherence(core_settings: Settings | None = None) -> None:
+    """
+    Ensure security-relevant settings are coherent across config systems.
+
+    Raises ConfigCoherenceError when guardian.core.config and guardian.config.core
+    disagree on overlapping critical settings.
+    """
+    core = core_settings or get_settings()
+    config_source = _normalize_config_source(
+        getattr(core, "CODEXIFY_CONFIG_SOURCE", None)
+    )
+    _log_coherence_source_once(config_source)
+
+    legacy_settings = _load_legacy_settings_for_coherence()
+    if config_source == "core":
+        validate_llm_config(core)
+        return
+
+    if legacy_settings is None:
+        if config_source == "legacy":
+            raise ConfigCoherenceError(
+                "CODEXIFY_CONFIG_SOURCE=legacy was requested, but legacy settings are unavailable."
+            )
+        return
+
+    if config_source == "legacy":
+        _validate_legacy_llm_config(legacy_settings)
+        return
+
+    mismatches = _coherence_mismatches(core, legacy_settings)
+    if mismatches:
+        raise ConfigCoherenceError(_format_coherence_error(mismatches))

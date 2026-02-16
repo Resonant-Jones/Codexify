@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.image_gen.base import ImageGenProvider
 
 try:
@@ -15,6 +16,10 @@ class OpenAIImageGen(ImageGenProvider):
     name = "openai"
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        try:
+            assert_egress_allowed("openai")
+        except EgressDeniedError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         if OpenAI is None:
             raise HTTPException(
                 status_code=500, detail="openai package not installed"

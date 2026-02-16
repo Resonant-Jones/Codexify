@@ -7,10 +7,11 @@ Includes specialized ChatGPT export migration endpoint.
 """
 
 import logging
-from typing import Optional
 
-from fastapi import APIRouter, File, Header, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import JSONResponse
+
+from guardian.core.dependencies import get_request_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ async def upload_chat(file: UploadFile = File(...)):
 @router.post("/upload-chatgpt-export")
 async def upload_chatgpt_export(
     file: UploadFile = File(...),
-    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    user_id: str = Depends(get_request_user_id),
 ):
     """
     Migrate a ChatGPT-style JSON export (OpenAI conversations export)
@@ -78,7 +79,7 @@ async def upload_chatgpt_export(
 
     Args:
         file: ChatGPT export JSON file
-        x_user_id: Optional user ID from request header
+        user_id: Request user identity resolved by server policy
 
     Returns:
         JSON response with import statistics:
@@ -126,7 +127,7 @@ async def upload_chatgpt_export(
     try:
         raw_bytes = await file.read()
         logger.info(
-            f"Received ChatGPT export upload: {len(raw_bytes)} bytes, user_id={x_user_id}"
+            f"Received ChatGPT export upload: {len(raw_bytes)} bytes, user_id={user_id}"
         )
     except Exception as e:
         logger.error(f"Failed to read uploaded file: {e}")
@@ -141,7 +142,7 @@ async def upload_chatgpt_export(
 
     # Perform dual-ingestion
     try:
-        stats = ingest_chatgpt_export(raw_bytes, user_id=x_user_id)
+        stats = ingest_chatgpt_export(raw_bytes, user_id=user_id)
 
         logger.info(
             f"ChatGPT export import successful: "

@@ -9,13 +9,13 @@ from typing import Optional
 
 import requests
 
-from guardian.plugins.plugin_loader import load_all_manifests
+from guardian.core.plugins import get_plugin_manifest_by_capability
 
 
 def get_tts_plugin_endpoint() -> Optional[str]:
-    for plugin in load_all_manifests():
-        if "tts" in (plugin.capabilities or []):
-            return plugin.entrypoint.rstrip("/") + "/speak"
+    plugin = get_plugin_manifest_by_capability("tts")
+    if plugin:
+        return plugin.entrypoint.rstrip("/") + "/speak"
     return None
 
 

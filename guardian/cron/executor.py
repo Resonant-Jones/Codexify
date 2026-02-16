@@ -6,6 +6,8 @@ import json
 import urllib.request
 from typing import Any, Callable
 
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+
 
 def _dispatch_webhook(
     *,
@@ -42,6 +44,11 @@ def execute_cron_job(
         return {"ok": True, "job_type": "noop", "result": "noop_executed"}
 
     if normalized_type == "webhook":
+        try:
+            assert_egress_allowed("webhook")
+        except EgressDeniedError as exc:
+            raise ValueError(str(exc)) from exc
+
         url = str(data.get("url") or "").strip()
         if not url:
             raise ValueError("webhook payload.url is required")

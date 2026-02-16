@@ -252,6 +252,7 @@ def embed_and_persist(
             "meta": {
                 "message_id": m.id,
                 "thread_id": m.thread_id,
+                "namespace": f"thread:{m.thread_id}",
                 "role": m.role,
                 "created_at": m.created_at.isoformat(),
                 "source": "canonical",

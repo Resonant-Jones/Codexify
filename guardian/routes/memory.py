@@ -11,10 +11,11 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from guardian.core.dependencies import get_request_user_id
 from guardian.core.dependencies import require_api_key as core_require_api_key
 
 logger = logging.getLogger(__name__)
@@ -107,15 +108,12 @@ def bind_dependencies(*, chatlog_db_instance, require_api_key_func):
 
 # User context dependency for extracting user ID from request headers
 def get_current_user(
-    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    current_user: str = Depends(get_request_user_id),
 ) -> str:
     """
-    Determine the current user for memory operations.
-
-    - If X-User-Id header is present, use it.
-    - Otherwise, default to \"default\" (single-user dev/test behavior).
+    Resolve current request user from server-side single-user identity.
     """
-    return x_user_id or "default"
+    return current_user
 
 
 # Memory retention configuration

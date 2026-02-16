@@ -9,6 +9,10 @@ from guardian.memoryos.retriever import MemoryOSRetriever
 logger = logging.getLogger(__name__)
 
 
+def _thread_namespace(thread_id: int) -> str:
+    return f"thread:{thread_id}"
+
+
 class ContextBroker:
     """Assembles context bundles for chat completions at different depth levels.
 
@@ -114,7 +118,11 @@ class ContextBroker:
         # Always include semantic search (for all depths except "shallow")
         if depth != "shallow":
             try:
-                semantic = await self._search_semantic(query, k_semantic)
+                semantic = await self._search_semantic(
+                    query,
+                    k_semantic,
+                    namespace=_thread_namespace(thread_id),
+                )
                 context["semantic"] = semantic
             except Exception as e:
                 logger.warning(f"Failed to perform semantic search: {e}")
@@ -140,7 +148,11 @@ class ContextBroker:
         if depth in ("deep", "diagnostic"):
             try:
                 if self.memory:
-                    memory = await self._search_memory(query, k_memory)
+                    memory = await self._search_memory(
+                        query,
+                        k_memory,
+                        namespace=_thread_namespace(thread_id),
+                    )
                     context["memory"] = memory
                 else:
                     context["memory"] = []
@@ -237,18 +249,31 @@ class ContextBroker:
         return result if isinstance(result, list) else []
 
     async def _search_semantic(
-        self, query: str, k: int
+        self,
+        query: str,
+        k: int,
+        *,
+        namespace: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Search for semantic matches via vector store."""
         if hasattr(self.vector, "search"):
-            result = self.vector.search(query, k=k)
+            try:
+                result = self.vector.search(query, k=k, namespace=namespace)
+            except TypeError:
+                result = self.vector.search(query, k=k)
             # Handle both sync and async returns
             if hasattr(result, "__await__"):
                 return await result
             return result if isinstance(result, list) else []
         return []
 
-    async def _search_memory(self, query: str, k: int) -> List[Dict[str, Any]]:
+    async def _search_memory(
+        self,
+        query: str,
+        k: int,
+        *,
+        namespace: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Search for related memory entries using MemoryOS semantic retriever.
 
         Primary: Uses MemoryOSRetriever for vector-based semantic memory search.
@@ -257,9 +282,16 @@ class ContextBroker:
         try:
             # Primary: Use MemoryOS semantic retriever for RAG-based memory recall
             if self.memory_retriever:
-                memory_results = await self.memory_retriever.retrieve(
-                    query, limit=k
-                )
+                try:
+                    memory_results = await self.memory_retriever.retrieve(
+                        query,
+                        limit=k,
+                        namespace=namespace,
+                    )
+                except TypeError:
+                    memory_results = await self.memory_retriever.retrieve(
+                        query, limit=k
+                    )
                 logger.debug(
                     f"[ContextBroker] Retrieved {len(memory_results)} memory chunks "
                     f"via MemoryOSRetriever"
