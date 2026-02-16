@@ -230,9 +230,9 @@ def _augment_plugins(
     loader = plugin_loader
     if loader is None:
         try:
-            from guardian.plugin_loader import plugin_loader as default_loader
+            from guardian.core.plugins import get_runtime_plugin_loader
 
-            loader = default_loader
+            loader = get_runtime_plugin_loader()
         except Exception:
             return
 
