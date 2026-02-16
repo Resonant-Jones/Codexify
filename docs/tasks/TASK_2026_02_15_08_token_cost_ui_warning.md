@@ -161,3 +161,38 @@ Constraints
 - Do not implement persona persistence here.
 
 This task makes prompt cost visible and prevents silent token bloat from degrading the user experience.
+
+---
+
+Execution Notes (2026-02-16)
+
+- Updated backend `GET /api/system_prompt/summary` in `guardian/routes/imprint.py` to return threshold-aware prompt cost metadata:
+  - `estimated_tokens_total`
+  - `threshold` object with `warn_tokens`, `hard_tokens`, and deterministic `status` (`ok|warn|hard|unknown`)
+  - normalized `segments` list (`name`, `chars`, `estimated_tokens`, `truncated`)
+  - `docs_count`
+  - `generated_at` (ISO-8601)
+- Added threshold configuration via environment variables:
+  - `SYSTEM_PROMPT_WARN_TOKENS` (default `6000`)
+  - `SYSTEM_PROMPT_HARD_TOKENS` (default `8000`)
+- Added graceful degradation behavior:
+  - if prompt metadata cannot be built, endpoint returns `status=unknown` with non-breaking shape (HTTP 200), rather than failing the UI path.
+- Preserved backward compatibility keys (`estimated_tokens`, `cap_tokens`, `docs_truncated`, `overflow`, `warnings`) for existing consumers.
+- Extended backend tests in `tests/routes/test_imprint_routes.py` for:
+  - response shape and no raw prompt content leakage
+  - warn/hard threshold boundary transitions
+  - unknown state when builder is unavailable
+- Added frontend prompt cost indicator component:
+  - `frontend/src/features/chat/components/PromptCostIndicator.tsx`
+  - integrated into chat surface in `frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx`
+  - selected least-disruptive HARD behavior for this phase: stronger warning badge, no send-disable.
+- Updated imprint frontend types and summary handling:
+  - `frontend/src/imprint/api.ts` (new `SystemPromptSummary` + threshold typing)
+  - `frontend/src/imprint/useImprintZero.ts` (threshold-aware large-prompt heuristic, refresh summary after persona/accept changes)
+  - `frontend/src/imprint/PersonaSettingsPanel.tsx` (supports segment list metadata + status display)
+- Added frontend tests:
+  - `frontend/src/features/chat/components/__tests__/PromptCostIndicator.test.tsx`
+  - verifies OK/WARN/HARD/UNKNOWN render states and HARD warning copy.
+- Validation run:
+  - `pytest -q tests/routes/test_imprint_routes.py tests/routes/test_chat_system_prompt_integration.py`
+  - `cd frontend/src && pnpm exec vitest run features/chat/components/__tests__/PromptCostIndicator.test.tsx`

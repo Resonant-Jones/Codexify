@@ -1,5 +1,32 @@
 import api from "@/lib/api";
 
+export type PromptCostStatus = "ok" | "warn" | "hard" | "unknown";
+
+export type SystemPromptSummarySegment = {
+  name: string;
+  chars: number;
+  estimated_tokens: number;
+  truncated: boolean;
+};
+
+export type SystemPromptSummary = {
+  estimated_tokens_total?: number | null;
+  threshold?: {
+    warn_tokens: number;
+    hard_tokens: number;
+    status: PromptCostStatus;
+  };
+  segments?: SystemPromptSummarySegment[];
+  docs_count?: number | null;
+  generated_at?: string;
+  // Legacy compatibility fields
+  estimated_tokens?: number | null;
+  cap_tokens?: number | null;
+  docs_truncated?: boolean;
+  overflow?: boolean;
+  warnings?: string[];
+};
+
 export type ImprintStatus = {
   imprint?: {
     id: number;
@@ -14,16 +41,7 @@ export type ImprintStatus = {
     snippet?: string | null;
     created_at?: string;
   } | null;
-  system_prompt_meta?: {
-    estimated_tokens?: number;
-    docs_count?: number;
-    segments_present?: Record<string, boolean>;
-    segments?: Record<string, number>;
-    cap_tokens?: number;
-    docs_truncated?: boolean;
-    overflow?: boolean;
-    warnings?: string[];
-  };
+  system_prompt_meta?: SystemPromptSummary;
 };
 
 export type ImprintProposal = {
@@ -64,7 +82,9 @@ export async function rejectImprint(imprintId: number) {
 }
 
 export async function fetchSystemPromptSummary(params?: { thread_id?: number; project_id?: number | null }) {
-  const res = await api.get("/api/system_prompt/summary", { params });
+  const res = await api.get<SystemPromptSummary>("/api/system_prompt/summary", {
+    params,
+  });
   return res.data;
 }
 

@@ -47,6 +47,15 @@ export function useImprintZero() {
     }
   }, []);
 
+  const refreshSystemPromptSummary = useCallback(async () => {
+    try {
+      const data = await fetchSystemPromptSummary();
+      setStatus((prev) => ({ ...(prev || {}), system_prompt_meta: data }));
+    } catch (e) {
+      // ignore summary errors; not fatal
+    }
+  }, []);
+
   const accept = useCallback(
     async (personaOverride?: string) => {
       if (!proposal) return null;
@@ -56,13 +65,14 @@ export function useImprintZero() {
         await acceptImprint(proposal.imprint_draft.id, personaOverride);
         setProposal(null);
         await refreshStatus();
+        await refreshSystemPromptSummary();
       } catch (e: any) {
         setError(e?.message || "Failed to accept imprint");
       } finally {
         setLoading(false);
       }
     },
-    [proposal, refreshStatus]
+    [proposal, refreshStatus, refreshSystemPromptSummary]
   );
 
   const reject = useCallback(async () => {
@@ -78,15 +88,6 @@ export function useImprintZero() {
       setLoading(false);
     }
   }, [proposal]);
-
-  const refreshSystemPromptSummary = useCallback(async () => {
-    try {
-      const data = await fetchSystemPromptSummary();
-      setStatus((prev) => ({ ...(prev || {}), system_prompt_meta: data }));
-    } catch (e) {
-      // ignore summary errors; not fatal
-    }
-  }, []);
 
   const refreshSystemDocs = useCallback(async () => {
     try {
@@ -104,13 +105,14 @@ export function useImprintZero() {
       try {
         await updatePersonaApi(body);
         await refreshStatus();
+        await refreshSystemPromptSummary();
       } catch (e: any) {
         setError(e?.message || "Failed to update persona");
       } finally {
         setLoading(false);
       }
     },
-    [refreshStatus]
+    [refreshStatus, refreshSystemPromptSummary]
   );
 
   const toggleSystemDoc = useCallback(
@@ -134,8 +136,11 @@ export function useImprintZero() {
   }, [refreshStatus, refreshSystemDocs, refreshSystemPromptSummary]);
 
   const hasLargePrompt = useMemo(() => {
-    const est = status?.system_prompt_meta?.estimated_tokens ?? 0;
-    return est > 1500;
+    const meta = status?.system_prompt_meta;
+    const est =
+      meta?.estimated_tokens_total ?? meta?.estimated_tokens ?? 0;
+    const warn = meta?.threshold?.warn_tokens ?? 6000;
+    return est >= warn;
   }, [status?.system_prompt_meta]);
 
   return {

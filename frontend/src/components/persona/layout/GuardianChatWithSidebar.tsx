@@ -15,6 +15,7 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import useImprintZero from "@/imprint/useImprintZero";
 import ImprintZeroToast from "@/imprint/ImprintZeroToast";
+import PromptCostIndicator from "@/features/chat/components/PromptCostIndicator";
 import { RedisSessionStateStore } from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import {
@@ -1144,14 +1145,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
           >
             <div className="flex h-full min-h-0 overflow-hidden flex-col">
               <PromptLibraryPortal />
-              {(imprintZero.status?.system_prompt_meta?.warnings?.length || 0) > 0 && (
-                <div
-                  className="mx-4 mt-3 rounded-lg border px-3 py-2 text-xs"
-                  style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
-                >
-                  {(imprintZero.status?.system_prompt_meta?.warnings || []).join(" ")}
-                </div>
-              )}
+              <PromptCostIndicator summary={imprintZero.status?.system_prompt_meta} />
               {auth.ready && auth.status === "unauthenticated" && (
                 <div
                   className="mx-4 mt-3 rounded-lg border px-3 py-2 text-xs"
