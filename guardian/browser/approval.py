@@ -119,7 +119,9 @@ def _session_scope() -> Iterator[Any]:
 def ensure_tables(bind: Any) -> None:
     """Create approval/audit tables when absent (test/dev helper)."""
 
-    metadata.create_all(bind=bind, tables=[browser_approvals, browser_audit_log])
+    metadata.create_all(
+        bind=bind, tables=[browser_approvals, browser_audit_log]
+    )
 
 
 def _to_iso(value: Any) -> str | None:
@@ -190,7 +192,9 @@ def create_approval_request(
         )
         approval_id = int(result.inserted_primary_key[0])
         row = session.execute(
-            select(browser_approvals).where(browser_approvals.c.id == approval_id)
+            select(browser_approvals).where(
+                browser_approvals.c.id == approval_id
+            )
         ).first()
         if row is None:
             raise RuntimeError("failed to load created approval")
@@ -206,9 +210,15 @@ def create_approval_request(
         return _serialize_approval(row)
 
 
-def list_approvals(*, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+def list_approvals(
+    *, status: str | None = None, limit: int = 100
+) -> list[dict[str, Any]]:
     with _session_scope() as session:
-        stmt = select(browser_approvals).order_by(browser_approvals.c.id.desc()).limit(limit)
+        stmt = (
+            select(browser_approvals)
+            .order_by(browser_approvals.c.id.desc())
+            .limit(limit)
+        )
         if status:
             stmt = stmt.where(browser_approvals.c.status == status.upper())
         rows = session.execute(stmt).all()
@@ -230,7 +240,9 @@ def decide_approval(
 
     with _session_scope() as session:
         current = session.execute(
-            select(browser_approvals).where(browser_approvals.c.id == approval_id)
+            select(browser_approvals).where(
+                browser_approvals.c.id == approval_id
+            )
         ).first()
         if current is None:
             raise ApprovalNotFoundError(f"approval not found: {approval_id}")
@@ -255,7 +267,9 @@ def decide_approval(
             )
         )
         updated = session.execute(
-            select(browser_approvals).where(browser_approvals.c.id == approval_id)
+            select(browser_approvals).where(
+                browser_approvals.c.id == approval_id
+            )
         ).first()
 
         if updated is None or updated.status != normalized:
@@ -277,10 +291,14 @@ def decide_approval(
 
 def is_approved(*, approval_id: int, operation: str | None = None) -> bool:
     with _session_scope() as session:
-        stmt = select(func.count()).select_from(browser_approvals).where(
-            and_(
-                browser_approvals.c.id == approval_id,
-                browser_approvals.c.status == "APPROVED",
+        stmt = (
+            select(func.count())
+            .select_from(browser_approvals)
+            .where(
+                and_(
+                    browser_approvals.c.id == approval_id,
+                    browser_approvals.c.status == "APPROVED",
+                )
             )
         )
         if operation:
@@ -313,7 +331,9 @@ def require_approval_for_operation(
             )
             return
 
-        if approval_id is not None and is_approved(approval_id=approval_id, operation=op):
+        if approval_id is not None and is_approved(
+            approval_id=approval_id, operation=op
+        ):
             _write_audit(
                 session=session,
                 approval_id=approval_id,

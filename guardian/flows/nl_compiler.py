@@ -45,12 +45,20 @@ def _slugify(text: str) -> str:
 
 
 def _infer_trigger(text_lower: str) -> dict[str, Any]:
-    if "every morning" in text_lower or "every day" in text_lower or "daily" in text_lower:
+    if (
+        "every morning" in text_lower
+        or "every day" in text_lower
+        or "daily" in text_lower
+    ):
         return {"type": "cron", "schedule": "0 7 * * *", "event_name": None}
     if "every friday" in text_lower or "weekly" in text_lower:
         return {"type": "cron", "schedule": "0 9 * * FRI", "event_name": None}
     if text_lower.startswith("when ") or " on event " in text_lower:
-        return {"type": "event", "schedule": None, "event_name": "flow.event.triggered"}
+        return {
+            "type": "event",
+            "schedule": None,
+            "event_name": "flow.event.triggered",
+        }
     return {"type": "manual", "schedule": None, "event_name": None}
 
 
@@ -76,7 +84,11 @@ def _infer_steps(text: str) -> list[dict[str, Any]]:
             "params": {
                 "intent": text,
                 "sources": {"threads": True, "memory": True, "codex": True},
-                "window": {"threads_days": 14, "memory_days": 30, "codex_days": 30},
+                "window": {
+                    "threads_days": 14,
+                    "memory_days": 30,
+                    "codex_days": 30,
+                },
                 "search_depth": 2,
                 "max_items": 50,
             },
@@ -135,7 +147,12 @@ def _infer_steps(text: str) -> list[dict[str, Any]]:
                     "title_template": "Flow Output - {{date}}",
                     "body_template": {
                         "format": "markdown",
-                        "sections": [{"title": "Result", "from_step": steps[-1]["step_id"]}],
+                        "sections": [
+                            {
+                                "title": "Result",
+                                "from_step": steps[-1]["step_id"],
+                            }
+                        ],
                     },
                 },
             }
@@ -156,21 +173,39 @@ def _infer_steps(text: str) -> list[dict[str, Any]]:
     return steps
 
 
-def _clarifying_questions(text: str, trigger: dict[str, Any], side_effects: bool) -> list[str]:
+def _clarifying_questions(
+    text: str, trigger: dict[str, Any], side_effects: bool
+) -> list[str]:
     text_lower = text.lower()
     questions: list[str] = []
-    if trigger["type"] == "cron" and all(token not in text_lower for token in ("7:", "8:", "9:", "am", "pm")):
-        questions.append("What exact time should this scheduled flow run in your timezone?")
-    if trigger["type"] == "manual" and any(token in text_lower for token in ("daily", "weekly", "every ")):
+    if trigger["type"] == "cron" and all(
+        token not in text_lower for token in ("7:", "8:", "9:", "am", "pm")
+    ):
+        questions.append(
+            "What exact time should this scheduled flow run in your timezone?"
+        )
+    if trigger["type"] == "manual" and any(
+        token in text_lower for token in ("daily", "weekly", "every ")
+    ):
         questions.append("Should this flow be scheduled or stay manual?")
-    if side_effects and "thread" not in text_lower and "codex" not in text_lower:
-        questions.append("Where should side effects be written (thread, codex, both, or none)?")
+    if (
+        side_effects
+        and "thread" not in text_lower
+        and "codex" not in text_lower
+    ):
+        questions.append(
+            "Where should side effects be written (thread, codex, both, or none)?"
+        )
     if len(text.split()) < 6:
-        questions.append("Can you provide more detail on the desired output format?")
+        questions.append(
+            "Can you provide more detail on the desired output format?"
+        )
     return questions
 
 
-def _estimate_confidence(text: str, trigger: dict[str, Any], questions: list[str]) -> float:
+def _estimate_confidence(
+    text: str, trigger: dict[str, Any], questions: list[str]
+) -> float:
     score = 0.55
     if trigger["type"] != "manual":
         score += 0.15
@@ -238,15 +273,29 @@ def draft_flow_from_text(
     )
 
 
-def _build_diff(draft_flow_spec: dict[str, Any], compiled_flow: CompiledFlow) -> list[str]:
-    draft_normalized = FlowSpec.model_validate(draft_flow_spec).model_dump(mode="json")
+def _build_diff(
+    draft_flow_spec: dict[str, Any], compiled_flow: CompiledFlow
+) -> list[str]:
+    draft_normalized = FlowSpec.model_validate(draft_flow_spec).model_dump(
+        mode="json"
+    )
     compiled_dump = compiled_flow.model_dump(mode="json")
     lines: list[str] = []
-    for key in ("trigger", "budget", "policy", "steps", "output", "idempotency", "audit"):
+    for key in (
+        "trigger",
+        "budget",
+        "policy",
+        "steps",
+        "output",
+        "idempotency",
+        "audit",
+    ):
         if draft_normalized.get(key) != compiled_dump.get(key):
             lines.append(f"{key}: normalized by compiler")
     if not lines:
-        lines.append("No normalization differences detected between draft and compiled flow.")
+        lines.append(
+            "No normalization differences detected between draft and compiled flow."
+        )
     return lines
 
 
@@ -268,10 +317,16 @@ def compile_draft_with_gating(
 ) -> GatedCompileResult:
     """Stage 2: compile draft and apply confidence/warning gating."""
     draft_result = (
-        draft if isinstance(draft, DraftFlowResult) else DraftFlowResult.model_validate(draft)
+        draft
+        if isinstance(draft, DraftFlowResult)
+        else DraftFlowResult.model_validate(draft)
     )
     compiled = compile_flow(draft_result.draft_flow_spec)
-    threshold = confidence_threshold if confidence_threshold is not None else compiled.policy.min_confidence
+    threshold = (
+        confidence_threshold
+        if confidence_threshold is not None
+        else compiled.policy.min_confidence
+    )
     warnings = [warning.message for warning in compiled.warnings]
     needs_confirmation = draft_result.confidence < threshold or bool(warnings)
 
@@ -297,4 +352,6 @@ def propose_flow_from_text(
 ) -> GatedCompileResult:
     """Convenience helper running stage-1 draft + stage-2 compile/gating."""
     draft = draft_flow_from_text(text=text, user_context=user_context)
-    return compile_draft_with_gating(draft, confidence_threshold=confidence_threshold)
+    return compile_draft_with_gating(
+        draft, confidence_threshold=confidence_threshold
+    )

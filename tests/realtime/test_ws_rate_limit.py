@@ -41,7 +41,12 @@ def test_ws_rate_limit_blocks_excess_calls(
         assert first["error"] is None
 
         ws.send_json(
-            {"type": "request", "id": "limited-1", "method": "ping", "params": {}}
+            {
+                "type": "request",
+                "id": "limited-1",
+                "method": "ping",
+                "params": {},
+            }
         )
         second = ws.receive_json()
         assert second["result"] is None

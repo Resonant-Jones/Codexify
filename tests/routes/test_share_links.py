@@ -23,6 +23,7 @@ from guardian.routes import share
 
 _API_KEY = "test-api-key"
 
+
 class TestCreateThreadShare:
     """Tests for creating share links for threads."""
 
@@ -90,7 +91,6 @@ class TestCreateThreadShare:
         call_kwargs = mock_emit.call_args.kwargs
         assert call_kwargs["topic"] == "share.created"
         assert call_kwargs["payload"]["token"] == "test_secure_token_12345"
-
 
     @patch("guardian.routes.share.models")
     @patch("guardian.routes.share.secrets.token_urlsafe")

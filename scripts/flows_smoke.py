@@ -20,9 +20,13 @@ def _load_flows_router(repo_root: Path):
     sys.modules["guardian.core.dependencies"] = stub
 
     module_path = repo_root / "guardian" / "routes" / "flows.py"
-    spec = importlib.util.spec_from_file_location("flows_router_module", module_path)
+    spec = importlib.util.spec_from_file_location(
+        "flows_router_module", module_path
+    )
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Unable to load flows router module from {module_path}")
+        raise RuntimeError(
+            f"Unable to load flows router module from {module_path}"
+        )
 
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

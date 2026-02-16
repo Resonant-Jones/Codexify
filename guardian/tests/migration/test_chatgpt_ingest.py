@@ -151,8 +151,7 @@ class InMemoryChatlog:
             "thread_id": thread_id,
             "role": role,
             "content": content,
-            "created_at": created_at
-            or datetime.now(timezone.utc).isoformat(),
+            "created_at": created_at or datetime.now(timezone.utc).isoformat(),
         }
         self._messages.append(message)
         return message_id

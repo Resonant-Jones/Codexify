@@ -116,7 +116,9 @@ def test_cron_crud_flow(monkeypatch: pytest.MonkeyPatch) -> None:
     assert missing_response.status_code == 404
 
 
-def test_cron_invalid_schedule_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cron_invalid_schedule_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = _client(monkeypatch)
     headers = {"X-API-Key": _API_KEY}
 

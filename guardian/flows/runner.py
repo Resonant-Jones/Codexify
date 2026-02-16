@@ -13,7 +13,9 @@ from guardian.flows.primitives import PrimitiveRegistry
 from guardian.flows.spec import CompiledFlow, FlowRun, FlowStepResult
 
 _RUN_CACHE: dict[str, FlowRun] = {}
-_REDACT_RE = re.compile(r"(api[_-]?key|authorization|cookie|token|secret)", re.IGNORECASE)
+_REDACT_RE = re.compile(
+    r"(api[_-]?key|authorization|cookie|token|secret)", re.IGNORECASE
+)
 
 
 def clear_run_cache() -> None:
@@ -21,7 +23,9 @@ def clear_run_cache() -> None:
     _RUN_CACHE.clear()
 
 
-def _coerce_compiled_flow(compiled_flow: CompiledFlow | dict[str, Any]) -> CompiledFlow:
+def _coerce_compiled_flow(
+    compiled_flow: CompiledFlow | dict[str, Any]
+) -> CompiledFlow:
     if isinstance(compiled_flow, CompiledFlow):
         return compiled_flow
     return CompiledFlow.model_validate(compiled_flow)
@@ -36,7 +40,9 @@ def _estimate_tokens(payload: Any) -> int:
     return max(1, len(serialized) // 4)
 
 
-def _render_template(template: str | None, values: dict[str, Any]) -> str | None:
+def _render_template(
+    template: str | None, values: dict[str, Any]
+) -> str | None:
     if not template:
         return None
     rendered = template
@@ -45,7 +51,9 @@ def _render_template(template: str | None, values: dict[str, Any]) -> str | None
     return rendered
 
 
-def _redact_payload(payload: dict[str, Any], explicit_redactions: list[str]) -> dict[str, Any]:
+def _redact_payload(
+    payload: dict[str, Any], explicit_redactions: list[str]
+) -> dict[str, Any]:
     redactions = {field.lower() for field in explicit_redactions}
     sanitized: dict[str, Any] = {}
     for key, value in payload.items():
@@ -107,7 +115,9 @@ def run_flow(
         run.ended_at = _utcnow()
         return run
 
-    if compiled.requires_confirmation and not run_context.get("confirmed", False):
+    if compiled.requires_confirmation and not run_context.get(
+        "confirmed", False
+    ):
         run.status = "blocked"
         run.needs_confirmation = True
         run.error = "Flow requires confirmation before side effects are allowed"
@@ -138,7 +148,9 @@ def run_flow(
             break
 
         step_started = _utcnow()
-        sanitized_params = _redact_payload(step.params, compiled.audit.redact_fields)
+        sanitized_params = _redact_payload(
+            step.params, compiled.audit.redact_fields
+        )
 
         try:
             output = primitive_registry.invoke(
@@ -150,7 +162,9 @@ def run_flow(
                     "context": run_context,
                 },
             )
-            consumed_tokens += _estimate_tokens(step.params) + _estimate_tokens(output)
+            consumed_tokens += _estimate_tokens(step.params) + _estimate_tokens(
+                output
+            )
             step_status = "ok"
             step_error: str | None = None
         except Exception as exc:  # pragma: no cover - defensive path
@@ -191,7 +205,10 @@ def run_flow(
     run.warnings = [warning.message for warning in compiled.warnings]
     run.ended_at = _utcnow()
 
-    if idempotency_key and compiled.idempotency.mode in {"return_cached", "skip_if_running"}:
+    if idempotency_key and compiled.idempotency.mode in {
+        "return_cached",
+        "skip_if_running",
+    }:
         _RUN_CACHE[idempotency_key] = run
 
     return run
