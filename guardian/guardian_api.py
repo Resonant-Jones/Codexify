@@ -66,6 +66,7 @@ from guardian.core.public_exposure import (
     DEFAULT_ROUTES_FILE,
     PublicExposureMiddleware,
 )
+from guardian.core.storage import ensure_storage_base_path
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue
 from guardian.tasks.types import WarmupTask
@@ -440,14 +441,9 @@ app.add_middleware(
 logger.info("[CORS] Allowed origins: %s", allowed_origins)
 
 # Static file serving for media
-media_storage_path = os.getenv("STORAGE_BASE_PATH", "/app/media")
-if os.path.exists(media_storage_path):
-    app.mount("/media", StaticFiles(directory=media_storage_path), name="media")
-    logger.info("[static] Mounted /media from %s", media_storage_path)
-else:
-    logger.warning(
-        "[static] Media storage path does not exist: %s", media_storage_path
-    )
+media_storage_path = ensure_storage_base_path()
+app.mount("/media", StaticFiles(directory=media_storage_path), name="media")
+logger.info("[static] Mounted /media from %s", media_storage_path)
 
 
 # =========================
