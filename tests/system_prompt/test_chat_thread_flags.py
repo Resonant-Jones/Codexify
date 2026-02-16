@@ -17,4 +17,6 @@ def test_chat_thread_defaults_diary_flags():
         session.commit()
         session.refresh(t)
         assert t.is_diary is False
+        assert t.diary_mode is False
         assert t.exclude_from_identity is False
+        assert t.modeling_excluded is False

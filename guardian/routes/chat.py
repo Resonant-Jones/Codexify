@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
 
+from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     acquire_turn_lock,
@@ -727,12 +728,36 @@ async def chat_complete(
             status_code=400, detail="Thread has no usable context"
         )
 
+    requested_depth_mode = str(body.depth_mode or "normal").strip().lower()
+    effective_depth_mode = body.depth_mode
+    if requested_depth_mode == "deep":
+        project_depth = "light"
+        project_id = (
+            thread_exists.get("project_id")
+            if isinstance(thread_exists, dict)
+            else None
+        )
+        getter = getattr(chatlog_db, "get_project_identity_depth", None)
+        if callable(getter):
+            try:
+                project_depth = str(getter(project_id) or "light").lower()
+            except Exception:
+                project_depth = "light"
+        if not can_run_deep_identity_modeling(project_depth):
+            effective_depth_mode = "normal"
+            logger.info(
+                "[chat.complete] downgraded depth_mode=deep to normal thread_id=%s project_id=%s identity_depth=%s",
+                thread_id,
+                project_id,
+                project_depth,
+            )
+
     task = ChatCompletionTask(
         thread_id=thread_id,
         provider=provider,
         model=body.model,
         max_context=body.max_context,
-        depth_mode=body.depth_mode,
+        depth_mode=effective_depth_mode,
         system_override=user_system_override,
         origin="api:chat.complete",
     )
@@ -770,7 +795,7 @@ async def chat_complete(
         task.origin,
         thread_id,
     )
-    return {"task_id": task.task_id}
+    return {"task_id": task.task_id, "depth_mode": effective_depth_mode}
 
 
 @router.get("/{thread_id}/profile")
