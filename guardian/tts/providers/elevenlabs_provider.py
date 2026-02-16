@@ -10,6 +10,8 @@ from typing import List, Optional
 
 import requests
 
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+
 from ..tts_service import (
     AuthenticationError,
     SynthesisError,
@@ -33,6 +35,11 @@ class ElevenLabsProvider(TTSProvider):
         Args:
             api_key: ElevenLabs API key. If not provided, looks for ELEVENLABS_API_KEY env var.
         """
+        try:
+            assert_egress_allowed("elevenlabs")
+        except EgressDeniedError as exc:
+            raise SynthesisError(str(exc)) from exc
+
         self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY")
         if not self.api_key:
             raise AuthenticationError("ElevenLabs API key not found")

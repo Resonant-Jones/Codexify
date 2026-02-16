@@ -30,6 +30,7 @@ from guardian.core import event_bus
 from guardian.core.auth import verify_session_token
 from guardian.core.chat_db import ChatDB
 from guardian.core.chatlog_postgres import PostgresChatLogDB
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.memory.query_memory import memory_store as _memory_store
 from guardian.sensors.state import Sensors
 from guardian.vector.store import VectorStore
@@ -571,6 +572,11 @@ def _groq_complete(
         HTTPException: If GROQ_API_KEY not configured or completion fails
     """
     import requests
+
+    try:
+        assert_egress_allowed("groq")
+    except EgressDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     if not GROQ_API_KEY:
         raise HTTPException(

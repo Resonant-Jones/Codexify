@@ -24,6 +24,19 @@ class Settings(BaseSettings):
             "Set to true only if you intentionally want cloud fallback."
         ),
     )
+    CODEXIFY_LOCAL_ONLY_MODE: bool = Field(
+        default=True,
+        description=(
+            "Fail-closed egress guard. When true, all outbound non-local egress is blocked."
+        ),
+    )
+    CODEXIFY_EGRESS_ALLOWLIST: str = Field(
+        default="",
+        description=(
+            "Comma-separated outbound capability allowlist used when CODEXIFY_LOCAL_ONLY_MODE=false. "
+            "Supported entries include: openai, groq, elevenlabs, federation, webhook."
+        ),
+    )
     LLM_MODEL: str = Field(
         default="library2/ministral-3:8b",
         description="Model identifier to pass to the selected LLM provider.",

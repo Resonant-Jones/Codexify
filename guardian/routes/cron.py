@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from guardian.core.db import GuardianDB
 from guardian.core.dependencies import require_api_key
+from guardian.core.egress import require_egress_allowed
 from guardian.cron.models import (
     CronJobCreateRequest,
     CronJobResponse,
@@ -101,6 +102,8 @@ def _is_forbidden_host(host: str) -> bool:
 
 
 def _validate_webhook_target(payload: dict[str, Any]) -> None:
+    require_egress_allowed("webhook")
+
     url = str(payload.get("url") or "").strip()
     if not url:
         raise HTTPException(
