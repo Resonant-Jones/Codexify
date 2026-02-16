@@ -108,3 +108,12 @@ Preflight: git status --porcelain -uall must be empty
 - `git restore --source=HEAD --staged --worktree -- docs`
 - `git restore --source=HEAD --staged --worktree -- scripts`
 - `git clean -fd`
+
+
+## Runner Receipt (Start)
+
+- Campaign: CAMPAIGN_2026_02_16_COMPILED_AUDIT
+
+- Task ID: 007
+
+- Head before: 48f76d608b558d485345997629226127fa31eeac
