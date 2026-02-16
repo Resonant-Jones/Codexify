@@ -34,3 +34,11 @@ If preflight is not empty, STOP and run exactly:
 - Rollback / cleanup commands:
   - git restore --staged --worktree -- guardian/guardian_api.py guardian/core/event_bus.py guardian/tests/test_events_outbox.py
   - git status --porcelain -uall
+
+## Runner Receipt (Start)
+
+- Campaign: CAMPAIGN_2026_02_16_SECURITY_MVP_FOLLOWUP_EXECUTION
+
+- Task ID: TASK-2026-02-16-001
+
+- Head before: e52d117a333b8623a9f90e2c1944534a338dcc36
