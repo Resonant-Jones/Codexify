@@ -195,6 +195,7 @@ Establish a hardened, predictable security baseline for single-user deployments:
 | 6 | Plugin Loader Consolidation | docs/tasks/TASK_2026_02_16_06_plugin_loader_consolidation.md |
 | 7 | Docs Alignment for Security Posture | docs/tasks/TASK_2026_02_16_07_docs_alignment_for_security_posture.md |
 | 8 | Outbox Delivery Safety Review | docs/tasks/TASK_2026_02_16_08_outbox_delivery_safety_review.md |
+| 9 | Offline Banner Provider Reroute | docs/tasks/TASK_2026_02_16_09_offline_banner_provider_reroute.md |
 
 ---
 
@@ -210,6 +211,7 @@ Establish a hardened, predictable security baseline for single-user deployments:
 | TASK_2026_02_16_06_plugin_loader_consolidation.md | `0329032a78b11a09ac35b6aa9035260db0ad72cf` | `<this-commit>` |
 | TASK_2026_02_16_07_docs_alignment_for_security_posture.md | `40386d4eb5344d25626357cd70a4ab047e72004f` | `<this-commit>` |
 | TASK_2026_02_16_08_outbox_delivery_safety_review.md | `be713fc039edc254cb01f5d6b179eed8da4e01f1` | `<this-commit>` |
+| TASK_2026_02_16_09_offline_banner_provider_reroute.md | `<hash-a9>` | `<hash-b9>` |
 
 ---
 
@@ -422,6 +424,51 @@ git commit -m "Security: review and harden outbox delivery logic for single-user
 **Expected Output:**
 - Outbox delivery logic reviewed and hardened
 - Passing pytest -v summary
+- Git commit hash
+
+---
+
+### Task 9: Offline Banner Provider Reroute
+
+**Task ID:** `TASK-2026-02-16-009_offline_banner_provider_reroute`
+
+**Goal:**
+- When the LLM backend is offline, provide an inline action in the offline banner to reroute/switch providers without leaving chat.
+
+**Constraints:**
+- Keep UI calm and compact (no large buttons or new large header blocks).
+- Do not add the token counter back into the header.
+- Respect local-only/cloud-disabled posture; do not imply cloud providers are available when disabled.
+
+**This change belongs in:**
+- `frontend/src/features/chat/GuardianChat.tsx` (or the actual owner of chat header + offline banner)
+- The component that renders the "LLM backend offline" banner (discover actual owner first)
+
+**Discovery commands (run first):**
+- `rg -n "LLM backend offline|ConnectTimeout|/api/tags|Recheck" frontend/src -S`
+- `rg -n "provider|LLM_PROVIDER|model.*offline|Provider:" frontend/src/features/chat frontend/src/components -S`
+
+**Edits:**
+- Add a visible `Switch provider` action to the offline banner UI.
+- Wire action to open the existing provider selector state/control (no duplicate settings UI).
+- If cloud providers are disabled, keep action but show only allowed providers and/or indicate cloud providers are disabled by config.
+
+**Tests:**
+- Add or update a focused UI test that verifies:
+- offline banner renders `Switch provider`
+- clicking it opens provider selector state (or calls the open handler)
+- Preferred focused run:
+- `pnpm --dir frontend/src test <relevant_test_file> -- --runInBand`
+- If full suite is run and `thread_documents_rehydration...` fails unrelatedly, note that failure as pre-existing and unrelated.
+
+**Git commit message (code/tests):**
+```sh
+git commit -m "UI: add provider reroute action to LLM offline banner"
+```
+
+**Expected Output:**
+- Files changed + key components/functions touched
+- Test commands/results (+ unrelated pre-existing failures if any)
 - Git commit hash
 
 ---
