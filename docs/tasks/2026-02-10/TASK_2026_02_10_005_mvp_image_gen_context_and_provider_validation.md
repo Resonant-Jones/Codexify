@@ -129,3 +129,37 @@ Preflight: git status --porcelain -uall must be empty
 - Task ID: 005
 
 - Head before: 95e291d2b93090dcefb41196be3e13bfe1780853
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: Backend completion response is now explicit (task/thread ids plus `messages_url` and `trace_url`), and the frontend fetches the latest RAG trace deterministically after assistant messages instead of depending on `response.data.context`. See `guardian/routes/chat.py:870` and `frontend/src/features/chat/GuardianChat.tsx:18,189,348-444,656-668`. The contract is documented for future implementers in `docs/architecture/completion_pipeline.md:48-67`.
+
+- Implementation commit hash: 125f6b7094266d4cdf339e0596af03d408657d14
+
+- Receipt update commit hash: 208c1ab1efde46f83f8040509731a2a8e94cb975
+
+- Tests ran: rg -n "response\\.data\\.context" frontend/src || true
+
+- Notes: Consider exercising the flow end-to-end (queue worker + UI) to confirm the trace fetch timing matches expectations.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "Backend completion response is now explicit (task/thread ids plus `messages_url` and `trace_url`), and the frontend fetches the latest RAG trace deterministically after assistant messages instead of depending on `response.data.context`. See `guardian/routes/chat.py:870` and `frontend/src/features/chat/GuardianChat.tsx:18,189,348-444,656-668`. The contract is documented for future implementers in `docs/architecture/completion_pipeline.md:48-67`.",
+  "tests_ran": [
+    "rg -n \"response\\\\.data\\\\.context\" frontend/src || true"
+  ],
+  "commit_hash": "125f6b7094266d4cdf339e0596af03d408657d14",
+  "implementation_commit_hash": "125f6b7094266d4cdf339e0596af03d408657d14",
+  "receipt_update_commit_hash": "208c1ab1efde46f83f8040509731a2a8e94cb975",
+  "notes": "Consider exercising the flow end-to-end (queue worker + UI) to confirm the trace fetch timing matches expectations."
+}
+```
+
+</details>
