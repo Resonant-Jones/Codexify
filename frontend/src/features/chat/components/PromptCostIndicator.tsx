@@ -1,3 +1,4 @@
+import { useState } from "react";
 import clsx from "clsx";
 
 import type { PromptCostStatus, SystemPromptSummary } from "@/imprint/api";
@@ -34,6 +35,8 @@ export default function PromptCostIndicator({
   const estimatedTotal =
     summary?.estimated_tokens_total ?? summary?.estimated_tokens ?? null;
   const warnings = summary?.warnings || [];
+  const [showTokens, setShowTokens] = useState(false);
+  const hasEstimatedTotal = typeof estimatedTotal === "number";
 
   return (
     <div
@@ -49,8 +52,26 @@ export default function PromptCostIndicator({
         <span className="font-semibold tracking-wide">
           {STATUS_LABEL[status]}
         </span>
-        <span className="tabular-nums">
-          {estimatedTotal === null ? "—" : estimatedTotal} tokens
+        <span className="flex items-center gap-1">
+          <button
+            type="button"
+            className={clsx(
+              "rounded px-1 py-0.5 text-[10px] leading-none opacity-70 transition hover:opacity-100",
+              "border border-current/20"
+            )}
+            aria-label={showTokens ? "Hide token count" : "Show token count"}
+            onClick={() => setShowTokens((prev) => !prev)}
+            disabled={!hasEstimatedTotal}
+            data-testid="prompt-cost-toggle-tokens"
+            title={hasEstimatedTotal ? "Toggle token count" : "Token estimate unavailable"}
+          >
+            #
+          </button>
+          {showTokens && hasEstimatedTotal ? (
+            <span className="tabular-nums text-[11px] opacity-80">
+              {estimatedTotal} tokens
+            </span>
+          ) : null}
         </span>
       </div>
       <div className="mt-1 opacity-85">
