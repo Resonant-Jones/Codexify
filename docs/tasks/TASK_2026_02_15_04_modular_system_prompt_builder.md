@@ -175,3 +175,36 @@ Constraints
 - Do not change identity modeling behavior.
 
 This task creates the prompt-assembly substrate required for token cost transparency and provenance tooling later.
+
+---
+
+Execution Notes (2026-02-16)
+
+- Added pure deterministic builder module `guardian/cognition/modular_prompt_builder.py`:
+  - `build_system_prompt(...)` with fixed segment order:
+    1) base
+    2) imprint
+    3) persona
+    4) system_docs
+    5) scratchpad
+  - stable delimiters:
+    - `=== BASE SYSTEM ===`
+    - `=== IMPRINT_ZERO ===`
+    - `=== PERSONA ===`
+    - `=== SYSTEM DOCS ===`
+    - `=== SCRATCHPAD ===`
+  - token metadata per segment + total
+  - per-segment truncation support (`imprint_max_tokens`, `system_docs_max_tokens`)
+  - optional total cap (`total_max_tokens`)
+  - explicit truncation notes
+- Refactored `guardian/cognition/system_prompt_builder.py` to:
+  - keep retrieval/lookup logic outside the pure builder
+  - pass fetched blocks into `build_system_prompt`
+  - preserve compatibility metadata (`estimated_tokens`, `docs_count`, etc.)
+- Updated chat execution path in `guardian/workers/chat_worker.py` to enforce one system message:
+  - merged prompt builder output + context/media/vision supplemental notes into a single system message payload
+- Updated `guardian/routes/imprint.py` segment handling to support list-based segment metadata.
+- Added tests:
+  - `tests/system_prompt/test_modular_prompt_builder.py` for ordering, delimiters, token metadata, and truncation behavior
+  - updated `tests/system_prompt/test_system_prompt_builder.py` for new segment metadata shape
+  - updated `tests/test_chat_worker_blank_output.py` with single-system-message coverage
