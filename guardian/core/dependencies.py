@@ -51,6 +51,9 @@ except ModuleNotFoundError as e:
 
 logger = logging.getLogger(__name__)
 
+_SINGLE_USER_ID_ENV = "CODEXIFY_SINGLE_USER_ID"
+_DEFAULT_SINGLE_USER_ID = "local"
+
 
 # =========================
 # Environment Loading
@@ -165,6 +168,49 @@ def _auth_mode() -> str:
         raw,
     )
     return "remote"
+
+
+def _env_bool(name: str, *, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _allow_user_header_override() -> bool:
+    return _env_bool("DEBUG", default=False) or _env_bool(
+        "LOCAL_DEV", default=False
+    )
+
+
+def get_single_user_id() -> str:
+    """
+    Resolve the canonical single-user principal for this deployment.
+    """
+    configured = (os.getenv(_SINGLE_USER_ID_ENV) or "").strip()
+    return configured or _DEFAULT_SINGLE_USER_ID
+
+
+def get_request_user_id(
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+) -> str:
+    """
+    Resolve request user identity from server-side single-user configuration.
+
+    `X-User-Id` is only honored when explicit local debug flags are enabled.
+    """
+    candidate = (x_user_id or "").strip()
+    allow_override = _allow_user_header_override()
+    if candidate and allow_override:
+        logger.debug(
+            "[auth] honoring X-User-Id override due to DEBUG/LOCAL_DEV"
+        )
+        return candidate
+    if candidate and not allow_override:
+        logger.debug(
+            "[auth] ignoring X-User-Id override outside DEBUG/LOCAL_DEV"
+        )
+    return get_single_user_id()
 
 
 def _remote_token_secrets() -> List[str]:
@@ -379,12 +425,15 @@ def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
     return api_key
 
 
-def get_current_user(api_key: str = Depends(require_api_key)) -> str:
+def get_current_user(
+    api_key: str = Depends(require_api_key),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+) -> str:
     """
-    Extract user ID from validated API key.
-    For now, returns 'default' - can be extended for multi-user support.
+    Resolve current user from server-side single-user identity.
     """
-    return "default"
+    _ = api_key
+    return get_request_user_id(x_user_id)
 
 
 # =========================
@@ -691,6 +740,8 @@ __all__ = [
     "verify_api_key",
     "require_api_key",
     "get_current_user",
+    "get_request_user_id",
+    "get_single_user_id",
     "API_KEY",
     # Database
     "chatlog_db",

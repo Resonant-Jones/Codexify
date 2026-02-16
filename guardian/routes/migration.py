@@ -3,12 +3,13 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from guardian.core.dependencies import (
     _vector_store,
     chatlog_db,
+    get_request_user_id,
     require_api_key,
 )
 
@@ -29,7 +30,7 @@ from backend.rag.chatgpt_migration import ingest_chatgpt_export
 @router.post("/upload-chatgpt-export", response_model=MigrationStats)
 async def upload_chatgpt_export(
     file: UploadFile = File(...),
-    user_id: str = Header("default", alias="X-User-Id"),
+    user_id: str = Depends(get_request_user_id),
     api_key: str = Depends(require_api_key),
 ):
     """

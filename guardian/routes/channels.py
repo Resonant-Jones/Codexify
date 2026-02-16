@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import get_request_user_id, require_api_key
 from guardian.db import models as db_models
 
 router = APIRouter(
@@ -51,9 +51,9 @@ def _get_db() -> Any:
 
 
 def _current_user(
-    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    user_id: str = Depends(get_request_user_id),
 ) -> str:
-    return (x_user_id or "default").strip() or "default"
+    return user_id
 
 
 def _normalize_channel(value: str) -> str:

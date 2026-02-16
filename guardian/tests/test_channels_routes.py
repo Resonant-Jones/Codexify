@@ -13,6 +13,7 @@ from guardian.db import models as db_models
 from guardian.routes import channels
 
 _API_KEY = "test-api-key"
+_SERVER_USER_ID = "local_user"
 
 
 class _TestDB:
@@ -73,6 +74,9 @@ class _TestDB:
 
 def _client(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, _TestDB]:
     monkeypatch.setenv("GUARDIAN_API_KEY", _API_KEY)
+    monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", _SERVER_USER_ID)
+    monkeypatch.setenv("DEBUG", "false")
+    monkeypatch.setenv("LOCAL_DEV", "false")
     db = _TestDB()
     channels.configure_db(db)
     app = FastAPI()
@@ -90,7 +94,7 @@ def test_config_create_and_user_scoped_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, _ = _client(monkeypatch)
-    headers = {"X-API-Key": _API_KEY, "X-User-Id": "user-a"}
+    headers = {"X-API-Key": _API_KEY, "X-User-Id": "spoof-a"}
 
     create_response = client.post(
         "/api/channels/configs",
@@ -102,6 +106,7 @@ def test_config_create_and_user_scoped_list(
     )
     assert create_response.status_code == 201
     created = create_response.json()
+    assert created["user_id"] == _SERVER_USER_ID
     assert created["channel"] == "slack"
     assert created["config_json"]["token_ref"] == "vault://slack/token"
 
@@ -109,14 +114,16 @@ def test_config_create_and_user_scoped_list(
     assert list_response.status_code == 200
     rows = list_response.json()["items"]
     assert len(rows) == 1
+    assert rows[0]["user_id"] == _SERVER_USER_ID
     assert rows[0]["channel"] == "slack"
 
     other_user = client.get(
         "/api/channels/configs",
-        headers={"X-API-Key": _API_KEY, "X-User-Id": "user-b"},
+        headers={"X-API-Key": _API_KEY, "X-User-Id": "spoof-b"},
     )
     assert other_user.status_code == 200
-    assert other_user.json()["items"] == []
+    assert len(other_user.json()["items"]) == 1
+    assert other_user.json()["items"][0]["user_id"] == _SERVER_USER_ID
 
 
 def test_channel_message_persistence_and_scoping(
@@ -124,7 +131,7 @@ def test_channel_message_persistence_and_scoping(
 ) -> None:
     client, db = _client(monkeypatch)
     db.add_message(
-        user_id="user-a",
+        user_id=_SERVER_USER_ID,
         channel="telegram",
         direction="inbound",
         content="hello from channel",
@@ -132,7 +139,7 @@ def test_channel_message_persistence_and_scoping(
         thread_id="thread-123",
     )
     db.add_message(
-        user_id="user-b",
+        user_id="foreign_user",
         channel="telegram",
         direction="outbound",
         content="other user",
@@ -142,7 +149,7 @@ def test_channel_message_persistence_and_scoping(
 
     response = client.get(
         "/api/channels/messages/telegram?limit=50",
-        headers={"X-API-Key": _API_KEY, "X-User-Id": "user-a"},
+        headers={"X-API-Key": _API_KEY, "X-User-Id": "spoof-a"},
     )
     assert response.status_code == 200
     payload = response.json()
