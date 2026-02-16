@@ -99,3 +99,12 @@ Preflight: git status --porcelain -uall must be empty
 - `git restore --source=HEAD --staged --worktree -- scripts`
 - `git restore --source=HEAD --staged --worktree -- frontend/src/tests/playwright`
 - `git clean -fd`
+
+
+## Runner Receipt (Start)
+
+- Campaign: CAMPAIGN_2026_02_16_COMPILED_AUDIT
+
+- Task ID: 006
+
+- Head before: 58a7f6e9d18622c53ab1724ce3388141cb83c9ce
