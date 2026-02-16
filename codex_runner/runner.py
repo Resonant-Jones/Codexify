@@ -723,34 +723,17 @@ def git_commit_amend(paths: list[str], no_verify: bool) -> str:
 
 # --------- Macro CLI (presets + loose tokens) ---------
 
-PRESET_CHOICES = ("high", "medium", "low")
+PRESET_CHOICES = ("high",)
 
-# Opinionated defaults. Power users can override any of these with explicit flags.
 PRESET_DEFAULTS: dict[str, dict[str, Any]] = {
-    # Highest quality / most expensive
+    # Single supported preset: force gpt-5.3-codex everywhere.
     "high": {
-        "codex_model": "gpt-5-codex",
-        "codex_model_audit": None,
-        "codex_model_compiler": None,
-        "codex_model_task": None,
+        "codex_model": "gpt-5.3-codex",
+        "codex_model_audit": "gpt-5.3-codex",
+        "codex_model_compiler": "gpt-5.3-codex",
+        "codex_model_task": "gpt-5.3-codex",
         # Config is appended; users can still pass their own --codex-config.
         "codex_config": ['model_reasoning_effort="high"'],
-    },
-    # Balanced: cheaper planning, strong task execution
-    "medium": {
-        "codex_model": None,
-        "codex_model_audit": "gpt-5.2",
-        "codex_model_compiler": "gpt-5.2",
-        "codex_model_task": "gpt-5-codex",
-        "codex_config": ['model_reasoning_effort="medium"'],
-    },
-    # Cheapest: mostly for quick iterations / wiring validation
-    "low": {
-        "codex_model": "o3",
-        "codex_model_audit": None,
-        "codex_model_compiler": None,
-        "codex_model_task": None,
-        "codex_config": ['model_reasoning_effort="low"'],
     },
 }
 
@@ -832,24 +815,32 @@ def normalize_macro_argv(argv: list[str]) -> list[str]:
 
 
 def apply_preset(args: argparse.Namespace) -> None:
-    """Apply --preset defaults without clobbering explicit user flags."""
+    """Apply --preset defaults.
+
+    Codexify runner policy: only the "high" preset is supported, and it forces
+    the model family to gpt-5.3-codex for all stages regardless of user flags.
+    """
     preset = (getattr(args, "preset", None) or "").strip().lower()
     if not preset:
         return
-    if preset not in PRESET_DEFAULTS:
-        raise RunnerError(f"Unknown preset: {preset}")
+    if preset != "high":
+        raise RunnerError(
+            f"Unsupported preset: {preset}. Only 'high' is allowed."
+        )
 
-    defaults = PRESET_DEFAULTS[preset]
+    defaults = PRESET_DEFAULTS["high"]
 
-    # Models: only fill if user did not specify.
-    if not args.codex_model and defaults.get("codex_model"):
-        args.codex_model = defaults["codex_model"]
-    if not args.codex_model_audit and defaults.get("codex_model_audit"):
-        args.codex_model_audit = defaults["codex_model_audit"]
-    if not args.codex_model_compiler and defaults.get("codex_model_compiler"):
-        args.codex_model_compiler = defaults["codex_model_compiler"]
-    if not args.codex_model_task and defaults.get("codex_model_task"):
-        args.codex_model_task = defaults["codex_model_task"]
+    # Force model selection for all stages (do not allow user overrides).
+    args.codex_model = defaults["codex_model"]
+    args.codex_model_audit = defaults["codex_model_audit"]
+    args.codex_model_compiler = defaults["codex_model_compiler"]
+    args.codex_model_task = defaults["codex_model_task"]
+
+    # Disable risk-specific task model overrides; they are not compatible with
+    # the single-model policy.
+    args.task_model_high = None
+    args.task_model_med = None
+    args.task_model_low = None
 
     # Config: preset config is prepended so user overrides can come later.
     preset_cfg = defaults.get("codex_config") or []
@@ -1179,7 +1170,7 @@ def parse_args() -> argparse.Namespace:
         choices=PRESET_CHOICES,
         default=None,
         help=(
-            "Optional macro preset for common configurations: high, medium, low. "
+            "Optional macro preset for common configurations: high. "
             "You can also pass the preset as a bare first token, e.g. `codex_runner high ...`."
         ),
     )
