@@ -42,7 +42,7 @@
 - Added tests to verify blocked-by-default behavior and explicit opt-in behavior.
 
 ## Commit A (Code/Tests)
-- `6841529bad60dc9d54bbf4736f07f7896995224b`
+- `6841529bec1f1bb575d082b866cd1a1842a96ea3`
 
 ## Commit B (Docs/Mapping)
-- `<this-commit>`
+- `2091b4d829132ca49954e6a9b2753f57ec640db9`
