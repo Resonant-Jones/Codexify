@@ -56,31 +56,43 @@ def get_active_persona(user_id: str, project_id: int | None) -> Persona | None:
         return session.scalars(stmt).first()
 
 
-def set_persona(
-    user_id: str, project_id: int | None, body: str, source: str = "user"
-) -> Persona:
-    """
-    Create and activate a persona. Any existing active persona for the pair
-    will be deactivated.
-    """
+def get_persona_by_id(persona_id: int) -> Persona | None:
+    """Fetch a persona by primary key."""
     Session = _get_session_factory()
     with Session() as session:
-        session.execute(
-            update(Persona)
+        return session.get(Persona, persona_id)
+
+
+def list_personas(user_id: str, project_id: int | None) -> list[Persona]:
+    """List personas scoped to (user_id, project_id), newest first."""
+    Session = _get_session_factory()
+    with Session() as session:
+        stmt = (
+            select(Persona)
             .where(
                 Persona.user_id == user_id,
                 Persona.project_id == project_id,
-                Persona.is_active.is_(True),
             )
-            .values(is_active=False, updated_at=datetime.now(timezone.utc))
+            .order_by(Persona.created_at.desc(), Persona.id.desc())
         )
+        return list(session.scalars(stmt))
 
+
+def create_persona(
+    user_id: str,
+    project_id: int | None,
+    name: str,
+    content: str,
+) -> Persona:
+    """Create a non-active persona using the canonical task API shape."""
+    Session = _get_session_factory()
+    with Session() as session:
         persona = Persona(
             user_id=user_id,
             project_id=project_id,
-            body=body,
-            source=source,
-            is_active=True,
+            body=content,
+            source=name or "user",
+            is_active=False,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -90,8 +102,95 @@ def set_persona(
         return persona
 
 
+def _activate_persona_with_scope(
+    *,
+    user_id: str,
+    project_id: int | None,
+    persona_id: int,
+) -> Persona:
+    Session = _get_session_factory()
+    with Session() as session:
+        persona = session.get(Persona, persona_id)
+        if not persona:
+            raise ValueError(f"Persona {persona_id} not found")
+        if persona.user_id != user_id or persona.project_id != project_id:
+            raise ValueError("persona scope mismatch")
+
+        session.execute(
+            update(Persona)
+            .where(
+                Persona.user_id == user_id,
+                Persona.project_id == project_id,
+                Persona.is_active.is_(True),
+                Persona.id != persona.id,
+            )
+            .values(is_active=False, updated_at=datetime.now(timezone.utc))
+        )
+
+        persona.is_active = True
+        persona.updated_at = datetime.now(timezone.utc)
+        session.add(persona)
+        session.commit()
+        session.refresh(persona)
+        return persona
+
+
+def activate_persona(*args) -> Persona:
+    """
+    Activate persona in scope.
+
+    Supported call shapes:
+    - activate_persona(persona_id)
+    - activate_persona(user_id, project_id, persona_id)
+    """
+    if len(args) == 1:
+        persona_id = int(args[0])
+        persona = get_persona_by_id(persona_id)
+        if not persona:
+            raise ValueError(f"Persona {persona_id} not found")
+        return _activate_persona_with_scope(
+            user_id=persona.user_id,
+            project_id=persona.project_id,
+            persona_id=persona_id,
+        )
+
+    if len(args) == 3:
+        user_id = str(args[0])
+        project_id = args[1]
+        persona_id = int(args[2])
+        return _activate_persona_with_scope(
+            user_id=user_id,
+            project_id=project_id,
+            persona_id=persona_id,
+        )
+
+    raise TypeError(
+        "activate_persona expects (persona_id) or (user_id, project_id, persona_id)"
+    )
+
+
+def set_persona(
+    user_id: str, project_id: int | None, body: str, source: str = "user"
+) -> Persona:
+    """
+    Create and activate a persona. Any existing active persona for the pair
+    will be deactivated.
+    """
+    persona = create_persona(
+        user_id=user_id,
+        project_id=project_id,
+        name=source,
+        content=body,
+    )
+    return activate_persona(persona.id)
+
+
 __all__ = [
+    "activate_persona",
+    "create_persona",
     "get_active_persona",
+    "get_persona_by_id",
+    "list_personas",
     "set_persona",
     "_set_session_factory",
 ]

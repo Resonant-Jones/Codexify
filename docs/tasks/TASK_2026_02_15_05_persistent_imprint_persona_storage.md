@@ -168,3 +168,35 @@ Constraints
 - Do not add flow permission logic (Task 2).
 
 This task makes persona + imprint selection durable and non-spooky across sessions.
+
+---
+
+Execution Notes (2026-02-16)
+
+- Extended imprint repository API in `guardian/cognition/imprints/store.py`:
+  - added `create_imprint`, `list_imprints`
+  - expanded activation API to support both:
+    - legacy `activate_imprint(imprint_id)`
+    - scoped `activate_imprint(user_id, project_id, imprint_id)`
+  - scoped activation now explicitly validates scope and supersedes prior active rows atomically
+- Extended persona repository API in `guardian/cognition/personas/store.py`:
+  - added `create_persona`, `list_personas`, `get_persona_by_id`, `activate_persona`
+  - refactored `set_persona` to create + activate through the scoped activation path
+  - scoped activation validates scope and deactivates prior active rows atomically
+- Added deterministic precedence resolver module `guardian/cognition/identity_resolution.py`:
+  - `resolve_persona(...)` precedence:
+    1) explicit request override
+    2) active scope persona
+    3) project-default/user-default persona (`project_id=None`)
+    4) system default
+  - `resolve_imprint(...)` precedence:
+    1) active scope imprint
+    2) user default imprint (`project_id=None`)
+    3) system default
+- Wired resolution into generation path via `guardian/cognition/system_prompt_builder.py`:
+  - prompt assembly now consumes resolved persona/imprint outputs instead of direct active-only lookups
+- Added tests in `tests/system_prompt/test_identity_resolution.py` covering:
+  - single-active-per-scope behavior for imprints/personas
+  - no cross-project activation bleed
+  - persona precedence (explicit override > active > system default)
+  - imprint precedence (scope > user default > system default)

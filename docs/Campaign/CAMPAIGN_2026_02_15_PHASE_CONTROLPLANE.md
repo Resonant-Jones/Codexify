@@ -441,7 +441,7 @@ Implement enforceable runtime boundaries for the Control Plane phase:
 
 5. TASK-2026-02-15-05_persistent_imprint_persona_storage
    - Task artifact: `docs/tasks/TASK_2026_02_15_05_persistent_imprint_persona_storage.md`
-   - Task mapping: `TASK-2026-02-15-05_persistent_imprint_persona_storage -> [<commitA>, <commitB>]`
+   - Task mapping: `TASK-2026-02-15-05_persistent_imprint_persona_storage -> [dc08aa16, <commitB>]`
 
 6. TASK-2026-02-15-06_event_graph_emission
    - Task artifact: `docs/tasks/TASK_2026_02_15_06_event_graph_emission.md`
@@ -462,7 +462,7 @@ Implement enforceable runtime boundaries for the Control Plane phase:
 - TASK-2026-02-15-02_flow_authentication_boundary -> [8f0c50b8, <commitB>]
 - TASK-2026-02-15-03_cli_sandboxed_project_execution -> [5bc57a61, <commitB>]
 - TASK-2026-02-15-04_modular_system_prompt_builder -> [96aff28f, <commitB>]
-- TASK-2026-02-15-05_persistent_imprint_persona_storage -> [<commitA>, <commitB>]
+- TASK-2026-02-15-05_persistent_imprint_persona_storage -> [dc08aa16, <commitB>]
 - TASK-2026-02-15-06_event_graph_emission -> [<commitA>, <commitB>]
 - TASK-2026-02-15-07_codex_entry_lineage_enforcement -> [<commitA>, <commitB>]
 - TASK-2026-02-15-08_token_cost_ui_warning -> [<commitA>, <commitB>]
