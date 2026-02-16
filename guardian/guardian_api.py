@@ -50,7 +50,11 @@ logger = logging.getLogger(__name__)
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
-from guardian.core.config import get_settings
+from guardian.core.config import (
+    ConfigCoherenceError,
+    assert_config_coherence,
+    get_settings,
+)
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
     ENABLE_CONNECTOR_WORKER,
@@ -183,6 +187,12 @@ async def app_lifespan(app: FastAPI):
     logger.info("[startup] Guardian API starting...")
 
     settings = get_settings()
+    try:
+        assert_config_coherence(settings)
+    except ConfigCoherenceError as exc:
+        logger.error("[startup] Config coherence check failed: %s", exc)
+        raise
+
     if getattr(settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
         logger.info("[graph] Knowledge graph context: ENABLED (Neo4j)")
     else:
