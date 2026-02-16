@@ -116,3 +116,57 @@ Preflight: git status --porcelain -uall must be empty
 - Task ID: 001
 
 - Head before: 18d87ca5638ea5bab144622c245c14b415f6adf2
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: Locked down env templates and docs so `VITE_GUARDIAN_API_KEY` stays local-only and tracked files contain placeholders only.
+
+- Implementation commit hash: c48d3adc2cbe33610fa45516525c8fcbbbe71fc1
+
+- Receipt update commit hash: a6a7d9a5e4ef495eed8669c201d3e3b05071e6d7
+
+- Tests ran: git ls-files .env, git check-ignore -v .env, . "rg -n \"(GUARDIAN_API_KEY=|VITE_GUARDIAN_API_KEY=|POSTGRES_PASSWORD=|NEO4J_PASSWORD=)\" -S .gitignore .env.example .env.template README.md docs || true", . "git status --porcelain -uall"
+
+- Notes: **Env Guardrails**
+- `.env.template:1` and `.env.example:1` now start with an explicit security banner, swap in placeholder-only secrets (`GUARDIAN_API_KEY=dev-local-only-change-me` at lines 21 and `POSTGRES_PASSWORD=replace-with-postgres-password` at lines 38-40), and leave `VITE_GUARDIAN_API_KEY` blank with instructions to mirror the backend key only on localhost.
+
+**Docs & Warnings**
+- `README.md:75` adds an “Env Security Guardrails” block spelling out that `.env` stays untracked, `GUARDIAN_API_KEY` must be rotated, and `VITE_GUARDIAN_API_KEY` cannot ship on hosted deployments (pointing to the remote auth boundary doc).
+- `docs/infra/dev-setup.md:60` now explicitly states “Never ship or publish the value of VITE_GUARDIAN_API_KEY” and ties remote deployments to `GUARDIAN_AUTH_MODE=remote`/session auth so the warning shows up in the canonical env workflow doc.
+
+**Secrets Scrubbed**
+- Replaced the literal 64-hex `GUARDIAN_API_KEY` in `docs/MVP ROADMAP/codexify-mvp-roadmap.md:1475` with `<dev-local-api-key>`.
+- Sanitized the historical verification note in `docs/tasks/TASK_2026_01_17_002_frontend_env_file.md:65` so it references `<dev-only-same-as-backend>` instead of a real token.
+
+**Checks**
+- `git ls-files .env` (empty) and `git check-ignore -v .env` → `.gitignore:12` confirmed `.env` stays ignored; re-ran `git status --porcelain -uall` pre/post to satisfy the STOP condition (only allowed files are touched).
+- Executed the mandated `rg -n "(GUARDIAN_API_KEY=|VITE_GUARDIAN_API_KEY=|POSTGRES_PASSWORD=|NEO4J_PASSWORD=)" -S .gitignore .env.example .env.template README.md docs || true`, yielding only placeholder values after the scrub.
+
+**Next Steps**
+1. Rotate any real `GUARDIAN_API_KEY`/`VITE_GUARDIAN_API_KEY` values already in circulation so the newly documented hygiene is enforced operationally.
+2. If you host Codexify anywhere public, flip `GUARDIAN_AUTH_MODE=remote` and wire session/JWT issuance before exposing the UI.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "Locked down env templates and docs so `VITE_GUARDIAN_API_KEY` stays local-only and tracked files contain placeholders only.",
+  "tests_ran": [
+    "git ls-files .env",
+    "git check-ignore -v .env",
+    ". \"rg -n \\\"(GUARDIAN_API_KEY=|VITE_GUARDIAN_API_KEY=|POSTGRES_PASSWORD=|NEO4J_PASSWORD=)\\\" -S .gitignore .env.example .env.template README.md docs || true\"",
+    ". \"git status --porcelain -uall\""
+  ],
+  "commit_hash": "c48d3adc2cbe33610fa45516525c8fcbbbe71fc1",
+  "implementation_commit_hash": "c48d3adc2cbe33610fa45516525c8fcbbbe71fc1",
+  "receipt_update_commit_hash": "a6a7d9a5e4ef495eed8669c201d3e3b05071e6d7",
+  "notes": "**Env Guardrails**\n- `.env.template:1` and `.env.example:1` now start with an explicit security banner, swap in placeholder-only secrets (`GUARDIAN_API_KEY=dev-local-only-change-me` at lines 21 and `POSTGRES_PASSWORD=replace-with-postgres-password` at lines 38-40), and leave `VITE_GUARDIAN_API_KEY` blank with instructions to mirror the backend key only on localhost.\n\n**Docs & Warnings**\n- `README.md:75` adds an \u201cEnv Security Guardrails\u201d block spelling out that `.env` stays untracked, `GUARDIAN_API_KEY` must be rotated, and `VITE_GUARDIAN_API_KEY` cannot ship on hosted deployments (pointing to the remote auth boundary doc).\n- `docs/infra/dev-setup.md:60` now explicitly states \u201cNever ship or publish the value of VITE_GUARDIAN_API_KEY\u201d and ties remote deployments to `GUARDIAN_AUTH_MODE=remote`/session auth so the warning shows up in the canonical env workflow doc.\n\n**Secrets Scrubbed**\n- Replaced the literal 64-hex `GUARDIAN_API_KEY` in `docs/MVP ROADMAP/codexify-mvp-roadmap.md:1475` with `<dev-local-api-key>`.\n- Sanitized the historical verification note in `docs/tasks/TASK_2026_01_17_002_frontend_env_file.md:65` so it references `<dev-only-same-as-backend>` instead of a real token.\n\n**Checks**\n- `git ls-files .env` (empty) and `git check-ignore -v .env` \u2192 `.gitignore:12` confirmed `.env` stays ignored; re-ran `git status --porcelain -uall` pre/post to satisfy the STOP condition (only allowed files are touched).\n- Executed the mandated `rg -n \"(GUARDIAN_API_KEY=|VITE_GUARDIAN_API_KEY=|POSTGRES_PASSWORD=|NEO4J_PASSWORD=)\" -S .gitignore .env.example .env.template README.md docs || true`, yielding only placeholder values after the scrub.\n\n**Next Steps**\n1. Rotate any real `GUARDIAN_API_KEY`/`VITE_GUARDIAN_API_KEY` values already in circulation so the newly documented hygiene is enforced operationally.\n2. If you host Codexify anywhere public, flip `GUARDIAN_AUTH_MODE=remote` and wire session/JWT issuance before exposing the UI."
+}
+```
+
+</details>

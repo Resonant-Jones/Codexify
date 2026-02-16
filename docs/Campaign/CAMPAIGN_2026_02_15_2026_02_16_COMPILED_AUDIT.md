@@ -35,3 +35,7 @@ Close the highest-risk configuration hygiene issue and make the MVP core loops d
 - 007: Tooling/Docs: deterministic doc-upload + embed validation artifact (F006)
 - 008: Tooling/Docs: deterministic image-gallery + image-gen validation artifact (F007/F008)
 - 009: Tooling/Docs: deterministic doc-gen validation artifact (F009)
+
+## Task Mapping
+
+001 -> [c48d3adc2cbe33610fa45516525c8fcbbbe71fc1, a6a7d9a5e4ef495eed8669c201d3e3b05071e6d7]
