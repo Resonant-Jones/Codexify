@@ -110,3 +110,35 @@ Preflight: git status --porcelain -uall must be empty
 - Task ID: 004
 
 - Head before: ecc0d69c4fc0f1e679f681b1edf0811512c1df84
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: SettingsView now routes ChatGPT imports through the authenticated `/api/upload-chatgpt-export` client; ripgrep shows no legacy `/upload-chatgpt-export` usage there. Preflight stayed clean and only the allowed file changed.
+
+- Implementation commit hash: 011838c656da427f0374dd0e951f5fc39cc8c661
+
+- Receipt update commit hash: b895b87d42e96f80a039c1a8557f9987d5c0b458
+
+- Tests ran: (none)
+
+- Notes: Key edits: `frontend/src/components/settings/SettingsView.tsx:14` now imports `@/lib/api`; `:156-173` swaps the legacy `fetch('/upload-chatgpt-export')` call for `api.post('/api/upload-chatgpt-export', …)` including the `X-User-Id` header and zero timeout, mirroring `ChatGPTImportModal`. Errors now surface API-provided detail text. Verification: `rg -n "upload-chatgpt-export" frontend/src guardian/routes/migration.py -S` shows SettingsView only hits `/api/upload-chatgpt-export`; only allowed file is modified per `git status`. Tests not run (not requested); consider `npx playwright test src/tests/playwright/migration_e2e_import.spec.ts` next if you want runtime assurance.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "SettingsView now routes ChatGPT imports through the authenticated `/api/upload-chatgpt-export` client; ripgrep shows no legacy `/upload-chatgpt-export` usage there. Preflight stayed clean and only the allowed file changed.",
+  "tests_ran": [],
+  "commit_hash": "011838c656da427f0374dd0e951f5fc39cc8c661",
+  "implementation_commit_hash": "011838c656da427f0374dd0e951f5fc39cc8c661",
+  "receipt_update_commit_hash": "b895b87d42e96f80a039c1a8557f9987d5c0b458",
+  "notes": "Key edits: `frontend/src/components/settings/SettingsView.tsx:14` now imports `@/lib/api`; `:156-173` swaps the legacy `fetch('/upload-chatgpt-export')` call for `api.post('/api/upload-chatgpt-export', \u2026)` including the `X-User-Id` header and zero timeout, mirroring `ChatGPTImportModal`. Errors now surface API-provided detail text. Verification: `rg -n \"upload-chatgpt-export\" frontend/src guardian/routes/migration.py -S` shows SettingsView only hits `/api/upload-chatgpt-export`; only allowed file is modified per `git status`. Tests not run (not requested); consider `npx playwright test src/tests/playwright/migration_e2e_import.spec.ts` next if you want runtime assurance."
+}
+```
+
+</details>
