@@ -19,6 +19,7 @@ import { setTrace } from "@/state/contextTrace";
 import TraceButton from "./components/TraceButton";
 import SessionRail from "@/components/SessionRail/SessionRail";
 import type { SessionTab, TabId } from "@/state/session/types";
+import type { RagTraceResponse } from "@/types/rag";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -188,6 +189,9 @@ export function GuardianChat({
   const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
   const [pendingTurnLock, setPendingTurnLock] = useState(false);
   const lastCompletionThreadRef = useRef<number | null>(null);
+  const lastCompletionDepthRef = useRef<Record<number, DepthMode>>({});
+  const traceEndpointRef = useRef<Record<number, string>>({});
+  const traceFetchInflightRef = useRef<Record<number, boolean>>({});
 
   // Listen for external prefill requests (e.g., Prompt Library selection)
   useEffect(() => {
@@ -341,6 +345,76 @@ export function GuardianChat({
   const notifyTurnLocked = () => {
     showToast(TURN_LOCK_TOAST);
   };
+  const getDepthForThread = useCallback(
+    (threadId: number): DepthMode =>
+      lastCompletionDepthRef.current[threadId] ?? depth,
+    [depth]
+  );
+  const fetchTraceForThread = useCallback(
+    async (threadId: number, reason = "assistant-message") => {
+      if (!Number.isFinite(threadId)) return;
+      if (traceFetchInflightRef.current[threadId]) return;
+
+      const endpoint =
+        traceEndpointRef.current[threadId] ??
+        `/api/chat/debug/rag-trace/${threadId}/latest`;
+
+      traceFetchInflightRef.current[threadId] = true;
+      try {
+        const response = await api.get<RagTraceResponse>(endpoint);
+        const payload = response?.data ?? null;
+        if (!payload) return;
+
+        const semantic = Array.isArray(payload?.documents)
+          ? payload.documents
+              .filter((doc): doc is RagTraceResponse["documents"][number] => {
+                return Boolean(doc) && typeof doc === "object";
+              })
+              .map((doc) => ({
+                text: doc.snippet || doc.title || "(untitled document)",
+                score:
+                  typeof doc.score === "number" && Number.isFinite(doc.score)
+                    ? doc.score
+                    : undefined,
+                metadata: {
+                  id: doc.id,
+                  title: doc.title,
+                },
+              }))
+          : [];
+
+        const memory = Array.isArray(payload?.graph)
+          ? payload.graph
+              .filter((node) => Boolean(node) && typeof node === "object")
+              .map((node) => ({
+                text: node.text || "(graph node)",
+                metadata: {
+                  node_id: node.node_id,
+                  kind: node.kind,
+                },
+              }))
+          : [];
+
+        setTrace({
+          semantic,
+          memory,
+          depth: getDepthForThread(threadId),
+          threadId,
+        });
+        console.debug(
+          `[guardian] RAG trace refreshed for thread ${threadId} (${reason})`
+        );
+      } catch (error) {
+        console.debug(
+          `[guardian] RAG trace fetch failed for thread ${threadId} (${reason})`,
+          error
+        );
+      } finally {
+        traceFetchInflightRef.current[threadId] = false;
+      }
+    },
+    [getDepthForThread]
+  );
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
     try {
@@ -353,22 +427,19 @@ export function GuardianChat({
 
       // Capture task_id for completion state tracking
       const taskId = response?.data?.task_id;
+      const responseDepth = (response?.data?.depth_mode as DepthMode | undefined) ?? depth;
+      lastCompletionDepthRef.current[tid] = responseDepth;
+
       if (taskId) {
         console.debug(`[guardian] Starting completion tracking: task=${taskId}`);
         startCompletion(tid, taskId);
       }
 
-      // Capture RAG trace for diagnostics/memory browser
-      const ctx = response?.data?.context;
-      if (ctx) {
-        setTrace({
-          semantic: ctx.semantic || [],
-          memory: ctx.memory || [],
-          depth,
-          threadId: tid,
-          timestamp: Date.now(),
-        });
-        console.log(`[guardian] RAG trace captured: ${ctx.semantic?.length || 0} semantic, ${ctx.memory?.length || 0} memory`);
+      const traceUrlRaw = response?.data?.trace_url;
+      if (typeof traceUrlRaw === "string" && traceUrlRaw.trim().length > 0) {
+        traceEndpointRef.current[tid] = traceUrlRaw;
+      } else {
+        delete traceEndpointRef.current[tid];
       }
       return true;
     } catch (err) {
@@ -588,12 +659,13 @@ export function GuardianChat({
       const role = String(payload?.role ?? "").trim().toLowerCase();
       if (!Number.isFinite(tid) || role !== "assistant") return;
       setTurnLockForThread(tid, false);
+      void fetchTraceForThread(tid, "message-event");
     });
 
     return () => {
       offMessage();
     };
-  }, [setTurnLockForThread, subscribe]);
+  }, [fetchTraceForThread, setTurnLockForThread, subscribe]);
   useEffect(() => {
     if (completionState.isCompleting && completionState.activeThreadId != null) {
       lastCompletionThreadRef.current = completionState.activeThreadId;
