@@ -14,8 +14,11 @@ from typing import Any, Dict
 
 from guardian.codex_awareness import CodexAwareness
 from guardian.config.system_config import system_config
+from guardian.core.plugins import (
+    get_runtime_plugin_loader,
+    load_runtime_plugins,
+)
 from guardian.metacognition import MetacognitionEngine
-from guardian.plugin_loader import plugin_loader
 from guardian.threads_structure.thread_manager import ThreadManager
 
 # Configure logging
@@ -87,7 +90,7 @@ class CodexifySystem:
         self.metacognition = MetacognitionEngine(
             thread_manager=self.thread_manager
         )
-        self.plugin_loader = plugin_loader  # Expose plugin loader
+        self.plugin_loader = get_runtime_plugin_loader()  # Expose plugin loader
 
         # Update metacognition with codex reference
         self.metacognition.codex_awareness = self.codex_awareness
@@ -181,10 +184,10 @@ class CodexifySystem:
         logger.info("Initializing plugin system...")
 
         # Load all plugins
-        plugin_loader.load_all_plugins()
+        self.plugin_loader = load_runtime_plugins()
 
         # Check plugin health
-        plugin_health = plugin_loader.check_all_plugin_health()
+        plugin_health = self.plugin_loader.check_all_plugin_health()
         for plugin_name, health in plugin_health.items():
             if health["status"] == "error":
                 logger.warning(
@@ -214,7 +217,7 @@ class CodexifySystem:
         thread_health = self.thread_manager.health_check()
 
         # Check plugin health
-        plugin_health = plugin_loader.check_all_plugin_health()
+        plugin_health = self.plugin_loader.check_all_plugin_health()
 
         # Check memory system
         try:
@@ -263,8 +266,8 @@ class CodexifySystem:
             self.shutdown_event.set()
 
             # Stop all plugins
-            for plugin_name in plugin_loader.plugins:
-                plugin_loader.disable_plugin(plugin_name)
+            for plugin_name in self.plugin_loader.plugins:
+                self.plugin_loader.disable_plugin(plugin_name)
 
             # Stop thread manager
             self.thread_manager.shutdown()
@@ -313,7 +316,7 @@ class CodexifySystem:
                 "thread_manager": bool(self.thread_manager),
                 "codex_awareness": bool(self.codex_awareness),
                 "metacognition": bool(self.metacognition),
-                "plugin_count": len(plugin_loader.plugins),
+                "plugin_count": len(self.plugin_loader.plugins),
             },
         }
 

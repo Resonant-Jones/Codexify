@@ -11,8 +11,11 @@ import logging
 import sys
 from datetime import datetime, timedelta, timezone
 
+from guardian.core.plugins import (
+    get_runtime_plugin_loader,
+    load_runtime_plugins,
+)
 from guardian.memory.logger import memory_logger
-from guardian.plugin_loader import plugin_loader
 
 # Configure logging
 logging.basicConfig(
@@ -20,6 +23,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+plugin_loader = get_runtime_plugin_loader()
 
 
 def list_plugins(args: argparse.Namespace) -> None:
@@ -217,7 +221,7 @@ def main() -> None:
         sys.exit(1)
 
     # Initialize plugin system
-    plugin_loader.load_all_plugins()
+    load_runtime_plugins()
 
     # Execute command
     if args.command == "list-plugins":

@@ -21,8 +21,8 @@ from guardian.agent_task_queue import (
 )
 from guardian.core.config import get_settings
 from guardian.core.dependencies import get_database_dsn, require_api_key
+from guardian.core.plugins import list_plugin_manifests
 from guardian.guardian_loop import guardian_loop
-from guardian.plugins.plugin_loader import load_all_manifests
 from guardian.queue.redis_queue import get_redis_client
 from guardian.tools.state_inspector import get_codexify_state
 
@@ -82,7 +82,7 @@ def list_plugins():
         List of plugin manifest dictionaries
     """
     logger.info("[devtools] plugin list requested")
-    return [manifest.model_dump() for manifest in load_all_manifests()]
+    return [manifest.model_dump() for manifest in list_plugin_manifests()]
 
 
 @router.post("/delegate")
