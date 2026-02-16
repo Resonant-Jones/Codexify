@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import api from "@/lib/api";
+import {
+  __resetAuthStateForTests,
+  __setAuthStateForTests,
+} from "@/lib/authState";
 
 vi.mock("@/hooks/useLiveEvents", () => ({
   useLiveEvents: () => ({
@@ -15,6 +19,12 @@ vi.mock("@/hooks/useLiveEvents", () => ({
 describe("Thread document rehydration", () => {
   beforeEach(() => {
     localStorage.clear();
+    __resetAuthStateForTests();
+    __setAuthStateForTests({
+      status: "authenticated",
+      ready: true,
+      token: "test-token",
+    });
     window.history.pushState({}, "", "/chat/101");
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -32,6 +42,7 @@ describe("Thread document rehydration", () => {
   });
 
   afterEach(() => {
+    __resetAuthStateForTests();
     vi.restoreAllMocks();
   });
 
