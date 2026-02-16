@@ -823,7 +823,10 @@ class ChatDB(ABC):
 
     @abstractmethod
     def list_events_after(
-        self, last_id: int, limit: int = 100
+        self,
+        last_id: int,
+        limit: int = 100,
+        tenant_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch events with IDs greater than ``last_id`` ordered ascending."""
         ...
