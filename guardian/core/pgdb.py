@@ -313,6 +313,14 @@ class PgDB(ChatDB):
                 pass
         elif metadata is None:
             row["metadata"] = {}
+        if "diary_mode" not in row and "is_diary" in row:
+            row["diary_mode"] = bool(row.get("is_diary"))
+        if "is_diary" not in row and "diary_mode" in row:
+            row["is_diary"] = bool(row.get("diary_mode"))
+        if "modeling_excluded" not in row and "exclude_from_identity" in row:
+            row["modeling_excluded"] = bool(row.get("exclude_from_identity"))
+        if "exclude_from_identity" not in row and "modeling_excluded" in row:
+            row["exclude_from_identity"] = bool(row.get("modeling_excluded"))
         return row
 
     # ---- chat_threads --------------------------------------------------
@@ -325,6 +333,8 @@ class PgDB(ChatDB):
         parent_id: int | None = None,
         is_diary: bool = False,
         exclude_from_identity: bool = False,
+        diary_mode: bool | None = None,
+        modeling_excluded: bool | None = None,
         metadata: dict | None = None,
         active_profile_id: str | None = None,
     ) -> dict[str, Any]:
@@ -334,14 +344,27 @@ class PgDB(ChatDB):
         project_id and parent_id parameters link this thread to larger organizational
         consciousness and hierarchical conversation flows."""
         metadata = metadata or {}
+        diary_flag = bool(is_diary if diary_mode is None else diary_mode)
+        modeling_flag = bool(
+            exclude_from_identity
+            if modeling_excluded is None
+            else modeling_excluded
+        )
         with self._connect() as conn:
             try:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO chat_threads (user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata, active_profile_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, active_profile_id, created_at, updated_at
+                        INSERT INTO chat_threads (
+                            user_id, title, summary, project_id, parent_id,
+                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
+                            metadata, active_profile_id
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING
+                            id, user_id, title, summary, project_id, parent_id, archived_at,
+                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
+                            metadata, active_profile_id, created_at, updated_at
                         """,
                         (
                             user_id,
@@ -349,8 +372,10 @@ class PgDB(ChatDB):
                             summary,
                             project_id,
                             parent_id,
-                            is_diary,
-                            exclude_from_identity,
+                            diary_flag,
+                            diary_flag,
+                            modeling_flag,
+                            modeling_flag,
                             _to_json(metadata),
                             active_profile_id,
                         ),
@@ -363,11 +388,22 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO chat_threads (user_id, title, summary, project_id)
-                        VALUES (%s, %s, %s, %s)
-                        RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                        INSERT INTO chat_threads (
+                            user_id, title, summary, project_id, is_diary, exclude_from_identity
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        RETURNING
+                            id, user_id, title, summary, project_id, is_diary,
+                            exclude_from_identity, created_at, updated_at
                         """,
-                        (user_id, title, summary, project_id),
+                        (
+                            user_id,
+                            title,
+                            summary,
+                            project_id,
+                            diary_flag,
+                            modeling_flag,
+                        ),
                     )
                     row = cur.fetchone()
             if not row:
@@ -384,10 +420,18 @@ class PgDB(ChatDB):
         parent_id: int | None = None,
         is_diary: bool = False,
         exclude_from_identity: bool = False,
+        diary_mode: bool | None = None,
+        modeling_excluded: bool | None = None,
         metadata: dict | None = None,
         active_profile_id: str | None = None,
     ) -> dict[str, Any]:
         metadata = metadata or {}
+        diary_flag = bool(is_diary if diary_mode is None else diary_mode)
+        modeling_flag = bool(
+            exclude_from_identity
+            if modeling_excluded is None
+            else modeling_excluded
+        )
         existing = self.get_chat_thread(thread_id)
         if existing:
             return existing
@@ -396,10 +440,17 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO chat_threads (id, user_id, title, summary, project_id, parent_id, is_diary, exclude_from_identity, metadata, active_profile_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO chat_threads (
+                            id, user_id, title, summary, project_id, parent_id,
+                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
+                            metadata, active_profile_id
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO NOTHING
-                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, is_diary, exclude_from_identity, metadata, active_profile_id, created_at, updated_at
+                        RETURNING
+                            id, user_id, title, summary, project_id, parent_id, archived_at,
+                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
+                            metadata, active_profile_id, created_at, updated_at
                         """,
                         (
                             thread_id,
@@ -408,8 +459,10 @@ class PgDB(ChatDB):
                             summary,
                             project_id,
                             parent_id,
-                            is_diary,
-                            exclude_from_identity,
+                            diary_flag,
+                            diary_flag,
+                            modeling_flag,
+                            modeling_flag,
                             _to_json(metadata),
                             active_profile_id,
                         ),
@@ -420,12 +473,24 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO chat_threads (id, user_id, title, summary, project_id)
-                        VALUES (%s, %s, %s, %s, %s)
+                        INSERT INTO chat_threads (
+                            id, user_id, title, summary, project_id, is_diary, exclude_from_identity
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO NOTHING
-                        RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                        RETURNING
+                            id, user_id, title, summary, project_id, is_diary,
+                            exclude_from_identity, created_at, updated_at
                         """,
-                        (thread_id, user_id, title, summary, project_id),
+                        (
+                            thread_id,
+                            user_id,
+                            title,
+                            summary,
+                            project_id,
+                            diary_flag,
+                            modeling_flag,
+                        ),
                     )
                     row = cur.fetchone()
         if existing := self.get_chat_thread(thread_id):
@@ -442,7 +507,10 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
+                        SELECT
+                            id, user_id, title, summary, project_id, parent_id, archived_at,
+                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
+                            metadata, active_profile_id, created_at, updated_at
                         FROM chat_threads
                         WHERE user_id = %s
                         ORDER BY created_at DESC
@@ -488,7 +556,10 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
+                        SELECT
+                            id, user_id, title, summary, project_id, parent_id, archived_at,
+                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
+                            metadata, active_profile_id, created_at, updated_at
                         FROM chat_threads
                         WHERE id = %s
                         """,
@@ -528,7 +599,10 @@ class PgDB(ChatDB):
             params.append(project_id)
 
         query = (
-            "SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at "
+            "SELECT "
+            "id, user_id, title, summary, project_id, parent_id, archived_at, "
+            "is_diary, diary_mode, exclude_from_identity, modeling_excluded, "
+            "metadata, active_profile_id, created_at, updated_at "
             "FROM chat_threads"
         )
         if clauses:
@@ -675,7 +749,10 @@ class PgDB(ChatDB):
                         UPDATE chat_threads
                         SET archived_at = %s, updated_at = %s
                         WHERE id = %s
-                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
+                        RETURNING
+                            id, user_id, title, summary, project_id, parent_id, archived_at,
+                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
+                            metadata, active_profile_id, created_at, updated_at
                         """,
                         (now, now, thread_id),
                     )
@@ -711,7 +788,10 @@ class PgDB(ChatDB):
                         UPDATE chat_threads
                         SET archived_at = NULL, updated_at = %s
                         WHERE id = %s
-                        RETURNING id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
+                        RETURNING
+                            id, user_id, title, summary, project_id, parent_id, archived_at,
+                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
+                            metadata, active_profile_id, created_at, updated_at
                         """,
                         (now, thread_id),
                     )
@@ -863,10 +943,27 @@ class PgDB(ChatDB):
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, name, description, created_at, updated_at FROM projects ORDER BY id DESC"
+                    "SELECT id, name, description, identity_depth, created_at, updated_at FROM projects ORDER BY id DESC"
                 )
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
+
+    def get_project_identity_depth(self, project_id: int | None) -> str:
+        if not project_id:
+            return "light"
+        with self._connect() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT identity_depth FROM projects WHERE id = %s",
+                        (project_id,),
+                    )
+                    row = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                return "light"
+        depth = str((row or {}).get("identity_depth") or "light").lower()
+        return "deep" if depth == "deep" else "light"
 
     def delete_project(self, project_id: int) -> bool:
         with self._connect() as conn:
@@ -915,7 +1012,10 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, title, summary, project_id, parent_id, archived_at, metadata, active_profile_id, created_at, updated_at
+                        SELECT
+                            id, user_id, title, summary, project_id, parent_id, archived_at,
+                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
+                            metadata, active_profile_id, created_at, updated_at
                         FROM chat_threads
                         WHERE parent_id = %s
                         """,

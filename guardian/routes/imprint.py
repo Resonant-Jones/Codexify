@@ -10,6 +10,11 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from guardian.cognition.identity_policy import (
+    can_run_deep_identity_modeling,
+    normalize_identity_depth,
+    thread_blocks_identity_modeling,
+)
 from guardian.cognition.imprints import store as imprint_store
 from guardian.cognition.personas import store as persona_store
 from guardian.cognition.system_docs import store as system_doc_store
@@ -53,17 +58,45 @@ def _resolve_user_project(
     return user_id, resolved_project, thread
 
 
+def _resolve_project_identity_depth(project_id: int | None) -> str:
+    if not project_id or not chatlog_db:
+        return "light"
+    getter = getattr(chatlog_db, "get_project_identity_depth", None)
+    if not callable(getter):
+        return "light"
+    try:
+        return normalize_identity_depth(getter(project_id))
+    except Exception as e:
+        logger.warning(
+            "[imprint] failed to resolve identity_depth project=%s: %s",
+            project_id,
+            e,
+        )
+        return "light"
+
+
 def _identity_updates_allowed(
-    user_id: str, thread: dict[str, Any] | None
+    user_id: str,
+    thread: dict[str, Any] | None,
+    *,
+    project_identity_depth: str = "light",
+    requested_depth: str = "light",
 ) -> bool:
     settings = user_settings_store.get_user_settings(user_id)
     memory_mode = settings.get("memory_mode", "deep")
-    if thread:
-        if thread.get("exclude_from_identity"):
-            return False
-        if thread.get("is_diary") and settings.get("diary_requires_unlock"):
-            return False
+    if thread_blocks_identity_modeling(thread):
+        return False
+    if (
+        thread
+        and bool(thread.get("is_diary") or thread.get("diary_mode"))
+        and settings.get("diary_requires_unlock")
+    ):
+        return False
     if memory_mode == "none":
+        return False
+    if normalize_identity_depth(requested_depth) == "deep" and (
+        not can_run_deep_identity_modeling(project_identity_depth)
+    ):
         return False
     return True
 
@@ -171,8 +204,19 @@ def create_imprint_proposal(body: dict[str, Any] = Body(default_factory=dict)):
     user_id, resolved_project, thread = _resolve_user_project(
         thread_id, project_id
     )
+    requested_depth = str(
+        body.get("requested_depth")
+        or body.get("identity_modeling_depth")
+        or "light"
+    )
+    project_identity_depth = _resolve_project_identity_depth(resolved_project)
 
-    if not _identity_updates_allowed(user_id, thread):
+    if not _identity_updates_allowed(
+        user_id,
+        thread,
+        project_identity_depth=project_identity_depth,
+        requested_depth=requested_depth,
+    ):
         raise HTTPException(
             status_code=403, detail="identity updates disabled for this context"
         )
@@ -233,7 +277,12 @@ def accept_imprint(body: dict[str, Any] = Body(...)):
     _, _, thread = _resolve_user_project(
         body.get("thread_id"), resolved_project
     )
-    if not _identity_updates_allowed(user_id, thread):
+    project_identity_depth = _resolve_project_identity_depth(resolved_project)
+    if not _identity_updates_allowed(
+        user_id,
+        thread,
+        project_identity_depth=project_identity_depth,
+    ):
         raise HTTPException(
             status_code=403, detail="identity updates disabled for this context"
         )
@@ -348,7 +397,12 @@ def update_persona(body: dict[str, Any] = Body(...)):
     user_id, resolved_project, thread = _resolve_user_project(
         thread_id, project_id
     )
-    if not _identity_updates_allowed(user_id, thread):
+    project_identity_depth = _resolve_project_identity_depth(resolved_project)
+    if not _identity_updates_allowed(
+        user_id,
+        thread,
+        project_identity_depth=project_identity_depth,
+    ):
         raise HTTPException(
             status_code=403, detail="identity updates disabled for this context"
         )

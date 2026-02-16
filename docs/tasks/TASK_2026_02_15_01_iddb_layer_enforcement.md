@@ -97,3 +97,15 @@ Constraints
 - Do not add frontend flags.
 
 This task establishes the storage-level sovereignty boundary before higher-layer features are built.
+
+---
+
+Execution Notes (2026-02-16)
+
+- Added explicit `chat_threads.diary_mode` and `chat_threads.modeling_excluded` schema/model support while preserving legacy `is_diary` and `exclude_from_identity` compatibility.
+- Added persisted `projects.identity_depth` (`light|deep`) and wired backend lookup via `get_project_identity_depth`.
+- Enforced identity modeling guardrails in imprint routes:
+  - abort when diary/modeling-excluded flags are set
+  - abort deep identity modeling requests unless project identity depth is `deep`
+- Added deep-mode guard in chat completion route so `depth_mode=deep` downgrades to `normal` unless project identity depth is `deep`.
+- Added/updated tests covering diary exclusion, modeling exclusion, and deep-mode gating behavior.
