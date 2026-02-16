@@ -429,7 +429,7 @@ Implement enforceable runtime boundaries for the Control Plane phase:
 
 2. TASK-2026-02-15-02_flow_authentication_boundary
    - Task artifact: `docs/tasks/TASK_2026_02_15_02_flow_authentication_boundary.md`
-   - Task mapping: `TASK-2026-02-15-02_flow_authentication_boundary -> [<commitA>, <commitB>]`
+   - Task mapping: `TASK-2026-02-15-02_flow_authentication_boundary -> [8f0c50b8, <commitB>]`
 
 3. TASK-2026-02-15-03_cli_sandboxed_project_execution
    - Task artifact: `docs/tasks/TASK_2026_02_15_03_cli_sandboxed_project_execution.md`
@@ -459,7 +459,7 @@ Implement enforceable runtime boundaries for the Control Plane phase:
 > Update this section as each task completes.
 
 - TASK-2026-02-15-01_iddb_layer_enforcement -> [717adcc3, <commitB>]
-- TASK-2026-02-15-02_flow_authentication_boundary -> [<commitA>, <commitB>]
+- TASK-2026-02-15-02_flow_authentication_boundary -> [8f0c50b8, <commitB>]
 - TASK-2026-02-15-03_cli_sandboxed_project_execution -> [<commitA>, <commitB>]
 - TASK-2026-02-15-04_modular_system_prompt_builder -> [<commitA>, <commitB>]
 - TASK-2026-02-15-05_persistent_imprint_persona_storage -> [<commitA>, <commitB>]
