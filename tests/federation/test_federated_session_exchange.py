@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
 import pytest
+from fastapi import HTTPException
 
 from guardian.federation.manager import FederationManager, RelaySession
 from guardian.federation.manifest import (
@@ -22,7 +23,11 @@ from guardian.federation.manifest import (
     sign_manifest,
     verify_manifest,
 )
-from guardian.routes.federation import SessionRequestBody, configure_federation
+from guardian.routes.federation import (
+    SessionRequestBody,
+    configure_federation,
+    request_session,
+)
 
 
 class TestManifestSigningAndVerification:
@@ -484,6 +489,32 @@ class TestFederationConfiguration:
 
         # Configuration should succeed with auto-generated keys
         assert True
+
+    @pytest.mark.asyncio
+    async def test_request_session_blocked_by_egress_policy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        private_key, public_key = generate_keypair()
+        configure_federation(
+            node_id="node-alpha",
+            relay_endpoint="wss://alpha.example.com/api/federation/relay",
+            private_key=private_key,
+            public_key=public_key,
+        )
+        monkeypatch.delenv("CODEXIFY_LOCAL_ONLY_MODE", raising=False)
+        monkeypatch.delenv("CODEXIFY_EGRESS_ALLOWLIST", raising=False)
+
+        with pytest.raises(HTTPException) as exc:
+            await request_session(
+                SessionRequestBody(
+                    target_node_url="https://peer.example.com",
+                    document_id="doc-123",
+                    user_id="user-123",
+                )
+            )
+
+        assert exc.value.status_code == 403
+        assert "LOCAL_ONLY_MODE" in str(exc.value.detail)
 
 
 class TestManifestCapabilities:

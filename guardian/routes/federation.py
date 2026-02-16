@@ -24,6 +24,7 @@ from fastapi import (
 from pydantic import BaseModel, Field
 
 from guardian.core import event_bus
+from guardian.core.egress import require_egress_allowed
 from guardian.federation.diff_engine import DiffEngine, DiffEntry
 from guardian.federation.diff_store import get_diff_store
 from guardian.federation.graph_model import GraphEdge, GraphNode, GraphSnapshot
@@ -170,6 +171,8 @@ async def request_session(body: SessionRequestBody) -> Dict[str, Any]:
     Returns:
         SessionResponse with relay URL and token
     """
+    require_egress_allowed("federation")
+
     try:
         node_id, private_key, public_key, relay_endpoint = _get_config()
     except RuntimeError as e:

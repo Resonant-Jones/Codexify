@@ -6,6 +6,8 @@ OpenAI chat and embeddings adapters (SDK >= 1.x)
 import os
 from typing import Iterator, List, Optional
 
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+
 from .base import ChatProvider, EmbeddingsProvider
 
 try:
@@ -24,6 +26,10 @@ class OpenAIChat(ChatProvider):
     name = "openai"
 
     def __init__(self, api_key: Optional[str] = None, timeout: float = 60.0):
+        try:
+            assert_egress_allowed("openai")
+        except EgressDeniedError as exc:
+            raise RuntimeError(str(exc)) from exc
         if OpenAI is None:
             raise RuntimeError("openai package not installed")
         self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
@@ -65,6 +71,10 @@ class OpenAIEmbeddings(EmbeddingsProvider):
     name = "openai"
 
     def __init__(self, api_key: Optional[str] = None, timeout: float = 60.0):
+        try:
+            assert_egress_allowed("openai")
+        except EgressDeniedError as exc:
+            raise RuntimeError(str(exc)) from exc
         if OpenAI is None:
             raise RuntimeError("openai package not installed")
         self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
