@@ -89,3 +89,12 @@
 - dependencies:
   - command -v pytest >/dev/null
   - command -v rg >/dev/null
+
+
+## Runner Receipt (Start)
+
+- Campaign: MULTI_CAMPAIGN_2026_02_17
+
+- Task ID: CAMPAIGN_2026_02_17_SECURITY_BOUNDARY_HARDENING
+
+- Head before: cb3968a26f6080c1f77c1fb9760099f8183325c9
