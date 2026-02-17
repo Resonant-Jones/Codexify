@@ -57,6 +57,22 @@ repos:
             )
     -   id: detect-private-key
 
+-   repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+    -   id: gitleaks
+        exclude: |
+            (?x)(
+                ^node_modules/|
+                ^\.pnpm-store/|
+                ^\.venv/|
+                ^venv/|
+                ^frontend/node_modules/|
+                ^data/|
+                ^models/|
+                ^codex_memory/
+            )
+
 -   repo: https://github.com/psf/black
     rev: 23.3.0
     hooks:
