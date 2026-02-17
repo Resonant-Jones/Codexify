@@ -1,0 +1,28 @@
+# Ralph Audit Progress Log (Codex)
+Started: 2026-02-09
+Purpose: Deep code audit - document all broken logic, unfinished features, code slop, dead ends, stubs, skeleton code, and things that will break.
+Output: .codex/ralph-audit/audit/*.md files
+---
+
+## Audit Checklist
+- [ ] AUDIT-001: API Routes
+- [ ] AUDIT-002: Auth
+- [ ] AUDIT-003: Database
+- [ ] AUDIT-004: Components
+- [ ] AUDIT-005: Dashboard Pages
+- [ ] AUDIT-006: Public Pages
+- [ ] AUDIT-007: Stripe
+- [ ] AUDIT-008: Booking Flow
+- [ ] AUDIT-009: Bounty Flow
+- [ ] AUDIT-010: Messaging
+- [ ] AUDIT-011: Notifications
+- [ ] AUDIT-012: Moderation
+- [ ] AUDIT-013: MCP Server
+- [ ] AUDIT-014: Lib/Utils
+- [ ] AUDIT-015: Types
+- [ ] AUDIT-016: Config
+- [ ] AUDIT-017: Error Handling
+- [ ] AUDIT-018: Tests
+- [ ] AUDIT-019: Dead Code
+- [ ] AUDIT-020: Index/Summary
+---
