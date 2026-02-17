@@ -54,3 +54,12 @@
   - git restore README.md .env.template
 - dependencies:
   - command -v rg >/dev/null
+
+
+## Runner Receipt (Start)
+
+- Campaign: MULTI_CAMPAIGN_2026_02_17
+
+- Task ID: CAMPAIGN_2026_02_17_DOCS_AND_SCOPE_FOLLOWUP
+
+- Head before: 18d94cb09175c89c034f7716b7fa0191aaa97b8f
