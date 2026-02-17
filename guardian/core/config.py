@@ -19,7 +19,9 @@ class Settings(BaseSettings):
 
     LLM_PROVIDER: str = Field(
         default="local",
-        description="The LLM provider to use ('local', 'groq', 'openai').",
+        description=(
+            "The LLM provider to use ('local', 'groq', 'openai', 'minimax')."
+        ),
     )
     CODEXIFY_CONFIG_SOURCE: str = Field(
         default="strict",
@@ -120,6 +122,21 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str | None = Field(
         default=None,
         description="Optional override for the OpenAI API base URL.",
+    )
+    MINIMAX_API_KEY: str | None = Field(
+        default=None, description="API key for MiniMax."
+    )
+    MINIMAX_API_BASE: str | None = Field(
+        default=None,
+        description="Base URL for MiniMax's OpenAI-compatible API endpoint.",
+    )
+    MINIMAX_MODEL: str | None = Field(
+        default=None,
+        description="Optional default chat model for MiniMax.",
+    )
+    MINIMAX_TIMEOUT_SECONDS: float = Field(
+        default=60.0,
+        description="Timeout for MiniMax chat completion requests (seconds).",
     )
     GUARDIAN_API_KEY: str | None = Field(
         default=None,
@@ -228,7 +245,7 @@ class Settings(BaseSettings):
 # Create a singleton instance that can be imported across the application
 settings = Settings()
 
-CLOUD_LLM_PROVIDERS = {"openai", "groq"}
+CLOUD_LLM_PROVIDERS = {"openai", "groq", "minimax"}
 _VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
 _SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _LOGGED_COHERENCE_SOURCES: set[str] = set()
@@ -524,8 +541,26 @@ def validate_llm_config(
             raise LLMConfigError("GROQ_API_KEY is not configured")
         return
 
+    if provider == "minimax":
+        if not settings.ALLOW_CLOUD_PROVIDERS:
+            raise LLMConfigError(
+                "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
+            )
+        missing: list[str] = []
+        if not (settings.MINIMAX_API_KEY or "").strip():
+            missing.append("MINIMAX_API_KEY")
+        if not (settings.MINIMAX_API_BASE or "").strip():
+            missing.append("MINIMAX_API_BASE")
+        if missing:
+            missing_text = ", ".join(missing)
+            raise LLMConfigError(
+                "LLM_PROVIDER is 'minimax' but required environment variable(s) are missing: "
+                f"{missing_text}. Set {missing_text} in your backend environment."
+            )
+        return
+
     raise LLMConfigError(
-        f"Unsupported LLM_PROVIDER: {provider or '<empty>'} (expected one of: local, groq, openai)"
+        f"Unsupported LLM_PROVIDER: {provider or '<empty>'} (expected one of: local, groq, openai, minimax)"
     )
 
 
