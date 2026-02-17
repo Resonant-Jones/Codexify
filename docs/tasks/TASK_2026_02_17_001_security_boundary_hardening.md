@@ -98,3 +98,41 @@
 - Task ID: CAMPAIGN_2026_02_17_SECURITY_BOUNDARY_HARDENING
 
 - Head before: cb3968a26f6080c1f77c1fb9760099f8183325c9
+
+
+## Completion Summary (Runner)
+
+- Status: blocked
+
+- Summary: Execution halted during Task 001 at `git rm --cached guardian/secrets/client_secret_oauth.json guardian/secrets/token.json` because this environment cannot write to `.git` (`.git/index.lock: Operation not permitted`). I did not proceed to Task 002 or Task 003.
+
+- Implementation commit hash: 1834bd2f02bb95ba8e2196b1434020e37f22c89e
+
+- Receipt update commit hash: c9bad2e8e3d1575b3d45f52d10034494cd1e0a32
+
+- Tests ran: Task 001 preflight: `git status --porcelain -uall` (passed, clean), Task 001 step 3: `git ls-files guardian/secrets/client_secret_oauth.json guardian/secrets/token.json` (both tracked), Task 001 step 4: `git rm --cached guardian/secrets/client_secret_oauth.json guardian/secrets/token.json` (blocked by `.git/index.lock` permission error), Environment check: `touch .git/_axis_write_test` (operation not permitted), Post-failure check: `git status --porcelain -uall` (still clean)
+
+- Notes: Preflight clean-tree STOP and out-of-scope STOP gates were enforced; no STOP gate was triggered before the environment-level block. No files were modified.
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "blocked",
+  "summary": "Execution halted during Task 001 at `git rm --cached guardian/secrets/client_secret_oauth.json guardian/secrets/token.json` because this environment cannot write to `.git` (`.git/index.lock: Operation not permitted`). I did not proceed to Task 002 or Task 003.",
+  "tests_ran": [
+    "Task 001 preflight: `git status --porcelain -uall` (passed, clean)",
+    "Task 001 step 3: `git ls-files guardian/secrets/client_secret_oauth.json guardian/secrets/token.json` (both tracked)",
+    "Task 001 step 4: `git rm --cached guardian/secrets/client_secret_oauth.json guardian/secrets/token.json` (blocked by `.git/index.lock` permission error)",
+    "Environment check: `touch .git/_axis_write_test` (operation not permitted)",
+    "Post-failure check: `git status --porcelain -uall` (still clean)"
+  ],
+  "commit_hash": "1834bd2f02bb95ba8e2196b1434020e37f22c89e",
+  "implementation_commit_hash": "1834bd2f02bb95ba8e2196b1434020e37f22c89e",
+  "receipt_update_commit_hash": "c9bad2e8e3d1575b3d45f52d10034494cd1e0a32",
+  "notes": "Preflight clean-tree STOP and out-of-scope STOP gates were enforced; no STOP gate was triggered before the environment-level block. No files were modified."
+}
+```
+
+</details>
