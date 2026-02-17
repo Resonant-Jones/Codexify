@@ -35,6 +35,7 @@ const LLM_HEALTH_POLL_MS = 15000;
  * - diagnostic: System introspection, sensors, trace-level visibility
  */
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
+type PromptCostPopoverSection = "cost" | "providers";
 
 type LlmHealthStatus = "unknown" | "online" | "offline" | "misconfigured";
 
@@ -229,6 +230,8 @@ export function GuardianChat({
   const [profileSwitching, setProfileSwitching] = useState(false);
   const [promptCostSummary, setPromptCostSummary] = useState<SystemPromptSummary | null>(null);
   const [promptCostPopoverOpen, setPromptCostPopoverOpen] = useState(false);
+  const [promptCostPopoverSection, setPromptCostPopoverSection] =
+    useState<PromptCostPopoverSection>("cost");
   const [providerMenuOpenSignal, setProviderMenuOpenSignal] = useState(0);
   const promptCostPopoverRef = useRef<HTMLDivElement | null>(null);
   const showToast = useCallback((message: string) => {
@@ -353,13 +356,20 @@ export function GuardianChat({
   const notifyTurnLocked = () => {
     showToast(TURN_LOCK_TOAST);
   };
-  const requestProviderSwitch = useCallback(() => {
-    if (sessionTabs.length <= 0) {
-      showToast("Provider selector unavailable in this view.");
-      return;
-    }
-    setProviderMenuOpenSignal((prev) => prev + 1);
-  }, [sessionTabs.length, showToast]);
+  const requestProviderSwitch = useCallback(
+    (options?: { openPopover?: boolean }) => {
+      if (sessionTabs.length <= 0) {
+        showToast("Provider selector unavailable in this view.");
+        return;
+      }
+      if (options?.openPopover) {
+        setPromptCostPopoverSection("providers");
+        setPromptCostPopoverOpen(true);
+      }
+      setProviderMenuOpenSignal((prev) => prev + 1);
+    },
+    [sessionTabs.length, showToast]
+  );
   const getDepthForThread = useCallback(
     (threadId: number): DepthMode =>
       lastCompletionDepthRef.current[threadId] ?? depth,
@@ -432,11 +442,26 @@ export function GuardianChat({
   );
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
+    const selected = String(activeModelId || "").trim();
+    const hasSelection = selected.length > 0 && selected !== "default";
+    const knownProviders = new Set([
+      "local",
+      "openai",
+      "anthropic",
+      "gemini",
+      "groq",
+    ]);
+    const providerSelection = hasSelection && knownProviders.has(selected)
+      ? selected
+      : undefined;
+    const modelSelection = hasSelection && !knownProviders.has(selected)
+      ? selected
+      : undefined;
     try {
       const response = await api.post(`/chat/${tid}/complete`, {
         depth_mode: depth,
-        provider:
-          activeModelId && activeModelId !== "default" ? activeModelId : undefined,
+        provider: providerSelection,
+        model: modelSelection,
       });
       console.log(`[guardian] Completing with depth=${depth}`);
 
@@ -635,6 +660,7 @@ export function GuardianChat({
 
   useEffect(() => {
     setPromptCostPopoverOpen(false);
+    setPromptCostPopoverSection("cost");
   }, [effectiveThreadId]);
 
   useEffect(() => {
@@ -659,6 +685,7 @@ export function GuardianChat({
   }, [promptCostPopoverOpen]);
 
   const handlePromptCostToggle = useCallback(() => {
+    setPromptCostPopoverSection("cost");
     setPromptCostPopoverOpen((previous) => {
       const next = !previous;
       if (next) {
@@ -1017,7 +1044,65 @@ export function GuardianChat({
               color: "var(--text)",
             }}
           >
-            <PromptCostIndicator summary={promptCostSummary} variant="popover" />
+            <div
+              className="mb-2 inline-flex items-center gap-1 rounded-full border p-1 text-[11px]"
+              style={{ borderColor: "var(--panel-border)" }}
+            >
+              <button
+                type="button"
+                className="rounded-full px-2 py-0.5 transition"
+                data-state={promptCostPopoverSection === "cost" ? "active" : "inactive"}
+                style={{
+                  background:
+                    promptCostPopoverSection === "cost"
+                      ? "color-mix(in oklab, var(--panel-bg), var(--accent) 22%)"
+                      : "transparent",
+                }}
+                onClick={() => setPromptCostPopoverSection("cost")}
+              >
+                Cost
+              </button>
+              <button
+                type="button"
+                className="rounded-full px-2 py-0.5 transition"
+                data-state={
+                  promptCostPopoverSection === "providers" ? "active" : "inactive"
+                }
+                style={{
+                  background:
+                    promptCostPopoverSection === "providers"
+                      ? "color-mix(in oklab, var(--panel-bg), var(--accent) 22%)"
+                      : "transparent",
+                }}
+                onClick={() => setPromptCostPopoverSection("providers")}
+              >
+                Providers
+              </button>
+            </div>
+            {promptCostPopoverSection === "providers" ? (
+              <div
+                className="space-y-2 text-xs"
+                data-testid="prompt-cost-providers-panel"
+              >
+                <div className="font-medium">Providers</div>
+                <div className="opacity-85">
+                  Open the provider picker from the session rail.
+                </div>
+                <button
+                  type="button"
+                  className="underline underline-offset-2"
+                  onClick={() => requestProviderSwitch()}
+                  data-testid="prompt-cost-open-provider"
+                >
+                  Open provider picker
+                </button>
+                {cloudProvidersDisabled ? (
+                  <div className="opacity-80">Cloud providers disabled by config.</div>
+                ) : null}
+              </div>
+            ) : (
+              <PromptCostIndicator summary={promptCostSummary} variant="popover" />
+            )}
           </div>
         ) : null}
       </div>
@@ -1218,6 +1303,7 @@ export function GuardianChat({
           profiles={availableProfiles}
           profileSwitching={profileSwitching}
           providerMenuOpenSignal={providerMenuOpenSignal}
+          providerPickerOpenSignal={providerMenuOpenSignal}
           cloudProvidersDisabled={cloudProvidersDisabled}
           showTabs={sessionTabs.length > 1}
           onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
