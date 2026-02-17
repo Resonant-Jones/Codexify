@@ -26,6 +26,11 @@ from guardian.core.config import (
     validate_llm_config,
 )
 from guardian.core.db import GuardianDB
+from guardian.core.llm_catalog import (
+    first_enabled_provider,
+    first_model_for_provider,
+    resolve_provider_for_model,
+)
 from guardian.core.message_guard import (
     EMPTY_ASSISTANT_FALLBACK,
     guard_assistant_message_content,
@@ -368,6 +373,35 @@ async def _build_messages_for_llm(
     if profile and profile.provider_override:
         provider = profile.provider_override.strip().lower()
 
+    selected_model = str(task.model or "").strip() or None
+    if selected_model:
+        resolved_provider = resolve_provider_for_model(
+            selected_model, settings=settings
+        )
+        if resolved_provider and resolved_provider != provider:
+            logger.info(
+                "[chat-worker] provider resolved from model thread=%s model=%s from=%s to=%s",
+                thread_id,
+                selected_model,
+                provider,
+                resolved_provider,
+            )
+            provider = resolved_provider
+        elif not resolved_provider:
+            fallback_provider = first_enabled_provider(settings=settings)
+            if fallback_provider and fallback_provider != provider:
+                logger.warning(
+                    "[chat-worker] model unavailable; falling back thread=%s model=%s from=%s to=%s",
+                    thread_id,
+                    selected_model,
+                    provider,
+                    fallback_provider,
+                )
+                provider = fallback_provider
+                selected_model = first_model_for_provider(
+                    fallback_provider, settings=settings
+                )
+
     if is_cloud_provider(provider) and not settings.ALLOW_CLOUD_PROVIDERS:
         raise LLMConfigError(
             "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
@@ -517,7 +551,7 @@ async def _build_messages_for_llm(
     )
     messages_for_llm.extend(context)
 
-    model = task.model
+    model = selected_model
     if not model and profile and profile.model_override:
         model = profile.model_override
     if not model and provider == "local":
