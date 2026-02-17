@@ -267,6 +267,21 @@ async def app_lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
 
+    # Seed/sync provider control-plane rows from /api/llm/catalog
+    try:
+        sync_stats = db.sync_inference_provider_rows_from_catalog()
+        logger.info(
+            "[startup] inference providers synced rows=%s created=%s updated=%s runtime_created=%s",
+            sync_stats.get("provider_rows", 0),
+            sync_stats.get("providers_created", 0),
+            sync_stats.get("providers_updated", 0),
+            sync_stats.get("runtime_created", 0),
+        )
+    except Exception as exc:
+        logger.warning(
+            "[startup] Failed to sync inference provider rows: %s", exc
+        )
+
     # Initialize Neo4j connection if graph logging is enabled
     if (
         getattr(settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False)
