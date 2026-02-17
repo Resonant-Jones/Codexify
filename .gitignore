@@ -104,6 +104,7 @@ models/
 /data/credentials.json
 /data/token.pickle
 /data/trust_registry.json
+/guardian/secrets/*.json
 
 # Local audit outputs
 /docs/_audit_runs/

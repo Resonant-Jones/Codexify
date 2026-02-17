@@ -245,26 +245,35 @@ class TestCollaborationWebSocket:
         from guardian.realtime.collaboration import ws_collab
 
         mock_ws = AsyncMock()
+        mock_db = MagicMock()
+        mock_session = MagicMock()
+        mock_db.SessionLocal.return_value = mock_session
+        mock_manager.permissions = {}
         mock_manager.connect = AsyncMock()
         mock_manager.disconnect = AsyncMock()
         mock_manager.broadcast = AsyncMock()
+        mock_manager.verify_access = MagicMock(
+            return_value=(True, {"can_edit": True, "can_comment": True})
+        )
 
-        # Setup receive to send one message then disconnect
+        # Handshake, one update, then disconnect.
         mock_ws.receive_json = AsyncMock(
             side_effect=[
-                {"content": "Hello", "user_id": "user1"},
+                {"user_id": "user1", "token": "token-1"},
+                {"type": "update", "content": "Hello"},
                 Exception("WebSocketDisconnect"),
             ]
         )
 
-        # Call the endpoint
-        try:
-            await ws_collab(mock_ws, "doc1")
-        except:
-            pass  # Expected to raise due to disconnect
+        with patch("guardian.realtime.collaboration._db", mock_db):
+            # Call the endpoint
+            try:
+                await ws_collab(mock_ws, "doc1")
+            except Exception:
+                pass  # Expected to raise due to disconnect
 
         # Verify connect was called
-        mock_manager.connect.assert_called_once()
+        mock_manager.connect.assert_called_once_with("doc1", mock_ws, "user1")
 
         # Verify broadcast was called for the message
         assert mock_manager.broadcast.call_count >= 1
@@ -280,24 +289,33 @@ class TestCollaborationWebSocket:
         from guardian.realtime.collaboration import ws_collab
 
         mock_ws = AsyncMock()
+        mock_db = MagicMock()
+        mock_session = MagicMock()
+        mock_db.SessionLocal.return_value = mock_session
+        mock_manager.permissions = {}
         mock_manager.connect = AsyncMock()
         mock_manager.disconnect = AsyncMock()
         mock_manager.broadcast = AsyncMock()
         mock_manager.get_active_sessions = MagicMock(return_value=2)
+        mock_manager.verify_access = MagicMock(
+            return_value=(True, {"can_edit": True, "can_comment": True})
+        )
 
-        # Setup receive to send one message then disconnect
+        # Handshake, one update, then disconnect.
         mock_ws.receive_json = AsyncMock(
             side_effect=[
-                {"content": "Hello", "user_id": "user1"},
+                {"user_id": "user1", "token": "token-1"},
+                {"type": "update", "content": "Hello"},
                 Exception("WebSocketDisconnect"),
             ]
         )
 
-        # Call the endpoint
-        try:
-            await ws_collab(mock_ws, "doc1")
-        except:
-            pass  # Expected to raise
+        with patch("guardian.realtime.collaboration._db", mock_db):
+            # Call the endpoint
+            try:
+                await ws_collab(mock_ws, "doc1")
+            except Exception:
+                pass  # Expected to raise
 
         # Verify event was emitted
         assert mock_event_bus.emit_event.call_count >= 1
