@@ -125,3 +125,12 @@
   - command -v bash >/dev/null
   - docker compose ps >/dev/null
   - test -n "${GUARDIAN_API_KEY:-}" || { echo "STOP: GUARDIAN_API_KEY required"; exit 1; }
+
+
+## Runner Receipt (Start)
+
+- Campaign: MULTI_CAMPAIGN_2026_02_17
+
+- Task ID: CAMPAIGN_2026_02_17_MVP_CORE_LOOP_CLOSURE
+
+- Head before: 7bec4a2456a8c13a933c95b735a86e33e7a80dec
