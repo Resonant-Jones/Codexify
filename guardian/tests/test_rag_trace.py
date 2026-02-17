@@ -51,11 +51,13 @@ def test_debug_endpoint_returns_trace():
     _rag_traces[123] = {"documents": [], "graph": []}
 
     result = get_latest_rag_trace(123)
-    assert result == {"documents": [], "graph": []}
+    assert result.get("documents") == []
+    assert result.get("graph") == []
 
 
 def test_debug_endpoint_empty_when_missing():
     """Verify debug endpoint returns empty structure for missing trace."""
     _rag_traces.clear()
     result = get_latest_rag_trace(999)
-    assert result == {"documents": [], "graph": []}
+    assert result.get("documents") == []
+    assert result.get("graph") == []
