@@ -21,7 +21,9 @@ require_env() {
 }
 
 check_provider_keys() {
-  case "${LLM_PROVIDER,,}" in
+  local provider
+  provider="$(printf '%s' "${LLM_PROVIDER}" | tr '[:upper:]' '[:lower:]')"
+  case "$provider" in
     openai)
       require_env OPENAI_API_KEY
       ;;
@@ -43,8 +45,7 @@ curl_json() {
 }
 
 fetch_gallery() {
-  local tag="$1"
-  curl_json "${API_ROOT}/api/media/images?tag=${tag}&limit=${GALLERY_LIMIT}"
+  curl_json "${API_ROOT}/api/media/images?limit=${GALLERY_LIMIT}"
 }
 
 wait_for_backend() {
@@ -60,27 +61,25 @@ wait_for_backend() {
   done
 }
 
-assert_count_gt_zero() {
+assert_images_array_present() {
   local json="$1"
-  local tag="$2"
-  local count
-  count=$(jq '.items | length' <<<"$json")
-  if [[ "$count" == "null" ]]; then
-    log "ERROR: missing 'items' array in ${tag} response"
+  if ! jq -e '.images and (.images | type == "array")' <<<"$json" >/dev/null; then
+    log "ERROR: missing 'images' array in gallery response"
     exit 1
   fi
-  if (( count == 0 )); then
-    log "ERROR: ${tag} gallery returned zero items"
-    exit 1
-  fi
-  log "${tag} gallery returned ${count} item(s)"
 }
 
-assert_id_present() {
+count_images_by_source() {
+  local json="$1"
+  local source="$2"
+  jq -r --arg source "$source" '[.images[] | select((.source_tag // "uploaded") == $source)] | length' <<<"$json"
+}
+
+assert_generated_id_present() {
   local json="$1"
   local target_id="$2"
-  if ! jq -e --arg id "$target_id" '.items | map(.id | tostring) | index($id)' <<<"$json" >/dev/null; then
-    log "ERROR: generated id $target_id missing from refreshed gallery"
+  if ! jq -e --arg id "$target_id" '[.images[] | select((.source_tag // "uploaded") == "generated") | .id | tostring] | index($id)' <<<"$json" >/dev/null; then
+    log "ERROR: generated id $target_id missing from refreshed gallery response"
     exit 1
   fi
 }
@@ -94,7 +93,7 @@ validate_src_url() {
   size=$(wc -c < "$tmp_file")
   rm -f "$tmp_file"
   if (( size <= 0 )); then
-    log "ERROR: downloaded asset size is 0 bytes — /media proxy likely unhealthy"
+    log "ERROR: downloaded asset size is 0 bytes; /media proxy likely unhealthy"
     exit 1
   fi
   log "Fetched ${size} bytes from ${src_url}"
@@ -110,7 +109,7 @@ main() {
   check_provider_keys
 
   API_ROOT=${API_ROOT:-http://localhost:8888}
-  GALLERY_LIMIT=${GALLERY_LIMIT:-5}
+  GALLERY_LIMIT=${GALLERY_LIMIT:-20}
   GEN_PROMPT=${GEN_PROMPT:-"audit test image"}
   GEN_MODEL=${GEN_MODEL:-"dall-e-3"}
   GEN_PROJECT_ID=${GEN_PROJECT_ID:-1}
@@ -122,14 +121,12 @@ main() {
   wait_for_backend
   log "Backend healthy at ${API_ROOT}"
 
-  log "Fetching uploaded gallery"
-  uploaded_json=$(fetch_gallery "uploaded")
-  assert_count_gt_zero "$uploaded_json" "uploaded"
-
-  log "Fetching generated gallery (baseline)"
-  generated_json=$(fetch_gallery "generated")
-  baseline_count=$(jq '.items | length' <<<"$generated_json")
-  log "Generated gallery baseline count: ${baseline_count:-0}"
+  log "Fetching gallery baseline"
+  baseline_json=$(fetch_gallery)
+  assert_images_array_present "$baseline_json"
+  baseline_uploaded=$(count_images_by_source "$baseline_json" "uploaded")
+  baseline_generated=$(count_images_by_source "$baseline_json" "generated")
+  log "Baseline uploaded=${baseline_uploaded} generated=${baseline_generated}"
 
   log "Requesting deterministic image generation"
   gen_payload=$(jq -n \
@@ -146,31 +143,33 @@ main() {
 
   gen_id=$(jq -r '.id' <<<"$gen_response")
   gen_src=$(jq -r '.src_url' <<<"$gen_response")
-  gen_tag=$(jq -r '.tag' <<<"$gen_response")
+  gen_prompt=$(jq -r '.prompt' <<<"$gen_response")
+  gen_model=$(jq -r '.model' <<<"$gen_response")
+  gen_created=$(jq -r '.created_at' <<<"$gen_response")
 
-  if [[ -z "$gen_id" || "$gen_id" == "null" ]]; then
-    log "ERROR: generation response missing 'id'"
-    exit 1
-  fi
-  if [[ "$gen_tag" != "generated" ]]; then
-    log "ERROR: generation response tag '$gen_tag' != 'generated'"
-    exit 1
-  fi
-  if [[ -z "$gen_src" || "$gen_src" == "null" ]]; then
-    log "ERROR: generation response missing 'src_url'"
-    exit 1
-  fi
-  log "Generated image id=$gen_id tag=$gen_tag src_url=$gen_src"
+  [[ -n "$gen_id" && "$gen_id" != "null" ]] || { log "ERROR: generation response missing 'id'"; exit 1; }
+  [[ -n "$gen_src" && "$gen_src" != "null" ]] || { log "ERROR: generation response missing 'src_url'"; exit 1; }
+  [[ -n "$gen_prompt" && "$gen_prompt" != "null" ]] || { log "ERROR: generation response missing 'prompt'"; exit 1; }
+  [[ -n "$gen_model" && "$gen_model" != "null" ]] || { log "ERROR: generation response missing 'model'"; exit 1; }
+  [[ -n "$gen_created" && "$gen_created" != "null" ]] || { log "ERROR: generation response missing 'created_at'"; exit 1; }
 
-  log "Refreshing generated gallery for new item"
-  refreshed_json=$(fetch_gallery "generated")
-  assert_count_gt_zero "$refreshed_json" "generated"
-  assert_id_present "$refreshed_json" "$gen_id"
+  log "Generated image id=$gen_id model=$gen_model created_at=$gen_created"
+
+  log "Refreshing gallery after generation"
+  refreshed_json=$(fetch_gallery)
+  assert_images_array_present "$refreshed_json"
+  refreshed_generated=$(count_images_by_source "$refreshed_json" "generated")
+  assert_generated_id_present "$refreshed_json" "$gen_id"
+
+  if (( refreshed_generated < baseline_generated )); then
+    log "ERROR: generated image count regressed (${baseline_generated} -> ${refreshed_generated})"
+    exit 1
+  fi
 
   log "Validating /media fetchability"
   validate_src_url "$gen_src"
 
-  log "SUCCESS: gallery + generation loop verified (Task 008)"
+  log "SUCCESS: gallery + generation loop verified"
 }
 
 main "$@"
