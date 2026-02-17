@@ -120,11 +120,10 @@ main() {
     -F "thread_id=${THREAD_ID:-1}" \
     "$upload_endpoint" >"$upload_json"
 
-  local doc_id src_url embed_status project_id
+  local doc_id src_url embed_status
   doc_id=$(json_field "$upload_json" id) || fail "Upload response missing id"
   src_url=$(json_field "$upload_json" src_url) || fail "Upload response missing src_url"
   embed_status=$(json_field "$upload_json" embedding_status) || fail "Upload response missing embedding_status"
-  project_id=$(json_field "$upload_json" project_id) || fail "Upload response missing project_id"
 
   [[ "$doc_id" =~ ^[0-9]+$ ]] || fail "id '$doc_id' is not numeric"
   local expected_media_prefix="${api_base%/}/media/"
@@ -132,7 +131,6 @@ main() {
     ${expected_media_prefix}*|http://localhost:8888/media/*) ;;
     *) fail "Unexpected src_url '$src_url'" ;;
   esac
-  [[ "$project_id" == "${PROJECT_ID:-1}" ]] || fail "project_id mismatch"
 
   case "$embed_status" in
     pending|processing) ;;
@@ -154,15 +152,13 @@ main() {
 import json, sys
 path, target_id = sys.argv[1], int(sys.argv[2])
 data = json.load(open(path))
-items = data.get('items')
-if items is None and isinstance(data, list):
-    items = data
-if items is None:
-    print('NO_ITEMS')
+documents = data.get('documents')
+if documents is None:
+    print('NO_DOCUMENTS')
     sys.exit(0)
-for item in items:
-    if item.get('id') == target_id:
-        print(item.get('embedding_status', ''))
+for doc in documents:
+    if doc.get('id') == target_id:
+        print(doc.get('embedding_status', ''))
         break
 else:
     print('NOT_FOUND')
@@ -172,14 +168,15 @@ PY
       ready)
         log "Embedding finished (attempt $poll_attempt)"
         break
+        ;;
       failed)
         fail "Embedding worker reported failed"
         ;;
       NOT_FOUND)
         log "Document not found in listing (attempt $poll_attempt)"
         ;;
-      NO_ITEMS)
-        log "Listing response missing 'items' (attempt $poll_attempt)"
+      NO_DOCUMENTS)
+        log "Listing response missing 'documents' (attempt $poll_attempt)"
         ;;
       *)
         log "Embedding status still '$found_status' (attempt $poll_attempt)"

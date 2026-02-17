@@ -119,6 +119,27 @@ class TestImageGeneration:
         assert generated_image.asset_id == "asset-1"
         mock_ensure_alias.assert_called_once()
 
+    @patch("guardian.routes.media.ImageGenRouter.generate")
+    @patch("guardian.routes.media.verify_api_key")
+    @patch("guardian.routes.media._is_pytest", return_value=False)
+    def test_generate_image_requires_api_key(
+        self, _mock_is_pytest, mock_verify_api_key, mock_generate, app
+    ):
+        """Image generation is fail-closed when API key headers are absent."""
+        from fastapi import HTTPException
+
+        mock_verify_api_key.side_effect = HTTPException(
+            status_code=401, detail="Unauthorized"
+        )
+        unauthenticated_client = TestClient(app)
+        response = unauthenticated_client.post(
+            "/api/media/generate/image",
+            json={"prompt": "no key request", "model": "dall-e-3"},
+        )
+
+        assert response.status_code == 401
+        mock_generate.assert_not_called()
+
     @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media._get_db")
     @patch("guardian.routes.media.ImageGenRouter.generate")

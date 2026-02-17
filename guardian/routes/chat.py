@@ -402,6 +402,10 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 
 DEFAULT_PROJECT_NAME = "Loose Threads"
 DEFAULT_PROJECT_DESCRIPTION = "Default bucket for unassigned threads"
+DOC_SCOPE_K_PROJECT = 4
+DOC_SCOPE_K_THREAD = 4
+DOC_EXCERPT_CHARS = 320
+DOC_OVERRIDE_MAX_CHARS = 2600
 
 
 def _ensure_default_project_id() -> Optional[int]:
@@ -432,6 +436,108 @@ def _coerce_project_id(raw: Any) -> Optional[int]:
         return value if value > 0 else _ensure_default_project_id()
     except (TypeError, ValueError):
         return _ensure_default_project_id()
+
+
+def _coerce_positive_int(raw: Any) -> Optional[int]:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _build_scoped_doc_override(
+    docs_bundle: Dict[str, Any] | None,
+    *,
+    max_chars: int = DOC_OVERRIDE_MAX_CHARS,
+) -> Optional[str]:
+    if not isinstance(docs_bundle, dict):
+        return None
+
+    sections: list[str] = []
+    total_chars = 0
+    scope_map = (
+        ("project", "PROJECT DOCUMENTS"),
+        ("thread", "THREAD DOCUMENTS"),
+    )
+
+    for scope_key, scope_title in scope_map:
+        scoped_docs = docs_bundle.get(scope_key) or []
+        if not isinstance(scoped_docs, list) or not scoped_docs:
+            continue
+
+        lines = [f"=== {scope_title} ==="]
+        for doc in scoped_docs:
+            if not isinstance(doc, dict):
+                continue
+            provenance = doc.get("provenance")
+            if not isinstance(provenance, dict):
+                provenance = {}
+
+            entry = (
+                "[doc]\n"
+                f"id: {doc.get('id') or ''}\n"
+                f"title: {doc.get('title') or 'untitled'}\n"
+                f"scope: {doc.get('scope') or scope_key}\n"
+                f"source: {doc.get('source') or 'unknown'}\n"
+                f"document_type: {doc.get('document_type') or 'unknown'}\n"
+                f"relation: {provenance.get('relation') or 'unspecified'}\n"
+                f"thread_id: {doc.get('thread_id') or ''}\n"
+                f"project_id: {doc.get('project_id') or ''}\n"
+                f"excerpt: {doc.get('excerpt') or ''}"
+            )
+            projected_size = total_chars + len(entry)
+            if projected_size > max_chars:
+                break
+            lines.append(entry)
+            total_chars = projected_size
+
+        if len(lines) > 1:
+            sections.append("\n".join(lines))
+        if total_chars >= max_chars:
+            break
+
+    if not sections:
+        return None
+
+    return (
+        "Document library excerpts (bounded, with provenance):\n\n"
+        + "\n\n".join(sections)
+    )
+
+
+async def _build_doc_context_override(
+    *,
+    thread_id: int,
+    depth_mode: str,
+    project_id: Optional[int],
+) -> Optional[str]:
+    if depth_mode == "shallow":
+        return None
+
+    try:
+        broker = ContextBroker(
+            chatlog_db,
+            _vector_store,
+            _memory_store,
+            _sensors,
+        )
+        docs_bundle = await broker.get_scoped_documents(
+            thread_id=thread_id,
+            project_id=project_id,
+            k_project_docs=DOC_SCOPE_K_PROJECT,
+            k_thread_docs=DOC_SCOPE_K_THREAD,
+            doc_excerpt_chars=DOC_EXCERPT_CHARS,
+        )
+        return _build_scoped_doc_override(docs_bundle)
+    except Exception as exc:
+        logger.warning(
+            "[chat.complete] failed to build doc override thread_id=%s project_id=%s err=%s",
+            thread_id,
+            project_id,
+            exc,
+        )
+        return None
 
 
 # =========================
@@ -802,17 +908,19 @@ async def chat_complete(
 
     requested_depth_mode = str(body.depth_mode or "normal").strip().lower()
     effective_depth_mode = body.depth_mode
+    thread_project_id: Optional[int] = None
+    if isinstance(thread_exists, dict):
+        thread_project_id = _coerce_positive_int(
+            thread_exists.get("project_id")
+        )
     if requested_depth_mode == "deep":
         project_depth = "light"
-        project_id = (
-            thread_exists.get("project_id")
-            if isinstance(thread_exists, dict)
-            else None
-        )
         getter = getattr(chatlog_db, "get_project_identity_depth", None)
         if callable(getter):
             try:
-                project_depth = str(getter(project_id) or "light").lower()
+                project_depth = str(
+                    getter(thread_project_id) or "light"
+                ).lower()
             except Exception:
                 project_depth = "light"
         if not can_run_deep_identity_modeling(project_depth):
@@ -820,9 +928,23 @@ async def chat_complete(
             logger.info(
                 "[chat.complete] downgraded depth_mode=deep to normal thread_id=%s project_id=%s identity_depth=%s",
                 thread_id,
-                project_id,
+                thread_project_id,
                 project_depth,
             )
+
+    effective_depth = str(effective_depth_mode or "normal").strip().lower()
+    doc_context_override = await _build_doc_context_override(
+        thread_id=thread_id,
+        depth_mode=effective_depth,
+        project_id=thread_project_id,
+    )
+    merged_system_override = user_system_override
+    if doc_context_override:
+        merged_system_override = (
+            f"{merged_system_override}\n\n{doc_context_override}"
+            if merged_system_override
+            else doc_context_override
+        )
 
     task = ChatCompletionTask(
         thread_id=thread_id,
@@ -830,7 +952,7 @@ async def chat_complete(
         model=body.model,
         max_context=body.max_context,
         depth_mode=effective_depth_mode,
-        system_override=user_system_override,
+        system_override=merged_system_override,
         origin="api:chat.complete",
     )
     try:
