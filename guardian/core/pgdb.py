@@ -77,6 +77,7 @@ class PgDB(ChatDB):
             bind=self._sa_engine, autoflush=False, autocommit=False
         )
         self._sync_jobs_ready = False
+        self._inference_provider_tables_ready = False
         self._events_outbox_ready = False
         self._connector_tables_ready = False
         # Some deployments may be on an older schema without the optional
@@ -171,6 +172,45 @@ class PgDB(ChatDB):
                 )
 
         self._sync_jobs_ready = True
+
+    def _ensure_inference_provider_tables(self, conn) -> None:
+        """Verify provider state schema; DDL lives in Alembic revision 62127ee9a537."""
+        if self._inference_provider_tables_ready:
+            return
+        with conn.cursor() as cur:
+            required_tables = (
+                "inference_providers",
+                "inference_provider_runtime",
+            )
+            missing_tables: list[str] = []
+            for table in required_tables:
+                cur.execute(
+                    "SELECT to_regclass(%s) AS relname", (f"public.{table}",)
+                )
+                result = cur.fetchone() or {}
+                if result.get("relname") is None:
+                    missing_tables.append(table)
+            if missing_tables:
+                raise RuntimeError(
+                    "Missing inference provider tables "
+                    f"{sorted(missing_tables)}. Apply Alembic revision 62127ee9a537."
+                )
+
+            expected_indexes = (
+                "public.ix_inference_providers_enabled",
+                "public.ix_inference_providers_priority",
+                "public.ix_inference_provider_runtime_health_status",
+            )
+            for index in expected_indexes:
+                cur.execute("SELECT to_regclass(%s) AS relname", (index,))
+                result = cur.fetchone() or {}
+                if result.get("relname") is None:
+                    logging.warning(
+                        "Index %s missing; expected from Alembic revision 62127ee9a537.",
+                        index.split(".")[-1],
+                    )
+
+        self._inference_provider_tables_ready = True
 
     def _ensure_events_outbox_table(self, conn=None) -> None:
         """Verify events_outbox schema; DDL managed in Alembic revision ac973209add4."""
@@ -1441,6 +1481,26 @@ class PgDB(ChatDB):
     def ensure_sync_job_support(self) -> None:
         with self._connect() as conn:
             self._ensure_sync_jobs_table(conn)
+
+    def sync_inference_provider_rows_from_catalog(self) -> dict[str, int]:
+        """
+        Idempotently seed/sync provider config + runtime rows from llm catalog.
+
+        Returns a small summary payload for startup logging.
+        """
+        from guardian.core.llm_catalog import build_llm_catalog
+        from guardian.core.provider_state import (
+            provider_seed_rows_from_catalog,
+            sync_inference_provider_rows,
+        )
+
+        with self._connect() as conn:
+            self._ensure_inference_provider_tables(conn)
+
+        catalog = build_llm_catalog(include_all=True)
+        rows = provider_seed_rows_from_catalog(catalog)
+        with self._sa_session() as session:
+            return sync_inference_provider_rows(session, rows)
 
     def create_sync_job(
         self,
