@@ -256,6 +256,9 @@ def _create_media_asset(
         filesize=filesize,
     )
     session.add(asset)
+    # Ensure the asset row is flushed so FK-dependent inserts (e.g., media_aliases)
+    # can safely reference it before the transaction is committed.
+    session.flush()
     return asset
 
 
