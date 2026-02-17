@@ -45,6 +45,7 @@ class _FakeDoc:
         self.filename = "doc-1.pdf"
         self.mime_type = "application/pdf"
         self.filesize = 123
+        self.source_tag = "document"
         self.created_at = datetime(2026, 1, 23, tzinfo=timezone.utc)
         self.embedding_status = "pending"
         self.embedding_error = None
@@ -74,6 +75,8 @@ def test_documents_list_includes_embedding_status():
     payload = response.json()
     assert payload["count"] == 1
     doc_payload = payload["documents"][0]
+    assert doc_payload["src_url"].startswith("/media/documents/doc-1.pdf")
+    assert "sig=" in doc_payload["src_url"]
     assert doc_payload["embedding_status"] == "pending"
     assert doc_payload["embedding_error"] is None
     assert doc_payload["embedding_started_at"] is None

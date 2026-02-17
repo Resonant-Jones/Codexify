@@ -27,6 +27,7 @@ try:
         DB_BACKEND,
         GUARDIAN_PROVIDER,
         PG_DSN,
+        _mask_dsn,
         allowed_origins,
         chatlog_db,
         get_database_dsn,
@@ -41,6 +42,7 @@ except ImportError as e:
     PG_DSN = None
     DB_BACKEND = "postgres"
     GUARDIAN_PROVIDER = "unknown"
+    _mask_dsn = lambda value: value
     allowed_origins = []
     get_groq_chat = lambda: None
     get_database_dsn = lambda: None
@@ -204,6 +206,7 @@ def healthz():
     Returns DB target and existence of projects/chat_threads for quick diagnostics.
     """
     db_target = get_database_dsn()
+    db_target_masked = _mask_dsn(db_target) if db_target else None
     projects_exists = False
     threads_exists = False
     try:
@@ -212,7 +215,7 @@ def healthz():
     except Exception as e:
         logger.warning("/healthz check failed: %s", e)
     return {
-        "db_target": db_target,
+        "db_target": db_target_masked,
         "backend": DB_BACKEND,
         "projects_table_exists": projects_exists,
         "chat_threads_table_exists": threads_exists,

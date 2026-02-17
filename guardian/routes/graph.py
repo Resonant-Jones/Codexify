@@ -12,6 +12,8 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from neo4j import GraphDatabase
 
+from guardian.core.dependencies import require_api_key
+
 logger = logging.getLogger(__name__)
 
 # Optional Neo4j driver session provider
@@ -28,7 +30,10 @@ router = APIRouter(tags=["Graph"])
 
 
 @router.get("/graph", summary="Return graph data from Neo4j")
-def get_graph(scope: str = "codexify"):
+def get_graph(
+    scope: str = "codexify",
+    api_key: str = Depends(require_api_key),
+):
     """
     Fetch graph data from Neo4j and return nodes and links.
 
@@ -38,9 +43,17 @@ def get_graph(scope: str = "codexify"):
     Returns:
         Dictionary containing nodes and links arrays
     """
+    _ = api_key
     uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD", "test")
+    password = (
+        os.getenv("NEO4J_PASSWORD") or os.getenv("NEO4J_PASS") or ""
+    ).strip()
+    if not password:
+        raise HTTPException(
+            status_code=503,
+            detail="NEO4J_PASSWORD is not configured",
+        )
 
     try:
         driver = GraphDatabase.driver(uri, auth=(user, password))

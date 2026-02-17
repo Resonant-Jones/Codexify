@@ -98,7 +98,8 @@ class TestImageGeneration:
         assert response.status_code == 200
         data = response.json()
         assert data["id"] is not None
-        assert data["src_url"] == "/media/generated/test.png"
+        assert data["src_url"].startswith("/media/generated/test.png")
+        assert "sig=" in data["src_url"]
         assert data["prompt"] == "a beautiful landscape"
         assert data["model"] == "dall-e-3"
         assert "created_at" in data
@@ -388,7 +389,8 @@ class TestUploadDedupeAndResolve:
         assert response.status_code == 200
         payload = response.json()
         assert payload["asset_id"] == "asset-42"
-        assert payload["src_url"] == fake_asset.src_url
+        assert payload["src_url"].startswith(fake_asset.src_url)
+        assert "sig=" in payload["src_url"]
         assert payload["display_title"] == "city skyline at sunset"
         assert payload["media_kind"] == "image"
         assert payload["provenance"] == "generated"
