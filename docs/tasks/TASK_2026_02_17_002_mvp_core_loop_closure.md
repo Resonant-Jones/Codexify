@@ -134,3 +134,53 @@
 - Task ID: CAMPAIGN_2026_02_17_MVP_CORE_LOOP_CLOSURE
 
 - Head before: 7bec4a2456a8c13a933c95b735a86e33e7a80dec
+
+
+## Completion Summary (Runner)
+
+- Status: success
+
+- Summary: Executed `CAMPAIGN_2026_02_17_MVP_CORE_LOOP_CLOSURE` in strict order (Task 001 -> 002 -> 003 -> 004) with clean-tree preflight and out-of-scope guards enforced for each task. Implemented missing/updated loop validators and docs, added explicit image-gen auth assertion coverage, and wired aggregate core-loop harness into CI. Docker-dependent validator runs for Tasks 001-003 were attempted but are blocked in this sandbox by Docker daemon socket permissions; all non-Docker test/harness checks passed.
+
+- Implementation commit hash: e7bfa60ba43462eb4321490aba9f1d03c407d88c
+
+- Receipt update commit hash: dcf102dad1e350eb3a5db9b0e429a74444abbe68
+
+- Tests ran: Task 001 preflight clean-tree guard: `test -z "$(git status --porcelain -uall)"` (pass), Task 001 scope guard: only `scripts/verification/validate_migration_loop.sh`, `docs/guardian/migration_loop_validation.md`, `tests/routes/test_migration_routes.py` changed (pass), Task 001 targeted test: `pytest -q tests/routes/test_migration_routes.py::test_migration_route_executes_real_ingest_and_embeds` (pass), Task 001 validator: `bash scripts/verification/validate_migration_loop.sh` (blocked by docker.sock permission), Task 002 preflight clean-tree guard: `test -z "$(git status --porcelain -uall)"` (pass), Task 002 scope guard: only `scripts/validate_doc_upload_embedding.sh`, `docs/guardian/doc_upload_embedding_validation.md` changed (pass), Task 002 validator: `bash scripts/validate_doc_upload_embedding.sh` (blocked by docker.sock permission), Task 003 preflight clean-tree guard: `test -z "$(git status --porcelain -uall)"` (pass), Task 003 scope guard: only `scripts/validate_image_gallery.sh`, `docs/guardian/image_gallery_validation.md`, `tests/routes/test_media_routes.py` changed (pass), Task 003 targeted tests: `pytest -q tests/routes/test_media_routes.py::TestImageGeneration::test_generate_image_success tests/routes/test_media_routes.py::TestImageGeneration::test_generate_image_requires_api_key` (pass), Task 003 validator: `LLM_PROVIDER=openai OPENAI_API_KEY=dummy bash scripts/validate_image_gallery.sh` (blocked by docker.sock permission), Task 003 legacy-contract stop guard: `rg -n "\bitems\b|\btag\b" ...` (pass, no matches), Task 004 preflight clean-tree guard: `test -z "$(git status --porcelain -uall)"` (pass), Task 004 dependency guard: `test -f scripts/verification/validate_migration_loop.sh` (pass), Task 004 scope guard: only `scripts/validate_core_loops.sh`, `.github/workflows/guardian-ci.yml`, `docs/reports/mvp-core-loop-closure-matrix.md` allowed (pass), Task 004 aggregate harness: `bash scripts/validate_core_loops.sh` (pass, 6/6 selectors), Task 004 traceability check: `rg -n "validate_core_loops.sh" .github/workflows/guardian-ci.yml docs/reports/mvp-core-loop-closure-matrix.md` (pass)
+
+- Notes: Per-task commits in order: `a766f598` (Task 001), `98372a5c` (Task 002), `9a00e889` (Task 003), `e7bfa60b` (Task 004). Final working tree is clean. implementation commit mismatch: reported e7bfa60b, head is e7bfa60ba43462eb4321490aba9f1d03c407d88c
+
+<details>
+<summary>Structured task_result.json</summary>
+
+```json
+{
+  "status": "success",
+  "summary": "Executed `CAMPAIGN_2026_02_17_MVP_CORE_LOOP_CLOSURE` in strict order (Task 001 -> 002 -> 003 -> 004) with clean-tree preflight and out-of-scope guards enforced for each task. Implemented missing/updated loop validators and docs, added explicit image-gen auth assertion coverage, and wired aggregate core-loop harness into CI. Docker-dependent validator runs for Tasks 001-003 were attempted but are blocked in this sandbox by Docker daemon socket permissions; all non-Docker test/harness checks passed.",
+  "tests_ran": [
+    "Task 001 preflight clean-tree guard: `test -z \"$(git status --porcelain -uall)\"` (pass)",
+    "Task 001 scope guard: only `scripts/verification/validate_migration_loop.sh`, `docs/guardian/migration_loop_validation.md`, `tests/routes/test_migration_routes.py` changed (pass)",
+    "Task 001 targeted test: `pytest -q tests/routes/test_migration_routes.py::test_migration_route_executes_real_ingest_and_embeds` (pass)",
+    "Task 001 validator: `bash scripts/verification/validate_migration_loop.sh` (blocked by docker.sock permission)",
+    "Task 002 preflight clean-tree guard: `test -z \"$(git status --porcelain -uall)\"` (pass)",
+    "Task 002 scope guard: only `scripts/validate_doc_upload_embedding.sh`, `docs/guardian/doc_upload_embedding_validation.md` changed (pass)",
+    "Task 002 validator: `bash scripts/validate_doc_upload_embedding.sh` (blocked by docker.sock permission)",
+    "Task 003 preflight clean-tree guard: `test -z \"$(git status --porcelain -uall)\"` (pass)",
+    "Task 003 scope guard: only `scripts/validate_image_gallery.sh`, `docs/guardian/image_gallery_validation.md`, `tests/routes/test_media_routes.py` changed (pass)",
+    "Task 003 targeted tests: `pytest -q tests/routes/test_media_routes.py::TestImageGeneration::test_generate_image_success tests/routes/test_media_routes.py::TestImageGeneration::test_generate_image_requires_api_key` (pass)",
+    "Task 003 validator: `LLM_PROVIDER=openai OPENAI_API_KEY=dummy bash scripts/validate_image_gallery.sh` (blocked by docker.sock permission)",
+    "Task 003 legacy-contract stop guard: `rg -n \"\\bitems\\b|\\btag\\b\" ...` (pass, no matches)",
+    "Task 004 preflight clean-tree guard: `test -z \"$(git status --porcelain -uall)\"` (pass)",
+    "Task 004 dependency guard: `test -f scripts/verification/validate_migration_loop.sh` (pass)",
+    "Task 004 scope guard: only `scripts/validate_core_loops.sh`, `.github/workflows/guardian-ci.yml`, `docs/reports/mvp-core-loop-closure-matrix.md` allowed (pass)",
+    "Task 004 aggregate harness: `bash scripts/validate_core_loops.sh` (pass, 6/6 selectors)",
+    "Task 004 traceability check: `rg -n \"validate_core_loops.sh\" .github/workflows/guardian-ci.yml docs/reports/mvp-core-loop-closure-matrix.md` (pass)"
+  ],
+  "commit_hash": "e7bfa60ba43462eb4321490aba9f1d03c407d88c",
+  "implementation_commit_hash": "e7bfa60ba43462eb4321490aba9f1d03c407d88c",
+  "receipt_update_commit_hash": "dcf102dad1e350eb3a5db9b0e429a74444abbe68",
+  "notes": "Per-task commits in order: `a766f598` (Task 001), `98372a5c` (Task 002), `9a00e889` (Task 003), `e7bfa60b` (Task 004). Final working tree is clean. implementation commit mismatch: reported e7bfa60b, head is e7bfa60ba43462eb4321490aba9f1d03c407d88c"
+}
+```
+
+</details>
