@@ -57,6 +57,7 @@ jobs:
               - 'guardian/**'
               - 'backend/**'
               - 'tests/**'
+              - 'scripts/validate_core_loops.sh'
               - 'pyproject.toml'
               - 'requirements*.txt'
               - 'backend/requirements*.txt'
@@ -153,6 +154,26 @@ jobs:
         run: |
           set -euxo pipefail
           python -m pytest -q --maxfail=1 --disable-warnings tests -k "not cli and not integration"
+
+      - name: Run MVP core loop harness
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        env:
+          CORE_LOOP_RAG_SELECTOR: tests/integration/test_rag_integration_loop.py::test_rag_integration_memory_loop
+          CORE_LOOP_MIGRATION_SELECTOR: tests/routes/test_migration_routes.py::test_migration_route_executes_real_ingest_and_embeds
+          CORE_LOOP_IMAGE_SELECTOR: tests/routes/test_media_routes.py::TestImageGeneration::test_generate_image_success
+          CORE_LOOP_DOCGEN_SELECTOR: guardian/tests/test_document_gen_persist_and_link.py::test_document_generate_persists_and_links
+          GUARDIAN_API_KEY: test
+          OPENAI_API_KEY: dummy
+          LLM_PROVIDER: local
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "Core loop selectors:"
+          echo "$CORE_LOOP_RAG_SELECTOR"
+          echo "$CORE_LOOP_MIGRATION_SELECTOR"
+          echo "$CORE_LOOP_IMAGE_SELECTOR"
+          echo "$CORE_LOOP_DOCGEN_SELECTOR"
+          bash scripts/validate_core_loops.sh
 
   frontend-quality:
     name: Frontend Quality
