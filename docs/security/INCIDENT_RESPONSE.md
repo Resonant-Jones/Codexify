@@ -47,6 +47,7 @@ Run these checks after rotation and rewrite:
 
 ## 5) Forbidden Paths
 Never commit these paths. If committed, treat associated credentials as compromised immediately.
+Never commit these paths; they must be treated as compromised if committed.
 
 - `guardian/secrets/`
 - `**/token.json`
