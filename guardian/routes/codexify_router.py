@@ -1,7 +1,8 @@
 import re
+import time
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from guardian.core.dependencies import get_current_user, require_api_key
@@ -15,6 +16,12 @@ MAX_CODEXIFY_TEXT_CHARS = 12_000
 MAX_EMBED_TEXT_CHARS = 20_000
 MAX_SEARCH_QUERY_CHARS = 2_048
 MAX_TAG_COUNT = 32
+CAPABILITY_HEADER = "X-Capability-Grant"
+
+
+# In-memory capability grants for local single-user flows.
+# TOKEN -> {"action", "resource", "expires_at", "max_calls", "calls_used"}
+CAPABILITY_GRANTS: dict[str, dict[str, Any]] = {}
 
 
 # ----------------------------------------------------------------------
@@ -71,6 +78,74 @@ def _resolve_namespace(requested_namespace: str | None, user_id: str) -> str:
     return requested
 
 
+def register_capability_grant(
+    token: str,
+    *,
+    action: str,
+    resource: str,
+    ttl_seconds: int = 300,
+    max_calls: int = 5,
+) -> None:
+    ttl = int(ttl_seconds)
+    max_calls = int(max_calls)
+    if ttl <= 0:
+        raise ValueError("ttl_seconds must be > 0")
+    if max_calls <= 0:
+        raise ValueError("max_calls must be > 0")
+    CAPABILITY_GRANTS[(token or "").strip()] = {
+        "action": action,
+        "resource": resource,
+        "expires_at": time.time() + float(ttl),
+        "max_calls": max_calls,
+        "calls_used": 0,
+    }
+
+
+def clear_capability_grants() -> None:
+    CAPABILITY_GRANTS.clear()
+
+
+def _require_capability(
+    token: str | None,
+    *,
+    action: str,
+    resource: str,
+) -> None:
+    candidate = (token or "").strip()
+    if not candidate:
+        raise HTTPException(status_code=403, detail="Missing capability grant")
+
+    grant = CAPABILITY_GRANTS.get(candidate)
+    if not isinstance(grant, dict):
+        raise HTTPException(status_code=403, detail="Invalid capability grant")
+
+    expires_at = float(grant.get("expires_at") or 0.0)
+    if time.time() >= expires_at:
+        raise HTTPException(status_code=403, detail="Capability grant expired")
+
+    if grant.get("action") != action:
+        raise HTTPException(
+            status_code=403,
+            detail="Capability action is not permitted",
+        )
+
+    granted_resource = str(grant.get("resource") or "").strip()
+    if not granted_resource or not resource.startswith(granted_resource):
+        raise HTTPException(
+            status_code=403,
+            detail="Capability resource is not permitted",
+        )
+
+    max_calls = int(grant.get("max_calls") or 0)
+    calls_used = int(grant.get("calls_used") or 0)
+    if calls_used >= max_calls:
+        raise HTTPException(
+            status_code=403,
+            detail="Capability grant exhausted",
+        )
+    grant["calls_used"] = calls_used + 1
+
+
 # ----------------------------------------------------------------------
 # Endpoints
 # ----------------------------------------------------------------------
@@ -104,6 +179,11 @@ async def codexify_endpoint(
 async def embed_endpoint(
     payload: EmbedRequest,
     current_user: str = Depends(get_current_user),
+    capability_grant: str
+    | None = Header(
+        default=None,
+        alias=CAPABILITY_HEADER,
+    ),
 ) -> dict[str, Any]:
     """
     Generate an embedding for the provided text and store it in the
@@ -121,6 +201,11 @@ async def embed_endpoint(
                 detail=f"tags exceeds maximum of {MAX_TAG_COUNT}",
             )
         namespace = _resolve_namespace(payload.namespace, current_user)
+        _require_capability(
+            capability_grant,
+            action="vector:write",
+            resource=f"ns:{namespace}",
+        )
 
         # Compose metadata: merge provided metadata with tags
         md: dict[str, Any] = {}
@@ -148,6 +233,11 @@ async def embed_endpoint(
 async def search_endpoint(
     payload: SearchRequest,
     current_user: str = Depends(get_current_user),
+    capability_grant: str
+    | None = Header(
+        default=None,
+        alias=CAPABILITY_HEADER,
+    ),
 ) -> dict[str, Any]:
     """
     Search the vector store for the most similar embeddings to the
@@ -160,6 +250,11 @@ async def search_endpoint(
                 detail=f"query exceeds {MAX_SEARCH_QUERY_CHARS} characters",
             )
         namespace = _resolve_namespace(payload.namespace, current_user)
+        _require_capability(
+            capability_grant,
+            action="vector:read",
+            resource=f"ns:{namespace}",
+        )
         results = vector_store.search(
             payload.query,
             k=5,
