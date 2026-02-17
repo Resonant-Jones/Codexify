@@ -5,6 +5,37 @@ from pydantic import ConfigDict, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings
 
 
+def _keychain_store_available() -> tuple[bool, str]:
+    try:
+        import keyring  # type: ignore
+    except Exception:
+        return False, "install keyring to enable keychain secret store"
+
+    try:
+        backend = keyring.get_keyring()
+    except Exception as exc:
+        return False, f"failed to initialize keyring backend: {exc}"
+
+    if backend is None:
+        return False, "no keyring backend available"
+
+    backend_name = backend.__class__.__name__
+    lowered = backend_name.lower()
+    if "fail" in lowered or "null" in lowered:
+        return False, f"non-persistent keyring backend active: {backend_name}"
+
+    return True, ""
+
+
+def _secret_store_available(store: str) -> tuple[bool, str]:
+    normalized = (store or "env").strip().lower()
+    if normalized == "env":
+        return True, ""
+    if normalized == "keychain":
+        return _keychain_store_available()
+    return False, f"unsupported CODEXIFY_SECRET_STORE value: {normalized}"
+
+
 class Settings(BaseSettings):
     """
     Foundation of Guardian's consciousness fabric - the sacred constants
@@ -143,6 +174,16 @@ class Settings(BaseSettings):
         "https://generativelanguage.googleapis.com/v1/models",
         description="Cloud API endpoint",
     )
+    CODEXIFY_SECRET_STORE: Literal["env", "keychain"] = Field(
+        "env",
+        description="Secret storage backend selection",
+    )
+    CODEXIFY_REQUIRE_SECRET_STORE: bool = Field(
+        False,
+        description=(
+            "Fail startup when configured secret store is unavailable"
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_provider_keys(self):
@@ -186,6 +227,18 @@ class Settings(BaseSettings):
             )
         if hasattr(self, "DATABASE_URL"):
             self.DATABASE_URL = _norm(getattr(self, "DATABASE_URL"))  # type: ignore[attr-defined]
+        return self
+
+    @model_validator(mode="after")
+    def _validate_secret_store_requirement(self):
+        if not self.CODEXIFY_REQUIRE_SECRET_STORE:
+            return self
+        available, reason = _secret_store_available(self.CODEXIFY_SECRET_STORE)
+        if not available:
+            raise ValueError(
+                "CODEXIFY_REQUIRE_SECRET_STORE=true but configured store "
+                f"'{self.CODEXIFY_SECRET_STORE}' is unavailable: {reason}"
+            )
         return self
 
     model_config = ConfigDict(
