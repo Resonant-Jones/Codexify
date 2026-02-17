@@ -70,6 +70,7 @@ frontend/src/screenshots/
 frontend/src/screenshots/**
 frontend/src/traces/
 frontend/src/**/.last-run.json
+.last-run.json
 
 # --- Artifacts / tooling ---
 artifacts/
