@@ -154,6 +154,16 @@ async def test_rag_integration_memory_loop(monkeypatch):
     vector_store = VectorStore()
     memory_store = object()
 
+    def _fail_cloud_llm_call(*_args: Any, **_kwargs: Any):
+        raise AssertionError(
+            "Hermetic RAG loop test attempted a cloud LLM path (chat_with_ai)."
+        )
+
+    def _deny_llm_http(*_args: Any, **_kwargs: Any):
+        raise AssertionError(
+            "Hermetic RAG loop test attempted outbound HTTP for LLM inference."
+        )
+
     def fake_stream_local(
         messages: list[dict[str, str]],
         _model: str,
@@ -380,6 +390,22 @@ async def test_rag_integration_memory_loop(monkeypatch):
         chat_worker.event_bus, "emit_event", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(chat_worker, "stream_local", fake_stream_local)
+    monkeypatch.setattr(chat_worker, "chat_with_ai", _fail_cloud_llm_call)
+    monkeypatch.setattr(
+        chat_worker,
+        "resolve_provider_for_model",
+        lambda *_args, **_kwargs: "local",
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "first_enabled_provider",
+        lambda **_kwargs: "local",
+    )
+    monkeypatch.setattr(
+        "guardian.core.ai_router.requests.post",
+        _deny_llm_http,
+        raising=False,
+    )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
     monkeypatch.setattr(redis_queue, "_CLIENT", None)
@@ -437,6 +463,16 @@ async def test_rag_integration_memory_loop(monkeypatch):
 
         events = await _wait_for_terminal_event(task_id)
         event_types = [str(event.get("type")) for event in events]
+        if "task.failed" in event_types:
+            errors = [
+                str(event.get("error") or "")
+                for event in events
+                if str(event.get("type")) == "task.failed"
+            ]
+            pytest.fail(
+                "Hermetic RAG loop task failed unexpectedly: "
+                + " | ".join(errors)
+            )
         assert "task.running" in event_types
         assert "task.completed" in event_types
         assert "task.failed" not in event_types
