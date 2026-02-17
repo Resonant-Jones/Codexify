@@ -33,6 +33,15 @@ class ProviderRegistry:
         except Exception:
             pass
 
+        # MiniMax (chat only; OpenAI-compatible endpoint)
+        try:
+            if os.getenv("MINIMAX_API_KEY") and os.getenv("MINIMAX_API_BASE"):
+                from .minimax_adapter import MiniMaxAdapter
+
+                self._chat["minimax"] = MiniMaxAdapter()
+        except Exception:
+            pass
+
         # Gemini (chat only)
         try:
             if os.getenv("GEMINI_API_KEY"):

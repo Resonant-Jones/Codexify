@@ -41,14 +41,13 @@ Record the HTTP code/output in the operator log if the call fails.
    | `id` | Numeric uploaded_document identifier | Present and > 0 |
    | `src_url` | Fetchable `/media/...` URL for the uploaded file | Present and starts with `http://localhost:8888/media/` |
    | `embedding_status` | Initial status emitted by backend | Equals `pending` or `processing` |
-   | `project_id` | Project association | Echoes provided `project_id` |
 
 3. **List recent documents to verify persistence**
    ```sh
    curl -sS -H "X-API-Key: $GUARDIAN_API_KEY" \
      "http://localhost:8888/api/media/documents?limit=5"
    ```
-   - Pass: Response is JSON with `items` array containing the uploaded `id`, plus `embedding_status` and `src_url` fields.
+   - Pass: Response is JSON with `documents` array containing the uploaded `id`, plus `embedding_status` and `src_url` fields.
    - Fail: Missing document entry, malformed payload, or HTTP error.
 
 4. **Poll for embedding completion**

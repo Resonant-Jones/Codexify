@@ -187,6 +187,23 @@ def test_migration_route_executes_real_ingest_and_embeds(
     assert data["messages_imported"] == 2
     assert len(vector_store.items) == 2
     assert "ORBIT-ROUTE-314" in str(vector_store.items[0].get("text", ""))
+    assert mock_db.ensure_project.call_count == 1
+    assert mock_db.create_chat_thread.call_count == 1
+    assert mock_db.create_message.call_count == 2
+    created_messages = [
+        {
+            "thread_id": call.args[0],
+            "role": call.args[1],
+            "content": call.args[2],
+        }
+        for call in mock_db.create_message.call_args_list
+    ]
+    assert [entry["thread_id"] for entry in created_messages] == [42, 42]
+    assert [entry["role"] for entry in created_messages] == [
+        "user",
+        "assistant",
+    ]
+    assert "ORBIT-ROUTE-314" in created_messages[0]["content"]
     assert (
         mock_db.create_chat_thread.call_args.kwargs["user_id"] == SERVER_USER_ID
     )

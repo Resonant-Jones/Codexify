@@ -1077,6 +1077,44 @@ class ThreadDocument(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class ProjectDocumentLink(Base):
+    """Explicit project-level attachment for documents used by project RAG."""
+
+    __tablename__ = "project_document_links"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    document_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    attached_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    attached_by: Mapped[str | None] = mapped_column(String(255))
+
+    __table_args__ = (
+        CheckConstraint(
+            "document_type IN ('generated', 'uploaded')",
+            name="project_document_links_type_check",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "document_id",
+            "document_type",
+            name="uq_project_document_links_scope",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # Imprints, Personas, System Docs
 # =========================
@@ -1351,6 +1389,21 @@ Index("ix_uploaded_documents_project", UploadedDocument.project_id)
 Index("ix_uploaded_documents_thread", UploadedDocument.thread_id)
 Index("ix_uploaded_documents_mime", UploadedDocument.mime_type)
 Index("ix_uploaded_documents_created", UploadedDocument.created_at.desc())
+
+Index(
+    "ix_project_document_links_project_enabled",
+    ProjectDocumentLink.project_id,
+    ProjectDocumentLink.is_enabled,
+)
+Index(
+    "ix_project_document_links_document",
+    ProjectDocumentLink.document_type,
+    ProjectDocumentLink.document_id,
+)
+Index(
+    "ix_project_document_links_attached",
+    ProjectDocumentLink.attached_at.desc(),
+)
 
 Index("ix_tts_outputs_project", TTSOutput.project_id)
 Index("ix_tts_outputs_thread", TTSOutput.thread_id)

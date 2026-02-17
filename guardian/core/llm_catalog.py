@@ -14,12 +14,20 @@ from guardian.core.ai_router import (
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 
-_PROVIDER_ORDER = ("openai", "anthropic", "gemini", "groq", "local")
+_PROVIDER_ORDER = (
+    "openai",
+    "anthropic",
+    "gemini",
+    "groq",
+    "minimax",
+    "local",
+)
 _PROVIDER_LABELS = {
     "openai": "OpenAI",
     "anthropic": "Anthropic",
     "gemini": "Gemini",
     "groq": "Groq",
+    "minimax": "MiniMax",
     "local": "Local",
 }
 
@@ -90,7 +98,7 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
     ),
 }
 
-_CLOUD_PROVIDERS = {"openai", "anthropic", "gemini", "groq"}
+_CLOUD_PROVIDERS = {"openai", "anthropic", "gemini", "groq", "minimax"}
 
 
 def _catalog_timeout_seconds() -> float:
@@ -128,6 +136,16 @@ def _is_authorized(provider_id: str, settings: Settings) -> bool:
         return bool(str(getattr(settings, "OPENAI_API_KEY", "") or "").strip())
     if provider_id == "groq":
         return bool(str(getattr(settings, "GROQ_API_KEY", "") or "").strip())
+    if provider_id == "minimax":
+        has_key = bool(
+            str(getattr(settings, "MINIMAX_API_KEY", "") or "").strip()
+            or _env_secret("MINIMAX_API_KEY")
+        )
+        has_base = bool(
+            str(getattr(settings, "MINIMAX_API_BASE", "") or "").strip()
+            or _env_secret("MINIMAX_API_BASE")
+        )
+        return has_key and has_base
     if provider_id == "anthropic":
         return bool(_env_secret("ANTHROPIC_API_KEY"))
     if provider_id == "gemini":
@@ -282,6 +300,18 @@ def _provider_models(
 ) -> list[dict[str, Any]]:
     if provider_id == "local":
         return _fetch_local_models(settings)
+    if provider_id == "minimax":
+        model_id = (
+            str(getattr(settings, "MINIMAX_MODEL", "") or "").strip()
+            or _env_secret("MINIMAX_MODEL")
+            or "minimax-default"
+        )
+        return [
+            _base_model_entry(
+                model_id=model_id,
+                display_name="MiniMax (default)",
+            )
+        ]
     return _cloud_models(provider_id, settings)
 
 
