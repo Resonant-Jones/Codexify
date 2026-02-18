@@ -284,3 +284,115 @@ def test_chat_thread_agent_runs_endpoint(monkeypatch) -> None:
     payload = response.json()
     run_ids = [item["run_id"] for item in payload["runs"]]
     assert str(run["run_id"]) in run_ids
+
+
+def test_start_run_terminal_runtime_target_is_persisted_and_emitted(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+
+    published: list[tuple[str, str, dict[str, Any]]] = []
+
+    def fake_publish(
+        task_id: str,
+        event_type: str,
+        data: dict[str, Any] | None = None,
+    ) -> str:
+        published.append((task_id, event_type, dict(data or {})))
+        return "1-0"
+
+    monkeypatch.setattr(
+        "guardian.agents.events.task_events.publish",
+        fake_publish,
+    )
+
+    local_store = AgentStore()
+    local_publisher = AgentEventPublisher()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", local_publisher
+    )
+
+    client = _build_client()
+    deploy_response = client.post(
+        "/api/agents/deployments",
+        json={"flow_id": "flow-terminal", "thread_id": 91, "spec": {}},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert deploy_response.status_code == 200
+    deployment_id = deploy_response.json()["deployment"]["deployment_id"]
+
+    run_response = client.post(
+        f"/api/agents/deployments/{deployment_id}/runs",
+        json={"runtime_target": "terminal", "supervised": True},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert run_response.status_code == 200
+    payload = run_response.json()
+    assert payload["ok"] is True
+    assert payload["run"]["runtime_target"] == "terminal"
+
+    run_id = payload["run"]["run_id"]
+    stored_run = local_store.get_run(run_id)
+    assert stored_run is not None
+    assert stored_run["runtime_target"] == "terminal"
+
+    run_events = [
+        (event_type, data)
+        for task_id, event_type, data in published
+        if task_id == run_id and event_type in {"created", "started"}
+    ]
+    assert len(run_events) == 2
+    expected = {
+        "deployment_id": deployment_id,
+        "run_id": run_id,
+        "runtime_target": "terminal",
+    }
+    assert dict(run_events)["created"] == expected
+    assert dict(run_events)["started"] == expected
+
+
+def test_start_run_rejects_invalid_runtime_target(monkeypatch) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+
+    published: list[tuple[str, str, dict[str, Any]]] = []
+
+    def fake_publish(
+        task_id: str,
+        event_type: str,
+        data: dict[str, Any] | None = None,
+    ) -> str:
+        published.append((task_id, event_type, dict(data or {})))
+        return "1-0"
+
+    monkeypatch.setattr(
+        "guardian.agents.events.task_events.publish",
+        fake_publish,
+    )
+
+    local_store = AgentStore()
+    local_publisher = AgentEventPublisher()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", local_publisher
+    )
+
+    client = _build_client()
+    deploy_response = client.post(
+        "/api/agents/deployments",
+        json={"flow_id": "flow-invalid-target", "thread_id": 92, "spec": {}},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert deploy_response.status_code == 200
+    deployment_id = deploy_response.json()["deployment"]["deployment_id"]
+
+    run_response = client.post(
+        f"/api/agents/deployments/{deployment_id}/runs",
+        json={"runtime_target": "host"},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert run_response.status_code == 400
+    assert run_response.json() == {"detail": "invalid_runtime_target"}
+    assert local_store.list_runs_for_thread(92) == []
+    assert published == []

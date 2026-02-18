@@ -37,6 +37,8 @@ chat_router = APIRouter(
 _store: AgentStore = store
 _event_publisher: AgentEventPublisher = publisher
 
+ALLOWED_RUNTIME_TARGETS = {"container", "terminal"}
+
 
 def configure_db(db: Any | None) -> None:
     _store.configure_db(db)
@@ -108,6 +110,10 @@ async def start_run(
     deployment_id: str,
     body: AgentRunStartRequest = Body(default_factory=AgentRunStartRequest),
 ) -> dict[str, Any]:
+    runtime_target = (body.runtime_target or "container").strip()
+    if runtime_target not in ALLOWED_RUNTIME_TARGETS:
+        raise HTTPException(status_code=400, detail="invalid_runtime_target")
+
     deployment = _store.get_deployment(deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="deployment_not_found")
@@ -120,19 +126,27 @@ async def start_run(
     run = _store.create_run(
         deployment_id=deployment_id,
         thread_id=deployment.get("thread_id"),
-        runtime_target=body.runtime_target,
+        runtime_target=runtime_target,
         rollback_mode="auto",
         status="running",
     )
     _event_publisher.emit(
         run_id=run["run_id"],
         event_type="created",
-        payload={"deployment_id": deployment_id, "run_id": run["run_id"]},
+        payload={
+            "deployment_id": deployment_id,
+            "run_id": run["run_id"],
+            "runtime_target": runtime_target,
+        },
     )
     _event_publisher.emit(
         run_id=run["run_id"],
         event_type="started",
-        payload={"deployment_id": deployment_id, "run_id": run["run_id"]},
+        payload={
+            "deployment_id": deployment_id,
+            "run_id": run["run_id"],
+            "runtime_target": runtime_target,
+        },
     )
     return {"ok": True, "run": run}
 
