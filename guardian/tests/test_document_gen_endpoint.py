@@ -109,6 +109,42 @@ def test_document_generate_happy_path(monkeypatch) -> None:
     assert "Prompt: Summarize the launch goals." in user_content
 
 
+def test_document_generate_accepts_minimax_provider(monkeypatch) -> None:
+    thread = _Thread(id=6, project_id=3, user_id="user-2", title="MiniMax")
+    mock_db = _make_db(thread)
+    calls: dict[str, object] = {}
+
+    def fake_chat_with_ai(messages, model=None, provider=None, settings=None):
+        calls["messages"] = messages
+        calls["model"] = model
+        calls["provider"] = provider
+        return "MiniMax drafted content"
+
+    monkeypatch.setattr(documents_routes, "_get_db", lambda: mock_db)
+    monkeypatch.setattr(documents_routes, "chat_with_ai", fake_chat_with_ai)
+
+    client = _make_client()
+    response = client.post(
+        "/api/documents/generate",
+        headers=_auth_headers(monkeypatch),
+        json={
+            "thread_id": 6,
+            "title": "MiniMax Brief",
+            "prompt": "Draft a short summary.",
+            "type": "markdown",
+            "provider": "minimax",
+            "model": "minimax-chat",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "minimax"
+    assert payload["model"] == "minimax-chat"
+    assert calls["provider"] == "minimax"
+    assert calls["model"] == "minimax-chat"
+
+
 def test_document_generate_requires_prompt(monkeypatch) -> None:
     client = _make_client()
     response = client.post(

@@ -26,8 +26,6 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Optional
 from uuid import uuid4
 
-import requests
-from dotenv import load_dotenv
 from fastapi import (
     Body,
     Depends,
@@ -40,8 +38,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 # Configure logging early
@@ -64,6 +61,7 @@ from guardian.core.dependencies import (
     init_services,
     require_api_key,
 )
+from guardian.core.media_signing import verify_media_signature
 from guardian.core.outbox import (
     normalize_outbox_tenant_id,
     parse_last_event_id,
@@ -239,8 +237,9 @@ async def app_lifespan(app: FastAPI):
         documents.configure_db(guardian_db)
         share.configure_db(guardian_db)
         websocket_routes.configure_db(guardian_db)
+        collaboration.configure_db(guardian_db)
         logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/websocket routes"
+            "[startup] GuardianDB configured for cron/documents/share/collaboration/websocket routes"
         )
 
     # Configure durable outbox storage
@@ -266,6 +265,21 @@ async def app_lifespan(app: FastAPI):
         db.ensure_sync_job_support()
     except Exception as e:
         logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
+
+    # Seed/sync provider control-plane rows from /api/llm/catalog
+    try:
+        sync_stats = db.sync_inference_provider_rows_from_catalog()
+        logger.info(
+            "[startup] inference providers synced rows=%s created=%s updated=%s runtime_created=%s",
+            sync_stats.get("provider_rows", 0),
+            sync_stats.get("providers_created", 0),
+            sync_stats.get("providers_updated", 0),
+            sync_stats.get("runtime_created", 0),
+        )
+    except Exception as exc:
+        logger.warning(
+            "[startup] Failed to sync inference provider rows: %s", exc
+        )
 
     # Initialize Neo4j connection if graph logging is enabled
     if (
@@ -463,10 +477,9 @@ app.add_middleware(
 )
 logger.info("[CORS] Allowed origins: %s", allowed_origins)
 
-# Static file serving for media
-media_storage_path = ensure_storage_base_path()
-app.mount("/media", StaticFiles(directory=media_storage_path), name="media")
-logger.info("[static] Mounted /media from %s", media_storage_path)
+# Signed media serving base path
+media_storage_path = ensure_storage_base_path().resolve()
+logger.info("[media] Signed media delivery enabled from %s", media_storage_path)
 
 
 # =========================
@@ -627,15 +640,8 @@ async def stream_events(
                 # Update last_id for next poll
                 last_id = max_id_seen
 
-                # Clean up delivered events
-                if max_id_seen > 0:
-                    try:
-                        event_bus.delete_events_through(
-                            max_id_seen,
-                            tenant_id=OUTBOX_TENANT_ID,
-                        )
-                    except Exception:
-                        pass
+                # Keep outbox events intact so concurrent clients can resume
+                # independently without losing events due to destructive cleanup.
 
                 # Reset heartbeat timer
                 heartbeat_elapsed = 0.0
@@ -722,11 +728,15 @@ async def stream_task_events(
 
 
 @app.get("/graph", summary="Return graph data from Neo4j", tags=["Graph"])
-def get_graph(scope: str = "codexify"):
+def get_graph(
+    scope: str = "codexify",
+    api_key: str = Depends(require_api_key),
+):
     """
     Fetch graph data from Neo4j for visualization.
     Returns nodes and links for the specified scope.
     """
+    _ = api_key
     if not NEO4J_AVAILABLE:
         raise HTTPException(
             status_code=503, detail="Neo4j driver not available"
@@ -734,7 +744,14 @@ def get_graph(scope: str = "codexify"):
 
     uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD", "test")
+    password = (
+        os.getenv("NEO4J_PASSWORD") or os.getenv("NEO4J_PASS") or ""
+    ).strip()
+    if not password:
+        raise HTTPException(
+            status_code=503,
+            detail="NEO4J_PASSWORD is not configured",
+        )
 
     try:
         driver = GraphDatabase.driver(uri, auth=(user, password))
@@ -787,6 +804,27 @@ def get_graph(scope: str = "codexify"):
 
 
 # (Removed redundant /upload-chat endpoint; use guardian/routes/migration.py instead)
+
+
+@app.get("/media/{file_path:path}", include_in_schema=False)
+def serve_signed_media(
+    file_path: str,
+    sig: Optional[str] = Query(None),
+):
+    requested_path = "/" + str(Path("media") / file_path).replace("\\", "/")
+    if not verify_media_signature(requested_path, sig):
+        raise HTTPException(status_code=401, detail="Invalid media signature")
+
+    try:
+        candidate = (media_storage_path / file_path).resolve()
+        candidate.relative_to(media_storage_path)
+    except Exception:
+        raise HTTPException(status_code=403, detail="Invalid media path")
+
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Media not found")
+
+    return FileResponse(candidate)
 
 
 # =========================

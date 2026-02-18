@@ -20,7 +20,9 @@ try:
     from guardian.core.dependencies import chatlog_db, require_api_key
 except ImportError:
     chatlog_db = None
-    require_api_key = lambda x: x
+
+    def require_api_key(api_key: str = "") -> str:  # type: ignore[unused-argument]
+        return api_key
 
 
 # Helper: ensure "Loose Threads" project exists at startup
@@ -50,8 +52,16 @@ class ProjectCreate(BaseModel):
     description: Optional[str] = ""
 
 
-router = APIRouter(prefix="/projects", tags=["Projects"])
-api_router = APIRouter(prefix="/api/projects", tags=["Projects"])
+router = APIRouter(
+    prefix="/projects",
+    tags=["Projects"],
+    dependencies=[Depends(require_api_key)],
+)
+api_router = APIRouter(
+    prefix="/api/projects",
+    tags=["Projects"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @router.get("")

@@ -33,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 
 from guardian.core.db import GuardianDB
 from guardian.core.dependencies import verify_api_key
+from guardian.core.media_signing import extract_media_path, sign_media_url
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import (
     GeneratedDocument,
@@ -182,6 +183,14 @@ def _normalize_source_tag(tag: Optional[str], source_tag: Optional[str]) -> str:
     """Normalize incoming tag values for media records."""
     candidate = (tag or source_tag or "uploaded").strip().lower()
     return candidate or "uploaded"
+
+
+def _signed_src_url(src_url: str | None) -> str:
+    return sign_media_url((src_url or "").strip())
+
+
+def _storage_src_path(src_url: str | None) -> str:
+    return extract_media_path((src_url or "").strip())
 
 
 def _compute_identity_with_existing_asset(
@@ -371,7 +380,7 @@ async def upload_image(
                     session.commit()
                     return ImageUploadResponse(
                         id=existing.id,
-                        src_url=existing.src_url,
+                        src_url=_signed_src_url(existing.src_url),
                         filename=existing.filename,
                         filesize=existing.filesize,
                         mime_type=existing.mime_type,
@@ -402,7 +411,7 @@ async def upload_image(
                 session.commit()
                 return ImageUploadResponse(
                     id=linked_image.id,
-                    src_url=linked_image.src_url,
+                    src_url=_signed_src_url(linked_image.src_url),
                     filename=linked_image.filename,
                     filesize=linked_image.filesize,
                     mime_type=linked_image.mime_type,
@@ -455,7 +464,7 @@ async def upload_image(
                         session.commit()
                         return ImageUploadResponse(
                             id=existing.id,
-                            src_url=existing.src_url,
+                            src_url=_signed_src_url(existing.src_url),
                             filename=existing.filename,
                             filesize=existing.filesize,
                             mime_type=existing.mime_type,
@@ -484,7 +493,7 @@ async def upload_image(
                     session.commit()
                     return ImageUploadResponse(
                         id=linked_image.id,
-                        src_url=linked_image.src_url,
+                        src_url=_signed_src_url(linked_image.src_url),
                         filename=linked_image.filename,
                         filesize=linked_image.filesize,
                         mime_type=linked_image.mime_type,
@@ -558,7 +567,7 @@ async def upload_image(
                         session.commit()
                         return ImageUploadResponse(
                             id=existing.id,
-                            src_url=existing.src_url,
+                            src_url=_signed_src_url(existing.src_url),
                             filename=existing.filename,
                             filesize=existing.filesize,
                             mime_type=existing.mime_type,
@@ -587,7 +596,7 @@ async def upload_image(
                     session.commit()
                     return ImageUploadResponse(
                         id=linked_image.id,
-                        src_url=linked_image.src_url,
+                        src_url=_signed_src_url(linked_image.src_url),
                         filename=linked_image.filename,
                         filesize=linked_image.filesize,
                         mime_type=linked_image.mime_type,
@@ -606,7 +615,7 @@ async def upload_image(
 
         return ImageUploadResponse(
             id=image_id,
-            src_url=src_url,
+            src_url=_signed_src_url(src_url),
             filename=filename,
             filesize=filesize,
             mime_type=file.content_type,
@@ -632,7 +641,7 @@ async def get_image(image_id: str):
 
         # Download from storage
         try:
-            file_data = storage.download_file(image.src_url)
+            file_data = storage.download_file(_storage_src_path(image.src_url))
             return StreamingResponse(
                 iter([file_data]),
                 media_type=image.mime_type,
@@ -744,7 +753,7 @@ async def upload_document(
                     session.commit()
                     return DocumentUploadResponse(
                         id=existing.id,
-                        src_url=existing.src_url,
+                        src_url=_signed_src_url(existing.src_url),
                         filename=existing.filename,
                         filesize=existing.filesize,
                         mime_type=existing.mime_type,
@@ -856,7 +865,7 @@ async def upload_document(
                         session.commit()
                         return DocumentUploadResponse(
                             id=existing.id,
-                            src_url=existing.src_url,
+                            src_url=_signed_src_url(existing.src_url),
                             filename=existing.filename,
                             filesize=existing.filesize,
                             mime_type=existing.mime_type,
@@ -991,7 +1000,7 @@ async def upload_document(
                         session.commit()
                         return DocumentUploadResponse(
                             id=existing.id,
-                            src_url=existing.src_url,
+                            src_url=_signed_src_url(existing.src_url),
                             filename=existing.filename,
                             filesize=existing.filesize,
                             mime_type=existing.mime_type,
@@ -1096,7 +1105,7 @@ async def upload_document(
 
         return DocumentUploadResponse(
             id=doc_id,
-            src_url=src_url,
+            src_url=_signed_src_url(src_url),
             filename=filename,
             filesize=filesize,
             mime_type=file.content_type,
@@ -1179,7 +1188,7 @@ async def generate_image(request: ImageGenerationRequest):
                     session.commit()
                     return ImageGenerationResponse(
                         id=existing.id,
-                        src_url=existing.src_url,
+                        src_url=_signed_src_url(existing.src_url),
                         prompt=existing.prompt,
                         model=existing.model,
                         created_at=(
@@ -1202,7 +1211,7 @@ async def generate_image(request: ImageGenerationRequest):
                 session.commit()
                 return ImageGenerationResponse(
                     id=linked.id,
-                    src_url=linked.src_url,
+                    src_url=_signed_src_url(linked.src_url),
                     prompt=linked.prompt,
                     model=linked.model,
                     created_at=(
@@ -1258,7 +1267,7 @@ async def generate_image(request: ImageGenerationRequest):
                     session.commit()
                     return ImageGenerationResponse(
                         id=existing.id,
-                        src_url=existing.src_url,
+                        src_url=_signed_src_url(existing.src_url),
                         prompt=existing.prompt,
                         model=existing.model,
                         created_at=(
@@ -1338,7 +1347,7 @@ async def generate_image(request: ImageGenerationRequest):
                     session.commit()
                     return ImageGenerationResponse(
                         id=existing.id,
-                        src_url=existing.src_url,
+                        src_url=_signed_src_url(existing.src_url),
                         prompt=existing.prompt,
                         model=existing.model,
                         created_at=(
@@ -1351,7 +1360,7 @@ async def generate_image(request: ImageGenerationRequest):
 
     return ImageGenerationResponse(
         id=image_id,
-        src_url=src_url,
+        src_url=_signed_src_url(src_url),
         prompt=request.prompt,
         model=request.model,
         created_at=datetime.now(timezone.utc).isoformat(),
@@ -1416,7 +1425,7 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
 
             return TTSOutputResponse(
                 id=tts_output.id,
-                src_url=src_url,
+                src_url=_signed_src_url(src_url),
                 text=request.text,
                 voice=request.voice,
                 provider=request.provider,
@@ -1443,7 +1452,9 @@ async def get_tts_audio(tts_id: int):
             raise HTTPException(status_code=404, detail="Audio not found")
 
         try:
-            audio_data = storage.download_file(tts_output.src_url)
+            audio_data = storage.download_file(
+                _storage_src_path(tts_output.src_url)
+            )
             return StreamingResponse(
                 iter([audio_data]),
                 media_type="audio/wav",
@@ -1497,7 +1508,7 @@ async def resolve_media_asset(
         display_title = display_title_for_asset(session, asset=asset)
         return MediaResolveResponse(
             asset_id=asset.id,
-            src_url=asset.src_url,
+            src_url=_signed_src_url(asset.src_url),
             display_title=display_title,
             media_kind=asset.media_kind,
             provenance=asset.provenance,
@@ -1540,7 +1551,7 @@ async def list_images(
                 "images": [
                     {
                         "id": img.id,
-                        "src_url": img.src_url,
+                        "src_url": _signed_src_url(img.src_url),
                         "filename": img.prompt or "Generated image",
                         "mime_type": None,
                         "filesize": None,
@@ -1586,7 +1597,7 @@ async def list_images(
             "images": [
                 {
                     "id": img.id,
-                    "src_url": img.src_url,
+                    "src_url": _signed_src_url(img.src_url),
                     "filename": img.filename,
                     "mime_type": img.mime_type,
                     "filesize": img.filesize,
@@ -1643,7 +1654,7 @@ async def list_documents(
             "documents": [
                 {
                     "id": doc.id,
-                    "src_url": doc.src_url,
+                    "src_url": _signed_src_url(doc.src_url),
                     "filename": doc.filename,
                     "mime_type": doc.mime_type,
                     "filesize": doc.filesize,

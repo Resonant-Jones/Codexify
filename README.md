@@ -101,10 +101,12 @@ If you want cloud models instead of local:
 ```env
 ALLOW_CLOUD_PROVIDERS=true
 CODEXIFY_LOCAL_ONLY_MODE=false
-CODEXIFY_EGRESS_ALLOWLIST=openai   # or groq
-LLM_PROVIDER=openai   # or groq
+CODEXIFY_EGRESS_ALLOWLIST=openai,groq,minimax
+LLM_PROVIDER=openai   # single value only: openai, groq, minimax, or local
 OPENAI_API_KEY=...
 # GROQ_API_KEY=...
+# MINIMAX_API_KEY=...
+# MINIMAX_API_BASE=https://api.minimax.chat/v1
 ```
 
 ### 2) Start the stack
@@ -264,8 +266,9 @@ pnpm --dir frontend/src dev
 - Cloud LLM usage requires all of:
   - `ALLOW_CLOUD_PROVIDERS=true`
   - `CODEXIFY_LOCAL_ONLY_MODE=false`
-  - `CODEXIFY_EGRESS_ALLOWLIST=openai` (or `groq`)
-  - `OPENAI_API_KEY` (or `GROQ_API_KEY`)
+  - `CODEXIFY_EGRESS_ALLOWLIST=<provider ids>` including your target (for example `openai,groq,minimax`)
+  - `LLM_PROVIDER=<single provider id>` (not a comma-separated list)
+  - `OPENAI_API_KEY` (for `openai`) or `GROQ_API_KEY` (for `groq`) or (`MINIMAX_API_KEY` + `MINIMAX_API_BASE`) for `minimax`
 - `CODEXIFY_VECTOR_STORE=chroma|faiss`
 - `CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1` (allow mock embeddings fallback and `/api/embeddings` dummy mode)
 - `EMBEDDING_BACKEND=dummy|gpt_oss|nomic` (`stub` is accepted as an alias for `dummy`)

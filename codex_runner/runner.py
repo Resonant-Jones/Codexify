@@ -2,162 +2,165 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
 import tempfile
-from datetime import date, datetime
-from pathlib import Path
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 from typing import Any
 
+DEFAULT_AUDITS_DIR = Path("docs/_audits")
 DEFAULT_CAMPAIGN_DIR = Path("docs/Campaign")
 DEFAULT_TASKS_DIR = Path("docs/tasks")
-
-CAMPAIGN_PATH_PATTERN = re.compile(
-    r"^docs/Campaign/CAMPAIGN_\d{4}_\d{2}_\d{2}(?:_[A-Z0-9_+\-]+)?\.md$"
-)
-TASK_PATH_PATTERN = re.compile(
-    r"^docs/tasks/TASK_\d{4}_\d{2}_\d{2}_\d{3}_[a-z0-9_]+\.md$"
-)
+DEFAULT_RUNS_DIR = Path("docs/_campaign_runs")
+STATE_DIR = DEFAULT_RUNS_DIR / "state"
+STATE_PATH = STATE_DIR / "state.json"
+STATE_TRANSITIONS_PATH = STATE_DIR / "state_transitions.jsonl"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SCHEMA_DIR = SCRIPT_DIR / "schemas"
-CAMPAIGN_SCHEMA_PATH = SCHEMA_DIR / "campaign_output.schema.json"
-TASK_RESULT_SCHEMA_PATH = SCHEMA_DIR / "task_result.schema.json"
-MEGA_AUDIT_SCHEMA_PATH = SCHEMA_DIR / "mega_audit_output.schema.json"
+DEFAULT_MEGA_AUDIT_SCHEMA_PATH = (
+    SCRIPT_DIR / "schemas" / "mega_audit_output.schema.json"
+)
+DEFAULT_CAMPAIGN_SET_SCHEMA_PATH = (
+    SCRIPT_DIR / "schemas" / "campaign_set.schema.json"
+)
+DEFAULT_TASK_RESULT_SCHEMA_PATH = (
+    SCRIPT_DIR / "schemas" / "task_result.schema.json"
+)
+DEFAULT_COMPILER_JSON_TOKEN = "<PASTE MEGA_AUDIT_OUTPUT_JSON_HERE>"
+DEFAULT_REPO_ROOT_TOKEN = "<REPO_ROOT>"
+DEFAULT_AUDIT_ID_TOKEN = "<AUDIT_ID>"
 
-# Prompt tokens
-REPO_ROOT_TOKEN = "<REPO_ROOT>"
-MEGA_AUDIT_JSON_TOKEN = "<PASTE MEGA_AUDIT_OUTPUT_JSON_HERE>"
+CAMPAIGN_ID_PATTERN = re.compile(
+    r"^(?P<date>\d{4}-\d{2}-\d{2})::(?P<slug>[a-z0-9_]+)::(?P<seq>\d{3})$"
+)
+TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_:\-]+$")
+TASK_SLUG_PATTERN = re.compile(r"^[a-z0-9_]+$")
+RISK_VALUES = {"HIGH", "MED", "LOW"}
+TASK_STATUS_VALUES = {"pending", "success", "failed", "blocked"}
+TASK_RESULT_STATUS_VALUES = {"success", "failed", "blocked"}
 
-TASK_ID_INLINE_PATTERN = re.compile(
-    r"task[-_\s]*id\s*[:：]\s*`?([A-Za-z0-9_+\-]+)`?",
-    re.IGNORECASE,
-)
-TASK_ID_HEADING_PATTERN = re.compile(
-    r"^\s*#+\s*task[-_\s]*id\s*$",
-    re.IGNORECASE,
-)
-TASK_FILENAME_PATTERN = re.compile(
-    r"^TASK_(\d{4})_(\d{2})_(\d{2})_(\d{3})_([a-z0-9_]+)\.md$"
-)
-TASK_RESULT_JSON_BLOCK_PATTERN = re.compile(
-    r"(<summary>Structured task_result\.json</summary>\s*\n\n```json\n)"
-    r"(\{.*?\})"
-    r"(\n```)",
-    re.DOTALL,
-)
+MAPPING_START = "<!-- RUNNER_TASK_MAP -->"
+MAPPING_END = "<!-- /RUNNER_TASK_MAP -->"
 
 
 class RunnerError(RuntimeError):
-    pass
+    """Raised when deterministic runner constraints are violated."""
 
 
-# Helper: Parse Codex API error payloads from stderr/stdout (429, usage_limit, etc)
-def _maybe_parse_codex_error_payload(text: str) -> dict[str, Any] | None:
-    """Best-effort extraction of Codex API error JSON embedded in stderr/stdout.
-
-    Codex sometimes prints an escaped JSON payload inside a wrapper like:
-      http 429 Too Many Requests: Some("{\"error\":{...}}")
-
-    This returns the decoded JSON dict if found, otherwise None.
-    """
-    if not text:
-        return None
-
-    # 1) Try to find a raw JSON object that contains an "error" key.
-    json_match = re.search(r"(\{\s*\"error\"\s*:\s*\{.*\}\s*\})", text)
-    if json_match:
-        try:
-            return json.loads(json_match.group(1))
-        except json.JSONDecodeError:
-            pass
-
-    # 2) Try to find an escaped JSON payload inside Some("...")
-    some_match = re.search(r"Some\\(\"(?P<payload>\\{.*?\\})\"\\)", text)
-    if some_match:
-        payload_escaped = some_match.group("payload")
-        try:
-            # The payload is typically backslash-escaped.
-            payload = payload_escaped.encode("utf-8").decode("unicode_escape")
-            return json.loads(payload)
-        except Exception:
-            return None
-
-    return None
+@dataclass
+class StageHashes:
+    audit_prompt_sha256: str
+    audit_schema_sha256: str
+    compiler_prompt_sha256: str
+    campaign_set_schema_sha256: str
 
 
-def _format_codex_usage_limit_note(payload: dict[str, Any] | None) -> str:
-    if not payload:
-        return ""
-    err = payload.get("error")
-    if not isinstance(err, dict):
-        return ""
-    if err.get("type") != "usage_limit_reached":
-        return ""
-
-    resets_at = err.get("resets_at")
-    resets_in = err.get("resets_in_seconds")
-    plan_type = err.get("plan_type")
-
-    parts: list[str] = []
-    if plan_type:
-        parts.append(f"plan_type={plan_type}")
-
-    if isinstance(resets_at, int):
-        try:
-            dt = datetime.fromtimestamp(resets_at)
-            parts.append(
-                f"resets_at={dt.isoformat(sep=' ', timespec='seconds')}"
-            )
-        except Exception:
-            parts.append(f"resets_at={resets_at}")
-
-    if isinstance(resets_in, int):
-        parts.append(f"resets_in_seconds={resets_in}")
-
-    return (
-        "\nNOTE: usage_limit_reached (" + ", ".join(parts) + ")"
-        if parts
-        else "\nNOTE: usage_limit_reached"
-    )
+@dataclass
+class SelectedCampaign:
+    campaign_id: str
+    campaign_slug: str
+    reason: dict[str, Any]
 
 
-# Logging helper: prints to STDERR
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 def log(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def run_cmd(
-    args: list[str], *, capture_output: bool = False
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args,
-        text=True,
-        capture_output=capture_output,
-        check=False,
+def canonical_json(value: Any) -> str:
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
 
 
-def git_status_porcelain() -> str:
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def json_read(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise RunnerError(f"Missing required JSON file: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise RunnerError(f"Invalid JSON in {path}: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise RunnerError(f"Expected object JSON at {path}")
+    return data
+
+
+def json_write(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def text_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def text_append(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(content)
+
+
+def run_cmd(
+    args: list[str],
+    *,
+    cwd: Path,
+    capture_output: bool = False,
+    debug: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    if debug:
+        log(f"[debug] cwd={cwd} cmd={' '.join(args)}")
+    try:
+        result = subprocess.run(
+            args,
+            cwd=str(cwd),
+            text=True,
+            capture_output=capture_output,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise RunnerError(f"Executable not found: {args[0]}") from exc
+
+    if debug and capture_output:
+        if result.stdout:
+            log(f"[debug] stdout:\n{result.stdout}")
+        if result.stderr:
+            log(f"[debug] stderr:\n{result.stderr}")
+    return result
+
+
+def git_status_porcelain(repo_root: Path, debug: bool) -> str:
     result = run_cmd(
-        ["git", "status", "--porcelain", "-uall"], capture_output=True
+        ["git", "status", "--porcelain", "-uall"],
+        cwd=repo_root,
+        capture_output=True,
+        debug=debug,
     )
     if result.returncode != 0:
         raise RunnerError(f"git status failed: {result.stderr.strip()}")
     return result.stdout
-
-
-def git_is_clean() -> bool:
-    return git_status_porcelain().strip() == ""
-
-
-def ensure_clean_git(context: str) -> None:
-    if not git_is_clean():
-        raise RunnerError(
-            f"git tree is not clean ({context}). Commit or stash changes."
-        )
 
 
 def parse_porcelain_paths(status: str) -> list[str]:
@@ -172,81 +175,762 @@ def parse_porcelain_paths(status: str) -> list[str]:
     return paths
 
 
-def read_json_file(path: Path) -> dict[str, Any]:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise RunnerError(f"Expected output file not found: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise RunnerError(f"Invalid JSON in {path}: {exc}") from exc
+def git_changed_paths(repo_root: Path, debug: bool) -> list[str]:
+    return parse_porcelain_paths(git_status_porcelain(repo_root, debug))
 
 
-def validate_campaign_payload(payload: dict[str, Any]) -> None:
-    required_fields = [
-        "campaign_id",
-        "campaign_slug",
-        "campaign_markdown",
-        "tasks",
-    ]
-    missing = [field for field in required_fields if field not in payload]
-    if missing:
-        raise RunnerError(f"Missing campaign fields: {', '.join(missing)}")
+def git_is_clean(repo_root: Path, debug: bool) -> bool:
+    return git_status_porcelain(repo_root, debug).strip() == ""
 
-    tasks = payload["tasks"]
-    if not isinstance(tasks, list):
-        raise RunnerError("tasks must be an array")
 
-    required_task_fields = [
+def ensure_clean_git(context: str, repo_root: Path, debug: bool) -> None:
+    if not git_is_clean(repo_root, debug):
+        raise RunnerError(f"git tree is not clean ({context})")
+
+
+def git_head(repo_root: Path, debug: bool) -> str:
+    result = run_cmd(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_root,
+        capture_output=True,
+        debug=debug,
+    )
+    if result.returncode != 0:
+        raise RunnerError(f"git rev-parse HEAD failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def git_resolve_ref(repo_root: Path, ref: str, debug: bool) -> str:
+    result = run_cmd(
+        ["git", "rev-parse", ref],
+        cwd=repo_root,
+        capture_output=True,
+        debug=debug,
+    )
+    if result.returncode != 0:
+        raise RunnerError(
+            f"Unable to resolve git ref '{ref}': {result.stderr.strip()}"
+        )
+    return result.stdout.strip()
+
+
+def git_current_branch(repo_root: Path, debug: bool) -> str:
+    result = run_cmd(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=repo_root,
+        capture_output=True,
+        debug=debug,
+    )
+    if result.returncode != 0:
+        raise RunnerError(f"git branch lookup failed: {result.stderr.strip()}")
+    branch = result.stdout.strip()
+    if not branch:
+        raise RunnerError("Unable to determine current branch")
+    return branch
+
+
+def git_switch(repo_root: Path, branch: str, create: bool, debug: bool) -> None:
+    args = (
+        ["git", "switch", "-c", branch] if create else ["git", "switch", branch]
+    )
+    result = run_cmd(args, cwd=repo_root, capture_output=True, debug=debug)
+    if result.returncode == 0:
+        return
+    if create:
+        fallback = run_cmd(
+            ["git", "switch", branch],
+            cwd=repo_root,
+            capture_output=True,
+            debug=debug,
+        )
+        if fallback.returncode == 0:
+            return
+        raise RunnerError(
+            f"Unable to switch branch '{branch}': {fallback.stderr.strip()}"
+        )
+    raise RunnerError(
+        f"Unable to switch branch '{branch}': {result.stderr.strip()}"
+    )
+
+
+def git_commit(
+    repo_root: Path, paths: list[str], message: str, verify: bool, debug: bool
+) -> str:
+    if not paths:
+        raise RunnerError("git_commit called with empty path set")
+    add = run_cmd(
+        ["git", "add", *paths], cwd=repo_root, capture_output=True, debug=debug
+    )
+    if add.returncode != 0:
+        raise RunnerError(f"git add failed: {add.stderr.strip()}")
+    cmd = ["git", "commit", "-m", message]
+    if not verify:
+        cmd.insert(2, "--no-verify")
+    commit = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
+    if commit.returncode != 0:
+        raise RunnerError(f"git commit failed: {commit.stderr.strip()}")
+    return git_head(repo_root, debug)
+
+
+def sanitize_cli_args(argv: list[str]) -> list[str]:
+    redacted_markers = {"token", "secret", "password", "key"}
+    sanitized: list[str] = []
+    i = 0
+    while i < len(argv):
+        part = argv[i]
+        lowered = part.lower()
+        if part.startswith("--") and "=" in part:
+            flag, value = part.split("=", 1)
+            if any(marker in flag.lower() for marker in redacted_markers):
+                sanitized.append(f"{flag}=<redacted>")
+            else:
+                sanitized.append(f"{flag}={value}")
+            i += 1
+            continue
+        if part.startswith("--") and any(
+            marker in lowered for marker in redacted_markers
+        ):
+            sanitized.append(part)
+            if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+                sanitized.append("<redacted>")
+                i += 2
+                continue
+        sanitized.append(part)
+        i += 1
+    return sanitized
+
+
+def ensure_repo_root(repo_root: Path, debug: bool) -> None:
+    if not repo_root.exists() or not repo_root.is_dir():
+        raise RunnerError(
+            f"repo root does not exist or is not a directory: {repo_root}"
+        )
+
+    result = run_cmd(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=repo_root,
+        capture_output=True,
+        debug=debug,
+    )
+    if result.returncode != 0:
+        raise RunnerError(f"repo root is not a git repository: {repo_root}")
+
+    resolved = Path(result.stdout.strip()).resolve()
+    if resolved != repo_root.resolve():
+        raise RunnerError(
+            f"repo root must be repository top-level. expected={resolved} got={repo_root.resolve()}"
+        )
+
+
+def ensure_codex_available() -> None:
+    if not shutil_which("codex"):
+        raise RunnerError("codex executable not found on PATH")
+
+
+def shutil_which(binary: str) -> str | None:
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = Path(folder) / binary
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def normalize_repo_relative_path(raw_path: str) -> str:
+    candidate = raw_path.replace("\\", "/").strip()
+    if not candidate:
+        raise RunnerError("task file entry cannot be empty")
+
+    if candidate.startswith("/"):
+        raise RunnerError(f"absolute task file path is not allowed: {raw_path}")
+
+    drive_match = re.match(r"^[A-Za-z]:", candidate)
+    if drive_match:
+        raise RunnerError(f"absolute task file path is not allowed: {raw_path}")
+
+    pure = PurePosixPath(candidate)
+    if any(part == ".." for part in pure.parts):
+        raise RunnerError(f"task file path cannot contain '..': {raw_path}")
+
+    if pure.is_absolute() or str(pure) in {"", "."}:
+        raise RunnerError(f"invalid task file path: {raw_path}")
+
+    return str(pure)
+
+
+def normalize_task(task: dict[str, Any], campaign_slug: str) -> dict[str, Any]:
+    required = [
         "id",
         "slug",
         "area",
+        "risk",
         "files",
         "tests",
         "commit_message",
         "task_artifact_markdown",
         "activation_prompt",
+        "dependencies",
     ]
+    missing = [field for field in required if field not in task]
+    if missing:
+        raise RunnerError(f"Task missing required fields: {', '.join(missing)}")
 
-    for index, task in enumerate(tasks, start=1):
-        if not isinstance(task, dict):
-            raise RunnerError(f"Task {index} must be an object")
-        missing_task_fields = [
-            field for field in required_task_fields if field not in task
-        ]
-        if missing_task_fields:
+    task_id = str(task["id"]).strip()
+    task_slug = str(task["slug"]).strip()
+    if not task_id or not TASK_ID_PATTERN.fullmatch(task_id):
+        raise RunnerError(f"Invalid task.id: {task_id}")
+    if not task_slug or not TASK_SLUG_PATTERN.fullmatch(task_slug):
+        raise RunnerError(f"Invalid task.slug: {task_slug}")
+
+    risk = str(task["risk"]).strip().upper()
+    if risk not in RISK_VALUES:
+        raise RunnerError(f"Invalid task.risk for task {task_id}: {risk}")
+
+    files_raw = task["files"]
+    if not isinstance(files_raw, list):
+        raise RunnerError(f"Task files must be an array: {task_id}")
+    files = [normalize_repo_relative_path(str(entry)) for entry in files_raw]
+
+    tests_raw = task["tests"]
+    if not isinstance(tests_raw, list):
+        raise RunnerError(f"Task tests must be an array: {task_id}")
+    tests = [str(item) for item in tests_raw]
+
+    dependencies_raw = task["dependencies"]
+    if not isinstance(dependencies_raw, list):
+        raise RunnerError(f"Task dependencies must be an array: {task_id}")
+    dependencies = [str(item) for item in dependencies_raw]
+
+    normalized = {
+        "id": task_id,
+        "slug": task_slug,
+        "area": str(task["area"]).strip(),
+        "risk": risk,
+        "files": files,
+        "tests": tests,
+        "commit_message": str(task["commit_message"]).strip(),
+        "task_artifact_markdown": str(task["task_artifact_markdown"]),
+        "activation_prompt": str(task["activation_prompt"]),
+        "dependencies": dependencies,
+        "campaign_slug": campaign_slug,
+    }
+    if not normalized["commit_message"]:
+        raise RunnerError(f"Task commit_message cannot be empty: {task_id}")
+
+    return normalized
+
+
+def task_hash(task: dict[str, Any]) -> str:
+    payload = {
+        "id": task["id"],
+        "slug": task["slug"],
+        "area": task["area"],
+        "risk": task["risk"],
+        "files": task["files"],
+        "tests": task["tests"],
+        "commit_message": task["commit_message"],
+        "task_artifact_markdown": task["task_artifact_markdown"],
+        "activation_prompt": task["activation_prompt"],
+        "dependencies": task["dependencies"],
+    }
+    return sha256_text(canonical_json(payload))
+
+
+def parse_campaign_id(campaign_id: str) -> tuple[str, str, str]:
+    match = CAMPAIGN_ID_PATTERN.fullmatch(campaign_id)
+    if not match:
+        raise RunnerError(
+            f"Invalid campaign_id '{campaign_id}'. Expected YYYY-MM-DD::campaign_slug::seq3"
+        )
+    return match.group("date"), match.group("slug"), match.group("seq")
+
+
+def load_state(repo_root: Path) -> dict[str, Any]:
+    path = repo_root / STATE_PATH
+    if not path.exists():
+        return {
+            "version": 1,
+            "campaigns": {},
+            "task_index_by_id": {},
+            "task_index_by_slug": {},
+        }
+
+    state = json_read(path)
+    for key in (
+        "version",
+        "campaigns",
+        "task_index_by_id",
+        "task_index_by_slug",
+    ):
+        if key not in state:
+            raise RunnerError(f"Invalid state file missing key: {key}")
+    return state
+
+
+def state_hash(state: dict[str, Any]) -> str:
+    return sha256_text(canonical_json(state))
+
+
+def append_transition(
+    repo_root: Path,
+    *,
+    run_id: str,
+    pass_index: int,
+    reason: str,
+    previous_state_sha: str,
+    post_state_sha: str,
+) -> None:
+    payload = {
+        "timestamp": now_iso(),
+        "run_id": run_id,
+        "pass_index": pass_index,
+        "reason": reason,
+        "previous_state_sha": previous_state_sha,
+        "post_state_sha": post_state_sha,
+    }
+    transition_path = repo_root / STATE_TRANSITIONS_PATH
+    transition_path.parent.mkdir(parents=True, exist_ok=True)
+    with transition_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def save_state(repo_root: Path, state: dict[str, Any]) -> None:
+    json_write(repo_root / STATE_PATH, state)
+
+
+def merge_campaign_set(
+    state: dict[str, Any],
+    stage_b_payload: dict[str, Any],
+    *,
+    audit_id: str,
+) -> dict[str, Any]:
+    campaigns = stage_b_payload.get("campaigns")
+    if not isinstance(campaigns, list):
+        raise RunnerError("campaign_set payload missing campaigns[]")
+
+    additions = {"campaigns": 0, "tasks": 0}
+
+    for campaign in campaigns:
+        if not isinstance(campaign, dict):
+            raise RunnerError("campaign entry must be an object")
+
+        campaign_id = str(campaign.get("campaign_id") or "").strip()
+        campaign_slug = str(campaign.get("campaign_slug") or "").strip()
+        if not campaign_id or not campaign_slug:
+            raise RunnerError("campaign requires campaign_id and campaign_slug")
+
+        campaign_date, slug_from_id, campaign_seq = parse_campaign_id(
+            campaign_id
+        )
+        if slug_from_id != campaign_slug:
             raise RunnerError(
-                f"Task {index} missing fields: {', '.join(missing_task_fields)}"
+                f"campaign_id slug mismatch for {campaign_id}: expected {slug_from_id}, got {campaign_slug}"
             )
 
+        depends_on_raw = campaign.get("depends_on", [])
+        if not isinstance(depends_on_raw, list):
+            raise RunnerError(
+                f"campaign depends_on must be an array: {campaign_id}"
+            )
+        depends_on = [
+            str(item).strip() for item in depends_on_raw if str(item).strip()
+        ]
+        for dep in depends_on:
+            parse_campaign_id(dep)
 
-def write_text_file(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+        campaign_markdown = str(campaign.get("campaign_markdown") or "")
+        tasks_raw = campaign.get("tasks")
+        if not isinstance(tasks_raw, list):
+            raise RunnerError(f"campaign.tasks must be an array: {campaign_id}")
+
+        discovery_reason = campaign.get("discovery_reason")
+        if len(tasks_raw) == 0:
+            if (
+                not isinstance(discovery_reason, str)
+                or not discovery_reason.strip()
+            ):
+                raise RunnerError(
+                    f"campaign {campaign_id} has empty tasks but no non-empty discovery_reason"
+                )
+
+        existing = state["campaigns"].get(campaign_id)
+        if existing is None:
+            existing = {
+                "campaign_id": campaign_id,
+                "campaign_slug": campaign_slug,
+                "campaign_date": campaign_date,
+                "campaign_seq": campaign_seq,
+                "depends_on": depends_on,
+                "campaign_markdown": campaign_markdown,
+                "discovery_reason": discovery_reason
+                if isinstance(discovery_reason, str)
+                else None,
+                "tasks": {},
+                "status": "open",
+                "source_audit_ids": [audit_id],
+                "materialized": {
+                    "campaign_doc_path": None,
+                    "task_artifact_paths": {},
+                },
+            }
+            state["campaigns"][campaign_id] = existing
+            additions["campaigns"] += 1
+        else:
+            immutable_pairs = [
+                (existing["campaign_slug"], campaign_slug, "campaign_slug"),
+                (existing["campaign_date"], campaign_date, "campaign_date"),
+                (existing["campaign_seq"], campaign_seq, "campaign_seq"),
+            ]
+            for previous, incoming, field_name in immutable_pairs:
+                if previous != incoming:
+                    raise RunnerError(
+                        f"campaign mutation detected for {campaign_id} field {field_name}"
+                    )
+            if existing.get("depends_on") != depends_on:
+                raise RunnerError(
+                    f"campaign mutation detected for depends_on: {campaign_id}"
+                )
+            if existing.get("campaign_markdown") != campaign_markdown:
+                raise RunnerError(
+                    f"campaign mutation detected for campaign_markdown: {campaign_id}"
+                )
+            if isinstance(discovery_reason, str):
+                previous_reason = existing.get("discovery_reason")
+                if previous_reason is None:
+                    existing["discovery_reason"] = discovery_reason
+                elif previous_reason != discovery_reason:
+                    raise RunnerError(
+                        f"campaign mutation detected for discovery_reason: {campaign_id}"
+                    )
+            if audit_id not in existing["source_audit_ids"]:
+                existing["source_audit_ids"].append(audit_id)
+
+        seen_ids: set[str] = set()
+        seen_slugs: set[str] = set()
+        for raw_task in tasks_raw:
+            if not isinstance(raw_task, dict):
+                raise RunnerError(
+                    f"task entry must be object in campaign {campaign_id}"
+                )
+            normalized_task = normalize_task(raw_task, campaign_slug)
+            task_id = normalized_task["id"]
+            task_slug = normalized_task["slug"]
+
+            if task_id in seen_ids:
+                raise RunnerError(
+                    f"duplicate task.id in campaign payload: {campaign_id}/{task_id}"
+                )
+            seen_ids.add(task_id)
+            if task_slug in seen_slugs:
+                raise RunnerError(
+                    f"duplicate task.slug in campaign payload: {campaign_id}/{task_slug}"
+                )
+            seen_slugs.add(task_slug)
+
+            digest = task_hash(normalized_task)
+            by_id = state["task_index_by_id"].get(task_id)
+            if by_id and by_id["content_hash"] != digest:
+                raise RunnerError(
+                    f"task mutation conflict on id {task_id}: existing hash differs"
+                )
+
+            by_slug_key = f"{campaign_slug}::{task_slug}"
+            by_slug = state["task_index_by_slug"].get(by_slug_key)
+            if by_slug and by_slug["content_hash"] != digest:
+                raise RunnerError(
+                    f"task mutation conflict on slug {campaign_slug}/{task_slug}: existing hash differs"
+                )
+
+            existing_task = existing["tasks"].get(task_id)
+            if existing_task is None:
+                existing_task = {
+                    **normalized_task,
+                    "content_hash": digest,
+                    "status": "pending",
+                    "implementation_commit": None,
+                    "receipt_commit": None,
+                    "result": None,
+                }
+                existing["tasks"][task_id] = existing_task
+                additions["tasks"] += 1
+            else:
+                if existing_task.get("content_hash") != digest:
+                    raise RunnerError(
+                        f"task mutation conflict on id {task_id} in campaign {campaign_id}"
+                    )
+
+            state["task_index_by_id"][task_id] = {
+                "campaign_id": campaign_id,
+                "content_hash": digest,
+            }
+            state["task_index_by_slug"][by_slug_key] = {
+                "campaign_id": campaign_id,
+                "task_id": task_id,
+                "content_hash": digest,
+            }
+
+    return additions
 
 
-def append_text_file(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(content)
+def campaign_is_completed(campaign: dict[str, Any]) -> bool:
+    tasks: dict[str, dict[str, Any]] = campaign.get("tasks", {})
+    if not tasks:
+        return False
+    return all(task.get("status") == "success" for task in tasks.values())
+
+
+def selectable_campaigns(state: dict[str, Any]) -> list[dict[str, Any]]:
+    campaigns: list[dict[str, Any]] = []
+    for campaign in state["campaigns"].values():
+        if campaign.get("status") == "completed":
+            continue
+        campaigns.append(campaign)
+    return campaigns
+
+
+def dependencies_satisfied(
+    state: dict[str, Any], campaign: dict[str, Any]
+) -> bool:
+    for dep in campaign.get("depends_on", []):
+        dep_campaign = state["campaigns"].get(dep)
+        if dep_campaign is None:
+            return False
+        if dep_campaign.get("status") != "completed":
+            return False
+    return True
+
+
+def high_risk_count(campaign: dict[str, Any]) -> int:
+    total = 0
+    for task in campaign.get("tasks", {}).values():
+        if task.get("status") == "success":
+            continue
+        if str(task.get("risk") or "").upper() == "HIGH":
+            total += 1
+    return total
+
+
+def select_campaign(state: dict[str, Any]) -> SelectedCampaign | None:
+    candidates: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    for campaign in selectable_campaigns(state):
+        if not dependencies_satisfied(state, campaign):
+            continue
+        campaign_date = campaign["campaign_date"]
+        campaign_slug = campaign["campaign_slug"]
+        score = (-high_risk_count(campaign), campaign_date, campaign_slug)
+        candidates.append((score, campaign))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0])
+    _, winner = candidates[0]
+    return SelectedCampaign(
+        campaign_id=winner["campaign_id"],
+        campaign_slug=winner["campaign_slug"],
+        reason={
+            "rule": "highest_high_risk_then_date_then_slug",
+            "high_risk_count": high_risk_count(winner),
+            "campaign_date": winner["campaign_date"],
+            "campaign_slug": winner["campaign_slug"],
+        },
+    )
+
+
+def to_upper_snake(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", value.strip())
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned.upper() or "CAMPAIGN"
+
+
+def to_lower_snake(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "_", value.strip().lower())
+    return re.sub(r"_+", "_", cleaned).strip("_") or "task"
+
+
+def ensure_mapping_block(text: str) -> str:
+    if MAPPING_START in text and MAPPING_END in text:
+        return text
+    base = text.rstrip()
+    return f"{base}\n\n{MAPPING_START}\n{MAPPING_END}\n"
+
+
+def parse_mapping_entries(block: str) -> dict[str, tuple[str, str]]:
+    entries: dict[str, tuple[str, str]] = {}
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = re.fullmatch(
+            r"([^\s]+)\s*->\s*\[([^,]+),\s*([^\]]+)\]", stripped
+        )
+        if not match:
+            continue
+        entries[match.group(1)] = (
+            match.group(2).strip(),
+            match.group(3).strip(),
+        )
+    return entries
+
+
+def update_mapping_block(
+    campaign_doc_path: Path, task_id: str, impl_hash: str, receipt_hash: str
+) -> None:
+    content = (
+        campaign_doc_path.read_text(encoding="utf-8")
+        if campaign_doc_path.exists()
+        else ""
+    )
+    content = ensure_mapping_block(content)
+
+    start_idx = content.find(MAPPING_START)
+    end_idx = content.find(MAPPING_END)
+    if start_idx == -1 or end_idx == -1 or end_idx < start_idx:
+        raise RunnerError(f"Invalid mapping block in {campaign_doc_path}")
+
+    block_start = start_idx + len(MAPPING_START)
+    current_block = content[block_start:end_idx]
+    entries = parse_mapping_entries(current_block)
+    entries[task_id] = (impl_hash, receipt_hash)
+
+    lines = [
+        f"{key} -> [{value[0]}, {value[1]}]"
+        for key, value in sorted(entries.items())
+    ]
+    new_block = "\n" + "\n".join(lines) + ("\n" if lines else "")
+    updated = content[:block_start] + new_block + content[end_idx:]
+    text_write(campaign_doc_path, updated)
+
+
+def materialize_campaign_artifacts(
+    repo_root: Path, campaign: dict[str, Any]
+) -> list[str]:
+    touched: list[str] = []
+    date_underscore = campaign["campaign_date"].replace("-", "_")
+    slug = campaign["campaign_slug"]
+    seq = campaign["campaign_seq"]
+
+    campaign_doc_name = (
+        f"CAMPAIGN_{date_underscore}_{to_upper_snake(slug)}_{seq}.md"
+    )
+    campaign_doc_path = repo_root / DEFAULT_CAMPAIGN_DIR / campaign_doc_name
+    campaign_doc_content = ensure_mapping_block(campaign["campaign_markdown"])
+    if not campaign_doc_path.exists():
+        text_write(campaign_doc_path, campaign_doc_content)
+        touched.append(
+            str((DEFAULT_CAMPAIGN_DIR / campaign_doc_name).as_posix())
+        )
+
+    campaign["materialized"]["campaign_doc_path"] = str(
+        (DEFAULT_CAMPAIGN_DIR / campaign_doc_name).as_posix()
+    )
+
+    task_dir_rel = DEFAULT_TASKS_DIR / f"{slug}_{date_underscore}"
+    task_dir_abs = repo_root / task_dir_rel
+    task_dir_abs.mkdir(parents=True, exist_ok=True)
+
+    for task in sorted(campaign["tasks"].values(), key=lambda item: item["id"]):
+        task_file_name = (
+            f"TASK_{to_lower_snake(task['slug'])}_{date_underscore}.md"
+        )
+        task_rel = task_dir_rel / task_file_name
+        task_abs = repo_root / task_rel
+        if not task_abs.exists():
+            content = task["task_artifact_markdown"].rstrip() + "\n"
+            text_write(task_abs, content)
+            touched.append(str(task_rel.as_posix()))
+        campaign["materialized"]["task_artifact_paths"][task["id"]] = str(
+            task_rel.as_posix()
+        )
+
+    return touched
+
+
+def branch_name_for_campaign(campaign: dict[str, Any]) -> str:
+    safe_slug = re.sub(r"[^a-z0-9_-]+", "-", campaign["campaign_slug"].lower())
+    safe_slug = re.sub(r"-{2,}", "-", safe_slug).strip("-") or "campaign"
+    return f"campaign/{campaign['campaign_date']}/{safe_slug}-{campaign['campaign_seq']}"
+
+
+def allowed_path(path: str, allowed_patterns: list[str]) -> bool:
+    return any(fnmatch.fnmatch(path, pattern) for pattern in allowed_patterns)
+
+
+def enforce_scope_guard(
+    repo_root: Path,
+    task: dict[str, Any],
+    *,
+    task_artifact_path: str,
+    run_artifact_allowlist: list[str],
+    debug: bool,
+) -> list[str]:
+    changed = git_changed_paths(repo_root, debug)
+    allowed_patterns = (
+        list(task["files"]) + [task_artifact_path] + run_artifact_allowlist
+    )
+
+    out_of_scope = [
+        path for path in changed if not allowed_path(path, allowed_patterns)
+    ]
+    if out_of_scope:
+        raise RunnerError(
+            "out-of-scope files changed for task "
+            f"{task['id']}: {', '.join(out_of_scope)}"
+        )
+    return changed
+
+
+def render_audit_prompt(
+    template: str, repo_root: Path, audit_id: str, run_id: str
+) -> str:
+    rendered = template
+    rendered = rendered.replace(DEFAULT_REPO_ROOT_TOKEN, str(repo_root))
+    rendered = rendered.replace(DEFAULT_AUDIT_ID_TOKEN, audit_id)
+    rendered = rendered.replace("{{AUDIT_ID}}", audit_id)
+    rendered = rendered.replace("<RUN_ID>", run_id)
+    rendered = rendered.replace("{{RUN_ID}}", run_id)
+
+    if (
+        DEFAULT_AUDIT_ID_TOKEN not in template
+        and "{{AUDIT_ID}}" not in template
+    ):
+        rendered = (
+            "Runner Constraints:\n"
+            f"- audit_id must equal {audit_id}\n"
+            "- Output JSON only\n\n" + rendered
+        )
+    return rendered
+
+
+def render_compiler_prompt(
+    template: str, repo_root: Path, mega_payload: dict[str, Any]
+) -> str:
+    mega_json = json.dumps(mega_payload, indent=2, ensure_ascii=False)
+    rendered = template.replace(DEFAULT_REPO_ROOT_TOKEN, str(repo_root))
+    rendered = rendered.replace(DEFAULT_COMPILER_JSON_TOKEN, mega_json)
+    rendered = rendered.replace("<AUDIT_JSON>", mega_json)
+    if (
+        DEFAULT_COMPILER_JSON_TOKEN not in template
+        and "<AUDIT_JSON>" not in template
+    ):
+        rendered = rendered + "\n\nMEGA_AUDIT_JSON:\n" + mega_json
+    return rendered
 
 
 def run_codex_exec(
-    prompt_file: Path,
+    repo_root: Path,
+    *,
+    prompt_text: str,
     output_schema: Path,
     output_path: Path,
-    *,
-    model: str | None = None,
-    config_overrides: list[str] | None = None,
+    model: str | None,
+    configs: list[str],
+    debug: bool,
 ) -> None:
-    prompt_text = prompt_file.read_text(encoding="utf-8")
-
     cmd: list[str] = ["codex"]
     if model:
         cmd.extend(["--model", model])
-    if config_overrides:
-        for cfg in config_overrides:
-            if cfg:
-                cmd.extend(["--config", cfg])
+    for config in configs:
+        cmd.extend(["--config", config])
 
     cmd.extend(
         [
@@ -258,1093 +942,750 @@ def run_codex_exec(
             prompt_text,
         ]
     )
-
-    result = run_cmd(cmd, capture_output=True)
+    result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         stdout = (result.stdout or "").strip()
-        combined = "\n".join([s for s in [stderr, stdout] if s])
-        parsed = _maybe_parse_codex_error_payload(combined)
-        note = _format_codex_usage_limit_note(parsed)
         raise RunnerError(
             "codex exec failed"
             + (f"\nSTDERR:\n{stderr}" if stderr else "")
             + (f"\nSTDOUT:\n{stdout}" if stdout else "")
-            + (
-                f"\nPARSED_ERROR:\n{json.dumps(parsed, indent=2)}"
-                if parsed
-                else ""
-            )
-            + note
         )
 
 
-# --------- Model selection helper for tasks ---------
-
-
-def select_task_model(
-    args: argparse.Namespace, task: dict[str, Any]
-) -> str | None:
-    """Pick the Codex model for a task.
-
-    Priority:
-      1) risk-specific flags if task includes a risk field (HIGH|MED|LOW)
-      2) --codex-model-task
-      3) --codex-model (global)
-    """
-    risk = str(task.get("risk") or "").strip().lower()
-    if risk in {"high", "h"} and getattr(args, "task_model_high", None):
-        return args.task_model_high
-    if risk in {"med", "medium", "m"} and getattr(args, "task_model_med", None):
-        return args.task_model_med
-    if risk in {"low", "l"} and getattr(args, "task_model_low", None):
-        return args.task_model_low
-
-    return getattr(args, "codex_model_task", None) or getattr(
-        args, "codex_model", None
-    )
-
-
-def slugify_branch(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9_-]+", "-", value.strip().lower())
-    slug = re.sub(r"-{2,}", "-", slug).strip("-")
-    if not slug:
-        raise RunnerError("campaign_slug must contain valid characters")
-    return slug
-
-
-# -------- RUNNER ARTIFACT PATHS + PROMPT RENDERING HELPERS --------
-
-
-def runner_failure_receipt_path(cycle_index: int) -> Path:
-    """Path for deterministic runner failure receipts.
-
-    These are meant to be *committable* operator receipts, so we keep them in
-    docs/tasks (which is tracked) rather than docs/reports (which is ignored).
-    """
-    today = date.today().strftime("%Y_%m_%d")
-    return (
-        DEFAULT_TASKS_DIR
-        / "runner"
-        / f"RUNNER_FAILURE_{today}_cycle_{cycle_index:03d}.md"
-    )
-
-
-def upper_snake(value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", value.strip())
-    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
-    return cleaned.upper() or "CAMPAIGN"
-
-
-def canonical_campaign_doc_path(campaign_slug: str) -> Path:
-    today = date.today().strftime("%Y_%m_%d")
-    return (
-        DEFAULT_CAMPAIGN_DIR
-        / f"CAMPAIGN_{today}_{upper_snake(campaign_slug)}.md"
-    )
-
-
-def normalize_task_id(value: str) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
-    return re.sub(r"-+", "-", cleaned).strip("-")
-
-
-def normalize_task_slug(value: str) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", "_", value.strip().lower())
-    return re.sub(r"_+", "_", cleaned).strip("_")
-
-
-def extract_task_date(task_id: str) -> str:
-    m = re.search(r"(20\d{2})[-_](\d{2})[-_](\d{2})", task_id)
-    if m:
-        return f"{m.group(1)}_{m.group(2)}_{m.group(3)}"
-    return date.today().strftime("%Y_%m_%d")
-
-
-def extract_task_nnn(task_id: str) -> str:
-    matches = re.findall(r"(?:^|[-_])(\d{3})(?=[-_]|$)", task_id)
-    return matches[-1] if matches else ""
-
-
-def extract_slug_from_task_id(task_id: str) -> str:
-    m = re.search(r"(?:^|[-_])\d{3}[-_](.+)$", task_id)
-    if not m:
-        return ""
-    return normalize_task_slug(m.group(1))
-
-
-def canonical_task_artifact_path(task_id: str, task_slug: str) -> Path:
-    nnn = extract_task_nnn(task_id) or "000"
-    task_date = extract_task_date(task_id)
-    safe_slug = normalize_task_slug(task_slug) or extract_slug_from_task_id(
-        task_id
-    )
-    safe_slug = safe_slug or "task"
-    return DEFAULT_TASKS_DIR / f"TASK_{task_date}_{nnn}_{safe_slug}.md"
-
-
-def task_semantic_key(task_id: str, task_slug: str) -> str:
-    nnn = extract_task_nnn(task_id)
-    slug = normalize_task_slug(task_slug) or extract_slug_from_task_id(task_id)
-    if not nnn or not slug:
-        return ""
-    return f"{nnn}:{slug}"
-
-
-def extract_task_id_from_artifact(text: str) -> str:
-    lines = text.splitlines()
-    for line in lines:
-        inline_match = TASK_ID_INLINE_PATTERN.search(line)
-        if inline_match:
-            return inline_match.group(1).strip()
-    for idx, line in enumerate(lines):
-        if not TASK_ID_HEADING_PATTERN.match(line):
-            continue
-        for candidate in lines[idx + 1 : idx + 6]:
-            cleaned = candidate.strip().strip("`").strip("*").strip("-").strip()
-            if re.fullmatch(r"[A-Za-z0-9_+\-]+", cleaned):
-                return cleaned
-    return ""
-
-
-def task_semantic_key_from_path(path: Path) -> str:
-    match = TASK_FILENAME_PATTERN.match(path.name)
-    if not match:
-        return ""
-    return f"{match.group(4)}:{normalize_task_slug(match.group(5))}"
-
-
-def resolve_task_artifact_path(
-    task: dict[str, Any], existing_task_paths: list[Path]
-) -> Path:
-    task_id = str(task.get("id") or "")
-    task_slug = str(task.get("slug") or "")
-    declared_path = str(task.get("task_artifact_path") or "").strip()
-    if declared_path and TASK_PATH_PATTERN.fullmatch(declared_path):
-        preferred = Path(declared_path)
-    else:
-        preferred = canonical_task_artifact_path(task_id, task_slug)
-
-    if preferred.exists():
-        return preferred
-
-    target_id = normalize_task_id(task_id)
-    target_key = task_semantic_key(task_id, task_slug)
-
-    exact_id_matches: list[Path] = []
-    semantic_matches: list[Path] = []
-
-    for candidate in sorted(existing_task_paths):
-        if not candidate.exists() or not candidate.is_file():
-            continue
-
-        candidate_text = candidate.read_text(encoding="utf-8")
-        embedded_task_id = extract_task_id_from_artifact(candidate_text)
-        normalized_embedded = (
-            normalize_task_id(embedded_task_id) if embedded_task_id else ""
-        )
-
-        if (
-            target_id
-            and normalized_embedded
-            and normalized_embedded == target_id
-        ):
-            exact_id_matches.append(candidate)
-            continue
-
-        if target_key:
-            # Collision guard: if this doc embeds a *different* task id, semantic
-            # key fallback is not allowed.
-            if (
-                target_id
-                and normalized_embedded
-                and normalized_embedded != target_id
-            ):
-                continue
-            if task_semantic_key_from_path(candidate) == target_key:
-                semantic_matches.append(candidate)
-                continue
-            embedded_key = task_semantic_key(embedded_task_id, "")
-            if embedded_key and embedded_key == target_key:
-                semantic_matches.append(candidate)
-
-    if exact_id_matches:
-        return exact_id_matches[0]
-    if semantic_matches:
-        return semantic_matches[0]
-    return preferred
-
-
-def render_compiler_prompt(
-    template_path: Path, repo_root: Path, mega_audit_payload: dict[str, Any]
-) -> str:
-    template_text = template_path.read_text(encoding="utf-8")
-    rendered = template_text.replace(REPO_ROOT_TOKEN, str(repo_root))
-    rendered = rendered.replace(
-        MEGA_AUDIT_JSON_TOKEN, json.dumps(mega_audit_payload, indent=2)
-    )
-    return rendered
-
-
-def update_campaign_mapping_line(
-    campaign_doc: Path, task_id: str, impl_hash: str, receipt_hash: str
+def append_implementation_receipt(
+    task_artifact_abs: Path, run_id: str, task_id: str, status_hint: str
 ) -> None:
-    line = f"{task_id} -> [{impl_hash}, {receipt_hash}]"
-    text = (
-        campaign_doc.read_text(encoding="utf-8")
-        if campaign_doc.exists()
-        else ""
+    block = (
+        "\n\n## Implementation Receipt (Runner)\n\n"
+        f"- run_id: {run_id}\n"
+        f"- task_id: {task_id}\n"
+        f"- status_hint: {status_hint}\n"
+        "- implementation_commit_hash: (pending)\n"
     )
-    pattern = re.compile(rf"^{re.escape(task_id)}\s*->\s*\[.*\]$", re.MULTILINE)
-    if pattern.search(text):
-        text = pattern.sub(line, text)
-    else:
-        # Append under a mapping header if present, otherwise append at end.
-        if "## Task Mapping" in text:
-            text = text.rstrip() + "\n" + line + "\n"
-        else:
-            text = text.rstrip() + "\n\n## Task Mapping\n\n" + line + "\n"
-    write_text_file(campaign_doc, text)
+    text_append(task_artifact_abs, block)
 
 
-def append_runner_completion_summary(
-    task_artifact: Path,
-    result: dict[str, Any],
-    impl_hash: str,
-    receipt_hash: str,
+def append_completion_summary(
+    task_artifact_abs: Path,
+    *,
+    status: str,
+    tests_ran: list[str],
+    implementation_commit_hash: str,
+    receipt_commit_hash: str,
+    summary: str,
+    notes: str,
 ) -> None:
-    render_result = dict(result)
-    render_result["receipt_update_commit_hash"] = receipt_hash
-    status = (result.get("status") or "unknown").strip()
-    tests_ran = result.get("tests_ran")
-    tests_line = "n/a"
-    if isinstance(tests_ran, list):
-        tests_line = (
-            ", ".join(str(t) for t in tests_ran) if tests_ran else "(none)"
-        )
-    summary = (result.get("summary") or "").strip()
-    notes = (result.get("notes") or "").strip()
-
+    tests_line = ", ".join(tests_ran) if tests_ran else "(none)"
     block = (
         "\n\n## Completion Summary (Runner)\n\n"
-        f"- Status: {status}\n\n"
-        f"- Summary: {summary if summary else '(none)'}\n\n"
-        f"- Implementation commit hash: {impl_hash}\n\n"
-        f"- Receipt update commit hash: {receipt_hash}\n\n"
-        f"- Tests ran: {tests_line}\n"
+        f"- status: {status}\n"
+        f"- tests_ran: {tests_line}\n"
+        f"- implementation_commit_hash: {implementation_commit_hash}\n"
+        f"- receipt_commit_hash: {receipt_commit_hash}\n"
+        f"- summary: {summary or '(none)'}\n"
+        f"- notes: {notes or '(none)'}\n"
     )
-    if notes:
-        block += f"\n- Notes: {notes}\n"
-
-    block += (
-        "\n<details>\n<summary>Structured task_result.json</summary>\n\n```json\n"
-        + json.dumps(render_result, indent=2)
-        + "\n```\n\n</details>\n"
-    )
-
-    append_text_file(task_artifact, block)
+    text_append(task_artifact_abs, block)
 
 
-# --- New runner receipt helpers ---
-def append_runner_task_start_summary(
-    task_artifact: Path,
-    task_id: str,
-    campaign_id: str,
-    head_before: str,
-) -> None:
-    block = (
-        "\n\n## Runner Receipt (Start)\n\n"
-        f"- Campaign: {campaign_id}\n\n"
-        f"- Task ID: {task_id}\n\n"
-        f"- Head before: {head_before}\n"
-    )
-    append_text_file(task_artifact, block)
+def default_verify(ci_env: str | None) -> bool:
+    if not ci_env:
+        return False
+    return ci_env.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def append_runner_task_failure_summary(
-    task_artifact: Path,
-    task_id: str,
-    campaign_id: str,
-    head_before: str,
-    error_message: str,
-) -> None:
-    block = (
-        "\n\n## Completion Summary (Runner)\n\n"
-        "- Status: failed\n\n"
-        f"- Summary: (runner error)\n\n"
-        f"- Head before: {head_before}\n\n"
-        "- Implementation commit hash: (none)\n\n"
-        "- Receipt update commit hash: (pending)\n\n"
-        f"- Notes: {error_message.strip() if error_message else '(no details)'}\n"
-    )
-    append_text_file(task_artifact, block)
-
-
-def replace_last_match(
-    text: str, pattern: re.Pattern[str], replacement: str
-) -> tuple[str, bool]:
-    matches = list(pattern.finditer(text))
-    if not matches:
-        return text, False
-    match = matches[-1]
-    return text[: match.start()] + replacement + text[match.end() :], True
-
-
-def update_task_artifact_receipt_hash(
-    task_artifact: Path, receipt_hash: str
-) -> bool:
-    text = task_artifact.read_text(encoding="utf-8")
-    changed = False
-
-    # Update summary line.
-    summary_line_pattern = re.compile(
-        r"^- Receipt update commit hash: .*$", re.MULTILINE
-    )
-    summary_line = f"- Receipt update commit hash: {receipt_hash}"
-    updated, replaced = replace_last_match(
-        text, summary_line_pattern, summary_line
-    )
-    if replaced and updated != text:
-        text = updated
-        changed = True
-
-    # Update latest structured task_result.json block.
-    matches = list(TASK_RESULT_JSON_BLOCK_PATTERN.finditer(text))
-    if matches:
-        last_match = matches[-1]
-        payload = json.loads(last_match.group(2))
-        if payload.get("receipt_update_commit_hash") != receipt_hash:
-            payload["receipt_update_commit_hash"] = receipt_hash
-            replacement = (
-                last_match.group(1)
-                + json.dumps(payload, indent=2)
-                + last_match.group(3)
-            )
-            text = (
-                text[: last_match.start()]
-                + replacement
-                + text[last_match.end() :]
-            )
-            changed = True
-
-    if changed:
-        write_text_file(task_artifact, text)
-    return changed
-
-
-def campaign_branch_name(campaign_slug: str) -> str:
-    safe_slug = slugify_branch(campaign_slug)
-    today = date.today().strftime("%Y-%m-%d")
-    return f"campaign/{today}/{safe_slug}"
-
-
-def switch_branch(branch_name: str) -> None:
-    create_result = run_cmd(
-        ["git", "switch", "-c", branch_name], capture_output=True
-    )
-    if create_result.returncode == 0:
-        return
-    switch_existing_branch(branch_name)
-
-
-def switch_existing_branch(branch_name: str) -> None:
-    switch_result = run_cmd(["git", "switch", branch_name], capture_output=True)
-    if switch_result.returncode != 0:
-        raise RunnerError(
-            f"Unable to switch to existing branch '{branch_name}': "
-            f"{switch_result.stderr.strip()}"
-        )
-
-
-def git_current_branch() -> str:
-    result = run_cmd(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True
-    )
-    if result.returncode != 0:
-        raise RunnerError(
-            f"git rev-parse --abbrev-ref failed: {result.stderr.strip()}"
-        )
-    branch_name = result.stdout.strip()
-    if not branch_name:
-        raise RunnerError("Unable to determine current git branch.")
-    return branch_name
-
-
-def git_head_commit() -> str:
-    result = run_cmd(["git", "rev-parse", "HEAD"], capture_output=True)
-    if result.returncode != 0:
-        raise RunnerError(f"git rev-parse failed: {result.stderr.strip()}")
-    return result.stdout.strip()
-
-
-def git_commit(paths: list[str], message: str, no_verify: bool) -> str:
-    if not paths:
-        raise RunnerError("git_commit requires at least one path")
-    add_result = run_cmd(["git", "add", *paths], capture_output=True)
-    if add_result.returncode != 0:
-        raise RunnerError(f"git add failed: {add_result.stderr.strip()}")
-    commit_cmd = ["git", "commit", "-m", message]
-    if no_verify:
-        commit_cmd.insert(2, "--no-verify")
-    commit_result = run_cmd(commit_cmd, capture_output=True)
-    if commit_result.returncode != 0:
-        raise RunnerError(f"git commit failed: {commit_result.stderr.strip()}")
-    return git_head_commit()
-
-
-def git_commit_all(message: str, no_verify: bool) -> str:
-    add_result = run_cmd(["git", "add", "-A"], capture_output=True)
-    if add_result.returncode != 0:
-        raise RunnerError(f"git add -A failed: {add_result.stderr.strip()}")
-    commit_cmd = ["git", "commit", "-m", message]
-    if no_verify:
-        commit_cmd.insert(2, "--no-verify")
-    commit_result = run_cmd(commit_cmd, capture_output=True)
-    if commit_result.returncode != 0:
-        raise RunnerError(f"git commit failed: {commit_result.stderr.strip()}")
-    return git_head_commit()
-
-
-def git_commit_amend(paths: list[str], no_verify: bool) -> str:
-    if paths:
-        add_result = run_cmd(["git", "add", *paths], capture_output=True)
-        if add_result.returncode != 0:
-            raise RunnerError(f"git add failed: {add_result.stderr.strip()}")
-    commit_cmd = ["git", "commit", "--amend", "--no-edit"]
-    if no_verify:
-        commit_cmd.insert(2, "--no-verify")
-    commit_result = run_cmd(commit_cmd, capture_output=True)
-    if commit_result.returncode != 0:
-        raise RunnerError(
-            f"git commit --amend failed: {commit_result.stderr.strip()}"
-        )
-    return git_head_commit()
-
-
-# --------- Macro CLI (presets + loose tokens) ---------
-
-PRESET_CHOICES = ("high",)
-
-PRESET_DEFAULTS: dict[str, dict[str, Any]] = {
-    # Single supported preset: force gpt-5.3-codex everywhere.
-    "high": {
-        "codex_model": "gpt-5.3-codex",
-        "codex_model_audit": "gpt-5.3-codex",
-        "codex_model_compiler": "gpt-5.3-codex",
-        "codex_model_task": "gpt-5.3-codex",
-        # Config is appended; users can still pass their own --codex-config.
-        "codex_config": ['model_reasoning_effort="high"'],
-    },
-}
-
-
-def normalize_macro_argv(argv: list[str]) -> list[str]:
-    """Allow a loose, wordy CLI on top of argparse.
-
-    Examples:
-      codex_runner high cycles 4 no verify branch
-      codex_runner medium execute dry-run
-
-    This transforms common tokens into the canonical flags argparse understands.
-    """
-    if not argv:
-        return argv
-
-    out: list[str] = []
-    i = 0
-    while i < len(argv):
-        tok = argv[i]
-        low = tok.lower()
-
-        # Preset as a bare token (only if it's the first non-flag-ish thing)
-        if low in PRESET_CHOICES and not out:
-            out.extend(["--preset", low])
-            i += 1
-            continue
-
-        # Allow: cycles 4
-        if low in {"cycles", "cycle"} and i + 1 < len(argv):
-            out.extend(["--cycles", argv[i + 1]])
-            i += 2
-            continue
-
-        # Allow: execute / run
-        if low in {"execute", "run"}:
-            out.append("--execute")
-            i += 1
-            continue
-
-        # Allow: dry / dry-run
-        if low in {"dry", "dry-run", "dryrun"}:
-            out.append("--dry-run")
-            i += 1
-            continue
-
-        # Allow: verify / no verify
-        if low == "verify":
-            out.append("--verify")
-            i += 1
-            continue
-        if (
-            low == "no"
-            and i + 1 < len(argv)
-            and argv[i + 1].lower() == "verify"
-        ):
-            out.append("--no-verify")
-            i += 2
-            continue
-        if low in {"no-verify", "noverify", "nover"}:
-            out.append("--no-verify")
-            i += 1
-            continue
-
-        # Allow: branch (opinionated: stay on campaign branch after each cycle)
-        if low in {"branch", "stay"}:
-            out.append("--no-return-to-base-branch")
-            i += 1
-            continue
-        if low in {"return", "base"}:
-            out.append("--return-to-base-branch")
-            i += 1
-            continue
-
-        out.append(tok)
-        i += 1
-
-    return out
-
-
-def apply_preset(args: argparse.Namespace) -> None:
-    """Apply --preset defaults.
-
-    Codexify runner policy: only the "high" preset is supported, and it forces
-    the model family to gpt-5.3-codex for all stages regardless of user flags.
-    """
-    preset = (getattr(args, "preset", None) or "").strip().lower()
-    if not preset:
-        return
-    if preset != "high":
-        raise RunnerError(
-            f"Unsupported preset: {preset}. Only 'high' is allowed."
-        )
-
-    defaults = PRESET_DEFAULTS["high"]
-
-    # Force model selection for all stages (do not allow user overrides).
-    args.codex_model = defaults["codex_model"]
-    args.codex_model_audit = defaults["codex_model_audit"]
-    args.codex_model_compiler = defaults["codex_model_compiler"]
-    args.codex_model_task = defaults["codex_model_task"]
-
-    # Disable risk-specific task model overrides; they are not compatible with
-    # the single-model policy.
-    args.task_model_high = None
-    args.task_model_med = None
-    args.task_model_low = None
-
-    # Config: preset config is prepended so user overrides can come later.
-    preset_cfg = defaults.get("codex_config") or []
-    if preset_cfg:
-        merged: list[str] = []
-        for item in list(preset_cfg) + list(args.codex_config or []):
-            if item and item not in merged:
-                merged.append(item)
-        args.codex_config = merged
-
-
-def execute_task(
-    args: argparse.Namespace, task: dict[str, Any]
+def run_inputs_payload(
+    *,
+    repo_root: Path,
+    base_ref_sha: str,
+    hashes: StageHashes,
+    pass_index: int,
+    execute_mode: str,
 ) -> dict[str, Any]:
-    """Run a single task activation prompt via Codex and return the structured result.
-
-    Note: the task agent may or may not perform the git commit itself. The runner is
-    allowed to commit (auto-commit mode), so commit_hash validation/fill-in happens
-    at the orchestration layer where we can compare HEAD before/after.
-    """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir)
-        prompt_path = tmp_path / "activation_prompt.md"
-        output_path = tmp_path / "task_result.json"
-        prompt_path.write_text(task["activation_prompt"], encoding="utf-8")
-        run_codex_exec(
-            prompt_path,
-            TASK_RESULT_SCHEMA_PATH,
-            output_path,
-            model=select_task_model(args, task),
-            config_overrides=args.codex_config,
-        )
-        return read_json_file(output_path)
+    return {
+        "repo_root": str(repo_root.resolve()),
+        "base_ref": base_ref_sha,
+        "audit_prompt_sha256": hashes.audit_prompt_sha256,
+        "audit_schema_sha256": hashes.audit_schema_sha256,
+        "compiler_prompt_sha256": hashes.compiler_prompt_sha256,
+        "campaign_set_schema_sha256": hashes.campaign_set_schema_sha256,
+        "pass_index": pass_index,
+        "execute_mode": execute_mode,
+    }
 
 
-def run_cycle(
-    args: argparse.Namespace, cycle_index: int, base_branch: str
+def write_run_meta(
+    path: Path,
+    *,
+    run_id: str,
+    audit_id: str,
+    base_ref_sha: str,
+    hashes: StageHashes,
+    audit_prompt_file: Path,
+    audit_schema_file: Path,
+    compiler_prompt_file: Path,
+    campaign_set_schema_file: Path,
+    cli_args: list[str],
+    preflight_clean: bool,
+    selected_campaign: str | None,
+    selection_rationale: dict[str, Any] | None,
+    termination_reason: str,
 ) -> None:
-    ensure_clean_git("start of cycle")
-    log(f"Starting cycle {cycle_index}...")
-    log(
-        "Note: concurrent campaigns in the same workdir will serialize in Git. "
-        "Use separate clones/worktrees for true parallelism."
-    )
+    payload = {
+        "run_id": run_id,
+        "audit_id": audit_id,
+        "generated_at": now_iso(),
+        "resolved_base_ref_sha": base_ref_sha,
+        "inputs": {
+            "audit_prompt_file": str(audit_prompt_file.resolve()),
+            "audit_schema_file": str(audit_schema_file.resolve()),
+            "compiler_prompt_file": str(compiler_prompt_file.resolve()),
+            "campaign_set_schema_file": str(campaign_set_schema_file.resolve()),
+            "audit_prompt_sha256": hashes.audit_prompt_sha256,
+            "audit_schema_sha256": hashes.audit_schema_sha256,
+            "compiler_prompt_sha256": hashes.compiler_prompt_sha256,
+            "campaign_set_schema_sha256": hashes.campaign_set_schema_sha256,
+        },
+        "cli_args": cli_args,
+        "preflight": {
+            "git_clean": preflight_clean,
+        },
+        "selection": {
+            "selected_campaign": selected_campaign,
+            "rationale": selection_rationale,
+        },
+        "termination_reason": termination_reason,
+    }
+    json_write(path, payload)
 
-    # Two-stroke pipeline: MEGA audit JSON -> campaign compiler JSON
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_path = Path(tmpdir)
 
-            mega_out = tmp_path / "mega_audit_output.json"
-            run_codex_exec(
-                args.mega_audit_prompt_file,
-                MEGA_AUDIT_SCHEMA_PATH,
-                mega_out,
-                model=args.codex_model_audit or args.codex_model,
-                config_overrides=args.codex_config,
-            )
-            mega_payload = read_json_file(mega_out)
-
-            compiler_prompt_text = render_compiler_prompt(
-                args.campaign_compiler_prompt_file, Path.cwd(), mega_payload
-            )
-            compiler_prompt_path = tmp_path / "campaign_compiler_prompt.md"
-            compiler_prompt_path.write_text(
-                compiler_prompt_text, encoding="utf-8"
-            )
-
-            campaign_out = tmp_path / "campaign_output.json"
-            run_codex_exec(
-                compiler_prompt_path,
-                CAMPAIGN_SCHEMA_PATH,
-                campaign_out,
-                model=args.codex_model_compiler or args.codex_model,
-                config_overrides=args.codex_config,
-            )
-            payload = read_json_file(campaign_out)
-    except Exception as exc:
-        # Always produce a deterministic receipt artifact for operators.
-        receipt_path = runner_failure_receipt_path(cycle_index)
-        head = git_head_commit()
-        branch = git_current_branch()
-        content = (
-            "# Runner Failure Receipt\n\n"
-            f"- Date: {date.today().isoformat()}\n"
-            f"- Cycle: {cycle_index}\n"
-            f"- Branch: {branch}\n"
-            f"- Head: {head}\n\n"
-            "## Error\n\n"
-            f"```\n{str(exc)}\n```\n"
+def run_task_agent(
+    *,
+    repo_root: Path,
+    task: dict[str, Any],
+    task_result_schema_file: Path,
+    model: str | None,
+    configs: list[str],
+    debug: bool,
+) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_root = Path(tmpdir)
+        output = tmp_root / "task_result.json"
+        run_codex_exec(
+            repo_root,
+            prompt_text=str(task["activation_prompt"]),
+            output_schema=task_result_schema_file,
+            output_path=output,
+            model=model,
+            configs=configs,
+            debug=debug,
         )
-        write_text_file(receipt_path, content)
-        if args.auto_commit:
-            git_commit(
-                [str(receipt_path)],
-                f"runner: failure receipt cycle {cycle_index:03d}",
-                args.no_verify,
-            )
-            ensure_clean_git("after runner failure receipt commit")
-        raise
+        payload = json_read(output)
 
-    validate_campaign_payload(payload)
+    status = str(payload.get("status") or "").strip().lower()
+    if status not in TASK_RESULT_STATUS_VALUES:
+        raise RunnerError(
+            f"Invalid task_result status for task {task['id']}: {status}"
+        )
 
-    campaign_slug = payload.get("campaign_slug", "")
+    tests_ran = payload.get("tests_ran")
+    if not isinstance(tests_ran, list):
+        raise RunnerError(
+            f"task_result.tests_ran must be array for task {task['id']}"
+        )
 
-    if args.branch_per_campaign:
-        if not campaign_slug:
-            raise RunnerError(
-                "campaign_slug is required for branch-per-campaign"
-            )
-        if not git_is_clean():
-            raise RunnerError(
-                "git tree is not clean before switching campaign branch"
-            )
-        campaign_branch = campaign_branch_name(campaign_slug)
-        log(f"Switching to campaign branch: {campaign_branch}")
-        switch_branch(campaign_branch)
-        ensure_clean_git("after switching campaign branch")
+    notes = str(payload.get("notes") or "")
+    summary = str(payload.get("summary") or "")
 
-    safe_campaign_slug = (
-        campaign_slug or payload.get("campaign_id", "campaign") or "campaign"
+    return {
+        "status": status,
+        "summary": summary,
+        "tests_ran": [str(item) for item in tests_ran],
+        "notes": notes,
+    }
+
+
+def ensure_audit_id(audit_payload: dict[str, Any], audit_id: str) -> None:
+    observed = str(audit_payload.get("audit_id") or "").strip()
+    if observed != audit_id:
+        raise RunnerError(
+            f"Stage A audit_id mismatch. expected={audit_id} got={observed}"
+        )
+
+
+def update_campaign_completion(campaign: dict[str, Any]) -> None:
+    campaign["status"] = (
+        "completed" if campaign_is_completed(campaign) else "open"
     )
-    campaign_doc_path = canonical_campaign_doc_path(str(safe_campaign_slug))
-    write_text_file(campaign_doc_path, payload["campaign_markdown"])
 
-    # Write task artifacts, reusing existing docs when an exact or semantic
-    # match is found.
-    task_artifact_paths: dict[str, Path] = {}
-    task_path_to_id: dict[Path, str] = {}
-    existing_task_paths = list(DEFAULT_TASKS_DIR.rglob("TASK_*.md"))
-    for task in payload["tasks"]:
-        task_id = str(task.get("id") or "")
-        task_path = resolve_task_artifact_path(task, existing_task_paths)
-        prior_task_id = task_path_to_id.get(task_path)
-        if prior_task_id and prior_task_id != task_id:
-            raise RunnerError(
-                "Task artifact path collision detected between "
-                f"{prior_task_id} and {task_id}: {task_path}"
-            )
-        task_path_to_id[task_path] = task_id
-        task_artifact_paths[task_id] = task_path
-        if task_path.exists():
-            # Preserve any prior runner receipts; append the latest task markdown.
-            append_text_file(
-                task_path,
-                "\n\n---\n\n" + task["task_artifact_markdown"],
-            )
+
+def run_pass(
+    args: argparse.Namespace,
+    *,
+    pass_index: int,
+    base_ref_sha: str,
+    cli_args: list[str],
+) -> None:
+    repo_root = args.repo_root
+    preflight_clean = git_is_clean(repo_root, args.debug)
+    if not preflight_clean:
+        raise RunnerError("preflight failed: git tree is not clean")
+
+    hashes = StageHashes(
+        audit_prompt_sha256=sha256_file(args.audit_prompt_file),
+        audit_schema_sha256=sha256_file(args.audit_schema_file),
+        compiler_prompt_sha256=sha256_file(args.compiler_prompt_file),
+        campaign_set_schema_sha256=sha256_file(args.campaign_set_schema_file),
+    )
+
+    run_inputs = run_inputs_payload(
+        repo_root=repo_root,
+        base_ref_sha=base_ref_sha,
+        hashes=hashes,
+        pass_index=pass_index,
+        execute_mode="execute"
+        if args.execute and not args.dry_run
+        else "dry-run",
+    )
+    run_id = sha256_text(canonical_json(run_inputs))[:12]
+    audit_id = f"AUDIT_{run_id}"
+
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    audit_dir_rel = DEFAULT_AUDITS_DIR / today_iso / audit_id
+    audit_dir_abs = repo_root / audit_dir_rel
+    audit_dir_abs.mkdir(parents=True, exist_ok=True)
+    json_write(audit_dir_abs / "run_inputs.json", run_inputs)
+
+    audit_prompt_template = args.audit_prompt_file.read_text(encoding="utf-8")
+    audit_prompt_text = render_audit_prompt(
+        audit_prompt_template, repo_root, audit_id, run_id
+    )
+    text_write(audit_dir_abs / "audit_input_prompt.md", audit_prompt_text)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_root = Path(tmpdir)
+        stage_a_output_path = tmp_root / "audit_output.json"
+        run_codex_exec(
+            repo_root,
+            prompt_text=audit_prompt_text,
+            output_schema=args.audit_schema_file,
+            output_path=stage_a_output_path,
+            model=args.codex_model_audit or args.codex_model,
+            configs=args.codex_config,
+            debug=args.debug,
+        )
+        audit_payload = json_read(stage_a_output_path)
+
+    ensure_audit_id(audit_payload, audit_id)
+    json_write(audit_dir_abs / "audit_output.json", audit_payload)
+
+    compiler_template = args.compiler_prompt_file.read_text(encoding="utf-8")
+    compiler_prompt_text = render_compiler_prompt(
+        compiler_template, repo_root, audit_payload
+    )
+    text_write(audit_dir_abs / "compiler_input_prompt.md", compiler_prompt_text)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_root = Path(tmpdir)
+        stage_b_output_path = tmp_root / "campaign_set_output.json"
+        run_codex_exec(
+            repo_root,
+            prompt_text=compiler_prompt_text,
+            output_schema=args.campaign_set_schema_file,
+            output_path=stage_b_output_path,
+            model=args.codex_model_compiler or args.codex_model,
+            configs=args.codex_config,
+            debug=args.debug,
+        )
+        campaign_set_payload = json_read(stage_b_output_path)
+
+    stage_b_audit_id = str(campaign_set_payload.get("audit_id") or "").strip()
+    if stage_b_audit_id and stage_b_audit_id != audit_id:
+        raise RunnerError(
+            f"Stage B audit_id mismatch. expected={audit_id} got={stage_b_audit_id}"
+        )
+
+    json_write(audit_dir_abs / "campaign_set_output.json", campaign_set_payload)
+
+    state = load_state(repo_root)
+    previous_sha = state_hash(state)
+    merge_stats = merge_campaign_set(
+        state, campaign_set_payload, audit_id=audit_id
+    )
+
+    selection = select_campaign(state)
+    selected_campaign_slug = selection.campaign_slug if selection else "none"
+    selected_campaign_id = selection.campaign_id if selection else None
+    selection_reason = selection.reason if selection else None
+
+    run_dir_rel = DEFAULT_RUNS_DIR / today_iso / selected_campaign_slug / run_id
+    run_dir_abs = repo_root / run_dir_rel
+    run_dir_abs.mkdir(parents=True, exist_ok=True)
+
+    json_write(run_dir_abs / "run_inputs.json", run_inputs)
+    json_write(run_dir_abs / "campaign_set_output.json", campaign_set_payload)
+
+    termination_reason = "in_progress"
+    run_trace: dict[str, Any] = {
+        "run_id": run_id,
+        "audit_id": audit_id,
+        "pass_index": pass_index,
+        "base_ref_sha": base_ref_sha,
+        "generated_at": now_iso(),
+        "merge_stats": merge_stats,
+        "selection": {
+            "campaign_id": selected_campaign_id,
+            "campaign_slug": selected_campaign_slug,
+            "reason": selection_reason,
+        },
+        "events": [],
+        "termination_reason": None,
+    }
+
+    run_meta_kwargs = dict(
+        run_id=run_id,
+        audit_id=audit_id,
+        base_ref_sha=base_ref_sha,
+        hashes=hashes,
+        audit_prompt_file=args.audit_prompt_file,
+        audit_schema_file=args.audit_schema_file,
+        compiler_prompt_file=args.compiler_prompt_file,
+        campaign_set_schema_file=args.campaign_set_schema_file,
+        cli_args=cli_args,
+        preflight_clean=preflight_clean,
+        selected_campaign=selected_campaign_id,
+        selection_rationale=selection_reason,
+        termination_reason=termination_reason,
+    )
+    write_run_meta(audit_dir_abs / "run_meta.json", **run_meta_kwargs)
+    write_run_meta(run_dir_abs / "run_meta.json", **run_meta_kwargs)
+
+    materialized_paths: list[str] = []
+    executed_tasks = 0
+
+    if selection is None:
+        if merge_stats["campaigns"] == 0 and merge_stats["tasks"] == 0:
+            termination_reason = "no_campaigns_produced_this_pass"
         else:
-            write_text_file(task_path, task["task_artifact_markdown"])
-        if task_path not in existing_task_paths:
-            existing_task_paths.append(task_path)
+            termination_reason = "no_eligible_campaigns_in_state"
+        run_trace["events"].append(
+            {"type": "termination", "reason": termination_reason}
+        )
+    else:
+        campaign = state["campaigns"][selection.campaign_id]
 
-    campaign_id = payload.get("campaign_id", "campaign")
-    artifact_paths = [str(campaign_doc_path)] + [
-        str(p) for p in task_artifact_paths.values()
-    ]
+        if args.branch_per_campaign:
+            ensure_clean_git(
+                "before campaign branch switch", repo_root, args.debug
+            )
+            branch_name = branch_name_for_campaign(campaign)
+            git_switch(repo_root, branch_name, create=True, debug=args.debug)
+            ensure_clean_git(
+                "after campaign branch switch", repo_root, args.debug
+            )
+            run_trace["events"].append(
+                {"type": "branch_switch", "branch": branch_name}
+            )
+
+        materialized_paths = materialize_campaign_artifacts(repo_root, campaign)
+
+        task_ids = sorted(campaign["tasks"].keys())
+        if not task_ids:
+            if args.allow_discovery_fallback:
+                discovery_task_id = (
+                    f"discovery::{campaign['campaign_slug']}::{run_id}"
+                )
+                discovery_task = {
+                    "id": discovery_task_id,
+                    "slug": "discovery",
+                    "area": "docs",
+                    "risk": "LOW",
+                    "files": [],
+                    "tests": [],
+                    "commit_message": f"runner: discovery placeholder {campaign['campaign_slug']}",
+                    "task_artifact_markdown": (
+                        f"# Discovery Task\n\n"
+                        f"- campaign_id: {campaign['campaign_id']}\n"
+                        f"- run_id: {run_id}\n\n"
+                        f"Reason: {campaign.get('discovery_reason') or 'discovery fallback requested'}\n"
+                    ),
+                    "activation_prompt": "Discovery fallback task. Do not execute code changes.",
+                    "dependencies": [],
+                    "content_hash": sha256_text("discovery" + run_id),
+                    "status": "pending",
+                    "implementation_commit": None,
+                    "receipt_commit": None,
+                }
+                campaign["tasks"][discovery_task_id] = discovery_task
+                state["task_index_by_id"][discovery_task_id] = {
+                    "campaign_id": campaign["campaign_id"],
+                    "content_hash": discovery_task["content_hash"],
+                }
+                state["task_index_by_slug"][
+                    f"{campaign['campaign_slug']}::discovery"
+                ] = {
+                    "campaign_id": campaign["campaign_id"],
+                    "task_id": discovery_task_id,
+                    "content_hash": discovery_task["content_hash"],
+                }
+
+                materialized_paths.extend(
+                    materialize_campaign_artifacts(repo_root, campaign)
+                )
+
+                task_artifact_rel = campaign["materialized"][
+                    "task_artifact_paths"
+                ][discovery_task_id]
+                task_artifact_abs = repo_root / task_artifact_rel
+                append_implementation_receipt(
+                    task_artifact_abs, run_id, discovery_task_id, "blocked"
+                )
+                impl_hash = git_commit(
+                    repo_root,
+                    [task_artifact_rel],
+                    discovery_task["commit_message"],
+                    args.verify,
+                    args.debug,
+                )
+
+                discovery_task["status"] = "blocked"
+                discovery_task["implementation_commit"] = impl_hash
+                append_completion_summary(
+                    task_artifact_abs,
+                    status="blocked",
+                    tests_ran=[],
+                    implementation_commit_hash=impl_hash,
+                    receipt_commit_hash="SELF",
+                    summary="Discovery fallback created; user review required",
+                    notes=str(
+                        campaign.get("discovery_reason") or "No tasks generated"
+                    ),
+                )
+
+                campaign_doc_rel = campaign["materialized"]["campaign_doc_path"]
+                campaign_doc_abs = repo_root / campaign_doc_rel
+                update_mapping_block(
+                    campaign_doc_abs, discovery_task_id, impl_hash, "SELF"
+                )
+
+                save_state(repo_root, state)
+                append_transition(
+                    repo_root,
+                    run_id=run_id,
+                    pass_index=pass_index,
+                    reason="discovery_fallback_blocked",
+                    previous_state_sha=previous_sha,
+                    post_state_sha=state_hash(state),
+                )
+
+                receipt_hash = git_commit(
+                    repo_root,
+                    [
+                        task_artifact_rel,
+                        campaign_doc_rel,
+                        str(STATE_PATH.as_posix()),
+                        str(STATE_TRANSITIONS_PATH.as_posix()),
+                    ],
+                    f"runner: receipt {discovery_task_id}",
+                    args.verify,
+                    args.debug,
+                )
+                discovery_task["receipt_commit"] = receipt_hash
+                update_campaign_completion(campaign)
+                executed_tasks += 1
+                termination_reason = "discovery_fallback_blocked_for_review"
+                run_trace["events"].append(
+                    {
+                        "type": "discovery_fallback",
+                        "task_id": discovery_task_id,
+                        "implementation_commit": impl_hash,
+                        "receipt_commit": receipt_hash,
+                    }
+                )
+            else:
+                raise RunnerError(
+                    f"selected campaign has zero tasks and fallback disabled: {campaign['campaign_id']}"
+                )
+        elif args.execute and not args.dry_run:
+            for task_id in task_ids:
+                task = campaign["tasks"][task_id]
+                if task.get("status") == "success":
+                    continue
+
+                ensure_clean_git(f"pre-task {task_id}", repo_root, args.debug)
+                task_artifact_rel = campaign["materialized"][
+                    "task_artifact_paths"
+                ][task_id]
+                task_artifact_abs = repo_root / task_artifact_rel
+
+                result = run_task_agent(
+                    repo_root=repo_root,
+                    task=task,
+                    task_result_schema_file=args.task_result_schema_file,
+                    model=args.codex_model_task or args.codex_model,
+                    configs=args.codex_config,
+                    debug=args.debug,
+                )
+
+                enforce_scope_guard(
+                    repo_root,
+                    task,
+                    task_artifact_path=task_artifact_rel,
+                    run_artifact_allowlist=[],
+                    debug=args.debug,
+                )
+
+                append_implementation_receipt(
+                    task_artifact_abs, run_id, task_id, result["status"]
+                )
+                changed_for_impl = git_changed_paths(repo_root, args.debug)
+                impl_hash = git_commit(
+                    repo_root,
+                    changed_for_impl,
+                    task["commit_message"],
+                    args.verify,
+                    args.debug,
+                )
+
+                task["status"] = result["status"]
+                task["implementation_commit"] = impl_hash
+                task["result"] = result
+
+                append_completion_summary(
+                    task_artifact_abs,
+                    status=result["status"],
+                    tests_ran=result["tests_ran"],
+                    implementation_commit_hash=impl_hash,
+                    receipt_commit_hash="SELF",
+                    summary=result["summary"],
+                    notes=result["notes"],
+                )
+
+                campaign_doc_rel = campaign["materialized"]["campaign_doc_path"]
+                campaign_doc_abs = repo_root / campaign_doc_rel
+                update_mapping_block(
+                    campaign_doc_abs, task_id, impl_hash, "SELF"
+                )
+
+                save_state(repo_root, state)
+                append_transition(
+                    repo_root,
+                    run_id=run_id,
+                    pass_index=pass_index,
+                    reason=f"task_receipt:{task_id}",
+                    previous_state_sha=previous_sha,
+                    post_state_sha=state_hash(state),
+                )
+                previous_sha = state_hash(state)
+
+                receipt_paths = [
+                    task_artifact_rel,
+                    campaign_doc_rel,
+                    str(STATE_PATH.as_posix()),
+                    str(STATE_TRANSITIONS_PATH.as_posix()),
+                ]
+                receipt_hash = git_commit(
+                    repo_root,
+                    receipt_paths,
+                    f"runner: receipt {task_id}",
+                    args.verify,
+                    args.debug,
+                )
+                task["receipt_commit"] = receipt_hash
+                executed_tasks += 1
+
+                run_trace["events"].append(
+                    {
+                        "type": "task",
+                        "task_id": task_id,
+                        "status": result["status"],
+                        "implementation_commit": impl_hash,
+                        "receipt_commit": receipt_hash,
+                    }
+                )
+
+                if result["status"] in {"failed", "blocked"}:
+                    termination_reason = f"task_{result['status']}:{task_id}"
+                    break
+
+            if termination_reason == "in_progress":
+                termination_reason = (
+                    "campaign_execution_complete"
+                    if campaign_is_completed(campaign)
+                    else "campaign_execution_paused"
+                )
+        else:
+            termination_reason = "dry_run_selected_campaign_materialized"
+
+        update_campaign_completion(campaign)
+
+    post_state_sha = state_hash(state)
+    save_state(repo_root, state)
+    append_transition(
+        repo_root,
+        run_id=run_id,
+        pass_index=pass_index,
+        reason="pass_complete",
+        previous_state_sha=previous_sha,
+        post_state_sha=post_state_sha,
+    )
+
+    run_trace["termination_reason"] = termination_reason
+    json_write(run_dir_abs / "execution_trace.json", run_trace)
+
+    run_meta_kwargs["termination_reason"] = termination_reason
+    run_meta_kwargs["selected_campaign"] = selected_campaign_id
+    run_meta_kwargs["selection_rationale"] = selection_reason
+    write_run_meta(audit_dir_abs / "run_meta.json", **run_meta_kwargs)
+    write_run_meta(run_dir_abs / "run_meta.json", **run_meta_kwargs)
 
     if args.auto_commit:
-        git_commit(
-            artifact_paths,
-            f"Docs: add {campaign_id} campaign + tasks",
-            args.no_verify,
-        )
-        ensure_clean_git("after campaign artifact commit")
-    elif not git_is_clean():
-        raise RunnerError(
-            "Auto-commit disabled but campaign artifacts changed the tree."
-        )
-
-    if args.execute and not args.dry_run:
-        for task in payload["tasks"]:
-            ensure_clean_git("start of task")
-            task_id = str(task.get("id") or "")
-            task_artifact_path = task_artifact_paths.get(
-                task_id
-            ) or resolve_task_artifact_path(
-                task, list(DEFAULT_TASKS_DIR.rglob("TASK_*.md"))
+        changed = git_changed_paths(repo_root, args.debug)
+        if changed:
+            git_commit(
+                repo_root,
+                changed,
+                f"runner: run receipt {run_id}",
+                args.verify,
+                args.debug,
             )
 
-            head_before = git_head_commit()
-            append_runner_task_start_summary(
-                task_artifact_path,
-                task_id,
-                str(campaign_id),
-                head_before,
-            )
-
-            # Commit the start receipt immediately so we always have a trace.
-            if args.auto_commit:
-                git_commit(
-                    [str(task_artifact_path)],
-                    f"{task_id}: receipt start",
-                    args.no_verify,
-                )
-                ensure_clean_git("after task receipt start commit")
-
-            try:
-                log(f"Executing task {task_id}...")
-                result = execute_task(args, task)
-
-                # If the agent left changes, the runner commits them as the implementation commit.
-                if not git_is_clean():
-                    if args.auto_commit:
-                        git_commit_all(task["commit_message"], args.no_verify)
-                    else:
-                        raise RunnerError(
-                            "Auto-commit disabled but task left the tree dirty."
-                        )
-
-                ensure_clean_git("after task implementation commit")
-                impl_hash = git_head_commit()
-
-                # Normalize implementation hash fields.
-                reported = (
-                    result.get("implementation_commit_hash") or ""
-                ).strip() or (result.get("commit_hash") or "").strip()
-                if not reported and impl_hash != head_before:
-                    result["commit_hash"] = impl_hash
-                    result["implementation_commit_hash"] = impl_hash
-                elif reported and reported != impl_hash:
-                    existing_notes = (result.get("notes") or "").strip()
-                    note = f"implementation commit mismatch: reported {reported}, head is {impl_hash}"
-                    result["notes"] = f"{existing_notes} {note}".strip()
-                    print(f"Warning: {note}", file=sys.stderr)
-                    result["implementation_commit_hash"] = impl_hash
-                    result["commit_hash"] = impl_hash
-                else:
-                    # Keep consistent fields.
-                    result["implementation_commit_hash"] = reported or impl_hash
-                    result["commit_hash"] = reported or impl_hash
-
-                # Receipt update commit (task artifact + campaign mapping).
-                append_runner_completion_summary(
-                    task_artifact_path, result, impl_hash, "(pending)"
-                )
-                update_campaign_mapping_line(
-                    campaign_doc_path, task_id, impl_hash, "(pending)"
-                )
-                if args.auto_commit:
-                    receipt_commit_msg = f"{task_id}: receipt update"
-                    seed_receipt_hash = git_commit(
-                        [str(task_artifact_path), str(campaign_doc_path)],
-                        receipt_commit_msg,
-                        args.no_verify,
-                    )
-                    update_task_artifact_receipt_hash(
-                        task_artifact_path, seed_receipt_hash
-                    )
-                    update_campaign_mapping_line(
-                        campaign_doc_path,
-                        task_id,
-                        impl_hash,
-                        seed_receipt_hash,
-                    )
-                    receipt_hash = git_commit_amend(
-                        [str(task_artifact_path), str(campaign_doc_path)],
-                        args.no_verify,
-                    )
-                    ensure_clean_git("after task receipt commit")
-                else:
-                    raise RunnerError(
-                        "Auto-commit disabled but runner receipt update would dirty the tree."
-                    )
-
-                result["receipt_update_commit_hash"] = receipt_hash
-
-                # Allow legitimate no-op/skip outcomes to have no impl commit.
-                status_value = (result.get("status") or "").strip().lower()
-                if impl_hash == head_before and status_value not in {
-                    "success",
-                    "no_op",
-                    "noop",
-                    "skipped",
-                }:
-                    raise RunnerError(
-                        f"Task {task_id} produced no implementation commit."
-                    )
-
-            except Exception as exc:
-                # Always write + commit a failure receipt before aborting.
-                append_runner_task_failure_summary(
-                    task_artifact_path,
-                    task_id,
-                    str(campaign_id),
-                    head_before,
-                    str(exc),
-                )
-                update_campaign_mapping_line(
-                    campaign_doc_path, task_id, head_before, "(failed)"
-                )
-                if args.auto_commit:
-                    git_commit(
-                        [str(task_artifact_path), str(campaign_doc_path)],
-                        f"{task_id}: receipt failed",
-                        args.no_verify,
-                    )
-                    ensure_clean_git("after task failure receipt commit")
-                raise
-    elif args.execute and args.dry_run:
-        log("Dry run enabled: skipping task execution.")
-
-    ensure_clean_git("end of cycle")
-
-    if args.return_to_base_branch:
-        ensure_clean_git("before returning to base branch")
-        log(f"Returning to base branch: {base_branch}")
-        switch_existing_branch(base_branch)
-        ensure_clean_git("after returning to base branch")
+    ensure_clean_git("end_of_pass", repo_root, args.debug)
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Campaign Runner")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Deterministic Campaign Runner"
+    )
+
     parser.add_argument(
-        "--mega-audit-prompt-file",
+        "--repo-root",
         type=Path,
         required=True,
-        help="Path to the MEGA audit prompt file (outputs mega_audit_output JSON).",
+        help="Absolute path to repo root",
     )
+    parser.add_argument("--audit-prompt-file", type=Path, required=True)
+    parser.add_argument("--audit-schema-file", type=Path, required=True)
+    parser.add_argument("--compiler-prompt-file", type=Path, required=True)
+    parser.add_argument("--campaign-set-schema-file", type=Path, required=True)
     parser.add_argument(
-        "--campaign-compiler-prompt-file",
+        "--task-result-schema-file",
         type=Path,
-        required=True,
-        help="Path to the audit→campaign compiler prompt file (ingests MEGA audit JSON, outputs campaign_output JSON).",
+        default=DEFAULT_TASK_RESULT_SCHEMA_PATH,
     )
-    parser.add_argument(
-        "--preset",
-        choices=PRESET_CHOICES,
-        default=None,
-        help=(
-            "Optional macro preset for common configurations: high. "
-            "You can also pass the preset as a bare first token, e.g. `codex_runner high ...`."
-        ),
-    )
-    parser.add_argument(
-        "--codex-model",
-        dest="codex_model",
-        default=None,
-        help=(
-            "Optional. Codex model to use for all stages unless overridden by a stage-specific flag. "
-            "Example: gpt-5-codex, gpt-5.2, o3"
-        ),
-    )
-    parser.add_argument(
-        "--codex-model-audit",
-        dest="codex_model_audit",
-        default=None,
-        help="Optional. Override model for the MEGA audit stage.",
-    )
-    parser.add_argument(
-        "--codex-model-compiler",
-        dest="codex_model_compiler",
-        default=None,
-        help="Optional. Override model for the campaign compiler stage.",
-    )
-    parser.add_argument(
-        "--codex-model-task",
-        dest="codex_model_task",
-        default=None,
-        help="Optional. Override model for task execution (unless risk-specific flags are used).",
-    )
-    parser.add_argument(
-        "--task-model-high",
-        dest="task_model_high",
-        default=None,
-        help="Optional. Model override when task risk is HIGH.",
-    )
-    parser.add_argument(
-        "--task-model-med",
-        dest="task_model_med",
-        default=None,
-        help="Optional. Model override when task risk is MED/MEDIUM.",
-    )
-    parser.add_argument(
-        "--task-model-low",
-        dest="task_model_low",
-        default=None,
-        help="Optional. Model override when task risk is LOW.",
-    )
-    parser.add_argument(
-        "--codex-config",
-        dest="codex_config",
-        action="append",
-        default=[],
-        help=(
-            "Optional. Pass-through Codex config override(s). Repeatable. "
-            'Values are TOML, e.g. --codex-config model_reasoning_effort="low"'
-        ),
-    )
-    parser.add_argument(
-        "--cycles",
-        type=int,
-        default=1,
-        help="Number of audit cycles to run.",
-    )
+
+    parser.add_argument("--passes", type=int, default=1)
+    parser.add_argument("--base-ref", default="HEAD")
+
+    parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+
     branch_group = parser.add_mutually_exclusive_group()
     branch_group.add_argument(
         "--branch-per-campaign",
         dest="branch_per_campaign",
         action="store_true",
         default=True,
-        help=(
-            "Create/switch to a branch per campaign using campaign_slug (default)."
-        ),
     )
     branch_group.add_argument(
         "--no-branch-per-campaign",
         dest="branch_per_campaign",
         action="store_false",
-        help="Disable branch-per-campaign behavior.",
     )
-    return_group = parser.add_mutually_exclusive_group()
-    return_group.add_argument(
-        "--return-to-base-branch",
-        dest="return_to_base_branch",
-        action="store_true",
-        default=True,
-        help="Return to the original base branch after each cycle (default).",
-    )
-    return_group.add_argument(
-        "--no-return-to-base-branch",
-        dest="return_to_base_branch",
-        action="store_false",
-        help="Stay on the campaign branch after each cycle.",
-    )
-    parser.add_argument(
-        "--allow-detached-head",
-        action="store_true",
-        help="Allow running when the initial git HEAD is detached.",
-    )
-    verify_group = parser.add_mutually_exclusive_group()
-    verify_group.add_argument(
-        "--no-verify",
-        dest="no_verify",
-        action="store_true",
-        default=True,
-        help="Skip git hooks for runner commits (default).",
-    )
-    verify_group.add_argument(
-        "--verify",
-        dest="no_verify",
-        action="store_false",
-        help="Run git hooks for runner commits.",
-    )
+
+    parser.add_argument("--allow-discovery-fallback", action="store_true")
+
     auto_commit_group = parser.add_mutually_exclusive_group()
     auto_commit_group.add_argument(
-        "--auto-commit",
-        dest="auto_commit",
-        action="store_true",
-        default=True,
-        help="Auto-commit runner-generated changes (default).",
+        "--auto-commit", dest="auto_commit", action="store_true", default=True
     )
     auto_commit_group.add_argument(
-        "--no-auto-commit",
-        dest="auto_commit",
-        action="store_false",
-        help="Disable auto-commit for runner-generated changes.",
+        "--no-auto-commit", dest="auto_commit", action="store_false"
     )
-    parser.add_argument(
-        "--execute",
-        action="store_true",
-        help="Execute tasks sequentially after generating artifacts.",
+
+    verify_group = parser.add_mutually_exclusive_group()
+    verify_group.add_argument("--verify", dest="verify", action="store_true")
+    verify_group.add_argument(
+        "--no-verify", dest="verify", action="store_false"
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Generate artifacts but skip task execution.",
-    )
-    argv = normalize_macro_argv(sys.argv[1:])
+    parser.set_defaults(verify=None)
+
+    parser.add_argument("--codex-model", default=None)
+    parser.add_argument("--codex-model-audit", default=None)
+    parser.add_argument("--codex-model-compiler", default=None)
+    parser.add_argument("--codex-model-task", default=None)
+    parser.add_argument("--codex-config", action="append", default=[])
+
+    parser.add_argument("--debug", action="store_true")
+
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_parser()
     args = parser.parse_args(argv)
-    apply_preset(args)
+
+    args.repo_root = args.repo_root.expanduser().resolve()
+    args.audit_prompt_file = args.audit_prompt_file.expanduser().resolve()
+    args.audit_schema_file = args.audit_schema_file.expanduser().resolve()
+    args.compiler_prompt_file = args.compiler_prompt_file.expanduser().resolve()
+    args.campaign_set_schema_file = (
+        args.campaign_set_schema_file.expanduser().resolve()
+    )
+    args.task_result_schema_file = (
+        args.task_result_schema_file.expanduser().resolve()
+    )
+
+    if args.passes < 1:
+        raise RunnerError("--passes must be >= 1")
+
+    if args.verify is None:
+        args.verify = default_verify(os.environ.get("CI"))
+
+    if not args.auto_commit:
+        raise RunnerError(
+            "--no-auto-commit is not supported in deterministic mode. "
+            "Use --auto-commit to preserve clean-tree invariants."
+        )
+
+    required_paths = [
+        args.audit_prompt_file,
+        args.audit_schema_file,
+        args.compiler_prompt_file,
+        args.campaign_set_schema_file,
+        args.task_result_schema_file,
+    ]
+    for path in required_paths:
+        if not path.exists():
+            raise RunnerError(f"Required file not found: {path}")
+
     return args
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
 
-    if args.cycles < 1:
-        raise RunnerError("--cycles must be >= 1")
+    ensure_repo_root(args.repo_root, args.debug)
+    ensure_codex_available()
 
-    if not args.mega_audit_prompt_file.exists():
-        raise RunnerError(
-            f"MEGA audit prompt file not found: {args.mega_audit_prompt_file}"
+    base_ref_sha = git_resolve_ref(args.repo_root, args.base_ref, args.debug)
+    cli_args = sanitize_cli_args(sys.argv[1:] if argv is None else argv)
+
+    for pass_index in range(1, args.passes + 1):
+        run_pass(
+            args,
+            pass_index=pass_index,
+            base_ref_sha=base_ref_sha,
+            cli_args=cli_args,
         )
-    if not args.campaign_compiler_prompt_file.exists():
-        raise RunnerError(
-            f"Campaign compiler prompt file not found: {args.campaign_compiler_prompt_file}"
-        )
-
-    base_branch = git_current_branch()
-    if base_branch == "HEAD" and not args.allow_detached_head:
-        raise RunnerError(
-            "HEAD is detached. Pass --allow-detached-head to run anyway."
-        )
-    log(f"Base branch: {base_branch}")
-
-    for cycle_index in range(1, args.cycles + 1):
-        run_cycle(args, cycle_index, base_branch)
 
     return 0
 
 
 if __name__ == "__main__":
     try:
-        sys.exit(main())
+        raise SystemExit(main())
     except RunnerError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        raise SystemExit(1)

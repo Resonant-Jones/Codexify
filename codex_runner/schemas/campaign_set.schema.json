@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resonantconstructs.ai/schemas/campaign_set.schema.json",
+  "title": "Deterministic Campaign Set Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "audit_id",
+    "generated_at",
+    "campaigns"
+  ],
+  "properties": {
+    "audit_id": {
+      "type": "string",
+      "pattern": "^AUDIT_[0-9a-f]{12}$"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "campaigns": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "campaign_id",
+          "campaign_slug",
+          "depends_on",
+          "campaign_markdown",
+          "tasks"
+        ],
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}::[a-z0-9_]+::\\d{3}$"
+          },
+          "campaign_slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}::[a-z0-9_]+::\\d{3}$"
+            }
+          },
+          "campaign_markdown": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tasks": {
+            "type": "array",
+            "minItems": 0,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "slug",
+                "area",
+                "risk",
+                "files",
+                "tests",
+                "commit_message",
+                "task_artifact_markdown",
+                "activation_prompt",
+                "dependencies"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "slug": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_]+$"
+                },
+                "area": {
+                  "type": "string",
+                  "enum": [
+                    "backend",
+                    "frontend",
+                    "fullstack",
+                    "docs",
+                    "tooling",
+                    "security",
+                    "testing",
+                    "other"
+                  ]
+                },
+                "risk": {
+                  "type": "string",
+                  "enum": [
+                    "HIGH",
+                    "MED",
+                    "LOW"
+                  ]
+                },
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+                  }
+                },
+                "tests": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "commit_message": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "task_artifact_markdown": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "activation_prompt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "dependencies": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "discovery_reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "tasks": {
+                  "maxItems": 0
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "discovery_reason"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

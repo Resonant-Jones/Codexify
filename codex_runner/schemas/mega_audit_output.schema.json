@@ -17,72 +17,122 @@
   "properties": {
     "audit_id": {
       "type": "string",
-      "description": "Audit run identifier.",
-      "pattern": "^AUDIT_\\d{4}_\\d{2}_\\d{2}$"
+      "description": "Runner-owned deterministic audit identifier.",
+      "pattern": "^AUDIT_[0-9a-f]{12}$"
     },
     "repo": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "branch", "commit"],
+      "required": [
+        "path",
+        "branch",
+        "commit"
+      ],
       "properties": {
         "path": {
           "type": "string",
-          "description": "Absolute path to the repo root.",
           "minLength": 1
         },
         "branch": {
           "type": "string",
-          "description": "Git branch name at audit time.",
           "minLength": 1
         },
         "commit": {
-          "description": "Optional git commit hash at audit time.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 0
         }
       }
     },
     "generated_at": {
       "type": "string",
-      "description": "ISO-8601 timestamp for when the audit was generated.",
       "format": "date-time"
     },
     "agent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "model", "mode"],
+      "required": [
+        "name",
+        "model",
+        "mode"
+      ],
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "model": { "type": "string", "minLength": 1 },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
         "mode": {
           "type": "string",
-          "enum": ["audit"]
+          "enum": [
+            "audit"
+          ]
         }
       }
     },
     "reports": {
       "type": "array",
-      "description": "Intended report artifacts (described only; runner/compiler may write actual markdown later).",
       "minItems": 0,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["report_id", "type", "path", "severity_summary", "focus"],
+        "required": [
+          "report_id",
+          "type",
+          "path",
+          "severity_summary",
+          "focus"
+        ],
         "properties": {
-          "report_id": { "type": "string", "minLength": 1 },
-          "type": { "type": "string", "minLength": 1 },
-          "path": { "type": "string", "minLength": 1 },
+          "report_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
           "severity_summary": {
-            "type": ["object", "null"],
+            "type": [
+              "object",
+              "null"
+            ],
             "additionalProperties": false,
-            "required": ["RISK", "WARN", "INFO"],
+            "required": [
+              "RISK",
+              "WARN",
+              "INFO"
+            ],
             "properties": {
-              "RISK": { "type": "integer", "minimum": 0 },
-              "WARN": { "type": "integer", "minimum": 0 },
-              "INFO": { "type": "integer", "minimum": 0 }
+              "RISK": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "WARN": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "INFO": {
+                "type": "integer",
+                "minimum": 0
+              }
             }
           },
-          "focus": { "type": ["string", "null"] }
+          "focus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     },
@@ -108,7 +158,6 @@
         "properties": {
           "finding_id": {
             "type": "string",
-            "description": "Finding identifier.",
             "pattern": "^FINDING-\\d{4}-\\d{2}-\\d{2}-\\d{3}$"
           },
           "area": {
@@ -125,20 +174,39 @@
           },
           "severity": {
             "type": "string",
-            "enum": ["RISK", "WARN", "INFO"]
+            "enum": [
+              "RISK",
+              "WARN",
+              "INFO"
+            ]
           },
-          "title": { "type": "string", "minLength": 1 },
-          "description": { "type": "string", "minLength": 1 },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
           "evidence": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["file", "lines"],
+              "required": [
+                "file",
+                "lines"
+              ],
               "properties": {
-                "file": { "type": "string", "minLength": 1 },
-                "lines": { "type": "string", "minLength": 1 }
+                "file": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "lines": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             }
           },
@@ -154,38 +222,63 @@
               "none"
             ]
           },
-          "suggested_task_outcome": { "type": "string", "minLength": 1 },
+          "suggested_task_outcome": {
+            "type": "string",
+            "minLength": 1
+          },
           "suggested_commands": {
             "type": "array",
             "minItems": 0,
-            "items": { "type": "string", "minLength": 1 }
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "dependencies": {
             "type": "array",
             "minItems": 0,
-            "items": { "type": "string", "minLength": 1 }
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           },
-          "notes": { "type": "string" }
+          "notes": {
+            "type": "string"
+          }
         }
       }
     },
     "campaign_derivation_rules": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["strategy", "group_by", "priority_order"],
+      "required": [
+        "strategy",
+        "group_by",
+        "priority_order"
+      ],
       "properties": {
-        "strategy": { "type": "string", "minLength": 1 },
+        "strategy": {
+          "type": "string",
+          "minLength": 1
+        },
         "group_by": {
           "type": "array",
           "minItems": 0,
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "priority_order": {
           "type": "array",
           "minItems": 0,
           "items": {
             "type": "string",
-            "enum": ["RISK", "WARN", "INFO"]
+            "enum": [
+              "RISK",
+              "WARN",
+              "INFO"
+            ]
           }
         }
       }
@@ -196,20 +289,31 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["campaign_id", "campaign_type", "source_findings"],
+        "required": [
+          "campaign_id",
+          "campaign_type",
+          "source_findings"
+        ],
         "properties": {
           "campaign_id": {
             "type": "string",
-            "pattern": "^CAMPAIGN_\\d{4}_\\d{2}_\\d{2}_.+$"
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}::[a-z0-9_]+::\\d{3}$"
           },
           "campaign_type": {
             "type": "string",
-            "enum": ["security", "mvp", "followup"]
+            "enum": [
+              "security",
+              "mvp",
+              "followup"
+            ]
           },
           "source_findings": {
             "type": "array",
             "minItems": 0,
-            "items": { "type": "string", "minLength": 1 }
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         }
       }

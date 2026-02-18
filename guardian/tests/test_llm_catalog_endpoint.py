@@ -49,6 +49,9 @@ def test_llm_catalog_hides_unauthorized_cloud_providers_by_default(monkeypatch):
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "MINIMAX_MODEL": settings.MINIMAX_MODEL,
         "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
     }
     try:
@@ -56,11 +59,17 @@ def test_llm_catalog_hides_unauthorized_cloud_providers_by_default(monkeypatch):
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("GENAI_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+        monkeypatch.delenv("MINIMAX_API_BASE", raising=False)
+        monkeypatch.delenv("MINIMAX_MODEL", raising=False)
         settings.ALLOW_CLOUD_PROVIDERS = True
         settings.CODEXIFY_LOCAL_ONLY_MODE = False
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai,anthropic,gemini,groq"
         settings.GROQ_API_KEY = None
         settings.OPENAI_API_KEY = None
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
+        settings.MINIMAX_MODEL = None
         settings.LOCAL_BASE_URL = "http://127.0.0.1:11434/v1"
 
         client = TestClient(app)
@@ -94,16 +103,22 @@ def test_llm_catalog_includes_authorized_provider(monkeypatch):
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
     try:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("GENAI_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+        monkeypatch.delenv("MINIMAX_API_BASE", raising=False)
         settings.ALLOW_CLOUD_PROVIDERS = True
         settings.CODEXIFY_LOCAL_ONLY_MODE = False
         settings.CODEXIFY_EGRESS_ALLOWLIST = "groq"
         settings.GROQ_API_KEY = "test-groq-key"
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
 
         client = TestClient(app)
         response = client.get("/api/llm/catalog")
@@ -132,16 +147,22 @@ def test_llm_catalog_marks_cloud_disabled_when_allow_cloud_is_false(
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
     try:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("GENAI_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+        monkeypatch.delenv("MINIMAX_API_BASE", raising=False)
         settings.ALLOW_CLOUD_PROVIDERS = False
         settings.CODEXIFY_LOCAL_ONLY_MODE = False
         settings.CODEXIFY_EGRESS_ALLOWLIST = "groq"
         settings.GROQ_API_KEY = "test-groq-key"
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
 
         client = TestClient(app)
         response = client.get("/api/llm/catalog")
@@ -172,17 +193,24 @@ def test_llm_catalog_include_all_returns_unauthorized_cloud_providers(
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
     try:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("GENAI_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+        monkeypatch.delenv("MINIMAX_API_BASE", raising=False)
+        monkeypatch.delenv("MINIMAX_MODEL", raising=False)
         settings.ALLOW_CLOUD_PROVIDERS = True
         settings.CODEXIFY_LOCAL_ONLY_MODE = False
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai,anthropic,gemini,groq"
         settings.GROQ_API_KEY = None
         settings.OPENAI_API_KEY = None
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
 
         client = TestClient(app)
         response = client.get("/api/llm/catalog?include=all")
@@ -196,12 +224,14 @@ def test_llm_catalog_include_all_returns_unauthorized_cloud_providers(
             "anthropic",
             "gemini",
             "groq",
+            "minimax",
         }.issubset(provider_ids)
 
         groq = _provider_by_id(payload, "groq")
         openai = _provider_by_id(payload, "openai")
         anthropic = _provider_by_id(payload, "anthropic")
         gemini = _provider_by_id(payload, "gemini")
+        minimax = _provider_by_id(payload, "minimax")
         assert groq["authorized"] is False
         assert groq["available"] is False
         assert groq["enabled"] is False
@@ -218,6 +248,84 @@ def test_llm_catalog_include_all_returns_unauthorized_cloud_providers(
         assert gemini["available"] is False
         assert gemini["enabled"] is False
         assert gemini["disabled_reason"] == "Missing provider credentials"
+        assert minimax["authorized"] is False
+        assert minimax["available"] is False
+        assert minimax["enabled"] is False
+        assert minimax["disabled_reason"] == "Missing provider credentials"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_minimax_enabled_with_key_base_and_egress(monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "MINIMAX_MODEL": settings.MINIMAX_MODEL,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = "minimax"
+        settings.MINIMAX_API_KEY = "test-minimax-key"
+        settings.MINIMAX_API_BASE = "https://api.minimax.local/v1"
+        settings.MINIMAX_MODEL = "minimax-chat"
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+        payload = response.json()
+
+        minimax = _provider_by_id(payload, "minimax")
+        assert minimax["authorized"] is True
+        assert minimax["available"] is True
+        assert minimax["enabled"] is True
+        assert minimax["models"][0]["id"] == "minimax-chat"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_minimax_blocked_when_egress_missing(monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = "groq"
+        settings.MINIMAX_API_KEY = "test-minimax-key"
+        settings.MINIMAX_API_BASE = "https://api.minimax.local/v1"
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog?include=all")
+        assert response.status_code == 200
+        payload = response.json()
+
+        minimax = _provider_by_id(payload, "minimax")
+        assert minimax["authorized"] is True
+        assert minimax["available"] is False
+        assert minimax["enabled"] is False
+        assert minimax["disabled_reason"] == "Provider blocked by egress policy"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
