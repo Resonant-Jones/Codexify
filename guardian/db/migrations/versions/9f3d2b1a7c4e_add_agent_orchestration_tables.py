@@ -146,7 +146,7 @@ def upgrade() -> None:
             name="agent_runs_status_check",
         ),
         sa.CheckConstraint(
-            "runtime_target IN ('host', 'container')",
+            "runtime_target IN ('container', 'terminal')",
             name="agent_runs_runtime_target_check",
         ),
         sa.CheckConstraint(

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Literal
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import CheckConstraint
 
 from guardian.agents.events import AgentEventPublisher
 from guardian.agents.store import AgentStore
@@ -396,3 +398,33 @@ def test_start_run_rejects_invalid_runtime_target(monkeypatch) -> None:
     assert run_response.json() == {"detail": "invalid_runtime_target"}
     assert local_store.list_runs_for_thread(92) == []
     assert published == []
+
+
+def test_runtime_target_route_allowlist_matches_agent_run_constraint() -> None:
+    route_targets = set(agent_orchestration.ALLOWED_RUNTIME_TARGETS)
+    runtime_check = next(
+        constraint
+        for constraint in AgentRun.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+        and constraint.name == "agent_runs_runtime_target_check"
+    )
+    sql = str(runtime_check.sqltext)
+    values = {
+        token.strip().strip("'")
+        for token in sql.partition("(")[2].rstrip(")").split(",")
+    }
+    assert route_targets == values
+
+
+def test_agent_run_migration_runtime_target_constraint_includes_terminal() -> (
+    None
+):
+    migration_path = (
+        Path(__file__).resolve().parents[2]
+        / "db"
+        / "migrations"
+        / "versions"
+        / "9f3d2b1a7c4e_add_agent_orchestration_tables.py"
+    )
+    text = migration_path.read_text(encoding="utf-8")
+    assert "runtime_target IN ('container', 'terminal')" in text
