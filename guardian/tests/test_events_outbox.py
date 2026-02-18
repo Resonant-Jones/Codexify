@@ -23,7 +23,7 @@ def _require_chatlog_db_or_skip(ga: Any) -> None:
         pytest.skip(f"chatlog DB is unavailable for integration test: {exc}")
 
 
-def test_stream_events_uses_delete_events_through(monkeypatch):
+def test_stream_events_preserves_outbox_rows(monkeypatch):
     monkeypatch.setenv("ENABLE_OUTBOX", "1")
     monkeypatch.setenv("ENABLE_BLIP_MODEL", "0")
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
@@ -39,19 +39,21 @@ def test_stream_events_uses_delete_events_through(monkeypatch):
             "payload": {"thread_id": 1, "message_id": 11},
         }
     ]
-    deletes: list[tuple[int, str | None]] = []
 
-    def fake_fetch(last_id: int, limit: int = 100) -> list[dict[str, Any]]:
+    def fake_fetch(
+        last_id: int,
+        limit: int = 100,
+        tenant_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        _ = tenant_id
         return events if last_id < 11 else []
 
-    def fake_delete(last_id: int, tenant_id: str | None = None) -> None:
-        deletes.append((last_id, tenant_id))
-
     def old_delete_api(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("legacy delete_events_up_to API should not be used")
+        raise AssertionError(
+            "legacy delete_events_up_to API should not be used"
+        )
 
     monkeypatch.setattr(event_bus, "fetch_events_after", fake_fetch)
-    monkeypatch.setattr(event_bus, "delete_events_through", fake_delete)
     monkeypatch.setattr(event_bus, "delete_events_up_to", old_delete_api)
 
     class _Request:
@@ -98,7 +100,6 @@ def test_stream_events_uses_delete_events_through(monkeypatch):
     received = asyncio.run(_collect_first_payload())
 
     assert received == {"thread_id": 1, "message_id": 11}
-    assert deletes == [(11, None)]
     event_bus.reset()
 
 
@@ -121,7 +122,9 @@ def test_delete_events_up_to_aliases_delete_events_through():
     event_bus.reset()
 
 
-def test_events_outbox_replay_and_cleanup(tmp_path, monkeypatch):
+def test_events_outbox_replay_without_destructive_cleanup(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("GUARDIAN_DATABASE_URL", "")
     monkeypatch.setenv("DATABASE_URL", "")
     monkeypatch.setenv("GUARDIAN_DB_PATH", str(tmp_path / "guardian.db"))
@@ -189,7 +192,8 @@ def test_events_outbox_replay_and_cleanup(tmp_path, monkeypatch):
             },
         }
         remaining = ga.chatlog_db.list_events_after(0, limit=10)
-        assert remaining == []
+        assert len(remaining) == 1
+        assert remaining[0]["topic"] == "message.created"
 
     event_bus.reset()
     monkeypatch.delenv("GUARDIAN_DATABASE_URL", raising=False)

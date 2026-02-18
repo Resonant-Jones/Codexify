@@ -1,42 +1,70 @@
-# Codex Runner
+# Deterministic Campaign Runner v2
 
-## Naming standards
+Canonical runtime: `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner`
 
-Campaign path format (required):
-- `docs/Campaign/CAMPAIGN_YYYY_MM_DD.md`
-- `docs/Campaign/CAMPAIGN_YYYY_MM_DD_<UPPER_SNAKE+_->.md`
+Legacy package note:
+- `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/tools/codex-runner` is frozen/deprecated.
 
-Task path format (Task Schema A only; required):
-- `docs/tasks/TASK_YYYY_MM_DD_NNN_lower_snake_slug.md` (NNN is 3-digit zero padded)
+## Core Guarantees
 
-If any generated path violates these formats, the runner exits non-zero and writes nothing.
+- Runner owns identifiers (`run_id`, `audit_id`) and artifact paths.
+- Runner owns state (`docs/_campaign_runs/state/state.json`) and transition history.
+- Stage B is a proposal; runner merges deterministically and hard-fails on task mutation drift.
+- Campaign mapping edits are restricted to:
+  - `<!-- RUNNER_TASK_MAP -->`
+  - `<!-- /RUNNER_TASK_MAP -->`
+- Task execution uses a strict two-commit receipt pipeline per task.
 
-## Usage
+## Deterministic IDs
 
-Generate only:
+- `run_id` = first 12 hex chars of `sha256(canonical(run_inputs.json))`
+- `audit_id` = `AUDIT_<run_id>`
+- Stage A output must echo `audit_id` exactly.
 
+## Run Metadata
+
+The runner writes `run_meta.json` to:
+- `docs/_audits/YYYY-MM-DD/<audit_id>/run_meta.json`
+- `docs/_campaign_runs/YYYY-MM-DD/<campaign_slug>/<run_id>/run_meta.json`
+
+Tracked by default:
+- `docs/_audits/**`
+- `docs/_campaign_runs/**`
+
+## CLI
+
+Required:
+
+```bash
+python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py \
+  --repo-root /absolute/path/to/repo \
+  --audit-prompt-file /path/to/mega_audit.md \
+  --audit-schema-file /path/to/mega_audit_output.schema.json \
+  --compiler-prompt-file /path/to/audit_report_to_campaign_runner.md \
+  --campaign-set-schema-file /path/to/campaign_set.schema.json
 ```
-python codex_runner/runner.py \
-  --audit-prompt-file codex_runner/audits/sample_audit_prompt.md
-```
 
-Generate + execute:
+Optional flags:
+- `--passes N` (default: `1`)
+- `--base-ref <git-ref>` (default: `HEAD`)
+- `--execute` or `--dry-run`
+- `--branch-per-campaign` / `--no-branch-per-campaign`
+- `--allow-discovery-fallback`
+- `--auto-commit` / `--no-auto-commit` (`--no-auto-commit` currently hard-fails by design)
+- `--verify` / `--no-verify`
+- `--debug`
 
-```
-python codex_runner/runner.py \
-  --audit-prompt-file codex_runner/audits/sample_audit_prompt.md \
-  --execute
-```
+Verify default policy:
+- local/dev default: `--no-verify`
+- CI default: `--verify` when `CI=true`
+- explicit flag always wins
 
-Multiple cycles + branch-per-campaign:
+## Safety Defaults
 
-```
-python codex_runner/runner.py \
-  --audit-prompt-file codex_runner/audits/sample_audit_prompt.md \
-  --cycles 2 \
-  --branch-per-campaign
-```
-
-Notes:
-- `codex exec` must be available in your `PATH`.
-- Use `--dry-run` to skip task execution even if `--execute` is set.
+- Hard-fail on dirty preflight.
+- Hard-fail on schema drift.
+- Hard-fail on invalid `Task.files[]` paths (absolute or `..`).
+- Hard-fail when Stage B mutates an already materialized task.
+- Selected campaign with zero tasks:
+  - default: hard-fail
+  - with `--allow-discovery-fallback`: synthesize discovery task and stop for review.

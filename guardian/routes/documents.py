@@ -22,7 +22,7 @@ router = APIRouter()
 
 _ALLOWED_DOC_FORMATS = {"markdown", "plain"}
 _FORMAT_STORAGE_MAP = {"markdown": "md", "plain": "txt"}
-_ALLOWED_LLM_PROVIDERS = {"local", "groq", "openai"}
+_ALLOWED_LLM_PROVIDERS = {"local", "groq", "openai", "minimax"}
 
 
 class AutosaveRequest(BaseModel):
@@ -288,7 +288,7 @@ async def generate_document(
         if provider not in _ALLOWED_LLM_PROVIDERS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="provider must be one of: local, groq, openai",
+                detail="provider must be one of: local, groq, openai, minimax",
             )
 
     model = _normalize_optional_text(request.model)

@@ -27,8 +27,10 @@ try:
         DB_BACKEND,
         GUARDIAN_PROVIDER,
         PG_DSN,
+        _mask_dsn,
         allowed_origins,
         chatlog_db,
+        get_current_user,
         get_database_dsn,
         get_groq_chat,
         require_api_key,
@@ -41,6 +43,8 @@ except ImportError as e:
     PG_DSN = None
     DB_BACKEND = "postgres"
     GUARDIAN_PROVIDER = "unknown"
+    _mask_dsn = lambda value: value
+    get_current_user = lambda: "local"
     allowed_origins = []
     get_groq_chat = lambda: None
     get_database_dsn = lambda: None
@@ -48,6 +52,14 @@ except ImportError as e:
 
 class SessionRequest(BaseModel):
     ttl_seconds: int | None = None
+
+
+class CapabilityIssueRequest(BaseModel):
+    actions: list[str]
+    namespace: str | None = None
+    resource: str | None = None
+    ttl_seconds: int = 300
+    max_calls: int = 5
 
 
 TRUE_VALUES = {"true", "1", "yes", "on"}
@@ -204,6 +216,7 @@ def healthz():
     Returns DB target and existence of projects/chat_threads for quick diagnostics.
     """
     db_target = get_database_dsn()
+    db_target_masked = _mask_dsn(db_target) if db_target else None
     projects_exists = False
     threads_exists = False
     try:
@@ -212,7 +225,7 @@ def healthz():
     except Exception as e:
         logger.warning("/healthz check failed: %s", e)
     return {
-        "db_target": db_target,
+        "db_target": db_target_masked,
         "backend": DB_BACKEND,
         "projects_table_exists": projects_exists,
         "chat_threads_table_exists": threads_exists,
@@ -294,6 +307,71 @@ def create_session_cookie(
         secure=secure_cookie,
     )
     return {"ok": True, "expires": exp}
+
+
+@router.post(
+    "/api/capabilities/issue",
+    tags=["Auth"],
+    summary="Issue short-lived capability grants for local flows",
+)
+def issue_capabilities(
+    body: CapabilityIssueRequest,
+    api_key: str = Depends(require_api_key),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Issue in-memory capability grants for authenticated local flows.
+
+    TODO: Replace in-memory grant storage with persistent encrypted storage.
+    """
+    _ = api_key
+    actions = [a.strip() for a in (body.actions or []) if (a or "").strip()]
+    if not actions:
+        raise HTTPException(status_code=422, detail="actions must be non-empty")
+    if body.ttl_seconds <= 0:
+        raise HTTPException(status_code=422, detail="ttl_seconds must be > 0")
+    if body.max_calls <= 0:
+        raise HTTPException(status_code=422, detail="max_calls must be > 0")
+
+    normalized_user = (current_user or "local").strip().lower() or "local"
+    owner_namespace = f"user:{normalized_user}"
+    namespace = (body.namespace or owner_namespace).strip() or owner_namespace
+    if namespace != owner_namespace:
+        raise HTTPException(
+            status_code=403,
+            detail="namespace must match authenticated user namespace",
+        )
+
+    resource = (body.resource or f"ns:{namespace}").strip()
+    if not resource.startswith(f"ns:{namespace}"):
+        raise HTTPException(
+            status_code=403,
+            detail="resource must stay inside authenticated namespace",
+        )
+
+    from guardian.routes import codexify_router
+
+    grants: list[dict[str, object]] = []
+    for action in actions:
+        token = secrets.token_urlsafe(24)
+        codexify_router.register_capability_grant(
+            token,
+            action=action,
+            resource=resource,
+            ttl_seconds=body.ttl_seconds,
+            max_calls=body.max_calls,
+        )
+        grants.append(
+            {
+                "action": action,
+                "token": token,
+                "resource": resource,
+                "ttl_seconds": body.ttl_seconds,
+                "max_calls": body.max_calls,
+            }
+        )
+
+    return {"namespace": namespace, "grants": grants}
 
 
 # =========================

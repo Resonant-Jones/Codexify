@@ -1,5 +1,7 @@
 # Codex Runner (Standalone Tool)
 
+> Deprecated for active development. Canonical runtime is `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner`.
+
 Codex Runner turns an audit prompt into a campaign JSON, writes campaign/task
 artifacts into a target repo, and optionally executes each task sequentially
 with `codex exec`.

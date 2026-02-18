@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, List
 from unittest.mock import MagicMock, patch
@@ -33,7 +34,13 @@ class _FakeVectorStore:
             )
         return len(items)
 
-    def search(self, query: str, k: int = 5) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        namespace: str | None = None,
+    ) -> list[dict[str, Any]]:
+        _ = namespace
         lowered = query.lower()
         matches = []
         for item in self.items:
@@ -81,6 +88,14 @@ def _simple_pdf_bytes(text: str) -> bytes:
 def _make_mock_db() -> MagicMock:
     mock_db = MagicMock()
     mock_session = MagicMock()
+    query_mock = MagicMock()
+    query_mock.filter.return_value = query_mock
+    query_mock.filter_by.return_value = query_mock
+    query_mock.order_by.return_value = query_mock
+    query_mock.limit.return_value = query_mock
+    query_mock.all.return_value = []
+    query_mock.first.return_value = None
+    mock_session.query.return_value = query_mock
     mock_db.get_session.return_value.__enter__.return_value = mock_session
     mock_db.get_session.return_value.__exit__.return_value = False
     return mock_db
@@ -94,7 +109,6 @@ def test_document_upload_retrieval_flow():
 
     pdf_bytes = _simple_pdf_bytes(long_text)
     fake_store = _FakeVectorStore()
-    fake_embedder = _FakeEmbedder(fake_store)
     mock_db = _make_mock_db()
 
     with patch("guardian.vector.store.VectorStore", return_value=fake_store):
@@ -110,12 +124,9 @@ def test_document_upload_retrieval_flow():
     app.include_router(media_routes.router, prefix="/api/media")
     app.include_router(codexify_router.router)
 
-    with patch(
-        "guardian.runtime.embed.embedder.CodexifyEmbedder",
-        return_value=fake_embedder,
-    ), patch("guardian.routes.media.storage") as mock_storage, patch(
+    with patch("guardian.routes.media.storage") as mock_storage, patch(
         "guardian.routes.media._get_db", return_value=mock_db
-    ):
+    ), patch("guardian.routes.media.enqueue_document_embed") as mock_enqueue:
         mock_storage.upload_file.return_value = "/media/documents/test.pdf"
 
         client = TestClient(app)
@@ -128,6 +139,7 @@ def test_document_upload_retrieval_flow():
         assert response.status_code == 200
         payload = response.json()
         assert needle in (payload.get("parsed_text") or "")
+        assert mock_enqueue.call_count == 1
 
         expected_chunks = chunk_document_text(payload.get("parsed_text"))
         expected_texts = [chunk.text for chunk in expected_chunks]
@@ -137,6 +149,23 @@ def test_document_upload_retrieval_flow():
             chunk.text
             for chunk in chunk_document_text(payload.get("parsed_text"))
         ] == expected_texts
+
+        api_key = os.getenv("GUARDIAN_API_KEY", "test-key")
+        headers = {"X-API-Key": api_key}
+        for index, text in enumerate(expected_texts):
+            embed_response = client.post(
+                "/embed",
+                json={
+                    "text": text,
+                    "metadata": {
+                        "chunk_index": index,
+                        "chunk_count": len(expected_texts),
+                    },
+                },
+                headers=headers,
+            )
+            assert embed_response.status_code == 200
+
         assert [item.text for item in fake_store.items] == expected_texts
 
         chunk_indices = [
@@ -148,7 +177,11 @@ def test_document_upload_retrieval_flow():
             for item in fake_store.items
         )
 
-        search_response = client.post("/search", json={"query": needle})
+        search_response = client.post(
+            "/search",
+            json={"query": needle},
+            headers=headers,
+        )
         assert search_response.status_code == 200
         results = search_response.json().get("results", [])
         assert any(needle in result.get("text", "") for result in results)

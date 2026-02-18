@@ -14,7 +14,15 @@ repos:
     rev: v4.4.0
     hooks:
     -   id: trailing-whitespace
+        exclude: |
+            (?x)(
+                ^\.env\.example$
+            )
     -   id: end-of-file-fixer
+        exclude: |
+            (?x)(
+                (^|/)task_file_template\.md$
+            )
     -   id: check-yaml
         exclude: |
             (?x)(
@@ -25,7 +33,8 @@ repos:
         exclude: |
             (?x)(
                 ^manifest\.json$|  # Git LFS pointer, not actual JSON
-                ^models/  # Model configs may have LFS pointers
+                ^models/|  # Model configs may have LFS pointers
+                (^|/)\.last-run\.json$  # Generated test state
             )
     -   id: check-added-large-files
     -   id: debug-statements
@@ -47,6 +56,22 @@ repos:
                 ^conftest\.py$       # Pytest conftest files
             )
     -   id: detect-private-key
+
+-   repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+    -   id: gitleaks
+        exclude: |
+            (?x)(
+                ^node_modules/|
+                ^\.pnpm-store/|
+                ^\.venv/|
+                ^venv/|
+                ^frontend/node_modules/|
+                ^data/|
+                ^models/|
+                ^codex_memory/
+            )
 
 -   repo: https://github.com/psf/black
     rev: 23.3.0
@@ -111,7 +136,8 @@ repos:
                 guardian-codex/|
                 ^backend/wait_for_db\.py$|
                 ^backend/migrations/|
-                ^guardian/codexify/
+                ^guardian/codexify/|
+                ^tools/codex-runner/
             )
         # If you want type stubs later, add them explicitly here instead of using types-all, e.g.:
         # additional_dependencies:

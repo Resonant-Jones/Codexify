@@ -10,3 +10,6 @@ pre-commit
 build
 setuptools
 wheel
+
+# Optional local keychain-backed secret broker
+keyring
