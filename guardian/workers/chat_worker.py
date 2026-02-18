@@ -335,8 +335,16 @@ async def _build_messages_for_llm(
     dict[str, Any],
 ]:
     settings = get_settings()
+    requested_provider = str(task.provider or "").strip().lower() or None
+    requested_model = str(task.model or "").strip() or None
+    explicit_selection = bool(requested_provider or requested_model)
+
     provider = (
-        (task.provider or settings.LLM_PROVIDER or dependencies.CHAT_PROVIDER)
+        (
+            requested_provider
+            or settings.LLM_PROVIDER
+            or dependencies.CHAT_PROVIDER
+        )
         .strip()
         .lower()
     )
@@ -370,15 +378,21 @@ async def _build_messages_for_llm(
         )
         profile = None
 
-    if profile and profile.provider_override:
+    if profile and profile.provider_override and not explicit_selection:
         provider = profile.provider_override.strip().lower()
 
-    selected_model = str(task.model or "").strip() or None
+    selected_model = requested_model
     if selected_model:
         resolved_provider = resolve_provider_for_model(
             selected_model, settings=settings
         )
         if resolved_provider and resolved_provider != provider:
+            if requested_provider:
+                raise LLMConfigError(
+                    "Requested provider/model mismatch: "
+                    f"provider='{provider}' cannot serve model '{selected_model}' "
+                    f"(model belongs to provider '{resolved_provider}')."
+                )
             logger.info(
                 "[chat-worker] provider resolved from model thread=%s model=%s from=%s to=%s",
                 thread_id,
@@ -388,19 +402,25 @@ async def _build_messages_for_llm(
             )
             provider = resolved_provider
         elif not resolved_provider:
-            fallback_provider = first_enabled_provider(settings=settings)
-            if fallback_provider and fallback_provider != provider:
-                logger.warning(
-                    "[chat-worker] model unavailable; falling back thread=%s model=%s from=%s to=%s",
-                    thread_id,
-                    selected_model,
-                    provider,
-                    fallback_provider,
-                )
-                provider = fallback_provider
-                selected_model = first_model_for_provider(
-                    fallback_provider, settings=settings
-                )
+            if explicit_selection:
+                if provider != "local":
+                    raise LLMConfigError(
+                        f"Requested model '{selected_model}' is not available in the provider catalog."
+                    )
+            else:
+                fallback_provider = first_enabled_provider(settings=settings)
+                if fallback_provider and fallback_provider != provider:
+                    logger.warning(
+                        "[chat-worker] model unavailable; falling back thread=%s model=%s from=%s to=%s",
+                        thread_id,
+                        selected_model,
+                        provider,
+                        fallback_provider,
+                    )
+                    provider = fallback_provider
+                    selected_model = first_model_for_provider(
+                        fallback_provider, settings=settings
+                    )
 
     if is_cloud_provider(provider) and not settings.ALLOW_CLOUD_PROVIDERS:
         raise LLMConfigError(
@@ -411,11 +431,25 @@ async def _build_messages_for_llm(
         try:
             validate_llm_config(settings, provider_override=provider)
         except LLMConfigError as exc:
+            if explicit_selection:
+                raise
+
+            fallback_provider = first_enabled_provider(settings=settings)
+            if not fallback_provider or fallback_provider == provider:
+                raise
+
             logger.warning(
-                "[chat-worker] LLM config error provider=%s detail=%s",
+                "[chat-worker] LLM config invalid; falling back from=%s to=%s detail=%s",
                 provider,
+                fallback_provider,
                 exc,
             )
+            provider = fallback_provider
+            if not selected_model:
+                selected_model = first_model_for_provider(
+                    fallback_provider, settings=settings
+                )
+            validate_llm_config(settings, provider_override=provider)
 
     limit = int(task.max_context or 50)
     items = dependencies.chatlog_db.list_messages(
@@ -552,7 +586,7 @@ async def _build_messages_for_llm(
     messages_for_llm.extend(context)
 
     model = selected_model
-    if not model and profile and profile.model_override:
+    if not model and profile and profile.model_override and not requested_model:
         model = profile.model_override
     if not model and provider == "local":
         model = (
