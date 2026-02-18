@@ -18,7 +18,7 @@
  *   - Do NOT rename the existing CSS vars — their current names are the future token keys.
  *   - Migration should be trivial if naming consistency is preserved.
  */
-import api from "@/lib/api";
+import api, { buildThreadDocumentsPath } from "@/lib/api";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useState } from "react";
 
 // Global font injection for Apple system font
@@ -616,7 +616,7 @@ export default function AppShell({}: PropsWithChildren) {
     }
     (async () => {
       try {
-        const res = await api.get(`/threads/${activeRouteThreadId}/documents`);
+        const res = await api.get(buildThreadDocumentsPath(activeRouteThreadId));
         const docs = unwrapDocumentArray(res?.data);
         if (cancelled) return;
         const normalized = dedupeDocItems(
