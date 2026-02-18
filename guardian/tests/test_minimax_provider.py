@@ -59,6 +59,21 @@ def test_validate_llm_config_minimax_missing_required_env(monkeypatch):
     assert "MINIMAX_API_BASE" in message
 
 
+def test_validate_llm_config_minimax_invalid_api_flavor():
+    settings = Settings(
+        LLM_PROVIDER="minimax",
+        ALLOW_CLOUD_PROVIDERS=True,
+        MINIMAX_API_KEY="minimax-key",
+        MINIMAX_API_BASE="https://api.minimax.local/v1",
+        MINIMAX_API_FLAVOR="invalid",
+    )
+
+    with pytest.raises(LLMConfigError) as exc:
+        validate_llm_config(settings)
+
+    assert "MINIMAX_API_FLAVOR" in str(exc.value)
+
+
 def test_minimax_adapter_uses_openai_compatible_client(monkeypatch):
     _allow_minimax_egress(monkeypatch)
 
@@ -144,4 +159,115 @@ def test_minimax_adapter_uses_openai_compatible_client(monkeypatch):
     assert calls[1]["model"] == "minimax-override"
     assert calls[1]["messages"] == [
         {"role": "user", "content": "stream this"},
+    ]
+
+
+def test_minimax_adapter_supports_anthropic_compatible_http(monkeypatch):
+    _allow_minimax_egress(monkeypatch)
+    monkeypatch.setattr("guardian.providers.minimax_adapter.OpenAI", None)
+
+    calls: list[dict[str, object]] = []
+
+    class _DummyResponse:
+        def __init__(
+            self,
+            *,
+            payload: dict | None = None,
+            lines: list[str] | None = None,
+            status_code: int = 200,
+        ):
+            self._payload = payload or {}
+            self._lines = lines or []
+            self.status_code = status_code
+            self.text = ""
+
+        def json(self):
+            return self._payload
+
+        def iter_lines(self, decode_unicode=True):
+            _ = decode_unicode
+            yield from self._lines
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_post(url, json, headers, timeout, stream=False):
+        calls.append(
+            {
+                "url": url,
+                "json": json,
+                "headers": headers,
+                "timeout": timeout,
+                "stream": stream,
+            }
+        )
+        if stream:
+            return _DummyResponse(
+                lines=[
+                    "event: message_start",
+                    'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hello"}}',
+                    'data: {"type":"content_block_delta","delta":{"text":" world"}}',
+                    'data: {"type":"message_stop"}',
+                ]
+            )
+        return _DummyResponse(
+            payload={"content": [{"type": "text", "text": "generated reply"}]}
+        )
+
+    monkeypatch.setattr(
+        "guardian.providers.minimax_adapter.requests.post", fake_post
+    )
+
+    adapter = MiniMaxAdapter(
+        api_key="minimax-secret",
+        base_url="https://api.minimax.local/anthropic",
+        default_model="MiniMax-M2.5",
+        timeout=45,
+        api_flavor="anthropic",
+        anthropic_version="2023-06-01",
+    )
+    reply = adapter.generate(
+        "ignored prompt",
+        messages=[
+            {"role": "system", "content": "You are concise."},
+            {"role": "user", "content": "Say hi"},
+        ],
+        temperature=0.2,
+        max_tokens=111,
+    )
+    chunks = list(
+        adapter.stream(
+            "ignored prompt",
+            model="MiniMax-M2.5",
+            messages=[{"role": "user", "content": "stream this"}],
+        )
+    )
+
+    assert reply == "generated reply"
+    assert "".join(chunks) == "hello world"
+    assert len(calls) == 2
+
+    assert calls[0]["url"] == "https://api.minimax.local/anthropic/v1/messages"
+    assert calls[0]["headers"]["x-api-key"] == "minimax-secret"
+    assert calls[0]["headers"]["anthropic-version"] == "2023-06-01"
+    assert calls[0]["json"]["model"] == "MiniMax-M2.5"
+    assert calls[0]["json"]["system"] == "You are concise."
+    assert calls[0]["json"]["messages"] == [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "Say hi"}],
+        }
+    ]
+    assert calls[0]["json"]["max_tokens"] == 111
+    assert calls[0]["stream"] is False
+
+    assert calls[1]["stream"] is True
+    assert calls[1]["json"]["messages"] == [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "stream this"}],
+        }
     ]
