@@ -388,7 +388,6 @@ def process_mutating_step(
                 spec_alignment_ok=True,
                 tests_passed=True,
             )
-            resolved_store.update_run_status(run_id=run_id, status="succeeded")
             _emit(
                 resolved_events,
                 run_id=run_id,

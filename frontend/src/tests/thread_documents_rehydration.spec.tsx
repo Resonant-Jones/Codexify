@@ -65,7 +65,7 @@ describe("Thread document rehydration", () => {
           data: { documents: [] },
         } as AxiosResponse);
       }
-      if (url === "/threads/101/documents") {
+      if (url === "/documents/threads/101/documents") {
         return Promise.resolve({
           data: {
             ok: true,
@@ -81,7 +81,7 @@ describe("Thread document rehydration", () => {
           },
         } as AxiosResponse);
       }
-      if (url === "/threads/202/documents") {
+      if (url === "/documents/threads/202/documents") {
         return Promise.resolve({
           data: {
             ok: true,
@@ -106,7 +106,9 @@ describe("Thread document rehydration", () => {
 
     await waitFor(() => {
       expect(
-        getSpy.mock.calls.some(([path]) => path === "/threads/101/documents")
+        getSpy.mock.calls.some(
+          ([path]) => path === "/documents/threads/101/documents"
+        )
       ).toBe(true);
     });
 
@@ -119,7 +121,9 @@ describe("Thread document rehydration", () => {
 
     await waitFor(() => {
       expect(
-        getSpy.mock.calls.some(([path]) => path === "/threads/202/documents")
+        getSpy.mock.calls.some(
+          ([path]) => path === "/documents/threads/202/documents"
+        )
       ).toBe(true);
     });
 

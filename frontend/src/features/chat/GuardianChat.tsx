@@ -12,7 +12,8 @@ import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
 import useChat from "@/features/chat/useChat";
-import api from "@/lib/api";
+import api, { buildChatCompletePath } from "@/lib/api";
+import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { setTrace } from "@/state/contextTrace";
@@ -442,27 +443,9 @@ export function GuardianChat({
   );
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number) => {
-    const selected = String(activeModelId || "").trim();
-    const hasSelection = selected.length > 0 && selected !== "default";
-    const knownProviders = new Set([
-      "local",
-      "openai",
-      "anthropic",
-      "gemini",
-      "groq",
-    ]);
-    const providerSelection = hasSelection && knownProviders.has(selected)
-      ? selected
-      : undefined;
-    const modelSelection = hasSelection && !knownProviders.has(selected)
-      ? selected
-      : undefined;
+    const payload = buildChatCompletionPayload(depth, activeModelId || "default");
     try {
-      const response = await api.post(`/chat/${tid}/complete`, {
-        depth_mode: depth,
-        provider: providerSelection,
-        model: modelSelection,
-      });
+      const response = await api.post(buildChatCompletePath(tid), payload);
       console.log(`[guardian] Completing with depth=${depth}`);
 
       // Capture task_id for completion state tracking

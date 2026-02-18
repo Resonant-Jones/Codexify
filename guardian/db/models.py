@@ -1498,7 +1498,7 @@ class AgentRun(Base):
             name="agent_runs_status_check",
         ),
         CheckConstraint(
-            "runtime_target IN ('host', 'container')",
+            "runtime_target IN ('container', 'terminal')",
             name="agent_runs_runtime_target_check",
         ),
         CheckConstraint(

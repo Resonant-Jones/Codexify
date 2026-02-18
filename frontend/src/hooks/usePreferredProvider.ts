@@ -11,7 +11,10 @@ export function usePreferredProvider() {
   // Cross-tab updates
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "guardian.provider.v1") {
+      if (
+        e.key === "guardian.provider.v1"
+        || e.key === "guardian.provider_model.v1"
+      ) {
         setProviderState(getPreferredProvider());
       }
     };
