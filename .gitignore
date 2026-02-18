@@ -139,3 +139,7 @@ hf_cache/
 .cache/transformers/
 **/.cache/transformers/
 daniel-manickam/boxbeyond-kutiraai/
+
+# Local artifacts
+output/
+tmp/
