@@ -22,9 +22,12 @@ def _fake_settings(provider: str) -> Settings:
         LLM_PROVIDER=provider,
         ALLOW_CLOUD_PROVIDERS=True,
         CODEXIFY_LOCAL_ONLY_MODE=False,
-        CODEXIFY_EGRESS_ALLOWLIST="openai,groq",
+        CODEXIFY_EGRESS_ALLOWLIST="openai,groq,minimax",
         GROQ_API_KEY="groq-key",
         OPENAI_API_KEY="openai-key",
+        MINIMAX_API_KEY="minimax-key",
+        MINIMAX_API_BASE="https://api.minimax.local/v1",
+        MINIMAX_MODEL="minimax-chat",
         LLM_MODEL="moonshotai-kimi-k2-instruct-9050",
         DEFAULT_GROQ_MODEL="moonshotai-kimi-k2-instruct-9050",
         DEFAULT_OPENAI_MODEL="gpt-4o",
@@ -64,6 +67,28 @@ def test_chat_with_ai_openai_default(monkeypatch):
 
     assert "api.openai.com/v1/chat/completions" in calls["url"]
     assert calls["json"]["model"] == "gpt-4o"
+    assert reply == "ok"
+
+
+def test_chat_with_ai_minimax_default(monkeypatch):
+    calls = {}
+
+    def fake_post(url, json, headers, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        calls["headers"] = headers
+        calls["timeout"] = timeout
+        return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("minimax")
+    reply = chat_with_ai([{"role": "user", "content": "hi"}], settings=settings)
+
+    assert "api.minimax.local/v1/chat/completions" in calls["url"]
+    assert calls["json"]["model"] == "minimax-chat"
+    assert calls["headers"]["Authorization"] == "Bearer minimax-key"
+    assert calls["timeout"] == 60.0
     assert reply == "ok"
 
 
