@@ -1,0 +1,273 @@
+{
+  "project": "Deep Code Audit (Example PRD)",
+  "branchName": "main",
+  "description": "Pure audit loop - NO FIXES. Exhaustively document all broken logic, unfinished features, code slop, dead ends, stubs, skeleton code, and things that will break. Write findings to .codex/ralph-audit/audit/*.md files.",
+  "verificationCommands": {
+    "typecheck": "echo 'Audit mode - no verification needed'",
+    "lint": "echo 'Audit mode - no verification needed'",
+    "test": "echo 'Audit mode - no verification needed'"
+  },
+  "userStories": [
+    {
+      "id": "AUDIT-001",
+      "title": "API Routes Deep Audit",
+      "description": "Exhaustively audit apps/web/src/app/api/v1/ for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/01-api-routes.md with ALL findings",
+        "Every API route file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity (critical/high/medium/low), detailed description of the problem, code snippet showing the issue"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Read every file in apps/web/src/app/api/v1/**/*.ts. For each file, scan line by line looking for: TODO/FIXME/HACK comments, hardcoded values that should be config, missing error handling, incomplete implementations (functions that return early or have placeholder logic), dead code paths that can never execute, copy-paste code smell, inconsistent patterns vs other routes, missing validation, missing auth checks, race conditions, potential null/undefined crashes, promises without error handling, skeleton/stub responses, feature flags or conditionals that are always true/false, commented out code, magic numbers, unclear variable names, functions that are too long, missing edge case handling. Produce the full markdown report content for .codex/ralph-audit/audit/01-api-routes.md with extreme detail."
+    },
+    {
+      "id": "AUDIT-002",
+      "title": "Authentication & Authorization Deep Audit",
+      "description": "Exhaustively audit all auth-related code for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/02-auth.md with ALL findings",
+        "Every auth file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine: middleware.ts, lib/api-auth.ts, lib/supabase/client.ts, lib/supabase/server.ts, lib/supabase/middleware.ts, app/auth/callback/route.ts, app/auth/signout/route.ts, app/(auth)/login/page.tsx, app/(auth)/signup/page.tsx, lib/session-owner-agent.ts. Look for: incomplete auth flows, missing redirect handling, race conditions in session creation, broken cookie handling, missing CSRF protection, auth checks that can be bypassed, inconsistent auth patterns, hardcoded redirects, missing error states, unclear failure modes, session handling edge cases, token refresh issues, logout that doesn't fully clear state, signup flow gaps, login flow gaps, OAuth callback edge cases. Produce the full markdown report content for .codex/ralph-audit/audit/02-auth.md."
+    },
+    {
+      "id": "AUDIT-003",
+      "title": "Database & Supabase Deep Audit",
+      "description": "Exhaustively audit all database interactions for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/03-database.md with ALL findings",
+        "Every Supabase query examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Search entire codebase for supabase.from(), .select(), .insert(), .update(), .delete(), .rpc(). Also examine packages/database/supabase/migrations/. Look for: queries that could fail silently, missing .single() error handling, N+1 query patterns, queries selecting too much data, missing indexes for common queries, RLS policies that might block legitimate access, RLS policies that might allow unauthorized access, inconsistent query patterns, hardcoded IDs, missing foreign key handling, cascade delete issues, transaction-like operations without actual transactions, race conditions in read-modify-write, stale data issues, missing optimistic updates, queries with no limit (could return huge datasets), type mismatches between code and schema, columns referenced that don't exist, tables referenced that don't exist. Produce the full markdown report content for .codex/ralph-audit/audit/03-database.md."
+    },
+    {
+      "id": "AUDIT-004",
+      "title": "React Components Deep Audit",
+      "description": "Exhaustively audit apps/web/src/components/ for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/04-components.md with ALL findings",
+        "Every component file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Read every file in apps/web/src/components/**/*.tsx. Look for: TODO/FIXME comments, placeholder text or Lorem ipsum, hardcoded strings that should be props, missing loading states, missing error states, missing empty states, useEffect without cleanup, useEffect with missing dependencies, useState that should be derived, props not being used, props with any type, event handlers that do nothing, broken onClick/onChange handlers, forms without validation, forms without error display, accessibility issues (missing aria labels, no keyboard nav), components that are too large, components with mixed concerns, CSS classes that don't exist, responsive breakpoints missing, dark mode issues, state that resets unexpectedly, infinite re-render risks, memory leak patterns, components importing things they don't use, dead code branches, commented out JSX. Produce the full markdown report content for .codex/ralph-audit/audit/04-components.md."
+    },
+    {
+      "id": "AUDIT-005",
+      "title": "Dashboard Pages Deep Audit",
+      "description": "Exhaustively audit apps/web/src/app/(dashboard)/ for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/05-dashboard-pages.md with ALL findings",
+        "Every dashboard page examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Read every file in apps/web/src/app/(dashboard)/**/*.tsx. Look for: pages that load but don't work, forms that don't submit, buttons that don't do anything, links to pages that don't exist, data that doesn't load, data that loads but doesn't display, filters that don't filter, search that doesn't search, pagination that doesn't work, tabs that don't switch, modals that don't open/close, dropdowns that don't work, broken navigation, missing breadcrumbs, inconsistent layouts, pages missing auth checks, pages showing wrong data for user, stale data after mutations, optimistic updates that don't rollback on error, missing loading skeletons, jarring layout shifts, broken responsive layouts, features half-implemented, features that look done but have broken logic underneath. Produce the full markdown report content for .codex/ralph-audit/audit/05-dashboard-pages.md."
+    },
+    {
+      "id": "AUDIT-006",
+      "title": "Public Pages Deep Audit",
+      "description": "Exhaustively audit public-facing pages (landing, browse, bounties, docs) for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/06-public-pages.md with ALL findings",
+        "Every public page examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine: app/page.tsx (landing), app/browse/page.tsx, app/bounties/page.tsx, app/humans/[id]/page.tsx, app/mcp/page.tsx, app/api-docs/page.tsx. Look for: broken links, links to nonexistent pages, placeholder content, Lorem ipsum, hardcoded sample data that should be dynamic, features described but not implemented, CTAs that go nowhere, forms that don't work, search/filter that's broken, pagination issues, SEO problems (missing meta tags), social sharing issues, broken images, missing alt text, copy that's wrong or outdated, responsive layout breaks, dark mode contrast issues, animations that don't work, loading states missing, error states missing, empty states missing. Produce the full markdown report content for .codex/ralph-audit/audit/06-public-pages.md."
+    },
+    {
+      "id": "AUDIT-007",
+      "title": "Stripe Integration Deep Audit",
+      "description": "Exhaustively audit all Stripe/payment code for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/07-stripe.md with ALL findings",
+        "Every Stripe-related file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine: lib/stripe.ts, api/v1/webhooks/stripe/route.ts, api/v1/bookings/[id]/fund-escrow/route.ts, api/v1/bookings/[id]/complete/route.ts, api/v1/humans/me/stripe-connect/route.ts, and any other files referencing stripe. Look for: webhook events not handled, webhook signature verification issues, payment states not tracked properly, refund logic missing or broken, dispute handling missing, Connect onboarding incomplete, transfer logic broken, fee calculation errors, currency handling issues, amount conversion errors (cents vs dollars), idempotency key issues, retry logic missing, error messages exposing internal details, test mode code in production paths, hardcoded Stripe IDs, missing null checks on Stripe responses, race conditions in payment status updates. Produce the full markdown report content for .codex/ralph-audit/audit/07-stripe.md."
+    },
+    {
+      "id": "AUDIT-008",
+      "title": "Booking Flow Deep Audit",
+      "description": "Exhaustively audit the entire booking lifecycle for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/08-booking-flow.md with ALL findings",
+        "Every booking-related file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Trace the ENTIRE booking flow: application -> acceptance -> booking creation -> escrow funding -> work in progress -> proof submission -> proof approval -> completion -> payout. Examine every API route and UI component involved. Look for: state transitions that can get stuck, states with no way out, invalid state transitions allowed, missing status checks, race conditions between status updates, proof upload that doesn't work, proof approval that doesn't release funds, auto-complete that's not scheduled, 72-hour timeout not implemented, transaction records not created, notifications not sent, conversations not created, booking detail page missing info, booking list missing bookings, status badges wrong, amounts calculated wrong, timestamps wrong. Produce the full markdown report content for .codex/ralph-audit/audit/08-booking-flow.md."
+    },
+    {
+      "id": "AUDIT-009",
+      "title": "Bounty Flow Deep Audit",
+      "description": "Exhaustively audit the entire bounty lifecycle for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/09-bounty-flow.md with ALL findings",
+        "Every bounty-related file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Trace the ENTIRE bounty flow: creation -> listing -> application -> acceptance -> rejection -> status updates. Examine: api/v1/bounties/**, app/bounties/page.tsx, app/(dashboard)/dashboard/bounties/page.tsx. Look for: bounty creation that doesn't validate, bounties that don't appear in listing, filters that don't work, applications that don't submit, application status not updating, accept/reject not working, booking not created on accept, conversation not created, notification not sent, bounty status not updating, completed bounties still showing as open, minimum budget not enforced, skills matching broken, deadline handling broken, closed bounties accepting applications. Produce the full markdown report content for .codex/ralph-audit/audit/09-bounty-flow.md."
+    },
+    {
+      "id": "AUDIT-010",
+      "title": "Messaging & Conversations Deep Audit",
+      "description": "Exhaustively audit realtime messaging for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/10-messaging.md with ALL findings",
+        "Every messaging-related file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine: api/v1/conversations/**, app/(dashboard)/dashboard/conversations/**, hooks or utilities for realtime. Look for: messages that don't send, messages that don't appear, realtime subscription not connecting, realtime subscription leaking (not cleaning up), messages appearing twice, messages in wrong order, unread count not updating, read status not syncing, conversation list not updating, conversation not found errors, messages from wrong sender showing, agent messages not appearing for human, human messages not appearing for agent, typing indicators broken, message timestamps wrong, long messages breaking layout, special characters breaking messages, images/attachments not working. Produce the full markdown report content for .codex/ralph-audit/audit/10-messaging.md."
+    },
+    {
+      "id": "AUDIT-011",
+      "title": "Notification System Deep Audit",
+      "description": "Exhaustively audit notifications for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/11-notifications.md with ALL findings",
+        "Every notification-related file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine: lib/notifications.ts, lib/notifications-query.ts, api/v1/notifications/**, api/v1/agent/notifications/**, components/notifications/**. Look for: notifications not being created when they should, notification types not all implemented, notification bell not showing count, notifications not marking as read, click on notification not navigating, realtime notifications not working, old notifications not clearing, notification preferences not respected, agent notifications different from human notifications, notification content wrong or missing data, notification links broken, notification timestamps wrong. Produce the full markdown report content for .codex/ralph-audit/audit/11-notifications.md."
+    },
+    {
+      "id": "AUDIT-012",
+      "title": "Moderation System Deep Audit",
+      "description": "Exhaustively audit content moderation for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/12-moderation.md with ALL findings",
+        "Every moderation-related file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine: lib/moderation/**, api/v1/moderation/**, api/v1/admin/moderation/**, app/(admin)/admin/moderation/**. Look for: moderation not running on content that needs it, moderation results not stored, moderation status not affecting visibility, admin dashboard not loading, rescan queue not working, appeal flow not implemented, banned content still visible, false positives with no override, classifier not calling external API, classifier errors not handled, moderation slowing down user actions, moderation running multiple times, admin auth not checking properly. Produce the full markdown report content for .codex/ralph-audit/audit/12-moderation.md."
+    },
+    {
+      "id": "AUDIT-013",
+      "title": "MCP Server Deep Audit",
+      "description": "Exhaustively audit the MCP server package for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/13-mcp-server.md with ALL findings",
+        "Every MCP file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine: packages/analoglabor-mcp/src/index.ts, package.json, README.md, tsconfig.json. Look for: tools that don't match API endpoints, tools with wrong parameters, tools with wrong return types, error handling that swallows errors, API URL wrong or hardcoded wrong, API key not being sent, auth header format wrong, tools that are stubs (just return placeholder), tools missing entirely, README documenting tools that don't exist, README with wrong examples, package.json with wrong entry points, build not producing working output, shebang missing or wrong. Produce the full markdown report content for .codex/ralph-audit/audit/13-mcp-server.md."
+    },
+    {
+      "id": "AUDIT-014",
+      "title": "Lib/Utils Deep Audit",
+      "description": "Exhaustively audit apps/web/src/lib/ utilities for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/14-lib-utils.md with ALL findings",
+        "Every lib file examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Read every file in apps/web/src/lib/**/*.ts. Look for: functions that are stubs, functions that throw 'not implemented', functions with TODO comments, utility functions with edge case bugs, date/time handling issues, timezone bugs, currency formatting bugs, validation functions that miss cases, type conversion that can fail, parsing that can throw, regex that's wrong, functions that should be async but aren't, functions that are async but don't need to be, circular dependencies, utils that duplicate other utils, utils that are never used, utils with wrong exports. Produce the full markdown report content for .codex/ralph-audit/audit/14-lib-utils.md."
+    },
+    {
+      "id": "AUDIT-015",
+      "title": "Types & Interfaces Deep Audit",
+      "description": "Exhaustively audit TypeScript types for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/15-types.md with ALL findings",
+        "All type definitions examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine: packages/database/src/types.ts (the generated Supabase types), apps/web/src/lib/**/*.ts for any type definitions. Search for: export type, export interface, type aliases. Look for: types that don't match actual data shapes, types that are any or unknown when they should be specific, types that are too narrow (literal types that should be wider), types that are too wide (any when specific shape known), types missing optional markers, types with wrong nullability, types duplicated across files, types that reference things that don't exist, types with TODO comments, types that are stubs, types that will cause runtime errors if used. Produce the full markdown report content for .codex/ralph-audit/audit/15-types.md."
+    },
+    {
+      "id": "AUDIT-016",
+      "title": "Environment & Config Deep Audit",
+      "description": "Exhaustively audit configuration and environment handling for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/16-config.md with ALL findings",
+        "All config files examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine: all process.env usage, .env.local.example, netlify.toml, next.config.js, tsconfig.json, turbo.json, package.json files, tailwind.config.ts. Look for: env vars used but not documented, env vars documented but not used, env vars with no fallback that crash on missing, NEXT_PUBLIC_ vars exposing secrets, hardcoded values that should be env vars, config that differs between dev and prod incorrectly, build config that's wrong, deploy config that's wrong, missing required config, deprecated config options. Produce the full markdown report content for .codex/ralph-audit/audit/16-config.md."
+    },
+    {
+      "id": "AUDIT-017",
+      "title": "Error Handling Deep Audit",
+      "description": "Exhaustively audit error handling patterns for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/17-error-handling.md with ALL findings",
+        "All error handling examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Search entire codebase for: try/catch blocks, .catch() calls, throw statements, console.error, error boundaries. Look for: catch blocks that swallow errors silently, catch blocks that just console.log, catch blocks that rethrow without adding context, async functions without try/catch, promises without .catch(), error messages that expose internal details, error messages that are unhelpful, errors not shown to user, errors shown to user in ugly way, network errors not handled, timeout errors not handled, validation errors not specific enough, error states in UI missing, error recovery not possible. Produce the full markdown report content for .codex/ralph-audit/audit/17-error-handling.md."
+    },
+    {
+      "id": "AUDIT-018",
+      "title": "Tests & Testing Deep Audit",
+      "description": "Exhaustively audit test files for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/18-tests.md with ALL findings",
+        "All test files examined for: broken logic, unfinished features, stubs, skeleton code, dead ends, code slop, things that will break",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Examine all files in tests/**. Look for: tests that are skipped, tests that always pass (no real assertions), tests that test implementation not behavior, tests with hardcoded values that will break, tests missing for critical paths, test files that exist but have no tests, mocks that don't match real implementation, snapshot tests that are meaningless, flaky tests, tests that depend on order, tests that depend on external services, tests that don't clean up, test utilities that are broken. Also identify critical code paths with NO test coverage. Produce the full markdown report content for .codex/ralph-audit/audit/18-tests.md."
+    },
+    {
+      "id": "AUDIT-019",
+      "title": "Dead Code & Unused Files Deep Audit",
+      "description": "Exhaustively find dead code and orphan files for ALL problems.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/19-dead-code.md with ALL findings",
+        "Entire codebase scanned for: unused exports, orphan files, commented code, unreachable code",
+        "Each finding has: file path, line numbers, severity, detailed description, code snippet"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Scan entire codebase for: files that are never imported, functions that are exported but never imported, components that are never used, types that are never used, constants that are never used, large blocks of commented out code, code after return statements, conditions that are always true or false, feature flags that are never toggled, imports that are never used, variables that are assigned but never read, parameters that are never used, catch blocks that catch but ignore. Produce the full markdown report content for .codex/ralph-audit/audit/19-dead-code.md."
+    },
+    {
+      "id": "AUDIT-020",
+      "title": "Final Consolidation & Index",
+      "description": "Create master index of all findings and summary statistics.",
+      "acceptanceCriteria": [
+        "Created .codex/ralph-audit/audit/00-INDEX.md with summary of all findings",
+        "Total counts by severity across all audit files",
+        "Top 10 most critical findings highlighted",
+        "List of all audit files with finding counts"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": "DO NOT FIX ANYTHING. Read all .codex/ralph-audit/audit/*.md files created in previous steps. Create 00-INDEX.md with: executive summary, total findings count, breakdown by severity (critical/high/medium/low), breakdown by category, list of the 10 most critical findings that need immediate attention, table of contents linking to each audit file. This is documentation only - no fixes, no plans, just consolidate what was found."
+    }
+  ]
+}

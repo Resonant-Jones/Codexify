@@ -12,9 +12,15 @@ import inspect
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Set
-from unittest.mock import MagicMock
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
@@ -43,19 +49,7 @@ def configure_db(db: GuardianDB) -> None:
 def _get_db() -> GuardianDB:
     """Get the configured database instance."""
     if _db is None:
-
-        class _StubSession:
-            def query(self, *args, **kwargs):
-                return MagicMock()
-
-            def close(self):
-                return None
-
-        class _StubDB:
-            def SessionLocal(self):
-                return _StubSession()
-
-        return _StubDB()  # type: ignore[return-value]
+        raise RuntimeError("Collaboration DB is not configured")
     return _db
 
 
@@ -293,7 +287,10 @@ async def get_audit_trail(
     Returns:
         List of audit log entries
     """
-    db = _get_db()
+    try:
+        db = _get_db()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     session = db.SessionLocal()
     try:
         logs = (
@@ -341,33 +338,10 @@ async def ws_collab(
     user_id: str | None = None
     permissions: dict[str, Any] | None = None
     if _db is None:
-        await ws.accept()
-        await manager.connect(document_id, ws, "stub")
-        await manager.broadcast(
-            document_id,
-            {
-                "type": "update",
-                "payload": {"content": None},
-                "user_id": "stub",
-            },
+        await ws.close(
+            code=status.WS_1011_INTERNAL_ERROR,
+            reason="collaboration_not_configured",
         )
-        try:
-            active_sessions = (
-                manager.get_active_sessions()
-                if hasattr(manager, "get_active_sessions")
-                else 0
-            )
-            event_bus.emit_event(
-                topic="collab.update",
-                payload={
-                    "document_id": document_id,
-                    "user_id": "stub",
-                    "active_sessions": active_sessions,
-                },
-            )
-        except Exception:
-            pass
-        await manager.disconnect(document_id, ws, "stub")
         return
 
     try:
@@ -431,7 +405,6 @@ async def ws_collab(
             manager.permissions[document_id][user_id] = permissions
 
             # Connection accepted
-            await ws.accept()
             await manager.connect(document_id, ws, user_id)
 
             # Log presence.join event
@@ -522,18 +495,18 @@ async def ws_collab(
         if user_id:
             # Log presence.leave event
             try:
-                db = _get_db()
-                audit_session = db.SessionLocal()
-                try:
-                    manager.log_audit_event(
-                        document_id,
-                        user_id,
-                        "presence.leave",
-                        {},
-                        audit_session,
-                    )
-                finally:
-                    audit_session.close()
+                if _db is not None:
+                    audit_session = _db.SessionLocal()
+                    try:
+                        manager.log_audit_event(
+                            document_id,
+                            user_id,
+                            "presence.leave",
+                            {},
+                            audit_session,
+                        )
+                    finally:
+                        audit_session.close()
             except Exception as e:
                 logger.error(f"Failed to log presence.leave event: {e}")
         await manager.disconnect(document_id, ws, user_id)

@@ -1,6 +1,8 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Codex Runner Campaign Output",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resonantconstructs.ai/schemas/campaign_output.legacy.schema.json",
+  "title": "Legacy Campaign Output (Deprecated)",
+  "description": "Deprecated single-campaign schema retained for historical compatibility. The deterministic runner uses campaign_set.schema.json.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,8 +20,7 @@
       "type": "string"
     },
     "campaign_doc_path": {
-      "type": "string",
-      "pattern": "^docs/Campaign/CAMPAIGN_\\d{4}_\\d{2}_\\d{2}(?:_[A-Z0-9_+\\-]+)?\\.md$"
+      "type": "string"
     },
     "campaign_markdown": {
       "type": "string"
@@ -28,62 +29,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "slug",
-          "area",
-          "files",
-          "tests",
-          "commit_message",
-          "task_artifact_path",
-          "task_artifact_markdown",
-          "activation_prompt"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "slug": {
-            "type": "string",
-            "pattern": "^[a-z0-9_]+$"
-          },
-          "area": {
-            "type": "string",
-            "enum": [
-              "backend",
-              "frontend",
-              "fullstack",
-              "docs",
-              "tooling"
-            ]
-          },
-          "files": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "tests": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "commit_message": {
-            "type": "string"
-          },
-          "task_artifact_path": {
-            "type": "string",
-            "pattern": "^docs/tasks/TASK_\\d{4}_\\d{2}_\\d{2}_\\d{3}_[a-z0-9_]+\\.md$"
-          },
-          "task_artifact_markdown": {
-            "type": "string"
-          },
-          "activation_prompt": {
-            "type": "string"
-          }
-        }
+        "additionalProperties": true
       }
     }
   }

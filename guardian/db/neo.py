@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
-from uuid import uuid4
 
 # --- Neo4j Graph Schema for Relationship Tracking and User-Memory Graphing ---
 from neomodel import (
@@ -121,27 +119,27 @@ class RelationshipMeta(StructuredRel):
     notes = StringProperty()
 
 
-class UserNode(StructuredNode):
-    uid = UniqueIdProperty()
-    name = StringProperty(required=True)
-    email = StringProperty()
-    created_at = DateTimeProperty(default_now=True)
+# NOTE: Canonical Neo4j Neomodel node classes live in guardian.graph.models.
+# This module intentionally does NOT define StructuredNode subclasses to avoid
+# neomodel label registry collisions (NodeClassAlreadyDefined).
+try:
+    from guardian.graph.models import (  # type: ignore
+        MessageNode,
+        ThreadNode,
+        UserNode,
+    )
+except Exception as _exc:  # pragma: no cover
+    # If the canonical module is unavailable, raise an explicit import error so
+    # failures are actionable rather than producing partially-initialized graph models.
+    raise ImportError(
+        "Canonical Neo4j models not importable from guardian.graph.models; "
+        "ensure guardian.graph.models defines UserNode/ThreadNode/MessageNode."
+    ) from _exc
 
-    messages = RelationshipFrom("MessageNode", "SENT_BY")
-
-
-class MessageNode(StructuredNode):
-    message_id = StringProperty(unique_index=True, required=True)
-    content = StringProperty()
-    created_at = DateTimeProperty(default_now=True)
-
-    user = RelationshipTo("UserNode", "SENT_BY")
-    thread = RelationshipTo("ThreadNode", "PART_OF")
-
-
-class ThreadNode(StructuredNode):
-    uid = UniqueIdProperty()
-    topic = StringProperty()
-    created_at = DateTimeProperty(default_now=True)
-
-    messages = RelationshipFrom("MessageNode", "PART_OF")
+# Optional: RelationshipMeta may also be defined canonically; prefer it if present.
+try:
+    from guardian.graph.models import (
+        RelationshipMeta as RelationshipMeta,  # type: ignore
+    )
+except Exception:
+    pass

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from guardian.core import event_bus
 from guardian.core.db import GuardianDB
 from guardian.core.dependencies import require_api_key
+from guardian.core.media_signing import sign_media_url
 from guardian.db import models
 
 logger = logging.getLogger(__name__)
@@ -342,7 +343,7 @@ async def retrieve_share_content(token: str) -> dict[str, Any]:
                         "filename": document.filename,
                         "filesize": document.filesize,
                         "mime_type": document.mime_type,
-                        "src_url": document.src_url,
+                        "src_url": sign_media_url(document.src_url),
                         "created_at": (
                             document.created_at.isoformat()
                             if document.created_at

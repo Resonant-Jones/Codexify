@@ -70,6 +70,7 @@ frontend/src/screenshots/
 frontend/src/screenshots/**
 frontend/src/traces/
 frontend/src/**/.last-run.json
+.last-run.json
 
 # --- Artifacts / tooling ---
 artifacts/
@@ -104,6 +105,10 @@ models/
 /data/credentials.json
 /data/token.pickle
 /data/trust_registry.json
+/guardian/secrets/
+/guardian/secrets/*.json
+**/token.json
+**/client_secret*.json
 
 # Local audit outputs
 /docs/_audit_runs/
@@ -138,8 +143,8 @@ hf_cache/
 **/.cache/torch/
 .cache/transformers/
 **/.cache/transformers/
-daniel-manickam/boxbeyond-kutiraai/
 
 # Local artifacts
+boxbeyond-kutiraai/
 output/
 tmp/

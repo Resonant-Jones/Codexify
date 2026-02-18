@@ -11,7 +11,7 @@ Set:
 
 - `LLM_PROVIDER=minimax`
 - `MINIMAX_API_KEY=<your_minimax_api_key>`
-- `MINIMAX_API_BASE=<minimax_base_url>`
+- `MINIMAX_API_BASE=<openai_compatible_base_url>`
 - `ALLOW_CLOUD_PROVIDERS=true`
 - `CODEXIFY_LOCAL_ONLY_MODE=false`
 - `CODEXIFY_EGRESS_ALLOWLIST=...` including `minimax`
@@ -34,8 +34,6 @@ message if `MINIMAX_API_KEY` or `MINIMAX_API_BASE` is missing.
 ### Routing behavior
 
 - Runtime chat routing uses MiniMax only when explicitly selected.
-- `MINIMAX_API_FLAVOR=openai` calls `.../chat/completions`.
-- `MINIMAX_API_FLAVOR=anthropic` calls `.../v1/messages` (Anthropic-compatible).
 - Explicit request selection (`provider`/`model`) takes precedence over profile
   overrides in the chat worker.
 - Provider registry loads MiniMax only when both `MINIMAX_API_KEY` and
