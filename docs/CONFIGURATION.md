@@ -31,25 +31,30 @@ Notes:
 |---|---|---|
 | `CODEXIFY_LOCAL_ONLY_MODE` | `true` | Master fail-closed egress gate. |
 | `CODEXIFY_EGRESS_ALLOWLIST` | empty | Comma-separated allowed outbound targets when local-only mode is disabled. |
-| `ALLOW_CLOUD_PROVIDERS` | `false` | Additional gate for cloud LLM targets (`openai`, `groq`). |
-| `LLM_PROVIDER` | `local` | Active chat provider (`local`, `openai`, `groq`). |
+| `ALLOW_CLOUD_PROVIDERS` | `false` | Additional gate for cloud LLM targets (`openai`, `groq`, `minimax`). |
+| `LLM_PROVIDER` | `local` | Active chat provider (`local`, `openai`, `groq`, `minimax`). Must be a single provider id. |
 | `OPENAI_API_KEY` | unset | Required for OpenAI usage when enabled. |
 | `GROQ_API_KEY` | unset | Required for Groq usage when enabled. |
+| `MINIMAX_API_KEY` | unset | Required for MiniMax usage when enabled. |
+| `MINIMAX_API_BASE` | unset | Required OpenAI-compatible base URL for MiniMax (for example `https://api.minimax.chat/v1`). |
 | `ELEVENLABS_API_KEY` | unset | Required for ElevenLabs TTS when enabled. |
 
 Allowlist target names currently enforced in code:
-- `openai`, `groq`, `elevenlabs`, `federation`, `webhook`
+- `openai`, `groq`, `minimax`, `elevenlabs`, `federation`, `webhook`
 
 ### Enabling a cloud LLM safely
 
-Example (OpenAI):
+Example (OpenAI/Groq/MiniMax enabled):
 
 ```env
 ALLOW_CLOUD_PROVIDERS=true
 CODEXIFY_LOCAL_ONLY_MODE=false
-CODEXIFY_EGRESS_ALLOWLIST=openai
+CODEXIFY_EGRESS_ALLOWLIST=openai,groq,minimax
 LLM_PROVIDER=openai
 OPENAI_API_KEY=...
+# GROQ_API_KEY=...
+# MINIMAX_API_KEY=...
+# MINIMAX_API_BASE=https://api.minimax.chat/v1
 ```
 
 Without this full set, egress remains blocked by policy.

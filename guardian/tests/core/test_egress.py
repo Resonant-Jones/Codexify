@@ -34,6 +34,16 @@ def test_cloud_egress_requires_allow_cloud_providers() -> None:
         assert_egress_allowed("openai", settings=settings)
 
 
+def test_minimax_egress_requires_allow_cloud_providers() -> None:
+    settings = Settings(
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="minimax",
+        ALLOW_CLOUD_PROVIDERS=False,
+    )
+    with pytest.raises(EgressDeniedError, match="ALLOW_CLOUD_PROVIDERS"):
+        assert_egress_allowed("minimax", settings=settings)
+
+
 def test_webhook_egress_allowed_with_explicit_opt_in() -> None:
     settings = Settings(
         CODEXIFY_LOCAL_ONLY_MODE=False,

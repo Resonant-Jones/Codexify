@@ -41,6 +41,9 @@ def _clear_extra_cloud_keys(monkeypatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GENAI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.delenv("MINIMAX_API_BASE", raising=False)
+    monkeypatch.delenv("MINIMAX_MODEL", raising=False)
 
 
 def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
@@ -57,6 +60,8 @@ def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
     try:
         settings.ALLOW_CLOUD_PROVIDERS = True
@@ -64,6 +69,8 @@ def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai,anthropic,gemini,groq"
         settings.OPENAI_API_KEY = None
         settings.GROQ_API_KEY = None
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
 
         client = TestClient(app)
         response = client.get("/api/llm/catalog")
@@ -90,12 +97,16 @@ def test_llm_catalog_provider_appears_when_key_exists(monkeypatch):
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
     try:
         settings.ALLOW_CLOUD_PROVIDERS = True
         settings.CODEXIFY_LOCAL_ONLY_MODE = False
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai"
         settings.OPENAI_API_KEY = "test-openai-key"
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
 
         client = TestClient(app)
         payload = client.get("/api/llm/catalog").json()
@@ -121,12 +132,16 @@ def test_llm_catalog_disabled_cloud_provider_has_reason(monkeypatch):
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
     try:
         settings.ALLOW_CLOUD_PROVIDERS = False
         settings.CODEXIFY_LOCAL_ONLY_MODE = False
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai"
         settings.OPENAI_API_KEY = "test-openai-key"
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
 
         client = TestClient(app)
         payload = client.get("/api/llm/catalog").json()
@@ -153,6 +168,8 @@ def test_llm_catalog_include_all_shows_unauthorized_providers(monkeypatch):
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
     try:
         settings.ALLOW_CLOUD_PROVIDERS = True
@@ -160,6 +177,8 @@ def test_llm_catalog_include_all_shows_unauthorized_providers(monkeypatch):
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai,anthropic,gemini,groq"
         settings.OPENAI_API_KEY = None
         settings.GROQ_API_KEY = None
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
 
         client = TestClient(app)
         payload = client.get("/api/llm/catalog?include=all").json()
@@ -170,8 +189,9 @@ def test_llm_catalog_include_all_shows_unauthorized_providers(monkeypatch):
             "anthropic",
             "gemini",
             "groq",
+            "minimax",
         } <= provider_ids
-        for provider_id in ("openai", "anthropic", "gemini", "groq"):
+        for provider_id in ("openai", "anthropic", "gemini", "groq", "minimax"):
             provider = _provider_by_id(payload, provider_id)
             assert provider["enabled"] is False
             assert provider["authorized"] is False

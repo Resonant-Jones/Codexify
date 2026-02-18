@@ -493,6 +493,124 @@ class SyncJob(Base):
 
 
 # =========================
+# Inference Provider State
+# =========================
+
+
+class InferenceProvider(Base):
+    """Provider configuration state used by inference routing control-plane."""
+
+    __tablename__ = "inference_providers"
+
+    provider_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_type: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="100"
+    )
+    default_model_id: Mapped[str | None] = mapped_column(Text)
+    capabilities: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    provider_metadata: Mapped[dict | None] = mapped_column(
+        "metadata",
+        JSON().with_variant(JSONB, "postgresql"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    runtime_state: Mapped[InferenceProviderRuntime | None] = relationship(
+        "InferenceProviderRuntime",
+        back_populates="provider",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "priority >= 0",
+            name="ck_inference_providers_priority_nonnegative",
+        ),
+        Index("ix_inference_providers_enabled", "enabled"),
+        Index("ix_inference_providers_priority", "priority"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class InferenceProviderRuntime(Base):
+    """Runtime health state for each configured inference provider."""
+
+    __tablename__ = "inference_provider_runtime"
+
+    provider_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("inference_providers.provider_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    health_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="unknown"
+    )
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    last_failure_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    cooldown_until: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    avg_latency_ms: Mapped[float | None] = mapped_column(Float)
+    error_rate: Mapped[float | None] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    provider: Mapped[InferenceProvider] = relationship(
+        "InferenceProvider", back_populates="runtime_state"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "health_status IN ('unknown','healthy','degraded','unavailable')",
+            name="ck_inference_provider_runtime_health_status",
+        ),
+        CheckConstraint(
+            "consecutive_failures >= 0",
+            name="ck_inference_provider_runtime_consecutive_failures_nonnegative",
+        ),
+        CheckConstraint(
+            "error_rate IS NULL OR (error_rate >= 0 AND error_rate <= 1)",
+            name="ck_inference_provider_runtime_error_rate_bounds",
+        ),
+        Index(
+            "ix_inference_provider_runtime_health_status",
+            "health_status",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
 # Event Outbox & Audit
 # =========================
 

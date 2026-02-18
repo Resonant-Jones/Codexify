@@ -8,17 +8,18 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from guardian.cognition.user_settings import store as user_settings_store
+from guardian.core.dependencies import get_current_user, require_api_key
 
 router = APIRouter(prefix="/api/iddb", tags=["IdentitySettings"])
 
 
-def _normalize_settings(body: dict[str, Any]) -> dict[str, Any]:
-    settings = user_settings_store.get_user_settings(
-        body.get("user_id", "default")
-    )
+def _normalize_settings(
+    body: dict[str, Any], *, current_user: str
+) -> dict[str, Any]:
+    settings = user_settings_store.get_user_settings(current_user)
     next_settings = {
         "memory_mode": body.get(
             "memory_mode", settings.get("memory_mode", "deep")
@@ -42,13 +43,19 @@ def _normalize_settings(body: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/settings")
-def get_settings(user_id: str = "default"):
-    return user_settings_store.get_user_settings(user_id)
+def get_settings(
+    _api_key: str = Depends(require_api_key),
+    current_user: str = Depends(get_current_user),
+):
+    return user_settings_store.get_user_settings(current_user)
 
 
 @router.post("/settings")
-def update_settings(body: dict[str, Any] = Body(...)):
-    user_id = body.get("user_id") or "default"
-    next_settings = _normalize_settings(body)
-    user_settings_store.set_user_settings(user_id, next_settings)
+def update_settings(
+    body: dict[str, Any] = Body(...),
+    _api_key: str = Depends(require_api_key),
+    current_user: str = Depends(get_current_user),
+):
+    next_settings = _normalize_settings(body, current_user=current_user)
+    user_settings_store.set_user_settings(current_user, next_settings)
     return next_settings

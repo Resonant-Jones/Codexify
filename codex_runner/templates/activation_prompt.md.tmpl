@@ -1,23 +1,18 @@
-You are executing exactly one task for the Codexify repo. Do not work on any other tasks.
+You are executing exactly one task inside the target repository.
 
 Task details:
 {{TASK_MARKDOWN}}
 
-Strict scope requirements:
+Strict constraints:
 - Modify only these files:
 {{FILES_LIST}}
-- Run these tests:
+- Run these tests/verification commands:
 {{TESTS_LIST}}
-- Commit with this exact message:
-{{COMMIT_MESSAGE}}
+- Do not run any git add/commit commands.
+- Do not edit campaign mapping blocks or runner metadata files.
 
-Required updates after implementation:
-1) Append a "## Summary" section to {{TASK_ARTIFACT_PATH}} that includes:
-- Changed files
-- Tests ran
-- Git status clean confirmation
-- Commit hash
-
-2) Update {{CAMPAIGN_DOC_PATH}} by editing the mapping line for this task to include the commit hash.
-
-Return a JSON result that conforms to the task_result schema.
+Return JSON that conforms to task_result.schema.json with:
+- status: success | failed | blocked
+- summary
+- tests_ran
+- notes

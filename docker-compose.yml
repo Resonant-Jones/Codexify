@@ -256,8 +256,8 @@ services:
       NEO4J_BOLT_URL: bolt://neo4j:7687
       ENABLE_CONNECTOR_WORKER: "false"
       REDIS_URL: redis://redis:6379/0
-      # Supported provider ids (backend): "local", "groq", "openai"
-      LLM_PROVIDER: "local"
+      # Supported provider ids (backend): "local", "groq", "openai", "minimax"
+      LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
@@ -405,7 +405,7 @@ services:
       PYTHONIOENCODING: utf-8
       GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LLM_PROVIDER: "local"
+      LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
