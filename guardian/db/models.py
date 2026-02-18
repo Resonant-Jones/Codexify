@@ -1392,6 +1392,414 @@ class SystemDocLink(Base):
 
 
 # =========================
+# Agent Orchestration
+# =========================
+
+
+class AgentDeployment(Base):
+    """Immutable deployment definition for delegated agent flows."""
+
+    __tablename__ = "agent_deployments"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    deployment_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True
+    )
+    flow_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    thread_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chat_threads.id", ondelete="SET NULL")
+    )
+    spec_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    spec_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    trust_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="supervised"
+    )
+    unlocked_for_unsupervised: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    unlocked_by: Mapped[str | None] = mapped_column(String(255))
+    unlocked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="active"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "trust_state IN ('supervised', 'unlocked')",
+            name="agent_deployments_trust_state_check",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'canceled', 'archived')",
+            name="agent_deployments_status_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentRun(Base):
+    """Durable run state for a deployed delegated agent execution."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    deployment_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_deployments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    thread_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chat_threads.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="queued"
+    )
+    runtime_target: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="container"
+    )
+    rollback_mode: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="auto"
+    )
+    rollback_applied: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    rollback_reason: Mapped[str | None] = mapped_column(Text)
+    worktree_id: Mapped[str | None] = mapped_column(String(128))
+    worktree_path: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'escalated', 'canceled', 'failed', 'succeeded')",
+            name="agent_runs_status_check",
+        ),
+        CheckConstraint(
+            "runtime_target IN ('host', 'container')",
+            name="agent_runs_runtime_target_check",
+        ),
+        CheckConstraint(
+            "rollback_mode IN ('auto', 'manual')",
+            name="agent_runs_rollback_mode_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentRunStep(Base):
+    """Step-level lifecycle records for a delegated run."""
+
+    __tablename__ = "agent_run_steps"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    step_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    primitive: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_mutating: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="pending"
+    )
+    schema_valid: Mapped[bool | None] = mapped_column(Boolean)
+    spec_alignment_ok: Mapped[bool | None] = mapped_column(Boolean)
+    tests_passed: Mapped[bool | None] = mapped_column(Boolean)
+    metadata_json: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "step_index",
+            name="uq_agent_run_steps_run_step_index",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed', 'escalated', 'canceled')",
+            name="agent_run_steps_status_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentRunAttempt(Base):
+    """Attempt-level diagnostics for deterministic adaptive retry."""
+
+    __tablename__ = "agent_run_attempts"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_step_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_run_steps.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    attempt_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="running"
+    )
+    fail_count: Mapped[int | None] = mapped_column(Integer)
+    fail_signature: Mapped[str | None] = mapped_column(String(128))
+    diff_added: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    diff_deleted: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    error_category: Mapped[str | None] = mapped_column(String(64))
+    progress_made: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    stderr_excerpt: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "run_step_id",
+            "attempt_index",
+            name="uq_agent_run_attempts_step_attempt_index",
+        ),
+        CheckConstraint(
+            "status IN ('running', 'failed', 'succeeded', 'escalated')",
+            name="agent_run_attempts_status_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentRunArtifact(Base):
+    """Artifacts and receipts emitted by delegated runs and steps."""
+
+    __tablename__ = "agent_run_artifacts"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_step_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("agent_run_steps.id", ondelete="CASCADE")
+    )
+    attempt_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("agent_run_attempts.id", ondelete="SET NULL")
+    )
+    artifact_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    uri: Mapped[str | None] = mapped_column(Text)
+    content_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentConfidenceReport(Base):
+    """Guardian-derived confidence reports for step and task decisions."""
+
+    __tablename__ = "agent_confidence_reports"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_step_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("agent_run_steps.id", ondelete="CASCADE")
+    )
+    step_index: Mapped[int | None] = mapped_column(Integer)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    decision: Mapped[str] = mapped_column(String(64), nullable=False)
+    factors_json: Mapped[dict] = mapped_column(
+        "factors", JSONB, nullable=False, server_default="{}"
+    )
+    model_self_confidence: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "scope IN ('step', 'task')",
+            name="agent_confidence_reports_scope_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentEscalation(Base):
+    """Durable escalation records for paused or blocked delegated runs."""
+
+    __tablename__ = "agent_escalations"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_step_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("agent_run_steps.id", ondelete="CASCADE")
+    )
+    step_index: Mapped[int | None] = mapped_column(Integer)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="open"
+    )
+    preserved_worktree: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    payload_json: Mapped[dict] = mapped_column(
+        "payload", JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "severity IN ('soft', 'hard')",
+            name="agent_escalations_severity_check",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'acknowledged', 'resolved', 'canceled')",
+            name="agent_escalations_status_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentEvent(Base):
+    """Append-only event graph stream for delegated run lifecycle events."""
+
+    __tablename__ = "agent_events"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_step_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("agent_run_steps.id", ondelete="CASCADE")
+    )
+    attempt_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("agent_run_attempts.id", ondelete="SET NULL")
+    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_json: Mapped[dict] = mapped_column(
+        "payload", JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentReflection(Base):
+    """Derived reflection notes for steps and runs (non-canonical)."""
+
+    __tablename__ = "agent_reflections"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_step_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("agent_run_steps.id", ondelete="CASCADE")
+    )
+    reflection_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    derived_from: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "reflection_kind IN ('step_note', 'session_summary')",
+            name="agent_reflections_kind_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
 # Indexes
 # =========================
 
@@ -1527,6 +1935,29 @@ Index("ix_tts_outputs_project", TTSOutput.project_id)
 Index("ix_tts_outputs_thread", TTSOutput.thread_id)
 Index("ix_tts_outputs_provider", TTSOutput.provider)
 Index("ix_tts_outputs_created", TTSOutput.created_at.desc())
+Index("ix_agent_deployments_thread_id", AgentDeployment.thread_id)
+Index("ix_agent_deployments_spec_hash", AgentDeployment.spec_hash)
+Index("ix_agent_deployments_status", AgentDeployment.status)
+Index("ix_agent_runs_deployment_id", AgentRun.deployment_id)
+Index("ix_agent_runs_thread_id", AgentRun.thread_id)
+Index("ix_agent_runs_status", AgentRun.status)
+Index("ix_agent_run_steps_run_id", AgentRunStep.run_id)
+Index("ix_agent_run_steps_status", AgentRunStep.status)
+Index("ix_agent_run_attempts_step_id", AgentRunAttempt.run_step_id)
+Index("ix_agent_run_attempts_signature", AgentRunAttempt.fail_signature)
+Index("ix_agent_run_artifacts_run_id", AgentRunArtifact.run_id)
+Index("ix_agent_run_artifacts_type", AgentRunArtifact.artifact_type)
+Index("ix_agent_confidence_reports_run_id", AgentConfidenceReport.run_id)
+Index(
+    "ix_agent_confidence_reports_scope_step",
+    AgentConfidenceReport.scope,
+    AgentConfidenceReport.step_index,
+)
+Index("ix_agent_escalations_run_id", AgentEscalation.run_id)
+Index("ix_agent_escalations_status", AgentEscalation.status)
+Index("ix_agent_events_run_id", AgentEvent.run_id)
+Index("ix_agent_events_type", AgentEvent.event_type)
+Index("ix_agent_reflections_run_id", AgentReflection.run_id)
 
 
 class SharedLink(Base):

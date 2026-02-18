@@ -18,8 +18,15 @@ Set:
 
 Optional:
 
+- `MINIMAX_API_FLAVOR=<openai|anthropic>` (default: `openai`)
+- `MINIMAX_ANTHROPIC_VERSION=<anthropic_api_version>` (used when flavor is `anthropic`)
 - `MINIMAX_MODEL=<default_model_id>`
 - `MINIMAX_TIMEOUT_SECONDS=<request_timeout_seconds>`
+
+Base URL examples:
+
+- OpenAI flavor (`MINIMAX_API_FLAVOR=openai`): `https://api.minimax.io/v1`
+- Anthropic flavor (`MINIMAX_API_FLAVOR=anthropic`): `https://api.minimax.io/anthropic`
 
 When `LLM_PROVIDER=minimax`, backend config validation fails fast with a clear
 message if `MINIMAX_API_KEY` or `MINIMAX_API_BASE` is missing.

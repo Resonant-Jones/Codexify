@@ -364,8 +364,55 @@ def _extract_provider_error_message(
     return _sanitize_provider_error(text, secret=secret)
 
 
+def _normalize_messages_for_anthropic(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], str | None]:
+    system_parts: list[str] = []
+    normalized: list[dict[str, Any]] = []
+
+    for raw in messages:
+        if not isinstance(raw, dict):
+            continue
+        role = str(raw.get("role") or "user").strip().lower() or "user"
+        text = str(raw.get("content") or "").strip()
+        if not text:
+            continue
+        if role == "system":
+            system_parts.append(text)
+            continue
+        if role not in {"user", "assistant"}:
+            role = "user"
+        normalized.append(
+            {"role": role, "content": [{"type": "text", "text": text}]}
+        )
+
+    if not normalized:
+        normalized = [
+            {"role": "user", "content": [{"type": "text", "text": ""}]}
+        ]
+
+    system_text = "\n\n".join(part for part in system_parts if part).strip()
+    return normalized, (system_text or None)
+
+
+def _extract_anthropic_text(payload: dict[str, Any]) -> str:
+    content = payload.get("content")
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if str(block.get("type") or "").strip() != "text":
+            continue
+        text = str(block.get("text") or "").strip()
+        if text:
+            parts.append(text)
+    return "".join(parts)
+
+
 def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
-    """Call MiniMax via an OpenAI-compatible chat completions endpoint."""
+    """Call MiniMax via OpenAI- or Anthropic-compatible endpoints."""
     settings = _resolve_settings(settings)
 
     try:
@@ -387,17 +434,52 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
             detail="MINIMAX_API_BASE is not configured",
         )
 
-    payload: Dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.7,
-    }
+    api_flavor = str(getattr(settings, "MINIMAX_API_FLAVOR", "openai") or "")
+    api_flavor = api_flavor.strip().lower() or "openai"
+    if api_flavor not in {"openai", "anthropic"}:
+        raise HTTPException(
+            status_code=400,
+            detail="MINIMAX_API_FLAVOR must be one of: openai, anthropic",
+        )
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    url = f"{base_url}/chat/completions"
+    if api_flavor == "anthropic":
+        anthropic_messages, system_prompt = _normalize_messages_for_anthropic(
+            messages
+        )
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": anthropic_messages,
+            "temperature": 0.7,
+            "max_tokens": int(
+                getattr(settings, "MINIMAX_ANTHROPIC_MAX_TOKENS", 1024)
+            ),
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": str(
+                getattr(settings, "MINIMAX_ANTHROPIC_VERSION", "2023-06-01")
+                or "2023-06-01"
+            ),
+            "Content-Type": "application/json",
+        }
+        if base_url.endswith("/v1"):
+            url = f"{base_url}/messages"
+        else:
+            url = f"{base_url}/v1/messages"
+    else:
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.7,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        url = f"{base_url}/chat/completions"
+
     timeout = float(
         getattr(
             settings,
@@ -430,6 +512,11 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
 
     try:
         data = response.json()
+        if api_flavor == "anthropic":
+            text = _extract_anthropic_text(data)
+            if text:
+                return text
+            raise KeyError("content")
         return data["choices"][0]["message"]["content"]
     except Exception as exc:
         logger.exception("MiniMax backend response parse error")
