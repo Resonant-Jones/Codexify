@@ -152,6 +152,9 @@ def test_successful_mutating_task_creates_exactly_two_commits_and_persists_hashe
     by_type = {item["artifact_type"]: item for item in artifacts}
     assert by_type["commit_a_hash"]["content_json"]["hash"] == "commit-a-hash"
     assert by_type["commit_b_hash"]["content_json"]["hash"] == "commit-b-hash"
+    run_state = telemetry_store.get_run(run_id)
+    assert run_state is not None
+    assert run_state["status"] == "running"
 
     confidence_reports = telemetry_store.list_confidence_reports(run_id=run_id)
     scopes = [item["scope"] for item in confidence_reports]

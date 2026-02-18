@@ -20,14 +20,26 @@ class ClaudeCodeAdapter:
 
     def execute(self, request: AgentExecutionRequest) -> AgentRunEnvelope:
         cmd = [*_command_from_env(), request.prompt]
-        proc = subprocess.run(
-            cmd,
-            cwd=request.cwd or None,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=request.timeout_seconds,
-        )
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=request.cwd or None,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=request.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            return AgentRunEnvelope(
+                status="error",
+                summary="ClaudeCode adapter execution timed out",
+                artifacts=[],
+                next_actions=[],
+                errors=["timeout_expired"],
+                metrics={"timeout_seconds": request.timeout_seconds},
+                spec_alignment_ok=True,
+                schema_valid=False,
+            )
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
 
