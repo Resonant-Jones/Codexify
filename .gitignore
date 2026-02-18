@@ -143,3 +143,8 @@ hf_cache/
 **/.cache/torch/
 .cache/transformers/
 **/.cache/transformers/
+
+# Local artifacts
+boxbeyond-kutiraai/
+output/
+tmp/
