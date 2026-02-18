@@ -130,6 +130,19 @@ class Settings(BaseSettings):
         default=None,
         description="Base URL for MiniMax's OpenAI-compatible API endpoint.",
     )
+    MINIMAX_API_FLAVOR: str = Field(
+        default="openai",
+        description=(
+            "MiniMax API surface to use: 'openai' for /chat/completions or "
+            "'anthropic' for /v1/messages."
+        ),
+    )
+    MINIMAX_ANTHROPIC_VERSION: str = Field(
+        default="2023-06-01",
+        description=(
+            "Anthropic API version header used when MINIMAX_API_FLAVOR=anthropic."
+        ),
+    )
     MINIMAX_MODEL: str | None = Field(
         default=None,
         description="Optional default chat model for MiniMax.",
@@ -608,6 +621,14 @@ def validate_llm_config(
             raise LLMConfigError(
                 "LLM_PROVIDER is 'minimax' but required environment variable(s) are missing: "
                 f"{missing_text}. Set {missing_text} in your backend environment."
+            )
+        api_flavor = str(
+            getattr(settings, "MINIMAX_API_FLAVOR", "openai") or ""
+        )
+        api_flavor = api_flavor.strip().lower() or "openai"
+        if api_flavor not in {"openai", "anthropic"}:
+            raise LLMConfigError(
+                "MINIMAX_API_FLAVOR must be one of: openai, anthropic."
             )
         return
 
