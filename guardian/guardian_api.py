@@ -144,7 +144,7 @@ OUTBOX_TENANT_ID = normalize_outbox_tenant_id(
 from guardian.realtime import collaboration
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
-from guardian.routes import admin, agent, backfill
+from guardian.routes import admin, agent, agent_orchestration, backfill
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
     devtools,
@@ -239,8 +239,9 @@ async def app_lifespan(app: FastAPI):
         documents.configure_db(guardian_db)
         share.configure_db(guardian_db)
         websocket_routes.configure_db(guardian_db)
+        agent_orchestration.configure_db(guardian_db)
         logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/websocket routes"
+            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration routes"
         )
 
     # Configure durable outbox storage
@@ -518,6 +519,8 @@ app.include_router(devtools.router)
 app.include_router(websocket_routes.router)
 app.include_router(cron_routes.router)
 app.include_router(ui_session.router)
+app.include_router(agent_orchestration.router)
+app.include_router(agent_orchestration.chat_router)
 
 logger.info("[routers] All routers included")
 

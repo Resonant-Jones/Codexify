@@ -156,6 +156,58 @@ class Settings(BaseSettings):
     AGENT_TIMEOUT_SECONDS: int = Field(
         default=30, description="Timeout in seconds for agent execution."
     )
+    AGENT_MAX_ATTEMPTS: int = Field(
+        default=5,
+        description="Maximum retry attempts for mutating delegated steps.",
+    )
+    AGENT_MIN_ATTEMPTS_BEFORE_ABORT: int = Field(
+        default=2,
+        description=(
+            "Minimum attempts before early-abort retry heuristics may escalate."
+        ),
+    )
+    AGENT_NO_PROGRESS_WINDOW: int = Field(
+        default=2,
+        description=(
+            "Consecutive no-progress attempts required before early escalation."
+        ),
+    )
+    AGENT_MAX_SAME_SIGNATURE_REPEATS: int = Field(
+        default=2,
+        description=(
+            "Maximum repeated identical failure signatures before escalation."
+        ),
+    )
+    AGENT_REGRESSION_LIMIT: int = Field(
+        default=2,
+        description=(
+            "Maximum allowed regression in failing tests versus best-so-far attempt."
+        ),
+    )
+    AGENT_AUTO_ROLLBACK_ON_FAIL: bool = Field(
+        default=True,
+        description=(
+            "When true, failed runs auto-clean their worktree/branch unless escalated."
+        ),
+    )
+    AGENT_VALIDATOR_MODEL_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Enable optional validator pre-step for writing/improving tests."
+        ),
+    )
+    AGENT_REQUIRE_TWO_COMMITS: bool = Field(
+        default=True,
+        description=(
+            "Require exactly two commits for each successful mutating step."
+        ),
+    )
+    AGENT_VALIDATION_COMMIT_ALLOW_EMPTY: bool = Field(
+        default=True,
+        description=(
+            "Allow empty validation-boundary commit to avoid repository metadata churn."
+        ),
+    )
     PROVIDER_MAX_RETRIES: int = Field(
         default=3,
         description="Max retry attempts for provider requests (applies to local/openai/groq).",
