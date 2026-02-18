@@ -172,6 +172,22 @@ function resolveTimeoutMs(): number {
 
 const DEFAULT_TIMEOUT_MS = resolveTimeoutMs();
 
+function normalizePathSegment(value: string | number): string {
+  return encodeURIComponent(String(value).trim());
+}
+
+export function buildThreadDocumentsPath(threadId: string | number): string {
+  return `/documents/threads/${normalizePathSegment(threadId)}/documents`;
+}
+
+export function buildLlmCatalogPath(): string {
+  return "/llm/catalog";
+}
+
+export function buildChatCompletePath(threadId: string | number): string {
+  return `/chat/${normalizePathSegment(threadId)}/complete`;
+}
+
 /**
  * Central Axios instance for the frontend.
  * Reads `VITE_API_BASE_URL` at build time; defaults to "/api".

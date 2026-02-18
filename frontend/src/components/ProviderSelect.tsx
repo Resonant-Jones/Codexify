@@ -9,7 +9,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePreferredProvider } from "@/hooks/usePreferredProvider";
-import api from "@/lib/api";
+import api, { buildLlmCatalogPath } from "@/lib/api";
+import { setPreferredProviderSelection } from "@/lib/providerPref";
 
 type ProviderSelectProps = {
   value?: string;
@@ -59,8 +60,9 @@ export function ProviderSelect({
   const loadCatalog = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
+    const catalogPath = buildLlmCatalogPath();
     try {
-      const response = await api.get<{ providers?: CatalogProvider[] }>("/llm/catalog");
+      const response = await api.get<{ providers?: CatalogProvider[] }>(catalogPath);
       const rawProviders = Array.isArray(response?.data?.providers)
         ? response.data.providers
         : [];
@@ -107,9 +109,10 @@ export function ProviderSelect({
           ? previous
           : null
       );
-    } catch {
+    } catch (error) {
       setProviders([]);
-      setLoadError("Provider catalog unavailable.");
+      setLoadError("Provider catalog unavailable");
+      console.warn(`[providers] failed to load catalog from ${catalogPath}`, error);
     } finally {
       setLoading(false);
     }
@@ -165,30 +168,59 @@ export function ProviderSelect({
 
   const applySelection = useCallback(
     (modelId: string, providerId?: string | null) => {
+      const normalizedModel = String(modelId || "").trim() || "default";
+      const normalizedProvider = providerId ? String(providerId).trim() : null;
       if (onChange) {
-        if (providerId) {
-          setProvider(providerId);
-        } else if (modelId === "default") {
+        if (normalizedProvider) {
+          setProvider(normalizedProvider);
+          setPreferredProviderSelection({
+            provider: normalizedProvider,
+            model: normalizedModel === "default" ? null : normalizedModel,
+          });
+        } else if (normalizedModel === "default") {
           setProvider(null);
+          setPreferredProviderSelection(null);
+        } else {
+          const providerFromModel = providers.find((entry) =>
+            entry.models.some((model) => model.id === normalizedModel)
+          );
+          const providerValue = providerFromModel?.id || null;
+          if (providerValue) setProvider(providerValue);
+          setPreferredProviderSelection({
+            provider: providerValue,
+            model: normalizedModel,
+          });
         }
-        onChange(modelId);
+        onChange(normalizedModel);
         return;
       }
 
-      if (modelId === "default") {
+      if (normalizedModel === "default") {
         setProvider(null);
+        setPreferredProviderSelection(null);
         return;
       }
 
-      if (providerId) {
-        setProvider(providerId);
+      if (normalizedProvider) {
+        setProvider(normalizedProvider);
+        setPreferredProviderSelection({
+          provider: normalizedProvider,
+          model: normalizedModel,
+        });
         return;
       }
 
       const providerFromModel = providers.find((entry) =>
-        entry.models.some((model) => model.id === modelId)
+        entry.models.some((model) => model.id === normalizedModel)
       );
-      setProvider(providerFromModel?.id || modelId);
+      const providerValue = providerFromModel?.id || null;
+      if (providerValue) {
+        setProvider(providerValue);
+      }
+      setPreferredProviderSelection({
+        provider: providerValue,
+        model: normalizedModel,
+      });
     },
     [onChange, providers, setProvider]
   );
