@@ -10,6 +10,7 @@ vi.mock("@/lib/api", () => ({
   default: {
     get: vi.fn(),
   },
+  buildLlmCatalogPath: () => "/llm/catalog",
 }));
 
 vi.mock("@/hooks/usePreferredProvider", () => ({
@@ -169,5 +170,15 @@ describe("ProviderSelect catalog routing", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Groq" })).not.toBeInTheDocument();
     });
+  });
+
+  it("shows a visible error when the provider catalog request fails", async () => {
+    (api.get as any).mockRejectedValueOnce(new Error("network down"));
+
+    render(<ProviderSelect value="default" onChange={vi.fn()} openSignal={1} />);
+
+    expect(
+      await screen.findByText("Provider catalog unavailable")
+    ).toBeInTheDocument();
   });
 });
