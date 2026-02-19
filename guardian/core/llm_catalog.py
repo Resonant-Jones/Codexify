@@ -352,6 +352,11 @@ def _provider_entry(
     available, disabled_reason = _provider_availability(
         provider_id, settings, authorized
     )
+    # Keep MiniMax hidden in the default catalog whenever policy gates
+    # (cloud/local-only/egress) make it unusable.
+    if not include_all and provider_id == "minimax" and not available:
+        return None
+
     enabled = bool(available) and bool(authorized)
     if provider_id == "local":
         enabled = bool(available)
