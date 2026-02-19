@@ -1,9 +1,12 @@
 import heapq
 import json
+import logging
 from collections import defaultdict
 
 import faiss
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from .utils import (
     OpenAIClient,
@@ -82,7 +85,7 @@ class MidTermMemory:
             return
 
         lfu_sid = min(self.access_frequency, key=self.access_frequency.get)
-        print(
+        logger.info(
             f"MidTermMemory: LFU eviction. Session {lfu_sid} has lowest access frequency."
         )
 
@@ -113,7 +116,7 @@ class MidTermMemory:
 
         self.rebuild_heap()
         self.save()
-        print(f"MidTermMemory: Evicted session {lfu_sid}.")
+        logger.info(f"MidTermMemory: Evicted session {lfu_sid}.")
 
     def add_session(self, summary, details):
         session_id = generate_id("session")
@@ -170,7 +173,7 @@ class MidTermMemory:
             self.heap, (-session_obj["H_segment"], session_id)
         )  # Use negative heat for max-heap behavior
 
-        print(
+        logger.info(
             f"MidTermMemory: Added new session {session_id}. Initial heat: {session_obj['H_segment']:.2f}."
         )
         if len(self.sessions) > self.max_capacity:
@@ -196,7 +199,7 @@ class MidTermMemory:
         keyword_similarity_alpha=1.0,
     ):
         if not self.sessions:  # If no existing sessions, just add as a new one
-            print(
+            logger.info(
                 "MidTermMemory: No existing sessions. Adding new session directly."
             )
             return self.add_session(summary_for_new_pages, pages_to_insert)
@@ -236,7 +239,7 @@ class MidTermMemory:
                 best_sid = sid
 
         if best_sid and best_overall_score >= similarity_threshold:
-            print(
+            logger.info(
                 f"MidTermMemory: Merging pages into session {best_sid}. Score: {best_overall_score:.2f} (Threshold: {similarity_threshold})"
             )
             target_session = self.sessions[best_sid]
@@ -272,7 +275,7 @@ class MidTermMemory:
             self.save()
             return best_sid
         else:
-            print(
+            logger.info(
                 f"MidTermMemory: No suitable session to merge (best score {best_overall_score:.2f} < threshold {similarity_threshold}). Creating new session."
             )
             return self.add_session(summary_for_new_pages, pages_to_insert)
@@ -412,7 +415,7 @@ class MidTermMemory:
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(data_to_save, f, ensure_ascii=False, indent=2)
         except OSError as e:
-            print(f"Error saving MidTermMemory to {self.file_path}: {e}")
+            logger.error(f"Error saving MidTermMemory to {self.file_path}: {e}")
 
     def load(self):
         try:
@@ -423,18 +426,18 @@ class MidTermMemory:
                     int, data.get("access_frequency", {})
                 )
                 self.rebuild_heap()  # Rebuild heap from loaded sessions
-            print(
+            logger.info(
                 f"MidTermMemory: Loaded from {self.file_path}. Sessions: {len(self.sessions)}."
             )
         except FileNotFoundError:
-            print(
+            logger.info(
                 f"MidTermMemory: No history file found at {self.file_path}. Initializing new memory."
             )
         except json.JSONDecodeError:
-            print(
+            logger.info(
                 f"MidTermMemory: Error decoding JSON from {self.file_path}. Initializing new memory."
             )
         except Exception as e:
-            print(
+            logger.error(
                 f"MidTermMemory: An unexpected error occurred during load from {self.file_path}: {e}. Initializing new memory."
             )

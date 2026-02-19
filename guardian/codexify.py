@@ -19,23 +19,23 @@ def save_alias_map(alias_map, path):
 
 
 def prompt_for_aliases(record_keys, canonical_keys):
-    print("\n🪄 Alias Mapping Wizard — Give your fields magical nicknames!\n")
+    logger.info("Alias Mapping Wizard — Give your fields magical nicknames!")
     alias_map = {}
     for k in record_keys:
         if k in canonical_keys:
             alias_map[k] = k
             continue
         suggestion = k.replace("_", " ").title()
-        print(f"Original field: '{k}' — Suggestion: [{suggestion}]")
+        logger.info(f"Original field: '{k}' — Suggestion: [{suggestion}]")
         dest = input(
             f"What alias should '{k}' map to? (press Enter for '{suggestion}'): "
         ).strip()
         if not dest:
             dest = suggestion
         alias_map[k] = dest
-    print("\nFinal alias map:")
+    logger.info("Final alias map:")
     for src, dest in alias_map.items():
-        print(f"  {src} → {dest}")
+        logger.info(f"  {src} -> {dest}")
     save = (
         input("\nSave this alias map for future use? [y/N]: ").strip().lower()
         == "y"
@@ -46,7 +46,7 @@ def prompt_for_aliases(record_keys, canonical_keys):
             "Enter filename to save alias map (e.g., my_aliases.json): "
         ).strip()
         save_alias_map(alias_map, path)
-        print(f"Alias map saved to {path}")
+        logger.info(f"Alias map saved to {path}")
     return alias_map
 
 
@@ -63,30 +63,30 @@ def apply_alias_map(records, alias_map):
 
 
 def prompt_for_sanctum_name():
-    print("\nNo parent page specified for your Codex.")
-    print(
+    logger.info("No parent page specified for your Codex.")
+    logger.info(
         "Would you like to create a new home base for your Guardian's archives?"
     )
     name = input(
-        "What shall we name your new sanctum? (press Enter for ‘Guardian Root’): "
+        "What shall we name your new sanctum? (press Enter for 'Guardian Root'): "
     ).strip()
     if not name:
         name = "Guardian Root"
-    print(f"Sanctum will be named: '{name}'")
+    logger.info(f"Sanctum will be named: '{name}'")
     return name
 
 
 def prompt_for_db_name(default_title):
-    print("\nTime to name your new database (Codex)!")
+    logger.info("Time to name your new database (Codex)!")
     name = input(f"Enter a name (press Enter for '{default_title}'): ").strip()
     return name or default_title
 
 
 def prompt_for_page_id():
-    print(
-        "\n⚠️  Notion API requires a parent page for all new pages/databases."
+    logger.warning(
+        "Notion API requires a parent page for all new pages/databases."
     )
-    print(
+    logger.warning(
         "Create a 'Guardian Home' page in Notion, share it with your integration, then paste its Page ID below."
     )
     page_id = input(
@@ -127,18 +127,18 @@ def save_field_map(fieldmap, path):
 
 
 def prompt_for_fieldmap(record_keys, notion_columns):
-    print("\n🧭 Field Mapping Wizard — Guide your chaos!\n")
+    logger.info("Field Mapping Wizard — Guide your chaos!")
     fieldmap = {}
     for rk in record_keys:
         if rk in notion_columns:
             fieldmap[rk] = {"column": rk, "type": None}
             continue
-        print(f"\nRecord field: '{rk}' does not match any Notion column.")
-        print(f"Available Notion columns: {list(notion_columns)}")
+        logger.info(f"Record field: '{rk}' does not match any Notion column.")
+        logger.info(f"Available Notion columns: {list(notion_columns)}")
         # Offer creative suggestions
         alt1 = rk.replace("_", " ").title()
         alt2 = f"{rk}_field"
-        print(f"Suggestions: [{rk}] [{alt1}] [{alt2}]")
+        logger.info(f"Suggestions: [{rk}] [{alt1}] [{alt2}]")
         dest = input(
             f"Map '{rk}' to which Notion column? (choose or enter your own): "
         ).strip()
@@ -151,9 +151,9 @@ def prompt_for_fieldmap(record_keys, notion_columns):
             or None
         )
         fieldmap[rk] = {"column": dest, "type": col_type}
-    print("\nFinal mapping:")
+    logger.info("Final mapping:")
     for src, v in fieldmap.items():
-        print(
+        logger.info(
             f"  {src} -> {v['column']}"
             + (f" [{v['type']}]" if v["type"] else "")
         )
@@ -169,7 +169,7 @@ def prompt_for_fieldmap(record_keys, notion_columns):
             "Enter filename to save field map (e.g., my_fieldmap.json): "
         ).strip()
         save_field_map(fieldmap, path)
-        print(f"Mapping saved to {path}")
+        logger.info(f"Mapping saved to {path}")
     return fieldmap
 
 
@@ -180,9 +180,12 @@ class CodexifyError(Exception):
 import argparse
 import datetime
 import json
+import logging
 import os
 
 import jinja2
+
+logger = logging.getLogger(__name__)
 
 
 def export_notion_database_to_json(db_id, notion_token, out_file):
@@ -193,7 +196,7 @@ def export_notion_database_to_json(db_id, notion_token, out_file):
     try:
         db = client.databases.retrieve(db_id)
     except Exception as e:
-        print(f"❌ Failed to retrieve Notion database {db_id}: {e}")
+        logger.error(f"Failed to retrieve Notion database {db_id}: {e}")
         sys.exit(1)
     # Fetch all rows (pagination)
     results = []
@@ -242,8 +245,8 @@ def export_notion_database_to_json(db_id, notion_token, out_file):
     as_dicts = [notion_row_to_dict(row) for row in results]
     with open(out_file, "w") as f:
         json.dump(as_dicts, f, indent=2)
-    print(
-        f"✅ Exported {len(as_dicts)} records from Notion database {db_id} to {out_file}"
+    logger.info(
+        f"Exported {len(as_dicts)} records from Notion database {db_id} to {out_file}"
     )
 
 
@@ -263,7 +266,7 @@ def get_or_create_page(client, parent_title, notion_token):
             and res["properties"]["title"]["title"][0]["plain_text"]
             == parent_title
         ):
-            print(f"Found existing Notion page: {parent_title}")
+            logger.info(f"Found existing Notion page: {parent_title}")
             return res["id"]
     # If not found, create at workspace root
     page = client.pages.create(
@@ -272,7 +275,7 @@ def get_or_create_page(client, parent_title, notion_token):
             "title": [{"type": "text", "text": {"content": parent_title}}]
         },
     )
-    print(f"Created new Notion page: {parent_title}")
+    logger.info(f"Created new Notion page: {parent_title}")
     return page["id"]
 
 
@@ -318,7 +321,7 @@ def add_records_to_notion_database(records, db_id, notion_token, fieldmap=None):
                         ]
                     }
         client.pages.create(parent={"database_id": db_id}, properties=props)
-    print(f"Seeded database with {len(records)} records.")
+    logger.info(f"Seeded database with {len(records)} records.")
 
 
 def codexify_database_cli_wrapper():
@@ -439,8 +442,8 @@ def codexify_database_cli_wrapper():
 
     if hasattr(args, "command") and args.command == "export":
         if not args.token or not args.token.startswith("ntn_"):
-            print(
-                "❌ Notion API key not set or invalid. Set NOTION_API_KEY in your .env or use --token."
+            logger.error(
+                "Notion API key not set or invalid. Set NOTION_API_KEY in your .env or use --token."
             )
             import sys
 
@@ -462,14 +465,14 @@ def codexify_database_cli_wrapper():
                     "Enter your Notion API key (starts with 'ntn_'): "
                 ).strip()
             if not notion_token or not notion_token.startswith("ntn_"):
-                print(
-                    "❌ Notion API key not set or invalid. Set NOTION_API_KEY in your .env or use --token."
+                logger.error(
+                    "Notion API key not set or invalid. Set NOTION_API_KEY in your .env or use --token."
                 )
                 sys.exit(1)
 
             # Notion client
             client = Client(auth=notion_token)
-            print("\n🔍 Fetching databases shared with your integration...")
+            logger.info("Fetching databases shared with your integration...")
             dbs = []
             next_cursor = None
             while True:
@@ -482,11 +485,11 @@ def codexify_database_cli_wrapper():
                 if not next_cursor:
                     break
             if not dbs:
-                print(
-                    "❌ No Notion databases found. Make sure you have shared at least one database with your integration."
+                logger.error(
+                    "No Notion databases found. Make sure you have shared at least one database with your integration."
                 )
                 sys.exit(1)
-            print("\nAvailable Notion databases:")
+            logger.info("Available Notion databases:")
             db_choices = []
             for i, db in enumerate(dbs):
                 title = ""
@@ -499,7 +502,7 @@ def codexify_database_cli_wrapper():
                 except Exception:
                     title = "(Untitled)"
                 db_choices.append((db["id"], title))
-                print(f"  [{i+1}] {title} (ID: {db['id']})")
+                logger.info(f"  [{i+1}] {title} (ID: {db['id']})")
             sel = input(
                 "\nSelect a database by number, or paste a Notion database ID: "
             ).strip()
@@ -510,11 +513,11 @@ def codexify_database_cli_wrapper():
                 db_id = sel
                 db_title = "(Custom DB ID)"
             # Fetch DB schema and rows
-            print("\nFetching database schema and records from Notion...")
+            logger.info("Fetching database schema and records from Notion...")
             try:
                 db_schema = client.databases.retrieve(db_id)
             except Exception as e:
-                print(f"❌ Failed to retrieve database: {e}")
+                logger.error(f"Failed to retrieve database: {e}")
                 sys.exit(1)
             # Get Notion columns
             notion_columns = list(db_schema["properties"].keys())
@@ -562,7 +565,9 @@ def codexify_database_cli_wrapper():
             preview_rows = []
             next_cursor = None
             preview_count = 0
-            print(f"\nPreviewing first {args.preview} records from Notion...")
+            logger.info(
+                f"Previewing first {args.preview} records from Notion..."
+            )
             while preview_count < args.preview:
                 resp = client.databases.query(
                     db_id,
@@ -578,15 +583,15 @@ def codexify_database_cli_wrapper():
             flat_preview = [flatten_row(row) for row in preview_rows]
             if flat_preview:
                 for i, rec in enumerate(flat_preview):
-                    print(f"\n--- Record {i+1} ---")
+                    logger.info(f"--- Record {i+1} ---")
                     for k in notion_columns:
-                        print(f"{k}: {rec.get(k, '')}")
+                        logger.info(f"{k}: {rec.get(k, '')}")
             else:
-                print("No records found in this database.")
+                logger.info("No records found in this database.")
             # Prompt for alias/field mapping
             # Use first record as sample
             if not flat_preview:
-                print("Nothing to import (no records).")
+                logger.info("Nothing to import (no records).")
                 sys.exit(0)
             sample_keys = list(flat_preview[0].keys())
             # Alias mapping
@@ -609,14 +614,14 @@ def codexify_database_cli_wrapper():
                     ).strip()
                     if path:
                         save_alias_map(alias_map, path)
-                        print(f"Alias map saved to {path}")
+                        logger.info(f"Alias map saved to {path}")
                 if fieldmap:
                     path = input(
                         "Save field map as (filename)? (blank to skip): "
                     ).strip()
                     if path:
                         save_field_map(fieldmap, path)
-                        print(f"Field map saved to {path}")
+                        logger.info(f"Field map saved to {path}")
             # Confirm import
             confirm = (
                 input("\nReady to import records into Guardian? [y/N]: ")
@@ -624,10 +629,10 @@ def codexify_database_cli_wrapper():
                 .lower()
             )
             if confirm != "y":
-                print("Aborted.")
+                logger.info("Aborted.")
                 sys.exit(0)
             # Fetch ALL records for import
-            print("\nFetching all records from Notion for import...")
+            logger.info("Fetching all records from Notion for import...")
             all_rows = []
             next_cursor = None
             while True:
@@ -654,7 +659,7 @@ def codexify_database_cli_wrapper():
                     new_rec[dest] = v
                 mapped_records.append(new_rec)
             # Import to Guardian DB
-            print("\nImporting records into Guardian's SQLite DB...")
+            logger.info("Importing records into Guardian's SQLite DB...")
             try:
                 # Defensive: Import GuardianDB here
                 try:
@@ -665,8 +670,8 @@ def codexify_database_cli_wrapper():
                     except Exception:
                         GuardianDB = None
                 if "GuardianDB" not in locals() or GuardianDB is None:
-                    print(
-                        "❌ GuardianDB module/class not found. Please ensure GuardianDB is available in your environment."
+                    logger.error(
+                        "GuardianDB module/class not found. Please ensure GuardianDB is available in your environment."
                     )
                     sys.exit(1)
                 db = GuardianDB()
@@ -674,24 +679,24 @@ def codexify_database_cli_wrapper():
                 for idx, rec in enumerate(mapped_records):
                     db.insert_record(rec)
                     if (idx + 1) % 25 == 0:
-                        print(
+                        logger.info(
                             f"  Imported {idx+1}/{len(mapped_records)} records..."
                         )
                     imported += 1
-                print(
-                    f"\n✅ Import complete! {imported} records imported into Guardian DB."
+                logger.info(
+                    f"Import complete! {imported} records imported into Guardian DB."
                 )
             except Exception as e:
-                print(f"❌ Error during import: {e}")
+                logger.error(f"Error during import: {e}")
                 if getattr(args, "verbose", False):
                     import traceback
 
                     traceback.print_exc()
                 sys.exit(1)
-            print("🎉 All done! Your Notion database is now in Guardian.")
+            logger.info("All done! Your Notion database is now in Guardian.")
             sys.exit(0)
         except Exception as e:
-            print(f"❌ Unexpected error: {e}")
+            logger.error(f"Unexpected error: {e}")
             if getattr(args, "verbose", False):
                 import traceback
 
@@ -701,8 +706,8 @@ def codexify_database_cli_wrapper():
 
     if args.command != "create":
         parser.print_help()
-        print(
-            "⚠️  All Notion exports require a valid parent page ID. Create and share a home base page with your integration, then use its ID for all Codex/database operations."
+        logger.warning(
+            "All Notion exports require a valid parent page ID. Create and share a home base page with your integration, then use its ID for all Codex/database operations."
         )
         import sys
 
@@ -801,10 +806,10 @@ def codexify_database_cli_wrapper():
         except Exception as e:
             if "permission" in str(e).lower():
                 raise CodexifyError(
-                    "❌ Notion permission error. Did you share the parent page with your integration?\nSee: https://www.notion.so/my-integrations"
+                    "Notion permission error. Did you share the parent page with your integration? See: https://www.notion.so/my-integrations"
                 )
-            raise CodexifyError(f"❌ Notion API error: {e}")
-        print(f"✅ Database created! ID: {db_id}")
+            raise CodexifyError(f"Notion API error: {e}")
+        logger.info(f"Database created! ID: {db_id}")
 
         if args.seed:
             fieldmap = None
@@ -823,19 +828,19 @@ def codexify_database_cli_wrapper():
                 add_records_to_notion_database(
                     records, db_id, args.token, fieldmap=fieldmap
                 )
-                print("✅ Database seeded with all records.")
+                logger.info("Database seeded with all records.")
             except Exception as e:
-                raise CodexifyError(f"❌ Failed to seed database: {e}")
+                raise CodexifyError(f"Failed to seed database: {e}")
 
     except CodexifyError as ce:
-        print(str(ce))
+        logger.error(str(ce))
         if getattr(args, "verbose", False):
             import traceback
 
             traceback.print_exc()
         exit(1)
     except Exception as e:
-        print("❌ Unexpected error:", e)
+        logger.error(f"Unexpected error: {e}")
         if getattr(args, "verbose", False):
             import traceback
 
@@ -1133,8 +1138,8 @@ def create_notion_database_from_records(
         with open("my_fieldmap.json") as f:
             fieldmap = json.load(f)
     properties = build_notion_db_properties_from_fieldmap(fieldmap, records[0])
-    print(
-        f"\nDEBUG: Notion DB schema to be created:\n{json.dumps(properties, indent=2)}"
+    logger.debug(
+        f"Notion DB schema to be created:\n{json.dumps(properties, indent=2)}"
     )
 
     db_payload = {
@@ -1172,7 +1177,7 @@ def create_notion_database_from_records(
 
     db = client.databases.create(**db_payload)
     db_id = db["id"]
-    print(f"Created Notion database '{db_title}' with ID: {db_id}")
+    logger.info(f"Created Notion database '{db_title}' with ID: {db_id}")
 
     return db_id
 
@@ -1189,7 +1194,7 @@ def extract_fragments_from_entry(entry_path, fragments_path):
     import yaml
 
     if not os.path.exists(entry_path):
-        print(f"❌ Entry file not found: {entry_path}")
+        logger.error(f"Entry file not found: {entry_path}")
         return
     with open(entry_path) as f:
         lines = f.readlines()
@@ -1214,7 +1219,7 @@ def extract_fragments_from_entry(entry_path, fragments_path):
             )
 
     if not fragments:
-        print("⚠️  No fragments found.")
+        logger.warning("No fragments found.")
         return
 
     if not os.path.exists(fragments_path):
@@ -1229,7 +1234,7 @@ def extract_fragments_from_entry(entry_path, fragments_path):
     with open(fragments_path, "w") as f:
         yaml.dump(existing, f, default_flow_style=False)
 
-    print(f"✅ Extracted {len(fragments)} fragments to {fragments_path}")
+    logger.info(f"Extracted {len(fragments)} fragments to {fragments_path}")
 
 
 # --- Codexify CLI Tool ---
@@ -1259,7 +1264,7 @@ def main():
 
     if args.init:
         ensure_structure(args.path)
-        print(f"🌱 Codexify vault initialized at {args.path}")
+        logger.info(f"Codexify vault initialized at {args.path}")
 
     if args.new_entry:
         create_entry(args.path, args.new_entry, args.tags)
@@ -1301,7 +1306,7 @@ Write your memory here.
 """
     with open(filename, "w") as f:
         f.write(content)
-    print(f"✅ Entry created: {filename}")
+    logger.info(f"Entry created: {filename}")
 
 
 if __name__ == "__main__":

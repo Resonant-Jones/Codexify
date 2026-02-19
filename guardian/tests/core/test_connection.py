@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -6,6 +7,12 @@ from dotenv import load_dotenv
 from neomodel import db
 
 from guardian.graph.connection import connect_neo4j
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 def _load_env():
@@ -37,9 +44,9 @@ def test_connection():
         connect_neo4j()
         results, meta = db.cypher_query("RETURN 1 AS result")
         if results[0][0] == 1:
-            print("✅ Neo4j connection successful.")
+            logger.info("Neo4j connection successful.")
         else:
-            print("⚠️ Unexpected result from test query.")
+            logger.warning("Unexpected result from test query.")
     except Exception as e:
         pytest.skip(f"Neo4j not available: {e}")
 

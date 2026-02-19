@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from collections import defaultdict
 from typing import Any, Iterable
@@ -15,6 +16,8 @@ from sqlalchemy.engine import Engine, create_engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.vector_store import DEFAULT_NAMESPACE
+
+logger = logging.getLogger(__name__)
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -91,7 +94,7 @@ def migrate(args: argparse.Namespace) -> None:
     errors = 0
     per_namespace: dict[str, int] = defaultdict(int)
 
-    print("Starting migration from pgvector to Chroma...")
+    logger.info("Starting migration from pgvector to Chroma...")
     try:
         for batch in iter_embeddings(engine, args.batch_size):
             for record in batch:
@@ -112,24 +115,24 @@ def migrate(args: argparse.Namespace) -> None:
                     per_namespace[namespace] += 1
                 except Exception as exc:  # pragma: no cover - defensive logging
                     errors += 1
-                    print(
+                    logger.error(
                         f"Failed to import {record['id']} (namespace={namespace}): {exc}"
                     )
             if imported and imported % 250 == 0:
-                print(f"Imported {imported} embeddings so far...")
+                logger.info(f"Imported {imported} embeddings so far...")
     except SQLAlchemyError as exc:
         raise SystemExit(
             f"Database error while exporting embeddings: {exc}"
         ) from exc
 
-    print("Migration completed.")
-    print(f"Total imported: {imported}")
+    logger.info("Migration completed.")
+    logger.info(f"Total imported: {imported}")
     if errors:
-        print(f"Errors: {errors} (review log output above)")
+        logger.warning(f"Errors: {errors} (review log output above)")
     if per_namespace:
-        print("By namespace:")
+        logger.info("By namespace:")
         for namespace, count in sorted(per_namespace.items()):
-            print(f"  - {namespace}: {count}")
+            logger.info(f"  - {namespace}: {count}")
 
 
 def main() -> None:

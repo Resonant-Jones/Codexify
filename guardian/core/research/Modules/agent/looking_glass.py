@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import datetime
+import logging
 import os
 from datetime import UTC
 from typing import Optional
@@ -10,6 +11,8 @@ import yaml
 from guardian.core.research.Modules.agent.search import SearchAgent
 from guardian.core.utils.hybrid_router import HybridRouter
 from guardian.core.utils.markdown_extract import extract_json_from_markdown
+
+logger = logging.getLogger(__name__)
 
 
 # --- Model backend router ---
@@ -99,7 +102,7 @@ if __name__ == "__main__":
         model_name = args.model
     else:
         model_name, _ = HybridRouter.get_model(task_type="research")
-        print(f"[Router] Using model: {model_name}")
+        logger.info(f"[Router] Using model: {model_name}")
 
     backend = get_model_backend(model_name)
 
@@ -122,11 +125,11 @@ if __name__ == "__main__":
         ModelClass = ollama.Ollama
 
     if backend == "local":
-        print("[Router] Using local model backend")
+        logger.info("[Router] Using local model backend")
         model_instance = ModelClass(model_name)
         agent = LookingGlassAgent(model=model_instance)
     else:
-        print("[Router] Using remote planner backend")
+        logger.info("[Router] Using remote planner backend")
         from guardian.core.research.Modules.agent.remote_planner import (
             RemotePlannerAgent,
         )
@@ -147,21 +150,21 @@ if __name__ == "__main__":
                     try:
                         planner_tasks = json.loads(extracted)
                     except json.JSONDecodeError:
-                        print(
-                            "[ERROR] Failed to parse extracted JSON block from planner output."
+                        logger.error(
+                            "Failed to parse extracted JSON block from planner output."
                         )
-                        print(extracted)
+                        logger.error(extracted)
                         planner_tasks = []
                 else:
-                    print("[ERROR] No JSON block found in planner output.")
-                    print(planner_output)
+                    logger.error("No JSON block found in planner output.")
+                    logger.error(planner_output)
                     planner_tasks = []
         else:
             planner_tasks = planner_output
 
         if not planner_tasks:
-            print("[ERROR] Planner returned no valid tasks. Raw output:")
-            print(planner_output)
+            logger.error("Planner returned no valid tasks. Raw output:")
+            logger.error(planner_output)
             return
 
         results = []
@@ -171,7 +174,7 @@ if __name__ == "__main__":
                 task1 = planner_tasks[i]
                 task2 = planner_tasks[i + 1]
             except (IndexError, KeyError) as e:
-                print(f"[ERROR] Task indexing issue at index {i}: {e}")
+                logger.error(f"Task indexing issue at index {i}: {e}")
                 break
 
             if (
@@ -191,7 +194,7 @@ if __name__ == "__main__":
                 )
                 i += 2
             else:
-                print(
+                logger.warning(
                     f"Unexpected task pair at index {i}: {task1['tool']} then {task2['tool']}"
                 )
                 i += 1
@@ -206,9 +209,9 @@ if __name__ == "__main__":
             generated_by="lookingglass",
             tags=[],
         )
-        print(f"Markdown log saved to: {log_path}")
+        logger.info(f"Markdown log saved to: {log_path}")
 
         with open(log_path, encoding="utf-8") as f:
-            print(f.read())
+            logger.info(f.read())
 
     asyncio.run(run_agent())

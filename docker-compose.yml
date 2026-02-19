@@ -63,7 +63,7 @@ services:
       neo4j:
         condition: service_healthy
     restart: "no"
-    entrypoint: ["sh", "-lc"]
+    entrypoint: ["/bin/sh", "-lc"]
     command:
       - |-
         set -e
@@ -89,7 +89,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
-    entrypoint: ["sh", "-lc"]
+    entrypoint: ["/bin/sh", "-lc"]
     depends_on:
       db:
         condition: service_healthy
@@ -225,7 +225,7 @@ services:
       dockerfile: backend/Dockerfile
     working_dir: /app
     entrypoint:
-      - sh
+      - /bin/sh
       - -lc
     ports: ["8888:8888"]
     healthcheck:
@@ -389,7 +389,7 @@ services:
       dockerfile: backend/Dockerfile
     working_dir: /app
     entrypoint:
-      - sh
+      - /bin/sh
       - -lc
     depends_on:
       redis:
@@ -440,7 +440,7 @@ services:
       dockerfile: backend/Dockerfile
     working_dir: /app
     entrypoint:
-      - sh
+      - /bin/sh
       - -lc
     depends_on:
       redis:
@@ -491,7 +491,7 @@ services:
       dockerfile: backend/Dockerfile
     working_dir: /app
     entrypoint:
-      - sh
+      - /bin/sh
       - -lc
     depends_on:
       redis:
@@ -546,7 +546,7 @@ services:
       dockerfile: backend/Dockerfile
     working_dir: /app
     entrypoint:
-      - sh
+      - /bin/sh
       - -lc
     depends_on:
       redis:
@@ -603,7 +603,7 @@ services:
     profiles:
       - backfill
     entrypoint:
-      - sh
+      - /bin/sh
       - -lc
     depends_on:
       db:
@@ -657,7 +657,7 @@ services:
     profiles:
       - backfill
     entrypoint:
-      - sh
+      - /bin/sh
       - -lc
     depends_on:
       db:
@@ -706,7 +706,7 @@ services:
     profiles:
       - cli
     entrypoint:
-      - sh
+      - /bin/sh
       - -lc
     environment:
       LANG: C.UTF-8
@@ -766,7 +766,7 @@ services:
     ports: ["8000:8000"]
     restart: unless-stopped
     command:
-      - sh
+      - /bin/sh
       - -lc
       - |
         set -e
@@ -831,9 +831,11 @@ services:
         echo "[TTS] Starting local TTS service..."
         exec uvicorn backend.tts_service.app:app --host 0.0.0.0 --port 8000
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    # NOTE: We run the dev UI using an official Node image so we always have /bin/sh.
+    # This avoids breakage if the local ./frontend Dockerfile was refactored into a distroless image.
+    image: node:20-alpine
+    pull_policy: always
+    working_dir: /app
     ports: ["5173:5173"]
     volumes:
       - ./frontend:/app
@@ -841,30 +843,30 @@ services:
       - /app/src/node_modules
     env_file: .env
     environment:
-      # Ensure pnpm installs modules inside the container mount and skips heavy postinstall scripts
       VITE_PROXY_TARGET: http://backend:8888
       VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY}"
-      # Local-first defaults for the UI (backend still enforces actual routing)
-      # Match backend-supported provider id while still pointing at Ollama.
       VITE_DEFAULT_LLM_PROVIDER: "local"
       VITE_DEFAULT_EMBED_PROVIDER: "local"
-      PNPM_HOME: /app
       PNPM_CONFIG_IGNORE_SCRIPTS: "true"
       CI: "true"
-      # Stabilize file watching inside Docker on macOS/Windows
       CHOKIDAR_USEPOLLING: "true"
+    entrypoint: ["sh", "-lc"]
     command:
-      - sh
-      - -lc
       - |
         set -e
+        echo "[Frontend] Enabling pnpm via corepack..."
+        corepack enable
+        corepack prepare pnpm@9.12.1 --activate
+
         echo "[Frontend] Installing root deps..."
         pnpm install --frozen-lockfile=false --ignore-scripts || pnpm install --ignore-scripts
+
         echo "[Frontend] Installing src deps..."
         pnpm --dir src install --frozen-lockfile=false --ignore-scripts || pnpm --dir src install --ignore-scripts
+
         echo "[Frontend] Starting Vite dev server..."
         cd /app/src
-        exec npx vite dev --host 0.0.0.0 --port 5173
+        exec pnpm exec vite dev --host 0.0.0.0 --port 5173
 
   e2e:
     image: mcr.microsoft.com/playwright:v1.56.1-jammy

@@ -1,6 +1,14 @@
 import ast
 import json
+import logging
 import os
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 
@@ -51,7 +59,7 @@ def generate_codemap():
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(codemap, f, indent=2)
 
-    print(f"Codemap written to {output_path}")
+    logger.info(f"Codemap written to {output_path}")
     return codemap
 
 

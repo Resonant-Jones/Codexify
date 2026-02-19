@@ -8,6 +8,9 @@ This is not your average CLI. This is the backbone of automation and background 
 """
 
 import argparse
+import logging
+
+logger = logging.getLogger(__name__)
 
 from guardian_rituals import (  # In the future: import_from_drive_with_progress, etc.
     RITUAL_JOBS,
@@ -30,8 +33,8 @@ def cli_seed_notion(args):
         db_id=db_id,
         notion_token=notion_token,
     )
-    print(f"✨ Summoned Ritual Job: {job_id}")
-    print(
+    logger.info(f"Summoned Ritual Job: {job_id}")
+    logger.info(
         "Use 'ritual_cli.py ritual-status --job-id <id>' to check the progress of your magic."
     )
 
@@ -39,15 +42,15 @@ def cli_seed_notion(args):
 def cli_ritual_status(args):
     job = RITUAL_JOBS.get(args.job_id)
     if not job:
-        print("No such ritual in progress.")
+        logger.warning("No such ritual in progress.")
         return
-    print(
+    logger.info(
         f"Job {job.job_id}: {job.state} {job.current}/{job.total} ({job.description})"
     )
     if job.state == "failed":
-        print(f"Error: {job.error}")
+        logger.error(f"Error: {job.error}")
     elif job.state == "done":
-        print("Result:", job.result)
+        logger.info(f"Result: {job.result}")
 
 
 if __name__ == "__main__":

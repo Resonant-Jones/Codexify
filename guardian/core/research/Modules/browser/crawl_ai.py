@@ -38,6 +38,7 @@ except Exception:  # pragma: no cover - missing attributes or old package
 
 
 import json
+import logging
 import os
 
 import requests
@@ -47,6 +48,8 @@ from pydantic import BaseModel, Field
 
 from ..model import Model
 from ..RAG.summary import Summary
+
+logger = logging.getLogger(__name__)
 
 
 class Crawl:
@@ -154,7 +157,7 @@ class Crawl:
                     response = await summary.append(content)
                     summary.append(response)
                 except Exception as e:
-                    print("Handling pdf error: ", e)
+                    logger.warning("Handling pdf error: %s", e)
                 # current not support pdf first
                 url.remove(u)
 
@@ -306,7 +309,7 @@ class Crawl:
             return start == b"%PDF-"
 
         except requests.RequestException as e:
-            print(f"Request failed: {e}")
+            logger.warning("Request failed: %s", e)
             return False
 
     def search_content(self):

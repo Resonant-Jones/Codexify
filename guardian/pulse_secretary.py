@@ -1,5 +1,13 @@
 import datetime
+import logging
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 # Placeholder for future Gmail and Google Calendar APIs
 # You can later plug in Google's official client libraries here.
@@ -53,15 +61,15 @@ def log_to_codex(data, source):
                 f"- **Summary**: {item.get('summary', item.get('notes', 'No notes'))}\n"
             )
             f.write(f"- **Tags**: {', '.join(item.get('tags', []))}\n\n")
-    print(f"📝 Logged {source} entries to {filename}")
+    logger.info("Logged %s entries to %s", source, filename)
 
 
 def run_secretary():
-    print("📥 Fetching Gmail data...")
+    logger.info("Fetching Gmail data...")
     gmail = mock_fetch_gmail()
     log_to_codex(gmail, "gmail")
 
-    print("📅 Fetching Calendar data...")
+    logger.info("Fetching Calendar data...")
     calendar = mock_fetch_calendar()
     log_to_codex(calendar, "calendar")
 

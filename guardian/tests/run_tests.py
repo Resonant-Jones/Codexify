@@ -104,21 +104,21 @@ class TestReport:
 
     def print_summary(self) -> None:
         """Print test execution summary."""
-        print("\n=== Test Execution Summary ===")
-        print(f"Total Tests: {self.summary['total']}")
-        print(f"Passed: {self.summary['passed']}")
-        print(f"Failed: {self.summary['failed']}")
-        print(f"Errors: {self.summary['error']}")
-        print(f"Total Duration: {self.total_duration:.2f}s")
+        logger.info("\n=== Test Execution Summary ===")
+        logger.info(f"Total Tests: {self.summary['total']}")
+        logger.info(f"Passed: {self.summary['passed']}")
+        logger.info(f"Failed: {self.summary['failed']}")
+        logger.info(f"Errors: {self.summary['error']}")
+        logger.info(f"Total Duration: {self.total_duration:.2f}s")
 
         if self.summary["failed"] > 0 or self.summary["error"] > 0:
-            print("\nFailures and Errors:")
+            logger.info("\nFailures and Errors:")
             for result in self.results:
                 if result.status in ("failed", "error"):
-                    print(f"\n{result.name}:")
-                    print(f"Status: {result.status}")
+                    logger.info(f"\n{result.name}:")
+                    logger.info(f"Status: {result.status}")
                     if result.error:
-                        print(f"Error: {result.error}")
+                        logger.info(f"Error: {result.error}")
 
 
 class TestRunner:

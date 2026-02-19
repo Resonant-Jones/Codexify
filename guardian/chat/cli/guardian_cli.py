@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import pickle
 
 from ..export_engine import (
@@ -8,6 +9,12 @@ from ..export_engine import (
     import_from_icloud,
 )
 from ..flows.sync_gsuite_to_notion import sync_gsuite_to_notion
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 def cli_sync_gsuite_to_notion(args):
@@ -22,7 +29,7 @@ def cli_export_gdrive(args):
     result = export_to_gdrive(
         records, format=args.format, folder_id=args.folder, credentials=creds
     )
-    print("Exported to Google Drive:", result)
+    logger.info("Exported to Google Drive: %s", result)
 
 
 def cli_import_gdrive(args):
@@ -34,12 +41,12 @@ def cli_import_gdrive(args):
         credentials=creds,
         download_dir=args.out,
     )
-    print("Downloaded files:", files)
+    logger.info("Downloaded files: %s", files)
 
 
 def cli_import_icloud(args):
     files = import_from_icloud(args.pattern, args.subfolder)
-    print("Found iCloud files:", files)
+    logger.info("Found iCloud files: %s", files)
 
 
 def main():

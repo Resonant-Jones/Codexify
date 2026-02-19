@@ -337,13 +337,13 @@ if __name__ == "__main__":
     success = setup_sqlite_media("guardian.db")
 
     if success:
-        print("✅ SQLite media setup completed!")
+        logger.info("SQLite media setup completed!")
 
         # Test the tables
         setup = SQLiteMediaSetup("guardian.db")
         results = setup.test_tables()
         for table, exists in results.items():
-            status = "✅" if exists else "❌"
-            print(f"{status} {table}: {exists}")
+            status = "EXISTS" if exists else "MISSING"
+            logger.info(f"{status}: {table}")
     else:
-        print("❌ SQLite media setup failed!")
+        logger.error("SQLite media setup failed!")

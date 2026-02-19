@@ -78,4 +78,4 @@ if __name__ == "__main__":
     user_input = input("You: ")
     adapter = GemmaOllamaAdapter()
     result = interpret_user_input(user_input, adapter)
-    print(json.dumps(result, indent=2))
+    logger.info(json.dumps(result, indent=2))

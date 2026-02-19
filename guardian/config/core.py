@@ -1,8 +1,11 @@
+import logging
 import os
 from typing import Literal, Optional
 
 from pydantic import ConfigDict, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 def _keychain_store_available() -> tuple[bool, str]:
@@ -314,8 +317,8 @@ def warn_if_missing_keys(settings: Settings):
             getattr(settings, "GENAI_API_KEY", None)
             or getattr(settings, "GOOGLE_API_KEY", None)
         ):
-            print(
-                "⚠️  Warning: Missing Gemini API key (set GENAI_API_KEY or GOOGLE_API_KEY)."
+            logger.warning(
+                "Warning: Missing Gemini API key (set GENAI_API_KEY or GOOGLE_API_KEY)."
             )
         return
     key_attr = {
@@ -324,33 +327,35 @@ def warn_if_missing_keys(settings: Settings):
         "anthropic": "ANTHROPIC_API_KEY",
     }.get(backend)
     if key_attr and not getattr(settings, key_attr, None):
-        print(f"⚠️  Warning: Missing {backend.capitalize()} API key.")
+        logger.warning(f"Warning: Missing {backend.capitalize()} API key.")
 
 
 def print_config_errors(e: ValidationError):
-    print("❌ Configuration error: Missing or invalid settings.\n")
+    logger.error("Configuration error: Missing or invalid settings.\n")
     for err in e.errors():
         field = err["loc"][0]
-        print(f" - {field}: {err['msg']}")
-    print("\nTo fix, set these as environment variables or in your .env file.")
+        logger.error(f" - {field}: {err['msg']}")
+    logger.info(
+        "\nTo fix, set these as environment variables or in your .env file."
+    )
 
 
 def config_summary(settings: Settings):
-    print("🧩 PulseOS Backend Configuration Summary")
-    print("─────────────────────────────────────────")
-    print(f"🔧 AI_BACKEND         : {settings.AI_BACKEND}")
-    print(f"💻 LOCAL_MODEL_NAME   : {settings.LOCAL_MODEL_NAME}")
-    print(f"🌐 CLOUD_MODEL_NAME   : {settings.CLOUD_MODEL_NAME}")
-    print(f"🧠 ACTIVE_MODEL       : {get_active_model(settings)}")
-    print(f"☁️  CLOUD_ONLY         : {settings.CLOUD_ONLY}")
-    print(f"🔀 HYBRID_ENABLED     : {settings.HYBRID_ENABLED}")
-    print(f"📡 LOCAL_API_HOST     : {settings.LOCAL_API_HOST}")
-    print(f"🌍 CLOUD_API_HOST     : {settings.CLOUD_API_HOST}")
-    print(
-        f"👁️  Vision Capable     : {is_backend_capable(settings, 'can_vision')}"
+    logger.info("PulseOS Backend Configuration Summary")
+    logger.info("─────────────────────────────────────────")
+    logger.info(f"AI_BACKEND         : {settings.AI_BACKEND}")
+    logger.info(f"LOCAL_MODEL_NAME   : {settings.LOCAL_MODEL_NAME}")
+    logger.info(f"CLOUD_MODEL_NAME   : {settings.CLOUD_MODEL_NAME}")
+    logger.info(f"ACTIVE_MODEL       : {get_active_model(settings)}")
+    logger.info(f"CLOUD_ONLY         : {settings.CLOUD_ONLY}")
+    logger.info(f"HYBRID_ENABLED     : {settings.HYBRID_ENABLED}")
+    logger.info(f"LOCAL_API_HOST     : {settings.LOCAL_API_HOST}")
+    logger.info(f"CLOUD_API_HOST     : {settings.CLOUD_API_HOST}")
+    logger.info(
+        f"Vision Capable     : {is_backend_capable(settings, 'can_vision')}"
     )
-    print(f"🧬 GROQ_MODEL          : {settings.GROQ_MODEL}")
-    print(f"🖼️  GROQ_VISION_MODEL   : {settings.GROQ_VISION_MODEL}")
+    logger.info(f"GROQ_MODEL          : {settings.GROQ_MODEL}")
+    logger.info(f"GROQ_VISION_MODEL   : {settings.GROQ_VISION_MODEL}")
 
 
 def get_settings() -> Settings:

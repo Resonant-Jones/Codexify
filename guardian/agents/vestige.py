@@ -562,7 +562,7 @@ if __name__ == "__main__":
         result = await vestige.process_memory(
             "test_memory", {"context": "test"}
         )
-        print(f"Processing result: {result}")
+        logger.info(f"Processing result: {result}")
 
     # Run test
     import asyncio

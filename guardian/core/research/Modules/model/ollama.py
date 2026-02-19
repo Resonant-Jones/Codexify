@@ -1,7 +1,11 @@
+import logging
+
 from ollama import chat
 from openai import OpenAI
 
 from .model import Model
+
+logger = logging.getLogger(__name__)
 
 try:
     from crawl4ai import LLMConfig
@@ -52,7 +56,7 @@ class Ollama(Model):
                     else str(chunk)
                 )
                 msg_cache += part
-                print(part, end="", flush=True)
+                logger.debug("%s", part)
             # Wrap stream result in OpenAI-style format
             return {"choices": [{"message": {"content": msg_cache}}]}
 

@@ -35,14 +35,16 @@ def cli_codemap_query(args: argparse.Namespace) -> None:
             from guardian.llm import llm_explain
 
             explained_results = llm_explain(results)
-            print(memos.format_codemap_results(explained_results, explain=True))
+            logger.info(
+                memos.format_codemap_results(explained_results, explain=True)
+            )
         except ImportError:
             logger.warning(
                 "LLM explanation not available - showing standard results"
             )
-            print(memos.format_codemap_results(results))
+            logger.info(memos.format_codemap_results(results))
     else:
-        print(memos.format_codemap_results(results))
+        logger.info(memos.format_codemap_results(results))
 
 
 def cli_conversation_simulate_overflow(args: argparse.Namespace) -> None:
@@ -63,13 +65,13 @@ def cli_conversation_simulate_overflow(args: argparse.Namespace) -> None:
     if not args.conversation_id:
         conversation = memos.create_conversation()
         conversation_id = conversation.id
-        print(f"Created new conversation: {conversation_id}")
+        logger.info(f"Created new conversation: {conversation_id}")
     else:
         conversation_id = args.conversation_id
 
     # Simulate adding messages until we trigger summarization
-    print(f"\nSimulating conversation overflow for {conversation_id}")
-    print("-" * 50)
+    logger.info(f"Simulating conversation overflow for {conversation_id}")
+    logger.info("-" * 50)
 
     # Add dummy messages (1000 tokens each) until we hit the limit
     message_count = args.message_count if args.message_count else 100
@@ -79,13 +81,15 @@ def cli_conversation_simulate_overflow(args: argparse.Namespace) -> None:
         status = memos.monitor_conversation_length(conversation_id)
 
         if status["status"] == "summarized":
-            print("\nSummarization triggered!")
-            print(f"Parent conversation: {conversation_id}")
-            print(f"New child conversation: {status['new_conversation_id']}")
-            print(f"Message: {status['message']}")
+            logger.info("Summarization triggered!")
+            logger.info(f"Parent conversation: {conversation_id}")
+            logger.info(
+                f"New child conversation: {status['new_conversation_id']}"
+            )
+            logger.info(f"Message: {status['message']}")
             break
         elif status["status"] == "error":
-            print(f"\nError: {status['message']}")
+            logger.error(f"Error: {status['message']}")
             break
         else:
             # Add a dummy message (simulating 1000 tokens)
@@ -99,7 +103,7 @@ def cli_conversation_simulate_overflow(args: argparse.Namespace) -> None:
                 )
                 memos.conversation_manager.save_conversation(conversation)
                 if (i + 1) % 10 == 0:  # Print status every 10 messages
-                    print(status["message"])
+                    logger.info(status["message"])
 
 
 def cli_tts_speak(args: argparse.Namespace) -> None:
@@ -122,30 +126,30 @@ def cli_tts_speak(args: argparse.Namespace) -> None:
         # Handle --list-voices flag
         if args.list_voices:
             provider = args.provider or tts_manager.default_provider
-            print(f"\nAvailable voices for provider '{provider}':")
+            logger.info(f"Available voices for provider '{provider}':")
             voices = tts_manager.list_voices(provider)
             for voice in voices:
-                print(f"  - {voice}")
+                logger.info(f"  - {voice}")
             return
 
         # Handle --list-providers flag
         if args.list_providers:
-            print("\nAvailable TTS providers:")
+            logger.info("Available TTS providers:")
             providers = tts_manager.list_providers()
             for provider in providers:
                 if provider == tts_manager.default_provider:
-                    print(f"  - {provider} (default)")
+                    logger.info(f"  - {provider} (default)")
                 else:
-                    print(f"  - {provider}")
+                    logger.info(f"  - {provider}")
             return
 
         # Validate required arguments for synthesis
         if not args.text:
-            print("Error: --text is required for speech synthesis")
+            logger.error("--text is required for speech synthesis")
             return
 
         if not args.voice:
-            print("Error: --voice is required for speech synthesis")
+            logger.error("--voice is required for speech synthesis")
             return
 
         # Generate output path if not provided
@@ -155,8 +159,8 @@ def cli_tts_speak(args: argparse.Namespace) -> None:
             output_path = f"tts_output/speech_{int(time.time())}.wav"
 
         # Synthesize speech
-        print(
-            f"\nSynthesizing speech using provider '{args.provider or 'default'}'..."
+        logger.info(
+            f"Synthesizing speech using provider '{args.provider or 'default'}'..."
         )
         audio_data = tts_manager.synthesize(
             text=args.text, voice=args.voice, provider_name=args.provider
@@ -164,12 +168,12 @@ def cli_tts_speak(args: argparse.Namespace) -> None:
 
         # Save audio file
         tts_manager.save_audio(audio_data, output_path)
-        print(f"Audio saved to: {output_path}")
+        logger.info(f"Audio saved to: {output_path}")
 
     except TTSError as e:
-        print(f"TTS Error: {str(e)}")
+        logger.error(f"TTS Error: {str(e)}")
     except Exception as e:
-        print(f"Error: {str(e)}")
+        logger.error(f"Error: {str(e)}")
 
 
 def setup_cli_parser() -> argparse.ArgumentParser:
@@ -259,7 +263,7 @@ def main() -> None:
             args.func(args)
         except Exception as e:
             logger.error(f"Command failed: {e}")
-            print(f"Error: {e}")
+            logger.error(f"Error: {e}")
     else:
         parser.print_help()
 

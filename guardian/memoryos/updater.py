@@ -1,6 +1,9 @@
+import logging
 from typing import Dict, Optional
 
 from memoryos.long_term import LongTermMemory
+
+logger = logging.getLogger(__name__)
 from memoryos.mid_term import MidTermMemory
 from memoryos.short_term import ShortTermMemory
 from memoryos.utils import (
@@ -75,10 +78,10 @@ class Updater:
                 evicted_qas.append(qa)
 
         if not evicted_qas:
-            print("Updater: No QAs evicted from short-term memory.")
+            logger.info("Updater: No QAs evicted from short-term memory.")
             return
 
-        print(
+        logger.info(
             f"Updater: Processing {len(evicted_qas)} QAs from short-term to mid-term."
         )
 
@@ -164,7 +167,7 @@ class Updater:
             ]
         )
 
-        print(
+        logger.info(
             "Updater: Generating multi-topic summary for the evicted batch..."
         )
         multi_summary_result = gpt_generate_multi_summary(
@@ -178,7 +181,7 @@ class Updater:
                     "content", "General summary of recent interactions."
                 )
                 theme_keywords = summary_item.get("keywords", [])
-                print(
+                logger.info(
                     f"Updater: Processing theme '{summary_item.get('theme')}' for mid-term insertion."
                 )
 
@@ -191,7 +194,7 @@ class Updater:
                 )
         else:
             # Fallback: if no summaries, add as one session or handle as a single block
-            print(
+            logger.info(
                 "Updater: No specific themes from multi-summary. Adding batch as a general session."
             )
             fallback_summary = (
@@ -232,12 +235,14 @@ class Updater:
         profile_analysis_result is expected to be a dict with keys like "profile", "private", "assistant_knowledge".
         """
         if not profile_analysis_result:
-            print("Updater: No analysis result provided for long-term update.")
+            logger.info(
+                "Updater: No analysis result provided for long-term update."
+            )
             return
 
         new_profile_text = profile_analysis_result.get("profile")
         if new_profile_text and new_profile_text.lower() != "none":
-            print(
+            logger.info(
                 f"Updater: Updating user profile for {user_id} in LongTermMemory."
             )
             current_profile = self.long_term_memory.get_raw_user_profile(
@@ -253,7 +258,7 @@ class Updater:
 
         user_private_knowledge = profile_analysis_result.get("private")
         if user_private_knowledge and user_private_knowledge.lower() != "none":
-            print(
+            logger.info(
                 f"Updater: Adding user private knowledge for {user_id} to LongTermMemory."
             )
             # Split if multiple lines, assuming each line is a distinct piece of knowledge
@@ -272,7 +277,9 @@ class Updater:
             assistant_knowledge_text
             and assistant_knowledge_text.lower() != "none"
         ):
-            print("Updater: Adding assistant knowledge to LongTermMemory.")
+            logger.info(
+                "Updater: Adding assistant knowledge to LongTermMemory."
+            )
             for line in assistant_knowledge_text.split("\n"):
                 if line.strip() and line.strip().lower() not in [
                     "none",
