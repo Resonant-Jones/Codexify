@@ -88,14 +88,14 @@ class CodexifyPlugin(PluginBase):
         @cli.command("codexify:status")
         def codexify_status():
             """Show Codexify system status."""
-            print("\nCodexify Status")
-            print("-" * 50)
-            print(f"Version: {self.version}")
-            print("Memory Integration: Connected")
-            print("Codemap Integration: Connected")
-            print("\nAdapters: Not Configured")
-            print("Pipelines: Not Configured")
-            print("\nStatus: Ready for implementation")
+            logger.info("\nCodexify Status")
+            logger.info("-" * 50)
+            logger.info(f"Version: {self.version}")
+            logger.info("Memory Integration: Connected")
+            logger.info("Codemap Integration: Connected")
+            logger.info("\nAdapters: Not Configured")
+            logger.info("Pipelines: Not Configured")
+            logger.info("\nStatus: Ready for implementation")
 
     def shutdown(self) -> None:
         """Clean up Codexify plugin resources."""

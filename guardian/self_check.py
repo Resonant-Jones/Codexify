@@ -212,4 +212,4 @@ if __name__ == "__main__":
         available_functions=["base_operation", "query_processing"],
         context={"user_query": "test query"},
     )
-    print(json.dumps(result, indent=2))
+    logger.info(json.dumps(result, indent=2))

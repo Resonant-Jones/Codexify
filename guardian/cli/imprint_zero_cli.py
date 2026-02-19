@@ -1,4 +1,5 @@
 import json
+import logging
 from argparse import Namespace, _SubParsersAction
 from pathlib import Path
 
@@ -7,6 +8,13 @@ import typer
 from guardian import imprint_zero as imprint_facade
 from guardian.cli.base_command import BaseCommand
 from guardian.imprint_zero_onboarding import ImprintZero as ImprintZeroCore
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 class ImprintZeroCommand(BaseCommand):
@@ -27,10 +35,10 @@ class ImprintZeroCommand(BaseCommand):
                 "system_prompt": system_prompt,
                 "question_scaffold": user_prompt,
             }
-            print(json.dumps(prompt_data, indent=2))
+            logger.info(json.dumps(prompt_data, indent=2))
         else:
             text = f"--- System Prompt ---\n{system_prompt}\n\n--- Question Scaffold ---\n{user_prompt}"
-            print(text)
+            logger.info(text)
 
     @classmethod
     def register(cls, subparsers: _SubParsersAction) -> None:
@@ -78,7 +86,7 @@ def dump_imprint_zero_prompt(
         return
 
     if json_output:
-        print(
+        logger.info(
             json.dumps(
                 {
                     "system_prompt": system_prompt,
@@ -88,6 +96,6 @@ def dump_imprint_zero_prompt(
             )
         )
     else:
-        print(
+        logger.info(
             f"--- System Prompt ---\n{system_prompt}\n\n--- Question Scaffold ---\n{question_scaffold}"
         )

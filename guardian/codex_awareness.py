@@ -102,4 +102,4 @@ if __name__ == "__main__":
     # Query memories
     results = awareness.query_memory(query="conversation", tags=["test"])
 
-    print(f"Found {len(results)} matching memories")
+    logger.info(f"Found {len(results)} matching memories")

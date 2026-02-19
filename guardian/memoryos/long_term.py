@@ -139,10 +139,8 @@ class LongTermMemory:
                 )
                 valid_entries.append(entry)
             else:
-                print(
-                    logger.warning(
-                        f"Warning: Entry without embedding found in knowledge_deque: {entry.get('knowledge','N/A')[:50]}"
-                    )
+                logger.warning(
+                    f"Warning: Entry without embedding found in knowledge_deque: {entry.get('knowledge','N/A')[:50]}"
                 )
 
         if not embeddings:
@@ -247,16 +245,12 @@ class LongTermMemory:
                 f"LongTermMemory: No history file found at {self.file_path}. Initializing new memory."
             )
         except json.JSONDecodeError:
-            print(
-                logger.warning(
-                    f"LongTermMemory: Error decoding JSON from {self.file_path}. Initializing new memory."
-                )
+            logger.warning(
+                f"LongTermMemory: Error decoding JSON from {self.file_path}. Initializing new memory."
             )
         except Exception as e:
-            print(
-                logger.exception(
-                    f"LongTermMemory: An unexpected error occurred during load from {self.file_path}: {e}. Initializing new memory."
-                )
+            logger.exception(
+                f"LongTermMemory: An unexpected error occurred during load from {self.file_path}: {e}. Initializing new memory."
             )
 
     def store_conversation_summary(self, conversation_id, summary_text):

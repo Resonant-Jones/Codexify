@@ -3,15 +3,22 @@
 Simple validation script to test our patch fixes without full dependency resolution.
 """
 
+import logging
 import os
 import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "guardian"))
 
 
 def test_memory_analyzer_query_method():
     """Test that MemoryAnalyzer uses query_memory instead of query_memories"""
-    print("Testing Memory Analyzer query method...")
+    logger.info("Testing Memory Analyzer query method...")
 
     # Read the file and check for the correct method call
     with open("guardian/plugins/memory_analyzer/main.py") as f:
@@ -19,34 +26,34 @@ def test_memory_analyzer_query_method():
 
     # Should have query_memory, not query_memories
     if "query_memory(" in content and "query_memories(" not in content:
-        print("✅ Memory Analyzer: query_memory method used correctly")
+        logger.info("Memory Analyzer: query_memory method used correctly")
         return True
     else:
-        print(
-            "❌ Memory Analyzer: Still using query_memories or missing query_memory"
+        logger.error(
+            "Memory Analyzer: Still using query_memories or missing query_memory"
         )
         return False
 
 
 def test_pattern_analyzer_health_check():
     """Test that PatternAnalyzer has health_check method"""
-    print("Testing Pattern Analyzer health_check method...")
+    logger.info("Testing Pattern Analyzer health_check method...")
 
     with open("guardian/plugins/pattern_analyzer/main.py") as f:
         content = f.read()
 
     # Should have health_check method
     if "def health_check(self)" in content:
-        print("✅ Pattern Analyzer: health_check method added")
+        logger.info("Pattern Analyzer: health_check method added")
         return True
     else:
-        print("❌ Pattern Analyzer: health_check method missing")
+        logger.error("Pattern Analyzer: health_check method missing")
         return False
 
 
 def test_system_diagnostics_thread_info():
     """Test that SystemDiagnostics uses correct thread metadata"""
-    print("Testing System Diagnostics thread metadata...")
+    logger.info("Testing System Diagnostics thread metadata...")
 
     with open("guardian/plugins/system_diagnostics/main.py") as f:
         content = f.read()
@@ -56,16 +63,16 @@ def test_system_diagnostics_thread_info():
         '"threads": monitored_threads_info' in content
         and '"thread_info": thread_info' not in content
     ):
-        print("✅ System Diagnostics: thread metadata fixed")
+        logger.info("System Diagnostics: thread metadata fixed")
         return True
     else:
-        print("❌ System Diagnostics: thread metadata still incorrect")
+        logger.error("System Diagnostics: thread metadata still incorrect")
         return False
 
 
 def test_system_diagnostics_test_fixes():
     """Test that SystemDiagnostics tests have correct assertions"""
-    print("Testing System Diagnostics test fixes...")
+    logger.info("Testing System Diagnostics test fixes...")
 
     with open(
         "guardian/plugins/system_diagnostics/tests/test_system_diagnostics.py",
@@ -77,18 +84,18 @@ def test_system_diagnostics_test_fixes():
     retry_check = "max_retries'] + 2" in content
 
     if threads_check and retry_check:
-        print("✅ System Diagnostics Tests: metadata and retry loop fixed")
+        logger.info("System Diagnostics Tests: metadata and retry loop fixed")
         return True
     else:
-        print(
-            f"❌ System Diagnostics Tests: threads_check={threads_check}, retry_check={retry_check}"
+        logger.error(
+            f"System Diagnostics Tests: threads_check={threads_check}, retry_check={retry_check}"
         )
         return False
 
 
 def test_memory_analyzer_test_mocks():
     """Test that Memory Analyzer tests use correct mock method"""
-    print("Testing Memory Analyzer test mocks...")
+    logger.info("Testing Memory Analyzer test mocks...")
 
     with open(
         "guardian/plugins/memory_analyzer/tests/test_memory_analyzer.py"
@@ -100,16 +107,16 @@ def test_memory_analyzer_test_mocks():
         "query_memory.return_value" in content
         and "query_memories.return_value" not in content
     ):
-        print("✅ Memory Analyzer Tests: mock methods fixed")
+        logger.info("Memory Analyzer Tests: mock methods fixed")
         return True
     else:
-        print("❌ Memory Analyzer Tests: still using query_memories mocks")
+        logger.error("Memory Analyzer Tests: still using query_memories mocks")
         return False
 
 
 def test_init_files():
     """Test that __init__.py files exist in test directories"""
-    print("Testing __init__.py files...")
+    logger.info("Testing __init__.py files...")
 
     test_dirs = [
         "guardian/plugins/memory_analyzer/tests/__init__.py",
@@ -120,9 +127,9 @@ def test_init_files():
     all_exist = True
     for init_file in test_dirs:
         if os.path.exists(init_file):
-            print(f"✅ {init_file} exists")
+            logger.info(f"{init_file} exists")
         else:
-            print(f"❌ {init_file} missing")
+            logger.error(f"{init_file} missing")
             all_exist = False
 
     return all_exist
@@ -130,8 +137,8 @@ def test_init_files():
 
 def main():
     """Run all validation tests"""
-    print("🔍 Validating Guardian Plugin Patch Fixes")
-    print("=" * 50)
+    logger.info("Validating Guardian Plugin Patch Fixes")
+    logger.info("=" * 50)
 
     tests = [
         test_memory_analyzer_query_method,
@@ -147,33 +154,33 @@ def main():
         try:
             result = test()
             results.append(result)
-            print()
+            logger.debug("")
         except Exception as e:
-            print(f"❌ Test failed with error: {e}")
+            logger.error(f"Test failed with error: {e}")
             results.append(False)
-            print()
+            logger.debug("")
 
-    print("=" * 50)
+    logger.info("=" * 50)
     passed = sum(results)
     total = len(results)
 
     if passed == total:
-        print(f"🎉 ALL TESTS PASSED ({passed}/{total})")
-        print("\n✅ Patch sweep completed successfully!")
-        print("\nSummary of fixes applied:")
-        print("1. ✅ Memory Analyzer: Fixed query_memories → query_memory")
-        print("2. ✅ Pattern Analyzer: Added health_check() method")
-        print(
-            "3. ✅ System Diagnostics: Fixed thread_info → monitored_threads_info"
+        logger.info(f"ALL TESTS PASSED ({passed}/{total})")
+        logger.info("Patch sweep completed successfully!")
+        logger.info("Summary of fixes applied:")
+        logger.info("1. Memory Analyzer: Fixed query_memories -> query_memory")
+        logger.info("2. Pattern Analyzer: Added health_check() method")
+        logger.info(
+            "3. System Diagnostics: Fixed thread_info -> monitored_threads_info"
         )
-        print(
-            "4. ✅ System Diagnostics Tests: Fixed metadata assertions and retry loop"
+        logger.info(
+            "4. System Diagnostics Tests: Fixed metadata assertions and retry loop"
         )
-        print("5. ✅ Memory Analyzer Tests: Fixed mock method calls")
-        print("6. ✅ Added __init__.py files to test directories")
+        logger.info("5. Memory Analyzer Tests: Fixed mock method calls")
+        logger.info("6. Added __init__.py files to test directories")
         return 0
     else:
-        print(f"❌ SOME TESTS FAILED ({passed}/{total})")
+        logger.error(f"SOME TESTS FAILED ({passed}/{total})")
         return 1
 
 

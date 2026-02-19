@@ -417,5 +417,5 @@ if __name__ == "__main__":
 
     # Check plugin health
     health_status = plugin_loader.check_all_plugin_health()
-    print("\nPlugin Health Status:")
-    print(json.dumps(health_status, indent=2))
+    logger.info("\nPlugin Health Status:")
+    logger.info(json.dumps(health_status, indent=2))

@@ -1,10 +1,13 @@
 import hashlib
 import importlib
 import json
+import logging
 import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class CodexifyFSManifest:
@@ -224,11 +227,16 @@ class CodexifyFSManifest:
             "sandbox": sandbox,
         }
         total_files = len(tools) + len(skills) + len(sandbox)
-        print(
-            f"[CodexifyFS] Indexed {len(tools)} tools, {len(skills)} skills, {len(sandbox)} sandbox entries with metadata + provenance."
+        logger.info(
+            "[CodexifyFS] Indexed %s tools, %s skills, %s sandbox entries with metadata + provenance.",
+            len(tools),
+            len(skills),
+            len(sandbox),
         )
-        print(
-            f"[CodexifyFS] Verified {self.verified_count} of {total_files} files with signatures."
+        logger.info(
+            "[CodexifyFS] Verified %s of %s files with signatures.",
+            self.verified_count,
+            total_files,
         )
         return manifest
 
@@ -236,7 +244,7 @@ class CodexifyFSManifest:
         manifest = self.generate_manifest()
         with open(self.manifest_path, "w") as f:
             json.dump(manifest, f, indent=2)
-        print(f"[CodexifyFS] Manifest written to {self.manifest_path}")
+        logger.info("[CodexifyFS] Manifest written to %s", self.manifest_path)
 
 
 def load_manifest():

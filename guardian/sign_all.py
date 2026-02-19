@@ -6,6 +6,7 @@ This aligns with the federation_manifest specification (Task 12).
 
 import base64
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
+
+logger = logging.getLogger(__name__)
 
 KEYS_DIR = Path(__file__).parent / "keys"
 KEYS_DIR.mkdir(exist_ok=True)
@@ -37,7 +40,7 @@ def generate_keypair(node_id: str):
 
     (KEYS_DIR / f"{node_id}_private.pem").write_bytes(private_bytes)
     (KEYS_DIR / f"{node_id}_public.pem").write_bytes(public_bytes)
-    print(f"[✓] Generated keypair for {node_id}")
+    logger.info(f"Generated keypair for {node_id}")
     return private_key, public_key
 
 
@@ -62,7 +65,7 @@ def sign_manifest(node_id: str, manifest: dict):
     signature = private_key.sign(manifest_bytes)
     manifest["signature"] = base64.b64encode(signature).decode()
     manifest["signed_at"] = datetime.now(timezone.utc).isoformat()
-    print(f"[✓] Manifest signed for node {node_id}")
+    logger.info(f"Manifest signed for node {node_id}")
     return manifest
 
 
@@ -97,7 +100,7 @@ if __name__ == "__main__":
 
     if args.verify:
         if not args.manifest:
-            print("Must provide --manifest for verification")
+            logger.warning("Must provide --manifest for verification")
         else:
             manifest_data = json.loads(Path(args.manifest).read_text())
             pub_key = load_public_key(args.node_id)
@@ -108,8 +111,10 @@ if __name__ == "__main__":
                     format=serialization.PublicFormat.SubjectPublicKeyInfo,
                 ),
             )
-            print("[✓] Signature valid" if valid else "[✗] Invalid signature")
-    else:
+            if valid:
+                logger.info("Signature valid")
+            else:
+                logger.error("Invalid signature")
         # Sign manifest
         manifest_data = (
             json.loads(Path(args.manifest).read_text())
@@ -123,4 +128,4 @@ if __name__ == "__main__":
         signed_manifest = sign_manifest(args.node_id, manifest_data)
         out_path = Path(f"{args.node_id}_manifest.json")
         out_path.write_text(json.dumps(signed_manifest, indent=2))
-        print(f"[✓] Signed manifest written to {out_path}")
+        logger.info(f"Signed manifest written to {out_path}")

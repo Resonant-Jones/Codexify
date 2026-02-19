@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -106,7 +109,7 @@ def main() -> None:
     if not message.thread.is_connected(thread):
         message.thread.connect(thread)
 
-    print("✅ Seed data inserted (or already present).")
+    logger.info("Seed data inserted (or already present).")
 
 
 if __name__ == "__main__":

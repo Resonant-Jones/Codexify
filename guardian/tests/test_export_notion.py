@@ -1,4 +1,12 @@
+import logging
+
 import pytest
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
@@ -19,7 +27,7 @@ load_dotenv()
 
 import os
 
-print("NOTION_API_KEY is:", os.environ.get("NOTION_API_KEY"))
+logger.info("NOTION_API_KEY is: %s", os.environ.get("NOTION_API_KEY"))
 
 
 from guardian import export_engine
@@ -60,4 +68,4 @@ def test_export_to_notion():
         format="md",
         title="Guardian Export Test",
     )
-    print("Exported to Notion! Page URL:", url)
+    logger.info("Exported to Notion! Page URL: %s", url)
