@@ -1,6 +1,6 @@
 #syntax=docker/dockerfile:1
 
-# === Build stage: Install dependencies and prepare application ===
+# === Build stage: compile dependencies only (no source yet) ===
 FROM dhi.io/python:3.11.14-debian13-dev AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -9,7 +9,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /tmp
 
-# Copy requirements and install dependencies
+# DHI Debian dev image includes necessary build tools and package managers
+
+# Copy requirements and compile wheels (cached layer)
 COPY requirements.txt requirements/ backend/requirements.txt* ./
 
 RUN python - <<'PY'
@@ -28,15 +30,29 @@ for p in candidates:
 if not req_file:
     sys.exit(1)
 
-subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel'])
-subprocess.check_call(['pip', 'install', '-r', req_file])
+# Upgrade pip once
+subprocess.check_call([
+    sys.executable, '-m', 'pip',
+    'install', '--upgrade', 'pip', 'setuptools', 'wheel'
+])
+
+# Build wheels into /tmp/wheels (no install yet)
+subprocess.check_call([
+    'pip', 'wheel',
+    '--no-cache-dir',
+    '--wheel-dir', '/tmp/wheels',
+    '-r', req_file
+])
 PY
 
 # Pre-stage scripts and configs for later copy
 RUN mkdir -p /app_staging/backend && \
     python - <<'PY'
 from pathlib import Path
-import stat
+
+# Create alembic.ini
+alembic_path = Path("/app_staging/backend/alembic.ini")
+alembic_path.write_text("[alembic]\nscript_location = backend/migrations\n", encoding="utf-8")
 
 # Create wait_for_db script
 dst = Path("/app_staging/wait_for_db.py")
@@ -60,14 +76,10 @@ for i in range(90):
         print('Waiting for Postgres...', e, file=sys.stderr)
         time.sleep(2)
 """, encoding="utf-8")
-dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-# Create alembic.ini
-alembic_path = Path("/app_staging/backend/alembic.ini")
-alembic_path.write_text("[alembic]\nscript_location = backend/migrations\n", encoding="utf-8")
 PY
 
-# === Final stage: Create minimal runtime image ===
+
+# === Runtime stage: minimal image with only production deps ===
 FROM dhi.io/python:3.11.14-debian13
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -78,8 +90,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Copy Python site-packages from builder (minimal and secure)
-COPY --from=builder /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages
+# Copy pre-built wheels from builder and install (cached)
+COPY --from=builder /tmp/wheels /tmp/wheels
+
+RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels \
+    $(ls /tmp/wheels/*.whl | xargs -n1 basename | sed 's/-[^-]*-[^-]*-[^-]*.whl//' | sort -u)
+
+# Clean up wheels
+RUN rm -rf /tmp/wheels
 
 # Copy application code
 COPY guardian /app/guardian
@@ -90,7 +108,7 @@ COPY scripts /app/scripts
 COPY --from=builder /app_staging/wait_for_db.py /app/wait_for_db.py
 COPY --from=builder /app_staging/backend/alembic.ini /app/backend/alembic.ini
 
-# Create symlink alias at runtime (in ENTRYPOINT since no shell in runtime image for RUN)
 EXPOSE 8888
 
-ENTRYPOINT ["/bin/sh", "-lc", "[ -e /app/codexify ] || ln -s /app/guardian /app/codexify; python /app/wait_for_db.py || true; if [ -f /app/backend/alembic.ini ]; then alembic -c /app/backend/alembic.ini upgrade head || true; fi; exec uvicorn codexify.guardian_api:app --host 0.0.0.0 --port ${PORT}"]
+ENTRYPOINT ["/bin/sh", "-lc"]
+CMD ["[ -e /app/codexify ] || ln -s /app/guardian /app/codexify; python /app/wait_for_db.py && alembic -c backend/alembic.ini upgrade head && exec uvicorn guardian.guardian_api:app --host 0.0.0.0 --port ${PORT}"]
