@@ -187,11 +187,17 @@ services:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
+<<<<<<< HEAD
       - ./tests:/app/tests:ro
       - ./pytest.ini:/app/pytest.ini:ro
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
       - ./.chroma:/app/.chroma
+=======
+      - ./docker:/app/docker
+      - hf_cache:/root/.cache/huggingface
+      - codexify_models:/models
+>>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -214,17 +220,29 @@ services:
       # Supported provider ids (backend): "local", "groq", "openai", "minimax"
       LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
+<<<<<<< HEAD
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
+=======
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
+>>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
       SENTENCE_TRANSFORMERS_HOME: /models
       # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
       # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
+<<<<<<< HEAD
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+=======
+      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_EMBED_MODEL: "${LOCAL_EMBED_MODEL:-/models/bge-large-en-v1.5}"
+      EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
+      EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
+>>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
 
       # --- OpenAI (cloud) ---
       # NOTE: We intentionally do NOT override OPENAI_BASE_URL here.
@@ -249,7 +267,107 @@ services:
         condition: service_completed_successfully
       graph-init:
         condition: service_completed_successfully
+<<<<<<< HEAD
     command: ["/app/backend/scripts/docker/run_backend.py"]
+=======
+    entrypoint:
+      - sh
+      - /app/docker/entrypoints/backend.sh
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+
+        echo "[Backend] Wiring Codexify -> codexify (case alias)"
+        ln -snf /app/codexify /app/Codexify
+        python - <<'PY'
+        import codexify
+        print("[Backend] codexify resolves to:", getattr(codexify, "__file__", "<namespace>"))
+        PY
+
+        echo "[Backend] Waiting for Postgres to accept connections..."
+        python - <<'PY'
+        import os, time
+        import psycopg
+
+        dsn = os.environ.get("DATABASE_URL")
+        if not dsn:
+          raise SystemExit("DATABASE_URL is not set")
+
+        last_err = None
+        for i in range(60):
+          try:
+            with psycopg.connect(dsn) as conn:
+              with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            print("[Backend] Postgres is ready")
+            break
+          except Exception as e:
+            last_err = e
+            time.sleep(1)
+        else:
+          raise SystemExit(f"[Backend] Postgres not ready after 60s: {last_err}")
+        PY
+
+        echo "[Backend] Applying Alembic migrations (idempotent)..."
+        alembic --raiseerr -c backend/alembic.ini upgrade head
+
+        echo "[Backend] Verifying required tables + alembic_version..."
+        python - <<'PY'
+        import os
+        from sqlalchemy import create_engine, text
+
+        url = os.environ.get("DATABASE_URL")
+        if not url:
+            raise SystemExit("[Backend] DATABASE_URL is not set")
+
+        en = create_engine(url)
+        required = [
+            "public.alembic_version",
+            "public.projects",
+            "public.chat_threads",
+            "public.chat_messages",
+            "public.imprints",
+            "public.system_docs",
+            "public.system_doc_links",
+            "public.events_outbox",
+        ]
+
+        with en.begin() as conn:
+            missing = []
+            for t in required:
+                reg = conn.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar()
+                if reg is None:
+                    missing.append(t)
+
+            if missing:
+                tables = conn.execute(text("""
+                    SELECT table_schema || '.' || table_name
+                    FROM information_schema.tables
+                    WHERE table_type = 'BASE TABLE'
+                    ORDER BY 1
+                """
+                )).fetchall()
+                table_list = "\n  - ".join([r[0] for r in tables]) if tables else "<none>"
+                raise SystemExit(
+                    "[Backend] ERROR: schema missing required tables:\n  - "
+                    + "\n  - ".join(missing)
+                    + "\n\n[Backend] Existing tables:\n  - "
+                    + table_list
+                )
+
+            ver = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+
+        print(f"[Backend] OK: alembic_version={ver}")
+        PY
+
+        echo "[Backend] Seeding defaults (should be idempotent)..."
+        python backend/scripts/seed_defaults.py
+
+        echo "[Backend] Starting API server..."
+        exec uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8888
+>>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
 
   worker-warmup:
     build:
@@ -281,22 +399,48 @@ services:
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
       LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
+<<<<<<< HEAD
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
+=======
+      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_EMBED_MODEL: "${LOCAL_EMBED_MODEL:-/models/bge-large-en-v1.5}"
+      EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
+      EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
+      REDIS_URL: redis://redis:6379/0
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
+>>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
       SENTENCE_TRANSFORMERS_HOME: /models
       NEO4J_BOLT_URL: bolt://neo4j:7687
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
+      - ./docker:/app/docker
       - hf_cache:/root/.cache/huggingface
+<<<<<<< HEAD
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: unless-stopped
     command: ["-m", "guardian.workers.warmup_worker"]
+=======
+      - codexify_models:/models
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - /app/docker/entrypoints/worker-chat-embed.sh
+    command:
+      - sh
+      - -lc
+      - |
+        echo "[worker-warmup] Starting warm-up worker..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.warmup_worker
+>>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
 
   worker-chat:
     build:
@@ -328,6 +472,7 @@ services:
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
       LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
+<<<<<<< HEAD
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       REDIS_URL: redis://redis:6379/0
@@ -532,15 +677,40 @@ services:
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
+=======
+      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_EMBED_MODEL: "${LOCAL_EMBED_MODEL:-/models/bge-large-en-v1.5}"
+      EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
+      EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
+      REDIS_URL: redis://redis:6379/0
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
+>>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
       SENTENCE_TRANSFORMERS_HOME: /models
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
+      - ./docker:/app/docker
       - hf_cache:/root/.cache/huggingface
+<<<<<<< HEAD
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: "no"
     command: ["-m", "guardian.workers.graph_backfill_worker"]
+=======
+      - codexify_models:/models
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - /app/docker/entrypoints/worker-chat-embed.sh
+    command:
+      - sh
+      - -lc
+      - |
+        echo "[worker-chat] Starting chat worker..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.chat_worker
+>>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
 
   hf-prefetch:
     build:
@@ -662,6 +832,8 @@ volumes:
   pg_data:
   neo4j_data:
   hf_cache:
+  codexify_models:
+    name: codexify_models
   model_store:
     driver: local
   e2e_frontend_src_node_modules:
