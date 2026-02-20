@@ -1,6 +1,7 @@
 """Minimal, dependency-light context assembly broker for enriching chat completions."""
 
 import logging
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from guardian.context.tool_intents import (
@@ -85,12 +86,26 @@ def build_assistant_response_payload(assistant_text: str) -> Dict[str, Any]:
         response.update(tool_block)
         tool_intents = tool_block.get("tool_intents", [])
         pending_tool_intents = tool_block.get("pending_tool_intents", [])
-        response["tool_intents_redacted"] = [
+        tool_intents_redacted = [
             redact_tool_intent_dict(intent) for intent in tool_intents
         ]
-        response["pending_tool_intents_redacted"] = [
+        pending_tool_intents_redacted = [
             redact_tool_intent_dict(intent) for intent in pending_tool_intents
         ]
+        # Secure-by-default exposure surface for UI/client consumers.
+        response["tool_intents"] = tool_intents_redacted
+        response["pending_tool_intents"] = pending_tool_intents_redacted
+        # Explicit aliases retained for clarity and compatibility.
+        response["tool_intents_redacted"] = tool_intents_redacted
+        response[
+            "pending_tool_intents_redacted"
+        ] = pending_tool_intents_redacted
+        debug_unredacted = (
+            os.getenv("CODEXIFY_DEBUG_UNREDACTED_TOOL_INTENTS") == "1"
+        )
+        if debug_unredacted:
+            response["tool_intents_unredacted"] = tool_intents
+            response["pending_tool_intents_unredacted"] = pending_tool_intents
         response["consent_required"] = bool(
             tool_block.get("pending_tool_intents")
         )

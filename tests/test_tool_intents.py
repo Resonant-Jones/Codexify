@@ -88,7 +88,11 @@ def test_broker_marks_fs_read_file_consent_required() -> None:
     assert len(tool_block["pending_tool_intents"]) == 1
 
 
-def test_build_assistant_response_payload_adds_redacted_tool_views() -> None:
+def test_build_assistant_response_payload_defaults_to_redacted_tool_views(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("CODEXIFY_DEBUG_UNREDACTED_TOOL_INTENTS", raising=False)
+
     payload = {
         "id": "66666666-6666-6666-6666-666666666666",
         "tool": "fs.read_file",
@@ -110,13 +114,7 @@ def test_build_assistant_response_payload_adds_redacted_tool_views() -> None:
     assert len(response["pending_tool_intents"]) == 1
     assert len(response["pending_tool_intents_redacted"]) == 1
 
-    original = response["tool_intents"][0]
-    redacted = response["tool_intents_redacted"][0]
-
-    # Original payload remains untouched for execution semantics.
-    assert original["args"]["api_key"] == "test"
-    assert original["args"]["headers"]["Authorization"] == "Bearer test"
-    assert original["args"]["nested"]["client_secret"] == "test"
+    redacted = response["tool_intents"][0]
 
     # Redacted payload masks sensitive keys and keeps safe fields.
     assert redacted["args"]["api_key"] == "[REDACTED]"
@@ -128,6 +126,49 @@ def test_build_assistant_response_payload_adds_redacted_tool_views() -> None:
     pending_redacted = response["pending_tool_intents_redacted"][0]
     assert pending_redacted["args"]["api_key"] == "[REDACTED]"
     assert pending_redacted["args"]["headers"]["Authorization"] == "[REDACTED]"
+    assert "tool_intents_unredacted" not in response
+    assert "pending_tool_intents_unredacted" not in response
+
+
+def test_build_assistant_response_payload_debug_emits_unredacted_tool_views(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CODEXIFY_DEBUG_UNREDACTED_TOOL_INTENTS", "1")
+
+    payload = {
+        "id": "66666666-6666-6666-6666-666666666666",
+        "tool": "fs.read_file",
+        "args": {
+            "path": "/vault/secrets.md",
+            "api_key": "test",
+            "headers": {"Authorization": "Bearer test"},
+            "nested": {"client_secret": "test"},
+            "query": "find policy",
+            "model": "gpt-test",
+        },
+        "reason": "need file contents",
+    }
+
+    response = build_assistant_response_payload(json.dumps(payload))
+    assert len(response["tool_intents"]) == 1
+    assert len(response["tool_intents_unredacted"]) == 1
+    assert len(response["pending_tool_intents"]) == 1
+    assert len(response["pending_tool_intents_unredacted"]) == 1
+
+    # Default fields remain redacted.
+    assert response["tool_intents"][0]["args"]["api_key"] == "[REDACTED]"
+    assert (
+        response["tool_intents"][0]["args"]["headers"]["Authorization"]
+        == "[REDACTED]"
+    )
+    # Debug fields expose raw values.
+    assert response["tool_intents_unredacted"][0]["args"]["api_key"] == "test"
+    assert (
+        response["tool_intents_unredacted"][0]["args"]["headers"][
+            "Authorization"
+        ]
+        == "Bearer test"
+    )
 
 
 def test_parse_tool_intents_accepts_fenced_json_single_intent() -> None:
