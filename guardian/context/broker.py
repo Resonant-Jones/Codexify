@@ -1,8 +1,14 @@
 """Minimal, dependency-light context assembly broker for enriching chat completions."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
+from guardian.context.tool_intents import (
+    ToolIntentParseError,
+    ToolRisk,
+    classify_tool_intent,
+    parse_tool_intents,
+)
 from guardian.core.config import Settings, get_settings
 from guardian.memoryos.retriever import MemoryOSRetriever
 
@@ -19,6 +25,63 @@ def _coerce_int(value: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return num if num > 0 else None
+
+
+def _looks_like_json(text: str) -> bool:
+    stripped = (text or "").lstrip()
+    return stripped.startswith("{") or stripped.startswith("[")
+
+
+def maybe_extract_tool_intents(
+    model_text: str,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Extract tool intents from model output if it appears to be JSON."""
+    if not _looks_like_json(model_text):
+        return None, None
+
+    try:
+        intents = parse_tool_intents(model_text)
+    except ToolIntentParseError as exc:
+        return None, str(exc)
+
+    normalized: List[Dict[str, Any]] = []
+    pending: List[Dict[str, Any]] = []
+    for intent in intents:
+        policy = classify_tool_intent(intent)
+        record = {
+            "id": intent.intent_id,
+            "tool": intent.tool,
+            "args": intent.args,
+            "reason": intent.reason,
+            "risk": policy.risk.value,
+            "description": policy.description,
+            "requires_consent": policy.requires_consent,
+            "approved": policy.risk == ToolRisk.SAFE_READONLY,
+        }
+        normalized.append(record)
+        if policy.requires_consent:
+            pending.append(record)
+
+    return {
+        "tool_intents": normalized,
+        "pending_tool_intents": pending,
+    }, None
+
+
+def build_assistant_response_payload(assistant_text: str) -> Dict[str, Any]:
+    """Build a normalized assistant payload with optional tool intent metadata."""
+    response: Dict[str, Any] = {"assistant_text": assistant_text}
+    tool_block, tool_err = maybe_extract_tool_intents(assistant_text)
+
+    if tool_block is not None:
+        response.update(tool_block)
+        response["consent_required"] = bool(
+            tool_block.get("pending_tool_intents")
+        )
+    if tool_err:
+        response["tool_intent_error"] = tool_err
+
+    return response
 
 
 class ContextBroker:
