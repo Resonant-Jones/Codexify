@@ -43,6 +43,10 @@ _FENCED_BLOCK_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
+MAX_TOOL_INTENTS_PER_MESSAGE = 20
+MAX_TOOL_INTENT_REASON_CHARS = 4096
+MAX_TOOL_INTENT_ARGS_JSON_BYTES = 65536  # 64 KiB
+
 
 DEFAULT_TOOL_POLICIES: dict[str, ToolPolicy] = {
     "fs.search": ToolPolicy(
@@ -113,8 +117,15 @@ def _validate_obj(obj: Any) -> ToolIntent:
         raise ToolIntentParseError(
             "Missing or invalid 'args' (expected object)."
         )
+    args_bytes = len(
+        json.dumps(args, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    if args_bytes > MAX_TOOL_INTENT_ARGS_JSON_BYTES:
+        raise ToolIntentParseError("tool_intents_args_too_large")
     if not isinstance(reason, str):
         raise ToolIntentParseError("Invalid 'reason' (expected string).")
+    if len(reason) > MAX_TOOL_INTENT_REASON_CHARS:
+        raise ToolIntentParseError("tool_intents_reason_too_long")
 
     # Ignore extra keys for forward compatibility.
     return ToolIntent(
@@ -171,5 +182,8 @@ def parse_tool_intents(text: str) -> list[ToolIntent]:
         raise ToolIntentParseError(
             "Tool intents must be a JSON object or array of objects."
         )
+
+    if len(intents) > MAX_TOOL_INTENTS_PER_MESSAGE:
+        raise ToolIntentParseError("tool_intents_too_many")
 
     return intents

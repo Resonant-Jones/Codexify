@@ -4,6 +4,9 @@ import pytest
 
 from guardian.context.broker import maybe_extract_tool_intents
 from guardian.context.tool_intents import (
+    MAX_TOOL_INTENT_ARGS_JSON_BYTES,
+    MAX_TOOL_INTENT_REASON_CHARS,
+    MAX_TOOL_INTENTS_PER_MESSAGE,
     ToolIntentParseError,
     ToolRisk,
     classify_tool_intent,
@@ -123,3 +126,44 @@ def test_parse_tool_intents_allows_extra_keys() -> None:
     intents = parse_tool_intents(json.dumps(payload))
     assert len(intents) == 1
     assert intents[0].tool == "fs.search"
+
+
+def test_parse_tool_intents_rejects_too_many_intents() -> None:
+    payload = [
+        {
+            "id": f"{i:08d}-0000-0000-0000-000000000000",
+            "tool": "fs.search",
+            "args": {"query": "x"},
+            "reason": "r",
+        }
+        for i in range(MAX_TOOL_INTENTS_PER_MESSAGE + 1)
+    ]
+    with pytest.raises(ToolIntentParseError) as exc:
+        parse_tool_intents(json.dumps(payload))
+    assert "tool_intents_too_many" in str(exc.value)
+
+
+def test_parse_tool_intents_rejects_reason_too_long() -> None:
+    payload = {
+        "id": "44444444-4444-4444-4444-444444444444",
+        "tool": "fs.search",
+        "args": {"query": "hello"},
+        "reason": "x" * (MAX_TOOL_INTENT_REASON_CHARS + 1),
+    }
+    with pytest.raises(ToolIntentParseError) as exc:
+        parse_tool_intents(json.dumps(payload))
+    assert "tool_intents_reason_too_long" in str(exc.value)
+
+
+def test_parse_tool_intents_rejects_args_too_large() -> None:
+    # Build a payload that will exceed MAX_TOOL_INTENT_ARGS_JSON_BYTES
+    big = "x" * (MAX_TOOL_INTENT_ARGS_JSON_BYTES + 1024)
+    payload = {
+        "id": "55555555-5555-5555-5555-555555555555",
+        "tool": "fs.search",
+        "args": {"blob": big},
+        "reason": "r",
+    }
+    with pytest.raises(ToolIntentParseError) as exc:
+        parse_tool_intents(json.dumps(payload))
+    assert "tool_intents_args_too_large" in str(exc.value)
