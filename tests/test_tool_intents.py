@@ -2,7 +2,10 @@ import json
 
 import pytest
 
-from guardian.context.broker import maybe_extract_tool_intents
+from guardian.context.broker import (
+    build_assistant_response_payload,
+    maybe_extract_tool_intents,
+)
 from guardian.context.tool_intents import (
     MAX_TOOL_INTENT_ARGS_JSON_BYTES,
     MAX_TOOL_INTENT_REASON_CHARS,
@@ -83,6 +86,48 @@ def test_broker_marks_fs_read_file_consent_required() -> None:
     assert record["approved"] is False
     assert record["requires_consent"] is True
     assert len(tool_block["pending_tool_intents"]) == 1
+
+
+def test_build_assistant_response_payload_adds_redacted_tool_views() -> None:
+    payload = {
+        "id": "66666666-6666-6666-6666-666666666666",
+        "tool": "fs.read_file",
+        "args": {
+            "path": "/vault/secrets.md",
+            "api_key": "test",
+            "headers": {"Authorization": "Bearer test"},
+            "nested": {"client_secret": "test"},
+            "query": "find policy",
+            "model": "gpt-test",
+        },
+        "reason": "need file contents",
+    }
+
+    response = build_assistant_response_payload(json.dumps(payload))
+
+    assert len(response["tool_intents"]) == 1
+    assert len(response["tool_intents_redacted"]) == 1
+    assert len(response["pending_tool_intents"]) == 1
+    assert len(response["pending_tool_intents_redacted"]) == 1
+
+    original = response["tool_intents"][0]
+    redacted = response["tool_intents_redacted"][0]
+
+    # Original payload remains untouched for execution semantics.
+    assert original["args"]["api_key"] == "test"
+    assert original["args"]["headers"]["Authorization"] == "Bearer test"
+    assert original["args"]["nested"]["client_secret"] == "test"
+
+    # Redacted payload masks sensitive keys and keeps safe fields.
+    assert redacted["args"]["api_key"] == "[REDACTED]"
+    assert redacted["args"]["headers"]["Authorization"] == "[REDACTED]"
+    assert redacted["args"]["nested"]["client_secret"] == "[REDACTED]"
+    assert redacted["args"]["query"] == "find policy"
+    assert redacted["args"]["model"] == "gpt-test"
+
+    pending_redacted = response["pending_tool_intents_redacted"][0]
+    assert pending_redacted["args"]["api_key"] == "[REDACTED]"
+    assert pending_redacted["args"]["headers"]["Authorization"] == "[REDACTED]"
 
 
 def test_parse_tool_intents_accepts_fenced_json_single_intent() -> None:
