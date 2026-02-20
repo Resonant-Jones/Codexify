@@ -28,8 +28,15 @@ def _coerce_int(value: Any) -> Optional[int]:
 
 
 def _looks_like_json(text: str) -> bool:
-    stripped = (text or "").lstrip()
-    return stripped.startswith("{") or stripped.startswith("[")
+    s = (text or "").lstrip()
+    if not s:
+        return False
+    if s[0] in "{[":
+        return True
+    # Accept fenced JSON (```json ...``` or ``` ... ```)
+    if s.startswith("```"):
+        return True
+    return False
 
 
 def maybe_extract_tool_intents(

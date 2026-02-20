@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -32,17 +33,15 @@ class ToolIntent:
     # Stable ID assigned by Guardian for consent/workflow tracking
     intent_id: str = ""
 
-    def with_id(self, intent_id: str) -> ToolIntent:
-        return ToolIntent(
-            tool=self.tool,
-            args=self.args,
-            reason=self.reason,
-            intent_id=intent_id,
-        )
-
 
 class ToolIntentParseError(Exception):
     """Raised when model output does not match the tool-intent schema."""
+
+
+_FENCED_BLOCK_RE = re.compile(
+    r"^\s*```(?:json)?\s*\n(?P<body>.*)\n\s*```\s*$",
+    re.DOTALL | re.IGNORECASE,
+)
 
 
 DEFAULT_TOOL_POLICIES: dict[str, ToolPolicy] = {
@@ -88,15 +87,24 @@ def _validate_obj(obj: Any) -> ToolIntent:
     if not isinstance(obj, dict):
         raise ToolIntentParseError("Tool intent must be a JSON object.")
 
-    if obj.get("type") != "tool_intent":
+    required = {"id", "tool", "args", "reason"}
+    missing = required - set(obj.keys())
+    if missing:
+        raise ToolIntentParseError(f"missing_keys:{','.join(sorted(missing))}")
+
+    intent_id = obj["id"]
+    tool = obj["tool"]
+    args = obj["args"]
+    reason = obj["reason"]
+
+    if not isinstance(intent_id, str):
+        raise ToolIntentParseError("Invalid 'id' (expected UUID string).")
+    try:
+        uuid.UUID(intent_id)
+    except ValueError as exc:
         raise ToolIntentParseError(
-            "Missing or invalid 'type' (expected 'tool_intent')."
-        )
-
-    tool = obj.get("tool")
-    args = obj.get("args")
-    reason = obj.get("reason")
-
+            "Invalid 'id' (expected UUID string)."
+        ) from exc
     if not isinstance(tool, str) or not tool.strip():
         raise ToolIntentParseError(
             "Missing or invalid 'tool' (expected non-empty string)."
@@ -105,16 +113,47 @@ def _validate_obj(obj: Any) -> ToolIntent:
         raise ToolIntentParseError(
             "Missing or invalid 'args' (expected object)."
         )
-    if reason is not None and not isinstance(reason, str):
+    if not isinstance(reason, str):
         raise ToolIntentParseError("Invalid 'reason' (expected string).")
 
-    return ToolIntent(tool=tool, args=args, reason=reason)
+    # Ignore extra keys for forward compatibility.
+    return ToolIntent(
+        tool=tool,
+        args=args,
+        reason=reason,
+        intent_id=intent_id,
+    )
+
+
+def _unwrap_json_maybe_fenced(text: str) -> str:
+    """
+    Accept either:
+      - pure JSON text
+      - a single fenced block containing JSON (```json ...``` or ``` ... ```)
+    Reject if JSON is mixed with prose outside the fenced block.
+    """
+    s = (text or "").strip()
+    if not s:
+        raise ToolIntentParseError("empty_tool_intents")
+
+    if s[0] in "{[":
+        return s
+
+    m = _FENCED_BLOCK_RE.match(s)
+    if m:
+        return m.group("body").strip()
+
+    # Not pure JSON and not a single fenced JSON block
+    raise ToolIntentParseError("tool_intents_not_json")
 
 
 def parse_tool_intents(text: str) -> list[ToolIntent]:
     """Parse tool intents from model output JSON object or array."""
     try:
-        payload = json.loads(text)
+        raw = _unwrap_json_maybe_fenced(text)
+        payload = json.loads(raw)
+    except ToolIntentParseError:
+        raise
     except Exception as exc:  # pragma: no cover - branch covered via raises
         raise ToolIntentParseError(
             f"Invalid JSON for tool intent: {exc}"
@@ -133,4 +172,4 @@ def parse_tool_intents(text: str) -> list[ToolIntent]:
             "Tool intents must be a JSON object or array of objects."
         )
 
-    return [intent.with_id(str(uuid.uuid4())) for intent in intents]
+    return intents
