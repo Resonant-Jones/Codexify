@@ -47,6 +47,33 @@ MAX_TOOL_INTENTS_PER_MESSAGE = 20
 MAX_TOOL_INTENT_REASON_CHARS = 4096
 MAX_TOOL_INTENT_ARGS_JSON_BYTES = 65536  # 64 KiB
 
+REDACTED_VALUE = "[REDACTED]"
+
+_REDACT_KEYS_EXACT = {
+    "api_key",
+    "apikey",
+    "token",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "authorization",
+    "auth",
+    "bearer",
+    "secret",
+    "client_secret",
+    "password",
+    "passphrase",
+}
+
+_REDACT_KEYS_CONTAINS = {
+    "api_key",
+    "apikey",
+    "token",
+    "secret",
+    "password",
+    "authorization",
+}
+
 
 DEFAULT_TOOL_POLICIES: dict[str, ToolPolicy] = {
     "fs.search": ToolPolicy(
@@ -85,6 +112,38 @@ def classify_tool_intent(intent: ToolIntent) -> ToolPolicy:
             description="Unknown tool; consent required by default.",
         ),
     )
+
+
+def _should_redact_key(key: str) -> bool:
+    k = (key or "").strip().lower()
+    if not k:
+        return False
+    if k in _REDACT_KEYS_EXACT:
+        return True
+    return any(sub in k for sub in _REDACT_KEYS_CONTAINS)
+
+
+def redact_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            if _should_redact_key(str(k)):
+                out[k] = REDACTED_VALUE
+            else:
+                out[k] = redact_json(v)
+        return out
+    if isinstance(value, list):
+        return [redact_json(v) for v in value]
+    # Scalars unchanged
+    return value
+
+
+def redact_tool_intent_dict(intent: dict[str, Any]) -> dict[str, Any]:
+    # Shallow copy; v1 redacts args only.
+    out = dict(intent)
+    if isinstance(out.get("args"), (dict, list)):
+        out["args"] = redact_json(out["args"])
+    return out
 
 
 def _validate_obj(obj: Any) -> ToolIntent:

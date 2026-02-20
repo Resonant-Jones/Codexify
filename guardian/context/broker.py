@@ -8,6 +8,7 @@ from guardian.context.tool_intents import (
     ToolRisk,
     classify_tool_intent,
     parse_tool_intents,
+    redact_tool_intent_dict,
 )
 from guardian.core.config import Settings, get_settings
 from guardian.memoryos.retriever import MemoryOSRetriever
@@ -82,6 +83,14 @@ def build_assistant_response_payload(assistant_text: str) -> Dict[str, Any]:
 
     if tool_block is not None:
         response.update(tool_block)
+        tool_intents = tool_block.get("tool_intents", [])
+        pending_tool_intents = tool_block.get("pending_tool_intents", [])
+        response["tool_intents_redacted"] = [
+            redact_tool_intent_dict(intent) for intent in tool_intents
+        ]
+        response["pending_tool_intents_redacted"] = [
+            redact_tool_intent_dict(intent) for intent in pending_tool_intents
+        ]
         response["consent_required"] = bool(
             tool_block.get("pending_tool_intents")
         )
