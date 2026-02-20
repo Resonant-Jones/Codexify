@@ -275,12 +275,11 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          docker compose run --rm --no-deps --entrypoint sh backend -lc '
-            set -eux
-            export DATABASE_URL="postgresql://codexify:codexify@db:5432/Codexify"
-            export TEST_DATABASE_URL="$DATABASE_URL"
-            pytest /app/tests/test_migrations.py -v
-          '
+          docker compose run --rm --no-deps \
+            -e DATABASE_URL="postgresql://codexify:codexify@db:5432/Codexify" \
+            -e TEST_DATABASE_URL="postgresql://codexify:codexify@db:5432/Codexify" \
+            --entrypoint python \
+            backend -m pytest /app/tests/test_migrations.py -v
 
       - name: Save docker logs on failure
         if: ${{ failure() && needs.changes.outputs.run_backend == 'true' }}
