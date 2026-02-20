@@ -39,7 +39,7 @@ class ToolIntentParseError(Exception):
 
 
 _FENCED_BLOCK_RE = re.compile(
-    r"^\s*```(?:json)?\s*\n(?P<body>.*)\n\s*```\s*$",
+    r"^\s*```(?:json)?\s*\r?\n(?P<body>.*?)(?:\r?\n)?```\s*$",
     re.DOTALL | re.IGNORECASE,
 )
 
