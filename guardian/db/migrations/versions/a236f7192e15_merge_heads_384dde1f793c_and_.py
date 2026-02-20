@@ -1,7 +1,7 @@
-"""merge heads 384dde1f793c and 62127ee9a537
+"""merge heads 39bce39198c4 and 62127ee9a537
 
 Revision ID: a236f7192e15
-Revises: 384dde1f793c, 62127ee9a537
+Revises: 39bce39198c4, 62127ee9a537
 Create Date: 2026-02-19 18:40:34.485508
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 # revision identifiers, used by Alembic.
 revision: str = "a236f7192e15"
 down_revision: Union[str, Sequence[str], None] = (
-    "384dde1f793c",
+    "39bce39198c4",
     "62127ee9a537",
 )
 branch_labels: Union[str, Sequence[str], None] = None

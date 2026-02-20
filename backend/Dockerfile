@@ -65,6 +65,53 @@ dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 # Create alembic.ini
 alembic_path = Path("/app_staging/backend/alembic.ini")
 alembic_path.write_text("[alembic]\nscript_location = backend/migrations\n", encoding="utf-8")
+
+# Create runtime entrypoint script (no shell required in final image)
+ep = Path("/app_staging/entrypoint.py")
+ep.write_text("""#!/usr/bin/env python3
+import os
+import sys
+import subprocess
+from pathlib import Path
+
+def _ensure_symlink():
+    # Provide /app/codexify alias for code that imports via `codexify.*`
+    target = Path('/app/codexify')
+    if target.exists():
+        return
+    try:
+        target.symlink_to('/app/guardian')
+    except Exception:
+        # If symlinks are unsupported in the runtime, fall back to no-op.
+        pass
+
+def _run(cmd, *, check=False):
+    try:
+        return subprocess.run(cmd, check=check)
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(cmd, 127)
+
+
+def main() -> None:
+    _ensure_symlink()
+
+    # Best-effort DB wait
+    _run([sys.executable, '/app/wait_for_db.py'])
+
+    # Best-effort migrations
+    alembic_cfg = '/app/backend/alembic.ini'
+    if os.path.isfile(alembic_cfg):
+        _run(['alembic', '-c', alembic_cfg, 'upgrade', 'head'])
+
+    # Exec uvicorn as PID 1
+    port = os.environ.get('PORT', '8888')
+    os.execvp('uvicorn', ['uvicorn', 'codexify.guardian_api:app', '--host', '0.0.0.0', '--port', str(port)])
+
+
+if __name__ == '__main__':
+    main()
+""", encoding="utf-8")
+ep.chmod(ep.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 PY
 
 # === Final stage: Create minimal runtime image ===
@@ -89,8 +136,9 @@ COPY scripts /app/scripts
 # Copy pre-staged scripts and configs
 COPY --from=builder /app_staging/wait_for_db.py /app/wait_for_db.py
 COPY --from=builder /app_staging/backend/alembic.ini /app/backend/alembic.ini
+COPY --from=builder /app_staging/entrypoint.py /app/entrypoint.py
 
 # Create symlink alias at runtime (in ENTRYPOINT since no shell in runtime image for RUN)
 EXPOSE 8888
 
-ENTRYPOINT ["/bin/sh", "-lc", "[ -e /app/codexify ] || ln -s /app/guardian /app/codexify; python /app/wait_for_db.py || true; if [ -f /app/backend/alembic.ini ]; then alembic -c /app/backend/alembic.ini upgrade head || true; fi; exec uvicorn codexify.guardian_api:app --host 0.0.0.0 --port ${PORT}"]
+ENTRYPOINT ["python", "/app/entrypoint.py"]

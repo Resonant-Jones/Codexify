@@ -240,6 +240,7 @@ async def app_lifespan(app: FastAPI):
         agent_orchestration.configure_db(guardian_db)
         logger.info(
             "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration routes"
+        )
         collaboration.configure_db(guardian_db)
         logger.info(
             "[startup] GuardianDB configured for cron/documents/share/collaboration/websocket routes"
