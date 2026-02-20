@@ -185,21 +185,21 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   }, [activeSessionTabId, sessionSpine]);
   const sessionControlsThreadSelection = sessionReady && Boolean(activeSessionTab);
 
+  // Sync URL with session tab - only push when route differs to avoid loop
   React.useEffect(() => {
     if (!sessionReady || !activeSessionTab) return;
     const targetThreadId = activeSessionTab.threadId ?? null;
+    const currentRouteThreadId = resolveRouteThreadId();
     if (targetThreadId === activeId) return;
     setActiveId(targetThreadId);
-    if (typeof window !== "undefined") {
-      if (targetThreadId) {
-        window.history.pushState({}, "", `/chat/${targetThreadId}`);
-      } else {
-        window.history.pushState({}, "", "/chat");
-      }
-      window.dispatchEvent(new PopStateEvent("popstate"));
+    // Only push state if the route actually differs from target
+    if (currentRouteThreadId !== targetThreadId && typeof window !== "undefined") {
+      const newPath = targetThreadId ? `/chat/${targetThreadId}` : "/chat";
+      window.history.replaceState({}, "", newPath);
     }
-  }, [activeId, activeSessionTab, sessionReady]);
+  }, [activeId, activeSessionTab, sessionReady, resolveRouteThreadId]);
 
+  // Sync sessionSpine with active thread - only depends on primitives needed to initiate side effect
   React.useEffect(() => {
     if (!sessionReady || !sessionSpine || !activeSessionTabId) return;
     if (!activeId) return;
@@ -209,7 +209,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       activeId,
       activeThread?.title || undefined
     );
-  }, [activeId, activeSessionTabId, sessionReady, sessionSpine, threads]);
+  }, [activeId, activeSessionTabId, sessionReady, sessionSpine]);
   // Workspace panel toggle event listener
   React.useEffect(() => {
     const onToggleWorkspace = () => {
