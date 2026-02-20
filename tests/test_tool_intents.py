@@ -96,6 +96,21 @@ def test_parse_tool_intents_accepts_fenced_json_single_intent() -> None:
     assert intents[0].tool == "fs.search"
 
 
+def test_parse_tool_intents_accepts_fenced_json_compact_closing() -> None:
+    payload = (
+        "```json\n"
+        "{"
+        '  "id": "33333333-3333-3333-3333-333333333333",'
+        '  "tool": "fs.search",'
+        '  "args": {"query": "hello"},'
+        '  "reason": "find the thing"'
+        "}```"
+    )
+    intents = parse_tool_intents(payload)
+    assert len(intents) == 1
+    assert intents[0].tool == "fs.search"
+
+
 def test_parse_tool_intents_allows_extra_keys() -> None:
     payload = {
         "id": "22222222-2222-2222-2222-222222222222",
