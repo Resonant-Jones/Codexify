@@ -17,7 +17,14 @@ except Exception:
 
 import numpy as np  # required by FAISS path
 
+<<<<<<< HEAD
 from guardian.utils.embed_paths import resolve_local_embed_model
+=======
+from guardian.utils.embed_paths import (
+    get_local_embed_model,
+    require_local_embed_model,
+)
+>>>>>>> e27828cd (fix(embed): validate LOCAL_EMBED_MODEL only when local backend selected)
 
 try:
     import faiss  # type: ignore
@@ -85,12 +92,17 @@ class CodexifyEmbedder:
         self._chroma_collection = None
 
         if self.use_openai:
+<<<<<<< HEAD
             if not self.model_name or not str(self.model_name).strip():
                 raise RuntimeError(
                     "CODEXIFY_OPENAI_MODEL is not set for OpenAI embeddings."
                 )
             self.model_name = str(self.model_name).strip()
             logger.info("[embedder] openai embedding model=%s", self.model_name)
+=======
+            # Non-local backends should not hard-fail on missing local model.
+            get_local_embed_model(strict=False)
+>>>>>>> e27828cd (fix(embed): validate LOCAL_EMBED_MODEL only when local backend selected)
             if OpenAI is None:
                 raise RuntimeError(
                     "OpenAI client not installed. `pip install openai>=1.0`"
@@ -104,6 +116,7 @@ class CodexifyEmbedder:
         else:
             if SentenceTransformer is None:
                 raise RuntimeError("sentence-transformers not installed.")
+<<<<<<< HEAD
             logger.info("[embedder] local embedding model=%s", self.model_name)
             try:
                 self._local_model = SentenceTransformer(
@@ -113,6 +126,12 @@ class CodexifyEmbedder:
                 raise RuntimeError(
                     "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
                 ) from exc
+=======
+            # Enforce LOCAL_EMBED_MODEL path rules only when local embeddings are selected.
+            local_model_path = require_local_embed_model()
+            self.model_name = model or local_model_path
+            self._local_model = SentenceTransformer(self.model_name)
+>>>>>>> e27828cd (fix(embed): validate LOCAL_EMBED_MODEL only when local backend selected)
 
         if self.store not in ("chroma", "faiss"):
             raise ValueError("VECTOR_STORE must be 'chroma' or 'faiss'")
