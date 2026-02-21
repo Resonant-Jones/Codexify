@@ -108,6 +108,8 @@ def main() -> int:
     port = os.environ.get("PORT", "8888")
     execv(
         [
+            sys.executable,
+            "-m",
             "uvicorn",
             "guardian.guardian_api:app",
             "--host",
