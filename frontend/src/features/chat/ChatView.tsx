@@ -363,6 +363,12 @@ export function ChatView({
                     : typeof m.created_at === "string"
                       ? Date.parse(m.created_at)
                       : Date.now(),
+                attachments: m.attachments?.map((att) => ({
+                  id: att.id,
+                  kind: att.kind,
+                  src: att.src_url,
+                  name: att.filename,
+                })),
               }}
               isGuardian={m.role !== "user"}
             />

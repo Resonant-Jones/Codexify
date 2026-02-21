@@ -1,5 +1,12 @@
 export type ThemeMode = "light" | "dark" | "system";
 
+export type MessageAttachment = {
+  id: string;
+  kind: "image" | "document";
+  src?: string;
+  name?: string;
+};
+
 export type Message = {
   id: string;
   authorId: string;
@@ -7,6 +14,7 @@ export type Message = {
   content: string;
   createdAt: number;
   status?: "sending" | "sent" | "delivered" | "read";
+  attachments?: MessageAttachment[];
 };
 
 export type ProfileMode = "local" | "cloud";

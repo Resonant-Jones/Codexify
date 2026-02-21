@@ -6,7 +6,7 @@
  */
 import React from "react";
 import { motion } from "framer-motion";
-import { Message } from "@/types/ui";
+import { Message, MessageAttachment } from "@/types/ui";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -15,6 +15,27 @@ type Attachment = {
   id?: string;
   src?: string;
   name?: string;
+};
+
+/**
+ * Merge attachments from message.attachments with those parsed from content.
+ * Message.attachments takes precedence.
+ */
+const mergeAttachments = (
+  messageAttachments: MessageAttachment[] | undefined,
+  contentAttachments: Attachment[]
+): Attachment[] => {
+  // If message has attachments, use those (they're the canonical source)
+  if (messageAttachments && messageAttachments.length > 0) {
+    return messageAttachments.map((att) => ({
+      kind: att.kind,
+      id: att.id,
+      src: att.src,
+      name: att.name,
+    }));
+  }
+  // Otherwise fall back to parsed content attachments
+  return contentAttachments;
 };
 
 const parseAttachments = (content: string) => {
@@ -177,7 +198,8 @@ export function ChatBubble({
   const fmtTime = (ts: number) =>
     new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-  const { attachments, text } = parseAttachments(message.content || "");
+  const { attachments: contentAttachments, text } = parseAttachments(message.content || "");
+  const attachments = mergeAttachments(message.attachments, contentAttachments);
   const cleanedContent = text;
   const hasAttachments = attachments.length > 0;
   const hasText = Boolean(cleanedContent.trim());
