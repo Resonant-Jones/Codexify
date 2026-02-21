@@ -600,10 +600,15 @@ def _apply_thread_update(
 # Legacy /chat routes; canonical base is /api/chat.
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
+<<<<<<< HEAD
 DOC_SCOPE_K_PROJECT = 4
 DOC_SCOPE_K_THREAD = 4
 DOC_EXCERPT_CHARS = 320
 DOC_OVERRIDE_MAX_CHARS = 2600
+=======
+DEFAULT_PROJECT_NAME = "General"
+DEFAULT_PROJECT_DESCRIPTION = "Default bucket for unassigned threads"
+>>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
 
 
 def _ensure_default_project_id() -> Optional[int]:

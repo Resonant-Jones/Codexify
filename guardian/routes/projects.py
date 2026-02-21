@@ -3,7 +3,11 @@ Projects Routes
 ~~~~~~~~~~~~~~~
 
 Project creation and management endpoints.
+<<<<<<< HEAD
 Includes canonical default "General" project initialization.
+=======
+Includes default "General" project initialization.
+>>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
 """
 
 import logging
@@ -32,16 +36,24 @@ except ImportError:
         return api_key
 
 
+<<<<<<< HEAD
 # Helper: ensure canonical default project exists at startup
 def ensure_default_project():
     """
     Ensure the canonical default "General" project exists.
+=======
+# Helper: ensure default project exists at startup
+def ensure_loose_threads_project():
+    """
+    Ensure the default 'General' project exists for unassigned threads.
+>>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
     This function should be called during application startup, not at import time.
 
     Returns:
         bool: True if successful, False otherwise
     """
     try:
+<<<<<<< HEAD
         project_id = canonicalize_default_project(chatlog_db, logger=logger)
         if project_id is None:
             logger.warning("[projects] Failed to resolve default project")
@@ -54,6 +66,15 @@ def ensure_default_project():
         return True
     except Exception as e:
         logger.warning("[projects] Failed to ensure default project: %s", e)
+=======
+        chatlog_db.ensure_project(
+            "General", "Default bucket for unassigned threads"
+        )
+        logger.info("[projects] Ensured General project exists")
+        return True
+    except Exception as e:
+        logger.warning("[projects] Failed to ensure General project: %s", e)
+>>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         return False
 
 
