@@ -9,6 +9,16 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
+import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
+import { logOnce } from "@/lib/logging/logOnce";
+
+type PollSession = {
+  token: number;
+  tid: number;
+  reason: string;
+  startedAt: number;
+  initialAssistantId: number;
+};
 
 export function ChatView({
   threadId,
@@ -38,8 +48,7 @@ export function ChatView({
   const POLL_INTERVAL_MS = 900;
   const POLL_TIMEOUT_MS = 30000;
   const pollTokenRef = useRef(0);
-  const pollTimerRef = useRef<number | null>(null);
-  const isPollingRef = useRef(false);
+  const [pollSession, setPollSession] = useState<PollSession | null>(null);
   const lastMessageIdRef = useRef(0);
   const lastAssistantIdRef = useRef(0);
   const lastPolledUserIdRef = useRef(0);
@@ -59,89 +68,105 @@ export function ChatView({
 
   const stopPolling = useCallback(() => {
     pollTokenRef.current += 1;
-    isPollingRef.current = false;
-    if (pollTimerRef.current != null) {
-      window.clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
+    setPollSession(null);
   }, []);
 
   const startPolling = useCallback(
     (tid: number, reason: string) => {
       if (!Number.isFinite(tid)) return;
       stopPolling();
-
       const token = ++pollTokenRef.current;
-      const startedAt = Date.now();
-      const initialAssistantId = lastAssistantIdRef.current;
-      isPollingRef.current = true;
-
-      const pollOnce = async () => {
-        if (pollTokenRef.current !== token) return;
-
-        try {
-          const res = await api.get(`/chat/${tid}/messages`, { params: { limit: PAGE_SIZE, offset: 0 } });
-          const parsed = parseMessagesResponse(res?.data);
-          if (parsed) {
-            const [page] = parsed;
-            console.debug(`[chat:poll] Parsed ${page.length} messages for thread ${tid}`);
-            let maxId = lastMessageIdRef.current;
-            let maxAssistantId = initialAssistantId;
-            const newMessages = [];
-            const getMessageId = (msg: any) => {
-              const value = Number(msg?.id ?? msg?.message_id ?? msg?.messageId);
-              return Number.isFinite(value) ? value : 0;
-            };
-
-            for (const msg of page) {
-              const id = getMessageId(msg);
-              if (!Number.isFinite(id)) continue;
-              if (id > maxId) {
-                maxId = id;
-              }
-              if (msg?.role && msg.role !== "user" && id > maxAssistantId) {
-                maxAssistantId = id;
-              }
-              if (id > lastMessageIdRef.current) {
-                newMessages.push(msg);
-              }
-            }
-
-            if (newMessages.length) {
-              console.debug(`[chat:poll] Found ${newMessages.length} new messages for thread ${tid}`);
-              newMessages
-                .sort((a, b) => getMessageId(a) - getMessageId(b))
-                .forEach((msg) => appendMessage(tid, msg));
-            }
-
-            if (maxId > lastMessageIdRef.current) {
-              lastMessageIdRef.current = maxId;
-            }
-            if (maxAssistantId > lastAssistantIdRef.current) {
-              lastAssistantIdRef.current = maxAssistantId;
-            }
-            if (maxAssistantId > initialAssistantId) {
-              stopPolling();
-              return;
-            }
-          }
-        } catch (err) {
-          console.warn(`[chat] polling failed (${reason})`, err);
-        }
-
-        if (Date.now() - startedAt >= POLL_TIMEOUT_MS) {
-          console.info(`[chat] polling timed out (${reason})`);
-          stopPolling();
-          return;
-        }
-
-        pollTimerRef.current = window.setTimeout(pollOnce, POLL_INTERVAL_MS);
-      };
-
-      void pollOnce();
+      setPollSession({
+        token,
+        tid,
+        reason,
+        startedAt: Date.now(),
+        initialAssistantId: lastAssistantIdRef.current,
+      });
     },
-    [appendMessage, stopPolling]
+    [stopPolling]
   );
+
+  const pollOnce = useCallback(async () => {
+    if (!pollSession) return;
+    if (pollTokenRef.current !== pollSession.token) return;
+
+    if (Date.now() - pollSession.startedAt >= POLL_TIMEOUT_MS) {
+      logOnce("poll:messages:timeout", 10_000, () => {
+        console.info(`[chat] polling timed out (${pollSession.reason})`);
+      });
+      stopPolling();
+      return;
+    }
+
+    try {
+      const res = await api.get(`/chat/${pollSession.tid}/messages`, {
+        params: { limit: PAGE_SIZE, offset: 0 },
+      });
+      if (pollTokenRef.current !== pollSession.token) return;
+
+      const parsed = parseMessagesResponse(res?.data);
+      if (parsed) {
+        const [page] = parsed;
+        console.debug(
+          `[chat:poll] Parsed ${page.length} messages for thread ${pollSession.tid}`
+        );
+        let maxId = lastMessageIdRef.current;
+        let maxAssistantId = pollSession.initialAssistantId;
+        const newMessages = [];
+        const getMessageId = (msg: any) => {
+          const value = Number(msg?.id ?? msg?.message_id ?? msg?.messageId);
+          return Number.isFinite(value) ? value : 0;
+        };
+
+        for (const msg of page) {
+          const id = getMessageId(msg);
+          if (!Number.isFinite(id)) continue;
+          if (id > maxId) {
+            maxId = id;
+          }
+          if (msg?.role && msg.role !== "user" && id > maxAssistantId) {
+            maxAssistantId = id;
+          }
+          if (id > lastMessageIdRef.current) {
+            newMessages.push(msg);
+          }
+        }
+
+        if (newMessages.length) {
+          console.debug(
+            `[chat:poll] Found ${newMessages.length} new messages for thread ${pollSession.tid}`
+          );
+          newMessages
+            .sort((a, b) => getMessageId(a) - getMessageId(b))
+            .forEach((msg) => appendMessage(pollSession.tid, msg));
+        }
+
+        if (maxId > lastMessageIdRef.current) {
+          lastMessageIdRef.current = maxId;
+        }
+        if (maxAssistantId > lastAssistantIdRef.current) {
+          lastAssistantIdRef.current = maxAssistantId;
+        }
+        if (maxAssistantId > pollSession.initialAssistantId) {
+          stopPolling();
+        }
+      }
+    } catch (err) {
+      logOnce("poll:messages", 10_000, () => {
+        console.warn(`[chat] polling failed (${pollSession.reason})`, err);
+      });
+      throw err;
+    }
+  }, [appendMessage, pollSession, stopPolling]);
+
+  usePollWithBackoff(pollOnce, {
+    enabled: Boolean(pollSession),
+    intervalMs: POLL_INTERVAL_MS,
+    maxBackoffMs: 8_000,
+    onErrorKey: "poll:messages",
+    logTtlMs: 10_000,
+  });
 
   useEffect(() => {
     stopPolling();
