@@ -6,6 +6,10 @@ Initializes baseline data like the default project if the database is empty.
 import logging
 import os
 
+from guardian.core.default_project import (
+    DEFAULT_PROJECT_DESCRIPTION,
+    DEFAULT_PROJECT_NAME,
+)
 from guardian.core.pgdb import PgDB
 
 logger = logging.getLogger(__name__)
@@ -20,8 +24,8 @@ def seed():
     db = PgDB(dsn)
     existing = db.list_projects()
     if not existing:
-        db.create_project("Loose Threads", "Default Codexify project")
-        logger.info("Seeded base project: Loose Threads")
+        db.create_project(DEFAULT_PROJECT_NAME, DEFAULT_PROJECT_DESCRIPTION)
+        logger.info("Seeded base project: %s", DEFAULT_PROJECT_NAME)
     else:
         logger.info(
             f"Database already has {len(existing)} projects; skipping seed."

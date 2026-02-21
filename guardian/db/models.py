@@ -1005,8 +1005,10 @@ class GeneratedDocument(Base):
     __tablename__ = "generated_documents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
-    project_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("projects.id", ondelete="CASCADE")
+    project_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
     )
     thread_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id", ondelete="CASCADE")
@@ -1036,7 +1038,7 @@ class GeneratedDocument(Base):
     )  # Soft delete
 
     # Relationships
-    project: Mapped[Project | None] = relationship("Project")
+    project: Mapped[Project] = relationship("Project")
     thread: Mapped[ChatThread | None] = relationship("ChatThread")
 
     __table_args__ = (

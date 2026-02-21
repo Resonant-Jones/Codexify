@@ -7,7 +7,6 @@ import TileShell from "@/components/surface/TileShell";
 type Props = {
   projects: Project[];
   search: string;
-  looseCount: number;
   currentId: string | null;
   onPick: (id: string | null) => void;
   onOpenNewProject?: () => void;
@@ -17,7 +16,6 @@ type Props = {
 export default function ProjectList({
   projects,
   search,
-  looseCount,
   currentId,
   onPick,
   onOpenNewProject,
@@ -29,13 +27,6 @@ export default function ProjectList({
   return (
     <div className={clsx("flex-1 min-h-0 overflow-auto pt-[5px]", className)}>
       <div className="grid auto-rows-[minmax(140px,auto)] grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
-        <ProjectTileCard
-          key="__loose"
-          label={`Loose threads${looseCount ? ` (${looseCount})` : ""}`}
-          icon={<FolderOpen className="h-6 w-6" />}
-          active={currentId === null}
-          onClick={() => onPick(null)}
-        />
         {filtered.map((p) => (
           <ProjectTileCard
             key={p.id}

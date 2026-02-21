@@ -14,6 +14,10 @@ export type DocumentLike = {
   srcUrl?: string;
   src?: string;
   url?: string;
+  projectId?: number;
+  project_id?: number;
+  threadId?: number | null;
+  thread_id?: number | null;
   createdAt?: string;
   embeddingStatus?: string;
   embeddingError?: string;

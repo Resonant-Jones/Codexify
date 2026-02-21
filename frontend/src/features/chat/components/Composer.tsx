@@ -30,7 +30,13 @@ function inferProjectIdFromLocation(fallback = 1): number {
 function inferProjectIdFromStorage(): number | null {
   if (typeof window === "undefined") return null;
   try {
-    const keys = ["cfy.projectId", "cfy.activeProjectId", "projectId"];
+    const keys = [
+      "cfy.projectId",
+      "cfy.activeProjectId",
+      "cfy.generalProjectId",
+      "cfy.defaultProjectId",
+      "projectId",
+    ];
     for (const key of keys) {
       const raw = window.localStorage.getItem(key);
       const parsed = Number(raw);

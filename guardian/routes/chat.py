@@ -400,8 +400,6 @@ def _apply_thread_update(
 # Legacy /chat routes; canonical base is /api/chat.
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
-DEFAULT_PROJECT_NAME = "Loose Threads"
-DEFAULT_PROJECT_DESCRIPTION = "Default bucket for unassigned threads"
 DOC_SCOPE_K_PROJECT = 4
 DOC_SCOPE_K_THREAD = 4
 DOC_EXCERPT_CHARS = 320
@@ -418,9 +416,7 @@ def _ensure_default_project_id() -> Optional[int]:
     if not chatlog_db:
         return None
     try:
-        pid = chatlog_db.ensure_project(
-            DEFAULT_PROJECT_NAME, DEFAULT_PROJECT_DESCRIPTION
-        )
+        pid = chatlog_db.ensure_default_project()
         return int(pid) if pid is not None else None
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.warning("[chat] failed to ensure default project: %s", exc)

@@ -172,7 +172,7 @@ from guardian.routes.media import router as media_router
 from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
 from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
-from guardian.routes.projects import ensure_loose_threads_project
+from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
 from guardian.routes.tools import api_router as api_tools_router
 from guardian.routes.tools import router as tools_router
@@ -256,13 +256,11 @@ async def app_lifespan(app: FastAPI):
                 "[outbox] Failed to configure durable event outbox; falling back to in-memory hub"
             )
 
-    # Ensure default "Loose Threads" project exists
+    # Ensure canonical default "General" project exists
     try:
-        ensure_loose_threads_project()
+        ensure_default_project()
     except Exception as exc:
-        logger.error(
-            "[startup] Failed to initialize Loose Threads project: %s", exc
-        )
+        logger.error("[startup] Failed to initialize default project: %s", exc)
 
     # Ensure sync_jobs table exists
     try:
