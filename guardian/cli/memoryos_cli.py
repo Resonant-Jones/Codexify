@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import click
 
@@ -100,3 +101,32 @@ def summarize_and_branch(conversation_id):
     result = memory.summarize_and_branch_conversation(conversation_id)
     click.echo("\n--- SUMMARY RESULT ---\n")
     click.echo(result if result else "No summary was generated.")
+
+
+@cli.command("setup")
+@click.option(
+    "--repo-root",
+    type=click.Path(
+        path_type=Path,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    default=Path.cwd,
+    show_default="current working directory",
+    help="Repo root used to write .env (default: cwd).",
+)
+def setup_wizard(repo_root: Path) -> None:
+    """Launch interactive setup wizard for dependency scan and .env generation."""
+    try:
+        from guardian.tui.setup_wizard_app import run_setup_wizard
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.startswith("textual"):
+            raise click.ClickException(
+                "Textual is required for this command. "
+                "Install with: pip install '.[tui]'"
+            ) from exc
+        raise
+
+    run_setup_wizard(repo_root=repo_root)
