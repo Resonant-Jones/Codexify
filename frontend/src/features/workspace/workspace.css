@@ -1,0 +1,118 @@
+.codexifyWorkspacePane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.codexifyWorkspacePaneHeader {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 12px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.codexifyWorkspacePaneHeaderTitle {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.codexifyWorkspacePaneHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  min-width: 0;
+}
+
+.codexifyWorkspaceViewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  border-radius: 18px;
+  padding: 12px;
+  background: var(--panel-bg);
+  color: var(--text);
+}
+
+.codexifyWorkspaceViewer--embed {
+  padding: 0;
+  overflow: hidden;
+}
+
+.codexifyWorkspaceViewer--image {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.codexifyWorkspaceViewer iframe,
+.codexifyWorkspaceViewer embed,
+.codexifyWorkspaceViewer object {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.codexifyWorkspaceImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.codexifyWorkspaceHint {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.codexifyWorkspaceLink {
+  margin-top: 0.5rem;
+  display: inline-block;
+  color: rgb(59 130 246);
+  text-decoration: none;
+}
+
+.codexifyWorkspaceLink:hover {
+  text-decoration: underline;
+}
+
+.codexifyWorkspaceCodexHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.codexifyWorkspaceCodexTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.codexifyWorkspaceError {
+  color: rgb(248 113 113);
+  font-size: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.codexifyWorkspaceErrorTitle {
+  font-weight: 600;
+}
+
+.codexifyWorkspaceMarkdown {
+  min-width: 0;
+}
