@@ -15,7 +15,7 @@ afterEach(() => {
 (globalThis as any).jest = vi;
 
 // Provide a matchMedia mock for components that expect it (e.g. using CSS/media queries)
-if (typeof window !== "undefined" && !("matchMedia" in window)) {
+if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: (query: string) => ({

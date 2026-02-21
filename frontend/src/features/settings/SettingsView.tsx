@@ -36,10 +36,6 @@ export function SettingsView({
   setExtColors,
   dashboardThreadRows,
   setDashboardThreadRows,
-  showLegacyThreads,
-  setShowLegacyThreads,
-  ingestionEnabled,
-  setIngestionEnabled,
 }: {
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
@@ -66,10 +62,6 @@ export function SettingsView({
   setExtColors: (m: ExtColors) => void;
   dashboardThreadRows: number;
   setDashboardThreadRows: (n: number) => void;
-  showLegacyThreads: boolean;
-  setShowLegacyThreads: (b: boolean) => void;
-  ingestionEnabled: boolean;
-  setIngestionEnabled: (b: boolean) => void;
 }) {
   const [tab, setTab] = useState<"appearance" | "system" | "connectors" | "data" | "diagnostics">("appearance");
   const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
@@ -127,7 +119,7 @@ export function SettingsView({
   const { connectors, updateConnector, loading, error, authorizeOAuth, testConnector, syncConnector } = useConnectors();
 
   return (
-    <div className="h-full overflow-auto" style={{ color: "var(--text)" }}>
+    <div className="w-full" style={{ color: "var(--text)" }}>
       <div className="mx-auto w-full max-w-[30rem] space-y-6 p-4">
         <div className="flex items-center gap-2">
           <Button type="button" variant={tab === "appearance" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("appearance")}>
@@ -298,35 +290,6 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="text-base font-semibold">Labs</div>
-              <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
-                <label className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">Show Legacy Threads</div>
-                    <div className="text-xs opacity-70">Enable browsing legacy chat trees via a modal.</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={!!showLegacyThreads}
-                    onChange={(e) => setShowLegacyThreads(e.target.checked)}
-                    aria-label="Show Legacy Threads"
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">Enable Ingestion API</div>
-                    <div className="text-xs opacity-70">When enabled, uploads POST to the backend endpoint (env VITE_INGESTION_ENDPOINT).</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={!!ingestionEnabled}
-                    onChange={(e) => setIngestionEnabled(e.target.checked)}
-                    aria-label="Enable Ingestion API"
-                  />
-                </label>
-              </div>
-            </div>
           </div>
         )}
 
