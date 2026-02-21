@@ -3,11 +3,11 @@ from pathlib import Path
 
 import click
 
-from guardian.core.client_factory import get_memoryos_instance
-
 
 def get_memory_instance():
     """Share the same MemoryOS factory used by the backend application."""
+    from guardian.core.client_factory import get_memoryos_instance
+
     return get_memoryos_instance()
 
 
@@ -130,3 +130,63 @@ def setup_wizard(repo_root: Path) -> None:
         raise
 
     run_setup_wizard(repo_root=repo_root)
+
+
+@cli.command("doctor")
+@click.option(
+    "--repo-root",
+    type=click.Path(
+        path_type=Path,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    default=Path.cwd,
+    show_default="current working directory",
+    help="Repo root used to find .env (default: cwd).",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Emit machine-readable JSON output.",
+)
+def doctor(repo_root: Path, json_output: bool) -> None:
+    """Run environment diagnostics and exit nonzero on required failures."""
+    from guardian.ops.setup_wizard import build_doctor_report
+
+    items, code = build_doctor_report(repo_root=repo_root)
+
+    if json_output:
+        payload = [
+            {
+                "name": item.name,
+                "ok": item.ok,
+                "required": item.required,
+                "detail": item.detail,
+            }
+            for item in items
+        ]
+        click.echo(json.dumps({"items": payload, "exit_code": code}, indent=2))
+        raise SystemExit(code)
+
+    click.echo("Codexify Doctor Report")
+    click.echo(f"Repo: {repo_root.resolve()}")
+    click.echo("")
+
+    for item in items:
+        status = "OK" if item.ok else ("FAIL" if item.required else "WARN")
+        requiredness = "required" if item.required else "optional"
+        detail = f" - {item.detail}" if item.detail else ""
+        click.echo(f"[{status}] ({requiredness}) {item.name}{detail}")
+
+    if code != 0:
+        click.echo("")
+        click.echo(
+            "One or more REQUIRED checks failed. "
+            "Run `codexify setup` to repair configuration."
+        )
+
+    raise SystemExit(code)
