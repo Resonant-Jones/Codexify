@@ -148,3 +148,17 @@ hf_cache/
 boxbeyond-kutiraai/
 output/
 tmp/
+# local agent/tooling
+.claude/
+.codex/
+
+# OS junk
+.DS_Store
+
+# local outputs / temp
+output/
+tmp/
+**/output/
+**/tmp/
+data/
+chatgpt-conversation-extractor-master/

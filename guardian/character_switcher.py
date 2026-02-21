@@ -1,7 +1,10 @@
 import json
+import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path.home() / ".pulseos" / "actors"
 
@@ -10,44 +13,48 @@ def list_companions() -> None:
     """List all companions in the BASE_DIR. Handles missing dir and empty state."""
     try:
         if not BASE_DIR.exists() or not BASE_DIR.is_dir():
-            print(
-                f"ℹ️  No companions found. Directory does not exist: {BASE_DIR.resolve()}"
+            logger.info(
+                f"No companions found. Directory does not exist: {BASE_DIR.resolve()}"
             )
             return
         companions = [p.name for p in BASE_DIR.iterdir() if p.is_dir()]
         if not companions:
-            print(f"ℹ️  No companions found in {BASE_DIR.resolve()}")
+            logger.info(f"No companions found in {BASE_DIR.resolve()}")
             return
-        print(f"📜 Companions in {BASE_DIR.resolve()}:")
+        logger.info(f"Companions in {BASE_DIR.resolve()}:")
         for name in sorted(companions):
-            print(f" - {name}")
+            logger.info(f" - {name}")
     except Exception as e:
-        print(f"❌ Failed to list companions: {e}")
+        logger.error(f"Failed to list companions: {e}")
 
 
 def delete_companion(actor_name: str) -> None:
     """Delete a companion's folder and all files inside it, with confirmation and error handling."""
     actor_path = BASE_DIR / actor_name
     if not actor_path.exists() or not actor_path.is_dir():
-        print(f"⚠️  Companion '{actor_name}' not found in {BASE_DIR.resolve()}")
+        logger.warning(
+            f"Companion '{actor_name}' not found in {BASE_DIR.resolve()}"
+        )
         return
-    print(
-        f"⚠️  You are about to delete companion '{actor_name}' and all its data in {actor_path.resolve()}."
+    logger.warning(
+        f"You are about to delete companion '{actor_name}' and all its data in {actor_path.resolve()}."
     )
-    print(
-        "🔒 This action is irreversible! Consider backing up your identities folder first."
+    logger.warning(
+        "This action is irreversible! Consider backing up your identities folder first."
     )
     confirm = input(
         f"Type the companion's name ({actor_name}) to confirm deletion: "
     ).strip()
     if confirm != actor_name:
-        print("❌ Deletion cancelled. Name did not match.")
+        logger.error("Deletion cancelled. Name did not match.")
         return
     try:
         shutil.rmtree(actor_path)
-        print(f"🗑️  Companion '{actor_name}' deleted from {BASE_DIR.resolve()}")
+        logger.info(
+            f"Companion '{actor_name}' deleted from {BASE_DIR.resolve()}"
+        )
     except Exception as e:
-        print(f"❌ Failed to delete companion '{actor_name}': {e}")
+        logger.error(f"Failed to delete companion '{actor_name}': {e}")
 
 
 def create_identity(actor_name: str) -> None:
@@ -56,7 +63,7 @@ def create_identity(actor_name: str) -> None:
     try:
         actor_path.mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        print(f"❌ Failed to create directory '{actor_path}': {e}")
+        logger.error(f"Failed to create directory '{actor_path}': {e}")
         return
 
     identity = {
@@ -78,27 +85,27 @@ def create_identity(actor_name: str) -> None:
         with open(actor_path / "identity.json", "w") as f:
             json.dump(identity, f, indent=2)
     except Exception as e:
-        print(f"❌ Failed to write identity.json for '{actor_name}': {e}")
+        logger.error(f"Failed to write identity.json for '{actor_name}': {e}")
         return
 
     try:
         with open(actor_path / f"{actor_name}.prompt", "w") as f:
             f.write(cue_card)
     except Exception as e:
-        print(f"❌ Failed to write prompt file for '{actor_name}': {e}")
+        logger.error(f"Failed to write prompt file for '{actor_name}': {e}")
         return
 
     try:
         with open(actor_path / "last_context.md", "w") as f:
             f.write(last_context)
     except Exception as e:
-        print(f"❌ Failed to write last_context.md for '{actor_name}': {e}")
+        logger.error(f"Failed to write last_context.md for '{actor_name}': {e}")
         return
 
-    print(f"🔄 New companion '{actor_name}' created in {actor_path}")
-    print("ℹ️  Identities are stored in:", BASE_DIR.resolve())
-    print(
-        "🔒 Please back up this folder (e.g. to iCloud/Google Drive) to preserve your companions and memories."
+    logger.info(f"New companion '{actor_name}' created in {actor_path}")
+    logger.info(f"Identities are stored in: {BASE_DIR.resolve()}")
+    logger.info(
+        "Please back up this folder (e.g. to iCloud/Google Drive) to preserve your companions and memories."
     )
 
 
@@ -106,19 +113,21 @@ def switch_identity(actor_name: str) -> None:
     """Switch to an existing companion identity if it exists."""
     path = BASE_DIR / actor_name
     if not path.exists():
-        print(
-            f"⚠️ Companion '{actor_name}' not found. Run with --create to start a new one."
+        logger.warning(
+            f"Companion '{actor_name}' not found. Run with --create to start a new one."
         )
         return
     try:
-        print(f"✅ Switched to companion: {actor_name}")
-        print(f"📁 Path: {path.resolve()}")
-        print("ℹ️  Identities are stored in:", BASE_DIR.resolve())
-        print(
-            "🔒 Please back up this folder (e.g. to iCloud/Google Drive) to preserve your companions and memories."
+        logger.info(f"Switched to companion: {actor_name}")
+        logger.info(f"Path: {path.resolve()}")
+        logger.info(f"Identities are stored in: {BASE_DIR.resolve()}")
+        logger.info(
+            "Please back up this folder (e.g. to iCloud/Google Drive) to preserve your companions and memories."
         )
     except Exception as e:
-        print(f"❌ Error accessing path information for '{actor_name}': {e}")
+        logger.error(
+            f"Error accessing path information for '{actor_name}': {e}"
+        )
 
 
 def backup_identities(backup_path: str = None) -> str:
@@ -142,10 +151,10 @@ def backup_identities(backup_path: str = None) -> str:
             )  # remove .zip if present to avoid duplication
 
         shutil.make_archive(backup_path, "zip", BASE_DIR)
-        print(f"💾 Backup created at: {backup_path}.zip")
+        logger.info(f"Backup created at: {backup_path}.zip")
         return f"{backup_path}.zip"
     except Exception as e:
-        print(f"❌ Failed to create backup: {e}")
+        logger.error(f"Failed to create backup: {e}")
         return ""
 
 
@@ -185,21 +194,21 @@ if __name__ == "__main__":
     if args.backup:
         backup_file = backup_identities()
         if backup_file:
-            print(f"Backup file location: {backup_file}")
+            logger.info(f"Backup file location: {backup_file}")
     elif args.create:
         if args.name is None:
-            print("⚠️ Please specify a companion name to create.")
+            logger.warning("Please specify a companion name to create.")
         else:
             create_identity(args.name)
     elif args.list:
         list_companions()
     elif args.delete:
         if args.name is None:
-            print("⚠️ Please specify a companion name to delete.")
+            logger.warning("Please specify a companion name to delete.")
         else:
             delete_companion(args.name)
     else:
         if args.name is None:
-            print("⚠️ Please specify a companion name to switch to.")
+            logger.warning("Please specify a companion name to switch to.")
         else:
             switch_identity(args.name)

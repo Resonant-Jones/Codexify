@@ -306,6 +306,6 @@ if __name__ == "__main__":
         app_password=None,  # skip creating a separate app user unless provided
     )
     if success:
-        print("✅ PostgreSQL setup completed!")
+        logger.info("PostgreSQL setup completed!")
     else:
-        print("❌ PostgreSQL setup failed!")
+        logger.error("PostgreSQL setup failed!")

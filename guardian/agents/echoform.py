@@ -628,7 +628,7 @@ if __name__ == "__main__":
                 "errors": {"total_operations": 1000, "error_count": 5},
             }
         )
-        print(f"Assessment result: {result}")
+        logger.info(f"Assessment result: {result}")
 
     # Run test
     import asyncio

@@ -5,12 +5,13 @@
  */
 import React, { useContext, useMemo, useState, useEffect } from "react";
 import { ProjectContext } from "@/components/layout/ProjectContext";
-import PreviewTile from "@/components/gallery/PreviewTile";
+import GalleryGrid from "@/components/gallery/GalleryGrid";
 import FrameCard from "@/components/surface/FrameCard";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import useUploader from "@/hooks/useUploader";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
 import { X } from "lucide-react";
+import "@/components/gallery/gallery.css";
 
 export type GalleryItem = {
   id?: string;
@@ -188,8 +189,6 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
     );
   };
 
-  const tileSize = 224;
-
   return (
     <div className="h-full w-full p-[var(--board-edge)]">
       <FrameCard
@@ -267,22 +266,10 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
               </button>
             </div>
           ) : (
-            <div
-              className="grid justify-start gap-5"
-              style={{
-                gridTemplateColumns: `repeat(auto-fill, minmax(${tileSize}px, 1fr))`,
-              }}
-            >
-              {galleryToRender.map((item, i) => (
-                <PreviewTile
-                  key={`${item.src}-${i}`}
-                  src={item.src}
-                  alt={item.prompt}
-                  onClick={() => onSelect(item.prompt)}
-                  style={{ minHeight: tileSize }}
-                />
-              ))}
-            </div>
+            <GalleryGrid
+              items={galleryToRender}
+              onOpen={(item) => onSelect(item.prompt)}
+            />
           )}
         </div>
         <div className="flex-shrink-0 flex items-center justify-between gap-2 border-t border-[var(--panel-border)] py-3 text-xs" style={{ color: "var(--muted)" }}>

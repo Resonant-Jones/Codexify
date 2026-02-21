@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
+import { logOnce } from "@/lib/logging/logOnce";
 
 type UseProjectsCacheOptions = {
   initialProjects?: Project[];
@@ -19,6 +21,46 @@ type UseProjectsCacheResult = {
 };
 
 const STORAGE_KEY = "cfy.projectsCache";
+const PROJECTS_POLL_MS = 30_000;
+
+function normalizeProjectName(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function isDefaultAliasName(value: unknown): boolean {
+  const normalized = normalizeProjectName(value);
+  return normalized === "general" || normalized === "loose threads";
+}
+
+function normalizeDefaultProjectAliases(list: Project[]): Project[] {
+  const defaults = list.filter((project) => isDefaultAliasName(project?.name));
+  if (defaults.length <= 1) {
+    return list.map((project) =>
+      isDefaultAliasName(project?.name)
+        ? { ...project, name: "General" }
+        : project
+    );
+  }
+
+  const canonical =
+    defaults.find((project) => normalizeProjectName(project.name) === "general") ||
+    defaults[0];
+  const canonicalId = String(canonical.id);
+
+  return list
+    .filter((project) => {
+      if (!isDefaultAliasName(project?.name)) return true;
+      return String(project.id) === canonicalId;
+    })
+    .map((project) =>
+      isDefaultAliasName(project?.name)
+        ? { ...project, name: "General" }
+        : project
+    );
+}
 
 function normalizeProjectsResponse(res: any): Project[] {
   const payload = res?.data ?? res;
@@ -27,7 +69,7 @@ function normalizeProjectsResponse(res: any): Project[] {
     : Array.isArray(payload?.projects)
     ? payload.projects
     : [];
-  return list
+  const normalized = list
     .filter(Boolean)
     .map((p: any) => ({
       id: String(p.id ?? p.project_id),
@@ -35,6 +77,7 @@ function normalizeProjectsResponse(res: any): Project[] {
       icon: p.icon ?? "📁",
       color: p.color,
     }));
+  return normalizeDefaultProjectAliases(normalized);
 }
 
 function readProjectsCache(): Project[] {
@@ -73,7 +116,7 @@ function mergeProjects(primary: Project[], secondary: Project[]): Project[] {
   };
   primary.forEach(push);
   secondary.forEach(push);
-  return out;
+  return normalizeDefaultProjectAliases(out);
 }
 
 /**
@@ -121,7 +164,27 @@ export function useProjectsCache({
     writeProjectsCache(projectList);
   }, [projectList]);
 
-  const refreshProjectsFromServer = useCallback(async () => {
+  useEffect(() => {
+    const defaultProject = projectList.find((project) =>
+      isDefaultAliasName(project?.name)
+    );
+    if (!defaultProject?.id) return;
+    try {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem(
+        "cfy.generalProjectId",
+        String(defaultProject.id)
+      );
+      window.localStorage.setItem(
+        "cfy.defaultProjectId",
+        String(defaultProject.id)
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [projectList]);
+
+  const refreshProjectsFromServer = useCallback(async (options: { throwOnError?: boolean } = {}) => {
     try {
       const res = await api.get("/api/projects");
       const list = normalizeProjectsResponse(res);
@@ -131,15 +194,28 @@ export function useProjectsCache({
           return equalProjectLists(prev, merged) ? prev : merged;
         });
       }
-    } catch {
+    } catch (err) {
+      logOnce("poll:projects", 10_000, () => {
+        console.warn("[projects] failed to refresh project cache", err);
+      });
+      if (options.throwOnError) {
+        throw err;
+      }
       /* parent may retry; swallow errors here */
     }
   }, []);
 
   // Hydrate on mount
-  useEffect(() => {
-    void refreshProjectsFromServer();
-  }, [refreshProjectsFromServer]);
+  usePollWithBackoff(
+    () => refreshProjectsFromServer({ throwOnError: true }),
+    {
+      intervalMs: PROJECTS_POLL_MS,
+      maxBackoffMs: 120_000,
+      enabled: true,
+      onErrorKey: "poll:projects",
+      logTtlMs: 10_000,
+    }
+  );
 
   // Refresh when focus or visibility regained
   useEffect(() => {

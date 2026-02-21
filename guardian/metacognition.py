@@ -518,8 +518,8 @@ if __name__ == "__main__":
 
     # Perform a system health check
     health_status = meta.system_health_check()
-    print("\nSystem Health Check:")
-    print(json.dumps(health_status, indent=2))
+    logger.info("\nSystem Health Check:")
+    logger.info(json.dumps(health_status, indent=2))
 
     # Reflect on a sample decision
     reflection = meta.reflect_on_decision(
@@ -527,5 +527,5 @@ if __name__ == "__main__":
         context={"query": "test query"},
         available_functions=["base_operation", "query_processing"],
     )
-    print("\nDecision Reflection:")
-    print(json.dumps(reflection, indent=2))
+    logger.info("\nDecision Reflection:")
+    logger.info(json.dumps(reflection, indent=2))

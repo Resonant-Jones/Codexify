@@ -175,7 +175,7 @@ def inject_result_to_thread(task_id: str) -> bool:
     content = result_obj["result"]
 
     # TODO: Replace with actual thread manager write
-    print(f"[THREAD:{thread_id}] SYSTEM: {content}")
+    logger.info("[THREAD:%s] SYSTEM: %s", thread_id, content)
     _log_event(
         thread_id=thread_id,
         event_type="result_injected",

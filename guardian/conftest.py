@@ -1,6 +1,9 @@
 # Ensure package-relative import works when running pytest from the repo root
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -62,7 +65,7 @@ for _key in [
 # Ensure a safe default so code paths don't accidentally construct OpenAI by default
 os.environ.setdefault("LLM_PROVIDER", "groq")
 
-print("✅ conftest loaded: dotenv patched (override=False); env seeded")
+logger.info("conftest loaded: dotenv patched (override=False); env seeded")
 
 from dotenv import load_dotenv
 
@@ -70,13 +73,10 @@ from dotenv import load_dotenv
 load_dotenv(override=False)
 
 # Debug print to verify seeding during collection (should appear before Settings is built)
-print(
-    "✅ conftest.py(seeding):",
-    "GENAI_API_KEY=",
+logger.debug(
+    "conftest.py(seeding): GENAI_API_KEY=%s NOTION_API_KEY=%s ANTHROPIC_API_KEY=%s",
     bool(os.environ.get("GENAI_API_KEY")),
-    "NOTION_API_KEY=",
     bool(os.environ.get("NOTION_API_KEY")),
-    "ANTHROPIC_API_KEY=",
     bool(os.environ.get("ANTHROPIC_API_KEY")),
 )
 
@@ -207,8 +207,8 @@ def pytest_collection_modifyitems(config, items):
 def load_dotenv_for_tests():
     """Ensure .env is loaded for all tests."""
     load_dotenv(override=False)
-    print(
-        f"✅ conftest.py: OPENAI_API_KEY loaded? {os.getenv('OPENAI_API_KEY') is not None}"
+    logger.debug(
+        f"conftest.py: OPENAI_API_KEY loaded? {os.getenv('OPENAI_API_KEY') is not None}"
     )
 
 
@@ -229,7 +229,7 @@ def _seed_dummy_env_for_settings():
         os.environ[f"GUARDIAN_{key}"] = os.environ[key]
     # Choose a safe default provider so client factory doesn't default to OpenAI unexpectedly
     os.environ.setdefault("LLM_PROVIDER", "groq")
-    print("✅ conftest.py(fixtures): seeded keys for Settings")
+    logger.info("conftest.py(fixtures): seeded keys for Settings")
 
 
 # --- Session-scoped Neo4j seed for deterministic graph tests ---------------
@@ -248,7 +248,7 @@ def seed_neo4j_graph(request):
     try:
         from guardian.db.neo import get_session  # type: ignore
     except Exception as e:  # pragma: no cover
-        print(f"⚠️ seed_neo4j_graph: neo4j helper unavailable: {e}")
+        logger.warning("seed_neo4j_graph: neo4j helper unavailable: %s", e)
         return
 
     try:
@@ -271,9 +271,11 @@ def seed_neo4j_graph(request):
                 MERGE (m)-[:SENT_BY]->(u)
                 """
             )
-            print("✅ Neo4j seed applied (Message->User SENT_BY)")
+            logger.info("Neo4j seed applied (Message->User SENT_BY)")
     except Exception as e:
-        print(f"⚠️ seed_neo4j_graph: skipping (Neo4j not reachable): {e}")
+        logger.warning(
+            "seed_neo4j_graph: skipping (Neo4j not reachable): %s", e
+        )
 
 
 @pytest.fixture(scope="module")

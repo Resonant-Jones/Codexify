@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 import string
 import time
@@ -7,6 +8,8 @@ from typing import Optional
 from ..model import Model
 from ..prompt.reporter import report_plan, report_task
 from .agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 class Reporter(Agent):
@@ -32,28 +35,28 @@ class Reporter(Agent):
         """
         self.db = self.data_handler(data=data)
         short_summary = self.data_handler(data)
-        print("short summary: ")
-        print(short_summary)
+        logger.info("short summary: ")
+        logger.info(short_summary)
 
         res = await self._planner(query=query, db=short_summary)
 
-        print(f"res{res}")
+        logger.info(f"res: {res}")
         time.sleep(
             3
         )  # FIXME: Replace with proper async wait or callback system
         # problem it is not yet response and then it return and the problem is it can't extract correct res afterward
         tasks = self._extract_response(res)
         tasks = json.loads(tasks)
-        print(tasks)
+        logger.info(f"tasks: {tasks}")
 
         r = self._task_handler(tasks)
-        print(r)
+        logger.info(f"result: {r}")
 
         return {"agent": "TERMINATE", "data": r, "task": ""}
 
     def data_handler(self, data):
         if not isinstance(data, list):
-            print("error handling data")
+            logger.error("error handling data")
             return
 
         short_summaries = []
@@ -99,25 +102,25 @@ class Reporter(Agent):
         return {"agent": "str", "data": "str", "task": "str"}
 
     async def _planner(self, query, db=None):
-        print("planning what to write")
+        logger.info("planning what to write")
         prompt = report_plan(query, db)
         res = self.model.completion(prompt)
         return res
 
     def _task_handler(self, tasks):
-        print("handling tasks")
+        logger.info("handling tasks")
         i = 0
         final_report = ""
         for task in tasks:
             t = task.get("task", "")
             data = task.get("data", "")
-            print(t, data)
+            logger.info(f"task: {t}, data: {data}")
             source = self.get_source(data)
-            print(source)
+            logger.info(f"source: {source}")
             prompt = report_task(tasks, t, source)
             res = self.model.completion(prompt)
             res = self._extract_response(res)
-            print(res)
+            logger.info(f"response: {res}")
             red_flag = False
             try:
                 res = json.loads(res)

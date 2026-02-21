@@ -121,6 +121,17 @@ function inferIdFromStorage(keys: string[]): string | undefined {
   return undefined;
 }
 
+const normalizeProjectName = (value: unknown): string =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+function isDefaultProjectName(value: unknown): boolean {
+  const normalized = normalizeProjectName(value);
+  return normalized === "general" || normalized === "loose threads";
+}
+
 export function useUploader({
   onImages,
   onDocuments,
@@ -234,6 +245,48 @@ export function useUploader({
     if (effectiveProjectId === undefined && effectiveThreadId !== undefined) {
       const inferred = await resolveProjectIdFromThread(String(effectiveThreadId));
       if (inferred !== undefined) effectiveProjectId = inferred;
+    }
+
+    async function resolveDefaultProjectId(): Promise<string | undefined> {
+      const cached =
+        inferIdFromStorage(["cfy.generalProjectId", "cfy.defaultProjectId"]) ||
+        undefined;
+      if (cached !== undefined) return cached;
+
+      try {
+        const response = await fetch("/api/projects", withAuth({ method: "GET" }));
+        if (!response.ok) return undefined;
+        const payload: any = await response.json();
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.projects)
+          ? payload.projects
+          : [];
+        const match = list.find((project: any) =>
+          isDefaultProjectName(project?.name)
+        );
+        const resolved =
+          match?.id != null
+            ? String(match.id)
+            : match?.project_id != null
+            ? String(match.project_id)
+            : undefined;
+        if (!resolved) return undefined;
+        try {
+          localStorage.setItem("cfy.generalProjectId", resolved);
+          localStorage.setItem("cfy.defaultProjectId", resolved);
+        } catch {}
+        return resolved;
+      } catch {
+        return undefined;
+      }
+    }
+
+    if (effectiveProjectId === undefined) {
+      const fallbackProjectId = await resolveDefaultProjectId();
+      if (fallbackProjectId !== undefined) {
+        effectiveProjectId = fallbackProjectId;
+      }
     }
 
     // Persist inferred context for later uploads (best-effort)
@@ -369,23 +422,6 @@ export function useUploader({
             if (effectiveThreadId !== undefined) {
               formData.append("thread_id", effectiveThreadId);
               formData.append("threadId", effectiveThreadId);
-            }
-
-            // Backend requires both IDs for document uploads.
-            if (effectiveProjectId === undefined || effectiveThreadId === undefined) {
-              totalFailed++;
-              try {
-              window.dispatchEvent(
-                new CustomEvent("cfy:toast", {
-                  detail: {
-                    message:
-                      `Document upload needs project_id and thread_id. UI context was missing values (project_id=${effectiveProjectId ?? "missing"}, thread_id=${effectiveThreadId ?? "missing"}). If you're on /chat/:id, we try deriving project_id from /api/chat/threads; if that fails, select/open a project first.`,
-                    type: "error",
-                  },
-                })
-              );
-              } catch {}
-              continue;
             }
 
             // Try multipart/form-data first (the "standard" upload method).

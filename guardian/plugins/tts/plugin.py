@@ -80,41 +80,47 @@ class TTSPlugin(PluginBase):
         ):
             """Synthesize text to speech."""
             if not self.tts_manager:
-                print("TTS plugin not properly initialized")
+                logger.error("TTS plugin not properly initialized")
                 return
 
             try:
                 # Handle informational commands
                 if list_providers:
-                    print("\nAvailable TTS providers:")
+                    logger.info("\nAvailable TTS providers:")
                     providers = self.tts_manager.list_providers()
                     for provider in providers:
                         if provider == self.tts_manager.default_provider:
-                            print(f"  - {provider} (default)")
+                            logger.info(f"  - {provider} (default)")
                         else:
-                            print(f"  - {provider}")
+                            logger.info(f"  - {provider}")
                     return
 
                 if list_voices:
                     provider_name = (
                         provider or self.tts_manager.default_provider
                     )
-                    print(f"\nAvailable voices for provider '{provider_name}':")
+                    logger.info(
+                        f"\nAvailable voices for provider '{provider_name}':"
+                    )
                     voices = self.tts_manager.list_voices(provider_name)
                     for voice in voices:
-                        print(f"  - {voice}")
+                        logger.info(f"  - {voice}")
                     return
 
                 # Handle synthesis
                 if not text:
-                    print("Error: --text is required for speech synthesis")
+                    logger.error(
+                        "Error: --text is required for speech synthesis"
+                    )
                     return
 
                 if not voice:
-                    print("Error: --voice is required for speech synthesis")
+                    logger.error(
+                        "Error: --voice is required for speech synthesis"
+                    )
                     return
 
-                print(
+                logger.info(
                     f"\nSynthesizing speech using provider '{provider or 'default'}'..."
                 )
                 audio_data = self.tts_manager.synthesize(
@@ -123,10 +129,10 @@ class TTSPlugin(PluginBase):
 
                 # Save audio file
                 self.tts_manager.save_audio(audio_data, output)
-                print(f"Audio saved to: {output}")
+                logger.info(f"Audio saved to: {output}")
 
             except Exception as e:
-                print(f"Error: {str(e)}")
+                logger.error(f"Error: {str(e)}")
 
     def shutdown(self) -> None:
         """Clean up TTS plugin resources."""

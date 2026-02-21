@@ -22,11 +22,14 @@ import SessionRail from "@/components/SessionRail/SessionRail";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
+import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
+import { logOnce } from "@/lib/logging/logOnce";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST = "One moment—finish the current reply first.";
 const LLM_HEALTH_POLL_MS = 15000;
+const THREAD_PROFILE_POLL_MS = 15000;
 
 /**
  * RAG depth modes: Four lenses of consciousness.
@@ -195,6 +198,11 @@ export function GuardianChat({
   const lastCompletionDepthRef = useRef<Record<number, DepthMode>>({});
   const traceEndpointRef = useRef<Record<number, string>>({});
   const traceFetchInflightRef = useRef<Record<number, boolean>>({});
+  const activeThreadRef = useRef<Thread>(activeThread);
+
+  useEffect(() => {
+    activeThreadRef.current = activeThread;
+  }, [activeThread]);
 
   // Listen for external prefill requests (e.g., Prompt Library selection)
   useEffect(() => {
@@ -283,7 +291,7 @@ export function GuardianChat({
     },
     [availableProfiles]
   );
-  const refreshLlmHealth = useCallback(async () => {
+  const refreshLlmHealth = useCallback(async (options: { throwOnError?: boolean } = {}) => {
     try {
       const res = await api.get("/health/llm");
       const data = res?.data ?? {};
@@ -291,7 +299,7 @@ export function GuardianChat({
       const status: LlmHealthStatus =
         rawStatus === "online" || rawStatus === "offline" || rawStatus === "misconfigured"
           ? rawStatus
-          : Boolean(data?.ok)
+          : data?.ok
             ? "online"
             : "unknown";
 
@@ -312,16 +320,21 @@ export function GuardianChat({
         error: err?.message || "LLM health check failed",
         checkedAt: Date.now(),
       });
+      logOnce("poll:health-llm", 10_000, () => {
+        console.warn("[guardian] LLM health check failed", err);
+      });
+      if (options.throwOnError) {
+        throw err;
+      }
     }
   }, []);
-  useEffect(() => {
-    void refreshLlmHealth();
-    if (typeof window === "undefined") return;
-    const id = window.setInterval(() => {
-      void refreshLlmHealth();
-    }, LLM_HEALTH_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [refreshLlmHealth]);
+  usePollWithBackoff(() => refreshLlmHealth({ throwOnError: true }), {
+    intervalMs: LLM_HEALTH_POLL_MS,
+    maxBackoffMs: 60_000,
+    enabled: true,
+    onErrorKey: "poll:health-llm",
+    logTtlMs: 10_000,
+  });
   const llmBackendUnavailable =
     llmHealth.status === "offline" || llmHealth.status === "misconfigured";
   const cloudProvidersDisabled = /ALLOW_CLOUD_PROVIDERS\s*=\s*false/i.test(
@@ -508,8 +521,39 @@ export function GuardianChat({
     }
   }, []);
 
+  const applyProfileFallback = useCallback(() => {
+    const fallbackThread = activeThreadRef.current as any;
+    const fallbackId = normalizeProfileId(
+      fallbackThread?.activeProfileId ??
+        fallbackThread?.active_profile_id ??
+        "default"
+    );
+    const fallbackMode = profileModeFromValue(
+      fallbackThread?.profileMode ??
+        fallbackThread?.providerOverride ??
+        fallbackThread?.provider_override
+    );
+    setAvailableProfiles(PROFILE_FALLBACK_OPTIONS);
+    setResolvedProfile({
+      id: fallbackId,
+      name: normalizeProfileName(fallbackThread?.profileName, fallbackId),
+      mode: fallbackMode,
+      providerOverride:
+        fallbackThread?.providerOverride ??
+        fallbackThread?.provider_override ??
+        null,
+      modelOverride:
+        fallbackThread?.modelOverride ??
+        fallbackThread?.model_override ??
+        null,
+    });
+  }, []);
+
   const refreshThreadProfile = useCallback(
-    async (threadId: number) => {
+    async (
+      threadId: number,
+      options: { throwOnError?: boolean } = {}
+    ) => {
       try {
         const response = await api.get(`/chat/${threadId}/profile`);
         const data = response?.data ?? {};
@@ -537,40 +581,24 @@ export function GuardianChat({
           });
           return parsedProfile;
         }
-      } catch (err) {
-        console.debug("[guardian] profile refresh failed", err);
+      } catch (err: any) {
+        logOnce("poll:chat-profile", 10_000, () => {
+          console.warn(
+            `[guardian] profile refresh failed for thread ${threadId}`,
+            err
+          );
+        });
+        applyProfileFallback();
+        if (options.throwOnError) {
+          throw err;
+        }
+        return null;
       }
 
-      const fallbackId = normalizeProfileId(
-        (activeThread as any)?.activeProfileId ??
-          (activeThread as any)?.active_profile_id ??
-          "default"
-      );
-      const fallbackMode = profileModeFromValue(
-        (activeThread as any)?.profileMode ??
-          (activeThread as any)?.providerOverride ??
-          (activeThread as any)?.provider_override
-      );
-      setAvailableProfiles(PROFILE_FALLBACK_OPTIONS);
-      setResolvedProfile({
-        id: fallbackId,
-        name: normalizeProfileName(
-          (activeThread as any)?.profileName,
-          fallbackId
-        ),
-        mode: fallbackMode,
-        providerOverride:
-          (activeThread as any)?.providerOverride ??
-          (activeThread as any)?.provider_override ??
-          null,
-        modelOverride:
-          (activeThread as any)?.modelOverride ??
-          (activeThread as any)?.model_override ??
-          null,
-      });
+      applyProfileFallback();
       return null;
     },
-    [activeThread]
+    [applyProfileFallback]
   );
 
   const switchThreadProfile = useCallback(
@@ -610,36 +638,25 @@ export function GuardianChat({
 
   useEffect(() => {
     if (effectiveThreadId == null) {
-      setAvailableProfiles(PROFILE_FALLBACK_OPTIONS);
-      const fallbackId = normalizeProfileId(
-        (activeThread as any)?.activeProfileId ??
-          (activeThread as any)?.active_profile_id ??
-          "default"
-      );
-      setResolvedProfile({
-        id: fallbackId,
-        name: normalizeProfileName(
-          (activeThread as any)?.profileName,
-          fallbackId
-        ),
-        mode: profileModeFromValue(
-          (activeThread as any)?.profileMode ??
-            (activeThread as any)?.providerOverride ??
-            (activeThread as any)?.provider_override
-        ),
-        providerOverride:
-          (activeThread as any)?.providerOverride ??
-          (activeThread as any)?.provider_override ??
-          null,
-        modelOverride:
-          (activeThread as any)?.modelOverride ??
-          (activeThread as any)?.model_override ??
-          null,
-      });
+      applyProfileFallback();
       return;
     }
     void refreshThreadProfile(effectiveThreadId);
-  }, [activeThread, effectiveThreadId, refreshThreadProfile]);
+  }, [applyProfileFallback, effectiveThreadId, refreshThreadProfile]);
+
+  usePollWithBackoff(
+    async () => {
+      if (effectiveThreadId == null) return;
+      await refreshThreadProfile(effectiveThreadId, { throwOnError: true });
+    },
+    {
+      intervalMs: THREAD_PROFILE_POLL_MS,
+      maxBackoffMs: 60_000,
+      enabled: effectiveThreadId != null,
+      onErrorKey: "poll:chat-profile",
+      logTtlMs: 10_000,
+    }
+  );
 
   useEffect(() => {
     setPromptCostPopoverOpen(false);
@@ -861,7 +878,6 @@ export function GuardianChat({
       try {
         const resp = await api.post("/chat/threads", {
           title: provisionalTitle,
-          project_id: 1, // Loose Threads
         });
         const th = (resp && resp.data) || {};
         const newThreadId = th.id ?? th.thread?.id ?? th.thread_id ?? th.id_str;

@@ -319,4 +319,4 @@ if __name__ == "__main__":
         "params": {"name": "evening_grounding"},
     }
     result = orchestrate(test_command)
-    print(json.dumps(result, indent=2))
+    logger.info(json.dumps(result, indent=2))

@@ -375,7 +375,7 @@ export function useSidebarThreads({
   }, [scopedThreads]);
 
   const scopeLabel = useMemo(() => {
-    if (currentProjectId === null) return "Loose";
+    if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projects.find((p) => String(p.id) === String(currentProjectId));
       return proj?.name ?? "Project";

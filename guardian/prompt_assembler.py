@@ -1,4 +1,12 @@
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 def assemble_prompt(
@@ -49,7 +57,7 @@ if __name__ == "__main__":
         context_path="last_context.md",
         current_goal="Assist Resonant in compiling Codexify schema routing for the desktop GUI.",
     )
-    print(prompt)
+    logger.info(prompt)
 
 
 # Backwards-compatible shim: build_prompt(thread, persona, system_overrides=None) -> str

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Dict, List, Tuple
 
 import click
+
+logger = logging.getLogger(__name__)
 
 # --- Import your roots ---
 # Root Click CLI (console script): guardian.cli.memoryos_cli:cli
@@ -246,7 +249,7 @@ def write_tools_manifest(
     tools = generate_tools_manifest()
     with open(path, "w") as f:
         json.dump(tools, f, indent=2)
-    print(f"Wrote tools manifest to {path} with {len(tools)} tools.")
+    logger.info(f"Wrote tools manifest to {path} with {len(tools)} tools.")
 
 
 if __name__ == "__main__":

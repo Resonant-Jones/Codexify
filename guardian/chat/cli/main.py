@@ -8,8 +8,16 @@ memory = Memoryos(
     embedder=embedder,
 )
 import json
+import logging
 
 import typer
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 from guardian.cli.imprint_zero_cli import ImprintZero
 from guardian.core.orchestrator.pulse_orchestrator import orchestrate
@@ -37,11 +45,11 @@ def orchestrate_command(
     try:
         command_dict = json.loads(json_input)
     except json.JSONDecodeError:
-        print("[red]Invalid JSON input.[/red]")
+        logger.error("Invalid JSON input.")
         raise typer.Exit(code=1)
     result = orchestrate(command_dict)
-    print("[bold green]Orchestration Result:[/bold green]")
-    print(json.dumps(result, indent=2))
+    logger.info("Orchestration Result:")
+    logger.info(json.dumps(result, indent=2))
 
 
 # --------------------------------------------------------------------------- #
@@ -68,10 +76,10 @@ def research(
     agents = [Agent(**a) for a in config.get("agents", [])]
 
     # You could allow different agent setups for 'web' or 'codex' modes in future
-    print(f"[bold green]Running research agent in {mode} mode...[/bold green]")
+    logger.info(f"Running research agent in {mode} mode...")
     report = asyncio.run(generate_report(query, planner, agents))
-    print("[bold magenta]Research Report:[/bold magenta]\n")
-    print(report)
+    logger.info("Research Report:")
+    logger.info(report)
 
 
 """
@@ -122,9 +130,9 @@ def init() -> None:
     """Verify Postgres connectivity (schema is managed via Alembic)."""
     try:
         db.count_chat_threads()
-        print("[bold green]Database connection verified.[/bold green]")
+        logger.info("Database connection verified.")
     except Exception as exc:  # pragma: no cover - CLI guard
-        print(f"[red]Database check failed:[/red] {exc}")
+        logger.error(f"Database check failed: {exc}")
 
 
 @app.command()
@@ -149,7 +157,7 @@ def log(
         agent=agent,
         timestamp=timestamp,
     )
-    print(f"[green]Logged:[/green] {command!r} at {timestamp}")
+    logger.info(f"Logged: {command!r} at {timestamp}")
     memory.log_event(
         user_id=user_id,
         agent=agent,
@@ -174,12 +182,12 @@ def memory_history(
 ):
     logs = memory.fetch_memory(user_id=user_id, limit=limit)
     if not logs:
-        print("[yellow]No memoryOS history found.[/yellow]")
+        logger.warning("No memoryOS history found.")
         return
     for item in logs:
         ts = item.get("timestamp", "(no timestamp)")
         content = item.get("data", {}).get("content", "(no content)")
-        print(f"[cyan]{ts}[/cyan] {content}")
+        logger.info(f"{ts} {content}")
 
 
 @app.command()
@@ -192,14 +200,12 @@ def history(
     """Show the most recent memory entries."""
     rows = db.get_history(limit=limit, user_id=user_id)
     if not rows:
-        print("[yellow]No history found.[/yellow]")
+        logger.warning("No history found.")
         return
 
     for row in rows:
         row_id, ts, cmd, tag, agent = row[:5]
-        print(
-            f"[cyan]{row_id:>4}[/cyan] {ts}  {cmd}  {tag or '-'}  {agent or '-'}"
-        )
+        logger.info(f"{row_id:>4} {ts}  {cmd}  {tag or '-'}  {agent or '-'}")
 
 
 @app.command("check-config")
@@ -211,25 +217,21 @@ def check_config():
         from guardian.config import Settings
 
         current_settings = Settings()
-        print(
-            "[bold green]✅ All required config variables are set![/bold green]\n"
-        )
+        logger.info("All required config variables are set!")
         for key, value in current_settings.dict().items():
             # Mask secrets for display
             if "KEY" in key or "TOKEN" in key:
                 display = "********" if value else "(Not set)"
             else:
                 display = value or "(Not set)"
-            print(f"[bold]{key}:[/bold] {display}")
+            logger.info(f"{key}: {display}")
     except ValidationError as e:
-        print(
-            "[bold red]❌ Configuration error: Missing or invalid settings.[/bold red]\n"
-        )
+        logger.error("Configuration error: Missing or invalid settings.")
         for err in e.errors():
             field = err["loc"][0]
-            print(f" - {field}: {err['msg']}")
-        print(
-            "\nTo fix, set these as environment variables or in your .env file."
+            logger.error(f" - {field}: {err['msg']}")
+        logger.error(
+            "To fix, set these as environment variables or in your .env file."
         )
         raise typer.Exit(code=1)
 
@@ -264,7 +266,7 @@ def set_backend(
 
     env_path = Path(".env")
     if not env_path.exists():
-        print("[red]No .env file found in this directory.[/red]")
+        logger.error("No .env file found in this directory.")
         raise typer.Exit(code=1)
 
     lines = env_path.read_text().splitlines()
@@ -278,7 +280,7 @@ def set_backend(
         lines.append(f"AI_BACKEND={backend}")
 
     env_path.write_text("\n".join(lines) + "\n")
-    print(f"[bold green]✅ AI_BACKEND updated to:[/bold green] {backend}")
+    logger.info(f"AI_BACKEND updated to: {backend}")
 
 
 # --------------------------------------------------------------------------- #
@@ -299,12 +301,12 @@ def chat_history(
         session_id=session_id, user_id=user_id, limit=limit
     )
     if not rows:
-        print("[yellow]No chat history found.[/yellow]")
+        logger.warning("No chat history found.")
         return
     for row in rows:
         # row: id, timestamp, session_id, user_id, role, message, response, backend, model, agent, tag, extra
         content = row[5] if row[4] == "user" else row[6]
-        print(f"[magenta]{row[1]}[/magenta] [bold]{row[4]}[/bold]: {content}")
+        logger.info(f"{row[1]} {row[4]}: {content}")
 
 
 @app.command("summarize-chat")
@@ -326,7 +328,7 @@ def summarize_chat(
         session_id=session_id, user_id=user_id, limit=limit
     )
     if not rows:
-        print("[yellow]No chat history found.[/yellow]")
+        logger.warning("No chat history found.")
         return
     messages = []
     for row in reversed(rows):
@@ -342,7 +344,7 @@ def summarize_chat(
         }
     ] + messages
     summary = chat_with_ai(summary_prompt)
-    print("[bold green]Summary:[/bold green]\n" + summary)
+    logger.info(f"Summary:\n{summary}")
 
 
 # --------------------------------------------------------------------------- #
@@ -362,17 +364,16 @@ def list_threads(
     """List all threads (optionally filtered by user or project)."""
     rows = db.list_threads(user_id=user_id, project_id=project_id)
     if not rows:
-        print("[yellow]No threads found.[/yellow]")
+        logger.warning("No threads found.")
         return
     for row in rows:
-        print(
-            f"[cyan]Thread {row['id']}[/cyan] | Parent: {row.get('parent_id') or '-'} | "
-            f"[magenta]User:[/magenta] {row.get('user_id') or '-'} | "
-            f"[magenta]Project:[/magenta] {row.get('project_id') or '-'}"
+        logger.info(
+            f"Thread {row['id']} | Parent: {row.get('parent_id') or '-'} | "
+            f"User: {row.get('user_id') or '-'} | "
+            f"Project: {row.get('project_id') or '-'}"
         )
-        print(f"  [green]Summary:[/green] {row.get('summary') or '(None)'}")
-        print(f"  Created: {row.get('created_at')}")
-        print("")
+        logger.info(f"Summary: {row.get('summary') or '(None)'}")
+        logger.info(f"Created: {row.get('created_at')}")
 
 
 @app.command("show-thread")
@@ -380,25 +381,25 @@ def show_thread(thread_id: int = typer.Argument(..., help="Thread ID to show")):
     """Show details for a single thread (summary, parent, children)."""
     thread = db.get_thread(thread_id)
     if not thread:
-        print(f"[red]Thread {thread_id} not found.[/red]")
+        logger.error(f"Thread {thread_id} not found.")
         return
-    print(f"[bold cyan]Thread {thread[0]}[/bold cyan]")
-    print(
+    logger.info(f"Thread {thread[0]}")
+    logger.info(
         f"Parent: {thread[1] or '-'} | Session: {thread[2] or '-'} | User: {thread[5] or '-'} | Project: {thread[6] or '-'}"
     )
-    print(f"[green]Summary:[/green] {thread[3] or '(None)'}")
-    print(f"Created: {thread[4]}\n")
+    logger.info(f"Summary: {thread[3] or '(None)'}")
+    logger.info(f"Created: {thread[4]}")
 
     # Show children
     children = db.get_child_threads(thread_id)
     if children:
-        print("[blue]Children:[/blue]")
+        logger.info("Children:")
         for child in children:
-            print(
-                f" - [cyan]Thread {child[0]}[/cyan] (Session: {child[1]}, Summary: {child[2]})"
+            logger.info(
+                f"Thread {child[0]} (Session: {child[1]}, Summary: {child[2]})"
             )
     else:
-        print("[blue]No children.[/blue]")
+        logger.info("No children.")
 
 
 @app.command("branch-thread")
@@ -417,9 +418,7 @@ def branch_thread(
     new_id = db.create_thread(
         parent_thread_id, session_id, summary, user_id, project_id
     )
-    print(
-        f"[green]Branched new thread {new_id} from parent {parent_thread_id}.[/green]"
-    )
+    logger.info(f"Branched new thread {new_id} from parent {parent_thread_id}.")
 
 
 @app.command("show-children")
@@ -429,12 +428,12 @@ def show_children(
     """List all child threads for a given parent."""
     children = db.get_child_threads(parent_thread_id)
     if not children:
-        print("[yellow]No child threads found.[/yellow]")
+        logger.warning("No child threads found.")
         return
-    print(f"[blue]Children of thread {parent_thread_id}:[/blue]")
+    logger.info(f"Children of thread {parent_thread_id}:")
     for child in children:
-        print(
-            f" - [cyan]Thread {child[0]}[/cyan] (Session: {child[1]}, Summary: {child[2]})"
+        logger.info(
+            f"Thread {child[0]} (Session: {child[1]}, Summary: {child[2]})"
         )
 
 
@@ -467,11 +466,11 @@ def vision(
     elif image_file:
         result = run_groq_vision_file(image_file, text)
     else:
-        print("[red]❌ Please specify either --image-url or --image-file[/red]")
+        logger.error("Please specify either --image-url or --image-file")
         raise typer.Exit(code=1)
 
-    print("[bold green]Groq Vision Result:[/bold green]")
-    print(result)
+    logger.info("Groq Vision Result:")
+    logger.info(result)
 
 
 # CLI root callback to set LLM routing mode via CLI flags
@@ -493,14 +492,12 @@ def main(
     """
     if cloud_only:
         HybridRouter.set_cloud_only(True)
-        print(
-            "[bold yellow]⚠️  CLOUD ONLY MODE ENABLED: All LLM tasks routed to cloud.[/bold yellow]"
+        logger.warning(
+            "CLOUD ONLY MODE ENABLED: All LLM tasks routed to cloud."
         )
     elif hybrid:
         HybridRouter.set_hybrid_enabled(True)
-        print(
-            "[cyan]Hybrid mode enabled: cloud for research, local for chat.[/cyan]"
-        )
+        logger.info("Hybrid mode enabled: cloud for research, local for chat.")
 
 
 if __name__ == "__main__":

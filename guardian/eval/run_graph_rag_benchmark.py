@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,13 @@ from typing import Any
 from guardian.context.broker import ContextBroker
 from guardian.core.ai_router import chat_with_ai
 from guardian.core.config import Settings, get_settings
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 class NullVectorStore:
@@ -154,8 +162,8 @@ async def main():
         mode = row.get("mode")
         status = "error" if "error" in row else "ok"
         latency = row.get("latency_ms", "-")
-        print(f"[{mode}] {row['id']} -> {status}, latency={latency}ms")
-    print(f"Report written to {output_path}")
+        logger.info(f"[{mode}] {row['id']} -> {status}, latency={latency}ms")
+    logger.info(f"Report written to {output_path}")
 
 
 if __name__ == "__main__":

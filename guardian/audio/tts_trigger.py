@@ -5,7 +5,15 @@ TTS Trigger
 Discovery-aware trigger for local TTS plugins (if available).
 """
 
+import logging
 from typing import Optional
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 import requests
 
@@ -26,7 +34,7 @@ def trigger_tts_if_available(
     endpoint = get_tts_plugin_endpoint()
 
     if not endpoint:
-        print("[TTS] No TTS plugin discovered in manifest.")
+        logger.warning("[TTS] No TTS plugin discovered in manifest.")
         return False
 
     try:
@@ -35,5 +43,5 @@ def trigger_tts_if_available(
         )
         return response.status_code == 200
     except Exception as e:
-        print(f"[TTS] Error calling TTS plugin: {e}")
+        logger.error("[TTS] Error calling TTS plugin: %s", e)
         return False

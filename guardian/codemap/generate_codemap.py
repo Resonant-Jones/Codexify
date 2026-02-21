@@ -1,8 +1,26 @@
 import ast
 import json
+import logging
 import os
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "artifacts",
+}
 
 
 def extract_python_metadata(file_path):
@@ -31,7 +49,8 @@ def extract_python_metadata(file_path):
 def generate_codemap():
     codemap = []
 
-    for root, _, files in os.walk(BASE_DIR):
+    for root, dirs, files in os.walk(BASE_DIR):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for file in files:
             if file.endswith(".py"):
                 full_path = os.path.join(root, file)
@@ -51,7 +70,7 @@ def generate_codemap():
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(codemap, f, indent=2)
 
-    print(f"Codemap written to {output_path}")
+    logger.info(f"Codemap written to {output_path}")
     return codemap
 
 

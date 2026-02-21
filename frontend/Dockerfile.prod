@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1.6
+ARG NODE_IMAGE=node:20-alpine
+
+# Builder stage: install deps and build
+FROM ${NODE_IMAGE} AS builder
+
+WORKDIR /app
+
+# Enable pnpm
+RUN corepack enable && corepack prepare pnpm@10.18.2 --activate
+
+# Toolchain for native modules (only needed in builder)
+RUN apk add --no-cache python3 make g++ linux-headers
+
+# Copy lockfile and package.json first for better caching
+COPY src/package.json src/pnpm-lock.yaml ./src/
+
+# Install deps (including dev, needed for build)
+RUN pnpm --dir src install --include=dev --frozen-lockfile
+
+# Copy source
+COPY src ./src
+
+# Build for production
+RUN pnpm --dir src run build
+
+
+# Runtime stage: serve built app
+FROM ${NODE_IMAGE} AS runtime
+
+WORKDIR /app
+
+# pnpm for serve/preview
+RUN corepack enable && corepack prepare pnpm@10.18.2 --activate
+
+# Install only production preview tool
+RUN pnpm add -g serve --no-save
+
+# Create non-root user
+RUN addgroup -g 1001 nodejs && adduser -D -u 1001 -G nodejs nextjs
+
+# Copy built app from builder
+COPY --from=builder --chown=nextjs:nodejs /app/src/dist ./dist
+
+# Switch to non-root user
+USER nextjs
+
+ENV NODE_ENV=production
+EXPOSE 5173
+
+# Serve dist folder (or use preview if your Vite config provides it)
+CMD ["serve", "-s", "/app/dist", "-l", "5173", "--single"]

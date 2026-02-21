@@ -36,10 +36,6 @@ export function SettingsView({
   setExtColors,
   dashboardThreadRows,
   setDashboardThreadRows,
-  showLegacyThreads,
-  setShowLegacyThreads,
-  ingestionEnabled,
-  setIngestionEnabled,
 }: {
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
@@ -66,10 +62,6 @@ export function SettingsView({
   setExtColors: (m: ExtColors) => void;
   dashboardThreadRows: number;
   setDashboardThreadRows: (n: number) => void;
-  showLegacyThreads: boolean;
-  setShowLegacyThreads: (b: boolean) => void;
-  ingestionEnabled: boolean;
-  setIngestionEnabled: (b: boolean) => void;
 }) {
   const [tab, setTab] = useState<"appearance" | "system" | "connectors" | "data" | "diagnostics">("appearance");
   const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
@@ -127,7 +119,7 @@ export function SettingsView({
   const { connectors, updateConnector, loading, error, authorizeOAuth, testConnector, syncConnector } = useConnectors();
 
   return (
-    <div className="h-full overflow-auto" style={{ color: "var(--text)" }}>
+    <div className="w-full" style={{ color: "var(--text)" }}>
       <div className="mx-auto w-full max-w-[30rem] space-y-6 p-4">
         <div className="flex items-center gap-2">
           <Button type="button" variant={tab === "appearance" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("appearance")}>
@@ -212,8 +204,7 @@ export function SettingsView({
                 value={baseColor}
                 onChange={(e) => setBaseColor(e.target.value)}
                 aria-label="Base color"
-                className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius)] bg-transparent cursor-pointer shrink-0"
-                style={{ width: "32px", height: "32px" }}
+                className="color-swatch"
               />
             </div>
 
@@ -222,39 +213,39 @@ export function SettingsView({
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-4 max-w-md">
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">PDF</span>
-                  <Input id="color-pdf" type="color" value={extColors.pdf} onChange={(e) => setExtColors({ ...extColors, pdf: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-pdf" type="color" value={extColors.pdf} onChange={(e) => setExtColors({ ...extColors, pdf: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">DOC</span>
-                  <Input id="color-doc" type="color" value={extColors.doc} onChange={(e) => setExtColors({ ...extColors, doc: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-doc" type="color" value={extColors.doc} onChange={(e) => setExtColors({ ...extColors, doc: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">MD</span>
-                  <Input id="color-md" type="color" value={extColors.md} onChange={(e) => setExtColors({ ...extColors, md: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-md" type="color" value={extColors.md} onChange={(e) => setExtColors({ ...extColors, md: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">PNG</span>
-                  <Input id="color-png" type="color" value={extColors.png} onChange={(e) => setExtColors({ ...extColors, png: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-png" type="color" value={extColors.png} onChange={(e) => setExtColors({ ...extColors, png: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">SKETCH</span>
-                  <Input id="color-sketch" type="color" value={extColors.sketch} onChange={(e) => setExtColors({ ...extColors, sketch: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-sketch" type="color" value={extColors.sketch} onChange={(e) => setExtColors({ ...extColors, sketch: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">TXT</span>
-                  <Input id="color-txt" type="color" value={extColors.txt} onChange={(e) => setExtColors({ ...extColors, txt: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-txt" type="color" value={extColors.txt} onChange={(e) => setExtColors({ ...extColors, txt: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">DOCX</span>
-                  <Input id="color-docx" type="color" value={extColors.docx} onChange={(e) => setExtColors({ ...extColors, docx: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-docx" type="color" value={extColors.docx} onChange={(e) => setExtColors({ ...extColors, docx: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">JPEG</span>
-                  <Input id="color-jpeg" type="color" value={extColors.jpeg} onChange={(e) => setExtColors({ ...extColors, jpeg: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-jpeg" type="color" value={extColors.jpeg} onChange={(e) => setExtColors({ ...extColors, jpeg: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">CODEX</span>
-                  <Input id="color-codex" type="color" value={extColors.codex} onChange={(e) => setExtColors({ ...extColors, codex: e.target.value })} className="p-0 border border-[color:var(--panel-border)] rounded-[var(--tile-radius,19px)] bg-transparent cursor-pointer" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-codex" type="color" value={extColors.codex} onChange={(e) => setExtColors({ ...extColors, codex: e.target.value })} className="color-swatch" />
                 </div>
               </div>
             </div>
@@ -298,35 +289,6 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="text-base font-semibold">Labs</div>
-              <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
-                <label className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">Show Legacy Threads</div>
-                    <div className="text-xs opacity-70">Enable browsing legacy chat trees via a modal.</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={!!showLegacyThreads}
-                    onChange={(e) => setShowLegacyThreads(e.target.checked)}
-                    aria-label="Show Legacy Threads"
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">Enable Ingestion API</div>
-                    <div className="text-xs opacity-70">When enabled, uploads POST to the backend endpoint (env VITE_INGESTION_ENDPOINT).</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={!!ingestionEnabled}
-                    onChange={(e) => setIngestionEnabled(e.target.checked)}
-                    aria-label="Enable Ingestion API"
-                  />
-                </label>
-              </div>
-            </div>
           </div>
         )}
 

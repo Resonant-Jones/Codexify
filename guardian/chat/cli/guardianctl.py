@@ -30,19 +30,19 @@ def list_plugins(args: argparse.Namespace) -> None:
     """List available plugins and their status."""
     plugins = plugin_loader.plugins
 
-    print("\nAvailable Plugins:")
-    print("=" * 50)
+    logger.info("Available Plugins:")
+    logger.info("=" * 50)
 
     for name, plugin in plugins.items():
         status = "ENABLED" if plugin.enabled else "DISABLED"
-        print(f"\n{name} ({status})")
-        print("-" * len(name))
-        print(f"Version: {plugin.metadata['version']}")
-        print(f"Author: {plugin.metadata['author']}")
-        print(f"Description: {plugin.metadata['description']}")
+        logger.info(f"{name} ({status})")
+        logger.info("-" * len(name))
+        logger.info(f"Version: {plugin.metadata['version']}")
+        logger.info(f"Author: {plugin.metadata['author']}")
+        logger.info(f"Description: {plugin.metadata['description']}")
         if plugin.last_health_check:
-            print(f"Health: {plugin.last_health_check['status']}")
-        print(f"Error Count: {plugin.error_count}")
+            logger.info(f"Health: {plugin.last_health_check['status']}")
+        logger.info(f"Error Count: {plugin.error_count}")
 
 
 def run_plugin(args: argparse.Namespace) -> None:
@@ -70,8 +70,8 @@ def run_plugin(args: argparse.Namespace) -> None:
                 plugin_args[key] = value
 
         result = plugin.module.run(**plugin_args)
-        print(f"\nPlugin {args.name} execution result:")
-        print(json.dumps(result, indent=2))
+        logger.info(f"Plugin {args.name} execution result:")
+        logger.info(json.dumps(result, indent=2))
 
     except Exception as e:
         logger.error(f"Failed to run plugin {args.name}: {e}")
@@ -105,23 +105,23 @@ def query_memory(args: argparse.Namespace) -> None:
         limit=args.limit,
     )
 
-    print(f"\nMemory Events ({len(events)} results):")
-    print("=" * 50)
+    logger.info(f"Memory Events ({len(events)} results):")
+    logger.info("=" * 50)
 
     for event in events:
-        print(f"\nTimestamp: {event['timestamp']}")
-        print(f"Source: {event['source']}")
-        print(f"Type: {event['event_type']}")
-        print(f"Tags: {', '.join(event['tags'])}")
-        print("Payload:")
-        print(json.dumps(event["payload"], indent=2))
-        print("-" * 50)
+        logger.info(f"Timestamp: {event['timestamp']}")
+        logger.info(f"Source: {event['source']}")
+        logger.info(f"Type: {event['event_type']}")
+        logger.info(f"Tags: {', '.join(event['tags'])}")
+        logger.info("Payload:")
+        logger.info(json.dumps(event["payload"], indent=2))
+        logger.info("-" * 50)
 
 
 def enable_plugin(args: argparse.Namespace) -> None:
     """Enable a plugin."""
     if plugin_loader.enable_plugin(args.name):
-        print(f"Successfully enabled plugin {args.name}")
+        logger.info(f"Successfully enabled plugin {args.name}")
     else:
         logger.error(f"Failed to enable plugin {args.name}")
         sys.exit(1)
@@ -130,7 +130,7 @@ def enable_plugin(args: argparse.Namespace) -> None:
 def disable_plugin(args: argparse.Namespace) -> None:
     """Disable a plugin."""
     if plugin_loader.disable_plugin(args.name):
-        print(f"Successfully disabled plugin {args.name}")
+        logger.info(f"Successfully disabled plugin {args.name}")
     else:
         logger.error(f"Failed to disable plugin {args.name}")
         sys.exit(1)
@@ -259,14 +259,14 @@ def main() -> None:
 
         companions = profile_manager.list_profiles()
         if companions:
-            print("\nSaved Companions:")
-            print("=" * 50)
+            logger.info("Saved Companions:")
+            logger.info("=" * 50)
             for comp in companions:
                 status = "ACTIVE" if comp.get("active") else "INACTIVE"
-                print(f"\nName: {comp['name']} ({status})")
-                print(f"Path: {comp['path']}")
+                logger.info(f"Name: {comp['name']} ({status})")
+                logger.info(f"Path: {comp['path']}")
         else:
-            print("\nNo companions found.")
+            logger.info("No companions found.")
 
     elif args.command == "deploy-companion":
         from guardian.profiles.manager import profile_manager
@@ -274,9 +274,9 @@ def main() -> None:
         if profile_manager.deploy_profile(args.name):
             profile = profile_manager.load_profile(args.name)
             if profile:
-                print("\nDeployed companion profile:")
-                print("=" * 50)
-                print(json.dumps(profile, indent=2))
+                logger.info("Deployed companion profile:")
+                logger.info("=" * 50)
+                logger.info(json.dumps(profile, indent=2))
             else:
                 logger.error(f"Failed to load companion '{args.name}'")
                 sys.exit(1)
@@ -288,7 +288,7 @@ def main() -> None:
         from guardian.profiles.manager import profile_manager
 
         if profile_manager.delete_profile(args.name):
-            print(f"\nDeleted companion '{args.name}'")
+            logger.info(f"Deleted companion '{args.name}'")
         else:
             logger.error(f"Failed to delete companion '{args.name}'")
             sys.exit(1)

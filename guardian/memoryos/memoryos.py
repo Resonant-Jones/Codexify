@@ -71,7 +71,7 @@ class Memoryos:
 
         # Load codemap once during initialization
         self.codemap = load_codemap()
-        print(
+        logger.info(
             f"Memoryos: Loaded codemap with {len(self.codemap)} top-level entries."
         )
         # Prefer injected client; otherwise build from environment (OpenAI or Groq)
@@ -173,7 +173,7 @@ class Memoryos:
             ]
 
             if unanalyzed_pages:
-                print(
+                logger.info(
                     f"Memoryos: Mid-term session {sid} heat ({current_heat:.2f}) exceeded threshold. Analyzing {len(unanalyzed_pages)} pages for profile/knowledge update."
                 )
 
@@ -266,11 +266,11 @@ class Memoryos:
 
                 self.mid_term_memory.rebuild_heap()  # Heap needs rebuild due to H_segment change
                 self.mid_term_memory.save()
-                print(
+                logger.info(
                     f"Memoryos: Profile/Knowledge update for session {sid} complete. Heat reset."
                 )
             else:
-                print(
+                logger.info(
                     f"Memoryos: Hot session {sid} has no unanalyzed pages. Skipping profile update."
                 )
         else:
@@ -303,10 +303,14 @@ class Memoryos:
                 if key not in qa_pair:
                     qa_pair[key] = value
         self.short_term_memory.add_qa_pair(qa_pair)
-        print(f"Memoryos: Added QA to short-term. User: {user_input[:30]}...")
+        logger.info(
+            f"Memoryos: Added QA to short-term. User: {user_input[:30]}..."
+        )
 
         if self.short_term_memory.is_full():
-            print("Memoryos: Short-term memory full. Processing to mid-term.")
+            logger.info(
+                "Memoryos: Short-term memory full. Processing to mid-term."
+            )
             self.updater.process_short_term_to_mid_term()
 
         # --- Auto-branching logic based on conversation token count ---
@@ -329,7 +333,7 @@ class Memoryos:
                         self.client.tokenize(msg.get("agent_response", ""))
                     )
                 if token_count > 80000:  # 100k total context - 20k reserved
-                    print(
+                    logger.info(
                         f"Memoryos: Conversation {convo['conversation_id']} exceeded 80,000 tokens. Auto-branching..."
                     )
                     self.summarize_and_branch_conversation(
@@ -350,7 +354,9 @@ class Memoryos:
         Generates or updates a rolling summary for the given thread by summarizing recent messages.
         This summary is overwritten each time it's updated (rolling state, not permanent memory).
         """
-        print(f"Memoryos: Updating rolling summary for thread '{thread_id}'")
+        logger.info(
+            f"Memoryos: Updating rolling summary for thread '{thread_id}'"
+        )
 
         # Retrieve all conversations in the thread
         conversations = self.user_long_term_memory.get_conversations_for_thread(
@@ -361,7 +367,7 @@ class Memoryos:
             recent_messages.extend(convo.get("messages", []))
 
         if not recent_messages:
-            print(
+            logger.info(
                 "Memoryos: No messages found for thread. Skipping rolling summary."
             )
             return
@@ -408,7 +414,9 @@ class Memoryos:
         Generates a response to the user's query, incorporating memory and context.
         Attaches project and thread metadata to the conversation object if provided.
         """
-        print(f"Memoryos: Generating response for query: '{query[:50]}...'")
+        logger.info(
+            f"Memoryos: Generating response for query: '{query[:50]}...'"
+        )
 
         # 1. Retrieve context
         retrieval_results = self.retriever.retrieve_context(
@@ -516,7 +524,7 @@ class Memoryos:
         ]
 
         # 9. Call LLM for response
-        print("Memoryos: Calling LLM for final response generation...")
+        logger.info("Memoryos: Calling LLM for final response generation...")
         response_content = self.client.chat_completion(
             model=self.llm_model,
             messages=messages,
@@ -535,7 +543,7 @@ class Memoryos:
         if any(
             trigger in response_content.lower() for trigger in fallback_triggers
         ):
-            print(
+            logger.info(
                 "Memoryos: Primary LLM response was vague. Attempting codemap introspection as fallback."
             )
             codemap_fallback = self.query_codemap(query)
@@ -584,7 +592,7 @@ class Memoryos:
         """
         original_threshold = self.mid_term_heat_threshold
         self.mid_term_heat_threshold = 0.0  # Temporarily lower threshold
-        print("Memoryos: Force-triggering mid-term analysis...")
+        logger.info("Memoryos: Force-triggering mid-term analysis...")
         self._trigger_profile_and_knowledge_update_if_needed()
         self.mid_term_heat_threshold = (
             original_threshold  # Restore original threshold
@@ -652,7 +660,7 @@ class Memoryos:
         Summarizes the specified conversation and creates a child conversation linked to it.
         Stores the summary on the parent and creates an empty child conversation.
         """
-        print(
+        logger.info(
             f"Memoryos: Summarizing and branching conversation '{conversation_id}'"
         )
 
@@ -661,7 +669,9 @@ class Memoryos:
             conversation_id
         )
         if not conversation:
-            print(f"Memoryos: Conversation '{conversation_id}' not found.")
+            logger.warning(
+                f"Memoryos: Conversation '{conversation_id}' not found."
+            )
             return None
 
         # Compose content for summarization
@@ -709,7 +719,7 @@ class Memoryos:
             conversation_id, summary_blob
         )
 
-        print(
+        logger.info(
             f"Memoryos: Summary complete. Child conversation '{new_convo_id}' created."
         )
         return summary_blob
@@ -743,8 +753,8 @@ def codemap_query(question):
         llm_model=llm_model,
     )
     answer = memory.query_codemap(question)
-    print("\n--- CODEMAP ANSWER ---\n")
-    print(answer)
+    logger.info("\n--- CODEMAP ANSWER ---\n")
+    logger.info(answer)
 
 
 # --- CLI command for memory:show-user-profile ---
@@ -766,8 +776,8 @@ def show_user_profile():
         llm_model=llm_model,
     )
     profile = memory.get_user_profile_summary()
-    print("\n--- USER PROFILE ---\n")
-    print(profile)
+    logger.info("\n--- USER PROFILE ---\n")
+    logger.info(profile)
 
 
 # --- CLI command for memory:show-assistant-knowledge ---
@@ -789,9 +799,9 @@ def show_assistant_knowledge():
         llm_model=llm_model,
     )
     knowledge = memory.get_assistant_knowledge_summary()
-    print("\n--- ASSISTANT KNOWLEDGE ---\n")
+    logger.info("\n--- ASSISTANT KNOWLEDGE ---\n")
     for entry in knowledge:
-        print(f"- {entry['knowledge']} (Recorded: {entry['timestamp']})")
+        logger.info(f"- {entry['knowledge']} (Recorded: {entry['timestamp']})")
 
 
 # --- CLI command for memory:show-projects ---
@@ -813,9 +823,11 @@ def show_projects():
         llm_model=llm_model,
     )
     projects = memory.get_all_projects_summary()
-    print("\n--- PROJECTS ---\n")
+    logger.info("\n--- PROJECTS ---\n")
     for project in projects:
-        print(f"- {project.get('project_id')} | {project.get('project_name')}")
+        logger.info(
+            f"- {project.get('project_id')} | {project.get('project_name')}"
+        )
 
 
 # --- CLI command for memory:show-threads ---
@@ -838,9 +850,11 @@ def show_threads_by_project(project_id):
         llm_model=llm_model,
     )
     threads = memory.get_threads_by_project(project_id)
-    print(f"\n--- THREADS in PROJECT {project_id} ---\n")
+    logger.info(f"\n--- THREADS in PROJECT {project_id} ---\n")
     for thread in threads:
-        print(f"- {thread.get('thread_id')} | {thread.get('thread_title')}")
+        logger.info(
+            f"- {thread.get('thread_id')} | {thread.get('thread_title')}"
+        )
 
 
 # --- CLI command for memory:show-conversations ---
@@ -863,9 +877,9 @@ def show_conversations_by_thread(thread_id):
         llm_model=llm_model,
     )
     conversations = memory.get_conversations_by_thread(thread_id)
-    print(f"\n--- CONVERSATIONS in THREAD {thread_id} ---\n")
+    logger.info(f"\n--- CONVERSATIONS in THREAD {thread_id} ---\n")
     for convo in conversations:
-        print(
+        logger.info(
             f"- {convo.get('conversation_id')} | {convo.get('title', 'Untitled')}"
         )
 
@@ -892,8 +906,8 @@ def get_conversation_by_id(conversation_id):
         llm_model=llm_model,
     )
     convo = memory.get_conversation_by_id(conversation_id)
-    print(f"\n--- CONVERSATION {conversation_id} ---\n")
-    print(json.dumps(convo, indent=2))
+    logger.info(f"\n--- CONVERSATION {conversation_id} ---\n")
+    logger.info(json.dumps(convo, indent=2))
 
 
 # Environment-based LLM client factory used by Memoryos when no client is injected
@@ -923,7 +937,7 @@ def _build_llm_client_from_env():
         raise ValueError(f"Unsupported LLM_PROVIDER '{provider}'.")
 
     client = build_llm_client(provider, api_key=api_key, base_url=base_url)
-    print(f"Memoryos: Using LLM provider '{provider}'.")
+    logger.info(f"Memoryos: Using LLM provider '{provider}'.")
     return client
 
 
@@ -947,5 +961,5 @@ def summarize_and_branch(conversation_id):
         llm_model=llm_model,
     )
     result = memory.summarize_and_branch_conversation(conversation_id)
-    print("\n--- SUMMARY RESULT ---\n")
-    print(result if result else "No summary was generated.")
+    logger.info("\n--- SUMMARY RESULT ---\n")
+    logger.info(result if result else "No summary was generated.")

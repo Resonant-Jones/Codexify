@@ -382,5 +382,5 @@ if __name__ == "__main__":
         source="test", tags=["example"], limit=10
     )
 
-    print("\nQueried Events:")
-    print(json.dumps(events, indent=2))
+    logger.info("Queried Events:")
+    logger.info(json.dumps(events, indent=2))

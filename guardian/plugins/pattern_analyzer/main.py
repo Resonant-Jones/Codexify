@@ -758,17 +758,17 @@ def health_check() -> Dict[str, Any]:
 if __name__ == "__main__":
     # Initialize plugin
     if init_plugin():
-        print("Plugin initialized successfully")
+        logger.info("Plugin initialized successfully")
 
         # Wait for some analysis
         time.sleep(10)
 
         # Check health
         health = health_check()
-        print("\nHealth Status:")
-        print(json.dumps(health, indent=2))
+        logger.info("\nHealth Status:")
+        logger.info(json.dumps(health, indent=2))
 
         # Cleanup
         cleanup()
     else:
-        print("Plugin initialization failed")
+        logger.error("Plugin initialization failed")

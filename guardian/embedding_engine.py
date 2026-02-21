@@ -2,12 +2,13 @@
 Embedding Engine – modular and swappable.
 
 Implements a deterministic dummy embedding generator for testing,
-a live GPT‑OSS backend integration via HTTP, and a placeholder
-for a Nomic local model.
+a live GPT-OSS backend integration via HTTP, and local embedding
+models (BGE, Nomic).
 
 The ``EMBEDDER`` constant can be set to:
 - ``"dummy"``: returns deterministic vectors.
 - ``"gpt_oss"``: fetches live embeddings from an external service.
+- ``"bge"``: local BGE embedding model (bge-large-en-v1.5).
 - ``"nomic"``: (placeholder) for future local Nomic integration.
 
 The function ``get_embedding`` returns a list of floats compatible
@@ -21,12 +22,22 @@ Future work:
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import random
-from typing import List
+from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 _ENV_BACKEND = "CODEXIFY_EMBEDDINGS_BACKEND"
-_ALLOWED_EMBEDDERS = {"dummy", "gpt_oss", "nomic"}
+_ALLOWED_EMBEDDERS = {"dummy", "gpt_oss", "bge", "nomic"}
+
+# BGE model configuration
+_BGE_MODEL_NAME = "BAAI/bge-large-en-v1.5"
+_BGE_EMBEDDING_DIM = 1024
+
+# Lazy-loaded model instance
+_bge_model: object | None = None
 
 
 def _normalize_embedder(value: str) -> str:
@@ -58,22 +69,57 @@ def _dummy_embedding(text: str, dim: int = 768) -> list[float]:
     Returns a list of ``dim`` floats in the range [0, 1).
     """
     # Use a stable hash to seed the random generator
-    # Compute a deterministic seed from the text
-    # Compute a deterministic seed from the text
     seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:16], 16)
     rng = random.Random(seed)
     return [rng.random() for _ in range(dim)]
+
+
+def _get_bge_model():
+    """
+    Lazily load the BGE embedding model.
+    Uses sentence-transformers for efficient local embedding generation.
+    """
+    global _bge_model
+    if _bge_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            _bge_model = SentenceTransformer(_BGE_MODEL_NAME)
+            logger.info(f"Loaded BGE embedding model: {_BGE_MODEL_NAME}")
+        except ImportError:
+            raise ImportError(
+                "sentence-transformers is required for BGE embeddings. "
+                "Install with: pip install sentence-transformers"
+            )
+    return _bge_model
+
+
+def _bge_embedding(text: str) -> list[float]:
+    """
+    Generate embedding using the BGE (BAAI/bge-large-en-v1.5) model.
+
+    Args:
+        text: Input text to embed.
+
+    Returns:
+        List of floats (1024 dimensions) representing the text embedding.
+    """
+    model = _get_bge_model()
+    # Encode returns numpy array, convert to list of floats
+    embedding = model.encode(text, normalize_embeddings=True)
+    return embedding.tolist()
 
 
 def get_embedding(text: str, *, embedder: str | None = None) -> list[float]:
     """
     Public API – returns an embedding vector for ``text``.
     Returns a deterministic dummy vector if ``EMBEDDER`` is set to
-    ``"dummy"``, or fetches live embeddings from GPT-OSS if set to
-    ``"gpt_oss"``. The Nomic backend is not yet implemented.
+    ``"dummy"``, fetches live embeddings from GPT-OSS if set to
+    ``"gpt_oss"``, or uses the local BGE model if set to ``"bge"``.
 
     Args:
         text: Input text to embed.
+        embedder: Optional embedder override.
 
     Returns:
         List[float]: Embedding vector.
@@ -95,9 +141,13 @@ def get_embedding(text: str, *, embedder: str | None = None) -> list[float]:
             return result["embedding"]
         except requests.RequestException as e:
             raise RuntimeError(f"Failed to fetch embedding from GPT-OSS: {e}")
+    elif embedder == "bge":
+        return _bge_embedding(text)
     elif embedder == "nomic":
-        # TODO: Call local Nomic model (e.g. via huggingface
-        # or a local server) and return the embedding.
-        raise NotImplementedError("Nomic embedder not implemented yet.")
+        # Nomic is not yet implemented - BGE is the recommended local alternative
+        raise NotImplementedError(
+            "Nomic embedder not implemented. Use 'bge' for local embeddings: "
+            "set EMBEDDER=bge or CODEXIFY_EMBEDDINGS_BACKEND=bge"
+        )
     else:
         raise ValueError(f"Unsupported embedder: {embedder}")

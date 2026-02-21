@@ -126,8 +126,9 @@ def guardian_loop(
     autonomy: "propose_only" | "auto" (default: propose_only)
     """
     if depth > MAX_LOOP_DEPTH:
-        print(
-            f"[Guardian] Max recursion depth {MAX_LOOP_DEPTH} reached. Halting loop."
+        logger.warning(
+            "[Guardian] Max recursion depth %s reached. Halting loop.",
+            MAX_LOOP_DEPTH,
         )
         return {
             "thread_id": thread_id,

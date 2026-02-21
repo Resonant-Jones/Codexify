@@ -18,7 +18,7 @@
  *   - Do NOT rename the existing CSS vars — their current names are the future token keys.
  *   - Migration should be trivial if naming consistency is preserved.
  */
-import api, { buildThreadDocumentsPath } from "@/lib/api";
+import api from "@/lib/api";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useState } from "react";
 
 // Global font injection for Apple system font
@@ -123,6 +123,18 @@ function normalizeDoc(raw: any, idx = 0): DocItem {
       : typeof raw?.embedding_completed_at === "string"
         ? raw.embedding_completed_at
         : undefined;
+  const projectIdRaw =
+    raw?.projectId ??
+    raw?.project_id ??
+    raw?.project?.id ??
+    undefined;
+  const threadIdRaw =
+    raw?.threadId ??
+    raw?.thread_id ??
+    raw?.thread?.id ??
+    undefined;
+  const projectId = Number(projectIdRaw);
+  const threadId = Number(threadIdRaw);
   return {
     id: raw?.id || raw?.document_id || `${title}-${raw?.ext || "md"}-${idx}`,
     name: raw?.name || filename || title,
@@ -138,6 +150,8 @@ function normalizeDoc(raw: any, idx = 0): DocItem {
     mock: Boolean(raw?.mock),
     createdAt: raw?.createdAt || raw?.created_at,
     src_url: srcUrl,
+    projectId: Number.isFinite(projectId) ? projectId : undefined,
+    threadId: Number.isFinite(threadId) ? threadId : undefined,
     embeddingStatus,
     embeddingError,
     embeddingStartedAt,
@@ -194,6 +208,26 @@ function routeThreadIdFromPath(pathname: string): number | null {
 function readRouteThreadId(): number | null {
   if (typeof window === "undefined") return null;
   return routeThreadIdFromPath(window.location.pathname);
+}
+
+function normalizeProjectName(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function isDefaultProjectAlias(value: unknown): boolean {
+  const normalized = normalizeProjectName(value);
+  return normalized === "general" || normalized === "loose threads";
+}
+
+function findDefaultProjectId(projects: any[]): number | null {
+  if (!Array.isArray(projects)) return null;
+  const match = projects.find((project) => isDefaultProjectAlias(project?.name));
+  const rawId = match?.id ?? match?.project_id ?? null;
+  const parsed = Number(rawId);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -543,9 +577,18 @@ export default function AppShell({}: PropsWithChildren) {
     if (cached) return cached;
     return typeof window === "undefined" ? defaultDocs : defaultDocs;
   });
-  const [threadDocuments, setThreadDocuments] = useState<DocItem[]>([]);
   const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
     () => readRouteThreadId()
+  );
+  const [generalProjectId, setGeneralProjectId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem("cfy.generalProjectId");
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  });
+  const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
+  const [projectScopeMode, setProjectScopeMode] = useState<"thread" | "project">(
+    () => (readRouteThreadId() != null ? "thread" : "project")
   );
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -563,6 +606,9 @@ export default function AppShell({}: PropsWithChildren) {
       );
     };
   }, []);
+  useEffect(() => {
+    setProjectScopeMode(activeRouteThreadId != null ? "thread" : "project");
+  }, [activeRouteThreadId]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
     return readCachedDocuments() ? "cache" : "default";
@@ -576,24 +622,37 @@ export default function AppShell({}: PropsWithChildren) {
     } catch {}
   }, [documents, documentsSource]);
   useEffect(() => {
+    if (typeof window === "undefined" || generalProjectId == null) return;
+    try {
+      window.localStorage.setItem("cfy.generalProjectId", String(generalProjectId));
+      window.localStorage.setItem("cfy.defaultProjectId", String(generalProjectId));
+    } catch {}
+  }, [generalProjectId]);
+
+  useEffect(() => {
     let cancelled = false;
-    if (!checkAuthGate(auth, "documents list load")) {
+    if (!checkAuthGate(auth, "projects list load")) {
       return () => {
         cancelled = true;
       };
     }
     (async () => {
       try {
-        const res = await api.get("/media/documents", { params: { limit: 100 } });
-        const docs = unwrapDocumentArray(res?.data);
+        const response = await api.get("/api/projects");
         if (cancelled) return;
-        const normalized = dedupeDocItems(
-          docs.map((d: any, idx: number) => normalizeDoc(d, idx))
-        );
-        setDocuments(normalized);
-        setDocumentsSource("backend");
+        const payload = response?.data ?? response;
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.projects)
+          ? payload.projects
+          : [];
+        const defaultProject = findDefaultProjectId(list);
+        if (defaultProject != null) {
+          setGeneralProjectId(defaultProject);
+        }
       } catch (err) {
-        console.warn("[documents] failed to load backend documents", err);
+        if (cancelled) return;
+        console.warn("[projects] failed to resolve default project", err);
       }
     })();
     return () => {
@@ -603,58 +662,77 @@ export default function AppShell({}: PropsWithChildren) {
   useEffect(() => {
     let cancelled = false;
     if (!activeRouteThreadId) {
-      setThreadDocuments([]);
+      setActiveThreadProjectId(null);
       return () => {
         cancelled = true;
       };
     }
-    if (!checkAuthGate(auth, "documents thread load")) {
-      setThreadDocuments([]);
+    if (!checkAuthGate(auth, "thread project load")) {
+      setActiveThreadProjectId(null);
       return () => {
         cancelled = true;
       };
     }
     (async () => {
       try {
-        const res = await api.get(buildThreadDocumentsPath(activeRouteThreadId));
-        const docs = unwrapDocumentArray(res?.data);
-        if (cancelled) return;
-        const normalized = dedupeDocItems(
-          docs.map((doc: any, idx: number) =>
-            normalizeDoc(
-              {
-                ...doc,
-                name: doc?.name || doc?.title,
-                ext: doc?.format || doc?.ext || "md",
-                type: "file",
-              },
-              idx
-            )
-          )
+        const response = await api.get("/chat/threads");
+        const payload = response?.data ?? response;
+        const threads = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.threads)
+          ? payload.threads
+          : [];
+        const hit = threads.find(
+          (thread: any) => Number(thread?.id) === activeRouteThreadId
         );
-        setThreadDocuments(normalized);
-      } catch (err: any) {
+        const projectRaw = hit?.project_id ?? hit?.projectId ?? null;
+        const parsed = Number(projectRaw);
         if (cancelled) return;
-
-        // If the backend treats "no documents / unknown thread" as 404, treat it as empty
-        // rather than spamming the console (this is a normal state for new threads).
-        const status = err?.response?.status;
-        if (status === 404) {
-          setThreadDocuments([]);
-          return;
-        }
-
-        console.warn(
-          `[documents] failed to load thread ${activeRouteThreadId} documents`,
-          err
-        );
-        setThreadDocuments([]);
+        setActiveThreadProjectId(Number.isFinite(parsed) ? parsed : null);
+      } catch (err) {
+        if (cancelled) return;
+        setActiveThreadProjectId(null);
+        console.warn("[documents] failed to resolve thread project", err);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [activeRouteThreadId, auth]);
+  const effectiveDocumentsProjectId = useMemo<number | null>(
+    () => activeThreadProjectId ?? generalProjectId,
+    [activeThreadProjectId, generalProjectId]
+  );
+  useEffect(() => {
+    let cancelled = false;
+    if (!checkAuthGate(auth, "documents list load")) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    (async () => {
+      try {
+        const params: Record<string, number> = { limit: 100 };
+        if (effectiveDocumentsProjectId != null) {
+          params.project_id = effectiveDocumentsProjectId;
+        }
+        const res = await api.get("/media/documents", { params });
+        const docs = unwrapDocumentArray(res?.data);
+        if (cancelled) return;
+        const normalized = dedupeDocItems(
+          docs.map((d: any, idx: number) => normalizeDoc(d, idx))
+        );
+        setDocuments(normalized);
+        setDocumentsSource("backend");
+      } catch (err) {
+        if (cancelled) return;
+        console.warn("[documents] failed to load backend documents", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth, effectiveDocumentsProjectId]);
   const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -682,9 +760,19 @@ export default function AppShell({}: PropsWithChildren) {
       mock: false,
     }));
   }, [codexEntries]);
+  const scopedProjectDocuments = useMemo<DocItem[]>(() => {
+    if (projectScopeMode !== "thread" || activeRouteThreadId == null) {
+      return documents;
+    }
+    return documents.filter((doc) => {
+      const threadRaw = (doc as any).threadId ?? (doc as any).thread_id;
+      const threadValue = Number(threadRaw);
+      return Number.isFinite(threadValue) && threadValue === activeRouteThreadId;
+    });
+  }, [activeRouteThreadId, documents, projectScopeMode]);
   const allDocuments = useMemo<DocItem[]>(
-    () => dedupeDocItems([...codexDocs, ...threadDocuments, ...documents]),
-    [codexDocs, threadDocuments, documents]
+    () => dedupeDocItems([...codexDocs, ...scopedProjectDocuments]),
+    [codexDocs, scopedProjectDocuments]
   );
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   // Utility: parse a number from unknown input, fall back & clamp to [0,1]
@@ -991,7 +1079,6 @@ export default function AppShell({}: PropsWithChildren) {
       d.type === "codex_entry" ||
       (d.id !== doc.id && !(d.title === doc.title && d.ext === doc.ext));
     setDocuments((prev) => prev.filter(keepDoc));
-    setThreadDocuments((prev) => prev.filter(keepDoc));
   }, []);
   const deleteGalleryItem = useCallback((src: string) => {
     setGallery((prev) => prev.filter((g) => g.src !== src));
@@ -1513,6 +1600,10 @@ export default function AppShell({}: PropsWithChildren) {
                       onDocumentClick={openDocInPlace}
                       onOpenInThread={openDocInThread}
                       onDeleteDocument={deleteDocument}
+                      defaultProjectId={generalProjectId}
+                      projectScopeMode={projectScopeMode}
+                      onProjectScopeModeChange={setProjectScopeMode}
+                      showProjectScopeToggle={activeRouteThreadId != null}
                     />
                   </FrameCard>
                 </div>
@@ -1730,45 +1821,43 @@ export default function AppShell({}: PropsWithChildren) {
           )}
           {view === "settings" && (
             <FrameCard
-              fill
               refractiveFallback
               shimmerMode="subtle"
-              className="flex-1 h-full w-full min-h-0 flex flex-col overflow-hidden"
+              className="mx-auto w-full max-w-[36rem] min-h-0 max-h-full flex flex-col overflow-hidden"
+              data-testid="settings-framecard"
             >
-              <div className="min-h-0 h-full w-full overflow-auto p-[var(--card-pad)] flex-1 flex flex-col">
-                <div className="max-w-5xl mr-auto w-full">
-                  <ErrorBoundary>
-                    <SettingsView
-                      mode={mode}
-                      setMode={setMode}
-                      guardianName={guardianName}
-                      setGuardianName={setGuardianName}
-                      userName={userName}
-                      setUserName={setUserName}
-                      role={role}
-                      setRole={setRole}
-                      notes={notes}
-                      setNotes={setNotes}
-                      baseColor={baseColor}
-                      setBaseColor={setBaseColor}
-                      depth={depth}
-                      setDepth={setDepth}
-                      fade={fade}
-                      setFade={setFade}
-                      resolved={resolved}
-                      systemPrompt={systemPrompt}
-                      setSystemPrompt={setSystemPrompt}
-                      wallpaper={wallpaper}
-                      setWallpaper={setWallpaper}
-                      extColors={extColors}
-                      setExtColors={setExtColors}
-                      dashboardThreadRows={dashboardThreadRows}
-                      setDashboardThreadRows={setDashboardThreadRows}
-                      ingestionEnabled={ingestionEnabled}
-                      setIngestionEnabled={setIngestionEnabled}
-                    />
-                  </ErrorBoundary>
-                </div>
+              <div className="w-full min-h-0 max-h-full overflow-auto p-[var(--card-pad)]" data-testid="settings-scroll-body">
+                <ErrorBoundary>
+                  <SettingsView
+                    mode={mode}
+                    setMode={setMode}
+                    guardianName={guardianName}
+                    setGuardianName={setGuardianName}
+                    userName={userName}
+                    setUserName={setUserName}
+                    role={role}
+                    setRole={setRole}
+                    notes={notes}
+                    setNotes={setNotes}
+                    baseColor={baseColor}
+                    setBaseColor={setBaseColor}
+                    depth={depth}
+                    setDepth={setDepth}
+                    fade={fade}
+                    setFade={setFade}
+                    resolved={resolved}
+                    systemPrompt={systemPrompt}
+                    setSystemPrompt={setSystemPrompt}
+                    wallpaper={wallpaper}
+                    setWallpaper={setWallpaper}
+                    extColors={extColors}
+                    setExtColors={setExtColors}
+                    dashboardThreadRows={dashboardThreadRows}
+                    setDashboardThreadRows={setDashboardThreadRows}
+                    ingestionEnabled={ingestionEnabled}
+                    setIngestionEnabled={setIngestionEnabled}
+                  />
+                </ErrorBoundary>
               </div>
             </FrameCard>
           )}
