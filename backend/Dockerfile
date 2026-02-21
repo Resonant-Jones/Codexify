@@ -62,10 +62,6 @@ for i in range(90):
 """, encoding="utf-8")
 dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-# Create alembic.ini
-alembic_path = Path("/app_staging/backend/alembic.ini")
-alembic_path.write_text("[alembic]\nscript_location = backend/migrations\n", encoding="utf-8")
-
 # Create runtime entrypoint script (no shell required in final image)
 ep = Path("/app_staging/entrypoint.py")
 ep.write_text("""#!/usr/bin/env python3
@@ -143,9 +139,8 @@ COPY guardian /app/guardian
 COPY backend /app/backend
 COPY scripts /app/scripts
 
-# Copy pre-staged scripts and configs
+# Copy pre-staged runtime scripts
 COPY --from=builder /app_staging/wait_for_db.py /app/wait_for_db.py
-COPY --from=builder /app_staging/backend/alembic.ini /app/backend/alembic.ini
 COPY --from=builder /app_staging/entrypoint.py /app/entrypoint.py
 
 # Create symlink alias at runtime (in ENTRYPOINT since no shell in runtime image for RUN)

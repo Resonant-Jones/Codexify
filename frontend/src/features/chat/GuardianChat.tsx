@@ -299,7 +299,7 @@ export function GuardianChat({
       const status: LlmHealthStatus =
         rawStatus === "online" || rawStatus === "offline" || rawStatus === "misconfigured"
           ? rawStatus
-          : Boolean(data?.ok)
+          : data?.ok
             ? "online"
             : "unknown";
 

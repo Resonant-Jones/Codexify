@@ -45,14 +45,10 @@ subprocess.check_call([
 ])
 PY
 
-# Pre-stage scripts and configs for later copy
+# Pre-stage scripts for later copy
 RUN mkdir -p /app_staging/backend && \
     python - <<'PY'
 from pathlib import Path
-
-# Create alembic.ini
-alembic_path = Path("/app_staging/backend/alembic.ini")
-alembic_path.write_text("[alembic]\nscript_location = backend/migrations\n", encoding="utf-8")
 
 # Create wait_for_db script
 dst = Path("/app_staging/wait_for_db.py")
@@ -104,9 +100,8 @@ COPY guardian /app/guardian
 COPY backend /app/backend
 COPY scripts /app/scripts
 
-# Copy pre-staged scripts and configs
+# Copy pre-staged scripts
 COPY --from=builder /app_staging/wait_for_db.py /app/wait_for_db.py
-COPY --from=builder /app_staging/backend/alembic.ini /app/backend/alembic.ini
 
 EXPOSE 8888
 

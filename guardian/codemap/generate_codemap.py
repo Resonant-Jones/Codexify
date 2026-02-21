@@ -11,6 +11,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "artifacts",
+}
 
 
 def extract_python_metadata(file_path):
@@ -39,7 +49,8 @@ def extract_python_metadata(file_path):
 def generate_codemap():
     codemap = []
 
-    for root, _, files in os.walk(BASE_DIR):
+    for root, dirs, files in os.walk(BASE_DIR):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for file in files:
             if file.endswith(".py"):
                 full_path = os.path.join(root, file)

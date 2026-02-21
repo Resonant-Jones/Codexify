@@ -188,9 +188,18 @@ requirements-test.txt:
 	@echo "pytest-cov>=4.1.0"      >> $@
 	@echo "pytest-asyncio>=0.21.0" >> $@
 
+# Generate codemap snapshot artifact for CI maintenance workflow
+codemap:
+	@set -eu; \
+	python guardian/codemap/generate_codemap.py; \
+	target="$${CODEMAP_PATH:-artifacts/codemap/codemap-$$(date -u +%Y%m%d-%H%M%S).json}"; \
+	mkdir -p "$$(dirname "$$target")"; \
+	cp guardian/codemap/codemap.json "$$target"; \
+	echo "Codemap snapshot written to $$target"
+
 # Clean codemap snapshots
 codemap-clean:
-	@ls -1t artifacts/codemap/*.json 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+	@ls -1t artifacts/codemap/*.json 2>/dev/null | tail -n +$$((KEEP + 1)) | xargs -r rm -f
 
 # Initialize pre-commit configuration
 .pre-commit-config.yaml:
