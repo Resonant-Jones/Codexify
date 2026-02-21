@@ -108,7 +108,7 @@ def upgrade() -> None:
     default_project_id = _resolve_default_project_id(bind)
 
     # Backfill legacy rows that were uploaded without project provenance.
-    op.execute(
+    bind.execute(
         sa.text(
             """
             UPDATE uploaded_documents
