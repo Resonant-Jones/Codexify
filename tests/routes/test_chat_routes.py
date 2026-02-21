@@ -123,7 +123,13 @@ class TestChatThreadsPost:
         assert data["ok"] is True
         # Should use default title "New Chat"
         mock_db.create_chat_thread.assert_called_once()
+<<<<<<< HEAD
         mock_db.ensure_default_project.assert_called_once_with()
+=======
+        mock_db.ensure_project.assert_called_once_with(
+            "General", "Default bucket for unassigned threads"
+        )
+>>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         call_kwargs = mock_db.create_chat_thread.call_args[1]
         assert call_kwargs["title"] == "New Chat"
         assert call_kwargs["user_id"] == "default"
@@ -172,7 +178,13 @@ class TestChatThreadsPost:
         )
 
         assert response.status_code == 200
+<<<<<<< HEAD
         mock_db.ensure_default_project.assert_called_once_with()
+=======
+        mock_db.ensure_project.assert_called_once_with(
+            "General", "Default bucket for unassigned threads"
+        )
+>>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         call_kwargs = mock_db.create_chat_thread.call_args[1]
         assert (
             call_kwargs["project_id"]
@@ -302,7 +314,13 @@ class TestChatMessagesPost:
         response = test_client.post("/chat/1/messages", json=payload)
 
         assert response.status_code == 200
+<<<<<<< HEAD
         mock_db.ensure_default_project.assert_called_once_with()
+=======
+        mock_db.ensure_project.assert_called_once_with(
+            "General", "Default bucket for unassigned threads"
+        )
+>>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         mock_db.ensure_chat_thread.assert_called_once()
         ensure_kwargs = mock_db.ensure_chat_thread.call_args.kwargs
         assert (

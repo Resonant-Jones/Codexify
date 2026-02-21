@@ -168,6 +168,111 @@ services:
       migrator:
         condition: service_completed_successfully
     restart: "no"
+<<<<<<< HEAD
+=======
+    command: |
+      set -euo pipefail
+
+      echo "[Migrator] Wiring Codexify -> codexify (case alias)"
+      ln -snf /app/codexify /app/Codexify
+      python - <<'PY'
+      import codexify
+      print("[Migrator] codexify resolves to:", getattr(codexify, "__file__", "<namespace>"))
+      PY
+
+      echo "[Migrator] DATABASE_URL=${DATABASE_URL:-<unset>}"
+
+      echo "[Migrator] Alembic heads (sanity check):"
+      python -m alembic --raiseerr -c backend/alembic.ini heads || true
+
+      echo "[Migrator] Running Alembic migrations..."
+      python -m alembic --raiseerr -c backend/alembic.ini upgrade head
+
+      echo "[Migrator] Verifying required tables + alembic_version..."
+
+      python - <<'PY'
+      import os
+      from sqlalchemy import create_engine, text
+
+      url = os.environ.get("DATABASE_URL")
+      if not url:
+          raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
+
+      en = create_engine(url)
+
+      required = [
+          "public.alembic_version",
+          "public.projects",
+          "public.chat_threads",
+          "public.chat_messages",
+          "public.imprints",
+          "public.system_docs",
+          "public.system_doc_links",
+          "public.events_outbox",
+      ]
+
+      with en.begin() as conn:
+          missing = []
+          for t in required:
+              reg = conn.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar()
+              if reg is None:
+                  missing.append(t)
+
+          if missing:
+              tables = conn.execute(text("""
+                  SELECT table_schema || '.' || table_name
+                  FROM information_schema.tables
+                  WHERE table_type = 'BASE TABLE'
+                  ORDER BY 1
+              """)).fetchall()
+
+              table_list = "\n  - ".join([r[0] for r in tables]) if tables else "<none>"
+              raise SystemExit(
+                  "[Migrator] ERROR: schema missing required tables:\n  - "
+                  + "\n  - ".join(missing)
+                  + "\n\n[Migrator] Existing tables:\n  - "
+                  + table_list
+              )
+
+          ver = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+
+      print(f"[Migrator] OK: alembic_version={ver}")
+      PY
+
+      echo "[Migrator] Post-migration schema guard: ensure chat_threads.metadata exists..."
+
+      python - <<'PY'
+      import os
+      from sqlalchemy import create_engine, text
+
+      url = os.environ.get("DATABASE_URL")
+      if not url:
+          raise SystemExit("[Migrator] ERROR: DATABASE_URL is not set")
+
+      en = create_engine(url)
+      with en.begin() as conn:
+          conn.execute(text("""
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'chat_threads'
+        ) THEN
+          ALTER TABLE chat_threads
+            ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+        END IF;
+      END $$;
+      """))
+
+      print("[Migrator] Post-migration schema guard complete.")
+      PY
+
+      echo "[Migrator] Running seed script (should be idempotent)..."
+      python backend/scripts/seed_defaults.py
+      echo "[Migrator] Seed script completed."
+      echo "[Migrator] Done."
+>>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
 
   backend:
     build:
@@ -311,7 +416,7 @@ services:
         PY
 
         echo "[Backend] Applying Alembic migrations (idempotent)..."
-        alembic --raiseerr -c backend/alembic.ini upgrade head
+        python -m alembic --raiseerr -c backend/alembic.ini upgrade head
 
         echo "[Backend] Verifying required tables + alembic_version..."
         python - <<'PY'
