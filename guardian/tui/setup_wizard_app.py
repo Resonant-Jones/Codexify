@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
@@ -34,6 +34,11 @@ class WizardState:
     enable_discord: bool = False
     enable_notion: bool = False
     enable_github: bool = False
+
+    notion_api_key: str = ""
+    discord_bot_token: str = ""
+    github_token: str = ""
+
     deps_acknowledged: bool = False
 
 
@@ -51,6 +56,7 @@ class SetupWizardApp(App[Optional[str]]):
     .muted { color: $text-muted; }
     .danger { color: $error; }
     .ok { color: $success; }
+    .hidden { display: none; }
     Input { width: 1fr; }
     """
 
@@ -113,23 +119,56 @@ class SetupWizardApp(App[Optional[str]]):
                 id="allow_cloud_providers",
                 classes="row",
             )
+
+            yield Static(
+                "Connectors (Custom only)",
+                id="connectors_title",
+                classes="row hidden",
+            )
+
             yield Checkbox(
                 "Enable Notion connector",
                 value=False,
-                id="connector_notion",
-                classes="row",
+                id="chk_notion",
+                classes="row hidden",
             )
+            yield Input(
+                placeholder="Notion API key (required if enabled)",
+                password=True,
+                id="notion_key",
+                classes="row hidden",
+            )
+
             yield Checkbox(
                 "Enable Discord connector",
                 value=False,
-                id="connector_discord",
-                classes="row",
+                id="chk_discord",
+                classes="row hidden",
             )
+            yield Input(
+                placeholder="Discord bot token (required if enabled)",
+                password=True,
+                id="discord_token",
+                classes="row hidden",
+            )
+
             yield Checkbox(
                 "Enable GitHub connector",
                 value=False,
-                id="connector_github",
-                classes="row",
+                id="chk_github",
+                classes="row hidden",
+            )
+            yield Input(
+                placeholder="GitHub token (required if enabled)",
+                password=True,
+                id="github_token",
+                classes="row hidden",
+            )
+
+            yield Static(
+                "Connector credentials are stored in .env. Treat it as a secret file.",
+                id="connectors_note",
+                classes="row muted hidden",
             )
 
             with Horizontal(classes="row"):
@@ -143,7 +182,7 @@ class SetupWizardApp(App[Optional[str]]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._apply_mode_ui()
+        self._apply_mode_visibility()
         self._render_deps()
 
     def _current_custom_paths(self) -> dict[str, str]:
@@ -190,31 +229,103 @@ class SetupWizardApp(App[Optional[str]]):
     def _set_status(self, msg: str) -> None:
         self.query_one("#status", Static).update(msg)
 
-    def _apply_mode_ui(self) -> None:
-        custom_mode = self.state.mode == "custom"
+    def _apply_mode_visibility(self) -> None:
+        is_custom = self.state.mode == "custom"
+
         for widget_id in (
             "#docker_path",
             "#ollama_path",
             "#allow_cloud_providers",
-            "#connector_notion",
-            "#connector_discord",
-            "#connector_github",
         ):
-            self.query_one(widget_id).disabled = not custom_mode
+            self.query_one(widget_id).disabled = not is_custom
 
-        if not custom_mode:
+        for widget_id in (
+            "#connectors_title",
+            "#chk_notion",
+            "#chk_discord",
+            "#chk_github",
+            "#connectors_note",
+        ):
+            widget = self.query_one(widget_id)
+            widget.set_class(not is_custom, "hidden")
+            if isinstance(widget, Checkbox):
+                widget.disabled = not is_custom
+
+        if not is_custom:
             self.query_one("#allow_cloud_providers", Checkbox).value = True
-            self.query_one("#connector_notion", Checkbox).value = False
-            self.query_one("#connector_discord", Checkbox).value = False
-            self.query_one("#connector_github", Checkbox).value = False
+            self.query_one("#chk_notion", Checkbox).value = False
+            self.query_one("#chk_discord", Checkbox).value = False
+            self.query_one("#chk_github", Checkbox).value = False
+
+            self.state.enable_notion = False
+            self.state.enable_discord = False
+            self.state.enable_github = False
+            self.state.notion_api_key = ""
+            self.state.discord_bot_token = ""
+            self.state.github_token = ""
+
+        self._apply_connector_credential_visibility()
+
+    def _apply_connector_credential_visibility(self) -> None:
+        is_custom = self.state.mode == "custom"
+
+        notion_input = self.query_one("#notion_key")
+        discord_input = self.query_one("#discord_token")
+        github_input = self.query_one("#github_token")
+
+        notion_input.set_class(
+            not (is_custom and self.state.enable_notion),
+            "hidden",
+        )
+        discord_input.set_class(
+            not (is_custom and self.state.enable_discord),
+            "hidden",
+        )
+        github_input.set_class(
+            not (is_custom and self.state.enable_github),
+            "hidden",
+        )
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         pressed_id = event.pressed.id if event.pressed else ""
         self.state.mode = "fast" if pressed_id == "mode_fast" else "custom"
-        self._apply_mode_ui()
+        self._apply_mode_visibility()
         self._scan_dependencies()
         self._render_deps()
         self._set_status(f"Mode selected: {self.state.mode}")
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        checkbox_id = event.checkbox.id
+        if checkbox_id == "chk_notion":
+            self.state.enable_notion = bool(event.value)
+        elif checkbox_id == "chk_discord":
+            self.state.enable_discord = bool(event.value)
+        elif checkbox_id == "chk_github":
+            self.state.enable_github = bool(event.value)
+        else:
+            return
+
+        self._apply_connector_credential_visibility()
+
+    def _validate_custom_inputs(self) -> str | None:
+        if self.state.mode != "custom":
+            return None
+
+        notion_key = self.query_one("#notion_key", Input).value.strip()
+        discord_token = self.query_one("#discord_token", Input).value.strip()
+        github_token = self.query_one("#github_token", Input).value.strip()
+
+        if self.state.enable_notion and not notion_key:
+            return "Notion is enabled but Notion API key is missing."
+        if self.state.enable_discord and not discord_token:
+            return "Discord is enabled but Discord bot token is missing."
+        if self.state.enable_github and not github_token:
+            return "GitHub is enabled but GitHub token is missing."
+
+        self.state.notion_api_key = notion_key
+        self.state.discord_bot_token = discord_token
+        self.state.github_token = github_token
+        return None
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
@@ -249,19 +360,22 @@ class SetupWizardApp(App[Optional[str]]):
                 "#allow_cloud_providers", Checkbox
             ).value
             self.state.enable_notion = self.query_one(
-                "#connector_notion", Checkbox
+                "#chk_notion", Checkbox
             ).value
             self.state.enable_discord = self.query_one(
-                "#connector_discord", Checkbox
+                "#chk_discord", Checkbox
             ).value
             self.state.enable_github = self.query_one(
-                "#connector_github", Checkbox
+                "#chk_github", Checkbox
             ).value
         else:
             self.state.allow_cloud_providers = True
             self.state.enable_notion = False
             self.state.enable_discord = False
             self.state.enable_github = False
+            self.state.notion_api_key = ""
+            self.state.discord_bot_token = ""
+            self.state.github_token = ""
 
         missing_deps = [
             dep for dep in self.state.deps.values() if not dep.is_present
@@ -271,6 +385,11 @@ class SetupWizardApp(App[Optional[str]]):
                 "Missing dependencies detected. Choose Continue to accept "
                 "this state, or Re-scan after installing."
             )
+            return
+
+        validation_error = self._validate_custom_inputs()
+        if validation_error:
+            self._set_status(f"[danger]{validation_error}[/danger]")
             return
 
         kv = {
@@ -287,6 +406,17 @@ class SetupWizardApp(App[Optional[str]]):
             "CONNECTOR_GITHUB_ENABLED": (
                 "true" if self.state.enable_github else "false"
             ),
+            "NOTION_API_KEY": (
+                self.state.notion_api_key if self.state.enable_notion else ""
+            ),
+            "DISCORD_BOT_TOKEN": (
+                self.state.discord_bot_token
+                if self.state.enable_discord
+                else ""
+            ),
+            "GITHUB_TOKEN": self.state.github_token
+            if self.state.enable_github
+            else "",
         }
         for name, value in self._current_custom_paths().items():
             if name == "docker":
