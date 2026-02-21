@@ -365,8 +365,8 @@ html, body {
 .color-swatch {
   -webkit-appearance: none;
   appearance: none;
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border-radius: 9999px;
   border: 1px solid color-mix(in oklab, var(--panel-border) 75%, transparent);
