@@ -204,8 +204,7 @@ export function SettingsView({
                 value={baseColor}
                 onChange={(e) => setBaseColor(e.target.value)}
                 aria-label="Base color"
-                className="color-swatch shrink-0"
-                style={{ width: "32px", height: "32px" }}
+                className="color-swatch"
               />
             </div>
 
@@ -214,39 +213,39 @@ export function SettingsView({
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-4 max-w-md">
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">PDF</span>
-                  <Input id="color-pdf" type="color" value={extColors.pdf} onChange={(e) => setExtColors({ ...extColors, pdf: e.target.value })} className="color-swatch" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-pdf" type="color" value={extColors.pdf} onChange={(e) => setExtColors({ ...extColors, pdf: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">DOC</span>
-                  <Input id="color-doc" type="color" value={extColors.doc} onChange={(e) => setExtColors({ ...extColors, doc: e.target.value })} className="color-swatch" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-doc" type="color" value={extColors.doc} onChange={(e) => setExtColors({ ...extColors, doc: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">MD</span>
-                  <Input id="color-md" type="color" value={extColors.md} onChange={(e) => setExtColors({ ...extColors, md: e.target.value })} className="color-swatch" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-md" type="color" value={extColors.md} onChange={(e) => setExtColors({ ...extColors, md: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">PNG</span>
-                  <Input id="color-png" type="color" value={extColors.png} onChange={(e) => setExtColors({ ...extColors, png: e.target.value })} className="color-swatch" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-png" type="color" value={extColors.png} onChange={(e) => setExtColors({ ...extColors, png: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">SKETCH</span>
-                  <Input id="color-sketch" type="color" value={extColors.sketch} onChange={(e) => setExtColors({ ...extColors, sketch: e.target.value })} className="color-swatch" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-sketch" type="color" value={extColors.sketch} onChange={(e) => setExtColors({ ...extColors, sketch: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">TXT</span>
-                  <Input id="color-txt" type="color" value={extColors.txt} onChange={(e) => setExtColors({ ...extColors, txt: e.target.value })} className="color-swatch" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-txt" type="color" value={extColors.txt} onChange={(e) => setExtColors({ ...extColors, txt: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">DOCX</span>
-                  <Input id="color-docx" type="color" value={extColors.docx} onChange={(e) => setExtColors({ ...extColors, docx: e.target.value })} className="color-swatch" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-docx" type="color" value={extColors.docx} onChange={(e) => setExtColors({ ...extColors, docx: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">JPEG</span>
-                  <Input id="color-jpeg" type="color" value={extColors.jpeg} onChange={(e) => setExtColors({ ...extColors, jpeg: e.target.value })} className="color-swatch" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-jpeg" type="color" value={extColors.jpeg} onChange={(e) => setExtColors({ ...extColors, jpeg: e.target.value })} className="color-swatch" />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs">CODEX</span>
-                  <Input id="color-codex" type="color" value={extColors.codex} onChange={(e) => setExtColors({ ...extColors, codex: e.target.value })} className="color-swatch" style={{ width: "28px", height: "28px" }} />
+                  <Input id="color-codex" type="color" value={extColors.codex} onChange={(e) => setExtColors({ ...extColors, codex: e.target.value })} className="color-swatch" />
                 </div>
               </div>
             </div>
