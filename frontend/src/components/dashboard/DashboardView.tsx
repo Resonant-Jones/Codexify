@@ -8,8 +8,8 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ImagePlus, X } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
-
-import GalleryPreviewTile from "@/components/gallery/PreviewTile";
+import MediaGrid from "@/components/media/MediaGrid";
+import MediaTile from "@/components/media/MediaTile";
 
 // Debug signature: helps confirm which DashboardView module the browser is actually running.
 const DASHBOARDVIEW_SIGNATURE = "DashboardView.tsx (components/dashboard) signature: 2026-02-01";
@@ -360,16 +360,17 @@ export default function DashboardView({
                     No gallery images yet. Generate or upload to get started.
                   </div>
                 ) : (
-                  <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)]">
+                  <MediaGrid className="codexifyMediaGrid--small">
                     {galleryToRender.map((item, index) => (
-                      <GalleryPreviewTile
+                      <MediaTile
                         key={`${item.src}-${index}`}
+                        id={item.id ?? `dashboard-gallery-${index}`}
                         src={item.src}
                         alt={item.prompt || "Gallery image"}
-                        onClick={() => onImagePrompt(item.prompt)}
+                        onOpen={() => onImagePrompt(item.prompt)}
                       />
                     ))}
-                  </div>
+                  </MediaGrid>
                 )}
               </div>
             </div>
