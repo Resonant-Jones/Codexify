@@ -5,7 +5,6 @@ import platform
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
 
 
 @dataclass(frozen=True)
@@ -134,3 +133,139 @@ def default_env_target(repo_root: Path) -> Path:
     """
 
     return repo_root / ".env"
+
+
+def read_env_file(env_path: Path) -> dict[str, str]:
+    """
+    Minimal .env parser:
+    - supports KEY=VALUE
+    - ignores blank lines and comments (# ...)
+    - strips surrounding quotes
+    """
+    resolved = env_path.expanduser().resolve()
+    if not resolved.exists():
+        return {}
+
+    output: dict[str, str] = {}
+    for raw in resolved.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and (
+            (value[0] == value[-1] == '"') or (value[0] == value[-1] == "'")
+        ):
+            value = value[1:-1]
+        output[key] = value
+    return output
+
+
+@dataclass(frozen=True)
+class DoctorItem:
+    name: str
+    ok: bool
+    required: bool
+    detail: str = ""
+
+
+def _truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
+    """
+    Returns (items, exit_code).
+    exit_code is 0 if all REQUIRED items are ok, else 1.
+    """
+    root = repo_root.resolve()
+    env_path = default_env_target(root)
+    env = read_env_file(env_path)
+
+    deps = detect_core_dependencies()
+
+    allow_cloud = _truthy(env.get("ALLOW_CLOUD_PROVIDERS", "true"))
+    ollama_required = not allow_cloud
+
+    # Docker requiredness: enforce only if existing config explicitly implies it.
+    docker_required = False
+    if "DATABASE_URL" in env and not env.get("DATABASE_URL", "").strip():
+        docker_required = True
+    if "ENABLE_OUTBOX" in env and _truthy(env.get("ENABLE_OUTBOX")):
+        docker_required = True
+
+    items: list[DoctorItem] = []
+    items.append(
+        DoctorItem(
+            name=".env present",
+            ok=env_path.exists(),
+            required=True,
+            detail=str(env_path),
+        )
+    )
+
+    docker = deps["docker"]
+    items.append(
+        DoctorItem(
+            name="Docker available",
+            ok=docker.is_present,
+            required=docker_required,
+            detail=docker.found_path or docker.help_text,
+        )
+    )
+
+    ollama = deps["ollama"]
+    items.append(
+        DoctorItem(
+            name="Ollama available",
+            ok=ollama.is_present,
+            required=ollama_required,
+            detail=ollama.found_path or ollama.help_text,
+        )
+    )
+
+    def req_if_enabled(
+        flag_key: str, secret_key: str, label: str
+    ) -> DoctorItem:
+        enabled = _truthy(env.get(flag_key, "false"))
+        secret = env.get(secret_key, "").strip()
+        ok = (not enabled) or bool(secret)
+        detail = "enabled" if enabled else "disabled"
+        if enabled and not secret:
+            detail = f"enabled but {secret_key} missing"
+        return DoctorItem(name=label, ok=ok, required=enabled, detail=detail)
+
+    items.append(
+        req_if_enabled(
+            "CONNECTOR_NOTION_ENABLED",
+            "NOTION_API_KEY",
+            "Notion connector config",
+        )
+    )
+    items.append(
+        req_if_enabled(
+            "CONNECTOR_DISCORD_ENABLED",
+            "DISCORD_BOT_TOKEN",
+            "Discord connector config",
+        )
+    )
+    items.append(
+        req_if_enabled(
+            "CONNECTOR_GITHUB_ENABLED",
+            "GITHUB_TOKEN",
+            "GitHub connector config",
+        )
+    )
+
+    exit_code = 0
+    for item in items:
+        if item.required and not item.ok:
+            exit_code = 1
+            break
+
+    return items, exit_code
