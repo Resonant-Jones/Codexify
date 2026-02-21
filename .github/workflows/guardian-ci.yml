@@ -175,6 +175,75 @@ jobs:
           echo "$CORE_LOOP_DOCGEN_SELECTOR"
           bash scripts/validate_core_loops.sh
 
+  alembic-config-sanity:
+    name: alembic-config-sanity
+    runs-on: ubuntu-latest
+    needs: changes
+    permissions:
+      contents: read
+    steps:
+      - name: No-op (no backend-relevant changes)
+        if: ${{ needs.changes.outputs.run_backend != 'true' }}
+        run: |
+          echo "No backend-relevant changes detected."
+          echo "backend_changed=${{ needs.changes.outputs.backend_changed }}"
+          echo "ci_changed=${{ needs.changes.outputs.ci_changed }}"
+          echo "shared_changed=${{ needs.changes.outputs.shared_changed }}"
+
+      - name: Checkout
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Validate Alembic config + Docker runtime references
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import configparser
+          from pathlib import Path
+
+          root = Path(".").resolve()
+          cfg_path = root / "backend" / "alembic.ini"
+          if not cfg_path.is_file():
+              raise SystemExit("backend/alembic.ini missing")
+
+          parser = configparser.RawConfigParser()
+          parser.read(cfg_path)
+          script_location = parser.get("alembic", "script_location", fallback="")
+          if not script_location:
+              raise SystemExit("backend/alembic.ini missing [alembic] script_location")
+
+          resolved = Path(
+              script_location.replace("%(here)s", str(cfg_path.parent))
+          ).resolve()
+          expected = (root / "guardian" / "db" / "migrations").resolve()
+          if resolved != expected:
+              raise SystemExit(
+                  f"alembic script_location drift: expected {expected}, got {resolved}"
+              )
+          if not (resolved / "env.py").is_file():
+              raise SystemExit("alembic env.py missing in canonical migrations dir")
+          if not (resolved / "versions").is_dir():
+              raise SystemExit("alembic versions dir missing in canonical migrations dir")
+
+          forbidden = (
+              "/app_staging/backend/alembic.ini",
+              "script_location = backend/migrations",
+          )
+          for path_str in ("backend/Dockerfile", "backend/Dockerfile.prod"):
+              txt = (root / path_str).read_text(encoding="utf-8")
+              for token in forbidden:
+                  if token in txt:
+                      raise SystemExit(
+                          f"{path_str} contains forbidden Alembic stub pattern: {token}"
+                      )
+
+          print("alembic-config-sanity passed")
+          PY
+
   frontend-quality:
     name: Frontend Quality
     runs-on: ubuntu-latest
@@ -229,7 +298,7 @@ jobs:
   migration-contract:
     name: Migration Contract (Container)
     runs-on: ubuntu-latest
-    needs: [changes, backend-tests]
+    needs: [changes, backend-tests, alembic-config-sanity]
     permissions:
       contents: read
     steps:
@@ -281,11 +350,44 @@ jobs:
             --entrypoint python \
             backend -m pytest /app/tests/test_migrations.py -v
 
+      - name: Smoke boot backend image without bind mounts
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker rm -f ci-backend-smoke >/dev/null 2>&1 || true
+          docker run -d \
+            --name ci-backend-smoke \
+            --network codexify_default \
+            -p 18888:8888 \
+            --env-file .env \
+            -e DATABASE_URL="postgresql://codexify:codexify@db:5432/Codexify" \
+            -e GUARDIAN_DB_DSN="postgresql://codexify:codexify@db:5432/Codexify" \
+            -e GUARDIAN_CHATLOG_DSN="postgresql://codexify:codexify@db:5432/Codexify" \
+            -e CODEXIFY_CONFIG_SOURCE=core \
+            -e CODEXIFY_EMBEDDINGS_BACKEND=mock \
+            -e CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1 \
+            -e PORT=8888 \
+            codexify-backend
+
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:18888/ping >/dev/null; then
+              echo "Backend smoke ping is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Backend smoke ping failed" >&2
+          docker logs --tail=300 ci-backend-smoke || true
+          exit 1
+
       - name: Save docker logs on failure
         if: ${{ failure() && needs.changes.outputs.run_backend == 'true' }}
         run: |
           docker compose logs backend > /tmp/ci-backend.log || true
           docker compose logs db > /tmp/ci-db.log || true
+          docker logs ci-backend-smoke > /tmp/ci-backend-smoke.log || true
 
       - name: Upload logs on failure
         if: ${{ failure() && needs.changes.outputs.run_backend == 'true' }}
@@ -295,7 +397,10 @@ jobs:
           path: |
             /tmp/ci-backend.log
             /tmp/ci-db.log
+            /tmp/ci-backend-smoke.log
 
       - name: Tear down
         if: ${{ always() && needs.changes.outputs.run_backend == 'true' }}
-        run: docker compose down -v
+        run: |
+          docker rm -f ci-backend-smoke >/dev/null 2>&1 || true
+          docker compose down -v
