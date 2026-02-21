@@ -79,6 +79,8 @@ def main() -> int:
 
     execv(
         [
+            sys.executable,
+            "-m",
             "uvicorn",
             "backend.tts_service.app:app",
             "--host",

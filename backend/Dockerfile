@@ -105,7 +105,17 @@ def main() -> None:
 
     # Exec uvicorn as PID 1
     port = os.environ.get('PORT', '8888')
-    os.execvp('uvicorn', ['uvicorn', 'codexify.guardian_api:app', '--host', '0.0.0.0', '--port', str(port)])
+    argv = [
+        sys.executable,
+        '-m',
+        'uvicorn',
+        'codexify.guardian_api:app',
+        '--host',
+        '0.0.0.0',
+        '--port',
+        str(port),
+    ]
+    os.execv(sys.executable, argv)
 
 
 if __name__ == '__main__':

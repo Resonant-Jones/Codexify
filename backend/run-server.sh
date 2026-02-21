@@ -15,6 +15,6 @@ RUN /bin/sh -lc "if [ -f /app/run-server.sh ]; then \
         '  alembic -c /app/backend/alembic.ini upgrade head || true' \
         'fi' \
         '# run uvicorn app' \
-        'exec uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8000' \
+        'exec python -m uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8000' \
         > /app/run-server.sh && chmod +x /app/run-server.sh; \
     fi"
