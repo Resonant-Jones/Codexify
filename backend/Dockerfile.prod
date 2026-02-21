@@ -1,0 +1,109 @@
+#syntax=docker/dockerfile:1
+
+# === Build stage: compile dependencies only (no source yet) ===
+FROM dhi.io/python:3.11.14-debian13-dev AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /tmp
+
+# DHI Debian dev image includes necessary build tools and package managers
+
+# Copy requirements and compile wheels (cached layer)
+COPY requirements.txt requirements/ backend/requirements.txt* ./
+
+RUN python - <<'PY'
+import os, sys, subprocess
+candidates = [
+    "./backend/requirements.txt",
+    "./requirements.txt",
+    "./all.txt",
+]
+req_file = None
+for p in candidates:
+    if os.path.exists(p):
+        req_file = p
+        break
+
+if not req_file:
+    sys.exit(1)
+
+# Upgrade pip once
+subprocess.check_call([
+    sys.executable, '-m', 'pip',
+    'install', '--upgrade', 'pip', 'setuptools', 'wheel'
+])
+
+# Build wheels into /tmp/wheels (no install yet)
+subprocess.check_call([
+    'pip', 'wheel',
+    '--no-cache-dir',
+    '--wheel-dir', '/tmp/wheels',
+    '-r', req_file
+])
+PY
+
+# Pre-stage scripts for later copy
+RUN mkdir -p /app_staging/backend && \
+    python - <<'PY'
+from pathlib import Path
+
+# Create wait_for_db script
+dst = Path("/app_staging/wait_for_db.py")
+dst.write_text("""#!/usr/bin/env python3
+import os, time, sys
+try:
+    import psycopg2
+except Exception:
+    print('psycopg2 unavailable; skipping active DB wait', file=sys.stderr)
+    sys.exit(0)
+dsn = os.environ.get('DATABASE_URL')
+if not dsn:
+    print('DATABASE_URL not set; skipping DB wait', file=sys.stderr)
+    sys.exit(0)
+for i in range(90):
+    try:
+        psycopg2.connect(dsn).close()
+        print('Postgres is up')
+        break
+    except Exception as e:
+        print('Waiting for Postgres...', e, file=sys.stderr)
+        time.sleep(2)
+""", encoding="utf-8")
+PY
+
+
+# === Runtime stage: minimal image with only production deps ===
+FROM dhi.io/python:3.11.14-debian13
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app \
+    PORT=8888
+
+WORKDIR /app
+
+# Copy pre-built wheels from builder and install (cached)
+COPY --from=builder /tmp/wheels /tmp/wheels
+
+RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels \
+    $(ls /tmp/wheels/*.whl | xargs -n1 basename | sed 's/-[^-]*-[^-]*-[^-]*.whl//' | sort -u)
+
+# Clean up wheels
+RUN rm -rf /tmp/wheels
+
+# Copy application code
+COPY guardian /app/guardian
+COPY backend /app/backend
+COPY scripts /app/scripts
+
+# Copy pre-staged scripts
+COPY --from=builder /app_staging/wait_for_db.py /app/wait_for_db.py
+
+EXPOSE 8888
+
+ENTRYPOINT ["/bin/sh", "-lc"]
+CMD ["[ -e /app/codexify ] || ln -s /app/guardian /app/codexify; python /app/wait_for_db.py && alembic -c backend/alembic.ini upgrade head && exec python -m uvicorn guardian.guardian_api:app --host 0.0.0.0 --port ${PORT}"]

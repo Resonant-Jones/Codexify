@@ -1,0 +1,77 @@
+/* Shared media grid and tile styles for Dashboard and Gallery */
+
+/* Responsive grid with centering */
+.codexifyMediaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
+  gap: 16px;
+  align-items: start;
+  justify-items: center; /* Key: center tiles in their grid cell */
+}
+
+/* Tablet and below: smaller tiles */
+@media (max-width: 768px) {
+  .codexifyMediaGrid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+  }
+}
+
+/* Mobile: even smaller tiles */
+@media (max-width: 640px) {
+  .codexifyMediaGrid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+}
+
+/* Small split view: minimum viable tiles */
+@media (max-width: 480px) {
+  .codexifyMediaGrid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+  }
+}
+
+/* Small tile variant for Dashboard (documents/smaller previews) */
+.codexifyMediaGrid--small {
+  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+}
+
+@media (max-width: 640px) {
+  .codexifyMediaGrid--small {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  }
+}
+
+/* Tile wrapper */
+.codexifyMediaTile {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 18px;
+  overflow: hidden;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: block;
+  transition: transform 150ms ease-out;
+}
+
+.codexifyMediaTile:hover {
+  transform: translateY(-2px);
+}
+
+.codexifyMediaTile:focus-visible {
+  outline: 2px solid var(--accent-strong, #3b82f6);
+  outline-offset: 2px;
+}
+
+/* Media content */
+.codexifyMediaTileMedia {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+  max-height: 420px;
+}

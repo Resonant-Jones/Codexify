@@ -1,5 +1,6 @@
 import ast
 import json
+import logging
 import time
 from collections import deque
 
@@ -7,6 +8,8 @@ from ..browser.crawl_ai import Crawl
 from ..model import Model
 from ..prompt.searcher import search_plan
 from .agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 class SearchAgent(Agent):
@@ -40,8 +43,8 @@ class SearchAgent(Agent):
         import json
         import re
 
-        print(
-            f"[DEBUG] _extract_response: Raw input:\n{res}\n--- end raw input ---"
+        logger.debug(
+            f"_extract_response: Raw input:\n{res}\n--- end raw input ---"
         )
 
         # Unescape string if it's str type, with ast.literal_eval for robust decoding
@@ -59,15 +62,15 @@ class SearchAgent(Agent):
             try:
                 res = res["choices"][0]["message"]["content"]
             except Exception as e:
-                print(
-                    f"[DEBUG] _extract_response: Could not extract content from dict: {e}\nGot: {res}"
+                logger.debug(
+                    f"_extract_response: Could not extract content from dict: {e}\nGot: {res}"
                 )
                 return None
 
         # 2. If not string now, bail out with debug
         if not isinstance(res, str):
-            print(
-                f"[DEBUG] _extract_response: Expected string, got {type(res)}: {res}"
+            logger.debug(
+                f"_extract_response: Expected string, got {type(res)}: {res}"
             )
             return None
 
@@ -76,21 +79,21 @@ class SearchAgent(Agent):
         markdown_matches = re.findall(markdown_pattern, res, re.DOTALL)
         if markdown_matches:
             extracted = markdown_matches[0].strip()
-            print(
-                f"[DEBUG] _extract_response: Extracted markdown block:\n{extracted}"
+            logger.debug(
+                f"_extract_response: Extracted markdown block:\n{extracted}"
             )
             return extracted
 
         # 4. Try to parse the raw string as JSON
         try:
             json.loads(res.strip())
-            print(
-                f"[DEBUG] _extract_response: Raw content is valid JSON:\n{res.strip()}"
+            logger.debug(
+                f"_extract_response: Raw content is valid JSON:\n{res.strip()}"
             )
             return res.strip()
         except Exception:
-            print(
-                "[DEBUG] _extract_response: Raw content is not valid JSON. Trying fallback extraction."
+            logger.debug(
+                "_extract_response: Raw content is not valid JSON. Trying fallback extraction."
             )
 
         # 5. Fallback: Try to extract JSON objects or arrays from within the string
@@ -119,15 +122,15 @@ class SearchAgent(Agent):
         for candidate in reversed(json_candidates):
             try:
                 json.loads(candidate)
-                print(
-                    f"[DEBUG] _extract_response: Extracted valid fallback JSON candidate:\n{candidate}"
+                logger.debug(
+                    f"_extract_response: Extracted valid fallback JSON candidate:\n{candidate}"
                 )
                 return candidate
             except json.JSONDecodeError:
                 continue
 
-        print(
-            "[DEBUG] _extract_response: No valid JSON found after all attempts."
+        logger.debug(
+            "_extract_response: No valid JSON found after all attempts."
         )
         return None
 
@@ -150,8 +153,8 @@ class SearchAgent(Agent):
                 for response we just need to response "FINISHED"
                 AGENT: PLANNER
         """
-        print("SEARCHER: RUNNING ")
-        print(f"{self.todo} testing..")
+        logger.info("SEARCHER: RUNNING ")
+        logger.info(f"{self.todo} testing..")
         # Plan tasks; swallow planning errors
         try:
             steps = self._plan(task)
@@ -202,11 +205,11 @@ class SearchAgent(Agent):
         Searcher planner
         """
         prompt = search_plan(task, self.todo, k)
-        print(f"task {task}")
-        print(prompt)
+        logger.info(f"task {task}")
+        logger.info(prompt)
 
         response = self.model.completion(prompt)
-        print(f"searcher response: {response}")
+        logger.info(f"searcher response: {response}")
         time.sleep(3)  ## foo foo solution
 
         # Handle both string and dict responses (Ollama's are dicts with 'choices')
@@ -221,11 +224,11 @@ class SearchAgent(Agent):
             raise ValueError("Failed to extract JSON from response")
         todo_list = json.loads(raw)
 
-        print(todo_list)
+        logger.info(todo_list)
         k -= len(todo_list)
         # for todo in todo_list:
         #     self.todo.append(todo)
-        print(f"self.todo in searcher: {self.todo}")
+        logger.info(f"self.todo in searcher: {self.todo}")
         # print(tasks)
         # Return the planned steps as a list
         return todo_list
@@ -240,36 +243,36 @@ class SearchAgent(Agent):
         # test with google first
         # result is an array
 
-        print("Search URL handling ... ")
+        logger.info("Search URL handling ... ")
 
         result = await self.crawl.get_url_llm(
             "https://google.com/search?q=" + query, query
         )
-        print(f"[DEBUG] Crawl result for '{query}': {result}")
+        logger.debug(f"Crawl result for '{query}': {result}")
         return result
 
     async def _page_content(self, query):
-        print("page content handling ... ")
+        logger.info("page content handling ... ")
         if not self.url_list:
-            print("[DEBUG] No URLs in self.url_list.")
+            logger.debug("No URLs in self.url_list.")
             return None  # no url
 
-        print(f"[DEBUG] url_list: {self.url_list}")
+        logger.debug(f"url_list: {self.url_list}")
 
         urls = []
         for element in self.url_list:
-            print(f"[DEBUG] Inspecting element: {element}")
+            logger.debug(f"Inspecting element: {element}")
             if isinstance(element, dict) and "url" in element:
                 urls.append(element["url"])
             else:
-                print(f"[DEBUG] Skipping element without 'url': {element}")
-        print(f"[DEBUG] Collected URLs: {urls}")
+                logger.debug(f"Skipping element without 'url': {element}")
+        logger.debug(f"Collected URLs: {urls}")
 
         summary_list = await self.crawl.get_summary(urls, query)
-        print(f"[DEBUG] Summary list: {summary_list}")
+        logger.debug(f"Summary list: {summary_list}")
 
         for summary in summary_list:
-            print(f"[DEBUG] Individual summary: {summary}")
+            logger.debug(f"Individual summary: {summary}")
             summary["url"] = summary.get("url", "")
             summary["title"] = summary.get("title", "")
             summary["summary"] = summary.get("summary", "")
@@ -333,6 +336,6 @@ if __name__ == "__main__":
     async def run_agent():
         # agent.run expects (task, data) -> str (see class above). We'll pass the query and an empty list for data.
         result = await agent.run(args.query, [])
-        print(result)
+        logger.info(result)
 
     asyncio.run(run_agent())

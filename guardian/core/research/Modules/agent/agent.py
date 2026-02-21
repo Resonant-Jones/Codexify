@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
 from typing import Any
@@ -6,6 +7,8 @@ from typing import Any
 from pydantic import BaseModel
 
 __all__ = ["Agent", "_extract_response"]
+
+logger = logging.getLogger(__name__)
 
 """Abstract base class and utilities for Guardian Agents."""
 
@@ -55,15 +58,15 @@ def _extract_response(res):
         try:
             res = res["choices"][0]["message"]["content"]
         except Exception as e:
-            print(
-                f"[DEBUG] _extract_response: Could not extract content from dict: {e}\nGot: {res}"
+            logger.debug(
+                f"_extract_response: Could not extract content from dict: {e}\nGot: {res}"
             )
             return None
 
     # 2. If not string now, bail out with debug
     if not isinstance(res, str):
-        print(
-            f"[DEBUG] _extract_response: Expected string, got {type(res)}: {res}"
+        logger.debug(
+            f"_extract_response: Expected string, got {type(res)}: {res}"
         )
         return None
 
@@ -72,21 +75,21 @@ def _extract_response(res):
     markdown_matches = re.findall(markdown_pattern, res, re.DOTALL)
     if markdown_matches:
         extracted = markdown_matches[0].strip()
-        print(
-            f"[DEBUG] _extract_response: Extracted markdown block:\n{extracted}"
+        logger.debug(
+            f"_extract_response: Extracted markdown block:\n{extracted}"
         )
         return extracted
 
     # 4. Try to parse the raw string as JSON
     try:
         json.loads(res.strip())
-        print(
-            f"[DEBUG] _extract_response: Raw content is valid JSON:\n{res.strip()}"
+        logger.debug(
+            f"_extract_response: Raw content is valid JSON:\n{res.strip()}"
         )
         return res.strip()
     except Exception:
-        print(
-            "[DEBUG] _extract_response: Raw content is not valid JSON. Trying fallback extraction."
+        logger.debug(
+            "_extract_response: Raw content is not valid JSON. Trying fallback extraction."
         )
 
     # 5. Fallback: Try to extract JSON objects or arrays from within the string
@@ -115,12 +118,12 @@ def _extract_response(res):
     for candidate in reversed(json_candidates):
         try:
             json.loads(candidate)
-            print(
-                f"[DEBUG] _extract_response: Extracted valid fallback JSON candidate:\n{candidate}"
+            logger.debug(
+                f"_extract_response: Extracted valid fallback JSON candidate:\n{candidate}"
             )
             return candidate
         except json.JSONDecodeError:
             continue
 
-    print("[DEBUG] _extract_response: No valid JSON found after all attempts.")
+    logger.debug("_extract_response: No valid JSON found after all attempts.")
     return None

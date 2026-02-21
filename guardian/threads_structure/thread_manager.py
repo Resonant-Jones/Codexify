@@ -512,8 +512,8 @@ if __name__ == "__main__":
     # Wait a bit and check health
     time.sleep(2)
     health_report = manager.health_check()
-    print("\nHealth Report:")
-    print(json.dumps(health_report, indent=2))
+    logger.info("\nHealth Report:")
+    logger.info(json.dumps(health_report, indent=2))
 
     # Shutdown
     manager.shutdown()

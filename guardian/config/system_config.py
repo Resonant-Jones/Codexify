@@ -237,15 +237,15 @@ system_config = SystemConfig()
 if __name__ == "__main__":
     # Get configuration value
     health_interval = system_config.get("threads", "health_check_interval")
-    print(f"Health check interval: {health_interval}")
+    logger.info("Health check interval: %s", health_interval)
 
     # Set configuration value
     system_config.set(15, "threads", "health_check_interval")
 
     # Get path
     plugins_path = system_config.get_path("plugins_dir")
-    print(f"Plugins directory: {plugins_path}")
+    logger.info("Plugins directory: %s", plugins_path)
 
     # Validate configuration
     is_valid = system_config.validate()
-    print(f"Configuration valid: {is_valid}")
+    logger.info("Configuration valid: %s", is_valid)

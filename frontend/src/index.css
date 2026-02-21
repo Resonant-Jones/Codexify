@@ -361,14 +361,14 @@ html, body {
   color: var(--text);
 }
 
-/* Perfect square color swatches */
+/* Circular color swatches */
 .color-swatch {
   -webkit-appearance: none;
   appearance: none;
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border-radius: var(--tile-radius, 20px);
+  border-radius: 9999px;
   border: 1px solid color-mix(in oklab, var(--panel-border) 75%, transparent);
   background: transparent;
   cursor: pointer;
@@ -376,10 +376,11 @@ html, body {
 }
 .color-swatch::-webkit-color-swatch-wrapper {
   padding: 0;
+  border-radius: 9999px;
 }
 .color-swatch::-webkit-color-swatch {
   border: none;
-  border-radius: inherit;
+  border-radius: 9999px;
 }
 .color-swatch::-moz-focus-inner {
   border: 0;
@@ -387,7 +388,7 @@ html, body {
 }
 .color-swatch::-moz-color-swatch {
   border: none;
-  border-radius: inherit;
+  border-radius: 9999px;
 }
 
 /* Rounded range sliders */

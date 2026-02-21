@@ -3,6 +3,7 @@
  */
 import { useCallback, useRef, useState } from "react";
 import api from "@/lib/api";
+import { logOnce } from "@/lib/logging/logOnce";
 
 export type ChatAttachment = {
   id: string;
@@ -207,6 +208,9 @@ export function useChat() {
         setHasMore((prev) => (prev === false ? prev : false));
       }
     } catch (e: any) {
+      logOnce("poll:messages", 10_000, () => {
+        console.warn(`[useChat] Failed to load messages for thread ${threadId}`, e);
+      });
       setError(e?.message || "Failed to load messages");
       setMessages((prev) => (prev.length ? [] : prev));
       setTotal((prev) => (prev === 0 ? prev : 0));

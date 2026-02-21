@@ -49,52 +49,66 @@ describe("Thread document rehydration", () => {
   it("rehydrates linked documents on bootstrap and thread switch", async () => {
     const user = userEvent.setup();
 
-    const getSpy = vi.spyOn(api, "get").mockImplementation((url: string) => {
+    const getSpy = vi.spyOn(api, "get").mockImplementation((url: string, config?: any) => {
+      if (url === "/api/projects") {
+        return Promise.resolve({
+          data: [{ id: 1, name: "General" }],
+        } as AxiosResponse);
+      }
       if (url === "/chat/threads") {
         return Promise.resolve({
           data: {
             threads: [
-              { id: 101, title: "Thread 101", last_message: "" },
-              { id: 202, title: "Thread 202", last_message: "" },
+              { id: 101, title: "Thread 101", last_message: "", project_id: 11 },
+              { id: 202, title: "Thread 202", last_message: "", project_id: 22 },
             ],
           },
         } as AxiosResponse);
       }
       if (url === "/media/documents") {
+        const projectId = Number(config?.params?.project_id ?? 0);
+        if (projectId === 11) {
+          return Promise.resolve({
+            data: {
+              documents: [
+                {
+                  id: "doc-101",
+                  title: "Bootstrap Plan",
+                  filename: "Bootstrap Plan.md",
+                  thread_id: 101,
+                  project_id: 11,
+                  format: "md",
+                },
+                {
+                  id: "doc-101-other",
+                  title: "Other Thread Doc",
+                  filename: "Other Thread Doc.md",
+                  thread_id: 999,
+                  project_id: 11,
+                  format: "md",
+                },
+              ],
+            },
+          } as AxiosResponse);
+        }
+        if (projectId === 22) {
+          return Promise.resolve({
+            data: {
+              documents: [
+                {
+                  id: "doc-202",
+                  title: "Switch Checklist",
+                  filename: "Switch Checklist.md",
+                  thread_id: 202,
+                  project_id: 22,
+                  format: "md",
+                },
+              ],
+            },
+          } as AxiosResponse);
+        }
         return Promise.resolve({
           data: { documents: [] },
-        } as AxiosResponse);
-      }
-      if (url === "/documents/threads/101/documents") {
-        return Promise.resolve({
-          data: {
-            ok: true,
-            documents: [
-              {
-                id: "doc-101",
-                title: "Bootstrap Plan",
-                relation: "attached",
-                created_at: "2026-02-11T01:00:00Z",
-                format: "md",
-              },
-            ],
-          },
-        } as AxiosResponse);
-      }
-      if (url === "/documents/threads/202/documents") {
-        return Promise.resolve({
-          data: {
-            ok: true,
-            documents: [
-              {
-                id: "doc-202",
-                title: "Switch Checklist",
-                relation: "attached",
-                created_at: "2026-02-11T02:00:00Z",
-                format: "md",
-              },
-            ],
-          },
         } as AxiosResponse);
       }
       return Promise.resolve({ data: { documents: [] } } as AxiosResponse);
@@ -107,7 +121,9 @@ describe("Thread document rehydration", () => {
     await waitFor(() => {
       expect(
         getSpy.mock.calls.some(
-          ([path]) => path === "/documents/threads/101/documents"
+          ([path, cfg]) =>
+            path === "/media/documents" &&
+            Number((cfg as any)?.params?.project_id) === 11
         )
       ).toBe(true);
     });
@@ -122,7 +138,9 @@ describe("Thread document rehydration", () => {
     await waitFor(() => {
       expect(
         getSpy.mock.calls.some(
-          ([path]) => path === "/documents/threads/202/documents"
+          ([path, cfg]) =>
+            path === "/media/documents" &&
+            Number((cfg as any)?.params?.project_id) === 22
         )
       ).toBe(true);
     });

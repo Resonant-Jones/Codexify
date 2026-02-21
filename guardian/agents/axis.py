@@ -494,7 +494,7 @@ if __name__ == "__main__":
                 {"id": "opt2", "value": "cached_route"},
             ],
         )
-        print(f"Decision result: {result}")
+        logger.info(f"Decision result: {result}")
 
     # Run test
     import asyncio

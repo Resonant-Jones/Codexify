@@ -63,7 +63,7 @@ if __name__ == "__main__":
 
     @rate_limit(2.0)  # 2 operations per second
     async def test_func():
-        print(f"Called at {time.time()}")
+        logger.info("Called at %s", time.time())
 
     async def main():
         for _ in range(5):

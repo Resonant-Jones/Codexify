@@ -1,5 +1,13 @@
 import json
+import logging
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 def load_file(path):
@@ -61,4 +69,4 @@ if __name__ == "__main__":
     result = assemble_prompt(
         args.actor, actors_dir=args.dir, current_goal=args.goal
     )
-    print(result)
+    logger.info(result)

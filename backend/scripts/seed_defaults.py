@@ -22,6 +22,12 @@ import sys
 import time
 from contextlib import contextmanager
 
+from guardian.core.default_project import (
+    DEFAULT_PROJECT_DESCRIPTION,
+    DEFAULT_PROJECT_NAME,
+    LEGACY_DEFAULT_PROJECT_ALIASES,
+)
+
 logger = logging.getLogger("seed_defaults")
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -181,39 +187,56 @@ def main() -> int:
             )
             return 0
 
-        # Seed: default “Loose Threads” project (idempotent)
+        # Seed canonical default project (idempotent)
         logger.info("[Seed] Ensuring default project exists...")
-        ensure_project(
-            conn, "Loose Threads", "Default bucket for unassigned threads"
-        )
+        ensure_project(conn, DEFAULT_PROJECT_NAME, DEFAULT_PROJECT_DESCRIPTION)
 
-        # Deduplicate "Loose Threads": Keep the oldest, migrate threads, delete others.
+        # Deduplicate default-project aliases (General / Loose Threads):
+        # keep the oldest "General" if present, otherwise the oldest alias.
         try:
             with _cursor(conn) as cur:
-                # Find all loose threads projects
+                alias_names = [
+                    DEFAULT_PROJECT_NAME,
+                    *LEGACY_DEFAULT_PROJECT_ALIASES,
+                ]
+                placeholders = (
+                    ",".join(["%s"] * len(alias_names))
+                    if "psycopg" in conn.__class__.__module__
+                    else ",".join(["?"] * len(alias_names))
+                )
                 if "psycopg" in conn.__class__.__module__:
                     cur.execute(
-                        "SELECT id FROM projects WHERE name = 'Loose Threads' ORDER BY id ASC"
+                        f"SELECT id, name FROM projects WHERE name IN ({placeholders}) ORDER BY id ASC",
+                        tuple(alias_names),
                     )
                 else:
                     cur.execute(
-                        "SELECT id FROM projects WHERE name = 'Loose Threads' ORDER BY id ASC"
+                        f"SELECT id, name FROM projects WHERE name IN ({placeholders}) ORDER BY id ASC",
+                        tuple(alias_names),
                     )
 
                 rows = cur.fetchall()
-                ids = [r[0] for r in rows]
+                if not rows:
+                    ids = []
+                    keep_id = None
+                else:
+                    general_rows = [
+                        row
+                        for row in rows
+                        if str(row[1]) == DEFAULT_PROJECT_NAME
+                    ]
+                    keep_id = general_rows[0][0] if general_rows else rows[0][0]
+                    ids = [r[0] for r in rows]
 
                 if len(ids) > 1:
                     logger.info(
-                        "[Seed] Found duplicate 'Loose Threads' projects: %s. Deduplicating...",
+                        "[Seed] Found duplicate default-project aliases: %s. Deduplicating...",
                         ids,
                     )
-                    # Keep the oldest (lowest ID) as canonical.
-                    keep_id = ids[0]
                     remove_ids = [i for i in ids if i != keep_id]
 
                     if remove_ids:
-                        placeholders = (
+                        remove_placeholders = (
                             ",".join(["%s"] * len(remove_ids))
                             if "psycopg" in conn.__class__.__module__
                             else ",".join(["?"] * len(remove_ids))
@@ -224,7 +247,7 @@ def main() -> int:
                             remove_ids,
                             keep_id,
                         )
-                        query_move = f"UPDATE threads SET project_id = {keep_id} WHERE project_id IN ({placeholders})"
+                        query_move = f"UPDATE chat_threads SET project_id = {keep_id} WHERE project_id IN ({remove_placeholders})"
                         # Note: Execute params must be tuple
                         cur.execute(query_move, tuple(remove_ids))
 
@@ -232,10 +255,14 @@ def main() -> int:
                         logger.info(
                             "[Seed] Deleting duplicate projects %s", remove_ids
                         )
-                        query_del = (
-                            f"DELETE FROM projects WHERE id IN ({placeholders})"
-                        )
+                        query_del = f"DELETE FROM projects WHERE id IN ({remove_placeholders})"
                         cur.execute(query_del, tuple(remove_ids))
+                        cur.execute(
+                            "UPDATE projects SET name = %s WHERE id = %s"
+                            if "psycopg" in conn.__class__.__module__
+                            else "UPDATE projects SET name = ? WHERE id = ?",
+                            (DEFAULT_PROJECT_NAME, keep_id),
+                        )
                         logger.info("[Seed] Deduplication complete.")
         except Exception as e:
             logger.warning("[Seed] Deduplication failed (non-critical): %s", e)

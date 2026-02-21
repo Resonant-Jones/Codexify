@@ -12,6 +12,10 @@ interface DocumentsViewProps {
   onOpenInThread?: (doc: DocumentLike) => void;
   onDeleteDocument?: (doc: DocumentLike) => void;
   defaultBehavior?: "workspace" | "thread";
+  defaultProjectId?: number | string | null;
+  projectScopeMode?: "thread" | "project";
+  onProjectScopeModeChange?: (mode: "thread" | "project") => void;
+  showProjectScopeToggle?: boolean;
 }
 
 /**
@@ -32,6 +36,10 @@ export default function DocumentsView({
   onOpenInThread,
   onDeleteDocument,
   defaultBehavior = "workspace",
+  defaultProjectId,
+  projectScopeMode = "project",
+  onProjectScopeModeChange,
+  showProjectScopeToggle = false,
 }: DocumentsViewProps) {
   const [behavior, setBehavior] = useState<"workspace" | "thread">(defaultBehavior);
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
@@ -46,6 +54,7 @@ export default function DocumentsView({
 
   const uploader = useUploader({
     tag: "upload",
+    projectId: defaultProjectId ?? undefined,
     onImages: () => {},
     onDocuments: (items) => {
       const normalized = (items || []).map((item: any, idx: number) => ({
@@ -55,6 +64,8 @@ export default function DocumentsView({
         title: item?.title || item?.name || item?.filename || "Untitled",
         ext: item?.ext || item?.extension || "md",
         type: "file",
+        projectId: item?.project_id ?? item?.projectId,
+        threadId: item?.thread_id ?? item?.threadId ?? null,
       }));
       try { window.dispatchEvent(new CustomEvent("cfy:documents:add", { detail: { items: normalized } })); } catch {}
     },
@@ -75,6 +86,10 @@ export default function DocumentsView({
     { key: "workspace" as const, label: "Open in Workspace" },
     { key: "thread" as const, label: "Open in Thread" },
   ];
+  const scopePills = [
+    { key: "thread" as const, label: "This Thread" },
+    { key: "project" as const, label: "All in Project" },
+  ];
 
   return (
     <section className="flex h-full w-full min-h-0 flex-col overflow-hidden">
@@ -84,6 +99,21 @@ export default function DocumentsView({
         <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] py-4">
           <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>Documents</h2>
           <div className="flex flex-wrap items-center gap-2">
+            {showProjectScopeToggle && onProjectScopeModeChange && (
+              <div className="glass-pill h-auto py-[3px] px-[6px]">
+                {scopePills.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className="pill-tab text-xs"
+                    data-state={projectScopeMode === key ? "active" : undefined}
+                    onClick={() => onProjectScopeModeChange(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="glass-pill h-auto py-[3px] px-[6px]">
               {pills.map(({ key, label }) => (
                 <button

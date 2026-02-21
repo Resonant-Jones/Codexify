@@ -3,6 +3,7 @@ This file provide method so summaries content with long length with LLM
 """
 
 import json
+import logging
 import re
 import secrets
 import string
@@ -11,6 +12,8 @@ from pydantic import BaseModel
 
 from ..model import Model
 from ..prompt import summary_prompt
+
+logger = logging.getLogger(__name__)
 
 
 class Summary:
@@ -53,7 +56,7 @@ class Summary:
             r = self.model.completion(prompt)
             json_str = self.extract_json_from_codeblock(r)
             if json_str is None:
-                print("No JSON code block found in response")
+                logger.warning("No JSON code block found in response")
                 continue
 
             try:
@@ -77,7 +80,7 @@ class Summary:
                 self.result.append(response_obj)
 
             except:
-                print("Failed to parse or validate JSON summary")
+                logger.warning("Failed to parse or validate JSON summary")
 
         return self.result
 

@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple  # added for type hints
 import typer
 from rich import print
 
-_logger = _logging.getLogger(__name__)
+logger = _logging.getLogger(__name__)
 _PROMPTS_DIR = _Path(__file__).parent / "prompts"
 
 DEFAULT_PROMPT_TEXT = (
@@ -266,9 +266,9 @@ def create_project(
     """Create a new project folder."""
     try:
         projects_module.create_project(name, description)
-        print(f"[green]Project '{name}' created successfully.[/green]")
+        logger.info(f"Project '%s' created successfully.", name)
     except Exception as e:
-        print(f"[red]Failed to create project: {e}[/red]")
+        logger.error(f"Failed to create project: %s", e)
 
 
 @app.command()
@@ -277,15 +277,19 @@ def list_projects():
     try:
         projects = projects_module.list_projects()
         if not projects:
-            print("[yellow]No projects found.[/yellow]")
+            logger.warning("No projects found.")
         else:
             for proj in projects:
                 id, name, desc, created = proj
-                print(
-                    f"[cyan]{id}[/cyan]: {name} - {desc or '[no description]'} [dim]({created})[/dim]"
+                logger.info(
+                    f"%s: %s - %s (%s)",
+                    id,
+                    name,
+                    desc or "[no description]",
+                    created,
                 )
     except Exception as e:
-        print(f"[red]Failed to list projects: {e}[/red]")
+        logger.error(f"Failed to list projects: %s", e)
 
 
 @app.command()
@@ -305,8 +309,8 @@ def init_db():
     if hasattr(db, "migrate_agent_profiles"):
         db.migrate_agent_profiles()
     else:
-        print(
-            "[yellow]GuardianDB.migrate_agent_profiles() not available; skipping.[/yellow]"
+        logger.warning(
+            "GuardianDB.migrate_agent_profiles() not available; skipping."
         )
     # Initialize chat tables
     with sqlite3.connect(DB_PATH) as conn:
@@ -340,9 +344,9 @@ def init_db():
     # Initialize projects table
     try:
         projects_module.init_projects_table()
-        print("[green]All Guardian DB tables initialized.[/green]")
+        logger.info("All Guardian DB tables initialized.")
     except Exception as e:
-        print(f"[red]Failed to initialize projects table: {e}[/red]")
+        logger.error(f"Failed to initialize projects table: %s", e)
 
 
 # ---- THREADS MANAGEMENT CLI COMMANDS ----
@@ -355,9 +359,9 @@ def init_threads_table_cmd():
     """Initialize the threads table in the database."""
     try:
         threads_module.init_threads_table()
-        print("[green]Threads table initialized successfully.[/green]")
+        logger.info("Threads table initialized successfully.")
     except Exception as e:
-        print(f"[red]Failed to initialize threads table: {e}[/red]")
+        logger.error(f"Failed to initialize threads table: %s", e)
 
 
 @app.command()
@@ -371,11 +375,11 @@ def create_thread_cmd(
     """Create a new thread in a project."""
     try:
         thread_id = threads_module.create_thread(project, title, user_id)
-        print(
-            f"[green]Thread '{title}' created successfully with ID {thread_id}.[/green]"
+        logger.info(
+            f"Thread '%s' created successfully with ID %s.", title, thread_id
         )
     except Exception as e:
-        print(f"[red]Failed to create thread: {e}[/red]")
+        logger.error(f"Failed to create thread: %s", e)
 
 
 @app.command()
@@ -386,15 +390,19 @@ def list_threads_by_project(
     try:
         threads = threads_module.list_threads_by_project(project)
         if not threads:
-            print("[yellow]No threads found for this project.[/yellow]")
+            logger.warning("No threads found for this project.")
         else:
             for thread in threads:
                 id, title, user_id, created_at = thread
-                print(
-                    f"[cyan]{id}[/cyan]: {title} by {user_id or 'unknown'} [dim]({created_at})[/dim]"
+                logger.info(
+                    f"%s: %s by %s (%s)",
+                    id,
+                    title,
+                    user_id or "unknown",
+                    created_at,
                 )
     except Exception as e:
-        print(f"[red]Failed to list threads: {e}[/red]")
+        logger.error(f"Failed to list threads: %s", e)
 
 
 @app.command()
@@ -405,17 +413,19 @@ def list_child_threads(
     try:
         child_threads = threads_module.list_child_threads(parent_thread_id)
         if not child_threads:
-            print(
-                "[yellow]No child threads found for this parent thread.[/yellow]"
-            )
+            logger.warning("No child threads found for this parent thread.")
         else:
             for thread in child_threads:
                 id, title, user_id, created_at = thread
-                print(
-                    f"[cyan]{id}[/cyan]: {title} by {user_id or 'unknown'} [dim]({created_at})[/dim]"
+                logger.info(
+                    f"%s: %s by %s (%s)",
+                    id,
+                    title,
+                    user_id or "unknown",
+                    created_at,
                 )
     except Exception as e:
-        print(f"[red]Failed to list child threads: {e}[/red]")
+        logger.error(f"Failed to list child threads: %s", e)
 
 
 @app.command()
@@ -426,23 +436,27 @@ def show_thread_lineage(
     try:
         lineage = threads_module.show_thread_lineage(thread_id)
         if not lineage:
-            print("[yellow]No lineage found for this thread.[/yellow]")
+            logger.warning("No lineage found for this thread.")
         else:
-            print("[green]Thread lineage:[/green]")
+            logger.info("Thread lineage:")
             for thread in lineage:
                 id, title, user_id, created_at = thread
-                print(
-                    f"[cyan]{id}[/cyan]: {title} by {user_id or 'unknown'} [dim]({created_at})[/dim]"
+                logger.info(
+                    f"%s: %s by %s (%s)",
+                    id,
+                    title,
+                    user_id or "unknown",
+                    created_at,
                 )
     except Exception as e:
-        print(f"[red]Failed to show thread lineage: {e}[/red]")
+        logger.error(f"Failed to show thread lineage: %s", e)
 
 
 @app.command()
 def show_mcp_map(base_path: str = "guardian"):
     """MCP integration not available."""
-    print(
-        "[yellow]MCP module not found. Install or configure guardian.mcp to enable this command.[/yellow]"
+    logger.warning(
+        "MCP module not found. Install or configure guardian.mcp to enable this command."
     )
 
 
@@ -457,10 +471,10 @@ except Exception:
 def providers_capabilities():
     """Print available chat and embeddings providers based on current env + installs."""
     if ProviderRegistry is None:
-        print('{"chat": [], "embeddings": []}')
+        logger.info('{"chat": [], "embeddings": []}')
         return
     reg = ProviderRegistry()
-    print(reg.capabilities())
+    logger.info(reg.capabilities())
 
 
 # ---- CODEMAP GENERATION CLI COMMAND ----
@@ -499,10 +513,10 @@ def _normalize_codemap_file(path: Path) -> dict | None:
             fixed = _normalize_codemap_mapping(data)
             if fixed is not data:
                 path.write_text(_json.dumps(fixed, indent=2), encoding="utf-8")
-                print(f"[yellow]Normalized codemap at {path}[/yellow]")
+                logger.warning(f"Normalized codemap at %s", path)
             return fixed
     except Exception as e:
-        print(f"[yellow]Codemap normalization skipped: {e}[/yellow]")
+        logger.warning(f"Codemap normalization skipped: %s", e)
     return None
 
 
@@ -514,9 +528,9 @@ def generate_codemap():
         # Normalize codemap on disk to dict shape
         codemap_path = Path(__file__).parent / "codemap" / "codemap.json"
         _normalize_codemap_file(codemap_path)
-        print("[green]Codemap generated successfully.[/green]")
+        logger.info("Codemap generated successfully.")
     except Exception as e:
-        print(f"[red]Failed to generate codemap: {e}[/red]")
+        logger.error(f"Failed to generate codemap: %s", e)
 
 
 @app.command("codemap:summary")
@@ -540,18 +554,16 @@ def codemap_summary():
     # Print a compact summary
     if isinstance(fixed, dict) and fixed:
         keys = list(fixed.keys())
-        print(f"[green]Codemap entries:[/green] {len(keys)}")
+        logger.info(f"Codemap entries: %s", len(keys))
         for k in keys[:10]:
-            print(f" - {k}")
+            logger.debug(f" - %s", k)
         if len(keys) > 10:
-            print(f"... (+{len(keys) - 10} more)")
+            logger.info(f"... (+%s more)", len(keys) - 10)
     elif isinstance(fixed, dict) and not fixed:
-        print(
-            "[yellow]Codemap is present but empty after normalization.[/yellow]"
-        )
+        logger.warning("Codemap is present but empty after normalization.")
     else:
-        print(
-            "[yellow]Codemap not found or unreadable. Run `generate-codemap` first.[/yellow]"
+        logger.warning(
+            "Codemap not found or unreadable. Run `generate-codemap` first."
         )
 
 
@@ -618,9 +630,9 @@ def codemap_query(
     try:
         from memoryos.memoryos import Memoryos
     except Exception as e:
-        print(f"[red]MemoryOS import failed: {e}[/red]")
-        print(
-            "[yellow]Tip: install it with `pip install memoryos` or disable this command."
+        logger.error(f"MemoryOS import failed: %s", e)
+        logger.warning(
+            "Tip: install it with `pip install memoryos` or disable this command."
         )
         raise typer.Exit(code=1)
 
@@ -654,15 +666,15 @@ def codemap_query(
                 embedder=embedder,
             )
     except TypeError as e:
-        print(f"[red]MemoryOS init error: {e}[/red]")
-        print(
-            "[yellow]Tip: pass a supported --embedder (e.g., openai or local). "
+        logger.error(f"MemoryOS init error: %s", e)
+        logger.warning(
+            "Tip: pass a supported --embedder (e.g., openai or local). "
             "If using OpenAI embeddings, provide an API key via --api-key or OPENAI_API_KEY. "
-            "If using Groq for the LLM, set GROQ_API_KEY or pass --api-key with --provider groq.[/yellow]"
+            "If using Groq for the LLM, set GROQ_API_KEY or pass --api-key with --provider groq."
         )
         raise typer.Exit(code=1)
     except Exception as e:
-        print(f"[red]MemoryOS initialization failed: {e}[/red]")
+        logger.error(f"MemoryOS initialization failed: %s", e)
         raise typer.Exit(code=1)
 
     # Normalize in-memory codemap if MemoryOS exposed a list
@@ -676,9 +688,9 @@ def codemap_query(
 
     try:
         result = memos.query_codemap(query)
-        print(result)
+        logger.info(result)
     except Exception as e:
-        print(f"[red]Codemap query failed: {e}[/red]")
+        logger.error(f"Codemap query failed: {e}")
         raise typer.Exit(code=1)
 
 
@@ -705,11 +717,9 @@ def create_conversation(
         convo_id = conversations_module.create_conversation(
             thread_id, user_id, title, parent_id
         )
-        print(
-            f"[green]Conversation created successfully with ID {convo_id}.[/green]"
-        )
+        logger.info(f"Conversation created successfully with ID {convo_id}.")
     except Exception as e:
-        print(f"[red]Failed to create conversation: {e}[/red]")
+        logger.error(f"Failed to create conversation: {e}")
 
 
 @app.command()
@@ -722,16 +732,16 @@ def list_conversations_by_thread(
             thread_id
         )
         if not conversations:
-            print("[yellow]No conversations found in this thread.[/yellow]")
+            logger.info("No conversations found in this thread.")
         else:
             for convo in conversations:
                 id, user_id, title, parent_id, created_at = convo
                 lineage = f" <- parent {parent_id}" if parent_id else ""
-                print(
-                    f"[cyan]{id}[/cyan]: {title or '[untitled]'} by {user_id}{lineage} [dim]({created_at})[/dim]"
+                logger.info(
+                    f"{id}: {title or '[untitled]'} by {user_id}{lineage} ({created_at})"
                 )
     except Exception as e:
-        print(f"[red]Failed to list conversations: {e}[/red]")
+        logger.error(f"Failed to list conversations: {e}")
 
 
 @app.command()
@@ -744,16 +754,16 @@ def show_conversation_lineage(
             conversation_id
         )
         if not lineage:
-            print("[yellow]No lineage found for this conversation.[/yellow]")
+            logger.info("No lineage found for this conversation.")
         else:
-            print("[green]Conversation lineage:[/green]")
+            logger.info("Conversation lineage:")
             for convo in lineage:
                 id, user_id, title, parent_id, created_at = convo
-                print(
-                    f"[cyan]{id}[/cyan]: {title or '[untitled]'} by {user_id} [dim]({created_at})[/dim]"
+                logger.info(
+                    f"{id}: {title or '[untitled]'} by {user_id} ({created_at})"
                 )
     except Exception as e:
-        print(f"[red]Failed to retrieve lineage: {e}[/red]")
+        logger.error(f"Failed to retrieve lineage: {e}")
 
 
 @app.command()
@@ -764,15 +774,15 @@ def crawl_url(
 ):
     """Crawl the web starting from a URL using a semantic query."""
     if crawl_module is None:
-        print(
-            "[yellow]Web crawl module not available. Install or configure guardian.web to enable this command.[/yellow]"
+        logger.warning(
+            "Web crawl module not available. Install or configure guardian.web to enable this command."
         )
         return
     try:
         result = crawl_module.crawl_url(base_url, query, max_pages)
-        print(result)
+        logger.info(result)
     except Exception as e:
-        print(f"[red]Failed to crawl URL: {e}[/red]")
+        logger.error(f"Failed to crawl URL: {e}")
 
 
 @app.command()
@@ -782,16 +792,16 @@ def crawl_summary(
 ):
     """Summarize multiple pages from URLs using a focused query."""
     if crawl_module is None:
-        print(
-            "[yellow]Web crawl module not available. Install or configure guardian.web to enable this command.[/yellow]"
+        logger.warning(
+            "Web crawl module not available. Install or configure guardian.web to enable this command."
         )
         return
     try:
         url_list = [url.strip() for url in urls.split(",")]
         result = crawl_module.crawl_summary(url_list, query)
-        print(result)
+        logger.info(result)
     except Exception as e:
-        print(f"[red]Failed to summarize URLs: {e}[/red]")
+        logger.error(f"Failed to summarize URLs: {e}")
 
 
 @app.command()
@@ -801,15 +811,15 @@ def crawl_table(
 ):
     """Extract tabular data from a page matching a query."""
     if crawl_module is None:
-        print(
-            "[yellow]Web crawl module not available. Install or configure guardian.web to enable this command.[/yellow]"
+        logger.warning(
+            "Web crawl module not available. Install or configure guardian.web to enable this command."
         )
         return
     try:
         result = crawl_module.crawl_table(url, query)
-        print(result)
+        logger.info(result)
     except Exception as e:
-        print(f"[red]Failed to extract table: {e}[/red]")
+        logger.error(f"Failed to extract table: {e}")
 
 
 # ---- Modular CLI Integration ----

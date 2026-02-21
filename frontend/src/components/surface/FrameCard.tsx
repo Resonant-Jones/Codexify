@@ -91,6 +91,8 @@ export type FrameCardProps = PropsWithChildren<{
    * Defaults to true.
    */
   fill?: boolean;
+  /** Optional testing hook forwarded to the root element. */
+  "data-testid"?: string;
 }>;
 
 const clamp = (n: number | undefined, lo: number, hi: number, fb: number) => {
@@ -111,6 +113,7 @@ export default function FrameCard({
   liquidBezel = true,
   liquidBezelWidth = 3,
   fill = true,
+  ["data-testid"]: dataTestId,
 }: FrameCardProps) {
   const d = clamp(depth, 0.5, 1.75, 1);
 
@@ -147,6 +150,7 @@ export default function FrameCard({
       style={rootStyle}
       role="group"
       aria-label={ariaLabel}
+      data-testid={dataTestId}
       data-selected={selected ? "true" : undefined}
       data-hoverpop={hoverPop ? "true" : undefined}
     >
