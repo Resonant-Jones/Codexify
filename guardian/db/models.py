@@ -492,6 +492,7 @@ class SyncJob(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+<<<<<<< HEAD
 class OAuthConnection(Base):
     """OAuth connection state per user/provider/mode."""
 
@@ -521,6 +522,20 @@ class OAuthConnection(Base):
         TIMESTAMP(timezone=True)
     )
     last_error: Mapped[str | None] = mapped_column(Text)
+=======
+class ToolJob(Base):
+    """Durable tool orchestration job state."""
+
+    __tablename__ = "tool_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    request_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    result_json: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    error_json: Mapped[dict | None] = mapped_column(JSONB)
+>>>>>>> fc08f4ce (fix(backend): persist tool jobs in Postgres)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -532,6 +547,7 @@ class OAuthConnection(Base):
     )
 
     __table_args__ = (
+<<<<<<< HEAD
         UniqueConstraint(
             "user_id",
             "provider",
@@ -667,6 +683,13 @@ class InferenceProviderRuntime(Base):
         ),
     )
 
+=======
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed')",
+            name="tool_jobs_status_check",
+        ),
+    )
+>>>>>>> fc08f4ce (fix(backend): persist tool jobs in Postgres)
     __mapper_args__ = {"eager_defaults": True}
 
 
@@ -1899,6 +1922,8 @@ Index(
 Index(
     "ix_sync_jobs_connector_created", SyncJob.connector_id, SyncJob.created_at
 )
+Index("ix_tool_jobs_created_at", ToolJob.created_at)
+Index("ix_tool_jobs_status", ToolJob.status)
 
 # Audit indexes
 Index("ix_audit_log_timestamp", AuditLog.timestamp.desc())
