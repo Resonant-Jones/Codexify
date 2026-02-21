@@ -1730,45 +1730,43 @@ export default function AppShell({}: PropsWithChildren) {
           )}
           {view === "settings" && (
             <FrameCard
-              fill
               refractiveFallback
               shimmerMode="subtle"
-              className="flex-1 h-full w-full min-h-0 flex flex-col overflow-hidden"
+              className="mx-auto w-full max-w-[36rem] min-h-0 max-h-full flex flex-col overflow-hidden"
+              data-testid="settings-framecard"
             >
-              <div className="min-h-0 h-full w-full overflow-auto p-[var(--card-pad)] flex-1 flex flex-col">
-                <div className="max-w-5xl mr-auto w-full">
-                  <ErrorBoundary>
-                    <SettingsView
-                      mode={mode}
-                      setMode={setMode}
-                      guardianName={guardianName}
-                      setGuardianName={setGuardianName}
-                      userName={userName}
-                      setUserName={setUserName}
-                      role={role}
-                      setRole={setRole}
-                      notes={notes}
-                      setNotes={setNotes}
-                      baseColor={baseColor}
-                      setBaseColor={setBaseColor}
-                      depth={depth}
-                      setDepth={setDepth}
-                      fade={fade}
-                      setFade={setFade}
-                      resolved={resolved}
-                      systemPrompt={systemPrompt}
-                      setSystemPrompt={setSystemPrompt}
-                      wallpaper={wallpaper}
-                      setWallpaper={setWallpaper}
-                      extColors={extColors}
-                      setExtColors={setExtColors}
-                      dashboardThreadRows={dashboardThreadRows}
-                      setDashboardThreadRows={setDashboardThreadRows}
-                      ingestionEnabled={ingestionEnabled}
-                      setIngestionEnabled={setIngestionEnabled}
-                    />
-                  </ErrorBoundary>
-                </div>
+              <div className="w-full min-h-0 max-h-full overflow-auto p-[var(--card-pad)]" data-testid="settings-scroll-body">
+                <ErrorBoundary>
+                  <SettingsView
+                    mode={mode}
+                    setMode={setMode}
+                    guardianName={guardianName}
+                    setGuardianName={setGuardianName}
+                    userName={userName}
+                    setUserName={setUserName}
+                    role={role}
+                    setRole={setRole}
+                    notes={notes}
+                    setNotes={setNotes}
+                    baseColor={baseColor}
+                    setBaseColor={setBaseColor}
+                    depth={depth}
+                    setDepth={setDepth}
+                    fade={fade}
+                    setFade={setFade}
+                    resolved={resolved}
+                    systemPrompt={systemPrompt}
+                    setSystemPrompt={setSystemPrompt}
+                    wallpaper={wallpaper}
+                    setWallpaper={setWallpaper}
+                    extColors={extColors}
+                    setExtColors={setExtColors}
+                    dashboardThreadRows={dashboardThreadRows}
+                    setDashboardThreadRows={setDashboardThreadRows}
+                    ingestionEnabled={ingestionEnabled}
+                    setIngestionEnabled={setIngestionEnabled}
+                  />
+                </ErrorBoundary>
               </div>
             </FrameCard>
           )}
