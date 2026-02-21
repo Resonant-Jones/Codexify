@@ -11,6 +11,8 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { usePreferredProvider } from "@/hooks/usePreferredProvider";
 import api, { buildLlmCatalogPath } from "@/lib/api";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
+import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
+import { logOnce } from "@/lib/logging/logOnce";
 
 type ProviderSelectProps = {
   value?: string;
@@ -56,10 +58,13 @@ export function ProviderSelect({
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const CATALOG_POLL_MS = 15_000;
 
-  const loadCatalog = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
+  const loadCatalog = useCallback(async (options: { throwOnError?: boolean; silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setLoading(true);
+      setLoadError(null);
+    }
     const catalogPath = buildLlmCatalogPath();
     try {
       const response = await api.get<{ providers?: CatalogProvider[] }>(catalogPath);
@@ -109,12 +114,22 @@ export function ProviderSelect({
           ? previous
           : null
       );
-    } catch (error) {
+    } catch (error: any) {
       setProviders([]);
       setLoadError("Provider catalog unavailable");
-      console.warn(`[providers] failed to load catalog from ${catalogPath}`, error);
+      logOnce("poll:llm-catalog", 10_000, () => {
+        console.warn(
+          `[providers] failed to load catalog from ${catalogPath}`,
+          error
+        );
+      });
+      if (options.throwOnError) {
+        throw error;
+      }
     } finally {
-      setLoading(false);
+      if (!options.silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -128,6 +143,17 @@ export function ProviderSelect({
     setActiveProviderId(null);
     void loadCatalog();
   }, [openSignal, loadCatalog]);
+
+  usePollWithBackoff(
+    () => loadCatalog({ throwOnError: true, silent: true }),
+    {
+      intervalMs: CATALOG_POLL_MS,
+      maxBackoffMs: 60_000,
+      enabled: open,
+      onErrorKey: "poll:llm-catalog",
+      logTtlMs: 10_000,
+    }
+  );
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {

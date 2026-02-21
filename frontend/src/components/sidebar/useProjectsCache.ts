@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
+import { logOnce } from "@/lib/logging/logOnce";
 
 type UseProjectsCacheOptions = {
   initialProjects?: Project[];
@@ -19,6 +21,7 @@ type UseProjectsCacheResult = {
 };
 
 const STORAGE_KEY = "cfy.projectsCache";
+const PROJECTS_POLL_MS = 30_000;
 
 function normalizeProjectsResponse(res: any): Project[] {
   const payload = res?.data ?? res;
@@ -121,7 +124,7 @@ export function useProjectsCache({
     writeProjectsCache(projectList);
   }, [projectList]);
 
-  const refreshProjectsFromServer = useCallback(async () => {
+  const refreshProjectsFromServer = useCallback(async (options: { throwOnError?: boolean } = {}) => {
     try {
       const res = await api.get("/api/projects");
       const list = normalizeProjectsResponse(res);
@@ -131,15 +134,28 @@ export function useProjectsCache({
           return equalProjectLists(prev, merged) ? prev : merged;
         });
       }
-    } catch {
+    } catch (err) {
+      logOnce("poll:projects", 10_000, () => {
+        console.warn("[projects] failed to refresh project cache", err);
+      });
+      if (options.throwOnError) {
+        throw err;
+      }
       /* parent may retry; swallow errors here */
     }
   }, []);
 
   // Hydrate on mount
-  useEffect(() => {
-    void refreshProjectsFromServer();
-  }, [refreshProjectsFromServer]);
+  usePollWithBackoff(
+    () => refreshProjectsFromServer({ throwOnError: true }),
+    {
+      intervalMs: PROJECTS_POLL_MS,
+      maxBackoffMs: 120_000,
+      enabled: true,
+      onErrorKey: "poll:projects",
+      logTtlMs: 10_000,
+    }
+  );
 
   // Refresh when focus or visibility regained
   useEffect(() => {
