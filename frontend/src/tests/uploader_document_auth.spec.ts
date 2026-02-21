@@ -51,7 +51,9 @@ function installFetchMock() {
   return fetchMock;
 }
 
-async function uploadDocument() {
+async function uploadDocument(
+  opts: { projectId?: number; threadId?: number } = {}
+) {
   const onImages = vi.fn();
   const onDocuments = vi.fn();
 
@@ -59,8 +61,10 @@ async function uploadDocument() {
     useUploader({
       onImages,
       onDocuments,
-      projectId: 7,
-      threadId: 11,
+      projectId: opts.projectId ?? 7,
+      threadId: Object.prototype.hasOwnProperty.call(opts, "threadId")
+        ? opts.threadId
+        : 11,
     })
   );
 
@@ -111,5 +115,19 @@ describe("useUploader auth headers", () => {
     const init = mediaCall?.[1] as RequestInit | undefined;
     const headers = (init?.headers ?? {}) as Record<string, string>;
     expect(headers["X-API-Key"]).toBeUndefined();
+  });
+
+  it("uploads documents without thread context when project_id is present", async () => {
+    vi.stubGlobal("FileReader", MockFileReader as unknown as typeof FileReader);
+    vi.stubEnv("VITE_USE_PROXY", "false");
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "non-proxy-key");
+
+    const fetchMock = installFetchMock();
+    await uploadDocument({ projectId: 7, threadId: undefined });
+
+    const mediaCall = fetchMock.mock.calls.find(
+      ([url]) => url === "/api/media/upload/document"
+    );
+    expect(mediaCall).toBeDefined();
   });
 });

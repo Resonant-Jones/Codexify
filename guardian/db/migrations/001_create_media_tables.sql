@@ -26,7 +26,7 @@ ALTER TABLE projects
 
 -- seed default project used by the app
 INSERT INTO projects (id, name, description)
-VALUES (1, 'Loose Threads', 'Default catch-all project')
+VALUES (1, 'General', 'Default bucket for unassigned threads and documents')
 ON CONFLICT (id) DO NOTHING;
 
 -- 2) ensure minimal 'users' table exists (TEXT ids) to satisfy FKs

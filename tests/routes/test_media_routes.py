@@ -356,6 +356,125 @@ class TestUploadDedupeAndResolve:
         assert metadata["source_tag"] == "uploaded"
         assert metadata["content_hash"] == "deadbeefcafebabe"
 
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media.enqueue_document_embed")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_document_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_document_with_project_only_sets_nullable_thread(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded_doc,
+        mock_create_asset,
+        mock_get_db,
+        mock_enqueue_embed,
+        mock_storage,
+        client,
+    ):
+        identity = SimpleNamespace(
+            storage_prefix="documents/",
+            system_name="20260213-feedbeef--notes.txt",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded_doc.return_value = None
+        mock_create_asset.return_value = SimpleNamespace(
+            id="asset-doc-project-only",
+            deterministic_id="20260213-feedbeef",
+            system_name="20260213-feedbeef--notes.txt",
+            normalized_slug="notes",
+            media_kind="document",
+            provenance="uploaded",
+            source_tag="uploaded",
+            content_hash="feedbeefcafebabe",
+        )
+        mock_storage.upload_file.return_value = (
+            "/media/documents/20260213-feedbeef--notes.txt"
+        )
+
+        mock_db, _mock_session = _mock_db_with_session()
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/document",
+            data={"project_id": 7, "user_id": "u-1"},
+            files={"file": ("notes.txt", b"hello world", "text/plain")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["project_id"] == 7
+        assert payload["thread_id"] is None
+        _, enqueue_kwargs = mock_enqueue_embed.call_args
+        metadata = enqueue_kwargs["metadata"]
+        assert metadata["project_id"] == 7
+        assert metadata["thread_id"] is None
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media.enqueue_document_embed")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_document_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_document_without_project_falls_back_to_default_project(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded_doc,
+        mock_create_asset,
+        mock_get_db,
+        mock_enqueue_embed,
+        mock_storage,
+        client,
+    ):
+        identity = SimpleNamespace(
+            storage_prefix="documents/",
+            system_name="20260213-cafed00d--fallback.txt",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded_doc.return_value = None
+        mock_create_asset.return_value = SimpleNamespace(
+            id="asset-doc-fallback",
+            deterministic_id="20260213-cafed00d",
+            system_name="20260213-cafed00d--fallback.txt",
+            normalized_slug="fallback",
+            media_kind="document",
+            provenance="uploaded",
+            source_tag="uploaded",
+            content_hash="cafed00ddeadbeef",
+        )
+        mock_storage.upload_file.return_value = (
+            "/media/documents/20260213-cafed00d--fallback.txt"
+        )
+
+        mock_db, _mock_session = _mock_db_with_session()
+        mock_db.list_projects.return_value = [{"id": 42, "name": "General"}]
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/document",
+            data={"user_id": "u-1"},
+            files={"file": ("fallback.txt", b"hello world", "text/plain")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["project_id"] == 42
+        assert payload["thread_id"] is None
+        _, enqueue_kwargs = mock_enqueue_embed.call_args
+        metadata = enqueue_kwargs["metadata"]
+        assert metadata["project_id"] == 42
+        assert metadata["thread_id"] is None
+
     @patch("guardian.routes.media.display_title_for_asset")
     @patch("guardian.routes.media.resolve_asset_from_aliases")
     @patch("guardian.routes.media._get_db")

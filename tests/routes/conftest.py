@@ -105,6 +105,7 @@ def mock_db():
     mock.delete_project.return_value = True
     mock.eject_threads_from_project.return_value = None
     mock.ensure_project.return_value = 1
+    mock.ensure_default_project.return_value = 1
 
     mock.get_recent_thread.return_value = None
     mock.ensure_chat_thread.return_value = {

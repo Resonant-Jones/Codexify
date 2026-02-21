@@ -878,7 +878,6 @@ export function GuardianChat({
       try {
         const resp = await api.post("/chat/threads", {
           title: provisionalTitle,
-          project_id: 1, // Loose Threads
         });
         const th = (resp && resp.data) || {};
         const newThreadId = th.id ?? th.thread?.id ?? th.thread_id ?? th.id_str;

@@ -123,6 +123,15 @@ class _PostgresGuardianDB:
             session.commit()
             return project.id
 
+    def ensure_default_project(self) -> int:
+        """Ensure and return the canonical default project id."""
+        from guardian.core.default_project import canonicalize_default_project
+
+        project_id = canonicalize_default_project(self, logger=logger)
+        if project_id is None:
+            raise RuntimeError("Unable to resolve default project")
+        return project_id
+
     def get_project_identity_depth(self, project_id: Optional[int]) -> str:
         if not project_id:
             return "light"
@@ -179,10 +188,13 @@ class _PostgresGuardianDB:
             return True
 
     def eject_threads_from_project(self, project_id: int) -> None:
-        """Move all threads from project to default (Loose Threads)."""
+        """Move all threads from project to the canonical default project."""
+        default_project_id = self.ensure_default_project()
+        if int(project_id) == int(default_project_id):
+            return
         with self.get_session() as session:
             session.query(ChatThread).filter_by(project_id=project_id).update(
-                {"project_id": 1}  # Default "Loose Threads" project
+                {"project_id": default_project_id}
             )
             session.commit()
 

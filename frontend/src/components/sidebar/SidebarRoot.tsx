@@ -64,6 +64,18 @@ function getComputedStyleVar(name: string, fallback = ""): string {
   }
 }
 
+function normalizeProjectName(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function isDefaultProjectAlias(value: unknown): boolean {
+  const normalized = normalizeProjectName(value);
+  return normalized === "general" || normalized === "loose threads";
+}
+
 export default function SidebarRoot({
   threads,
   activeId,
@@ -95,18 +107,16 @@ export default function SidebarRoot({
     renameThread,
     toggleArchiveThread,
     deleteThread,
-    looseCount,
   } = useSidebarThreads({ initialThreads: threads, projectId, onProjectChange });
 
   const {
     projectList,
     setProjectList,
     refreshProjectsFromServer,
-    looseCount: looseCountFromProjects,
   } = useProjectsCache({ initialProjects: projects, threadsForLooseCount: sidebarThreads });
 
   const scopeLabel = React.useMemo(() => {
-    if (currentProjectId === null) return "Loose";
+    if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projectList.find((p) => String(p.id) === String(currentProjectId));
       return proj?.name ?? hookScopeLabel;
@@ -114,7 +124,15 @@ export default function SidebarRoot({
     return hookScopeLabel;
   }, [currentProjectId, hookScopeLabel, projectList]);
 
-  const effectiveLooseCount = looseCountFromProjects ?? looseCount;
+  React.useEffect(() => {
+    if (currentProjectId !== null) return;
+    const defaultProject = projectList.find((project) =>
+      isDefaultProjectAlias(project?.name)
+    );
+    if (!defaultProject?.id) return;
+    setScope(String(defaultProject.id));
+  }, [currentProjectId, projectList, setScope]);
+
   const columnClass = "w-full px-[5px]";
 
   const accentColor = React.useMemo(() => getComputedStyleVar("--accent", "#6B7280"), []);
@@ -335,7 +353,6 @@ export default function SidebarRoot({
           <ProjectList
             projects={projectList}
             search={q}
-            looseCount={effectiveLooseCount}
             currentId={currentProjectId}
             onPick={(id) => { setScope(id); setTab("threads"); }}
             onOpenNewProject={() => {

@@ -32,6 +32,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
 from guardian.core.db import GuardianDB
+from guardian.core.default_project import canonicalize_default_project
 from guardian.core.dependencies import verify_api_key
 from guardian.core.media_signing import extract_media_path, sign_media_url
 from guardian.core.storage import create_storage_from_env
@@ -103,6 +104,8 @@ class ImageUploadResponse(BaseModel):
 
 class DocumentUploadResponse(BaseModel):
     id: str
+    project_id: int
+    thread_id: Optional[int] = None
     src_url: str
     filename: str
     filesize: int
@@ -231,6 +234,30 @@ def _compute_identity_with_existing_asset(
         content_hash=content_hash,
     )
     return identity, existing_asset
+
+
+def _coerce_optional_positive_int(value: int | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _resolve_document_project_id(db, incoming_project_id: int | None) -> int:
+    explicit_project_id = _coerce_optional_positive_int(incoming_project_id)
+    if explicit_project_id is not None:
+        return explicit_project_id
+
+    fallback_project_id = canonicalize_default_project(db, logger=logger)
+    if fallback_project_id is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to resolve default project for document upload",
+        )
+    return int(fallback_project_id)
 
 
 def _create_media_asset(
@@ -685,8 +712,8 @@ async def delete_image(image_id: str):
 )
 async def upload_document(
     file: UploadFile = File(...),
-    project_id: int = Body(...),
-    thread_id: int = Body(...),
+    project_id: Optional[int] = Body(default=None),
+    thread_id: Optional[int] = Body(default=None),
     user_id: str = Body(default="default"),
     tag: Optional[str] = Body(default=None),
     source_tag: Optional[str] = Body(default=None),
@@ -724,12 +751,14 @@ async def upload_document(
         )
 
         db = _get_db()
+        resolved_project_id = _resolve_document_project_id(db, project_id)
+        resolved_thread_id = _coerce_optional_positive_int(thread_id)
 
         # First pass: dedupe before storage write.
         with db.get_session() as session:
             identity, existing_asset = _compute_identity_with_existing_asset(
                 session=session,
-                project_id=project_id,
+                project_id=resolved_project_id,
                 media_kind="document",
                 provenance="uploaded",
                 file_data=file_data,
@@ -753,6 +782,10 @@ async def upload_document(
                     session.commit()
                     return DocumentUploadResponse(
                         id=existing.id,
+                        project_id=int(
+                            existing.project_id or resolved_project_id
+                        ),
+                        thread_id=existing.thread_id,
                         src_url=_signed_src_url(existing.src_url),
                         filename=existing.filename,
                         filesize=existing.filesize,
@@ -841,7 +874,7 @@ async def upload_document(
                     existing_asset,
                 ) = _compute_identity_with_existing_asset(
                     session=session,
-                    project_id=project_id,
+                    project_id=resolved_project_id,
                     media_kind="document",
                     provenance="uploaded",
                     file_data=file_data,
@@ -865,6 +898,10 @@ async def upload_document(
                         session.commit()
                         return DocumentUploadResponse(
                             id=existing.id,
+                            project_id=int(
+                                existing.project_id or resolved_project_id
+                            ),
+                            thread_id=existing.thread_id,
                             src_url=_signed_src_url(existing.src_url),
                             filename=existing.filename,
                             filesize=existing.filesize,
@@ -892,8 +929,8 @@ async def upload_document(
                     linked_doc = UploadedDocument(
                         id=doc_id,
                         asset_id=existing_asset.id,
-                        project_id=project_id,
-                        thread_id=thread_id,
+                        project_id=resolved_project_id,
+                        thread_id=resolved_thread_id,
                         user_id=user_id,
                         src_url=existing_asset.src_url,
                         filename=filename,
@@ -924,8 +961,8 @@ async def upload_document(
                 else:
                     asset = _create_media_asset(
                         session=session,
-                        project_id=project_id,
-                        thread_id=thread_id,
+                        project_id=resolved_project_id,
+                        thread_id=resolved_thread_id,
                         user_id=user_id,
                         media_kind="document",
                         provenance="uploaded",
@@ -944,8 +981,8 @@ async def upload_document(
                     uploaded_doc = UploadedDocument(
                         id=doc_id,
                         asset_id=asset.id,
-                        project_id=project_id,
-                        thread_id=thread_id,
+                        project_id=resolved_project_id,
+                        thread_id=resolved_thread_id,
                         user_id=user_id,
                         src_url=src_url,
                         filename=filename,
@@ -978,7 +1015,7 @@ async def upload_document(
                     existing_asset,
                 ) = _compute_identity_with_existing_asset(
                     session=session,
-                    project_id=project_id,
+                    project_id=resolved_project_id,
                     media_kind="document",
                     provenance="uploaded",
                     file_data=file_data,
@@ -1000,6 +1037,10 @@ async def upload_document(
                         session.commit()
                         return DocumentUploadResponse(
                             id=existing.id,
+                            project_id=int(
+                                existing.project_id or resolved_project_id
+                            ),
+                            thread_id=existing.thread_id,
                             src_url=_signed_src_url(existing.src_url),
                             filename=existing.filename,
                             filesize=existing.filesize,
@@ -1027,8 +1068,8 @@ async def upload_document(
                     linked_doc = UploadedDocument(
                         id=doc_id,
                         asset_id=existing_asset.id,
-                        project_id=project_id,
-                        thread_id=thread_id,
+                        project_id=resolved_project_id,
+                        thread_id=resolved_thread_id,
                         user_id=user_id,
                         src_url=existing_asset.src_url,
                         filename=filename,
@@ -1073,8 +1114,8 @@ async def upload_document(
                         "filename": filename,
                         "mime_type": file.content_type,
                         "user_id": user_id,
-                        "project_id": project_id,
-                        "thread_id": thread_id,
+                        "project_id": resolved_project_id,
+                        "thread_id": resolved_thread_id,
                         **asset_metadata,
                     },
                 )
@@ -1105,6 +1146,8 @@ async def upload_document(
 
         return DocumentUploadResponse(
             id=doc_id,
+            project_id=resolved_project_id,
+            thread_id=resolved_thread_id,
             src_url=_signed_src_url(src_url),
             filename=filename,
             filesize=filesize,
@@ -1654,6 +1697,8 @@ async def list_documents(
             "documents": [
                 {
                     "id": doc.id,
+                    "project_id": doc.project_id,
+                    "thread_id": doc.thread_id,
                     "src_url": _signed_src_url(doc.src_url),
                     "filename": doc.filename,
                     "mime_type": doc.mime_type,

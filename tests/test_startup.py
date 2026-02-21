@@ -81,17 +81,19 @@ class TestStartupBehavior:
 
     def test_loose_threads_project_created_on_startup(self):
         """
-        Test that the Loose Threads project is created during app startup.
+        Test that the default General project is created during app startup.
         """
         # Create a mock database
         mock_db = MagicMock()
-        mock_db.ensure_project.return_value = None
+        mock_db.ensure_project.return_value = 1
+        mock_db.list_projects.return_value = []
 
         # Track calls to ensure_project
         ensure_project_calls = []
 
         def track_ensure_project(*args, **kwargs):
             ensure_project_calls.append((args, kwargs))
+            return 1
 
         mock_db.ensure_project.side_effect = track_ensure_project
 
@@ -106,8 +108,8 @@ class TestStartupBehavior:
             assert result is True
             assert len(ensure_project_calls) == 1
             assert ensure_project_calls[0][0] == (
-                "Loose Threads",
-                "Default bucket for unassigned threads",
+                "General",
+                "Default bucket for unassigned threads and documents",
             )
 
     def test_startup_calls_ensure_loose_threads(self):
@@ -142,9 +144,10 @@ class TestStartupBehavior:
         The underlying ensure_project should handle this gracefully.
         """
         mock_db = MagicMock()
+        mock_db.list_projects.return_value = []
 
         # Simulate idempotent behavior - project already exists
-        mock_db.ensure_project.return_value = None
+        mock_db.ensure_project.return_value = 1
 
         with patch("guardian.routes.projects.chatlog_db", mock_db):
             from guardian.routes.projects import ensure_loose_threads_project
@@ -167,6 +170,7 @@ class TestStartupBehavior:
         Test that startup handles database errors gracefully and doesn't crash.
         """
         mock_db = MagicMock()
+        mock_db.list_projects.return_value = []
 
         # Simulate DB error
         mock_db.ensure_project.side_effect = Exception(
@@ -193,7 +197,8 @@ class TestStartupBehavior:
 
             # Verify correct parameters
             mock_db.ensure_project.assert_called_once_with(
-                "Loose Threads", "Default bucket for unassigned threads"
+                "General",
+                "Default bucket for unassigned threads and documents",
             )
 
 
@@ -208,6 +213,7 @@ class TestStartupEventIntegration:
         full app startup.
         """
         mock_db = MagicMock()
+        mock_db.list_projects.return_value = []
 
         with patch("guardian.routes.projects.chatlog_db", mock_db):
             from guardian.routes.projects import ensure_loose_threads_project
@@ -230,6 +236,7 @@ class TestStartupEventIntegration:
         be called multiple times (though it shouldn't be in practice).
         """
         mock_db = MagicMock()
+        mock_db.list_projects.return_value = []
 
         with patch("guardian.routes.projects.chatlog_db", mock_db):
             from guardian.routes.projects import ensure_loose_threads_project
