@@ -32,12 +32,11 @@ class WizardState:
     openai_api_key: str = ""
     allow_cloud_providers: bool = True
     runtime_profile: str = "docker"  # "docker" | "external"
-    enable_discord: bool = False
     enable_notion: bool = False
     enable_github: bool = False
 
     notion_api_key: str = ""
-    discord_bot_token: str = ""
+    notion_database_id: str = ""
     github_token: str = ""
     guardian_database_url: str = ""
     redis_url: str = ""
@@ -187,17 +186,9 @@ class SetupWizardApp(App[Optional[str]]):
                 id="notion_key",
                 classes="row hidden",
             )
-
-            yield Checkbox(
-                "Enable Discord connector",
-                value=False,
-                id="chk_discord",
-                classes="row hidden",
-            )
             yield Input(
-                placeholder="Discord bot token (required if enabled)",
-                password=True,
-                id="discord_token",
+                placeholder="Notion Database ID (required if enabled)",
+                id="notion_database_id",
                 classes="row hidden",
             )
 
@@ -293,7 +284,6 @@ class SetupWizardApp(App[Optional[str]]):
             "#runtime_profile",
             "#connectors_title",
             "#chk_notion",
-            "#chk_discord",
             "#chk_github",
             "#connectors_note",
         ):
@@ -305,14 +295,12 @@ class SetupWizardApp(App[Optional[str]]):
         if not is_custom:
             self.query_one("#allow_cloud_providers", Checkbox).value = True
             self.query_one("#chk_notion", Checkbox).value = False
-            self.query_one("#chk_discord", Checkbox).value = False
             self.query_one("#chk_github", Checkbox).value = False
 
             self.state.enable_notion = False
-            self.state.enable_discord = False
             self.state.enable_github = False
             self.state.notion_api_key = ""
-            self.state.discord_bot_token = ""
+            self.state.notion_database_id = ""
             self.state.github_token = ""
             self.state.runtime_profile = "docker"
             self.query_one("#runtime_docker", RadioButton).value = True
@@ -347,15 +335,15 @@ class SetupWizardApp(App[Optional[str]]):
         is_custom = self.state.mode == "custom"
 
         notion_input = self.query_one("#notion_key")
-        discord_input = self.query_one("#discord_token")
+        notion_database_id_input = self.query_one("#notion_database_id")
         github_input = self.query_one("#github_token")
 
         notion_input.set_class(
             not (is_custom and self.state.enable_notion),
             "hidden",
         )
-        discord_input.set_class(
-            not (is_custom and self.state.enable_discord),
+        notion_database_id_input.set_class(
+            not (is_custom and self.state.enable_notion),
             "hidden",
         )
         github_input.set_class(
@@ -386,8 +374,6 @@ class SetupWizardApp(App[Optional[str]]):
         checkbox_id = event.checkbox.id
         if checkbox_id == "chk_notion":
             self.state.enable_notion = bool(event.value)
-        elif checkbox_id == "chk_discord":
-            self.state.enable_discord = bool(event.value)
         elif checkbox_id == "chk_github":
             self.state.enable_github = bool(event.value)
         else:
@@ -424,18 +410,20 @@ class SetupWizardApp(App[Optional[str]]):
         )
 
         notion_key = self.query_one("#notion_key", Input).value.strip()
-        discord_token = self.query_one("#discord_token", Input).value.strip()
+        notion_database_id = self.query_one(
+            "#notion_database_id", Input
+        ).value.strip()
         github_token = self.query_one("#github_token", Input).value.strip()
 
         if self.state.enable_notion and not notion_key:
             return "Notion is enabled but Notion API key is missing."
-        if self.state.enable_discord and not discord_token:
-            return "Discord is enabled but Discord bot token is missing."
+        if self.state.enable_notion and not notion_database_id:
+            return "Notion is enabled but Notion Database ID is missing."
         if self.state.enable_github and not github_token:
             return "GitHub is enabled but GitHub token is missing."
 
         self.state.notion_api_key = notion_key
-        self.state.discord_bot_token = discord_token
+        self.state.notion_database_id = notion_database_id
         self.state.github_token = github_token
         return None
 
@@ -479,9 +467,6 @@ class SetupWizardApp(App[Optional[str]]):
             self.state.enable_notion = self.query_one(
                 "#chk_notion", Checkbox
             ).value
-            self.state.enable_discord = self.query_one(
-                "#chk_discord", Checkbox
-            ).value
             self.state.enable_github = self.query_one(
                 "#chk_github", Checkbox
             ).value
@@ -489,10 +474,9 @@ class SetupWizardApp(App[Optional[str]]):
             self.state.allow_cloud_providers = True
             self.state.runtime_profile = "docker"
             self.state.enable_notion = False
-            self.state.enable_discord = False
             self.state.enable_github = False
             self.state.notion_api_key = ""
-            self.state.discord_bot_token = ""
+            self.state.notion_database_id = ""
             self.state.github_token = ""
             self.state.guardian_database_url = ""
             self.state.redis_url = ""
@@ -521,18 +505,15 @@ class SetupWizardApp(App[Optional[str]]):
             "CONNECTOR_NOTION_ENABLED": (
                 "true" if self.state.enable_notion else "false"
             ),
-            "CONNECTOR_DISCORD_ENABLED": (
-                "true" if self.state.enable_discord else "false"
-            ),
             "CONNECTOR_GITHUB_ENABLED": (
                 "true" if self.state.enable_github else "false"
             ),
             "NOTION_API_KEY": (
                 self.state.notion_api_key if self.state.enable_notion else ""
             ),
-            "DISCORD_BOT_TOKEN": (
-                self.state.discord_bot_token
-                if self.state.enable_discord
+            "NOTION_DATABASE_ID": (
+                self.state.notion_database_id
+                if self.state.enable_notion
                 else ""
             ),
             "GITHUB_TOKEN": self.state.github_token
