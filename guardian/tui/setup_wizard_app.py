@@ -31,6 +31,7 @@ class WizardState:
     deps: dict[str, DepStatus]
     openai_api_key: str = ""
     allow_cloud_providers: bool = True
+    runtime_profile: str = "docker"  # "docker" | "external"
     enable_discord: bool = False
     enable_notion: bool = False
     enable_github: bool = False
@@ -38,6 +39,9 @@ class WizardState:
     notion_api_key: str = ""
     discord_bot_token: str = ""
     github_token: str = ""
+    guardian_database_url: str = ""
+    redis_url: str = ""
+    neo4j_url: str = ""
 
     deps_acknowledged: bool = False
 
@@ -118,6 +122,51 @@ class SetupWizardApp(App[Optional[str]]):
                 value=True,
                 id="allow_cloud_providers",
                 classes="row",
+            )
+            yield Static(
+                "Runtime Profile (Custom only)",
+                id="runtime_profile_title",
+                classes="row hidden",
+            )
+            with RadioSet(
+                classes="row hidden",
+                id="runtime_profile",
+            ):
+                yield RadioButton(
+                    "Docker stack (recommended)",
+                    value=True,
+                    id="runtime_docker",
+                )
+                yield RadioButton(
+                    "External services (advanced)",
+                    value=False,
+                    id="runtime_external",
+                )
+            yield Static(
+                "GUARDIAN_DATABASE_URL (required for external profile)",
+                id="external_db_label",
+                classes="row hidden",
+            )
+            yield Input(
+                placeholder="postgresql://user:pass@host:5432/codexify",
+                id="external_db_url",
+                classes="row hidden",
+            )
+            yield Static(
+                "External Postgres must be a dedicated Codexify database.\n"
+                "Codexify will run migrations to create/upgrade tables.",
+                id="external_db_note",
+                classes="row muted hidden",
+            )
+            yield Input(
+                placeholder="REDIS_URL (optional)",
+                id="external_redis_url",
+                classes="row hidden",
+            )
+            yield Input(
+                placeholder="NEO4J_URL (optional)",
+                id="external_neo4j_url",
+                classes="row hidden",
             )
 
             yield Static(
@@ -240,6 +289,8 @@ class SetupWizardApp(App[Optional[str]]):
             self.query_one(widget_id).disabled = not is_custom
 
         for widget_id in (
+            "#runtime_profile_title",
+            "#runtime_profile",
             "#connectors_title",
             "#chk_notion",
             "#chk_discord",
@@ -263,8 +314,34 @@ class SetupWizardApp(App[Optional[str]]):
             self.state.notion_api_key = ""
             self.state.discord_bot_token = ""
             self.state.github_token = ""
+            self.state.runtime_profile = "docker"
+            self.query_one("#runtime_docker", RadioButton).value = True
+            self.query_one("#runtime_external", RadioButton).value = False
+            self.state.guardian_database_url = ""
+            self.state.redis_url = ""
+            self.state.neo4j_url = ""
 
+        self._apply_runtime_profile_visibility()
         self._apply_connector_credential_visibility()
+
+    def _apply_runtime_profile_visibility(self) -> None:
+        is_custom = self.state.mode == "custom"
+        is_external = is_custom and self.state.runtime_profile == "external"
+
+        for widget_id in (
+            "#external_db_label",
+            "#external_db_url",
+            "#external_db_note",
+            "#external_redis_url",
+            "#external_neo4j_url",
+        ):
+            widget = self.query_one(widget_id)
+            widget.set_class(not is_external, "hidden")
+
+        if not is_external:
+            self.state.guardian_database_url = ""
+            self.state.redis_url = ""
+            self.state.neo4j_url = ""
 
     def _apply_connector_credential_visibility(self) -> None:
         is_custom = self.state.mode == "custom"
@@ -287,12 +364,23 @@ class SetupWizardApp(App[Optional[str]]):
         )
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        radio_set_id = event.radio_set.id if event.radio_set else ""
         pressed_id = event.pressed.id if event.pressed else ""
-        self.state.mode = "fast" if pressed_id == "mode_fast" else "custom"
-        self._apply_mode_visibility()
-        self._scan_dependencies()
-        self._render_deps()
-        self._set_status(f"Mode selected: {self.state.mode}")
+
+        if radio_set_id == "mode":
+            self.state.mode = "fast" if pressed_id == "mode_fast" else "custom"
+            self._apply_mode_visibility()
+            self._scan_dependencies()
+            self._render_deps()
+            self._set_status(f"Mode selected: {self.state.mode}")
+            return
+
+        if radio_set_id == "runtime_profile":
+            self.state.runtime_profile = (
+                "docker" if pressed_id == "runtime_docker" else "external"
+            )
+            self._apply_runtime_profile_visibility()
+            self._set_status(f"Runtime profile: {self.state.runtime_profile}")
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         checkbox_id = event.checkbox.id
@@ -310,6 +398,30 @@ class SetupWizardApp(App[Optional[str]]):
     def _validate_custom_inputs(self) -> str | None:
         if self.state.mode != "custom":
             return None
+
+        guardian_database_url = self.query_one(
+            "#external_db_url", Input
+        ).value.strip()
+        redis_url = self.query_one("#external_redis_url", Input).value.strip()
+        neo4j_url = self.query_one("#external_neo4j_url", Input).value.strip()
+
+        if (
+            self.state.runtime_profile == "external"
+            and not guardian_database_url
+        ):
+            return "External services profile requires GUARDIAN_DATABASE_URL."
+
+        self.state.guardian_database_url = (
+            guardian_database_url
+            if self.state.runtime_profile == "external"
+            else ""
+        )
+        self.state.redis_url = (
+            redis_url if self.state.runtime_profile == "external" else ""
+        )
+        self.state.neo4j_url = (
+            neo4j_url if self.state.runtime_profile == "external" else ""
+        )
 
         notion_key = self.query_one("#notion_key", Input).value.strip()
         discord_token = self.query_one("#discord_token", Input).value.strip()
@@ -359,6 +471,11 @@ class SetupWizardApp(App[Optional[str]]):
             self.state.allow_cloud_providers = self.query_one(
                 "#allow_cloud_providers", Checkbox
             ).value
+            self.state.runtime_profile = (
+                "docker"
+                if self.query_one("#runtime_docker", RadioButton).value
+                else "external"
+            )
             self.state.enable_notion = self.query_one(
                 "#chk_notion", Checkbox
             ).value
@@ -370,12 +487,16 @@ class SetupWizardApp(App[Optional[str]]):
             ).value
         else:
             self.state.allow_cloud_providers = True
+            self.state.runtime_profile = "docker"
             self.state.enable_notion = False
             self.state.enable_discord = False
             self.state.enable_github = False
             self.state.notion_api_key = ""
             self.state.discord_bot_token = ""
             self.state.github_token = ""
+            self.state.guardian_database_url = ""
+            self.state.redis_url = ""
+            self.state.neo4j_url = ""
 
         missing_deps = [
             dep for dep in self.state.deps.values() if not dep.is_present
@@ -423,6 +544,17 @@ class SetupWizardApp(App[Optional[str]]):
                 kv["DOCKER_BIN"] = value
             if name == "ollama":
                 kv["OLLAMA_BIN"] = value
+
+        if (
+            self.state.mode == "custom"
+            and self.state.runtime_profile == "external"
+        ):
+            if self.state.guardian_database_url:
+                kv["GUARDIAN_DATABASE_URL"] = self.state.guardian_database_url
+            if self.state.redis_url:
+                kv["REDIS_URL"] = self.state.redis_url
+            if self.state.neo4j_url:
+                kv["NEO4J_URL"] = self.state.neo4j_url
 
         env_path = default_env_target(self.repo_root)
         write_env_file(env_path, kv)
