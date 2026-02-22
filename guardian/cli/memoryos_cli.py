@@ -1,4 +1,4 @@
-import json
+import sys
 from pathlib import Path
 
 import click
@@ -87,6 +87,8 @@ def show_conversations_by_thread(thread_id):
 @click.argument("conversation_id", type=str)
 def get_conversation_by_id(conversation_id):
     """Retrieve a specific conversation by its ID."""
+    import json
+
     memory = get_memory_instance()
     convo = memory.get_conversation_by_id(conversation_id)
     click.echo(f"\n--- CONVERSATION {conversation_id} ---\n")
@@ -129,6 +131,7 @@ def setup_wizard(repo_root: Path) -> None:
             ) from exc
         raise
 
+    print("Launching Codexify Setup Wizard...")
     run_setup_wizard(repo_root=repo_root)
 
 
@@ -160,6 +163,8 @@ def doctor(repo_root: Path, json_output: bool) -> None:
     items, code = build_doctor_report(repo_root=repo_root)
 
     if json_output:
+        import json
+
         payload = [
             {
                 "name": item.name,
@@ -170,7 +175,7 @@ def doctor(repo_root: Path, json_output: bool) -> None:
             for item in items
         ]
         click.echo(json.dumps({"items": payload, "exit_code": code}, indent=2))
-        raise SystemExit(code)
+        sys.exit(code)
 
     click.echo("Codexify Doctor Report")
     click.echo(f"Repo: {repo_root.resolve()}")
@@ -189,4 +194,8 @@ def doctor(repo_root: Path, json_output: bool) -> None:
             "Run `codexify setup` to repair configuration."
         )
 
-    raise SystemExit(code)
+    sys.exit(code)
+
+
+if __name__ == "__main__":
+    cli()
