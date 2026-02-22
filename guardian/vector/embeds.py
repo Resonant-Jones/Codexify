@@ -3,6 +3,7 @@ import logging
 import os
 from typing import Iterable, List
 
+<<<<<<< HEAD
 from guardian.utils.embed_paths import resolve_local_embed_model
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,12 @@ def _get_local_embed_model(*, strict: bool) -> str | None:
         return resolve_local_embed_model()
     model = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
     return model or None
+=======
+from guardian.utils.embed_paths import (
+    get_local_embed_model,
+    require_local_embed_model,
+)
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
 
 def _stub_embed(text: str, dim: int = 128) -> List[float]:
@@ -42,17 +49,34 @@ def _stub_embed(text: str, dim: int = 128) -> List[float]:
 
 class Embedder:
     def __init__(self) -> None:
+<<<<<<< HEAD
         self.backend = _resolve_embeddings_backend()
         self.dim = int(os.getenv("EMBEDDING_DIM", "128"))
         self._model = None
         is_local = _is_local_backend(self.backend)
         if is_local:
+=======
+        self.backend = (
+            (
+                os.getenv("CODEXIFY_EMBEDDINGS_BACKEND")
+                or os.getenv("EMBEDDING_BACKEND")
+                or "mock"
+            )
+            .strip()
+            .lower()
+        )
+        self.dim = int(os.getenv("EMBEDDING_DIM", "128"))
+        self._model = None
+        if self.backend == "local":
+            model_name = require_local_embed_model()
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
             try:
                 from sentence_transformers import (
                     SentenceTransformer,  # type: ignore
                 )
             except Exception as exc:
                 raise RuntimeError(
+<<<<<<< HEAD
                     "sentence-transformers is required for EMBEDDING_BACKEND=local."
                 ) from exc
 
@@ -66,6 +90,16 @@ class Embedder:
                 raise RuntimeError(
                     "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
                 ) from exc
+=======
+                    "sentence-transformers not installed."
+                ) from exc
+            self._model = SentenceTransformer(
+                model_name,
+                local_files_only=True,
+            )
+        else:
+            _ = get_local_embed_model(strict=False)
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
     def embed(self, texts: Iterable[str]) -> List[List[float]]:
         if self.backend == "local" and self._model is not None:

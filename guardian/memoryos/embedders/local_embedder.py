@@ -2,6 +2,7 @@ import logging
 import os
 from functools import lru_cache
 
+<<<<<<< HEAD
 from guardian.utils.embed_paths import resolve_local_embed_model
 
 logger = logging.getLogger(__name__)
@@ -17,10 +18,14 @@ def _get_local_embed_model(*, strict: bool) -> str | None:
         return resolve_local_embed_model(ValueError)
     model = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
     return model or None
+=======
+from guardian.utils.embed_paths import require_local_embed_model
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
 
 class LocalEmbedder:
     def __init__(self, model_name: str | None = None):
+<<<<<<< HEAD
         if model_name:
             logger.warning(
                 "[memoryos] model override ignored; use LOCAL_EMBED_MODEL"
@@ -48,6 +53,23 @@ class LocalEmbedder:
             raise RuntimeError(
                 "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
             ) from exc
+=======
+        from sentence_transformers import SentenceTransformer
+
+        from guardian.core.config import settings
+
+        resolved_model = (
+            model_name
+            or os.getenv("LOCAL_EMBEDDER_MODEL")
+            or settings.LOCAL_EMBEDDER_MODEL
+        )
+        if isinstance(resolved_model, str):
+            resolved_model = resolved_model.strip()
+        if not resolved_model:
+            resolved_model = require_local_embed_model()
+
+        self.model = SentenceTransformer(resolved_model)
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
         _ = self.model.encode("preloading model")
 
     @lru_cache(maxsize=1024)
