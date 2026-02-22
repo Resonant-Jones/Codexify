@@ -287,18 +287,32 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
             detail = f"enabled but {secret_key} missing"
         return DoctorItem(name=label, ok=ok, required=enabled, detail=detail)
 
+    def req_if_enabled_many(
+        flag_key: str, required_keys: list[str], label: str
+    ) -> DoctorItem:
+        enabled = _truthy(env.get(flag_key, "false"))
+        if not enabled:
+            return DoctorItem(
+                name=label, ok=True, required=False, detail="disabled"
+            )
+
+        missing = [key for key in required_keys if not env.get(key, "").strip()]
+        if missing:
+            missing_csv = ", ".join(missing)
+            return DoctorItem(
+                name=label,
+                ok=False,
+                required=True,
+                detail=f"enabled but missing: {missing_csv}",
+            )
+
+        return DoctorItem(name=label, ok=True, required=True, detail="enabled")
+
     items.append(
-        req_if_enabled(
+        req_if_enabled_many(
             "CONNECTOR_NOTION_ENABLED",
-            "NOTION_API_KEY",
+            ["NOTION_API_KEY", "NOTION_DATABASE_ID"],
             "Notion connector config",
-        )
-    )
-    items.append(
-        req_if_enabled(
-            "CONNECTOR_DISCORD_ENABLED",
-            "DISCORD_BOT_TOKEN",
-            "Discord connector config",
         )
     )
     items.append(
