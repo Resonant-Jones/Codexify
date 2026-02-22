@@ -1,201 +1,21 @@
-import sys
-from pathlib import Path
+"""Guardian package.
 
-import click
+This module must remain side-effect free.
 
+Rationale:
+- CLI entrypoints executed via `python -m guardian.cli.*` will import `guardian` during module resolution.
+- Import-time initialization (filesystem writes, vector backends like FAISS, etc.) makes even `--help` slow/noisy
+  and can prevent Textual from taking control of the terminal.
 
-def get_memory_instance():
-    """Share the same MemoryOS factory used by the backend application."""
-    from guardian.core.client_factory import get_memoryos_instance
+Initialization belongs in explicit runtime entrypoints (API server, workers), not at package import time.
+"""
 
-    return get_memoryos_instance()
+from __future__ import annotations
 
+__all__ = ["__version__"]
 
-@click.group()
-def cli():
-    pass
-
-
-@cli.command("codemap:query")
-@click.argument("question", type=str)
-def codemap_query(question):
-    """Ask a question about the codebase using codemap.json."""
-    memory = get_memory_instance()
-    answer = memory.query_codemap(question)
-    click.echo("\n--- CODEMAP ANSWER ---\n")
-    click.echo(answer)
-
-
-@cli.command("memory:show-user-profile")
-def show_user_profile():
-    """Display the current user's profile from long-term memory."""
-    memory = get_memory_instance()
-    profile = memory.get_user_profile_summary()
-    click.echo("\n--- USER PROFILE ---\n")
-    click.echo(profile)
-
-
-@cli.command("memory:show-assistant-knowledge")
-def show_assistant_knowledge():
-    """Display current assistant knowledge from long-term memory."""
-    memory = get_memory_instance()
-    knowledge = memory.get_assistant_knowledge_summary()
-    click.echo("\n--- ASSISTANT KNOWLEDGE ---\n")
-    for entry in knowledge:
-        click.echo(f"- {entry['knowledge']} (Recorded: {entry['timestamp']})")
-
-
-@cli.command("memory:show-projects")
-def show_projects():
-    """Display all known projects from long-term memory."""
-    memory = get_memory_instance()
-    projects = memory.get_all_projects_summary()
-    click.echo("\n--- PROJECTS ---\n")
-    for project in projects:
-        click.echo(
-            f"- {project.get('project_id')} | {project.get('project_name')}"
-        )
-
-
-@cli.command("memory:show-threads")
-@click.argument("project_id", type=str)
-def show_threads_by_project(project_id):
-    """Display threads associated with a specific project."""
-    memory = get_memory_instance()
-    threads = memory.get_threads_by_project(project_id)
-    click.echo(f"\n--- THREADS in PROJECT {project_id} ---\n")
-    for thread in threads:
-        click.echo(
-            f"- {thread.get('thread_id')} | {thread.get('thread_title')}"
-        )
-
-
-@cli.command("memory:show-conversations")
-@click.argument("thread_id", type=str)
-def show_conversations_by_thread(thread_id):
-    """Display conversations associated with a specific thread."""
-    memory = get_memory_instance()
-    conversations = memory.get_conversations_by_thread(thread_id)
-    click.echo(f"\n--- CONVERSATIONS in THREAD {thread_id} ---\n")
-    for convo in conversations:
-        click.echo(
-            f"- {convo.get('conversation_id')} | {convo.get('title', 'Untitled')}"
-        )
-
-
-@cli.command("memory:get-conversation")
-@click.argument("conversation_id", type=str)
-def get_conversation_by_id(conversation_id):
-    """Retrieve a specific conversation by its ID."""
-    import json
-
-    memory = get_memory_instance()
-    convo = memory.get_conversation_by_id(conversation_id)
-    click.echo(f"\n--- CONVERSATION {conversation_id} ---\n")
-    click.echo(json.dumps(convo, indent=2))
-
-
-@cli.command("memory:summarize-and-branch")
-@click.argument("conversation_id", type=str)
-def summarize_and_branch(conversation_id):
-    """Summarize a conversation and create a child branch."""
-    memory = get_memory_instance()
-    result = memory.summarize_and_branch_conversation(conversation_id)
-    click.echo("\n--- SUMMARY RESULT ---\n")
-    click.echo(result if result else "No summary was generated.")
-
-
-@cli.command("setup")
-@click.option(
-    "--repo-root",
-    type=click.Path(
-        path_type=Path,
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        resolve_path=True,
-    ),
-    default=Path.cwd,
-    show_default="current working directory",
-    help="Repo root used to write .env (default: cwd).",
-)
-def setup_wizard(repo_root: Path) -> None:
-    """Launch interactive setup wizard for dependency scan and .env generation."""
-    try:
-        from guardian.tui.setup_wizard_app import run_setup_wizard
-    except ModuleNotFoundError as exc:
-        if exc.name and exc.name.startswith("textual"):
-            raise click.ClickException(
-                "Textual is required for this command. "
-                "Install with: pip install '.[tui]'"
-            ) from exc
-        raise
-
-    print("Launching Codexify Setup Wizard...")
-    run_setup_wizard(repo_root=repo_root)
-
-
-@cli.command("doctor")
-@click.option(
-    "--repo-root",
-    type=click.Path(
-        path_type=Path,
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        resolve_path=True,
-    ),
-    default=Path.cwd,
-    show_default="current working directory",
-    help="Repo root used to find .env (default: cwd).",
-)
-@click.option(
-    "--json",
-    "json_output",
-    is_flag=True,
-    default=False,
-    help="Emit machine-readable JSON output.",
-)
-def doctor(repo_root: Path, json_output: bool) -> None:
-    """Run environment diagnostics and exit nonzero on required failures."""
-    from guardian.ops.setup_wizard import build_doctor_report
-
-    items, code = build_doctor_report(repo_root=repo_root)
-
-    if json_output:
-        import json
-
-        payload = [
-            {
-                "name": item.name,
-                "ok": item.ok,
-                "required": item.required,
-                "detail": item.detail,
-            }
-            for item in items
-        ]
-        click.echo(json.dumps({"items": payload, "exit_code": code}, indent=2))
-        sys.exit(code)
-
-    click.echo("Codexify Doctor Report")
-    click.echo(f"Repo: {repo_root.resolve()}")
-    click.echo("")
-
-    for item in items:
-        status = "OK" if item.ok else ("FAIL" if item.required else "WARN")
-        requiredness = "required" if item.required else "optional"
-        detail = f" - {item.detail}" if item.detail else ""
-        click.echo(f"[{status}] ({requiredness}) {item.name}{detail}")
-
-    if code != 0:
-        click.echo("")
-        click.echo(
-            "One or more REQUIRED checks failed. "
-            "Run `codexify setup` to repair configuration."
-        )
-
-    sys.exit(code)
-
-
-if __name__ == "__main__":
-    cli()
+# Keep version optional and cheap.
+try:
+    from ._version import __version__  # type: ignore
+except Exception:  # pragma: no cover
+    __version__ = "0.0.0"
