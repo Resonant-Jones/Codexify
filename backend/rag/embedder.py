@@ -16,6 +16,7 @@ Environment Variables:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import uuid
@@ -23,7 +24,14 @@ from typing import Any
 
 import numpy as np
 
+<<<<<<< HEAD
 from guardian.utils.embed_paths import resolve_local_embed_model
+=======
+from guardian.utils.embed_paths import (
+    get_local_embed_model,
+    require_local_embed_model,
+)
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
 try:
     from sentence_transformers import SentenceTransformer  # type: ignore
@@ -47,6 +55,21 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+<<<<<<< HEAD
+=======
+DEFAULT_BACKEND = (
+    (
+        os.getenv("CODEXIFY_EMBEDDINGS_BACKEND")
+        or os.getenv("EMBEDDING_BACKEND")
+        or "mock"
+    )
+    .strip()
+    .lower()
+)
+DEFAULT_MODEL = os.getenv("CODEXIFY_LOCAL_MODEL") or get_local_embed_model(
+    strict=False
+)
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 DEFAULT_STORE = "faiss"
 
 # Environment variable names
@@ -98,6 +121,7 @@ def _normalize_embeddings(arr: np.ndarray) -> np.ndarray:
     return arr / norms
 
 
+<<<<<<< HEAD
 def _get_embeddings_backend() -> str:
     """Get the configured embeddings backend from environment."""
     backend = os.getenv(_ENV_BACKEND, _BACKEND_SENTENCE_TRANSFORMER)
@@ -127,6 +151,20 @@ def _get_local_embed_model(*, strict: bool) -> str | None:
         return resolve_local_embed_model()
     model_name = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
     return model_name or None
+=======
+def _stub_embed_np(texts: list[str], dim: int) -> np.ndarray:
+    if not texts:
+        return np.empty((0, dim), dtype="float32")
+    vectors = np.zeros((len(texts), dim), dtype="float32")
+    for row, text in enumerate(texts):
+        for token in text.split():
+            token_hash = int(
+                hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                16,
+            )
+            vectors[row, token_hash % dim] += 1.0
+    return _normalize_embeddings(vectors)
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
 
 class LocalSemanticEmbedder:
@@ -138,20 +176,59 @@ class LocalSemanticEmbedder:
         store: str = DEFAULT_STORE,
         chroma_path: str = "./.chroma",
         collection: str = "codexify_vault",
+        backend: str | None = None,
     ) -> None:
+<<<<<<< HEAD
         if model:
             logger.warning(
                 "[embedder] model override ignored; use LOCAL_EMBED_MODEL"
             )
+=======
+        self.backend = (
+            (
+                backend
+                or os.getenv("CODEXIFY_EMBEDDINGS_BACKEND")
+                or os.getenv("EMBEDDING_BACKEND")
+                or DEFAULT_BACKEND
+            )
+            .strip()
+            .lower()
+        )
+        self._stub_dim = int(os.getenv("EMBEDDING_DIM", "128"))
+
+        if self.backend == "local":
+            self.model_name = (
+                model or DEFAULT_MODEL or require_local_embed_model()
+            )
+            if not self.model_name or not os.path.isdir(self.model_name):
+                raise RuntimeError(
+                    "LOCAL_EMBED_MODEL must point to a local directory, "
+                    f"got: {self.model_name}"
+                )
+            if SentenceTransformer is None:
+                raise RuntimeError("sentence-transformers not installed.")
+            self._model = SentenceTransformer(
+                self.model_name,
+                local_files_only=True,
+            )
+        else:
+            self.model_name = (
+                model or DEFAULT_MODEL or get_local_embed_model(strict=False)
+            )
+            self._model = None
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
         self.store = (store or DEFAULT_STORE).strip().lower()
         self.chroma_path = chroma_path
         self.collection = collection
         self._backend_type: str = _get_embeddings_backend()
 
+<<<<<<< HEAD
         # Initialize embedding model based on backend selection
         self._model = self._init_embedding_model()
 
+=======
+>>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
         self._index = None
         self._index_dim: int | None = None
         self._texts: list[str] = []
@@ -243,12 +320,15 @@ class LocalSemanticEmbedder:
     def _embed_np(self, texts: list[str], batch_size: int = 64) -> np.ndarray:
         if not texts:
             return np.empty((0, 0), dtype="float32")
-        vectors = self._model.encode(
-            texts,
-            batch_size=batch_size,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-        )
+        if self._model is None:
+            vectors = _stub_embed_np(texts, self._stub_dim)
+        else:
+            vectors = self._model.encode(
+                texts,
+                batch_size=batch_size,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
         if vectors.ndim == 1:
             vectors = vectors.reshape(1, -1)
         return vectors.astype("float32")
@@ -402,13 +482,25 @@ class Embedder(LocalSemanticEmbedder):
         chroma_path: str = "./.chroma",
         collection: str = "codexify_vault",
     ) -> None:
-        if use_openai:
+        backend = (
+            (
+                os.getenv("CODEXIFY_EMBEDDINGS_BACKEND")
+                or os.getenv("EMBEDDING_BACKEND")
+                or DEFAULT_BACKEND
+            )
+            .strip()
+            .lower()
+        )
+        if use_openai and backend == "local":
             logger.info("[embedder] use_openai ignored; local-only embedder")
+        if backend != "local":
+            _ = get_local_embed_model(strict=False)
         super().__init__(
             model=model,
             store=store,
             chroma_path=chroma_path,
             collection=collection,
+            backend=backend,
         )
 
     def embed_documents(
