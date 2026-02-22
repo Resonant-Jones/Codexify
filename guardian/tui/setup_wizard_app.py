@@ -36,7 +36,10 @@ class WizardState:
     enable_github: bool = False
 
     notion_api_key: str = ""
-    notion_database_id: str = ""
+    notion_target_mode: str = "database"  # "database" | "page"
+    notion_databases: str = ""
+    notion_default_database: str = ""
+    notion_parent_page_id: str = ""
     github_token: str = ""
     guardian_database_url: str = ""
     redis_url: str = ""
@@ -186,9 +189,33 @@ class SetupWizardApp(App[Optional[str]]):
                 id="notion_key",
                 classes="row hidden",
             )
+            with RadioSet(
+                id="notion_target_mode",
+                classes="row hidden",
+            ):
+                yield RadioButton(
+                    "Target existing database(s) (recommended)",
+                    value=True,
+                    id="notion_target_database",
+                )
+                yield RadioButton(
+                    "Codexify-managed page (advanced)",
+                    value=False,
+                    id="notion_target_page",
+                )
             yield Input(
-                placeholder="Notion Database ID (required if enabled)",
-                id="notion_database_id",
+                placeholder="NOTION_DATABASES (csv: name:id,name2:id2 or id1,id2)",
+                id="notion_databases",
+                classes="row hidden",
+            )
+            yield Input(
+                placeholder="NOTION_DEFAULT_DATABASE (optional name or id)",
+                id="notion_default_database",
+                classes="row hidden",
+            )
+            yield Input(
+                placeholder="NOTION_PARENT_PAGE_ID (required in page mode)",
+                id="notion_parent_page_id",
                 classes="row hidden",
             )
 
@@ -284,6 +311,7 @@ class SetupWizardApp(App[Optional[str]]):
             "#runtime_profile",
             "#connectors_title",
             "#chk_notion",
+            "#notion_target_mode",
             "#chk_github",
             "#connectors_note",
         ):
@@ -300,11 +328,16 @@ class SetupWizardApp(App[Optional[str]]):
             self.state.enable_notion = False
             self.state.enable_github = False
             self.state.notion_api_key = ""
-            self.state.notion_database_id = ""
+            self.state.notion_target_mode = "database"
+            self.state.notion_databases = ""
+            self.state.notion_default_database = ""
+            self.state.notion_parent_page_id = ""
             self.state.github_token = ""
             self.state.runtime_profile = "docker"
             self.query_one("#runtime_docker", RadioButton).value = True
             self.query_one("#runtime_external", RadioButton).value = False
+            self.query_one("#notion_target_database", RadioButton).value = True
+            self.query_one("#notion_target_page", RadioButton).value = False
             self.state.guardian_database_url = ""
             self.state.redis_url = ""
             self.state.neo4j_url = ""
@@ -335,15 +368,40 @@ class SetupWizardApp(App[Optional[str]]):
         is_custom = self.state.mode == "custom"
 
         notion_input = self.query_one("#notion_key")
-        notion_database_id_input = self.query_one("#notion_database_id")
+        notion_target_mode = self.query_one("#notion_target_mode")
+        notion_databases_input = self.query_one("#notion_databases")
+        notion_default_database_input = self.query_one(
+            "#notion_default_database"
+        )
+        notion_parent_page_input = self.query_one("#notion_parent_page_id")
         github_input = self.query_one("#github_token")
 
+        notion_enabled = is_custom and self.state.enable_notion
+        notion_database_mode = (
+            notion_enabled and self.state.notion_target_mode == "database"
+        )
+        notion_page_mode = (
+            notion_enabled and self.state.notion_target_mode == "page"
+        )
+
         notion_input.set_class(
-            not (is_custom and self.state.enable_notion),
+            not notion_enabled,
             "hidden",
         )
-        notion_database_id_input.set_class(
-            not (is_custom and self.state.enable_notion),
+        notion_target_mode.set_class(
+            not notion_enabled,
+            "hidden",
+        )
+        notion_databases_input.set_class(
+            not notion_database_mode,
+            "hidden",
+        )
+        notion_default_database_input.set_class(
+            not notion_database_mode,
+            "hidden",
+        )
+        notion_parent_page_input.set_class(
+            not notion_page_mode,
             "hidden",
         )
         github_input.set_class(
@@ -369,6 +427,16 @@ class SetupWizardApp(App[Optional[str]]):
             )
             self._apply_runtime_profile_visibility()
             self._set_status(f"Runtime profile: {self.state.runtime_profile}")
+            return
+
+        if radio_set_id == "notion_target_mode":
+            self.state.notion_target_mode = (
+                "database" if pressed_id == "notion_target_database" else "page"
+            )
+            self._apply_connector_credential_visibility()
+            self._set_status(
+                f"Notion target mode: {self.state.notion_target_mode}"
+            )
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         checkbox_id = event.checkbox.id
@@ -410,20 +478,44 @@ class SetupWizardApp(App[Optional[str]]):
         )
 
         notion_key = self.query_one("#notion_key", Input).value.strip()
-        notion_database_id = self.query_one(
-            "#notion_database_id", Input
+        notion_databases = self.query_one(
+            "#notion_databases", Input
+        ).value.strip()
+        notion_default_database = self.query_one(
+            "#notion_default_database", Input
+        ).value.strip()
+        notion_parent_page_id = self.query_one(
+            "#notion_parent_page_id", Input
         ).value.strip()
         github_token = self.query_one("#github_token", Input).value.strip()
 
         if self.state.enable_notion and not notion_key:
             return "Notion is enabled but Notion API key is missing."
-        if self.state.enable_notion and not notion_database_id:
-            return "Notion is enabled but Notion Database ID is missing."
+        if (
+            self.state.enable_notion
+            and self.state.notion_target_mode == "database"
+            and not notion_databases
+        ):
+            return "Notion database target mode requires NOTION_DATABASES."
+        if (
+            self.state.enable_notion
+            and self.state.notion_target_mode == "page"
+            and not notion_parent_page_id
+        ):
+            return "Notion page target mode requires NOTION_PARENT_PAGE_ID."
         if self.state.enable_github and not github_token:
             return "GitHub is enabled but GitHub token is missing."
 
         self.state.notion_api_key = notion_key
-        self.state.notion_database_id = notion_database_id
+        self.state.notion_databases = (
+            notion_databases if self.state.enable_notion else ""
+        )
+        self.state.notion_default_database = (
+            notion_default_database if self.state.enable_notion else ""
+        )
+        self.state.notion_parent_page_id = (
+            notion_parent_page_id if self.state.enable_notion else ""
+        )
         self.state.github_token = github_token
         return None
 
@@ -464,6 +556,11 @@ class SetupWizardApp(App[Optional[str]]):
                 if self.query_one("#runtime_docker", RadioButton).value
                 else "external"
             )
+            self.state.notion_target_mode = (
+                "database"
+                if self.query_one("#notion_target_database", RadioButton).value
+                else "page"
+            )
             self.state.enable_notion = self.query_one(
                 "#chk_notion", Checkbox
             ).value
@@ -476,7 +573,10 @@ class SetupWizardApp(App[Optional[str]]):
             self.state.enable_notion = False
             self.state.enable_github = False
             self.state.notion_api_key = ""
-            self.state.notion_database_id = ""
+            self.state.notion_target_mode = "database"
+            self.state.notion_databases = ""
+            self.state.notion_default_database = ""
+            self.state.notion_parent_page_id = ""
             self.state.github_token = ""
             self.state.guardian_database_url = ""
             self.state.redis_url = ""
@@ -511,15 +611,52 @@ class SetupWizardApp(App[Optional[str]]):
             "NOTION_API_KEY": (
                 self.state.notion_api_key if self.state.enable_notion else ""
             ),
-            "NOTION_DATABASE_ID": (
-                self.state.notion_database_id
+            "NOTION_TARGET_MODE": (
+                self.state.notion_target_mode
                 if self.state.enable_notion
                 else ""
             ),
+            "NOTION_DATABASES": (
+                self.state.notion_databases
+                if self.state.enable_notion
+                and self.state.notion_target_mode == "database"
+                else ""
+            ),
+            "NOTION_DEFAULT_DATABASE": (
+                self.state.notion_default_database
+                if self.state.enable_notion
+                and self.state.notion_target_mode == "database"
+                else ""
+            ),
+            "NOTION_PARENT_PAGE_ID": (
+                self.state.notion_parent_page_id
+                if self.state.enable_notion
+                and self.state.notion_target_mode == "page"
+                else ""
+            ),
+            "NOTION_DATABASE_ID": "",
             "GITHUB_TOKEN": self.state.github_token
             if self.state.enable_github
             else "",
         }
+        if (
+            self.state.enable_notion
+            and self.state.notion_target_mode == "database"
+        ):
+            entries = [
+                part.strip()
+                for part in self.state.notion_databases.split(",")
+                if part.strip()
+            ]
+            single_default_empty = (
+                not self.state.notion_default_database.strip()
+            )
+            if len(entries) == 1 and single_default_empty:
+                token = entries[0]
+                notion_database_id = (
+                    token.split(":", 1)[1].strip() if ":" in token else token
+                )
+                kv["NOTION_DATABASE_ID"] = notion_database_id
         for name, value in self._current_custom_paths().items():
             if name == "docker":
                 kv["DOCKER_BIN"] = value
