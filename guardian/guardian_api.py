@@ -45,6 +45,8 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+from guardian.config.system_config import ensure_system_dirs
+
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
 from guardian.core.config import (
@@ -196,6 +198,7 @@ async def app_lifespan(app: FastAPI):
 
     # === STARTUP ===
     logger.info("[startup] Guardian API starting...")
+    ensure_system_dirs()
 
     settings = get_settings()
     try:
