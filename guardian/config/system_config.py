@@ -246,12 +246,11 @@ def get_system_config(config_path: Optional[Path] = None) -> "SystemConfig":
     return _SYSTEM_CONFIG
 
 
-def ensure_system_dirs(config: Optional["SystemConfig"] = None) -> None:
+def ensure_system_dirs() -> None:
     """
     Explicit initialization entrypoint for runtime environments.
     """
-    cfg = config or get_system_config()
-    cfg.init_directories()
+    get_system_config().init_directories()
 
 
 class _LazySystemConfigProxy:
@@ -266,7 +265,7 @@ system_config = _LazySystemConfigProxy()
 # Example usage:
 if __name__ == "__main__":
     cfg = get_system_config()
-    ensure_system_dirs(cfg)
+    ensure_system_dirs()
 
     # Get configuration value
     health_interval = cfg.get("threads", "health_check_interval")
