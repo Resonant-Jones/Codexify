@@ -225,6 +225,15 @@ def _truthy(value: str | None) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _notion_target_mode(env: dict[str, str]) -> str:
+    mode = (env.get("NOTION_TARGET_MODE") or "").strip().lower()
+    return mode or "database"
+
+
+def _has_any(env: dict[str, str], keys: list[str]) -> bool:
+    return any(env.get(key, "").strip() for key in keys)
+
+
 def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
     """
     Returns (items, exit_code).
@@ -287,34 +296,68 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
             detail = f"enabled but {secret_key} missing"
         return DoctorItem(name=label, ok=ok, required=enabled, detail=detail)
 
-    def req_if_enabled_many(
-        flag_key: str, required_keys: list[str], label: str
-    ) -> DoctorItem:
-        enabled = _truthy(env.get(flag_key, "false"))
+    def notion_connector_item() -> DoctorItem:
+        enabled = _truthy(env.get("CONNECTOR_NOTION_ENABLED", "false"))
         if not enabled:
             return DoctorItem(
-                name=label, ok=True, required=False, detail="disabled"
+                name="Notion connector config",
+                ok=True,
+                required=False,
+                detail="disabled",
             )
 
-        missing = [key for key in required_keys if not env.get(key, "").strip()]
-        if missing:
-            missing_csv = ", ".join(missing)
+        notion_api_key = env.get("NOTION_API_KEY", "").strip()
+        if not notion_api_key:
             return DoctorItem(
-                name=label,
+                name="Notion connector config",
                 ok=False,
                 required=True,
-                detail=f"enabled but missing: {missing_csv}",
+                detail="enabled but NOTION_API_KEY missing",
             )
 
-        return DoctorItem(name=label, ok=True, required=True, detail="enabled")
+        mode = _notion_target_mode(env)
+        if mode == "database":
+            if not _has_any(env, ["NOTION_DATABASES", "NOTION_DATABASE_ID"]):
+                return DoctorItem(
+                    name="Notion connector config",
+                    ok=False,
+                    required=True,
+                    detail=(
+                        "enabled mode=database but missing "
+                        "NOTION_DATABASES/NOTION_DATABASE_ID"
+                    ),
+                )
+            return DoctorItem(
+                name="Notion connector config",
+                ok=True,
+                required=True,
+                detail="enabled mode=database",
+            )
 
-    items.append(
-        req_if_enabled_many(
-            "CONNECTOR_NOTION_ENABLED",
-            ["NOTION_API_KEY", "NOTION_DATABASE_ID"],
-            "Notion connector config",
+        if mode == "page":
+            notion_parent_page_id = env.get("NOTION_PARENT_PAGE_ID", "").strip()
+            if not notion_parent_page_id:
+                return DoctorItem(
+                    name="Notion connector config",
+                    ok=False,
+                    required=True,
+                    detail="enabled mode=page but NOTION_PARENT_PAGE_ID missing",
+                )
+            return DoctorItem(
+                name="Notion connector config",
+                ok=True,
+                required=True,
+                detail="enabled mode=page",
+            )
+
+        return DoctorItem(
+            name="Notion connector config",
+            ok=False,
+            required=True,
+            detail=f"enabled but invalid NOTION_TARGET_MODE={mode!r}",
         )
-    )
+
+    items.append(notion_connector_item())
     items.append(
         req_if_enabled(
             "CONNECTOR_GITHUB_ENABLED",
