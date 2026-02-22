@@ -13,7 +13,6 @@ from typing import Optional
 
 import memoryos.prompts as prompts
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from guardian.utils.embed_paths import resolve_local_embed_model
 
@@ -187,6 +186,23 @@ def ensure_directory_exists(path):
 
 # ---- Embedding Utilities ----
 _model_cache = {}
+_DEFAULT_EMBED_DIM = 384
+
+
+def _is_local_embeddings_backend() -> bool:
+    backend = (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "").strip().lower()
+    return backend == "local"
+
+
+def _get_local_embed_model(*, strict: bool) -> str | None:
+    if strict:
+        return resolve_local_embed_model(ValueError)
+    model = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
+    return model or None
+
+
+def _zero_embedding() -> np.ndarray:
+    return np.zeros(_DEFAULT_EMBED_DIM, dtype=np.float32)
 
 
 def get_embedding(text, model_name: str | None = None):
@@ -194,20 +210,52 @@ def get_embedding(text, model_name: str | None = None):
         logger.warning(
             "[memoryos] model override ignored; use LOCAL_EMBED_MODEL"
         )
-    resolved_model = resolve_local_embed_model(ValueError)
+    is_local = _is_local_embeddings_backend()
+    resolved_model = _get_local_embed_model(strict=is_local)
+    if not resolved_model:
+        logger.warning(
+            "[memoryos] LOCAL_EMBED_MODEL not configured; backend=%s returning zero embedding",
+            (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "").strip().lower()
+            or "<unset>",
+        )
+        return _zero_embedding()
     if resolved_model not in _model_cache:
         logger.info("Loading sentence transformer model: %s", resolved_model)
         try:
+            from sentence_transformers import SentenceTransformer
+
             _model_cache[resolved_model] = SentenceTransformer(
-                resolved_model, local_files_only=True
+                resolved_model, local_files_only=is_local
             )
         except Exception as exc:
+            if is_local:
+                raise RuntimeError(
+                    "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
+                ) from exc
+            logger.warning(
+                "[memoryos] model '%s' unavailable for backend=%s; returning zero embedding",
+                resolved_model,
+                (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "")
+                .strip()
+                .lower()
+                or "<unset>",
+            )
+            return _zero_embedding()
+    model = _model_cache[resolved_model]
+    try:
+        embedding = model.encode([text], convert_to_numpy=True)[0]
+        return embedding
+    except Exception as exc:
+        if is_local:
             raise RuntimeError(
                 "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
             ) from exc
-    model = _model_cache[resolved_model]
-    embedding = model.encode([text], convert_to_numpy=True)[0]
-    return embedding
+        logger.warning(
+            "[memoryos] embedding failed for backend=%s; returning zero embedding",
+            (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "").strip().lower()
+            or "<unset>",
+        )
+        return _zero_embedding()
 
 
 def normalize_vector(vec):

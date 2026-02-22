@@ -32,6 +32,7 @@ from sqlalchemy.orm import sessionmaker
 
 from guardian.db.models import ChatMessage
 from guardian.identity import get_user_id
+from guardian.utils.embed_paths import resolve_local_embed_model
 from guardian.vector.store import VectorStore
 from guardian.workers.backfill_status import update_status_snapshot
 
@@ -45,6 +46,25 @@ EMBED_SCHEMA_VERSION = 1  # explicit schema version for embeddings
 _LOCK_PATH = (
     Path(__file__).resolve().parents[1] / "logs" / "embedding_backfill.lock"
 )
+
+
+def _embeddings_backend() -> str:
+    return (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "").strip().lower()
+
+
+def _is_local_embeddings_backend() -> bool:
+    return _embeddings_backend() == "local"
+
+
+def _get_local_embed_model(*, strict: bool) -> str | None:
+    model = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
+    if strict:
+        if not model:
+            raise RuntimeError(
+                "LOCAL_EMBED_MODEL is not set; cannot record embedding metadata."
+            )
+        return resolve_local_embed_model(RuntimeError)
+    return model or None
 
 
 def _utc_now() -> str:
@@ -297,12 +317,21 @@ def run_once():
     logger.info(f"[backfill] user_id={user_id}")
     # Log embedding backend details in a provider-agnostic, future-proof way
     vector_backend = os.getenv("CODEXIFY_VECTOR_STORE", "faiss").lower()
-    embed_model = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
+    embeddings_backend = _embeddings_backend()
+    embed_model = _get_local_embed_model(
+        strict=_is_local_embeddings_backend()
+    )
     if not embed_model:
-        raise RuntimeError(
-            "LOCAL_EMBED_MODEL is not set; cannot record embedding metadata."
+        embed_model = embeddings_backend or "unspecified"
+        logger.info(
+            "[backfill] LOCAL_EMBED_MODEL not set; backend=%s using embedding_model metadata=%s",
+            embeddings_backend or "<unset>",
+            embed_model,
         )
     logger.info(f"[backfill] vector_backend={vector_backend}")
+    logger.info(
+        f"[backfill] embeddings_backend={embeddings_backend or '<unset>'}"
+    )
     logger.info(f"[backfill] embed_model={embed_model}")
     logger.info(f"[backfill] batch_size={batch_size}")
     logger.info(
