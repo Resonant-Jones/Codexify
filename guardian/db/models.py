@@ -2169,6 +2169,85 @@ class CronRun(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class CommandRun(Base):
+    """Durable command invocation run records."""
+
+    __tablename__ = "command_runs"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    command_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="queued"
+    )
+    actor_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    actor_session_id: Mapped[str | None] = mapped_column(String(255))
+    delegated_by: Mapped[str | None] = mapped_column(String(255))
+    auth_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    invoke_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    args_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    args_redacted: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    result_json: Mapped[dict | None] = mapped_column(JSONB)
+    error_text: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed', 'blocked')",
+            name="command_runs_status_check",
+        ),
+        Index("ix_command_runs_command_id", "command_id"),
+        Index("ix_command_runs_status", "status"),
+        Index("ix_command_runs_created_at", "created_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class CommandRunEvent(Base):
+    """Ordered append-only event records for command run streaming."""
+
+    __tablename__ = "command_run_events"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("command_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "sequence",
+            name="uq_command_run_events_run_sequence",
+        ),
+        Index("ix_command_run_events_run_id", "run_id"),
+        Index("ix_command_run_events_created_at", "created_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
 class ChannelConfig(Base):
     """Per-user channel adapter configuration blobs."""
 
