@@ -152,6 +152,30 @@ def test_legacy_execute_synthesizes_actor_from_x_user_id(monkeypatch) -> None:
     assert run["auth_subject"] == "shim-operator"
 
 
+def test_legacy_execute_synthesizes_actor_from_single_user_fallback(
+    monkeypatch,
+) -> None:
+    captured: list[dict[str, Any]] = []
+    _install_fake_loopback(monkeypatch, captured)
+    monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", "single-user")
+    client = _build_client(monkeypatch)
+
+    response = client.post(
+        "/tools/execute",
+        headers=_auth_headers(user_id=None),
+        json={"name": "health_check", "args": {"check": "fallback"}},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    run_id = payload["job_id"]
+
+    run = command_bus._store.get_run(run_id)
+    assert run is not None
+    assert run["actor_kind"] == "human"
+    assert run["actor_id"] == "single-user"
+    assert run["auth_subject"] == "single-user"
+
+
 def test_legacy_execute_rejects_missing_actor_and_identity(monkeypatch) -> None:
     client = _build_client(monkeypatch)
     monkeypatch.setattr(tools, "_resolve_auth_subject", lambda _request: None)
