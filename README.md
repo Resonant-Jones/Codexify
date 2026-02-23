@@ -2,6 +2,24 @@
 
 Codexify is a local-first chat + knowledge workspace built around a FastAPI backend (Guardian) and a React UI. It provides thread-based chat, memory silos, document autosave and sharing, media uploads, vector search, and optional workers for background tasks. Docker Compose is the primary, supported way to run the full stack.
 
+## 📘 Help & Setup Guide
+
+New to Codexify?
+
+Start here:
+
+👉 [Help, Setup, and FAQ](docs/help/CODEXIFY_HELP_AND_FAQ.md)
+
+This document covers:
+
+- Docker setup
+- First-run checklist
+- Provider configuration
+- Common errors
+- Troubleshooting commands
+- Support channels
+
+
 ### TL;DR — Start Here
 
 If you want to **run Codexify locally** with the least friction:
