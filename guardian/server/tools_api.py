@@ -3,9 +3,10 @@ import traceback
 from typing import Any, Dict, List
 
 import click
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from guardian.command_bus.manifest import build_manifest
 from guardian.runtime.tools.invoker import invoke_tool
 from guardian.runtime.tools.policy import require_confirm
 from guardian.runtime.tools.registry import ROOTS, generate_tools_manifest
@@ -15,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/tools", tags=["tools"])
+DEPRECATION_PHASE = "1.5"
+MANIFEST_REPLACED_BY = "/api/guardian/commands/manifest"
 
 
 class ToolCall(BaseModel):
@@ -22,9 +25,56 @@ class ToolCall(BaseModel):
     arguments: Dict[str, Any] = {}
 
 
+def _manifest_deprecation_headers() -> dict[str, str]:
+    return {
+        "X-Codexify-Deprecated": "true",
+        "X-Codexify-Deprecation-Replaced-By": MANIFEST_REPLACED_BY,
+        "X-Codexify-Deprecation-Phase": DEPRECATION_PHASE,
+    }
+
+
+def _legacy_manifest_from_command_bus(request: Request) -> List[Dict[str, Any]]:
+    manifest = build_manifest(request.app)
+    payload: List[Dict[str, Any]] = []
+    for command in manifest.commands:
+        payload.append(
+            {
+                "name": command.command_id,
+                "description": f"{command.method} {command.path_template}",
+                "command_id": command.command_id,
+                "aliases": list(command.aliases),
+                "method": command.method,
+                "path_template": command.path_template,
+                "operation_id": command.operation_id,
+                "risk": command.risk,
+                "effect": command.effect,
+                "idempotency": command.idempotency,
+                "approval_mode": command.approval_mode,
+                "args_schema": command.input_schema,
+            }
+        )
+    return payload
+
+
 @router.get("/manifest")
-def manifest() -> List[Dict[str, Any]]:
-    return generate_tools_manifest()
+def manifest(request: Request, response: Response) -> List[Dict[str, Any]]:
+    for key, value in _manifest_deprecation_headers().items():
+        response.headers[key] = value
+    subject = request.headers.get("X-User-Id", "").strip() or "-"
+    logger.info(
+        "legacy_tools_shim path=%s subject=%s command_id=%s",
+        request.url.path,
+        subject,
+        "-",
+    )
+    try:
+        return _legacy_manifest_from_command_bus(request)
+    except Exception:
+        # Keep fallback behavior if command bus manifest generation fails.
+        logger.exception(
+            "legacy_tools_shim manifest fallback to runtime registry"
+        )
+        return generate_tools_manifest()
 
 
 @router.post("/call")
