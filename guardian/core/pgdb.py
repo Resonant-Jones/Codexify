@@ -2181,3 +2181,235 @@ def fetch_threads_for_user(
             logger.debug(
                 "Failed to close export connection: %s", conn_err, exc_info=True
             )
+
+
+def _normalize_export_json_field(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return dict(parsed) if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _normalize_export_thread_row(row: dict[str, Any]) -> dict[str, Any]:
+    normalized = PgDB._normalize_thread(dict(row))
+    normalized["metadata"] = _normalize_export_json_field(
+        normalized.get("metadata")
+    )
+    project_name = normalized.get("project_name")
+    if project_name is None:
+        normalized["project_name"] = None
+    elif not isinstance(project_name, str):
+        normalized["project_name"] = str(project_name)
+    return normalized
+
+
+def _normalize_export_message_row(row: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(row)
+    for key in ("created_at", "event_at"):
+        value = normalized.get(key)
+        if isinstance(value, datetime):
+            normalized[key] = value.isoformat()
+        elif value is not None and not isinstance(value, str):
+            normalized[key] = str(value)
+    normalized["extra_meta"] = _normalize_export_json_field(
+        normalized.get("extra_meta")
+    )
+    return normalized
+
+
+def fetch_imported_chatgpt_threads_for_user(
+    user_id: str,
+    *,
+    project_id: int | None = None,
+    chunk_size: int = 128,
+) -> Generator[dict[str, Any], None, None]:
+    """
+    Yield imported ChatGPT threads for a user, optionally scoped to a project.
+    """
+    if not user_id:
+        return
+
+    dsn = _resolve_dsn()
+    conn = psycopg.connect(dsn, row_factory=dict_row)
+    cursor_name = f"chatgpt_threads_export_{uuid.uuid4().hex}"
+    cur = conn.cursor(name=cursor_name)
+    cur.itersize = max(int(chunk_size), 1)
+
+    where_parts = ["ct.user_id = %s"]
+    params: list[Any] = [user_id]
+    if project_id is not None:
+        where_parts.append("ct.project_id = %s")
+        params.append(int(project_id))
+
+    base_query = f"""
+        SELECT
+            ct.id,
+            ct.user_id,
+            ct.title,
+            ct.summary,
+            ct.project_id,
+            ct.parent_id,
+            ct.archived_at,
+            ct.metadata,
+            ct.created_at,
+            ct.updated_at,
+            p.name AS project_name
+        FROM chat_threads ct
+        LEFT JOIN projects p ON p.id = ct.project_id
+        WHERE {' AND '.join(where_parts)}
+          AND (
+                ct.metadata->>'import_source' = 'chatgpt'
+                OR EXISTS (
+                    SELECT 1
+                    FROM chat_messages cm
+                    WHERE cm.thread_id = ct.id
+                      AND (
+                            cm.extra_meta->>'origin' = 'chatgpt_import'
+                            OR cm.extra_meta->>'source' = 'chatgpt_import'
+                            OR cm.extra_meta ? 'source_thread_id'
+                      )
+                )
+          )
+        ORDER BY ct.updated_at DESC, ct.id DESC
+    """
+
+    fallback_query = f"""
+        SELECT
+            ct.id,
+            ct.user_id,
+            ct.title,
+            ct.summary,
+            ct.project_id,
+            ct.parent_id,
+            ct.archived_at,
+            ct.created_at,
+            ct.updated_at,
+            p.name AS project_name
+        FROM chat_threads ct
+        LEFT JOIN projects p ON p.id = ct.project_id
+        WHERE {' AND '.join(where_parts)}
+          AND EXISTS (
+                SELECT 1
+                FROM chat_messages cm
+                WHERE cm.thread_id = ct.id
+                  AND (
+                        cm.extra_meta->>'origin' = 'chatgpt_import'
+                        OR cm.extra_meta->>'source' = 'chatgpt_import'
+                        OR cm.extra_meta ? 'source_thread_id'
+                  )
+          )
+        ORDER BY ct.updated_at DESC, ct.id DESC
+    """
+
+    try:
+        try:
+            cur.execute(base_query, params)
+        except pg_errors.UndefinedColumn:
+            conn.rollback()
+            try:
+                cur.close()
+            except Exception:
+                pass
+            cur = conn.cursor(name=cursor_name)
+            cur.itersize = max(int(chunk_size), 1)
+            cur.execute(fallback_query, params)
+        except pg_errors.UndefinedTable:
+            logger.error(
+                "chat_threads/chat_messages table missing while exporting imported chats for %s.",
+                user_id,
+            )
+            raise
+
+        for row in cur:
+            yield _normalize_export_thread_row(dict(row))
+    finally:
+        try:
+            cur.close()
+        except Exception as close_err:
+            logger.debug(
+                "Failed to close imported-thread export cursor: %s",
+                close_err,
+                exc_info=True,
+            )
+        try:
+            conn.close()
+        except Exception as conn_err:
+            logger.debug(
+                "Failed to close imported-thread export connection: %s",
+                conn_err,
+                exc_info=True,
+            )
+
+
+def fetch_imported_chatgpt_messages_for_thread(
+    thread_id: int,
+) -> list[dict[str, Any]]:
+    """
+    Return imported ChatGPT messages for a thread in canonical chronological order.
+    """
+    dsn = _resolve_dsn()
+    conn = psycopg.connect(dsn, row_factory=dict_row)
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT
+                        id,
+                        thread_id,
+                        role,
+                        content,
+                        kind,
+                        event_at,
+                        created_at,
+                        extra_meta
+                    FROM chat_messages
+                    WHERE thread_id = %s
+                      AND (
+                            extra_meta->>'origin' = 'chatgpt_import'
+                            OR extra_meta->>'source' = 'chatgpt_import'
+                            OR extra_meta ? 'source_thread_id'
+                      )
+                    ORDER BY COALESCE(event_at, created_at) ASC, id ASC
+                    """,
+                    (thread_id,),
+                )
+            except pg_errors.UndefinedColumn:
+                conn.rollback()
+                cur.execute(
+                    """
+                    SELECT
+                        id,
+                        thread_id,
+                        role,
+                        content,
+                        created_at,
+                        extra_meta
+                    FROM chat_messages
+                    WHERE thread_id = %s
+                      AND (
+                            extra_meta->>'origin' = 'chatgpt_import'
+                            OR extra_meta->>'source' = 'chatgpt_import'
+                            OR extra_meta ? 'source_thread_id'
+                      )
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (thread_id,),
+                )
+
+            rows = cur.fetchall()
+            return [_normalize_export_message_row(dict(row)) for row in rows]
+    finally:
+        try:
+            conn.close()
+        except Exception as conn_err:
+            logger.debug(
+                "Failed to close imported-message export connection: %s",
+                conn_err,
+                exc_info=True,
+            )

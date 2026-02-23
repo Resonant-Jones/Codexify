@@ -13,24 +13,29 @@ interface ChatGPTImportModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userName?: string;
+  onImported?: (stats: MigrationStats) => void;
 }
 
-interface MigrationResponse {
+export interface MigrationStats {
   threads_imported: number;
   messages_imported: number;
+  projects_created?: number;
+  projects_reused?: number;
+  messages_filtered?: number;
 }
 
 export function ChatGPTImportModal({
   open,
   onOpenChange,
   userName = "user",
+  onImported,
 }: ChatGPTImportModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [status, setStatus] = useState<
     "idle" | "uploading" | "success" | "error"
   >("idle");
-  const [stats, setStats] = useState<MigrationResponse | null>(null);
+  const [stats, setStats] = useState<MigrationStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -82,10 +87,15 @@ export function ChatGPTImportModal({
         }
       );
 
-      setStats({
-        threads_imported: response.data.threads_imported,
-        messages_imported: response.data.messages_imported,
-      });
+      const nextStats: MigrationStats = {
+        threads_imported: Number(response.data?.threads_imported ?? 0),
+        messages_imported: Number(response.data?.messages_imported ?? 0),
+        projects_created: Number(response.data?.projects_created ?? 0),
+        projects_reused: Number(response.data?.projects_reused ?? 0),
+        messages_filtered: Number(response.data?.messages_filtered ?? 0),
+      };
+      setStats(nextStats);
+      onImported?.(nextStats);
       setStatus("success");
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";

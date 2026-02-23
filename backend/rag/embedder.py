@@ -54,9 +54,14 @@ _ENV_BACKEND = "CODEXIFY_EMBEDDINGS_BACKEND"
 _ENV_FALLBACK = "CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK"
 
 # Allowed backend values
+_BACKEND_LOCAL = "local"
 _BACKEND_SENTENCE_TRANSFORMER = "sentence_transformer"
 _BACKEND_MOCK = "mock"
-_ALLOWED_BACKENDS = {_BACKEND_SENTENCE_TRANSFORMER, _BACKEND_MOCK}
+_ALLOWED_BACKENDS = {
+    _BACKEND_LOCAL,
+    _BACKEND_SENTENCE_TRANSFORMER,
+    _BACKEND_MOCK,
+}
 
 
 def _normalize_metadatas(
@@ -113,6 +118,17 @@ def _allow_fallback() -> bool:
     return val in ("1", "true", "yes")
 
 
+def _is_local_backend(value: str) -> bool:
+    return (value or "").strip().lower() == _BACKEND_LOCAL
+
+
+def _get_local_embed_model(*, strict: bool) -> str | None:
+    if strict:
+        return resolve_local_embed_model()
+    model_name = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
+    return model_name or None
+
+
 class LocalSemanticEmbedder:
     """Local embedder for embedding, indexing, and semantic search."""
 
@@ -160,8 +176,9 @@ class LocalSemanticEmbedder:
         if self._backend_type == _BACKEND_MOCK:
             return self._init_mock_backend()
 
-        # Default: sentence_transformer backend
-        return self._init_sentence_transformer()
+        return self._init_sentence_transformer(
+            strict_local=_is_local_backend(self._backend_type)
+        )
 
     def _init_mock_backend(self):
         """Initialize MockEmbeddingBackend."""
@@ -180,10 +197,13 @@ class LocalSemanticEmbedder:
         self.model_name = "mock"
         return mock
 
-    def _init_sentence_transformer(self):
+    def _init_sentence_transformer(self, *, strict_local: bool):
         """Initialize SentenceTransformer backend with optional fallback."""
-        self.model_name = resolve_local_embed_model()
-        logger.info("[embedder] local embedding model=%s", self.model_name)
+        self.model_name = _get_local_embed_model(strict=strict_local)
+        if not self.model_name:
+            # Non-local backends can run without LOCAL_EMBED_MODEL configured.
+            self.model_name = "BAAI/bge-large-en-v1.5"
+        logger.info("[embedder] embedding model=%s", self.model_name)
 
         if SentenceTransformer is None:
             if _allow_fallback() and MockEmbeddingBackend is not None:
@@ -197,7 +217,7 @@ class LocalSemanticEmbedder:
         try:
             model = SentenceTransformer(
                 self.model_name,
-                local_files_only=True,
+                local_files_only=strict_local,
             )
             logger.info(
                 "[embedder] backend=sentence_transformer model=%s",
@@ -212,8 +232,12 @@ class LocalSemanticEmbedder:
                     str(exc),
                 )
                 return self._init_mock_backend()
+            if strict_local:
+                raise RuntimeError(
+                    "LOCAL_EMBED_MODEL could not be loaded from local cache."
+                ) from exc
             raise RuntimeError(
-                "LOCAL_EMBED_MODEL could not be loaded from local cache."
+                f"SentenceTransformer could not be initialized for model '{self.model_name}'."
             ) from exc
 
     def _embed_np(self, texts: list[str], batch_size: int = 64) -> np.ndarray:

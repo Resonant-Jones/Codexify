@@ -8,7 +8,10 @@ import { ImagePlus } from "lucide-react";
 import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
 import { MemoryBrowser } from "@/features/settings/diagnostics";
-import { ChatGPTImportModal } from "@/components/modals/ChatGPTImportModal";
+import {
+  ChatGPTImportModal,
+  type MigrationStats,
+} from "@/components/modals/ChatGPTImportModal";
 
 export function SettingsView({
   mode,
@@ -65,6 +68,10 @@ export function SettingsView({
 }) {
   const [tab, setTab] = useState<"appearance" | "system" | "connectors" | "data" | "diagnostics">("appearance");
   const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
+  const [migrationStepSkipped, setMigrationStepSkipped] = useState(false);
+  const [migrationStats, setMigrationStats] = useState<MigrationStats | null>(
+    null
+  );
   const [name, setName] = useState(guardianName);
   const [uName, setUName] = useState(userName);
   const [uRole, setURole] = useState(role);
@@ -114,6 +121,14 @@ export function SettingsView({
     setFileLabel("");
     if (typeof window !== "undefined") localStorage.removeItem("cfy.wallpaper");
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  const migrationComplete =
+    migrationStepSkipped || migrationStats !== null;
+
+  function handleDownloadExport() {
+    if (typeof window === "undefined") return;
+    window.location.href = "/exports/chatgpt.zip";
   }
 
   const { connectors, updateConnector, loading, error, authorizeOAuth, testConnector, syncConnector } = useConnectors();
@@ -318,19 +333,100 @@ export function SettingsView({
         {tab === "data" && (
           <div className="space-y-4">
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">ChatGPT Migration</div>
-                <p className="text-xs opacity-70 leading-relaxed">
-                  Import your full conversation history from ChatGPT. This process ingests your data into both the Knowledge Graph (for relationships) and the Vector Store (for semantic recall).
-                </p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold">
+                    Migrate from ChatGPT
+                  </div>
+                  <p className="text-xs opacity-70 leading-relaxed">
+                    Import your ChatGPT export. Codexify will preserve project
+                    grouping and remove tool-output noise from the user-visible
+                    transcript.
+                  </p>
+                </div>
+                <div
+                  className="shrink-0 rounded-full border px-2 py-1 text-[11px] font-medium"
+                  style={{
+                    borderColor: migrationComplete
+                      ? "rgba(34, 197, 94, 0.35)"
+                      : "var(--panel-border)",
+                    color: migrationComplete
+                      ? "rgb(134, 239, 172)"
+                      : "var(--muted)",
+                  }}
+                >
+                  {migrationComplete ? "Complete" : "Optional"}
+                </div>
               </div>
-              <Button
-                type="button"
-                onClick={() => setChatGPTModalOpen(true)}
-                className="rounded-[var(--tile-radius,19px)] w-full"
-              >
-                Import from ChatGPT
-              </Button>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  type="button"
+                  onClick={() => setChatGPTModalOpen(true)}
+                  className="rounded-[var(--tile-radius,19px)] w-full"
+                >
+                  Import ChatGPT history
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleDownloadExport}
+                  className="rounded-[var(--tile-radius,19px)] w-full"
+                >
+                  Download Codexify ZIP export
+                </Button>
+              </div>
+
+              {!migrationComplete && (
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMigrationStepSkipped(true)}
+                    className="rounded-[var(--tile-radius,19px)]"
+                  >
+                    Skip
+                  </Button>
+                </div>
+              )}
+
+              {migrationStats && (
+                <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                    Import Summary
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div>Threads imported</div>
+                    <div className="text-right tabular-nums">
+                      {migrationStats.threads_imported ?? 0}
+                    </div>
+                    <div>Messages imported</div>
+                    <div className="text-right tabular-nums">
+                      {migrationStats.messages_imported ?? 0}
+                    </div>
+                    <div>Projects created</div>
+                    <div className="text-right tabular-nums">
+                      {migrationStats.projects_created ?? 0}
+                    </div>
+                    <div>Projects reused</div>
+                    <div className="text-right tabular-nums">
+                      {migrationStats.projects_reused ?? 0}
+                    </div>
+                    <div>Messages filtered</div>
+                    <div className="text-right tabular-nums">
+                      {migrationStats.messages_filtered ?? 0}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {migrationStepSkipped && !migrationStats && (
+                <p className="text-xs opacity-70 leading-relaxed">
+                  Migration step skipped for this session. You can come back to
+                  import any time.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -346,6 +442,10 @@ export function SettingsView({
         open={chatGPTModalOpen}
         onOpenChange={setChatGPTModalOpen}
         userName={userName}
+        onImported={(stats) => {
+          setMigrationStats(stats);
+          setMigrationStepSkipped(false);
+        }}
       />
     </div>
   );
