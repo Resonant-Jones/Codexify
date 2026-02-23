@@ -162,3 +162,8 @@ tmp/
 **/tmp/
 data/
 chatgpt-conversation-extractor-master/
+conversations.json
+chatgpt-conversation.json
+conversations.json
+# Local/vendor checkouts
+MiniMax-MCP-main/

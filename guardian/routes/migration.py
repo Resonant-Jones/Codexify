@@ -1,7 +1,5 @@
-import json
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -21,6 +19,9 @@ router = APIRouter(tags=["Migration"])
 class MigrationStats(BaseModel):
     threads_imported: int
     messages_imported: int
+    projects_created: Optional[int] = None
+    projects_reused: Optional[int] = None
+    messages_filtered: Optional[int] = None
 
 
 from backend.rag.chatgpt_migration import ingest_chatgpt_export
@@ -45,6 +46,9 @@ async def upload_chatgpt_export(
         return MigrationStats(
             threads_imported=stats["threads_imported"],
             messages_imported=stats["messages_imported"],
+            projects_created=stats.get("projects_created"),
+            projects_reused=stats.get("projects_reused"),
+            messages_filtered=stats.get("messages_filtered"),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
