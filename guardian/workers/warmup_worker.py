@@ -49,14 +49,36 @@ ALLOW_LOCALHOST_VAULTNODE = os.getenv(
 }
 
 
+def _embeddings_backend() -> str:
+    return (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "").strip().lower()
+
+
+def _is_local_embeddings_backend() -> bool:
+    return _embeddings_backend() == "local"
+
+
+def _get_local_embed_model(*, strict: bool) -> str | None:
+    model = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
+    if strict and not model:
+        raise RuntimeError(
+            "LOCAL_EMBED_MODEL is not set. Set LOCAL_EMBED_MODEL to a local model id or path."
+        )
+    return model or None
+
+
 def _is_embedding_model(model: str) -> bool:
     norm = str(model or "").strip().lower()
     if not norm:
         return False
-    candidates = [os.getenv("LOCAL_EMBED_MODEL")]
-    for candidate in candidates:
-        if norm == str(candidate or "").strip().lower():
-            return True
+    local_model = _get_local_embed_model(strict=False)
+    if local_model and norm == local_model.strip().lower():
+        if not _is_local_embeddings_backend():
+            logger.info(
+                "[warmup] skipping local embedding model=%s because backend=%s",
+                model,
+                _embeddings_backend() or "<unset>",
+            )
+        return True
     return False
 
 

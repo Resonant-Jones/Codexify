@@ -1,12 +1,13 @@
-import json
+import sys
+from pathlib import Path
 
 import click
-
-from guardian.core.client_factory import get_memoryos_instance
 
 
 def get_memory_instance():
     """Share the same MemoryOS factory used by the backend application."""
+    from guardian.core.client_factory import get_memoryos_instance
+
     return get_memoryos_instance()
 
 
@@ -86,6 +87,8 @@ def show_conversations_by_thread(thread_id):
 @click.argument("conversation_id", type=str)
 def get_conversation_by_id(conversation_id):
     """Retrieve a specific conversation by its ID."""
+    import json
+
     memory = get_memory_instance()
     convo = memory.get_conversation_by_id(conversation_id)
     click.echo(f"\n--- CONVERSATION {conversation_id} ---\n")
@@ -100,3 +103,99 @@ def summarize_and_branch(conversation_id):
     result = memory.summarize_and_branch_conversation(conversation_id)
     click.echo("\n--- SUMMARY RESULT ---\n")
     click.echo(result if result else "No summary was generated.")
+
+
+@cli.command("setup")
+@click.option(
+    "--repo-root",
+    type=click.Path(
+        path_type=Path,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    default=Path.cwd,
+    show_default="current working directory",
+    help="Repo root used to write .env (default: cwd).",
+)
+def setup_wizard(repo_root: Path) -> None:
+    """Launch interactive setup wizard for dependency scan and .env generation."""
+    try:
+        from guardian.tui.setup_wizard_app import run_setup_wizard
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.startswith("textual"):
+            raise click.ClickException(
+                "Textual is required for this command. "
+                "Install with: pip install '.[tui]'"
+            ) from exc
+        raise
+
+    print("Launching Codexify Setup Wizard...")
+    run_setup_wizard(repo_root=repo_root)
+
+
+@cli.command("doctor")
+@click.option(
+    "--repo-root",
+    type=click.Path(
+        path_type=Path,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    default=Path.cwd,
+    show_default="current working directory",
+    help="Repo root used to find .env (default: cwd).",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Emit machine-readable JSON output.",
+)
+def doctor(repo_root: Path, json_output: bool) -> None:
+    """Run environment diagnostics and exit nonzero on required failures."""
+    from guardian.ops.setup_wizard import build_doctor_report
+
+    items, code = build_doctor_report(repo_root=repo_root)
+
+    if json_output:
+        import json
+
+        payload = [
+            {
+                "name": item.name,
+                "ok": item.ok,
+                "required": item.required,
+                "detail": item.detail,
+            }
+            for item in items
+        ]
+        click.echo(json.dumps({"items": payload, "exit_code": code}, indent=2))
+        sys.exit(code)
+
+    click.echo("Codexify Doctor Report")
+    click.echo(f"Repo: {repo_root.resolve()}")
+    click.echo("")
+
+    for item in items:
+        status = "OK" if item.ok else ("FAIL" if item.required else "WARN")
+        requiredness = "required" if item.required else "optional"
+        detail = f" - {item.detail}" if item.detail else ""
+        click.echo(f"[{status}] ({requiredness}) {item.name}{detail}")
+
+    if code != 0:
+        click.echo("")
+        click.echo(
+            "One or more REQUIRED checks failed. "
+            "Run `codexify setup` to repair configuration."
+        )
+
+    sys.exit(code)
+
+
+if __name__ == "__main__":
+    cli()

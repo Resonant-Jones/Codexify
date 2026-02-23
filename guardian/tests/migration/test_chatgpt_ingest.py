@@ -320,7 +320,9 @@ def test_imported_fact_is_recalled_in_post_import_completion(monkeypatch):
     memory_store = object()
     observed: dict[str, Any] = {}
 
-    def fake_stream_local(messages: list[dict[str, str]], _model: str):
+    def fake_stream_local(
+        messages: list[dict[str, str]], _model: str, **_kwargs
+    ):
         system_text = "\n".join(
             str(message.get("content") or "")
             for message in messages
@@ -385,3 +387,324 @@ def test_imported_fact_is_recalled_in_post_import_completion(monkeypatch):
     assistant_text = str(assistant_messages[-1].get("content") or "")
     assert imported_fact in assistant_text
     assert observed.get("has_memory_context") is True
+
+
+def test_ingest_routes_template_projects_and_tracks_project_stats(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.list_projects.return_value = [{"id": 1, "name": "Imports"}]
+
+    def ensure_project(name: str, _description: str = "") -> int:
+        if name == "Imports":
+            return 1
+        if "[11111111]" in name:
+            return 10
+        return 11
+
+    mock_db.ensure_project.side_effect = ensure_project
+
+    thread_ids = iter([101, 102])
+    mock_db.create_chat_thread.side_effect = lambda **_: {
+        "id": next(thread_ids)
+    }
+    message_ids = iter([1, 2, 3, 4])
+    mock_db.create_message.side_effect = lambda *args, **kwargs: next(
+        message_ids
+    )
+
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "_vector_store", MagicMock())
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_thread_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_message_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+
+    project_lookup_calls = {"count": 0}
+
+    def fake_find_project(*_args, **_kwargs):
+        project_lookup_calls["count"] += 1
+        if project_lookup_calls["count"] == 1:
+            return None
+        return 10
+
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_project_for_template",
+        fake_find_project,
+    )
+
+    export = _build_mainline_export(
+        [("user", "One", 1), ("assistant", "A", 2)],
+        thread_id="thread-one",
+        title="Template Alpha",
+    ) + _build_mainline_export(
+        [("user", "Two", 3), ("assistant", "B", 4)],
+        thread_id="thread-two",
+        title="Template Beta",
+    )
+    export[0]["conversation_template_id"] = "g-p-aaaaaaaa11111111"
+    export[1]["conversation_template_id"] = "g-p-aaaaaaaa11111111"
+
+    stats = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"),
+        user_id="tester",
+    )
+
+    assert stats["threads_imported"] == 2
+    assert stats["messages_imported"] == 4
+    assert stats["projects_created"] == 1
+    assert stats["projects_reused"] == 1
+
+    first_call = mock_db.create_chat_thread.call_args_list[0].kwargs
+    second_call = mock_db.create_chat_thread.call_args_list[1].kwargs
+    assert first_call["project_id"] == 10
+    assert second_call["project_id"] == 10
+    assert (
+        first_call["metadata"]["source_conversation_template_id"]
+        == "g-p-aaaaaaaa11111111"
+    )
+
+
+def test_ingest_without_template_falls_back_to_imports(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.ensure_project.side_effect = lambda name, _description="": (
+        1 if name == "Imports" else 99
+    )
+    mock_db.list_projects.return_value = [{"id": 1, "name": "Imports"}]
+    mock_db.create_chat_thread.return_value = {"id": 42}
+    mock_db.create_message.return_value = 1
+
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "_vector_store", MagicMock())
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_thread_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_message_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+
+    export = _build_mainline_export([("user", "Hello imports", 1)])
+
+    stats = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"),
+        user_id="tester",
+    )
+
+    assert stats["threads_imported"] == 1
+    assert stats["messages_imported"] == 1
+    assert stats["projects_created"] == 0
+    assert stats["projects_reused"] == 0
+
+    kwargs = mock_db.create_chat_thread.call_args.kwargs
+    assert kwargs["project_id"] == 1
+    assert kwargs["metadata"]["import_source"] == "chatgpt"
+    assert "source_conversation_template_id" not in kwargs["metadata"]
+
+
+def test_ingest_filters_internal_noise_and_tracks_filtered(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.ensure_project.return_value = 1
+    mock_db.list_projects.return_value = [{"id": 1, "name": "Imports"}]
+    mock_db.create_chat_thread.return_value = {"id": 42}
+    mock_db.create_message.side_effect = [1, 2]
+
+    captured_meta: list[dict[str, Any]] = []
+
+    def capture_temporal_meta(
+        chatlog_db, message_id, merged_meta, source_created_at
+    ):
+        captured_meta.append(dict(merged_meta))
+
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "_vector_store", MagicMock())
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_thread_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_message_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        capture_temporal_meta,
+    )
+
+    export = [
+        {
+            "id": "filter-thread",
+            "title": "Filter Test",
+            "current_node": "m4",
+            "mapping": {
+                "m1": {
+                    "id": "m1",
+                    "parent": None,
+                    "children": ["m2"],
+                    "message": {
+                        "author": {"role": "system"},
+                        "content": {
+                            "content_type": "text",
+                            "parts": ["Internal system prompt"],
+                        },
+                        "create_time": 1,
+                    },
+                },
+                "m2": {
+                    "id": "m2",
+                    "parent": "m1",
+                    "children": ["m3"],
+                    "message": {
+                        "author": {"role": "user"},
+                        "content": {
+                            "content_type": "text",
+                            "parts": ["Keep this user message"],
+                        },
+                        "create_time": 2,
+                    },
+                },
+                "m3": {
+                    "id": "m3",
+                    "parent": "m2",
+                    "children": ["m4"],
+                    "message": {
+                        "author": {"role": "assistant"},
+                        "content": {"content_type": "text", "parts": [""]},
+                        "create_time": 3,
+                    },
+                },
+                "m4": {
+                    "id": "m4",
+                    "parent": "m3",
+                    "children": [],
+                    "message": {
+                        "author": {"role": "assistant"},
+                        "content": {
+                            "content_type": "text",
+                            "parts": ["Canonical assistant reply"],
+                        },
+                        "create_time": 4,
+                    },
+                },
+            },
+        }
+    ]
+
+    stats = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"),
+        user_id="tester",
+    )
+
+    assert stats["threads_imported"] == 1
+    assert stats["messages_imported"] == 2
+    assert stats["messages_filtered"] == 2
+    assert captured_meta
+    assert all(
+        meta.get("canonical_filter_profile") == "chatgpt_v1_canonical"
+        for meta in captured_meta
+    )
+    assert all(
+        isinstance(meta.get("raw_message"), dict) for meta in captured_meta
+    )
+
+
+def test_ingest_is_idempotent_on_reimport(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.ensure_project.return_value = 1
+    mock_db.list_projects.return_value = [{"id": 1, "name": "Imports"}]
+
+    source_to_thread: dict[str, int] = {}
+    source_to_message: dict[tuple[int, str], int] = {}
+    last_source_thread = {"value": ""}
+    last_source_message = {"value": ""}
+    next_thread_id = {"value": 500}
+    next_message_id = {"value": 1}
+
+    def fake_find_thread(chatlog_db, user_id, source_thread_id):
+        last_source_thread["value"] = source_thread_id
+        return source_to_thread.get(source_thread_id)
+
+    def fake_create_thread(**_kwargs):
+        thread_id = next_thread_id["value"]
+        next_thread_id["value"] += 1
+        source_to_thread[last_source_thread["value"]] = thread_id
+        return {"id": thread_id}
+
+    def fake_find_message(chatlog_db, thread_id, source_message_id):
+        last_source_message["value"] = source_message_id
+        mid = source_to_message.get((thread_id, source_message_id))
+        if mid is None:
+            return None
+        return {"id": mid, "extra_meta": {}}
+
+    def fake_create_message(thread_id, role, content, created_at=None):
+        _ = role, content, created_at
+        mid = next_message_id["value"]
+        next_message_id["value"] += 1
+        source_to_message[(thread_id, last_source_message["value"])] = mid
+        return mid
+
+    mock_db.create_chat_thread.side_effect = fake_create_thread
+    mock_db.create_message.side_effect = fake_create_message
+
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "_vector_store", MagicMock())
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_thread_for_source",
+        fake_find_thread,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_message_for_source",
+        fake_find_message,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+
+    export = _build_mainline_export(
+        [("user", "Hello", 1), ("assistant", "World", 2)],
+        thread_id="repeat-thread",
+    )
+
+    stats_first = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"),
+        user_id="tester",
+    )
+    stats_second = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"),
+        user_id="tester",
+    )
+
+    assert stats_first["threads_imported"] == 1
+    assert stats_first["messages_imported"] == 2
+    assert stats_second["threads_imported"] == 0
+    assert stats_second["messages_imported"] == 0

@@ -1,10 +1,29 @@
 import hashlib
 import logging
+import os
 from typing import Iterable, List
 
 from guardian.utils.embed_paths import resolve_local_embed_model
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_embeddings_backend() -> str:
+    backend = (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "").strip().lower()
+    if backend:
+        return backend
+    return os.getenv("EMBEDDING_BACKEND", "stub").strip().lower()
+
+
+def _is_local_backend(backend: str) -> bool:
+    return (backend or "").strip().lower() == "local"
+
+
+def _get_local_embed_model(*, strict: bool) -> str | None:
+    if strict:
+        return resolve_local_embed_model()
+    model = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
+    return model or None
 
 
 def _stub_embed(text: str, dim: int = 128) -> List[float]:
@@ -23,10 +42,11 @@ def _stub_embed(text: str, dim: int = 128) -> List[float]:
 
 class Embedder:
     def __init__(self) -> None:
-        self.backend = os.getenv("EMBEDDING_BACKEND", "stub").strip().lower()
+        self.backend = _resolve_embeddings_backend()
         self.dim = int(os.getenv("EMBEDDING_DIM", "128"))
         self._model = None
-        if self.backend == "local":
+        is_local = _is_local_backend(self.backend)
+        if is_local:
             try:
                 from sentence_transformers import (
                     SentenceTransformer,  # type: ignore
@@ -36,7 +56,7 @@ class Embedder:
                     "sentence-transformers is required for EMBEDDING_BACKEND=local."
                 ) from exc
 
-            model_name = resolve_local_embed_model()
+            model_name = _get_local_embed_model(strict=True)
             logger.info("[embeds] local embedding model=%s", model_name)
             try:
                 self._model = SentenceTransformer(

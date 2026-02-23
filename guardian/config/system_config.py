@@ -63,7 +63,9 @@ class SystemConfig:
         },
     }
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(
+        self, config_path: Optional[Path] = None, init_dirs: bool = True
+    ):
         """
         Initialize system configuration.
 
@@ -78,8 +80,8 @@ class SystemConfig:
         # Load custom configuration if it exists
         self._load_config()
 
-        # Ensure required directories exist
-        self._init_directories()
+        if init_dirs:
+            self.init_directories()
 
     def _load_config(self) -> None:
         """Load configuration from file if it exists."""
@@ -114,7 +116,7 @@ class SystemConfig:
             else:
                 base_dict[key] = value
 
-    def _init_directories(self) -> None:
+    def init_directories(self) -> None:
         """Create required system directories if they don't exist."""
         for dir_name, dir_path in self.config["paths"].items():
             if dir_name != "base_dir":
@@ -230,22 +232,52 @@ class SystemConfig:
             return False
 
 
-# Global configuration instance
-system_config = SystemConfig()
+_SYSTEM_CONFIG: Optional["SystemConfig"] = None
+
+
+def get_system_config(config_path: Optional[Path] = None) -> "SystemConfig":
+    """
+    Lazy global config accessor.
+    IMPORTANT: does not create directories unless explicitly requested.
+    """
+    global _SYSTEM_CONFIG
+    if _SYSTEM_CONFIG is None:
+        _SYSTEM_CONFIG = SystemConfig(config_path=config_path, init_dirs=False)
+    return _SYSTEM_CONFIG
+
+
+def ensure_system_dirs() -> None:
+    """
+    Explicit initialization entrypoint for runtime environments.
+    """
+    get_system_config().init_directories()
+
+
+class _LazySystemConfigProxy:
+    """Compatibility shim for legacy imports of `system_config`."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_system_config(), name)
+
+
+system_config = _LazySystemConfigProxy()
 
 # Example usage:
 if __name__ == "__main__":
+    cfg = get_system_config()
+    ensure_system_dirs()
+
     # Get configuration value
-    health_interval = system_config.get("threads", "health_check_interval")
+    health_interval = cfg.get("threads", "health_check_interval")
     logger.info("Health check interval: %s", health_interval)
 
     # Set configuration value
-    system_config.set(15, "threads", "health_check_interval")
+    cfg.set(15, "threads", "health_check_interval")
 
     # Get path
-    plugins_path = system_config.get_path("plugins_dir")
+    plugins_path = cfg.get_path("plugins_dir")
     logger.info("Plugins directory: %s", plugins_path)
 
     # Validate configuration
-    is_valid = system_config.validate()
+    is_valid = cfg.validate()
     logger.info("Configuration valid: %s", is_valid)
