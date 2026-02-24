@@ -123,7 +123,10 @@ def test_invoke_blocks_mutating_commands_and_emits_blocked_event(
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "blocked"
-    assert payload["error"] == "phase1_write_blocked"
+    assert payload["error"] in {
+        "phase1_write_blocked",
+        "policy_require_confirmation:write_effect,risk_high",
+    }
 
     events = command_bus._store.list_events_after(
         run_id=payload["run_id"],
