@@ -5,9 +5,9 @@ Tools Routes
 Minimal tools execution dispatcher and job status endpoints.
 """
 
-import logging
 import hashlib
 import json
+import logging
 import time
 from typing import Any, Dict
 from uuid import uuid4
@@ -25,6 +25,7 @@ from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.manifest import build_command_index
 from guardian.core.dependencies import get_request_user_id
 from guardian.tools.derive import derive_tools_from_command_manifest
+from guardian.tools.spec import ToolManifestEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class ToolRequest(BaseModel):
     name: str = ""
     args: dict[str, Any] = Field(default_factory=dict)
     actor: dict[str, Any] | None = None
+    tool_id: str | None = None
     command_id: str | None = None
     operation_id: str | None = None
     method: str | None = None
@@ -188,7 +190,9 @@ def _resolve_actor(
     return ActorSpec(kind="human", id=auth_subject), auth_subject
 
 
-def _get_command_cache(app: Any) -> tuple[dict[str, Any], list[Any], dict[str, Any]]:
+def _get_command_cache(
+    app: Any,
+) -> tuple[dict[str, Any], list[Any], dict[str, Any]]:
     global _manifest_cache_app_id
     global _manifest_cache_expires_at
     global _manifest_cache_index
@@ -209,7 +213,11 @@ def _get_command_cache(app: Any) -> tuple[dict[str, Any], list[Any], dict[str, A
         _manifest_cache_index = index
         _manifest_cache_commands = list(manifest.commands)
         _manifest_cache_manifest = manifest_payload
-    return _manifest_cache_index, _manifest_cache_commands, _manifest_cache_manifest
+    return (
+        _manifest_cache_index,
+        _manifest_cache_commands,
+        _manifest_cache_manifest,
+    )
 
 
 def _path_matches_template(path_template: str, concrete_path: str) -> bool:
@@ -257,6 +265,17 @@ def _resolve_method_path_command_id(
 def _map_legacy_request_to_command_id(
     body: ToolRequest, index: dict[str, Any], commands: list[Any]
 ) -> str:
+    tool_id = (body.tool_id or "").strip()
+    if tool_id:
+        command = index.get(tool_id)
+        if command is not None:
+            return command.command_id
+        raise _http_error(
+            status_code=400,
+            detail={"error": "unknown_tool_command", "tool_id": tool_id},
+            replaced_by=INVOKE_REPLACED_BY,
+        )
+
     command_id = (body.command_id or "").strip()
     if command_id:
         command = index.get(command_id)
@@ -373,17 +392,17 @@ def _manifest_hash(manifest_payload: dict[str, Any]) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def _derived_manifest_payload(request: Request) -> dict[str, Any]:
+def _derived_manifest_payload(request: Request) -> ToolManifestEnvelope:
     _index, _commands, manifest_payload = _get_command_cache(request.app)
     tools = derive_tools_from_command_manifest(manifest_payload)
-    return {
-        "tool_manifest_version": "2.0",
-        "manifest_version": manifest_payload.get("manifest_version", "1.0"),
-        "generated_at": manifest_payload.get("generated_at"),
-        "command_manifest_hash": _manifest_hash(manifest_payload),
-        "tools": [tool.model_dump(mode="json") for tool in tools],
-        "openai_tools": [tool.to_openai_function_tool() for tool in tools],
-    }
+    return ToolManifestEnvelope(
+        tool_manifest_version="2.0",
+        manifest_version=str(manifest_payload.get("manifest_version", "1.0")),
+        generated_at=str(manifest_payload.get("generated_at") or ""),
+        command_manifest_hash=_manifest_hash(manifest_payload),
+        tools=tools,
+        openai_tools=[tool.to_openai_function_tool() for tool in tools],
+    )
 
 
 def _run_legacy_tool_locally(body: ToolRequest) -> dict[str, Any]:
@@ -482,12 +501,12 @@ def tools_execute(body: ToolRequest, api_key: str = Depends(require_api_key)):
     return {"job_id": jid, "status": "done", "result": result}
 
 
-@router.get("/manifest")
+@router.get("/manifest", response_model=ToolManifestEnvelope)
 def tools_manifest(
     request: Request,
     response: Response,
     api_key: str = Depends(require_api_key),
-) -> dict[str, Any]:
+) -> ToolManifestEnvelope:
     _ = api_key
     _apply_deprecation_headers(response, MANIFEST_REPLACED_BY)
     subject = (
@@ -607,12 +626,12 @@ def tools_job_status(job_id: str, api_key: str = Depends(require_api_key)):
     }
 
 
-@api_router.get("/manifest")
+@api_router.get("/manifest", response_model=ToolManifestEnvelope)
 def api_tools_manifest(
     request: Request,
     response: Response,
     api_key: str = Depends(require_api_key),
-) -> dict[str, Any]:
+) -> ToolManifestEnvelope:
     """Compat alias for GET /tools/manifest."""
     return tools_manifest(request, response, api_key=api_key)
 

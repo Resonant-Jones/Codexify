@@ -79,7 +79,9 @@ def _install_fake_loopback(monkeypatch, captured: list[dict[str, Any]]) -> None:
     )
 
 
-def test_tools_manifest_derivation_matches_command_manifest(monkeypatch) -> None:
+def test_tools_manifest_derivation_matches_command_manifest(
+    monkeypatch,
+) -> None:
     client = _build_client(monkeypatch)
     command_manifest_response = client.get(
         "/api/guardian/commands/manifest", headers=_auth_headers()
@@ -92,11 +94,30 @@ def test_tools_manifest_derivation_matches_command_manifest(monkeypatch) -> None
     )
     assert tools_manifest_response.status_code == 200
     tools_manifest = tools_manifest_response.json()
-    assert tools_manifest["manifest_version"] == command_manifest["manifest_version"]
+    assert isinstance(tools_manifest, dict)
+    assert tools_manifest["tool_manifest_version"] == "2.0"
+    assert (
+        tools_manifest["manifest_version"]
+        == command_manifest["manifest_version"]
+    )
     assert len(tools_manifest["command_manifest_hash"]) == 64
+    assert isinstance(tools_manifest["tools"], list)
+    assert isinstance(tools_manifest["openai_tools"], list)
+    assert tools_manifest["tools"]
+    assert tools_manifest["tools"][0]["tool_id"]
+    assert tools_manifest["tools"][0]["name"]
+
+    tools_manifest_again = client.get(
+        "/api/tools/manifest", headers=_auth_headers()
+    ).json()
+    assert (
+        tools_manifest["command_manifest_hash"]
+        == tools_manifest_again["command_manifest_hash"]
+    )
 
     commands_by_id = {
-        item["command_id"]: item for item in command_manifest.get("commands", [])
+        item["command_id"]: item
+        for item in command_manifest.get("commands", [])
     }
     for tool in tools_manifest.get("tools", []):
         command = commands_by_id[tool["command_id"]]
@@ -107,11 +128,12 @@ def test_tools_manifest_derivation_matches_command_manifest(monkeypatch) -> None
         assert tool["idempotency"] == command["idempotency"]
 
     function_names = {
-        item["function"]["name"] for item in tools_manifest.get("openai_tools", [])
+        item["function"]["name"]
+        for item in tools_manifest.get("openai_tools", [])
     }
-    assert function_names == {
-        item["name"] for item in tools_manifest.get("tools", [])
-    }
+    assert len(function_names) == len(tools_manifest.get("tools", []))
+    assert all(name for name in function_names)
+    assert all("::" not in name for name in function_names)
 
 
 def test_policy_blocks_write_when_enforce(monkeypatch) -> None:
@@ -123,7 +145,9 @@ def test_policy_blocks_write_when_enforce(monkeypatch) -> None:
     command_manifest = client.get(
         "/api/guardian/commands/manifest", headers=_auth_headers()
     ).json()
-    write_command_id = _command_id(command_manifest, method="POST", path="/write")
+    write_command_id = _command_id(
+        command_manifest, method="POST", path="/write"
+    )
 
     invoke_response = client.post(
         "/api/guardian/commands/invoke",

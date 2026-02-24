@@ -1,7 +1,9 @@
-"""Canonical ToolSpec schema for model-callable tool definitions."""
+"""Canonical ToolSpec and manifest envelope schemas."""
 
 from __future__ import annotations
 
+import hashlib
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,20 +38,20 @@ def default_internal_invoke_schema() -> dict[str, Any]:
 class ToolSpec(BaseModel):
     """Canonical tool descriptor derived from command-bus manifest entries."""
 
-    tool_id: str
-    name: str
-    description: str = ""
-    input_schema: dict[str, Any] = Field(default_factory=default_internal_invoke_schema)
-    risk: RiskLevel = "unknown"
-    effect: Effect = "unknown"
-    idempotency: Idempotency = "unknown"
-    requires_confirmation: bool = False
+    tool_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    description: str
+    input_schema: dict[str, Any]
+    risk: RiskLevel
+    effect: Effect
+    idempotency: Idempotency
+    requires_confirmation: bool
     tags: list[str] = Field(default_factory=list)
 
-    command_id: str
+    command_id: str = Field(min_length=1)
     operation_id: str | None = None
-    method: HttpMethod = "GET"
-    path_template: str = "/"
+    method: HttpMethod
+    path_template: str = Field(min_length=1)
     aliases: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
@@ -60,11 +62,21 @@ class ToolSpec(BaseModel):
         return {
             "type": "function",
             "function": {
-                "name": self.name,
+                "name": self.openai_function_name(),
                 "description": self.description or self.command_id,
-                "parameters": self.input_schema or default_internal_invoke_schema(),
+                "parameters": self.input_schema
+                or default_internal_invoke_schema(),
             },
         }
+
+    def openai_function_name(self) -> str:
+        """Return a stable, OpenAI-safe function name derived from tool identity."""
+
+        base = _sanitize_name(self.name or self.tool_id)
+        digest = hashlib.sha1(self.tool_id.encode("utf-8")).hexdigest()[:8]
+        suffix = f"_{digest}"
+        max_base_len = max(1, 64 - len(suffix))
+        return f"{base[:max_base_len]}{suffix}"
 
     def to_internal_invoke_args(
         self, raw_args: dict[str, Any] | None
@@ -78,7 +90,9 @@ class ToolSpec(BaseModel):
             else {}
         )
         query = (
-            dict(args.get("query")) if isinstance(args.get("query"), dict) else {}
+            dict(args.get("query"))
+            if isinstance(args.get("query"), dict)
+            else {}
         )
         headers = (
             dict(args.get("headers"))
@@ -102,3 +116,32 @@ class ToolSpec(BaseModel):
             "headers": headers,
             "body": body,
         }
+
+
+class ToolManifestEnvelope(BaseModel):
+    """Stable envelope returned by /tools/manifest and /api/tools/manifest."""
+
+    tool_manifest_version: str = "2.0"
+    manifest_version: str = Field(min_length=1)
+    generated_at: str = Field(min_length=1)
+    command_manifest_hash: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    tools: list[ToolSpec] = Field(default_factory=list)
+    openai_tools: list[dict[str, Any]] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+_NON_NAME_CHARS = re.compile(r"[^A-Za-z0-9_]+")
+
+
+def _sanitize_name(raw: str) -> str:
+    value = _NON_NAME_CHARS.sub("_", raw).strip("_")
+    if not value:
+        value = "tool"
+    if not (value[0].isalpha() or value[0] == "_"):
+        value = f"tool_{value}"
+    return value
