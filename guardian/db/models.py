@@ -2248,6 +2248,7 @@ class CommandRun(Base):
     delegated_by: Mapped[str | None] = mapped_column(String(255))
     auth_subject: Mapped[str] = mapped_column(String(255), nullable=False)
     invoke_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255))
     args_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     args_redacted: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}"
@@ -2266,6 +2267,11 @@ class CommandRun(Base):
         CheckConstraint(
             "status IN ('queued', 'running', 'completed', 'failed', 'blocked')",
             name="command_runs_status_check",
+        ),
+        UniqueConstraint(
+            "command_id",
+            "idempotency_key",
+            name="uq_command_idempotency_key",
         ),
         Index("ix_command_runs_command_id", "command_id"),
         Index("ix_command_runs_status", "status"),

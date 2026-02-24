@@ -282,3 +282,49 @@ def test_redaction_is_deterministic_and_hash_is_stable(monkeypatch) -> None:
     assert run1["args_redacted"]["headers"]["Authorization"] == "[REDACTED]"
     assert run1["args_redacted"]["headers"]["X-Api-Key"] == "[REDACTED]"
     assert run1["args_redacted"]["body"]["nested"]["password"] == "[REDACTED]"
+
+
+def test_invoke_idempotency_reuses_existing_run(monkeypatch) -> None:
+    client = _build_client(monkeypatch)
+    manifest = _get_manifest(client)
+    write_command_id = _command_id(manifest, method="POST", path="/write")
+
+    payload = {
+        "invoke_version": "1.0",
+        "command_id": write_command_id,
+        "actor": {"kind": "human", "id": "operator"},
+        "arguments": {"body": {"value": 1}},
+        "idempotency_key": "idem-run-1",
+    }
+    first = client.post(
+        "/api/guardian/commands/invoke",
+        headers={"X-API-Key": "test-key", "X-User-Id": "operator"},
+        json=payload,
+    )
+    second = client.post(
+        "/api/guardian/commands/invoke",
+        headers={"X-API-Key": "test-key", "X-User-Id": "operator"},
+        json=payload,
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    first_payload = first.json()
+    second_payload = second.json()
+    assert first_payload["run_id"] == second_payload["run_id"]
+
+    run = command_bus._store.get_run_by_idempotency_key(
+        write_command_id,
+        "idem-run-1",
+    )
+    assert run is not None
+    assert run["run_id"] == first_payload["run_id"]
+
+    events = command_bus._store.list_events_after(
+        run_id=first_payload["run_id"],
+        after_seq=0,
+    )
+    assert [event["event_type"] for event in events] == [
+        "run.created",
+        "run.blocked",
+    ]
