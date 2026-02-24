@@ -171,3 +171,32 @@ Before invoking commands from shell scripts:
 3. Pass `X-User-Id` explicitly for deterministic identity
 4. Use canonical command bus endpoints for new integrations
 5. Treat `/tools/*` as compatibility-only
+
+## 7) Host shell key bootstrap (common local issue)
+
+If your current shell does not have `GUARDIAN_API_KEY` exported, requests can fail
+or be misleading during debugging. Bootstrap from `.env` in the current shell:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+Quick verification:
+
+```bash
+curl -sS -H "X-API-Key: ${GUARDIAN_API_KEY:-}" \
+  "http://localhost:8888/authz/debug" | jq
+```
+
+Expected: `received_api_key` should be masked and non-empty when a key is loaded.
+
+Optional helper script:
+
+```bash
+source scripts/dev/export-guardian-key.sh
+```
+
+By default it does not print the key. Set `PRINT_GUARDIAN_API_KEY=1` only when
+you explicitly need to inspect the value.
