@@ -93,7 +93,15 @@ async def execute_invoke(
     inbound_headers: dict[str, str],
     store: CommandBusStore,
     app: Any,
+    execution_lane: str = "raw",
+    allow_write_execution: bool = False,
+    confirmation_granted: bool = False,
 ) -> dict[str, Any]:
+    if execution_lane != "tools":
+        # Write unlock is tools-lane only; raw/public lane stays read-only.
+        allow_write_execution = False
+        confirmation_granted = False
+
     validate_invoke_version(payload.invoke_version)
     validate_actor_claim(
         actor_id=payload.actor.id,
@@ -150,6 +158,7 @@ async def execute_invoke(
             os.environ,
         ),
         mode=policy_mode,
+        confirmation_granted=confirmation_granted,
     )
 
     args_hash = compute_args_hash(args_dict)
@@ -196,10 +205,13 @@ async def execute_invoke(
         },
     )
 
-    should_execute = command.effect == "read" and command.method in {
+    is_readonly_command = command.effect == "read" and command.method in {
         "GET",
         "HEAD",
     }
+    should_execute = is_readonly_command or (
+        allow_write_execution and command.effect == "write"
+    )
     blocked_reason: str | None = None
 
     # Explicit recursion guard, including future alias paths.
@@ -274,6 +286,7 @@ async def execute_invoke(
                 "approval_mode": command.approval_mode,
                 "requires_confirmation": command.approval_mode != "none",
                 "policy_mode": policy_mode,
+                "confirmation_granted": confirmation_granted,
             },
         )
     except Exception as exc:
