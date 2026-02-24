@@ -12,7 +12,7 @@ from command-bus manifest fields (`command_id`, `method`, `path_template`,
 
 ## `/api/tools/manifest` shape
 
-The endpoint returns:
+Canonical/default response (no query params) returns an envelope object:
 
 - `tool_manifest_version`
 - `manifest_version` (from command manifest)
@@ -20,6 +20,19 @@ The endpoint returns:
 - `command_manifest_hash` (sha256 over canonical command manifest JSON)
 - `tools` (derived `ToolSpec[]`)
 - `openai_tools` (OpenAI function-calling payload array)
+
+Legacy compatibility mode is available for older array-based consumers:
+
+- `GET /api/tools/manifest?format=array`
+- `GET /tools/manifest?format=array`
+
+Supported format values:
+
+- `format=envelope` (explicit canonical envelope)
+- `format=array` (legacy list-only payload)
+
+The array mode is compatibility-only. New clients should use the envelope for
+versioning and deterministic caching (`command_manifest_hash`).
 
 Each `ToolSpec` contains stable IDs and model-facing call schema:
 
