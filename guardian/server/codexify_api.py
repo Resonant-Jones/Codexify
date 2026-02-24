@@ -26,6 +26,17 @@ from guardian.integrations.google_oauth import ensure_oauth_credentials
 router = APIRouter(prefix="/codexify", tags=["codexify"])
 logger = logging.getLogger(__name__)
 
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+_LOCAL_AUTH_MODES = {"", "local", "localhost", "loopback"}
+_REMOTE_AUTH_MODES = {
+    "remote",
+    "cloud",
+    "hosted",
+    "public",
+    "prod",
+    "production",
+}
+
 
 class GDriveExportRequest(BaseModel):
     records: list[dict[str, Any]]
@@ -245,6 +256,21 @@ def _emit_codex_result_event(req: SaveEntryRequest, result: Any) -> None:
     )
 
 
+def _is_local_auth_boundary() -> bool:
+    exposure_mode = (
+        (os.getenv("GUARDIAN_EXPOSURE_MODE") or "local_safe").strip().lower()
+    )
+    if exposure_mode == "public_allowlist":
+        return False
+
+    auth_mode = (os.getenv("GUARDIAN_AUTH_MODE") or "local").strip().lower()
+    if auth_mode in _REMOTE_AUTH_MODES:
+        return False
+    if auth_mode in _LOCAL_AUTH_MODES:
+        return True
+    return False
+
+
 @router.get("/folder-id")
 def resolve_folder_id(url: str):
     """Utility endpoint: resolve folder/file id from a Google Drive URL."""
@@ -295,6 +321,14 @@ def oauth_begin():
     Kick off the OAuth browser flow and persist token.json in secrets/.
     Returns token path on success.
     """
+    if not _is_local_auth_boundary():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "POST /codexify/oauth-begin is local/dev-only and is disabled in remote mode. "
+                "Use /api/connect/google/start for web-safe OAuth."
+            ),
+        )
     try:
         path = ensure_oauth_credentials()
         return {"ok": True, "token": path}

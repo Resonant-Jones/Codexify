@@ -109,7 +109,7 @@ models/
 /guardian/secrets/*.json
 **/token.json
 **/client_secret*.json
-
+.gitleaks.toml
 # Local audit outputs
 /docs/_audit_runs/
 

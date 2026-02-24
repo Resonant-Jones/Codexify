@@ -19,6 +19,32 @@ profiles:
         prefix: /api/connectors
       - method: POST
         prefix: /api/connectors
+      - method: GET
+        path: /api/connect/google/start
+      - method: GET
+        path: /api/connect/google/callback
+      - method: GET
+        path: /api/connect/google/status
+      - method: POST
+        path: /api/connect/google/disconnect
+
+      # Command bus (Phase 1/1.5)
+      - method: GET
+        path: /api/guardian/commands/manifest
+      - method: POST
+        path: /api/guardian/commands/invoke
+      - method: GET
+        prefix: /api/guardian/commands/runs
+
+      # Legacy tool shims (Phase 1.5)
+      - method: GET
+        path: /tools/manifest
+      - method: POST
+        path: /tools/execute
+      - method: GET
+        path: /api/tools/manifest
+      - method: POST
+        path: /api/tools/execute
 
   # Optional: websocket profile example
   ws_only:

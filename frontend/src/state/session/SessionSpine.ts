@@ -65,6 +65,7 @@ export class SessionSpine {
   private state: SessionState | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private hydrated = false;
+  private activationHistory: TabId[] = [];
 
   constructor(config: SessionSpineConfig) {
     this.userId = config.userId;
@@ -96,6 +97,7 @@ export class SessionSpine {
       ? this.normalizeState(loaded)
       : this.createDefaultState(options);
     this.state = next;
+    this.syncActivationHistory(next);
     this.hydrated = true;
     this.emit();
     if (!loaded) {
@@ -149,6 +151,7 @@ export class SessionSpine {
       });
       current.tabs.push(tab);
       current.activeTabId = tab.tabId;
+      this.markTabActive(tab.tabId);
       return tab;
     });
   }
@@ -158,6 +161,9 @@ export class SessionSpine {
       const idx = current.tabs.findIndex((tab) => tab.tabId === tabId);
       if (idx < 0) return;
       const [closed] = current.tabs.splice(idx, 1);
+      this.activationHistory = this.activationHistory.filter(
+        (candidate) => candidate !== closed?.tabId
+      );
       if (current.drafts && closed) {
         delete current.drafts[closed.tabId];
         if (!Object.keys(current.drafts).length) {
@@ -171,12 +177,18 @@ export class SessionSpine {
         });
         current.tabs.push(replacement);
         current.activeTabId = replacement.tabId;
+        this.markTabActive(replacement.tabId);
         return;
       }
 
       if (current.activeTabId === tabId) {
-        const nextActive = current.tabs[Math.max(0, idx - 1)] ?? current.tabs[0];
+        const priorTabId = this.getMostRecentRemainingTabId(current.tabs);
+        const nextActive =
+          current.tabs.find((tab) => tab.tabId === priorTabId) ??
+          current.tabs[Math.max(0, idx - 1)] ??
+          current.tabs[0];
         current.activeTabId = nextActive.tabId;
+        this.markTabActive(nextActive.tabId);
       }
     });
   }
@@ -185,6 +197,7 @@ export class SessionSpine {
     this.mutate((current) => {
       if (!current.tabs.some((tab) => tab.tabId === tabId)) return;
       current.activeTabId = tabId;
+      this.markTabActive(tabId);
     });
   }
 
@@ -283,9 +296,42 @@ export class SessionSpine {
       version: Math.max(working.version, SESSION_SCHEMA_VERSION) + 1,
       updatedAt: nowIso(),
     });
+    this.syncActivationHistory(this.state);
     this.emit();
     this.schedulePersist(options.debounceMs ?? 0);
     return result;
+  }
+
+  private markTabActive(tabId: TabId): void {
+    this.activationHistory = this.activationHistory.filter(
+      (candidate) => candidate !== tabId
+    );
+    this.activationHistory.push(tabId);
+  }
+
+  private getMostRecentRemainingTabId(tabs: SessionTab[]): TabId | null {
+    const allowed = new Set(tabs.map((tab) => tab.tabId));
+    for (let index = this.activationHistory.length - 1; index >= 0; index -= 1) {
+      const candidate = this.activationHistory[index];
+      if (allowed.has(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  private syncActivationHistory(state: SessionState): void {
+    const allowed = new Set(state.tabs.map((tab) => tab.tabId));
+    const preserved = this.activationHistory.filter((tabId) => allowed.has(tabId));
+    for (const tab of state.tabs) {
+      if (!preserved.includes(tab.tabId)) {
+        preserved.push(tab.tabId);
+      }
+    }
+    this.activationHistory = preserved;
+    if (state.activeTabId) {
+      this.markTabActive(state.activeTabId);
+    }
   }
 
   private emit(): void {

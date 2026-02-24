@@ -63,10 +63,13 @@ async def stream_run_events(
     run_id: str,
     request: Request,
     after_seq: int = Query(default=0, ge=0),
+    auth_subject: str = Depends(get_current_user),
 ) -> StreamingResponse:
     run = _store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
+    if str(run.get("auth_subject") or "") != auth_subject:
+        raise HTTPException(status_code=403, detail="forbidden")
 
     async def event_stream() -> AsyncGenerator[str, None]:
         current_seq = int(after_seq or 0)
