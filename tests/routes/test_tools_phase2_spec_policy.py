@@ -166,14 +166,14 @@ def test_policy_blocks_write_when_enforce(monkeypatch) -> None:
     assert "write_effect" in invoke_payload["error"]
 
     legacy_response = client.post(
-        "/api/tools/execute",
+        "/api/tools/execute?legacy=1",
         headers=_auth_headers(),
         json={"method": "POST", "path": "/write", "args": {"value": 1}},
     )
     assert legacy_response.status_code == 200
     legacy_payload = legacy_response.json()
     assert legacy_payload["status"] == "blocked"
-    assert legacy_payload["error"].startswith("policy_require_confirmation:")
+    assert legacy_payload["error"] == "approval_required"
 
 
 def test_policy_warn_allows_with_warning(monkeypatch) -> None:
@@ -227,7 +227,7 @@ def test_api_tools_execute_invokes_ping_with_command_id(monkeypatch) -> None:
     client = _build_client(monkeypatch)
 
     response = client.post(
-        "/api/tools/execute",
+        "/api/tools/execute?legacy=1",
         headers=_auth_headers(),
         json={
             "command_id": "op::ping_ping_get",

@@ -107,7 +107,7 @@ def test_legacy_execute_forward_read_only_not_blocked(monkeypatch) -> None:
     client = _build_client(monkeypatch)
 
     response = client.post(
-        "/tools/execute",
+        "/tools/execute?legacy=1",
         headers=_auth_headers(),
         json={"name": "health_check", "args": {"check": "yes"}},
     )
@@ -128,7 +128,7 @@ def test_legacy_execute_forward_read_only_not_blocked(monkeypatch) -> None:
 def test_legacy_execute_blocks_mutating_commands(monkeypatch) -> None:
     client = _build_client(monkeypatch)
     response = client.post(
-        "/api/tools/execute",
+        "/api/tools/execute?legacy=1",
         headers=_auth_headers(),
         json={"method": "POST", "path": "/write", "args": {"value": 1}},
     )
@@ -137,6 +137,7 @@ def test_legacy_execute_blocks_mutating_commands(monkeypatch) -> None:
     payload = response.json()
     assert payload["status"] == "blocked"
     assert payload["error"] in {
+        "approval_required",
         "phase1_write_blocked",
         "policy_require_confirmation:write_effect,risk_high",
     }
@@ -149,7 +150,7 @@ def test_legacy_execute_synthesizes_actor_from_x_user_id(monkeypatch) -> None:
     client = _build_client(monkeypatch)
 
     response = client.post(
-        "/tools/execute",
+        "/tools/execute?legacy=1",
         headers=_auth_headers(user_id="shim-operator"),
         json={"name": "health_check", "args": {"check": "actor"}},
     )
@@ -173,7 +174,7 @@ def test_legacy_execute_synthesizes_actor_from_single_user_fallback(
     client = _build_client(monkeypatch)
 
     response = client.post(
-        "/tools/execute",
+        "/tools/execute?legacy=1",
         headers=_auth_headers(user_id=None),
         json={"name": "health_check", "args": {"check": "fallback"}},
     )
@@ -193,7 +194,7 @@ def test_legacy_execute_rejects_missing_actor_and_identity(monkeypatch) -> None:
     monkeypatch.setattr(tools, "_resolve_auth_subject", lambda _request: None)
 
     response = client.post(
-        "/tools/execute",
+        "/tools/execute?legacy=1",
         headers=_auth_headers(user_id=None),
         json={"name": "health_check"},
     )

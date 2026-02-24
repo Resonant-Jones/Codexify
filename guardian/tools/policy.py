@@ -128,7 +128,10 @@ def evaluate_tool_policy(
 
 
 def apply_policy_mode(
-    decision: PolicyDecision, mode: PolicyMode | None = None
+    decision: PolicyDecision,
+    mode: PolicyMode | None = None,
+    *,
+    confirmation_granted: bool = False,
 ) -> PolicyOutcome:
     resolved_mode = mode or get_policy_mode()
     if resolved_mode == "off":
@@ -167,7 +170,10 @@ def apply_policy_mode(
             warnings=warnings,
         )
 
-    blocked = decision.decision in {"deny", "require_confirmation"}
+    blocked = decision.decision == "deny" or (
+        decision.decision == "require_confirmation"
+        and not confirmation_granted
+    )
     if blocked:
         logger.warning(
             "tool_policy mode=enforce blocked decision=%s reasons=%s",

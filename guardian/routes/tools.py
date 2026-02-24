@@ -2,12 +2,16 @@
 Tools Routes
 ~~~~~~~~~~~~
 
-Minimal tools execution dispatcher and job status endpoints.
+Callable tools lane with canonical contracts, legacy compatibility adapters,
+and manifest derivation from the command bus.
 """
+
+from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import os
 import time
 from typing import Any, Dict
 from uuid import uuid4
@@ -25,8 +29,32 @@ from guardian.command_bus.contracts import (
 from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.manifest import build_command_index
 from guardian.core.dependencies import get_request_user_id, require_api_key
+from guardian.tools.approval_tokens import (
+    ApprovalTokenError,
+    approval_idempotency_key,
+    compute_policy_hash,
+    decode_approval_token,
+    issue_approval_token,
+    verify_approval_token,
+)
+from guardian.tools.coercion import (
+    ToolArgumentCoercionError,
+    coerce_tool_arguments,
+)
 from guardian.tools.derive import derive_tools_from_command_manifest
-from guardian.tools.spec import ToolManifestEnvelope, ToolSpec
+from guardian.tools.policy import (
+    apply_policy_mode,
+    evaluate_tool_policy,
+    get_policy_mode,
+)
+from guardian.tools.spec import (
+    ToolApproveRequest,
+    ToolCallRequest,
+    ToolCallResponse,
+    ToolManifestEnvelope,
+    ToolPolicySummary,
+    ToolSpec,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +64,7 @@ JOBS: Dict[str, Dict[str, Any]] = {}
 DEPRECATION_PHASE = "1.5"
 MANIFEST_REPLACED_BY = "/api/guardian/commands/manifest"
 INVOKE_REPLACED_BY = "/api/guardian/commands/invoke"
+APPROVE_REPLACED_BY = "/api/tools/approve"
 _MANIFEST_CACHE_TTL_SECONDS = 5.0
 _manifest_cache_app_id: int | None = None
 _manifest_cache_expires_at = 0.0
@@ -47,6 +76,10 @@ _MANIFEST_FORMAT_ARRAY = "array"
 
 
 class ToolRequest(BaseModel):
+    """
+    Legacy local tools request model retained for profile-switch helper tests.
+    """
+
     name: str = ""
     args: dict[str, Any] = Field(default_factory=dict)
     actor: dict[str, Any] | None = None
@@ -58,17 +91,6 @@ class ToolRequest(BaseModel):
     path_template: str | None = None
     arguments: dict[str, Any] | None = None
     idempotency_key: str | None = None
-
-
-class ToolResponse(BaseModel):
-    job_id: str
-    status: str = "done"
-    result: dict[str, Any] = Field(default_factory=dict)
-    run_id: str | None = None
-    events_url: str | None = None
-    command_id: str | None = None
-    error: str | None = None
-    policy_warnings: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class JobStatus(BaseModel):
@@ -158,7 +180,7 @@ def _resolve_auth_subject(request: Request | None) -> str | None:
 
 
 def _resolve_actor(
-    body: ToolRequest, request: Request | None
+    body: ToolCallRequest | ToolRequest, request: Request | None
 ) -> tuple[ActorSpec, str]:
     header_user = (
         request.headers.get("X-User-Id", "").strip() if request else ""
@@ -215,6 +237,31 @@ def _get_command_cache(
     )
 
 
+def _get_tool_maps(
+    manifest_payload: dict[str, Any],
+) -> tuple[list[ToolSpec], dict[str, ToolSpec], dict[str, ToolSpec], dict[str, ToolSpec]]:
+    tools = derive_tools_from_command_manifest(manifest_payload)
+    tools_by_tool_id: dict[str, ToolSpec] = {}
+    tools_by_command_id: dict[str, ToolSpec] = {}
+    tools_by_openai_name: dict[str, ToolSpec] = {}
+    for tool in tools:
+        tools_by_tool_id[tool.tool_id] = tool
+        tools_by_command_id[tool.command_id] = tool
+        existing_openai = tools_by_openai_name.get(tool.openai_name)
+        if existing_openai is not None and existing_openai.tool_id != tool.tool_id:
+            raise _http_error(
+                status_code=500,
+                detail={
+                    "error": "openai_name_collision",
+                    "openai_name": tool.openai_name,
+                    "tool_ids": [existing_openai.tool_id, tool.tool_id],
+                },
+                replaced_by=MANIFEST_REPLACED_BY,
+            )
+        tools_by_openai_name[tool.openai_name] = tool
+    return tools, tools_by_tool_id, tools_by_command_id, tools_by_openai_name
+
+
 def _path_matches_template(path_template: str, concrete_path: str) -> bool:
     template_segments = [s for s in path_template.split("/") if s]
     path_segments = [s for s in concrete_path.split("/") if s]
@@ -257,45 +304,15 @@ def _resolve_method_path_command_id(
     return None
 
 
-def _map_legacy_request_to_command_id(
-    body: ToolRequest, index: dict[str, Any], commands: list[Any]
-) -> str:
-    tool_id = (body.tool_id or "").strip()
-    if tool_id:
-        command = index.get(tool_id)
-        if command is not None:
-            return command.command_id
-        raise _http_error(
-            status_code=400,
-            detail={"error": "unknown_tool_command", "tool_id": tool_id},
-            replaced_by=INVOKE_REPLACED_BY,
-        )
-
-    command_id = (body.command_id or "").strip()
-    if command_id:
-        command = index.get(command_id)
-        if command is not None:
-            return command.command_id
-        raise _http_error(
-            status_code=400,
-            detail={"error": "unknown_tool_command", "command_id": command_id},
-            replaced_by=INVOKE_REPLACED_BY,
-        )
-
+def _try_map_legacy_request_to_command_id(
+    body: ToolCallRequest, index: dict[str, Any], commands: list[Any]
+) -> str | None:
     operation_id = (body.operation_id or "").strip()
     if operation_id:
         op_command_id = f"op::{operation_id}"
         command = index.get(op_command_id)
         if command is not None:
             return command.command_id
-        raise _http_error(
-            status_code=400,
-            detail={
-                "error": "unknown_tool_command",
-                "operation_id": operation_id,
-            },
-            replaced_by=INVOKE_REPLACED_BY,
-        )
 
     method = (body.method or "").strip().upper()
     raw_path = (body.path_template or body.path or "").strip()
@@ -320,11 +337,108 @@ def _map_legacy_request_to_command_id(
         for entry in commands:
             if entry.operation_id == name:
                 return entry.command_id
+    return None
+
+
+def _resolve_tool_and_command(
+    *,
+    body: ToolCallRequest,
+    command_index: dict[str, Any],
+    command_list: list[Any],
+    manifest_payload: dict[str, Any],
+) -> tuple[ToolSpec, Any]:
+    _tools, tools_by_tool_id, tools_by_command_id, tools_by_openai_name = (
+        _get_tool_maps(manifest_payload)
+    )
+
+    explicit_tool_id = (body.tool_id or "").strip()
+    if explicit_tool_id:
+        tool = tools_by_tool_id.get(explicit_tool_id)
+        if tool is None:
+            raise _http_error(
+                status_code=400,
+                detail={
+                    "error": "unknown_tool_command",
+                    "tool_id": explicit_tool_id,
+                },
+                replaced_by=INVOKE_REPLACED_BY,
+            )
+        command = command_index.get(tool.command_id)
+        if command is None:
+            raise _http_error(
+                status_code=404,
+                detail={
+                    "error": "command_not_found",
+                    "command_id": tool.command_id,
+                },
+                replaced_by=INVOKE_REPLACED_BY,
+            )
+        return tool, command
+
+    explicit_command_id = (body.command_id or "").strip()
+    if explicit_command_id:
+        command = command_index.get(explicit_command_id)
+        if command is None:
+            raise _http_error(
+                status_code=400,
+                detail={
+                    "error": "unknown_tool_command",
+                    "command_id": explicit_command_id,
+                },
+                replaced_by=INVOKE_REPLACED_BY,
+            )
+        tool = tools_by_command_id.get(command.command_id)
+        if tool is None:
+            raise _http_error(
+                status_code=404,
+                detail={
+                    "error": "tool_not_found_for_command",
+                    "command_id": command.command_id,
+                },
+                replaced_by=INVOKE_REPLACED_BY,
+            )
+        return tool, command
+
+    legacy_mapped_command_id = _try_map_legacy_request_to_command_id(
+        body, command_index, command_list
+    )
+    if legacy_mapped_command_id:
+        command = command_index[legacy_mapped_command_id]
+        tool = tools_by_command_id.get(command.command_id)
+        if tool is None:
+            raise _http_error(
+                status_code=404,
+                detail={
+                    "error": "tool_not_found_for_command",
+                    "command_id": command.command_id,
+                },
+                replaced_by=INVOKE_REPLACED_BY,
+            )
+        return tool, command
+
+    openai_name = (body.name or "").strip()
+    if openai_name:
+        tool = tools_by_openai_name.get(openai_name)
+        if tool is not None:
+            command = command_index.get(tool.command_id)
+            if command is None:
+                raise _http_error(
+                    status_code=404,
+                    detail={
+                        "error": "command_not_found",
+                        "command_id": tool.command_id,
+                    },
+                    replaced_by=INVOKE_REPLACED_BY,
+                )
+            return tool, command
 
     raise _http_error(
         status_code=400,
         detail={
             "error": "unknown_tool_command",
+            "tool_id": body.tool_id,
+            "command_id": body.command_id,
+            "operation_id": body.operation_id,
             "name": body.name,
             "method": body.method,
             "path": body.path or body.path_template,
@@ -333,49 +447,141 @@ def _map_legacy_request_to_command_id(
     )
 
 
-def _invoke_arguments_from_legacy(
-    body: ToolRequest, *, command: Any
+def _extract_raw_arguments(body: ToolCallRequest) -> dict[str, Any]:
+    if isinstance(body.arguments, dict) and body.arguments:
+        return dict(body.arguments)
+    if isinstance(body.args, dict) and body.args:
+        return dict(body.args)
+    if isinstance(body.arguments, dict):
+        return dict(body.arguments)
+    if isinstance(body.args, dict):
+        return dict(body.args)
+    return {}
+
+
+def _policy_summary_from_decision(
+    *, decision: Any, mode: str
+) -> ToolPolicySummary:
+    reasons: list[str] = []
+    for reason in list(getattr(decision, "reason_codes", []) or []):
+        reason_str = str(reason or "").strip()
+        if reason_str and reason_str not in reasons:
+            reasons.append(reason_str)
+    decision_name = str(getattr(decision, "decision")) or "deny"
+    if (
+        decision_name == "require_confirmation"
+        and "requires_confirmation" not in reasons
+    ):
+        reasons.append("requires_confirmation")
+    return ToolPolicySummary(
+        decision=decision_name,  # type: ignore[arg-type]
+        reasons=reasons,
+        mode=mode,  # type: ignore[arg-type]
+    )
+
+
+def _policy_hash_payload(
+    *,
+    tool: ToolSpec,
+    policy: ToolPolicySummary,
+) -> dict[str, Any]:
+    return {
+        "tool_id": tool.tool_id,
+        "command_id": tool.command_id,
+        "decision": policy.decision,
+        "reasons": sorted(policy.reasons),
+        "mode": policy.mode,
+    }
+
+
+def _invoke_arguments_from_normalized(
+    normalized: dict[str, Any],
 ) -> InvokeArguments:
-    arguments = body.arguments if isinstance(body.arguments, dict) else {}
-    if arguments:
-        return InvokeArguments(
-            path_params=dict(arguments.get("path_params") or {}),
-            query=dict(arguments.get("query") or {}),
-            headers=dict(arguments.get("headers") or {}),
-            body=arguments.get("body"),
+    return InvokeArguments(
+        path_params=dict(normalized.get("path_params") or {}),
+        query=dict(normalized.get("query") or {}),
+        headers=dict(normalized.get("headers") or {}),
+        body=normalized.get("body"),
+    )
+
+
+def _tool_call_from_invoke_response(
+    *,
+    invoke_response: dict[str, Any],
+    policy: ToolPolicySummary,
+    normalized_arguments: dict[str, Any],
+    request_id: str | None,
+    command_id: str,
+) -> ToolCallResponse:
+    invoke_status = str(invoke_response.get("status") or "failed")
+    if invoke_status == "completed":
+        status = "completed"
+    elif invoke_status == "blocked":
+        status = "blocked" if policy.decision != "deny" else "denied"
+    else:
+        status = "error"
+
+    return ToolCallResponse(
+        status=status,  # type: ignore[arg-type]
+        policy=policy,
+        run_id=(
+            str(invoke_response.get("run_id"))
+            if invoke_response.get("run_id")
+            else None
+        ),
+        events_url=(
+            str(invoke_response.get("events_url"))
+            if invoke_response.get("events_url")
+            else None
+        ),
+        result=invoke_response.get("inline_result"),
+        error=invoke_response.get("error"),
+        normalized_arguments=normalized_arguments,
+        request_id=request_id,
+        command_id=command_id,
+    )
+
+
+def _legacy_execute_payload(response: ToolCallResponse) -> dict[str, Any]:
+    run_id = str(response.run_id or "")
+    result_payload = (
+        dict(response.result)
+        if isinstance(response.result, dict)
+        else ({"value": response.result} if response.result is not None else {})
+    )
+
+    if response.error:
+        error_text = (
+            response.error.get("code")
+            if isinstance(response.error, dict)
+            else str(response.error)
+        )
+        result_payload = dict(result_payload)
+        result_payload.setdefault("error", error_text)
+    else:
+        error_text = None
+
+    warnings: list[dict[str, Any]] = []
+    if response.policy.mode == "warn" and response.policy.decision != "allow":
+        warnings.append(
+            {
+                "decision": response.policy.decision,
+                "reason_codes": list(response.policy.reasons),
+            }
         )
 
-    args = dict(body.args or {})
-    path_params = (
-        dict(args.get("path_params"))
-        if isinstance(args.get("path_params"), dict)
-        else {}
-    )
-    query = (
-        dict(args.get("query")) if isinstance(args.get("query"), dict) else {}
-    )
-    headers = (
-        dict(args.get("headers"))
-        if isinstance(args.get("headers"), dict)
-        else {}
-    )
-    payload_body = args.get("body") if "body" in args else None
-
-    has_transport_shapes = any(
-        key in args for key in {"path_params", "query", "headers", "body"}
-    )
-    if not has_transport_shapes and args:
-        if command.method in {"GET", "HEAD"}:
-            query = args
-        else:
-            payload_body = args
-
-    return InvokeArguments(
-        path_params=path_params,
-        query=query,
-        headers=headers,
-        body=payload_body,
-    )
+    return {
+        "job_id": run_id,
+        "status": response.status,
+        "result": result_payload,
+        "run_id": response.run_id,
+        "events_url": response.events_url,
+        "command_id": response.command_id,
+        "error": error_text,
+        "policy_warnings": warnings,
+        "approval_required": response.approval_required,
+        "approval_token": response.approval_token,
+    }
 
 
 def _manifest_hash(manifest_payload: dict[str, Any]) -> str:
@@ -393,7 +599,7 @@ def _derive_openai_tools(tools: list[ToolSpec]) -> list[dict[str, Any]]:
 
 def build_tool_manifest_envelope(request: Request) -> ToolManifestEnvelope:
     _index, _commands, manifest_payload = _get_command_cache(request.app)
-    tools = derive_tools_from_command_manifest(manifest_payload)
+    tools, _, _, _ = _get_tool_maps(manifest_payload)
     return ToolManifestEnvelope(
         tool_manifest_version="2.0",
         manifest_version=str(manifest_payload.get("manifest_version", "1.0")),
@@ -423,6 +629,8 @@ def _tools_array_compat_payload(tools: list[ToolSpec]) -> list[dict[str, Any]]:
                     "blocked_phase1" if tool.requires_confirmation else "none"
                 ),
                 "args_schema": tool.input_schema,
+                "tool_id": tool.tool_id,
+                "openai_name": tool.openai_name,
             }
         )
     return payload
@@ -526,20 +734,418 @@ def _coerce_thread_id(value: Any) -> int | None:
 
 def tools_execute(body: ToolRequest, api_key: str = Depends(require_api_key)):
     """
-    Minimal tools dispatcher. For now, just echoes args and marks job done.
-    Replace with real tool routing/execution as needed.
-
-    Args:
-        body: Tool execution request with name and arguments
-
-    Returns:
-        Job ID for tracking execution
+    Legacy local helper used by profile-switch tests.
     """
+
     jid = str(uuid4())
     result = _run_legacy_tool_locally(body)
     JOBS[jid] = {"status": "done", "result": result}
     logger.info("Tools.execute: %s job_id=%s", body.name, jid)
     return {"job_id": jid, "status": "done", "result": result}
+
+
+def _store_job_snapshot(response: ToolCallResponse) -> None:
+    if not response.run_id:
+        return
+    payload = (
+        dict(response.result)
+        if isinstance(response.result, dict)
+        else ({"value": response.result} if response.result is not None else {})
+    )
+    if response.error:
+        payload = dict(payload)
+        payload["error"] = response.error
+    JOBS[response.run_id] = {"status": response.status, "result": payload}
+
+
+async def _execute_tools_call(
+    *,
+    body: ToolCallRequest,
+    request: Request,
+    response: Response,
+    legacy: bool,
+) -> ToolCallResponse | JSONResponse:
+    _apply_deprecation_headers(response, INVOKE_REPLACED_BY)
+    actor, auth_subject = _resolve_actor(body, request)
+    command_index, command_list, manifest_payload = _get_command_cache(
+        request.app
+    )
+    mapped_command_id: str | None = None
+    try:
+        tool_spec, command = _resolve_tool_and_command(
+            body=body,
+            command_index=command_index,
+            command_list=command_list,
+            manifest_payload=manifest_payload,
+        )
+        mapped_command_id = command.command_id
+        raw_args = _extract_raw_arguments(body)
+        normalized_args = coerce_tool_arguments(tool_spec, raw_args)
+    except ToolArgumentCoercionError as exc:
+        raise _http_error(
+            status_code=400,
+            detail={
+                "error": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+            },
+            replaced_by=INVOKE_REPLACED_BY,
+        ) from exc
+    finally:
+        _log_shim_hit(
+            request=request,
+            subject=auth_subject,
+            command_id=mapped_command_id,
+        )
+
+    policy_mode = get_policy_mode(os.environ)
+    policy_decision = evaluate_tool_policy(
+        actor.model_dump(mode="json"),
+        command.model_dump(mode="json"),
+        normalized_args,
+        os.environ,
+    )
+    policy_outcome = apply_policy_mode(
+        policy_decision,
+        mode=policy_mode,
+        confirmation_granted=False,
+    )
+    policy = _policy_summary_from_decision(
+        decision=policy_decision,
+        mode=policy_outcome.mode,
+    )
+
+    if body.mode == "plan":
+        planned = ToolCallResponse(
+            status="planned",
+            policy=policy,
+            normalized_arguments=normalized_args,
+            request_id=body.request_id,
+            command_id=command.command_id,
+        )
+        if legacy:
+            logger.warning(
+                "legacy_tools_execute_response_mode path=%s subject=%s",
+                request.url.path,
+                auth_subject or "-",
+            )
+            return JSONResponse(
+                content=_legacy_execute_payload(planned),
+                headers=_deprecation_headers(INVOKE_REPLACED_BY),
+            )
+        return planned
+
+    if policy.decision == "require_confirmation":
+        policy_hash = compute_policy_hash(
+            _policy_hash_payload(tool=tool_spec, policy=policy)
+        )
+        approval_token = issue_approval_token(
+            actor_id=auth_subject,
+            tool_id=tool_spec.tool_id,
+            normalized_arguments=normalized_args,
+            policy_hash=policy_hash,
+            policy_mode=policy.mode,
+        )
+        blocked = ToolCallResponse(
+            status="blocked",
+            policy=policy,
+            approval_required=True,
+            approval_token=approval_token,
+            normalized_arguments=normalized_args,
+            request_id=body.request_id,
+            command_id=command.command_id,
+            error={"code": "approval_required"},
+        )
+        if legacy:
+            logger.warning(
+                "legacy_tools_execute_response_mode path=%s subject=%s",
+                request.url.path,
+                auth_subject or "-",
+            )
+            return JSONResponse(
+                content=_legacy_execute_payload(blocked),
+                headers=_deprecation_headers(INVOKE_REPLACED_BY),
+            )
+        return blocked
+
+    if policy_outcome.blocked:
+        denied = ToolCallResponse(
+            status="denied",
+            policy=policy,
+            normalized_arguments=normalized_args,
+            request_id=body.request_id,
+            command_id=command.command_id,
+            error={
+                "code": "policy_denied",
+                "reasons": list(policy.reasons),
+            },
+        )
+        if legacy:
+            logger.warning(
+                "legacy_tools_execute_response_mode path=%s subject=%s",
+                request.url.path,
+                auth_subject or "-",
+            )
+            return JSONResponse(
+                content=_legacy_execute_payload(denied),
+                headers=_deprecation_headers(INVOKE_REPLACED_BY),
+            )
+        return denied
+
+    invoke_payload = InvokeRequest(
+        invoke_version="1.0",
+        command_id=command.command_id,
+        actor=actor,
+        arguments=_invoke_arguments_from_normalized(normalized_args),
+        idempotency_key=body.idempotency_key,
+    )
+    inbound_headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() in {"authorization", "x-api-key", "x-user-id", "cookie"}
+    }
+
+    from guardian.routes import command_bus as command_bus_routes
+
+    try:
+        invoke_response = await execute_invoke(
+            payload=invoke_payload,
+            auth_subject=auth_subject,
+            inbound_headers=inbound_headers,
+            store=command_bus_routes._store,
+            app=request.app,
+            execution_lane="tools",
+            allow_write_execution=False,
+            confirmation_granted=False,
+        )
+    except HTTPException as exc:
+        raise _raise_with_deprecation(exc, replaced_by=INVOKE_REPLACED_BY)
+
+    final_response = _tool_call_from_invoke_response(
+        invoke_response=invoke_response,
+        policy=policy,
+        normalized_arguments=normalized_args,
+        request_id=body.request_id,
+        command_id=command.command_id,
+    )
+    _store_job_snapshot(final_response)
+    if legacy:
+        logger.warning(
+            "legacy_tools_execute_response_mode path=%s subject=%s",
+            request.url.path,
+            auth_subject or "-",
+        )
+        return JSONResponse(
+            content=_legacy_execute_payload(final_response),
+            headers=_deprecation_headers(INVOKE_REPLACED_BY),
+        )
+    return final_response
+
+
+async def _approve_tools_call(
+    *,
+    body: ToolApproveRequest,
+    request: Request,
+    response: Response,
+    legacy: bool,
+) -> ToolCallResponse | JSONResponse:
+    _apply_deprecation_headers(response, APPROVE_REPLACED_BY)
+    auth_subject = _resolve_auth_subject(request)
+    if not auth_subject:
+        raise _http_error(
+            status_code=401,
+            detail={"error": "missing_identity_context"},
+            replaced_by=APPROVE_REPLACED_BY,
+        )
+
+    try:
+        decoded_claims = decode_approval_token(body.approval_token)
+    except ApprovalTokenError as exc:
+        raise _http_error(
+            status_code=400,
+            detail={"error": exc.code, "message": exc.message},
+            replaced_by=APPROVE_REPLACED_BY,
+        ) from exc
+
+    actor = ActorSpec(kind="human", id=auth_subject)
+    command_index, command_list, manifest_payload = _get_command_cache(
+        request.app
+    )
+    _tools, tools_by_tool_id, _tools_by_command_id, _tools_by_openai_name = (
+        _get_tool_maps(manifest_payload)
+    )
+    tool_spec = tools_by_tool_id.get(decoded_claims.tool_id)
+    if tool_spec is None:
+        raise _http_error(
+            status_code=404,
+            detail={
+                "error": "tool_not_found",
+                "tool_id": decoded_claims.tool_id,
+            },
+            replaced_by=APPROVE_REPLACED_BY,
+        )
+    command = command_index.get(tool_spec.command_id)
+    if command is None:
+        raise _http_error(
+            status_code=404,
+            detail={
+                "error": "command_not_found",
+                "command_id": tool_spec.command_id,
+            },
+            replaced_by=APPROVE_REPLACED_BY,
+        )
+
+    try:
+        normalized_args = coerce_tool_arguments(
+            tool_spec, decoded_claims.normalized_arguments
+        )
+    except ToolArgumentCoercionError as exc:
+        raise _http_error(
+            status_code=400,
+            detail={
+                "error": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+            },
+            replaced_by=APPROVE_REPLACED_BY,
+        ) from exc
+
+    policy_mode = get_policy_mode(os.environ)
+    policy_decision = evaluate_tool_policy(
+        actor.model_dump(mode="json"),
+        command.model_dump(mode="json"),
+        normalized_args,
+        os.environ,
+    )
+    policy_outcome = apply_policy_mode(
+        policy_decision,
+        mode=policy_mode,
+        confirmation_granted=True,
+    )
+    policy = _policy_summary_from_decision(
+        decision=policy_decision,
+        mode=policy_outcome.mode,
+    )
+    expected_policy_hash = compute_policy_hash(
+        _policy_hash_payload(tool=tool_spec, policy=policy)
+    )
+
+    try:
+        verified_claims = verify_approval_token(
+            body.approval_token,
+            actor_id=auth_subject,
+            tool_id=tool_spec.tool_id,
+            normalized_args=normalized_args,
+            policy_hash=expected_policy_hash,
+        )
+    except ApprovalTokenError as exc:
+        status_code = (
+            403
+            if exc.code
+            in {
+                "approval_token_actor_mismatch",
+                "approval_token_tool_mismatch",
+                "approval_token_args_mismatch",
+                "approval_token_policy_mismatch",
+            }
+            else 400
+        )
+        raise _http_error(
+            status_code=status_code,
+            detail={"error": exc.code, "message": exc.message},
+            replaced_by=APPROVE_REPLACED_BY,
+        ) from exc
+
+    _log_shim_hit(
+        request=request,
+        subject=auth_subject,
+        command_id=command.command_id,
+    )
+
+    if policy_outcome.blocked:
+        denied = ToolCallResponse(
+            status="denied",
+            policy=policy,
+            normalized_arguments=normalized_args,
+            request_id=body.request_id,
+            command_id=command.command_id,
+            error={"code": "policy_denied", "reasons": list(policy.reasons)},
+        )
+        if legacy:
+            logger.warning(
+                "legacy_tools_approve_response_mode path=%s subject=%s",
+                request.url.path,
+                auth_subject or "-",
+            )
+            return JSONResponse(
+                content=_legacy_execute_payload(denied),
+                headers=_deprecation_headers(APPROVE_REPLACED_BY),
+            )
+        return denied
+
+    invoke_payload = InvokeRequest(
+        invoke_version="1.0",
+        command_id=command.command_id,
+        actor=actor,
+        arguments=_invoke_arguments_from_normalized(normalized_args),
+        idempotency_key=approval_idempotency_key(body.approval_token),
+    )
+    inbound_headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() in {"authorization", "x-api-key", "x-user-id", "cookie"}
+    }
+
+    from guardian.routes import command_bus as command_bus_routes
+
+    try:
+        invoke_response = await execute_invoke(
+            payload=invoke_payload,
+            auth_subject=auth_subject,
+            inbound_headers=inbound_headers,
+            store=command_bus_routes._store,
+            app=request.app,
+            execution_lane="tools",
+            allow_write_execution=True,
+            confirmation_granted=True,
+        )
+    except HTTPException as exc:
+        raise _raise_with_deprecation(exc, replaced_by=APPROVE_REPLACED_BY)
+
+    final_response = _tool_call_from_invoke_response(
+        invoke_response=invoke_response,
+        policy=policy,
+        normalized_arguments=normalized_args,
+        request_id=body.request_id,
+        command_id=command.command_id,
+    )
+    # Expose deterministic behavior evidence for clients observing replay safety.
+    final_response.result = (
+        dict(final_response.result)
+        if isinstance(final_response.result, dict)
+        else final_response.result
+    )
+    if isinstance(final_response.result, dict):
+        final_response.result.setdefault(
+            "approval_idempotency_key",
+            approval_idempotency_key(body.approval_token),
+        )
+        final_response.result.setdefault(
+            "approval_token_digest", verified_claims.token_digest
+        )
+
+    _store_job_snapshot(final_response)
+    if legacy:
+        logger.warning(
+            "legacy_tools_approve_response_mode path=%s subject=%s",
+            request.url.path,
+            auth_subject or "-",
+        )
+        return JSONResponse(
+            content=_legacy_execute_payload(final_response),
+            headers=_deprecation_headers(APPROVE_REPLACED_BY),
+        )
+    return final_response
 
 
 @router.get("/manifest", response_model=ToolManifestEnvelope)
@@ -573,101 +1179,32 @@ def tools_manifest(
     )
 
 
-@router.post("/execute", response_model=ToolResponse)
+@router.post("/execute", response_model=ToolCallResponse)
 async def tools_execute_route(
-    body: ToolRequest,
+    body: ToolCallRequest,
     request: Request,
     response: Response,
+    legacy: bool = Query(default=False),
     api_key: str = Depends(require_api_key),
 ):
     _ = api_key
-    _apply_deprecation_headers(response, INVOKE_REPLACED_BY)
-
-    actor, auth_subject = _resolve_actor(body, request)
-    command_index, command_list, _manifest_payload = _get_command_cache(
-        request.app
+    return await _execute_tools_call(
+        body=body, request=request, response=response, legacy=legacy
     )
-    mapped_command_id: str | None = None
-    tool_spec_by_command_id: dict[str, Any] = {}
-    try:
-        mapped_command_id = _map_legacy_request_to_command_id(
-            body, command_index, command_list
-        )
-        command = command_index[mapped_command_id]
-        tool_spec_by_command_id = {
-            tool.command_id: tool
-            for tool in derive_tools_from_command_manifest(_manifest_payload)
-        }
-    finally:
-        _log_shim_hit(
-            request=request,
-            subject=auth_subject,
-            command_id=mapped_command_id,
-        )
 
-    tool_spec = tool_spec_by_command_id.get(command.command_id)
-    if tool_spec is not None:
-        raw_invoke_args = (
-            body.arguments
-            if isinstance(body.arguments, dict)
-            else dict(body.args or {})
-        )
-        normalized_args = tool_spec.to_internal_invoke_args(raw_invoke_args)
-        invoke_arguments = InvokeArguments(
-            path_params=dict(normalized_args.get("path_params") or {}),
-            query=dict(normalized_args.get("query") or {}),
-            headers=dict(normalized_args.get("headers") or {}),
-            body=normalized_args.get("body"),
-        )
-    else:
-        invoke_arguments = _invoke_arguments_from_legacy(body, command=command)
 
-    invoke_payload = InvokeRequest(
-        invoke_version="1.0",
-        command_id=command.command_id,
-        actor=actor,
-        arguments=invoke_arguments,
-        idempotency_key=body.idempotency_key,
+@router.post("/approve", response_model=ToolCallResponse)
+async def tools_approve_route(
+    body: ToolApproveRequest,
+    request: Request,
+    response: Response,
+    legacy: bool = Query(default=False),
+    api_key: str = Depends(require_api_key),
+):
+    _ = api_key
+    return await _approve_tools_call(
+        body=body, request=request, response=response, legacy=legacy
     )
-    inbound_headers = {
-        key: value
-        for key, value in request.headers.items()
-        if key.lower() in {"authorization", "x-api-key", "x-user-id", "cookie"}
-    }
-
-    from guardian.routes import command_bus as command_bus_routes
-
-    try:
-        invoke_response = await execute_invoke(
-            payload=invoke_payload,
-            auth_subject=auth_subject,
-            inbound_headers=inbound_headers,
-            store=command_bus_routes._store,
-            app=request.app,
-        )
-    except HTTPException as exc:
-        raise _raise_with_deprecation(exc, replaced_by=INVOKE_REPLACED_BY)
-
-    run_id = str(invoke_response.get("run_id") or "")
-    status = str(invoke_response.get("status") or "unknown")
-    result_payload = invoke_response.get("inline_result")
-    if not isinstance(result_payload, dict):
-        result_payload = {}
-    if invoke_response.get("error"):
-        result_payload = dict(result_payload)
-        result_payload["error"] = invoke_response["error"]
-
-    JOBS[run_id] = {"status": status, "result": result_payload}
-    return {
-        "job_id": run_id,
-        "status": status,
-        "result": result_payload,
-        "run_id": run_id,
-        "events_url": invoke_response.get("events_url"),
-        "command_id": command.command_id,
-        "error": invoke_response.get("error"),
-        "policy_warnings": invoke_response.get("policy_warnings") or [],
-    }
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatus)
@@ -701,11 +1238,12 @@ def api_tools_manifest(
     )
 
 
-@api_router.post("/execute", response_model=ToolResponse)
+@api_router.post("/execute", response_model=ToolCallResponse)
 async def api_tools_execute(
-    body: ToolRequest,
+    body: ToolCallRequest,
     request: Request,
     response: Response,
+    legacy: bool = Query(default=False),
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for POST /tools/execute."""
@@ -713,6 +1251,25 @@ async def api_tools_execute(
         body,
         request=request,
         response=response,
+        legacy=legacy,
+        api_key=api_key,
+    )
+
+
+@api_router.post("/approve", response_model=ToolCallResponse)
+async def api_tools_approve(
+    body: ToolApproveRequest,
+    request: Request,
+    response: Response,
+    legacy: bool = Query(default=False),
+    api_key: str = Depends(require_api_key),
+):
+    """Compat alias for POST /tools/approve."""
+    return await tools_approve_route(
+        body,
+        request=request,
+        response=response,
+        legacy=legacy,
         api_key=api_key,
     )
 

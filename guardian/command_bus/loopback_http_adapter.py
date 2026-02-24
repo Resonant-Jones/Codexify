@@ -105,6 +105,9 @@ async def execute_loopback_request(
         outcome = apply_policy_mode(
             decision,
             mode=policy_context.get("policy_mode") or get_policy_mode(),
+            confirmation_granted=bool(
+                policy_context.get("confirmation_granted", False)
+            ),
         )
         if outcome.blocked:
             reasons = ",".join(outcome.reason_codes or [outcome.decision])

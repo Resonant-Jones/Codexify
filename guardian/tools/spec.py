@@ -1,4 +1,4 @@
-"""Canonical ToolSpec and manifest envelope schemas."""
+"""Canonical ToolSpec, callable contracts, and manifest envelope schemas."""
 
 from __future__ import annotations
 
@@ -20,6 +20,16 @@ HttpMethod = Literal[
 RiskLevel = Literal["read_only", "mutating", "unknown"]
 Effect = Literal["read", "write", "unknown"]
 Idempotency = Literal["safe", "unsafe", "unknown"]
+PolicyDecision = Literal["allow", "deny", "require_confirmation"]
+PolicyMode = Literal["enforce", "warn", "off"]
+ToolCallMode = Literal["plan", "execute"]
+ToolCallStatus = Literal[
+    "planned",
+    "completed",
+    "blocked",
+    "denied",
+    "error",
+]
 
 
 def default_internal_invoke_schema() -> dict[str, Any]:
@@ -35,17 +45,76 @@ def default_internal_invoke_schema() -> dict[str, Any]:
     }
 
 
+class ToolPolicySummary(BaseModel):
+    decision: PolicyDecision
+    reasons: list[str] = Field(default_factory=list)
+    mode: PolicyMode
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ToolCallRequest(BaseModel):
+    """Canonical callable request payload for tools lane."""
+
+    mode: ToolCallMode = "execute"
+    tool_id: str | None = Field(default=None, max_length=512)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    actor: dict[str, Any] | None = None
+    request_id: str | None = Field(default=None, max_length=255)
+
+    # Compatibility / legacy request fields
+    command_id: str | None = Field(default=None, max_length=512)
+    operation_id: str | None = Field(default=None, max_length=512)
+    method: str | None = Field(default=None, max_length=16)
+    path: str | None = Field(default=None, max_length=2048)
+    path_template: str | None = Field(default=None, max_length=2048)
+    name: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str | None = Field(default=None, max_length=255)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ToolApproveRequest(BaseModel):
+    approval_token: str = Field(min_length=1)
+    request_id: str | None = Field(default=None, max_length=255)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ToolCallResponse(BaseModel):
+    """Canonical callable response payload for tools lane."""
+
+    status: ToolCallStatus
+    policy: ToolPolicySummary
+    run_id: str | None = None
+    events_url: str | None = None
+    result: dict[str, Any] | list[Any] | str | int | float | bool | None = None
+    error: dict[str, Any] | str | None = None
+    approval_required: bool = False
+    approval_token: str | None = None
+    normalized_arguments: dict[str, Any] | None = None
+    request_id: str | None = None
+    command_id: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class ToolSpec(BaseModel):
     """Canonical tool descriptor derived from command-bus manifest entries."""
 
     tool_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
+    openai_name: str = Field(
+        min_length=1, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$"
+    )
     description: str
     input_schema: dict[str, Any]
     risk: RiskLevel
     effect: Effect
     idempotency: Idempotency
     requires_confirmation: bool
+    allow_passthrough_arguments: bool = False
     tags: list[str] = Field(default_factory=list)
 
     command_id: str = Field(min_length=1)
@@ -62,21 +131,19 @@ class ToolSpec(BaseModel):
         return {
             "type": "function",
             "function": {
-                "name": self.openai_function_name(),
+                "name": self.openai_name,
                 "description": self.description or self.command_id,
                 "parameters": self.input_schema
                 or default_internal_invoke_schema(),
+                "x_codexify_tool_id": self.tool_id,
             },
+            "x_codexify_tool_id": self.tool_id,
         }
 
     def openai_function_name(self) -> str:
-        """Return a stable, OpenAI-safe function name derived from tool identity."""
+        """Backward-compatible helper for callers expecting previous API."""
 
-        base = _sanitize_name(self.name or self.tool_id)
-        digest = hashlib.sha1(self.tool_id.encode("utf-8")).hexdigest()[:8]
-        suffix = f"_{digest}"
-        max_base_len = max(1, 64 - len(suffix))
-        return f"{base[:max_base_len]}{suffix}"
+        return self.openai_name
 
     def to_internal_invoke_args(
         self, raw_args: dict[str, Any] | None
@@ -138,10 +205,20 @@ class ToolManifestEnvelope(BaseModel):
 _NON_NAME_CHARS = re.compile(r"[^A-Za-z0-9_]+")
 
 
-def _sanitize_name(raw: str) -> str:
+def sanitize_openai_identifier(raw: str, *, fallback: str = "tool") -> str:
     value = _NON_NAME_CHARS.sub("_", raw).strip("_")
     if not value:
-        value = "tool"
+        value = fallback
     if not (value[0].isalpha() or value[0] == "_"):
-        value = f"tool_{value}"
+        value = f"{fallback}_{value}"
     return value
+
+
+def derive_openai_name_with_hash(tool_id: str) -> str:
+    """Stable default OpenAI-safe name with deterministic digest suffix."""
+
+    base = sanitize_openai_identifier(tool_id)
+    digest = hashlib.sha256(tool_id.encode("utf-8")).hexdigest()[:8]
+    suffix = f"_{digest}"
+    max_base_len = max(1, 64 - len(suffix))
+    return f"{base[:max_base_len]}{suffix}"
