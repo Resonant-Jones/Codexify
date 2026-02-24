@@ -1,0 +1,4 @@
+regex:(?i)(\"private_key\"\\s*:\\s*\")[^\"]+(\")==>$1REDACTED$2
+regex:(?i)(api[_-]?key\\s*[:=]\\s*)[^\\s\"']+==>$1REDACTED
+regex:(?i)(refresh[_-]?token\\s*[:=]\\s*)[^\\s\"']+==>$1REDACTED
+regex:(?i)(\"client_secret\"\\s*:\\s*\")[^\"]+(\")==>$1REDACTED$2

@@ -13,14 +13,35 @@ if ! command -v git-filter-repo >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Rewriting history to remove known secret-bearing paths..."
+BASELINE_PRE_REWRITE="${BASELINE_PRE_REWRITE:-$(git rev-parse --short origin/main 2>/dev/null || git rev-parse --short HEAD)}"
+REPLACEMENTS_FILE="${REPLACEMENTS_FILE:-scripts/security/filter-repo-replacements.txt}"
 
-git filter-repo \
-  --path guardian/secrets/client_secret_oauth.json \
-  --path guardian/secrets/token.json \
+echo "Rewriting all local branch/tag refs."
+echo "Pre-rewrite baseline: ${BASELINE_PRE_REWRITE}"
+
+FILTER_ARGS=(
+  --force
+  --refs refs/heads/*
+  --refs refs/tags/*
+  --path-glob '**/token.json'
+  --path-glob '**/client_secret*.json'
+  --path-glob '**/credentials.json'
+  --path-glob 'secrets/**'
   --invert-paths
+)
 
-echo "Done. Next manual steps:"
-echo "1) Rotate/revoke affected credentials if not already done"
-echo "2) Force-push rewritten refs"
-echo "3) Invalidate old clones/caches"
+if [[ -f "${REPLACEMENTS_FILE}" ]]; then
+  FILTER_ARGS+=(--replace-text "${REPLACEMENTS_FILE}")
+else
+  echo "Replacement file not found (${REPLACEMENTS_FILE}); continuing without --replace-text."
+fi
+
+git filter-repo "${FILTER_ARGS[@]}"
+
+echo
+echo "Rewrite complete."
+echo "Next steps:"
+echo "1) git push --force --all origin"
+echo "2) git push --force --tags origin"
+echo "3) Create SECURITY-REWRITE-NOTICE.md with baseline ${BASELINE_PRE_REWRITE} and post-rewrite commit hash"
+echo "4) Invalidate old clones and CI caches"

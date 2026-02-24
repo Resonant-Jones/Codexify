@@ -492,6 +492,66 @@ class SyncJob(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class OAuthConnection(Base):
+    """OAuth connection state per user/provider/mode."""
+
+    __tablename__ = "oauth_connections"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="pending"
+    )
+    encrypted_refresh_token: Mapped[str | None] = mapped_column(Text)
+    encrypted_access_token: Mapped[str | None] = mapped_column(Text)
+    relay_grant_id: Mapped[str | None] = mapped_column(String(255))
+    expires_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    last_refresh_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "provider",
+            "mode",
+            name="uq_oauth_connections_user_provider_mode",
+        ),
+        CheckConstraint(
+            "mode IN ('node_local', 'relay_broker')",
+            name="ck_oauth_connections_mode",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'connected', 'error', 'disconnected')",
+            name="ck_oauth_connections_status",
+        ),
+        Index("ix_oauth_connections_user_provider", "user_id", "provider"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # Inference Provider State
 # =========================

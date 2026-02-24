@@ -61,6 +61,7 @@ repos:
     rev: v8.24.2
     hooks:
     -   id: gitleaks
+        args: [--config=.gitleaks.toml]
         exclude: |
             (?x)(
                 ^node_modules/|
@@ -68,9 +69,7 @@ repos:
                 ^\.venv/|
                 ^venv/|
                 ^frontend/node_modules/|
-                ^data/|
-                ^models/|
-                ^codex_memory/
+                ^frontend/\.pnpm-store/
             )
 
 -   repo: https://github.com/psf/black

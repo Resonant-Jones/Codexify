@@ -1,177 +1,122 @@
-import logging
-import traceback
-from typing import Any, Dict, List
+"""ToolSpec schema.
 
-import click
-from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel
+This module defines the canonical, model-facing schema for tools that Guardian may expose
+(e.g., via OpenAI tool-calling semantics) and for internal policy evaluation.
 
-from guardian.command_bus.manifest import build_manifest
-from guardian.runtime.tools.invoker import invoke_tool
-from guardian.runtime.tools.policy import require_confirm
-from guardian.runtime.tools.registry import ROOTS, generate_tools_manifest
-from guardian.server.codexify_api import SaveEntryRequest, save_entry
+Design goals:
+- Stable identifiers (tool.name) and deterministic JSON Schema parameters.
+- Carry safety-relevant metadata (risk/effect/idempotency/approval).
+- Be derivable from the command bus manifest (preferred) or other registries.
+"""
 
-logger = logging.getLogger(__name__)
+from __future__ import annotations
 
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
-router = APIRouter(prefix="/tools", tags=["tools"])
-DEPRECATION_PHASE = "1.5"
-MANIFEST_REPLACED_BY = "/api/guardian/commands/manifest"
+from pydantic import BaseModel, Field
 
 
-class ToolCall(BaseModel):
+class RiskLevel(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+
+
+class Effect(str, Enum):
+    read = "read"
+    write = "write"
+    mutate = "mutate"
+    execute = "execute"  # e.g., shell/system side-effects
+
+
+class Idempotency(str, Enum):
+    idempotent = "idempotent"
+    non_idempotent = "non_idempotent"
+    unknown = "unknown"
+
+
+class ApprovalMode(str, Enum):
+    never = "never"  # safe by default
+    on_write = "on_write"  # require confirmation when effect != read
+    always = "always"  # require confirmation regardless
+
+
+class ToolArgSchema(BaseModel):
+    """JSON schema payload for tool parameters.
+
+    We store the schema as an opaque dict to avoid coupling to a specific JSON schema
+    library; the command-bus already produces JSONSchema-like dicts.
+    """
+
+    schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolSpec(BaseModel):
+    """Canonical tool metadata for model exposure and policy checks."""
+
     name: str
-    arguments: Dict[str, Any] = {}
+    description: str
+
+    # Routing/traceability
+    command_id: str | None = None
+    operation_id: str | None = None
+    method: str | None = None
+    path_template: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+
+    # Safety metadata
+    risk: RiskLevel = RiskLevel.low
+    effect: Effect = Effect.read
+    idempotency: Idempotency = Idempotency.unknown
+    approval_mode: ApprovalMode = ApprovalMode.never
+
+    # Model calling shape
+    args_schema: ToolArgSchema = Field(default_factory=ToolArgSchema)
+
+    # Optional: capability tags / namespaces
+    tags: list[str] = Field(default_factory=list)
+
+    def to_openai_tool(self) -> dict[str, Any]:
+        """Convert to the OpenAI tool schema (function tool)."""
+
+        # OpenAI expects: {"type":"function","function":{name,description,parameters}}
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": (
+                    self.args_schema.schema
+                    or {"type": "object", "properties": {}}
+                ),
+            },
+        }
 
 
-def _manifest_deprecation_headers() -> dict[str, str]:
-    return {
-        "X-Codexify-Deprecated": "true",
-        "X-Codexify-Deprecation-Replaced-By": MANIFEST_REPLACED_BY,
-        "X-Codexify-Deprecation-Phase": DEPRECATION_PHASE,
-    }
+class ActorKind(str, Enum):
+    human = "human"
+    agent = "agent"
+    system = "system"
 
 
-def _legacy_manifest_from_command_bus(request: Request) -> List[Dict[str, Any]]:
-    manifest = build_manifest(request.app)
-    payload: List[Dict[str, Any]] = []
-    for command in manifest.commands:
-        payload.append(
-            {
-                "name": command.command_id,
-                "description": f"{command.method} {command.path_template}",
-                "command_id": command.command_id,
-                "aliases": list(command.aliases),
-                "method": command.method,
-                "path_template": command.path_template,
-                "operation_id": command.operation_id,
-                "risk": command.risk,
-                "effect": command.effect,
-                "idempotency": command.idempotency,
-                "approval_mode": command.approval_mode,
-                "args_schema": command.input_schema,
-            }
-        )
-    return payload
+class ActorSpec(BaseModel):
+    kind: ActorKind
+    id: str
 
 
-@router.get("/manifest")
-def manifest(request: Request, response: Response) -> List[Dict[str, Any]]:
-    for key, value in _manifest_deprecation_headers().items():
-        response.headers[key] = value
-    subject = request.headers.get("X-User-Id", "").strip() or "-"
-    logger.info(
-        "legacy_tools_shim path=%s subject=%s command_id=%s",
-        request.url.path,
-        subject,
-        "-",
-    )
-    try:
-        return _legacy_manifest_from_command_bus(request)
-    except Exception:
-        # Keep fallback behavior if command bus manifest generation fails.
-        logger.exception(
-            "legacy_tools_shim manifest fallback to runtime registry"
-        )
-        return generate_tools_manifest()
+class PolicyDecisionType(str, Enum):
+    allow = "allow"
+    require_confirmation = "require_confirmation"
+    deny = "deny"
 
 
-@router.post("/call")
-def call(payload: ToolCall):
-    try:
-        # Special-case HTTP-backed tool
-        if payload.name == "codexify.save_entry":
-            try:
-                req = SaveEntryRequest(**(payload.arguments or {}))
-            except Exception as e:
-                raise HTTPException(
-                    status_code=400, detail=f"Invalid arguments: {e}"
-                )
-            result = save_entry(req)
-            return {"ok": True, "result": result}
-        if payload.name == "codexify.confirm_and_save":
-            args = payload.arguments or {}
-            try:
-                confirm = bool(args.get("confirm", False))
-                req_data = {
-                    "title": args.get("title"),
-                    "body": args.get("body", ""),
-                    "format": args.get("format", "md"),
-                    "folder": args.get("folder"),
-                    "folder_url": args.get("folder_url"),
-                    "return_links": bool(args.get("return_links", True)),
-                    "dry_run": False if confirm else True,
-                }
-                req = SaveEntryRequest(**req_data)
-            except Exception as e:
-                raise HTTPException(
-                    status_code=400, detail=f"Invalid arguments: {e}"
-                )
-            result = save_entry(req)
-            if not confirm:
-                return {
-                    "ok": True,
-                    "result": result,
-                    "message": "Preview generated. Call again with confirm:true to save.",
-                }
-            return {"ok": True, "result": result}
-        require_confirm(payload.name, payload.arguments or {})
-        result = invoke_tool(payload.name, payload.arguments or {})
-        return {"ok": True, "result": result}
-    except Exception as e:
-        # Try to enrich error with expected params
-        expected = None
-        try:
-            target_name = payload.name
-
-            def walk(group, prefix=""):
-                ctx = click.Context(group)
-                for nm in group.list_commands(ctx):
-                    sub = group.get_command(ctx, nm)
-                    fq = f"{prefix}:{nm}" if prefix else nm
-                    if fq == target_name:
-                        return sub
-                    if hasattr(sub, "list_commands"):
-                        found = walk(sub, fq)
-                        if found:
-                            return found
-                return None
-
-            cmd = None
-            for prefix, root in ROOTS:
-                found = walk(root, prefix)
-                if found:
-                    cmd = found
-                    break
-            if cmd is not None:
-                params = []
-                for p in getattr(cmd, "params", []) or []:
-                    pname = getattr(p, "name", None)
-                    if not pname:
-                        continue
-                    required = bool(getattr(p, "required", False))
-                    default = getattr(p, "default", None)
-                    params.append(
-                        {
-                            "name": pname,
-                            "required": required,
-                            "default": default,
-                        }
-                    )
-                expected = params
-        except Exception:
-            expected = None
-
-        # Log server-side traceback for debugging
-        logger.error(
-            "/tools/call error for %s: %s\n%s",
-            payload.name,
-            e,
-            traceback.format_exc(),
-        )
-
-        detail: Dict[str, Any] = {"error": str(e)}
-        if expected is not None:
-            detail["expected_params"] = expected
-        raise HTTPException(status_code=400, detail=detail)
+class PolicyDecision(BaseModel):
+    decision: PolicyDecisionType
+    reason: str
+    tool: str
+    risk: RiskLevel
+    effect: Effect
+    approval_mode: ApprovalMode
+    # If confirmation is required, the caller can attach a user-facing message.
+    confirm_message: str | None = None

@@ -173,19 +173,29 @@ class FederationManager:
             del self.active_relays[relay_id]
 
     def verify_relay_token(
-        self, token: str, secret: str
+        self,
+        token: str,
+        verification_key: Any,
+        algorithms: Optional[list[str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Verify a relay token and return its payload.
 
         Args:
             token: JWT token
-            secret: Secret key for verification
+            verification_key: Verification key/object for JWT decode
+            algorithms: Allowed algorithms (defaults to EdDSA + HS256)
 
         Returns:
             Token payload if valid, None otherwise
         """
+        allowed_algorithms = list(algorithms or ["EdDSA", "HS256"])
         try:
-            payload = jwt.decode(token, secret, algorithms=["HS256"])
+            payload = jwt.decode(
+                token,
+                verification_key,
+                algorithms=allowed_algorithms,
+                options={"verify_aud": False},
+            )
             return payload
         except jwt.InvalidTokenError:
             return None
