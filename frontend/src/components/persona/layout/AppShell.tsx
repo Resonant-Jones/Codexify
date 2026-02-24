@@ -1283,40 +1283,27 @@ export default function AppShell({}: PropsWithChildren) {
         onOpen as EventListener
       );
   }, [openDocInPlace, normalizeDoc]);
-  const createThreadFromDashboard = useCallback(async () => {
+  const createThreadFromDashboard = useCallback(() => {
     if (!checkAuthGate(auth, "threads create")) {
       return;
     }
-    const userId = userName || "default";
-    try {
-      const response = await api.post("/chat/threads", { title: "New Chat", user_id: userId });
-      const payload = response?.data ?? {};
-      const threadLike = payload.thread ?? payload;
-      const newId = threadLike?.id ?? threadLike?.thread_id ?? payload?.id;
-      if (!newId) {
-        console.warn("[dashboard] create thread succeeded without id");
-        return;
+    setPrefill(undefined);
+    setWorkspaceOpen(false);
+    setView("guardian");
+    if (typeof window !== "undefined") {
+      try {
+        window.dispatchEvent(
+          new CustomEvent("cfy:chat:new-draft", {
+            detail: { source: "dashboard" },
+          })
+        );
+      } catch (eventErr) {
+        console.warn("[dashboard] draft-thread event failed", eventErr);
       }
-      const idStr = String(newId);
-      // Notify sidebar/guardian surfaces so the freshly-created thread appears immediately.
-      if (typeof window !== "undefined") {
-        try {
-          window.dispatchEvent(new CustomEvent("cfy:threads:refresh", { detail: { kind: "create", id: idStr } }));
-        } catch (eventErr) {
-          console.warn("[dashboard] thread refresh event failed", eventErr);
-        }
-      }
-      setPrefill(undefined);
-      setWorkspaceOpen(false);
-      setView("guardian");
-      if (typeof window !== "undefined") {
-        window.history.pushState({}, "", `/chat/${idStr}`);
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      }
-    } catch (err) {
-      console.warn("[dashboard] failed to create thread", err);
+      window.history.pushState({}, "", "/chat");
+      window.dispatchEvent(new PopStateEvent("popstate"));
     }
-  }, [auth, userName]);
+  }, [auth]);
   // Use an active wallpaper for refractive glass; fall back to first gallery image if none chosen yet
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");

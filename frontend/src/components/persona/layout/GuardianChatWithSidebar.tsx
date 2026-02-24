@@ -500,6 +500,16 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     return () => window.removeEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
   }, [loadThreads]);
 
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onDraftThreadRequested = () => {
+      void handleNewChat();
+    };
+    window.addEventListener("cfy:chat:new-draft", onDraftThreadRequested as EventListener);
+    return () =>
+      window.removeEventListener("cfy:chat:new-draft", onDraftThreadRequested as EventListener);
+  }, [handleNewChat]);
+
   // Initial load only
   React.useEffect(() => {
     void loadThreads();

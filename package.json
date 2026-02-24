@@ -4,7 +4,7 @@
   "scripts": {
     "lint": "pnpm --dir frontend/src lint",
     "build": "pnpm --dir frontend/src build",
-    "test": "pnpm --dir frontend/src test",
+    "test": "pnpm --dir frontend/src exec vitest run",
     "format": "pnpm --dir frontend/src format",
     "format:check": "pnpm --dir frontend/src format:check"
   },
