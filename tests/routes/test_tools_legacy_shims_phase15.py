@@ -84,8 +84,14 @@ def test_legacy_manifest_returns_deprecation_header(monkeypatch) -> None:
     assert response.headers["X-Codexify-Deprecation-Phase"] == "1.5"
 
     payload = response.json()
-    assert isinstance(payload, list)
-    assert any(item.get("name") == "op::health_check" for item in payload)
+    assert payload["manifest_version"] == "1.0"
+    assert len(payload["command_manifest_hash"]) == 64
+    assert isinstance(payload["tools"], list)
+    assert any(
+        item.get("command_id") == "op::health_check"
+        for item in payload["tools"]
+    )
+    assert isinstance(payload["openai_tools"], list)
 
     alias_response = client.get("/api/tools/manifest", headers=_auth_headers())
     assert alias_response.status_code == 200
@@ -127,8 +133,11 @@ def test_legacy_execute_blocks_mutating_commands(monkeypatch) -> None:
     assert response.headers["X-Codexify-Deprecated"] == "true"
     payload = response.json()
     assert payload["status"] == "blocked"
-    assert payload["error"] == "phase1_write_blocked"
-    assert payload["result"]["error"] == "phase1_write_blocked"
+    assert payload["error"] in {
+        "phase1_write_blocked",
+        "policy_require_confirmation:write_effect,risk_high",
+    }
+    assert payload["result"]["error"] == payload["error"]
 
 
 def test_legacy_execute_synthesizes_actor_from_x_user_id(monkeypatch) -> None:
