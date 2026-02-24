@@ -310,6 +310,52 @@ class TestChatMessagesPost:
             == mock_db.ensure_default_project.return_value
         )
 
+    def test_create_on_send_creates_thread_and_message(
+        self, test_client, mock_db
+    ):
+        """POST /chat/messages creates a new thread when thread_id is omitted."""
+        payload = {
+            "role": "user",
+            "content": "First message",
+            "user_id": "test_user",
+            "thread_id": None,
+            "draft_tab_id": "tab-draft-1",
+        }
+
+        response = test_client.post("/chat/messages", json=payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert data["created_thread"] is True
+        assert data["thread_id"] == 1
+        assert data["message"]["thread_id"] == 1
+        mock_db.create_chat_thread.assert_called_once()
+        mock_db.create_message.assert_called_once_with(
+            1, "user", "First message"
+        )
+
+    def test_create_on_send_uses_existing_thread(self, test_client, mock_db):
+        """POST /chat/messages appends when thread_id is provided."""
+        payload = {
+            "thread_id": 12,
+            "role": "user",
+            "content": "Hello existing thread",
+            "user_id": "test_user",
+        }
+
+        response = test_client.post("/chat/messages", json=payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert data["created_thread"] is False
+        assert data["thread_id"] == 12
+        mock_db.create_chat_thread.assert_not_called()
+        mock_db.create_message.assert_called_once_with(
+            12, "user", "Hello existing thread"
+        )
+
 
 class TestChatMessagesGet:
     """Tests for GET /chat/{thread_id}/messages endpoint."""
@@ -719,6 +765,21 @@ class TestApiChatAlias:
         assert resp.status_code == 200
         data = resp.json()
         assert "id" in data  # API returns 'id', not 'thread_id'
+
+    def test_api_chat_create_on_send_alias(self, test_client, mock_db):
+        resp = test_client.post(
+            "/api/chat/messages",
+            json={
+                "role": "user",
+                "content": "hello",
+                "thread_id": None,
+                "draft_tab_id": "tab-1",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert "thread_id" in data
 
     def test_api_chat_root_simple_reply(self, test_client):
         resp = test_client.post("/api/chat", json={"prompt": "hello"})

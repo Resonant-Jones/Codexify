@@ -111,7 +111,10 @@ def evaluate_tool_policy(
         reason_codes.append("requires_confirmation")
         decision = "require_confirmation"
 
-    requires_transport_execution = effect == "read" and method in {"GET", "HEAD"}
+    requires_transport_execution = effect == "read" and method in {
+        "GET",
+        "HEAD",
+    }
     if requires_transport_execution and not has_resolvable_execution_base(env):
         reason_codes.append("loopback_base_missing")
         decision = "deny"
@@ -171,8 +174,7 @@ def apply_policy_mode(
         )
 
     blocked = decision.decision == "deny" or (
-        decision.decision == "require_confirmation"
-        and not confirmation_granted
+        decision.decision == "require_confirmation" and not confirmation_granted
     )
     if blocked:
         logger.warning(

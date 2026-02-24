@@ -148,6 +148,18 @@ class ThreadCreateRequest(BaseModel):
     project_id: str = None
 
 
+class ChatMessageCreateRequest(BaseModel):
+    thread_id: Optional[int] = None
+    draft_tab_id: Optional[str] = None
+    role: str
+    content: str
+    user_id: Optional[str] = "default"
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    project_id: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
 class ChatCompletionRequest(BaseModel):
     model: Optional[str] = None
     max_context: Optional[int] = 50
@@ -237,6 +249,194 @@ def _normalize_thread_summary(raw: Optional[str]) -> Optional[str]:
     if raw is None:
         return None
     return str(raw).strip()
+
+
+def _derive_thread_title_from_content(content: str) -> str:
+    first_line = (content or "").strip().split("\n", 1)[0].strip()
+    if not first_line:
+        return "New Chat"
+    if len(first_line) > 80:
+        return first_line[:80]
+    return first_line
+
+
+def _persist_message_to_thread(
+    *,
+    thread_id: int,
+    role: str,
+    content: str,
+    owner: str,
+    requested_project_id: Any = None,
+) -> Dict[str, Any]:
+    default_project_id = _coerce_project_id(requested_project_id)
+    lock_probe_acquired = False
+    try:
+        lock_probe_acquired = acquire_turn_lock(thread_id, value="user")
+        if not lock_probe_acquired:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "ok": False,
+                    "error": "turn_in_flight",
+                    "message": "Assistant is responding",
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # If Redis is unavailable, continue without turn gating.
+        logger.warning(
+            "[chat.messages] turn lock probe unavailable thread_id=%s err=%s",
+            thread_id,
+            exc,
+        )
+    finally:
+        if lock_probe_acquired:
+            try:
+                release_turn_lock(thread_id)
+            except Exception:
+                logger.debug(
+                    "[chat.messages] turn lock probe release failed thread_id=%s",
+                    thread_id,
+                    exc_info=True,
+                )
+
+    try:
+        chatlog_db.ensure_chat_thread(
+            thread_id=thread_id,
+            user_id=str(owner),
+            title="New Chat",
+            summary="",
+            project_id=default_project_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Failed to ensure chat thread %s exists: %s", thread_id, exc
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to persist chat message"
+        )
+
+    try:
+        mid = chatlog_db.create_message(thread_id, role, content)
+    except Exception as exc:
+        logger.exception(
+            "[chat] create_message failed thread_id=%s: %s", thread_id, exc
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to persist chat message"
+        )
+
+    chatlog_db.write_audit_log(
+        "create", "chat_message", str(mid), user_id=str(owner)
+    )
+
+    project_for_event = default_project_id
+    try:
+        refreshed_thread = chatlog_db.get_chat_thread(thread_id)
+        thread_project = (
+            refreshed_thread.get("project_id")
+            if isinstance(refreshed_thread, dict)
+            else None
+        )
+        project_for_event = _coerce_project_id(thread_project)
+    except Exception:
+        project_for_event = default_project_id
+
+    event_bus.emit_event(
+        "message.created",
+        {
+            "thread_id": thread_id,
+            "message_id": mid,
+            "role": role,
+            "content": content,
+        },
+    )
+    _emit_thread_update_event(
+        thread_id=thread_id,
+        actor_user_id=str(owner),
+        project_id=project_for_event,
+        idempotency_suffix=f"message:{mid}",
+        payload={
+            "thread_id": thread_id,
+            "message_id": mid,
+            "role": role,
+        },
+    )
+
+    _embed_message(thread_id, role, content, mid)
+
+    # Best-effort auto-title on first user message.
+    try:
+        thread = chatlog_db.get_chat_thread(thread_id)
+        title_text = (thread.get("title") or "").strip() if thread else ""
+        if role == "user" and not title_text:
+            try:
+                total = chatlog_db.count_messages(thread_id)
+            except Exception:
+                total = 1
+            if total == 1:
+                candidate = _derive_thread_title_from_content(content)
+                if candidate:
+                    try:
+                        chatlog_db.update_thread(thread_id, title=candidate)
+                    except Exception:
+                        logger.debug(
+                            "[threads] auto-title update failed for thread_id=%s",
+                            thread_id,
+                            exc_info=True,
+                        )
+    except Exception:
+        # Auto-title must never break message insertion.
+        logger.debug(
+            "[threads] auto-title computation failed for thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+
+    # --- Neo4j sync ---
+    if NEO4J_SYNC_AVAILABLE and getattr(
+        llm_settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False
+    ):
+        try:
+            connect_neo4j()
+            message_id = str(mid)
+            thread_id_str = str(thread_id)
+            user_id_str = str(owner)
+            message_text = content
+
+            neo_user = UserNode.get_or_create(
+                {"user_id": user_id_str, "name": user_id_str}
+            )
+            if isinstance(neo_user, list):
+                neo_user = neo_user[0]
+
+            neo_thread = ThreadNode.get_or_create({"thread_id": thread_id_str})
+            if isinstance(neo_thread, list):
+                neo_thread = neo_thread[0]
+
+            neo_msg = MessageNode.get_or_create(
+                {
+                    "message_id": message_id,
+                    "content": message_text,
+                    "created_at": datetime.now(timezone.utc),
+                }
+            )
+            if isinstance(neo_msg, list):
+                neo_msg = neo_msg[0]
+
+            neo_msg.user.connect(neo_user)
+            neo_msg.thread.connect(neo_thread)
+
+        except Exception as e:
+            logger.warning("[Neo4j Sync Error] %s", e, exc_info=True)
+
+    return {
+        "id": mid,
+        "thread_id": thread_id,
+        "role": role,
+        "content": content,
+    }
 
 
 def _apply_thread_update(
@@ -626,172 +826,132 @@ def chat_post_message(
             content={"ok": False, "error": "role and content required"},
         )
     owner = body.get("user_id") or "default"
-    default_project_id = _coerce_project_id(None)
-    # Turn gating: allow posting messages normally, but reject new user messages
-    # while an assistant completion is in-flight (lock held). We probe the lock
-    # without holding it by acquiring and immediately releasing when available.
-    lock_probe_acquired = False
     try:
-        lock_probe_acquired = acquire_turn_lock(thread_id, value="user")
-        if not lock_probe_acquired:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "ok": False,
-                    "error": "turn_in_flight",
-                    "message": "Assistant is responding",
-                },
-            )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        # If Redis is unavailable, continue without turn gating.
-        logger.warning(
-            "[chat.messages] turn lock probe unavailable thread_id=%s err=%s",
-            thread_id,
-            exc,
+        message = _persist_message_to_thread(
+            thread_id=thread_id,
+            role=role,
+            content=content,
+            owner=str(owner),
+            requested_project_id=body.get("project_id"),
         )
-    finally:
-        if lock_probe_acquired:
+    except HTTPException as exc:
+        if exc.status_code == 429 and isinstance(exc.detail, dict):
+            return JSONResponse(status_code=429, content=exc.detail)
+        raise
+    return {"ok": True, "message": message}
+
+
+@router.post("/messages")
+def chat_post_message_create_on_send(
+    body: ChatMessageCreateRequest = Body(...),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    Post a message to an existing thread or create a thread on first send.
+
+    This is the draft-friendly endpoint:
+    - when `thread_id` is provided, it appends to that thread
+    - when `thread_id` is null, it creates a thread and persists the first message
+    """
+    role = (body.role or "").strip()
+    content = (body.content or "").strip()
+    if not role or not content:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "role and content required"},
+        )
+    owner = str(body.user_id or "default")
+    requested_thread_id = _coerce_positive_int(body.thread_id)
+    created_thread = False
+    created_thread_id: Optional[int] = None
+    thread_record: Optional[Dict[str, Any]] = None
+
+    if requested_thread_id is None:
+        requested_title = (
+            _normalize_thread_title(body.title)
+            if body.title is not None
+            else None
+        )
+        title = requested_title or _derive_thread_title_from_content(content)
+        summary = (
+            _normalize_thread_summary(body.summary)
+            if body.summary is not None
+            else ""
+        ) or ""
+        metadata: Dict[str, Any] = {}
+        if isinstance(body.metadata, dict):
+            metadata.update(body.metadata)
+        if body.draft_tab_id:
+            metadata["draft_tab_id"] = str(body.draft_tab_id)
+        normalized_project = _coerce_project_id(body.project_id)
+        try:
+            thread_record = chatlog_db.create_chat_thread(
+                user_id=owner,
+                title=title,
+                summary=summary,
+                project_id=normalized_project,
+                metadata=metadata or None,
+            )
+            created_thread_id = int(thread_record["id"])
+            requested_thread_id = created_thread_id
+            created_thread = True
+            chatlog_db.write_audit_log(
+                "create",
+                "chat_thread",
+                str(created_thread_id),
+                user_id=owner,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to create thread during create-on-send: %s", exc
+            )
+            raise HTTPException(
+                status_code=500, detail="Failed to create chat thread"
+            )
+
+    assert requested_thread_id is not None
+    try:
+        message = _persist_message_to_thread(
+            thread_id=requested_thread_id,
+            role=role,
+            content=content,
+            owner=owner,
+            requested_project_id=body.project_id,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 429 and isinstance(exc.detail, dict):
+            return JSONResponse(status_code=429, content=exc.detail)
+        if created_thread and created_thread_id is not None:
             try:
-                release_turn_lock(thread_id)
+                chatlog_db.delete_thread(created_thread_id, force=True)
             except Exception:
-                logger.debug(
-                    "[chat.messages] turn lock probe release failed thread_id=%s",
-                    thread_id,
+                logger.warning(
+                    "[chat.messages] failed to rollback created thread_id=%s after HTTP failure",
+                    created_thread_id,
                     exc_info=True,
                 )
-    try:
-        chatlog_db.ensure_chat_thread(
-            thread_id=thread_id,
-            user_id=str(owner),
-            title="New Chat",
-            summary="",
-            project_id=default_project_id,
-        )
-    except Exception as exc:
-        logger.exception(
-            "Failed to ensure chat thread %s exists: %s", thread_id, exc
-        )
-        raise HTTPException(
-            status_code=500, detail="Failed to persist chat message"
-        )
-    try:
-        mid = chatlog_db.create_message(thread_id, role, content)
-    except Exception as exc:
-        logger.exception(
-            "[chat] create_message failed thread_id=%s: %s", thread_id, exc
-        )
-        raise HTTPException(
-            status_code=500, detail="Failed to persist chat message"
-        )
-    chatlog_db.write_audit_log(
-        "create", "chat_message", str(mid), user_id=str(owner)
-    )
-
-    # Emit event for real-time updates
-    event_bus.emit_event(
-        "message.created",
-        {
-            "thread_id": thread_id,
-            "message_id": mid,
-            "role": role,
-            "content": content,
-        },
-    )
-    _emit_thread_update_event(
-        thread_id=thread_id,
-        actor_user_id=str(owner),
-        project_id=default_project_id,
-        idempotency_suffix=f"message:{mid}",
-        payload={
-            "thread_id": thread_id,
-            "message_id": mid,
-            "role": role,
-        },
-    )
-
-    # Auto-embed message
-    _embed_message(thread_id, role, content, mid)
-
-    # Best-effort auto-title on first user message. If the backing thread row
-    # has an empty/NULL title and this is the first persisted message, derive
-    # a short title from the content so thread lists remain readable.
-    try:
-        thread = chatlog_db.get_chat_thread(thread_id)
-        title_text = (thread.get("title") or "").strip() if thread else ""
-        if role == "user" and not title_text:
-            try:
-                total = chatlog_db.count_messages(thread_id)
-            except Exception:
-                total = 1
-            if total == 1:
-                candidate = content.split("\n", 1)[0].strip()
-                if len(candidate) > 80:
-                    candidate = candidate[:80]
-                if candidate:
-                    try:
-                        chatlog_db.update_thread(thread_id, title=candidate)
-                    except Exception:
-                        logger.debug(
-                            "[threads] auto-title update failed for thread_id=%s",
-                            thread_id,
-                            exc_info=True,
-                        )
+        raise
     except Exception:
-        # Auto-title must never break message insertion.
-        logger.debug(
-            "[threads] auto-title computation failed for thread_id=%s",
-            thread_id,
-            exc_info=True,
-        )
+        if created_thread and created_thread_id is not None:
+            try:
+                chatlog_db.delete_thread(created_thread_id, force=True)
+            except Exception:
+                logger.warning(
+                    "[chat.messages] failed to rollback created thread_id=%s after message failure",
+                    created_thread_id,
+                    exc_info=True,
+                )
+        raise
 
-    # --- Neo4j sync ---
-    if NEO4J_SYNC_AVAILABLE and getattr(
-        llm_settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False
-    ):
-        try:
-            connect_neo4j()
-            # Use string IDs for Neo4j
-            message_id = str(mid)
-            thread_id_str = str(thread_id)
-            user_id_str = str(owner)
-            message_text = content
-
-            neo_user = UserNode.get_or_create(
-                {"user_id": user_id_str, "name": user_id_str}
-            )
-            if isinstance(neo_user, list):
-                neo_user = neo_user[0]
-
-            neo_thread = ThreadNode.get_or_create({"thread_id": thread_id_str})
-            if isinstance(neo_thread, list):
-                neo_thread = neo_thread[0]
-
-            neo_msg = MessageNode.get_or_create(
-                {
-                    "message_id": message_id,
-                    "content": message_text,
-                    "created_at": datetime.now(timezone.utc),
-                }
-            )
-            if isinstance(neo_msg, list):
-                neo_msg = neo_msg[0]
-
-            neo_msg.user.connect(neo_user)
-            neo_msg.thread.connect(neo_thread)
-
-        except Exception as e:
-            logger.warning("[Neo4j Sync Error] %s", e, exc_info=True)
-
+    if thread_record is None:
+        thread_record = chatlog_db.get_chat_thread(requested_thread_id)
     return {
         "ok": True,
-        "message": {
-            "id": mid,
-            "thread_id": thread_id,
-            "role": role,
-            "content": content,
-        },
+        "created_thread": created_thread,
+        "thread_id": requested_thread_id,
+        "thread": thread_record,
+        "message": message,
+        "draft_tab_id": body.draft_tab_id,
     }
 
 
@@ -1540,6 +1700,15 @@ def api_chat_post_message(
 ):
     """Compat alias for POST /chat/{thread_id}/messages used in tests."""
     return chat_post_message(thread_id, body, api_key=api_key)
+
+
+@api_chat_router.post("/messages")
+def api_chat_post_message_create_on_send(
+    body: ChatMessageCreateRequest = Body(...),
+    api_key: str = Depends(require_api_key),
+):
+    """Compat alias for POST /chat/messages used by draft tabs."""
+    return chat_post_message_create_on_send(body, api_key=api_key)
 
 
 @api_chat_router.get("/{thread_id}/messages")
