@@ -12,7 +12,8 @@ import time
 from typing import Any, Dict
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from guardian.cognition.system_profiles.resolver import switch_thread_profile
@@ -25,7 +26,7 @@ from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.manifest import build_command_index
 from guardian.core.dependencies import get_request_user_id
 from guardian.tools.derive import derive_tools_from_command_manifest
-from guardian.tools.spec import ToolManifestEnvelope
+from guardian.tools.spec import ToolManifestEnvelope, ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ _manifest_cache_expires_at = 0.0
 _manifest_cache_index: dict[str, Any] = {}
 _manifest_cache_commands: list[Any] = []
 _manifest_cache_manifest: dict[str, Any] = {}
+_MANIFEST_FORMAT_ENVELOPE = "envelope"
+_MANIFEST_FORMAT_ARRAY = "array"
 
 
 class ToolRequest(BaseModel):
@@ -392,7 +395,11 @@ def _manifest_hash(manifest_payload: dict[str, Any]) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def _derived_manifest_payload(request: Request) -> ToolManifestEnvelope:
+def _derive_openai_tools(tools: list[ToolSpec]) -> list[dict[str, Any]]:
+    return [tool.to_openai_function_tool() for tool in tools]
+
+
+def build_tool_manifest_envelope(request: Request) -> ToolManifestEnvelope:
     _index, _commands, manifest_payload = _get_command_cache(request.app)
     tools = derive_tools_from_command_manifest(manifest_payload)
     return ToolManifestEnvelope(
@@ -401,7 +408,49 @@ def _derived_manifest_payload(request: Request) -> ToolManifestEnvelope:
         generated_at=str(manifest_payload.get("generated_at") or ""),
         command_manifest_hash=_manifest_hash(manifest_payload),
         tools=tools,
-        openai_tools=[tool.to_openai_function_tool() for tool in tools],
+        openai_tools=_derive_openai_tools(tools),
+    )
+
+
+def _tools_array_compat_payload(tools: list[ToolSpec]) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for tool in tools:
+        payload.append(
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "command_id": tool.command_id,
+                "aliases": list(tool.aliases),
+                "method": tool.method,
+                "path_template": tool.path_template,
+                "operation_id": tool.operation_id,
+                "risk": tool.risk,
+                "effect": tool.effect,
+                "idempotency": tool.idempotency,
+                "approval_mode": (
+                    "blocked_phase1" if tool.requires_confirmation else "none"
+                ),
+                "args_schema": tool.input_schema,
+            }
+        )
+    return payload
+
+
+def _normalize_manifest_format(raw_format: str) -> str:
+    normalized = str(raw_format or _MANIFEST_FORMAT_ENVELOPE).strip().lower()
+    if not normalized:
+        normalized = _MANIFEST_FORMAT_ENVELOPE
+    if normalized in {_MANIFEST_FORMAT_ENVELOPE, _MANIFEST_FORMAT_ARRAY}:
+        return normalized
+    raise _http_error(
+        status_code=400,
+        detail={
+            "error": "invalid_manifest_format",
+            "message": "format must be one of: envelope, array",
+            "received": raw_format,
+            "supported": [_MANIFEST_FORMAT_ENVELOPE, _MANIFEST_FORMAT_ARRAY],
+        },
+        replaced_by=MANIFEST_REPLACED_BY,
     )
 
 
@@ -505,15 +554,31 @@ def tools_execute(body: ToolRequest, api_key: str = Depends(require_api_key)):
 def tools_manifest(
     request: Request,
     response: Response,
+    manifest_format: str = Query(
+        default=_MANIFEST_FORMAT_ENVELOPE, alias="format"
+    ),
     api_key: str = Depends(require_api_key),
-) -> ToolManifestEnvelope:
+) -> ToolManifestEnvelope | JSONResponse:
     _ = api_key
     _apply_deprecation_headers(response, MANIFEST_REPLACED_BY)
     subject = (
         request.headers.get("X-User-Id", "").strip() or None
     ) or _resolve_auth_subject(request)
     _log_shim_hit(request=request, subject=subject, command_id=None)
-    return _derived_manifest_payload(request)
+    resolved_format = _normalize_manifest_format(manifest_format)
+    envelope = build_tool_manifest_envelope(request)
+    if resolved_format == _MANIFEST_FORMAT_ENVELOPE:
+        return envelope
+
+    logger.warning(
+        "legacy_tools_manifest_format_array path=%s subject=%s",
+        request.url.path,
+        subject or "-",
+    )
+    return JSONResponse(
+        content=_tools_array_compat_payload(envelope.tools),
+        headers=_deprecation_headers(MANIFEST_REPLACED_BY),
+    )
 
 
 @router.post("/execute", response_model=ToolResponse)
@@ -630,10 +695,18 @@ def tools_job_status(job_id: str, api_key: str = Depends(require_api_key)):
 def api_tools_manifest(
     request: Request,
     response: Response,
+    manifest_format: str = Query(
+        default=_MANIFEST_FORMAT_ENVELOPE, alias="format"
+    ),
     api_key: str = Depends(require_api_key),
-) -> ToolManifestEnvelope:
+) -> ToolManifestEnvelope | JSONResponse:
     """Compat alias for GET /tools/manifest."""
-    return tools_manifest(request, response, api_key=api_key)
+    return tools_manifest(
+        request,
+        response,
+        manifest_format=manifest_format,
+        api_key=api_key,
+    )
 
 
 @api_router.post("/execute", response_model=ToolResponse)
