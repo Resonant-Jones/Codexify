@@ -56,7 +56,9 @@ class VerifiedApprovalClaims(BaseModel):
 
 
 def _canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
 
 
 def _b64url_encode(raw: bytes) -> str:
@@ -234,4 +236,3 @@ def verify_approval_token(
 def approval_idempotency_key(token: str) -> str:
     digest = hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
     return f"approval_{digest[:56]}"
-

@@ -59,7 +59,7 @@ from guardian.tools.spec import (
 logger = logging.getLogger(__name__)
 
 # In-memory job registry (ok for dev; replace with persistent store for prod)
-JOBS: Dict[str, Dict[str, Any]] = {}
+JOBS: dict[str, dict[str, Any]] = {}
 
 DEPRECATION_PHASE = "1.5"
 MANIFEST_REPLACED_BY = "/api/guardian/commands/manifest"
@@ -239,7 +239,12 @@ def _get_command_cache(
 
 def _get_tool_maps(
     manifest_payload: dict[str, Any],
-) -> tuple[list[ToolSpec], dict[str, ToolSpec], dict[str, ToolSpec], dict[str, ToolSpec]]:
+) -> tuple[
+    list[ToolSpec],
+    dict[str, ToolSpec],
+    dict[str, ToolSpec],
+    dict[str, ToolSpec],
+]:
     tools = derive_tools_from_command_manifest(manifest_payload)
     tools_by_tool_id: dict[str, ToolSpec] = {}
     tools_by_command_id: dict[str, ToolSpec] = {}
@@ -248,7 +253,10 @@ def _get_tool_maps(
         tools_by_tool_id[tool.tool_id] = tool
         tools_by_command_id[tool.command_id] = tool
         existing_openai = tools_by_openai_name.get(tool.openai_name)
-        if existing_openai is not None and existing_openai.tool_id != tool.tool_id:
+        if (
+            existing_openai is not None
+            and existing_openai.tool_id != tool.tool_id
+        ):
             raise _http_error(
                 status_code=500,
                 detail={
@@ -347,9 +355,12 @@ def _resolve_tool_and_command(
     command_list: list[Any],
     manifest_payload: dict[str, Any],
 ) -> tuple[ToolSpec, Any]:
-    _tools, tools_by_tool_id, tools_by_command_id, tools_by_openai_name = (
-        _get_tool_maps(manifest_payload)
-    )
+    (
+        _tools,
+        tools_by_tool_id,
+        tools_by_command_id,
+        tools_by_openai_name,
+    ) = _get_tool_maps(manifest_payload)
 
     explicit_tool_id = (body.tool_id or "").strip()
     if explicit_tool_id:
@@ -971,9 +982,12 @@ async def _approve_tools_call(
     command_index, command_list, manifest_payload = _get_command_cache(
         request.app
     )
-    _tools, tools_by_tool_id, _tools_by_command_id, _tools_by_openai_name = (
-        _get_tool_maps(manifest_payload)
-    )
+    (
+        _tools,
+        tools_by_tool_id,
+        _tools_by_command_id,
+        _tools_by_openai_name,
+    ) = _get_tool_maps(manifest_payload)
     tool_spec = tools_by_tool_id.get(decoded_claims.tool_id)
     if tool_spec is None:
         raise _http_error(

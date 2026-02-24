@@ -363,7 +363,9 @@ def test_legacy_response_adapter_for_execute_and_approve(monkeypatch) -> None:
     assert approved_payload["status"] == "completed"
 
 
-def test_raw_command_bus_lane_cannot_unlock_write_execution(monkeypatch) -> None:
+def test_raw_command_bus_lane_cannot_unlock_write_execution(
+    monkeypatch,
+) -> None:
     monkeypatch.setenv("CODEXIFY_POLICY_MODE", "enforce")
     client = _build_client(monkeypatch)
 

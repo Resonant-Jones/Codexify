@@ -88,9 +88,10 @@ def _derive_openai_name(tool_id: str, used_names: set[str]) -> str:
     # Defensive fallback; keeps determinism even in extremely unlikely hash collisions.
     attempt = 1
     while True:
-        alt_suffix = "_" + hashlib.sha256(
-            f"{tool_id}:{attempt}".encode("utf-8")
-        ).hexdigest()[:8]
+        alt_suffix = (
+            "_"
+            + hashlib.sha256(f"{tool_id}:{attempt}".encode()).hexdigest()[:8]
+        )
         max_base_len = max(1, 64 - len(alt_suffix))
         candidate = f"{base[:max_base_len]}{alt_suffix}"
         if candidate not in used_names:
@@ -99,7 +100,9 @@ def _derive_openai_name(tool_id: str, used_names: set[str]) -> str:
         attempt += 1
 
 
-def derive_tools_from_command_manifest(manifest: dict[str, Any]) -> list[ToolSpec]:
+def derive_tools_from_command_manifest(
+    manifest: dict[str, Any]
+) -> list[ToolSpec]:
     """Build canonical ToolSpec list from command bus manifest payload."""
 
     tools: list[ToolSpec] = []

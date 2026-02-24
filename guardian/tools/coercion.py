@@ -48,7 +48,9 @@ def _schema_properties(
     return section_props
 
 
-def _section_schema(schema: dict[str, Any] | None, section: str) -> dict[str, Any]:
+def _section_schema(
+    schema: dict[str, Any] | None, section: str
+) -> dict[str, Any]:
     if not isinstance(schema, dict):
         return {}
     props = schema.get("properties")
@@ -70,9 +72,7 @@ def _normalize_object(raw: Any, *, section: str) -> dict[str, Any]:
     return dict(raw)
 
 
-def _validate_schema(
-    value: Any, schema: dict[str, Any], *, label: str
-) -> None:
+def _validate_schema(value: Any, schema: dict[str, Any], *, label: str) -> None:
     if not isinstance(schema, dict) or not schema:
         return
     try:
@@ -143,9 +143,7 @@ def coerce_tool_arguments(
         "headers": {},
         "body": {},
     }
-    has_explicit_transport = any(
-        key in source for key in _CANONICAL_KEYS
-    )
+    has_explicit_transport = any(key in source for key in _CANONICAL_KEYS)
 
     if has_explicit_transport:
         unknown_top_level = {

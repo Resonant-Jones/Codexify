@@ -162,6 +162,33 @@ describe("SessionSpine", () => {
     expect(tabs[0].modelId).toBe("default");
   });
 
+  it("closing an active tab falls back to most recently active remaining tab", async () => {
+    const store = new InMemorySessionStateStore();
+    const spine = new SessionSpine({
+      userId: "user-1",
+      deviceId: "device-1",
+      store,
+      defaultModelId: "default",
+    });
+    await spine.hydrate({ threadId: "101", title: "Alpha", modelId: "default" });
+
+    const tabA = spine.getActiveTab();
+    if (!tabA) throw new Error("Expected initial tab");
+    const tabB = spine.tabOpen("202", "Beta");
+    const tabC = spine.tabOpen("303", "Gamma");
+
+    // Make C the previously active tab, then switch to A and close A.
+    spine.tabActivate(tabC.tabId);
+    spine.tabActivate(tabA.tabId);
+    spine.tabClose(tabA.tabId);
+
+    expect(spine.getActiveTabId()).toBe(tabC.tabId);
+    expect(spine.getTabs().map((tab) => tab.tabId)).toEqual([
+      tabB.tabId,
+      tabC.tabId,
+    ]);
+  });
+
   it("hydrates empty tabs to a default one-tab state", async () => {
     const store = new InMemorySessionStateStore();
     await store.setSessionState(

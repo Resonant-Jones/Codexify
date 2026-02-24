@@ -146,6 +146,7 @@ export function GuardianChat({
   onWorkspaceToggle,
   activeThread,
   onSendMessage,
+  onThreadPersisted,
   onNewChat,
   onBranchThread: _onBranchThread,
   onArchiveThread,
@@ -169,6 +170,7 @@ export function GuardianChat({
   onWorkspaceToggle?: () => void;
   activeThread: Thread;
   onSendMessage: (text: string) => Promise<void>;
+  onThreadPersisted?: (threadId: number, title?: string) => void;
   onNewChat: () => void;
   onBranchThread?: (threadId: number, options?: { title?: string }) => Promise<void> | void;
   onArchiveThread?: (threadId: number) => Promise<void> | void;
@@ -876,40 +878,37 @@ export function GuardianChat({
       let createdThreadId: number | null = null;
       setPendingTurnLock(true);
       try {
-        const resp = await api.post("/chat/threads", {
+        const resp = await api.post("/chat/messages", {
+          thread_id: null,
+          draft_tab_id: activeSessionTabId ?? undefined,
+          role: "user",
+          content: text,
+          user_id: normalizedUserId,
           title: provisionalTitle,
         });
         const th = (resp && resp.data) || {};
-        const newThreadId = th.id ?? th.thread?.id ?? th.thread_id ?? th.id_str;
+        const newThreadId =
+          th.thread_id ?? th.thread?.id ?? th.message?.thread_id ?? th.id ?? th.id_str;
         const numericNewId = Number(newThreadId);
         if (!Number.isFinite(numericNewId)) {
-          console.warn("Unexpected thread creation response:", th);
+          console.warn("Unexpected create-on-send response:", th);
           throw new Error("Thread id missing from response");
         }
         createdThreadId = numericNewId;
         const derivedTitle = th.thread?.title ?? provisionalTitle;
         handleThreadCreated(numericNewId, derivedTitle);
+        onThreadPersisted?.(numericNewId, derivedTitle);
 
-        // Lock the new thread before sending the first message.
+        // Lock the new thread before requesting assistant completion.
         setTurnLockForThread(numericNewId, true);
         setPendingTurnLock(false);
 
-        // Post the first message to the newly-created thread
-        await api.post(`/chat/${numericNewId}/messages`, {
-          role: "user",
-          content: text,
-          user_id: normalizedUserId,
-        });
-
-        // Remove draft only after successful post
+        // Remove draft only after successful commit.
         if (typeof window !== "undefined") {
           sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${numericNewId}`);
         }
 
-        // Notify parent that the message was sent
-        await onSendMessage(text);
-
-        // Complete the thread and refresh
+        // Complete the thread and refresh.
         const completed = await completeThread(numericNewId);
         if (!completed) {
           setTurnLockForThread(numericNewId, false);
