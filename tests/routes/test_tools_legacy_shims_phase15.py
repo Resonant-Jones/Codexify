@@ -84,9 +84,12 @@ def test_legacy_manifest_returns_deprecation_header(monkeypatch) -> None:
     assert response.headers["X-Codexify-Deprecation-Phase"] == "1.5"
 
     payload = response.json()
+    assert isinstance(payload, dict)
     assert payload["manifest_version"] == "1.0"
     assert len(payload["command_manifest_hash"]) == 64
     assert isinstance(payload["tools"], list)
+    assert payload["tools"][0]["tool_id"]
+    assert payload["tools"][0]["name"]
     assert any(
         item.get("command_id") == "op::health_check"
         for item in payload["tools"]
