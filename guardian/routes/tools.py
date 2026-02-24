@@ -148,7 +148,7 @@ def _resolve_auth_subject(request: Request | None) -> str | None:
     if request is None:
         return None
     try:
-        derived = get_request_user_id(None)
+        derived = get_request_user_id(request.headers.get("X-User-Id"))
     except Exception:
         return None
     derived_str = str(derived or "").strip()

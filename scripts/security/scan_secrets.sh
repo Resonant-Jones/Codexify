@@ -4,32 +4,19 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
-echo "[scan] quick git grep checks"
-PATTERNS=(
-  "token.json"
-  "client_secret"
-  "refresh_token"
-  "GUARDIAN_API_KEY"
-)
-
-for pat in "${PATTERNS[@]}"; do
-  echo "[scan] pattern: $pat"
-  git grep -n -I "$pat" -- . \
-    ':(exclude)node_modules/*' \
-    ':(exclude).venv/*' \
-    ':(exclude).pnpm-store/*' || true
-done
-
-if command -v detect-secrets >/dev/null 2>&1; then
-  echo "[scan] detect-secrets available"
-  detect-secrets scan || true
+if command -v pre-commit >/dev/null 2>&1; then
+  echo "[scan] pre-commit run --all-files"
+  pre-commit run --all-files
 else
-  echo "[scan] detect-secrets not installed; skipping"
+  echo "[scan] pre-commit not installed; skipping"
 fi
 
 if command -v gitleaks >/dev/null 2>&1; then
-  echo "[scan] gitleaks available"
-  gitleaks detect --no-git --source . || true
+  echo "[scan] gitleaks dir (working tree)"
+  gitleaks dir . --exit-code 1
+  echo "[scan] gitleaks git (full history / all refs)"
+  gitleaks git . --log-opts="--all" --exit-code 1
 else
-  echo "[scan] gitleaks not installed; skipping"
+  echo "[scan] gitleaks not installed"
+  exit 1
 fi

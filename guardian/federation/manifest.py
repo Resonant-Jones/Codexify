@@ -81,6 +81,26 @@ def generate_keypair() -> tuple[str, str]:
     return private_b64, public_b64
 
 
+def private_key_from_b64(
+    private_key_b64: str,
+) -> ed25519.Ed25519PrivateKey:
+    """Decode a base64 raw Ed25519 private key."""
+    try:
+        private_key_bytes = base64.b64decode(private_key_b64)
+        return ed25519.Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+    except Exception as exc:
+        raise ValueError("Invalid federation private key.") from exc
+
+
+def public_key_from_b64(public_key_b64: str) -> ed25519.Ed25519PublicKey:
+    """Decode a base64 raw Ed25519 public key."""
+    try:
+        public_key_bytes = base64.b64decode(public_key_b64)
+        return ed25519.Ed25519PublicKey.from_public_bytes(public_key_bytes)
+    except Exception as exc:
+        raise ValueError("Invalid federation public key.") from exc
+
+
 def sign_manifest(manifest: NodeManifest, private_key_b64: str) -> str:
     """Sign a manifest with the node's private key.
 
@@ -101,10 +121,7 @@ def sign_manifest(manifest: NodeManifest, private_key_b64: str) -> str:
     )
 
     # Decode private key and sign
-    private_key_bytes = base64.b64decode(private_key_b64)
-    private_key = ed25519.Ed25519PrivateKey.from_private_bytes(
-        private_key_bytes
-    )
+    private_key = private_key_from_b64(private_key_b64)
     signature = private_key.sign(manifest_json.encode("utf-8"))
 
     return base64.b64encode(signature).decode("utf-8")
@@ -137,10 +154,7 @@ def verify_manifest(
         )
 
         # Decode public key and signature
-        public_key_bytes = base64.b64decode(manifest.public_key)
-        public_key = ed25519.Ed25519PublicKey.from_public_bytes(
-            public_key_bytes
-        )
+        public_key = public_key_from_b64(manifest.public_key)
         signature_bytes = base64.b64decode(signature_b64)
 
         # Verify signature

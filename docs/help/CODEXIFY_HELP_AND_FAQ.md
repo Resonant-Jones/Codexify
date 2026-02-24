@@ -37,6 +37,7 @@ Once services are running:
 - Confirm DB initialized
 - Confirm Redis running
 - Confirm vector store initialized (if enabled)
+- Check for `SECURITY-REWRITE-NOTICE.md`; if present, apply those reset/re-clone instructions before first run.
 
 If the UI loads but chat does not respond:
 - Check backend logs: `docker compose logs backend`
@@ -51,6 +52,8 @@ git pull
 docker compose down
 docker compose up --build
 ```
+
+If the project publishes a security history rewrite notice, do not use `git pull` on an old clone. Follow `SECURITY-REWRITE-NOTICE.md` and re-clone/reset exactly as instructed.
 
 ---
 
