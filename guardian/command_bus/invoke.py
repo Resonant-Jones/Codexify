@@ -23,7 +23,7 @@ from guardian.command_bus.redaction_policy import (
     compute_args_hash,
     redact_arguments,
 )
-from guardian.command_bus.store import CommandBusStore
+from guardian.command_bus.store import CommandBusStore, IdempotencyConflictError
 from guardian.tools.policy import (
     apply_policy_mode,
     evaluate_tool_policy,
@@ -57,6 +57,33 @@ def validate_actor_claim(
             "auth_subject": auth_subject,
         },
     )
+
+
+def _response_from_existing_run(
+    *,
+    run: dict[str, Any],
+    manifest_version: str,
+    fallback_invoke_version: str,
+) -> dict[str, Any]:
+    run_id = str(run.get("run_id") or "")
+    status = str(run.get("status") or "queued")
+    response: dict[str, Any] = {
+        "run_id": run_id,
+        "status": status,
+        "invoke_version": str(
+            run.get("invoke_version") or fallback_invoke_version
+        ),
+        "manifest_version": manifest_version,
+        "events_url": f"/api/guardian/commands/runs/{run_id}/events?after_seq=0",
+        "policy_warnings": [],
+    }
+
+    result_json = run.get("result_json")
+    if status == "completed" and result_json is not None:
+        response["inline_result"] = result_json
+    if run.get("error_text") is not None:
+        response["error"] = str(run["error_text"])
+    return response
 
 
 async def execute_invoke(
@@ -96,6 +123,24 @@ async def execute_invoke(
             },
         )
 
+    idempotency_key = (payload.idempotency_key or "").strip() or None
+    if idempotency_key:
+        existing_run = store.get_run_by_idempotency_key(
+            command.command_id,
+            idempotency_key,
+        )
+        if existing_run is not None:
+            if str(existing_run.get("auth_subject") or "") != auth_subject:
+                raise HTTPException(
+                    status_code=403,
+                    detail={"error": "idempotency_key_not_permitted"},
+                )
+            return _response_from_existing_run(
+                run=existing_run,
+                manifest_version=manifest.manifest_version,
+                fallback_invoke_version=payload.invoke_version,
+            )
+
     policy_mode = get_policy_mode(os.environ)
     invoke_policy = apply_policy_mode(
         evaluate_tool_policy(
@@ -109,18 +154,32 @@ async def execute_invoke(
 
     args_hash = compute_args_hash(args_dict)
     args_redacted = redact_arguments(command.command_id, args_dict)
-    run = store.create_run(
-        command_id=command.command_id,
-        status="queued",
-        actor_kind=payload.actor.kind,
-        actor_id=payload.actor.id,
-        actor_session_id=payload.actor.session_id,
-        delegated_by=payload.actor.delegated_by,
-        auth_subject=auth_subject,
-        invoke_version=payload.invoke_version,
-        args_hash=args_hash,
-        args_redacted=args_redacted,
-    )
+    try:
+        run = store.create_run(
+            command_id=command.command_id,
+            status="queued",
+            actor_kind=payload.actor.kind,
+            actor_id=payload.actor.id,
+            actor_session_id=payload.actor.session_id,
+            delegated_by=payload.actor.delegated_by,
+            auth_subject=auth_subject,
+            invoke_version=payload.invoke_version,
+            idempotency_key=idempotency_key,
+            args_hash=args_hash,
+            args_redacted=args_redacted,
+        )
+    except IdempotencyConflictError as exc:
+        existing_run = exc.existing_run
+        if str(existing_run.get("auth_subject") or "") != auth_subject:
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "idempotency_key_not_permitted"},
+            ) from exc
+        return _response_from_existing_run(
+            run=existing_run,
+            manifest_version=manifest.manifest_version,
+            fallback_invoke_version=payload.invoke_version,
+        )
     run_id = run["run_id"]
     store.append_event(
         run_id=run_id,
@@ -155,7 +214,9 @@ async def execute_invoke(
             blocked_reason = "recursion_guard_blocked"
 
     if invoke_policy.blocked and blocked_reason is None:
-        reasons = ",".join(invoke_policy.reason_codes or [invoke_policy.decision])
+        reasons = ",".join(
+            invoke_policy.reason_codes or [invoke_policy.decision]
+        )
         blocked_reason = f"policy_{invoke_policy.decision}:{reasons}"
 
     if not should_execute and blocked_reason is None:

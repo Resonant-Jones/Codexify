@@ -67,12 +67,14 @@ async def _collect_events(
     run_id: str,
     after_seq: int,
     expected_count: int,
+    auth_subject: str = "operator",
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     response = await command_bus.stream_run_events(
         run_id=run_id,
         request=_FakeRequest(disconnect_after=2),
         after_seq=after_seq,
+        auth_subject=auth_subject,
     )
     buffer = ""
     async for chunk in response.body_iterator:
@@ -134,3 +136,15 @@ async def test_events_stream_order_and_resume(monkeypatch) -> None:
     )
     assert [event["id"] for event in resumed_events] == [2]
     assert [event["event"] for event in resumed_events] == ["run.blocked"]
+
+
+def test_events_stream_forbidden_cross_actor(monkeypatch) -> None:
+    client = _build_client(monkeypatch)
+    run_id = _invoke_blocked_run(client)
+
+    response = client.get(
+        f"/api/guardian/commands/runs/{run_id}/events",
+        headers={"X-API-Key": "test-key", "X-User-Id": "other-actor"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "forbidden"
