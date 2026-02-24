@@ -49,6 +49,18 @@ def test_manifest_default_returns_envelope(monkeypatch) -> None:
     assert isinstance(payload["openai_tools"], list)
 
 
+def test_manifest_explicit_envelope_format(monkeypatch) -> None:
+    client = _build_client(monkeypatch)
+    response = client.get(
+        "/api/tools/manifest?format=envelope", headers=_auth_headers()
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, dict)
+    assert "tools" in payload
+    assert isinstance(payload["tools"], list)
+
+
 def test_manifest_format_array_matches_envelope_length(monkeypatch) -> None:
     client = _build_client(monkeypatch)
     envelope = client.get("/api/tools/manifest", headers=_auth_headers()).json()
@@ -111,3 +123,16 @@ def test_manifest_bad_format_returns_400(monkeypatch) -> None:
     assert response.status_code == 400
     detail = response.json()["detail"]
     assert detail["error"] == "invalid_manifest_format"
+
+
+def test_manifest_auth_rejects_blank_api_key_on_both_prefixes(
+    monkeypatch,
+) -> None:
+    client = _build_client(monkeypatch)
+    blank_headers = {"X-API-Key": "", "X-User-Id": "local"}
+
+    api_response = client.get("/api/tools/manifest", headers=blank_headers)
+    tools_response = client.get("/tools/manifest", headers=blank_headers)
+
+    assert api_response.status_code == 401
+    assert tools_response.status_code == 401

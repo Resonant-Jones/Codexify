@@ -24,7 +24,7 @@ from guardian.command_bus.contracts import (
 )
 from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.manifest import build_command_index
-from guardian.core.dependencies import get_request_user_id
+from guardian.core.dependencies import get_request_user_id, require_api_key
 from guardian.tools.derive import derive_tools_from_command_manifest
 from guardian.tools.spec import ToolManifestEnvelope, ToolSpec
 
@@ -77,18 +77,10 @@ class JobStatus(BaseModel):
     result: dict[str, Any] = Field(default_factory=dict)
 
 
-# Import shared dependencies from core module (avoids circular imports)
+# Import optional dependencies used by local profile-switch helper.
 try:
-    from guardian.core.dependencies import (
-        chatlog_db,
-        event_bus,
-        require_api_key,
-    )
+    from guardian.core.dependencies import chatlog_db, event_bus
 except ImportError:
-    # Fallback for standalone usage
-    def require_api_key(api_key: str = None):
-        return api_key
-
     chatlog_db = None
 
     class _NoopEventBus:
