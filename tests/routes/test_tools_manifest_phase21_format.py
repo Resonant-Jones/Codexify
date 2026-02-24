@@ -49,6 +49,42 @@ def test_manifest_default_returns_envelope(monkeypatch) -> None:
     assert isinstance(payload["openai_tools"], list)
 
 
+def test_manifest_route_ownership_and_openapi_format_param(monkeypatch) -> None:
+    client = _build_client(monkeypatch)
+
+    # Route ownership and no-shadowing check.
+    route_map: dict[str, list[str]] = {}
+    for route in client.app.routes:
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", set())
+        endpoint = getattr(route, "endpoint", None)
+        if (
+            path in {"/api/tools/manifest", "/tools/manifest"}
+            and "GET" in methods
+        ):
+            route_map.setdefault(path, []).append(
+                f"{endpoint.__module__}.{endpoint.__name__}"
+            )
+
+    assert route_map["/api/tools/manifest"] == [
+        "guardian.routes.tools.api_tools_manifest"
+    ]
+    assert route_map["/tools/manifest"] == [
+        "guardian.routes.tools.tools_manifest"
+    ]
+
+    # OpenAPI must advertise the format query param.
+    openapi = client.get("/openapi.json").json()
+    params = (
+        openapi.get("paths", {})
+        .get("/api/tools/manifest", {})
+        .get("get", {})
+        .get("parameters", [])
+    )
+    param_names = [item.get("name") for item in params]
+    assert "format" in param_names
+
+
 def test_manifest_explicit_envelope_format(monkeypatch) -> None:
     client = _build_client(monkeypatch)
     response = client.get(
