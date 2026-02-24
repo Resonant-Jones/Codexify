@@ -23,6 +23,8 @@ from guardian.federation.manager import FederationManager, RelaySession
 from guardian.federation.manifest import (
     NodeManifest,
     generate_keypair,
+    private_key_from_b64,
+    public_key_from_b64,
     sign_manifest,
     verify_manifest,
 )
@@ -58,8 +60,9 @@ from guardian.routes.federation import (
     SessionRequestBody,
     accept_session,
     configure_federation,
-    request_session,
 )
+from guardian.routes.federation import manager as route_manager
+from guardian.routes.federation import request_session
 
 
 class TestManifestSigningAndVerification:
@@ -178,13 +181,15 @@ class TestJWTTokenExchange:
             "nonce": secrets.token_hex(16),
         }
 
-        token = jwt.encode(token_payload, private_key, algorithm="HS256")
+        token = jwt.encode(
+            token_payload, private_key_from_b64(private_key), algorithm="EdDSA"
+        )
         assert token is not None
         assert len(token) > 0
 
     def test_verify_jwt_token_valid(self):
         """Test JWT token verification with valid token."""
-        private_key, _ = generate_keypair()
+        private_key, public_key = generate_keypair()
 
         token_payload = {
             "relay_id": "relay-123",
@@ -193,8 +198,12 @@ class TestJWTTokenExchange:
             "exp": datetime.now(timezone.utc) + timedelta(hours=1),
         }
 
-        token = jwt.encode(token_payload, private_key, algorithm="HS256")
-        decoded = jwt.decode(token, private_key, algorithms=["HS256"])
+        token = jwt.encode(
+            token_payload, private_key_from_b64(private_key), algorithm="EdDSA"
+        )
+        decoded = jwt.decode(
+            token, public_key_from_b64(public_key), algorithms=["EdDSA"]
+        )
 
         assert decoded["relay_id"] == "relay-123"
         assert decoded["source_node_id"] == "node-alpha"
@@ -202,7 +211,7 @@ class TestJWTTokenExchange:
 
     def test_jwt_token_expiration(self):
         """Test JWT token expiration validation."""
-        private_key, _ = generate_keypair()
+        private_key, public_key = generate_keypair()
 
         # Token already expired
         token_payload = {
@@ -210,21 +219,29 @@ class TestJWTTokenExchange:
             "exp": datetime.now(timezone.utc) - timedelta(hours=1),
         }
 
-        token = jwt.encode(token_payload, private_key, algorithm="HS256")
+        token = jwt.encode(
+            token_payload, private_key_from_b64(private_key), algorithm="EdDSA"
+        )
 
         with pytest.raises(jwt.ExpiredSignatureError):
-            jwt.decode(token, private_key, algorithms=["HS256"])
+            jwt.decode(
+                token, public_key_from_b64(public_key), algorithms=["EdDSA"]
+            )
 
     def test_jwt_token_wrong_key(self):
         """Test JWT verification fails with wrong key."""
         private_key1, _ = generate_keypair()
-        private_key2, _ = generate_keypair()
+        _private_key2, public_key2 = generate_keypair()
 
         token_payload = {"relay_id": "relay-123"}
-        token = jwt.encode(token_payload, private_key1, algorithm="HS256")
+        token = jwt.encode(
+            token_payload, private_key_from_b64(private_key1), algorithm="EdDSA"
+        )
 
         with pytest.raises(jwt.InvalidSignatureError):
-            jwt.decode(token, private_key2, algorithms=["HS256"])
+            jwt.decode(
+                token, public_key_from_b64(public_key2), algorithms=["EdDSA"]
+            )
 
 
 class TestFederationManager:
@@ -432,12 +449,16 @@ class TestFederationManager:
     def test_verify_relay_token(self):
         """Test token verification in manager."""
         manager = FederationManager()
-        secret = "test_secret"
+        private_key, public_key = generate_keypair()
 
         token_payload = {"relay_id": "relay-123", "document_id": "doc-456"}
-        token = jwt.encode(token_payload, secret, algorithm="HS256")
+        token = jwt.encode(
+            token_payload, private_key_from_b64(private_key), algorithm="EdDSA"
+        )
 
-        payload = manager.verify_relay_token(token, secret)
+        payload = manager.verify_relay_token(
+            token, public_key_from_b64(public_key)
+        )
         assert payload["relay_id"] == "relay-123"
         assert payload["document_id"] == "doc-456"
 
@@ -615,10 +636,26 @@ class TestFederationConfiguration:
             "guardian.routes.federation.get_settings",
             lambda: settings,
         )
+        route_manager.peer_manifests.clear()
+        source_private, source_public = generate_keypair()
+        route_manager.cache_peer_manifest(
+            NodeManifest(
+                node_id="node-untrusted",
+                public_key=source_public,
+                capabilities=["share", "collab"],
+                relay_endpoint="wss://untrusted.example.com/api/federation/relay",
+            )
+        )
         token = jwt.encode(
-            {"source_node_id": "node-untrusted"},
-            "test-secret",
-            algorithm="HS256",
+            {
+                "relay_id": "relay-123",
+                "source_node_id": "node-untrusted",
+                "target_node_id": "node-alpha",
+                "document_id": "doc-1",
+                "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
+            },
+            private_key_from_b64(source_private),
+            algorithm="EdDSA",
         )
 
         with pytest.raises(HTTPException) as exc:

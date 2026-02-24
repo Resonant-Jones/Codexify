@@ -13,8 +13,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 # Identity storage location
 # - Allow explicit override via env for unusual deployments.
-# - Otherwise, default to a directory adjacent to this module (works on host + in Docker).
-_DEFAULT_IDENTITY_DIR = str(Path(__file__).resolve().parent / "identity")
+# - Otherwise, default to repository data/identity (gitignored).
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_IDENTITY_DIR = str(_PROJECT_ROOT / "data" / "identity")
+_LEGACY_IDENTITY_FILE = (
+    Path(__file__).resolve().parent / "identity" / "user.json"
+)
 IDENTITY_DIR = os.getenv("CODEXIFY_IDENTITY_DIR", _DEFAULT_IDENTITY_DIR)
 IDENTITY_FILE = os.path.join(IDENTITY_DIR, "user.json")
 
@@ -59,6 +63,18 @@ def get_or_create_user() -> Dict:
     if os.path.exists(IDENTITY_FILE):
         with open(IDENTITY_FILE) as f:
             return json.load(f)
+
+    # One-time migration from the legacy tracked location.
+    if (
+        "CODEXIFY_IDENTITY_DIR" not in os.environ
+        and _LEGACY_IDENTITY_FILE.exists()
+    ):
+        with _LEGACY_IDENTITY_FILE.open() as f:
+            identity = json.load(f)
+        os.makedirs(IDENTITY_DIR, exist_ok=True)
+        with open(IDENTITY_FILE, "w") as f:
+            json.dump(identity, f, indent=2)
+        return identity
 
     os.makedirs(IDENTITY_DIR, exist_ok=True)
 

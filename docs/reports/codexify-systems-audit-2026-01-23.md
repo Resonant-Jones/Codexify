@@ -669,7 +669,7 @@ def validate_identity_contract(persona: Persona) -> bool:
  
 2. **Docker Compose** - **[RISK]**
    - Location: `docker-compose.yml:278`
-   - Hardcoded: `GUARDIAN_API_KEY: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e`
+   - Hardcoded: `GUARDIAN_API_KEY: <redacted-example>`
    - Hardcoded: Postgres password `codexify` (line 8-9), Neo4j password `codexify` (line 22)
  
 3. **Database** (encrypted JSONB fields)

@@ -46,6 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from guardian.config.system_config import ensure_system_dirs
+from guardian.connectors.google import router as google_connect_router
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
@@ -526,6 +527,7 @@ app.include_router(share.router)
 app.include_router(federation.router)
 app.include_router(collaboration.router)
 app.include_router(connectors_router)
+app.include_router(google_connect_router)
 app.include_router(media_router, prefix="/api/media")
 app.include_router(flows_router)
 app.include_router(tools_router)

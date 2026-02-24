@@ -128,6 +128,13 @@ jobs:
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
         uses: actions/checkout@v4
 
+      - name: Verify tracked paths are valid
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash scripts/verification/deny_invalid_git_paths.sh
+
       - name: Set up Python
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
         uses: actions/setup-python@v5

@@ -25,6 +25,7 @@ from guardian.db.models import (
     ConnectorRun,
     EventOutbox,
     MemoryEntry,
+    OAuthConnection,
     PersonalFact,
     PersonalFactEvidence,
     PersonalFactRevision,
@@ -854,9 +855,11 @@ class _PostgresGuardianDB:
             "status": fact.status,
             "confidence": fact.confidence,
             "is_active": fact.is_active,
-            "last_confirmed_at": fact.last_confirmed_at.isoformat()
-            if fact.last_confirmed_at
-            else None,
+            "last_confirmed_at": (
+                fact.last_confirmed_at.isoformat()
+                if fact.last_confirmed_at
+                else None
+            ),
             "created_at": fact.created_at.isoformat()
             if fact.created_at
             else None,
@@ -877,9 +880,9 @@ class _PostgresGuardianDB:
             "confidence": evidence.confidence,
             "source_type": evidence.source_type,
             "evidence_meta": evidence.evidence_meta,
-            "created_at": evidence.created_at.isoformat()
-            if evidence.created_at
-            else None,
+            "created_at": (
+                evidence.created_at.isoformat() if evidence.created_at else None
+            ),
         }
 
     def _revision_to_dict(
@@ -894,9 +897,9 @@ class _PostgresGuardianDB:
             "old_value": revision.old_value,
             "new_value": revision.new_value,
             "reason": revision.reason,
-            "created_at": revision.created_at.isoformat()
-            if revision.created_at
-            else None,
+            "created_at": (
+                revision.created_at.isoformat() if revision.created_at else None
+            ),
         }
 
     def list_facts(
@@ -1346,6 +1349,115 @@ class _PostgresGuardianDB:
                     session.add(new_doc)
 
             session.commit()
+
+    def _oauth_connection_to_dict(self, row: OAuthConnection) -> Dict[str, Any]:
+        return {
+            "id": row.id,
+            "user_id": row.user_id,
+            "provider": row.provider,
+            "mode": row.mode,
+            "scopes": list(row.scopes or []),
+            "status": row.status,
+            "encrypted_refresh_token": row.encrypted_refresh_token,
+            "encrypted_access_token": row.encrypted_access_token,
+            "relay_grant_id": row.relay_grant_id,
+            "expires_at": row.expires_at,
+            "last_refresh_at": row.last_refresh_at,
+            "last_error": row.last_error,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def upsert_oauth_connection(
+        self,
+        *,
+        user_id: str,
+        provider: str,
+        mode: str,
+        scopes: List[str] | None,
+        status: str,
+        encrypted_refresh_token: str | None = None,
+        encrypted_access_token: str | None = None,
+        relay_grant_id: str | None = None,
+        expires_at: datetime | None = None,
+        last_refresh_at: datetime | None = None,
+        last_error: str | None = None,
+    ) -> Dict[str, Any]:
+        """Create/update OAuth connection state."""
+        with self.get_session() as session:
+            row = (
+                session.query(OAuthConnection)
+                .filter_by(user_id=user_id, provider=provider, mode=mode)
+                .first()
+            )
+            if not row:
+                row = OAuthConnection(
+                    user_id=user_id,
+                    provider=provider,
+                    mode=mode,
+                )
+                session.add(row)
+
+            row.scopes = list(scopes or [])
+            row.status = status
+            row.encrypted_refresh_token = encrypted_refresh_token
+            row.encrypted_access_token = encrypted_access_token
+            row.relay_grant_id = relay_grant_id
+            row.expires_at = expires_at
+            if last_refresh_at is not None:
+                row.last_refresh_at = last_refresh_at
+            row.last_error = last_error
+            session.commit()
+            session.refresh(row)
+            return self._oauth_connection_to_dict(row)
+
+    def get_oauth_connection(
+        self,
+        *,
+        user_id: str,
+        provider: str,
+        mode: str | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the most recent OAuth connection row for a user/provider."""
+        with self.get_session() as session:
+            query = session.query(OAuthConnection).filter_by(
+                user_id=user_id,
+                provider=provider,
+            )
+            if mode:
+                query = query.filter_by(mode=mode)
+            row = query.order_by(OAuthConnection.updated_at.desc()).first()
+            if not row:
+                return None
+            return self._oauth_connection_to_dict(row)
+
+    def disconnect_oauth_connection(
+        self,
+        *,
+        user_id: str,
+        provider: str,
+        mode: str | None = None,
+    ) -> int:
+        """Mark OAuth connections disconnected and clear persisted tokens."""
+        with self.get_session() as session:
+            query = session.query(OAuthConnection).filter_by(
+                user_id=user_id,
+                provider=provider,
+            )
+            if mode:
+                query = query.filter_by(mode=mode)
+            rows = query.all()
+            now = datetime.now(timezone.utc)
+            for row in rows:
+                row.status = "disconnected"
+                row.encrypted_refresh_token = None
+                row.encrypted_access_token = None
+                row.relay_grant_id = None
+                row.expires_at = None
+                row.last_error = None
+                row.last_refresh_at = now
+            session.commit()
+            return len(rows)
 
     # =================================================================
     # Sync Jobs

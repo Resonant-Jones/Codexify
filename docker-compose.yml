@@ -106,6 +106,10 @@ services:
       ALEMBIC_CONFIG: /app/backend/alembic.ini
       ENABLE_BLIP_MODEL: "false"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
+      # --- Required security boundary ---
+      # Guardian API key MUST be explicitly set via .env for any non-test runtime.
+      # Fail fast if missing instead of silently defaulting.
+      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:?GUARDIAN_API_KEY must be set in .env}"
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       EMBEDDER_PROVIDER: "local"
@@ -197,6 +201,13 @@ services:
       GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       PORT: "8888"
+      # Command bus loopback: required so command execution re-enters the API via HTTP with full authz/middleware.
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      # Policy chokepoint mode for tool/command execution.
+      # Values: enforce | warn | off
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      # Single-user dev default (used when identity fallback is enabled).
+      CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
       ENABLE_CONNECTOR_WORKER: "false"
       REDIS_URL: redis://redis:6379/0
@@ -262,6 +273,9 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
+      # Command bus loopback base (Docker): never use localhost for cross-container calls.
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
@@ -306,6 +320,9 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      # Command bus loopback base (Docker): never use localhost for cross-container calls.
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
@@ -350,6 +367,9 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      # Command bus loopback base (Docker): never use localhost for cross-container calls.
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
@@ -398,6 +418,9 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      # Command bus loopback base (Docker): never use localhost for cross-container calls.
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
@@ -448,6 +471,9 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      # Command bus loopback base (Docker): never use localhost for cross-container calls.
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
@@ -497,6 +523,9 @@ services:
       PYTHONIOENCODING: utf-8
       GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      # Command bus loopback base (Docker): never use localhost for cross-container calls.
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
       EMBED_PROVIDER: "local"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -574,7 +603,9 @@ services:
     env_file: .env
     environment:
       VITE_PROXY_TARGET: http://backend:8888
-      VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY}"
+      # Dev-only: frontend receives API key for local development.
+      # DO NOT use this pattern for production deployments.
+      VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-}"
       VITE_DEFAULT_LLM_PROVIDER: "local"
       VITE_DEFAULT_EMBED_PROVIDER: "local"
       PNPM_CONFIG_IGNORE_SCRIPTS: "true"

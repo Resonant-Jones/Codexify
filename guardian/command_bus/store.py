@@ -7,10 +7,19 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from guardian.db.models import CommandRun, CommandRunEvent
 
 TERMINAL_STATUSES = {"completed", "failed", "blocked"}
+
+
+class IdempotencyConflictError(RuntimeError):
+    """Raised when create_run hits an idempotency uniqueness race."""
+
+    def __init__(self, existing_run: dict[str, Any]) -> None:
+        super().__init__("idempotency_conflict")
+        self.existing_run = existing_run
 
 
 def _utc_now() -> datetime:
@@ -24,6 +33,7 @@ class CommandBusStore:
         self._db = db
         self._mem_runs: dict[str, dict[str, Any]] = {}
         self._mem_events: dict[str, list[dict[str, Any]]] = {}
+        self._mem_idempotency_index: dict[tuple[str, str], str] = {}
 
     def configure_db(self, db: Any | None) -> None:
         self._db = db
@@ -42,6 +52,7 @@ class CommandBusStore:
         delegated_by: str | None,
         auth_subject: str,
         invoke_version: str,
+        idempotency_key: str | None,
         args_hash: str,
         args_redacted: dict[str, Any],
     ) -> dict[str, Any]:
@@ -60,20 +71,48 @@ class CommandBusStore:
                     delegated_by=delegated_by,
                     auth_subject=auth_subject,
                     invoke_version=invoke_version,
+                    idempotency_key=idempotency_key,
                     args_hash=args_hash,
                     args_redacted=args_redacted,
                     created_at=now,
                 )
-                session.add(row)
-                session.commit()
+                try:
+                    session.add(row)
+                    session.commit()
+                except IntegrityError as exc:
+                    session.rollback()
+                    if idempotency_key:
+                        existing_row = (
+                            session.query(CommandRun)
+                            .filter_by(
+                                command_id=command_id,
+                                idempotency_key=idempotency_key,
+                            )
+                            .first()
+                        )
+                        if existing_row is not None:
+                            raise IdempotencyConflictError(
+                                self._row_to_dict(existing_row)
+                            ) from exc
+                    raise
 
             return {
                 "run_id": run_id,
                 "command_id": command_id,
                 "status": status,
+                "idempotency_key": idempotency_key,
                 "args_hash": args_hash,
                 "args_redacted": args_redacted,
             }
+
+        if idempotency_key:
+            existing_run_id = self._mem_idempotency_index.get(
+                (command_id, idempotency_key)
+            )
+            if existing_run_id is not None:
+                existing_run = self._mem_runs.get(existing_run_id)
+                if existing_run is not None:
+                    raise IdempotencyConflictError(dict(existing_run))
 
         run = {
             "run_id": run_id,
@@ -85,6 +124,7 @@ class CommandBusStore:
             "delegated_by": delegated_by,
             "auth_subject": auth_subject,
             "invoke_version": invoke_version,
+            "idempotency_key": idempotency_key,
             "args_hash": args_hash,
             "args_redacted": args_redacted,
             "result_json": None,
@@ -95,6 +135,8 @@ class CommandBusStore:
         }
         self._mem_runs[run_id] = run
         self._mem_events.setdefault(run_id, [])
+        if idempotency_key:
+            self._mem_idempotency_index[(command_id, idempotency_key)] = run_id
         return dict(run)
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
@@ -103,32 +145,42 @@ class CommandBusStore:
                 row = session.query(CommandRun).filter_by(run_id=run_id).first()
                 if row is None:
                     return None
-                return {
-                    "run_id": row.run_id,
-                    "command_id": row.command_id,
-                    "status": row.status,
-                    "actor_kind": row.actor_kind,
-                    "actor_id": row.actor_id,
-                    "actor_session_id": row.actor_session_id,
-                    "delegated_by": row.delegated_by,
-                    "auth_subject": row.auth_subject,
-                    "invoke_version": row.invoke_version,
-                    "args_hash": row.args_hash,
-                    "args_redacted": row.args_redacted or {},
-                    "result_json": row.result_json,
-                    "error_text": row.error_text,
-                    "created_at": row.created_at.isoformat()
-                    if row.created_at
-                    else None,
-                    "started_at": row.started_at.isoformat()
-                    if row.started_at
-                    else None,
-                    "ended_at": row.ended_at.isoformat()
-                    if row.ended_at
-                    else None,
-                }
+                return self._row_to_dict(row)
         run = self._mem_runs.get(run_id)
         return dict(run) if run is not None else None
+
+    def get_run_by_idempotency_key(
+        self,
+        command_id: str,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        key = str(idempotency_key or "").strip()
+        if not key:
+            return None
+
+        if self._has_db():
+            with self._db.get_session() as session:
+                row = (
+                    session.query(CommandRun)
+                    .filter_by(command_id=command_id, idempotency_key=key)
+                    .first()
+                )
+                if row is None:
+                    return None
+                return self._row_to_dict(row)
+
+        existing_run_id = self._mem_idempotency_index.get((command_id, key))
+        if existing_run_id is not None:
+            run = self._mem_runs.get(existing_run_id)
+            return dict(run) if run is not None else None
+
+        for run in self._mem_runs.values():
+            if (
+                run.get("command_id") == command_id
+                and run.get("idempotency_key") == key
+            ):
+                return dict(run)
+        return None
 
     def append_event(
         self, *, run_id: str, event_type: str, payload: dict[str, Any]
@@ -254,3 +306,29 @@ class CommandBusStore:
             run["result_json"] = result_json
         if error_text is not None:
             run["error_text"] = error_text
+
+    @staticmethod
+    def _row_to_dict(row: CommandRun) -> dict[str, Any]:
+        return {
+            "run_id": row.run_id,
+            "command_id": row.command_id,
+            "status": row.status,
+            "actor_kind": row.actor_kind,
+            "actor_id": row.actor_id,
+            "actor_session_id": row.actor_session_id,
+            "delegated_by": row.delegated_by,
+            "auth_subject": row.auth_subject,
+            "invoke_version": row.invoke_version,
+            "idempotency_key": row.idempotency_key,
+            "args_hash": row.args_hash,
+            "args_redacted": row.args_redacted or {},
+            "result_json": row.result_json,
+            "error_text": row.error_text,
+            "created_at": row.created_at.isoformat()
+            if row.created_at
+            else None,
+            "started_at": row.started_at.isoformat()
+            if row.started_at
+            else None,
+            "ended_at": row.ended_at.isoformat() if row.ended_at else None,
+        }

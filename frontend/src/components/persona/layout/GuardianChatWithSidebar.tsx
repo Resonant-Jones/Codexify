@@ -351,68 +351,24 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   );
 
   const handleNewChat = React.useCallback(async () => {
-    if (!checkAuthGate(auth, "threads create")) {
-      return null;
-    }
-    try {
-      const res = await api.post("/chat/threads", {
-        title: "New Chat",
-        user_id: userName || "default",
-        projectId: null, // TODO: future project linkage
-        personaId: null, // placeholder for persona tracking
-        tags: [],        // placeholder for codex linkages
-      });
-      const payload = res?.data?.thread ?? {};
-      const id = res?.data?.id ?? payload?.id;
-
-      if (id == null) return null;
-
-      const idStr = String(id);
-      const mapped = mapThreadRecord({ id, title: payload?.title ?? "New Chat", lastMessage: "" });
-
-      if (!mapped) return null;
-
-      setThreads((prev) => [mapped, ...prev]);
-      setActiveId(idStr);
-
-      // Navigate
+    if (sessionSpine) {
+      sessionSpine.tabOpen(undefined, "New Chat");
+    } else {
+      setActiveId(null);
       if (typeof window !== "undefined") {
-        window.history.pushState({}, "", `/chat/${idStr}`);
-        // Dispatch refresh for sidebar
-        window.dispatchEvent(new CustomEvent("cfy:threads:refresh", {
-          detail: { kind: "create", id: idStr }
-        }));
+        window.history.replaceState({}, "", "/chat");
       }
-
-      return mapped;
-    } catch (err) {
-      console.warn("[guardian] failed to create thread", err);
-      // If API fails, create a synthetic thread as fallback
-      const fallback: Thread = {
-        id: "temp",
-        title: "New Chat",
-        lastMessage: "",
-        unread: 0,
-        participants: [
-          { id: "me", name: userName || "You" },
-          { id: "bot", name: guardianName || "Guardian" },
-        ],
-        messages: [],
-      };
-      setThreads((prev) => [fallback, ...prev]);
-      setActiveId("temp");
-      return fallback;
     }
-  }, [auth, mapThreadRecord, userName, guardianName]);
+    return null;
+  }, [sessionSpine]);
 
   const handleSessionTabOpen = React.useCallback(() => {
     if (!sessionSpine) {
       void handleNewChat();
       return;
     }
-    const current = threads.find((thread) => thread.id === activeId);
-    sessionSpine.tabOpen(activeId ?? undefined, current?.title);
-  }, [activeId, handleNewChat, sessionSpine, threads]);
+    sessionSpine.tabOpen(undefined, "New Chat");
+  }, [handleNewChat, sessionSpine]);
 
   const handleSessionTabActivate = React.useCallback((tabId: TabId) => {
     sessionSpine?.tabActivate(tabId);
@@ -498,10 +454,8 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         ? data
         : [];
 
-      // If empty, create new chat
       if (!rawList.length) {
-        await handleNewChat();
-        return;
+        setThreads([]);
       }
 
       const mapped = rawList.map(mapThreadRecord).filter(Boolean);
@@ -529,14 +483,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       });
     } catch (err) {
       console.warn("[guardian] failed to load threads", err);
-      // Only create new chat if we really have nothing
-      if (threads.length === 0) {
-        await handleNewChat();
-      }
     } finally {
       setThreadsLoaded(true);
     }
-  }, [auth, handleNewChat, mapThreadRecord, resolveRouteThreadId]); // Remove threads dependency to avoid loops
+  }, [auth, mapThreadRecord, resolveRouteThreadId]); // Remove threads dependency to avoid loops
 
   React.useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -549,6 +499,16 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     window.addEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
     return () => window.removeEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
   }, [loadThreads]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onDraftThreadRequested = () => {
+      void handleNewChat();
+    };
+    window.addEventListener("cfy:chat:new-draft", onDraftThreadRequested as EventListener);
+    return () =>
+      window.removeEventListener("cfy:chat:new-draft", onDraftThreadRequested as EventListener);
+  }, [handleNewChat]);
 
   // Initial load only
   React.useEffect(() => {
@@ -622,14 +582,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   }, [activeSessionTabId, sessionSpine, threads]);
 
 
-  // Guarantee at least one thread exists and is active (on mount or when threads/activeId changes)
+  // Keep active thread selection coherent after thread list refreshes.
   React.useEffect(() => {
     if (!threadsLoaded) return;
-    if (!threads || threads.length === 0) {
-      // If no threads or no active thread after load, create one and set active
-      void handleNewChat();
-      return;
-    }
+    if (!threads || threads.length === 0) return;
     // Once session hydration completes, SessionSpine owns active thread selection.
     if (sessionControlsThreadSelection) {
       return;
@@ -642,7 +598,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     threadsLoaded,
     threads.length,
     activeId,
-    handleNewChat,
   ]); // Depend on length, not array identity
 
   React.useEffect(() => {
@@ -802,6 +757,47 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       throw new Error(message);
     }
   };
+
+  const handleDraftThreadPersisted = React.useCallback(
+    (threadId: number, title?: string) => {
+      const idStr = String(threadId);
+      const nextTitle = (title || "").trim() || "New Chat";
+      setActiveId(idStr);
+      setThreads((prev) => {
+        const existing = prev.find((thread) => thread.id === idStr);
+        if (existing) {
+          return prev.map((thread) =>
+            thread.id === idStr ? { ...thread, title: nextTitle } : thread
+          );
+        }
+        const synthetic: Thread = {
+          id: idStr,
+          title: nextTitle,
+          lastMessage: "",
+          unread: 0,
+          participants: [
+            { id: "me", name: userName || "You" },
+            { id: "bot", name: guardianName || "Guardian" },
+          ],
+          messages: [],
+        };
+        return [synthetic, ...prev];
+      });
+      if (sessionSpine && activeSessionTabId) {
+        sessionSpine.tabSetThread(activeSessionTabId, idStr, nextTitle);
+      }
+      if (typeof window !== "undefined") {
+        window.history.replaceState({}, "", `/chat/${idStr}`);
+        window.dispatchEvent(
+          new CustomEvent("cfy:threads:refresh", {
+            detail: { kind: "create", id: idStr },
+          })
+        );
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }
+    },
+    [activeSessionTabId, guardianName, sessionSpine, userName]
+  );
 
   // Mark active thread as read when it gains focus
   React.useEffect(() => {
@@ -1177,6 +1173,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   onWorkspaceToggle={onWorkspaceToggle}
                   activeThread={activeThread}
                   onSendMessage={handleSendMessage}
+                  onThreadPersisted={handleDraftThreadPersisted}
                   onNewChat={handleNewChatImmediate}
                   onBranchThread={handleBranchThread}
                   onArchiveThread={handleArchiveThread}

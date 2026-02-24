@@ -18,6 +18,7 @@ try:
 except ImportError:
     SECURITY_HEADERS_AVAILABLE = False
 
+from guardian.connectors.google import router as google_connect_router
 from guardian.retrieve.api import router as retrieve_router
 from guardian.server.codexify_api import oauth_status as codexify_oauth_status
 from guardian.server.codexify_api import router as codexify_router
@@ -93,6 +94,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 
 app.include_router(tools_router)
 app.include_router(codexify_router)
+app.include_router(google_connect_router)
 app.include_router(sync_router)
 app.include_router(retrieve_router)
 app.include_router(documents_router)

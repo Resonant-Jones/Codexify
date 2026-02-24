@@ -38,6 +38,8 @@ from guardian.federation.manifest import (
     NodeManifest,
     generate_keypair,
     load_node_keypair_from_env,
+    private_key_from_b64,
+    public_key_from_b64,
     sign_manifest,
     verify_manifest,
 )
@@ -232,6 +234,37 @@ def _get_config() -> tuple[str, str, str, str]:
     return _node_id, _private_key, _public_key, _relay_endpoint
 
 
+def _decode_verified_relay_token(
+    token: str,
+) -> tuple[dict[str, Any], NodeManifest]:
+    """Verify a relay token against cached peer manifests."""
+    manifests = list(manager.peer_manifests.values())
+    if not manifests:
+        raise HTTPException(status_code=400, detail="Unknown source node")
+
+    for manifest in manifests:
+        try:
+            verify_key = public_key_from_b64(manifest.public_key)
+        except ValueError:
+            continue
+        try:
+            payload = jwt.decode(
+                token,
+                verify_key,
+                algorithms=["EdDSA"],
+                options={"verify_aud": False},
+            )
+        except jwt.InvalidTokenError:
+            continue
+
+        source_node_id = str(payload.get("source_node_id") or "").strip()
+        if source_node_id != manifest.node_id:
+            continue
+        return payload, manifest
+
+    raise HTTPException(status_code=400, detail="Invalid token signature")
+
+
 class SessionRequestBody(BaseModel):
     """Body for federation session request."""
 
@@ -371,7 +404,14 @@ async def request_session(body: SessionRequestBody) -> Dict[str, Any]:
         "exp": datetime.now(timezone.utc) + timedelta(hours=1),
         "nonce": secrets.token_hex(16),
     }
-    token = jwt.encode(token_payload, private_key, algorithm="HS256")
+    try:
+        signing_key = private_key_from_b64(private_key)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Invalid local federation private key configuration.",
+        ) from exc
+    token = jwt.encode(token_payload, signing_key, algorithm="EdDSA")
 
     # Create relay session locally
     relay_session = manager.create_relay_session(
@@ -429,12 +469,16 @@ async def accept_session(
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    # Verify JWT (would need to fetch source node's public key)
-    # For now, we'll trust the structure and let the relay endpoint validate
     try:
-        payload = jwt.decode(token, options={"verify_signature": False})
-    except jwt.InvalidTokenError:
+        payload, _source_manifest = _decode_verified_relay_token(token)
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid token format")
+
+    payload_relay_id = str(payload.get("relay_id") or "").strip()
+    if payload_relay_id and payload_relay_id != relay_id:
+        raise HTTPException(status_code=400, detail="relay_id mismatch")
 
     source_node_id = payload.get("source_node_id")
     if not source_node_id:
@@ -442,11 +486,17 @@ async def accept_session(
             status_code=400, detail="Missing source_node_id in token"
         )
     _enforce_node_allowed(policy, source_node_id, label="source")
+    target_node_id = str(payload.get("target_node_id") or "").strip()
+    if target_node_id and target_node_id != node_id:
+        raise HTTPException(status_code=400, detail="target_node_id mismatch")
 
-    # Get source node's manifest from cache or reject
-    source_manifest = manager.get_peer_manifest(source_node_id)
-    if not source_manifest:
-        raise HTTPException(status_code=400, detail="Unknown source node")
+    exp_claim = payload.get("exp")
+    ttl_seconds = 3600
+    if isinstance(exp_claim, (int, float)):
+        ttl_seconds = max(
+            1,
+            int(exp_claim - datetime.now(timezone.utc).timestamp()),
+        )
 
     # Create relay session on this node
     relay_session = manager.create_relay_session(
@@ -456,7 +506,7 @@ async def accept_session(
         target_node_id=node_id,
         document_id=payload.get("document_id"),
         thread_id=payload.get("thread_id"),
-        ttl_seconds=3600,
+        ttl_seconds=ttl_seconds,
     )
 
     # Emit event
