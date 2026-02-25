@@ -10,6 +10,7 @@ import { Message, MessageAttachment } from "@/types/ui";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+<<<<<<< HEAD
 type Attachment = {
   kind: "image" | "document";
   id?: string;
@@ -259,6 +260,22 @@ export function ChatBubble({
       {cleanedContent}
     </ReactMarkdown>
   ) : null;
+=======
+export function ChatBubble({
+  message,
+  isGuardian,
+  showPlay = false,
+  playing = false,
+  onPlay,
+}: {
+  message: Message;
+  isGuardian: boolean;
+  showPlay?: boolean;
+  playing?: boolean;
+  onPlay?: () => void;
+}) {
+  const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+>>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
   if (isGuardian) {
     return (
@@ -286,11 +303,35 @@ export function ChatBubble({
               wordWrap: "break-word",
             }}
           >
+<<<<<<< HEAD
             {renderedMarkdown}
           </div>
         ) : null}
         <div className="text-[10px] opacity-50" style={{ color: "var(--muted)" }}>
           {fmtTime(message.createdAt)}
+=======
+            {message.content}
+          </ReactMarkdown>
+        </div>
+        <div className="mt-1.5 flex items-center gap-2">
+          <div className="text-[10px] opacity-50" style={{ color: "var(--muted)" }}>
+            {fmtTime(message.createdAt)}
+          </div>
+          {showPlay && (
+            <button
+              type="button"
+              className="text-[10px] px-2 py-0.5 rounded border opacity-80 hover:opacity-100"
+              style={{
+                borderColor: "var(--panel-border)",
+                color: "var(--text)",
+                background: "transparent",
+              }}
+              onClick={onPlay}
+            >
+              {playing ? "Playing…" : "Read Aloud"}
+            </button>
+          )}
+>>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
         </div>
       </motion.div>
     );

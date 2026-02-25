@@ -49,7 +49,10 @@ class TTSManager:
             dict: Configuration dictionary
         """
         config = {
-            "default_provider": os.getenv("TTS_DEFAULT_PROVIDER", "local"),
+            "default_provider": os.getenv(
+                "TTS_DEFAULT_PROVIDER",
+                os.getenv("CODEXIFY_TTS_PROVIDER", "local"),
+            ),
             "providers": {
                 "elevenlabs": {"api_key": os.getenv("ELEVENLABS_API_KEY")},
                 "google": {
@@ -58,6 +61,25 @@ class TTSManager:
                     )
                 },
                 "local": {"enabled": True},
+                "local_openai_compatible": {
+                    "base_url": os.getenv("CODEXIFY_LOCAL_TTS_BASE_URL")
+                    or os.getenv("LOCAL_BASE_URL"),
+                    "api_key": os.getenv("LOCAL_API_KEY", "local"),
+                    "model": os.getenv("CODEXIFY_LOCAL_TTS_MODEL")
+                    or os.getenv("LOCAL_TTS_MODEL"),
+                },
+                "minimax": {
+                    "api_key": os.getenv("MINIMAX_API_KEY"),
+                    "base_url": os.getenv("MINIMAX_TTS_URL"),
+                    "enabled": bool(os.getenv("MINIMAX_API_KEY")),
+                },
+                "coqui": {
+                    "model": os.getenv("COQUI_TTS_MODEL"),
+                    "enabled": os.getenv("CODEXIFY_ENABLE_COQUI", "0")
+                    .strip()
+                    .lower()
+                    in {"1", "true", "yes"},
+                },
             },
         }
 
@@ -89,6 +111,12 @@ class TTSManager:
                 elif name == "google":
                     provider = provider_class(
                         credentials_path=provider_config.get("credentials_path")
+                    )
+                elif name == "local_openai_compatible":
+                    provider = provider_class(
+                        base_url=provider_config.get("base_url"),
+                        api_key=provider_config.get("api_key"),
+                        model=provider_config.get("model"),
                     )
                 else:
                     provider = provider_class()
@@ -168,7 +196,16 @@ class TTSManager:
             TTSError: If synthesis fails
         """
         provider = self.get_provider(provider_name)
-        return provider.synthesize(text, voice)
+        audio = provider.synthesize(text, voice)
+
+        max_output = int(
+            os.getenv("CODEXIFY_VOICE_OUTPUT_MAX_BYTES", str(15 * 1024 * 1024))
+        )
+        if len(audio) > max_output:
+            raise TTSError(
+                f"Audio output too large ({len(audio)} bytes > {max_output})"
+            )
+        return audio
 
     def list_voices(self, provider_name: Optional[str] = None) -> List[str]:
         """

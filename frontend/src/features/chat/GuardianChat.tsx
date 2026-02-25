@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /**
  * GuardianChat.tsx
  *
@@ -8,6 +9,12 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { debounce } from "lodash-es";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ChevronRight, MoreVertical, Sparkles, Layers, SquareStack, Zap } from "lucide-react";
+=======
+import { useMemo, useState, useEffect, useRef } from "react";
+import { debounce } from "lodash-es";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ChevronRight, MoreVertical, Plus, Sparkles, Layers, SquareStack, ArrowLeft, Volume2 } from "lucide-react";
+>>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
@@ -220,6 +227,15 @@ export function GuardianChat({
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? "New Chat");
+  const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [voiceUploading, setVoiceUploading] = useState(false);
+  const [autoReadEnabled, setAutoReadEnabled] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("cfy.voice.autoRead") === "1";
+    } catch {
+      return false;
+    }
+  });
   const triggerReload = useMemo(() => debounce(() => setChatReloadVersion((v) => v + 1), 300), []);
   const { subscribe } = useLiveEvents({ passive: true });
   const [llmHealth, setLlmHealth] = useState<LlmHealthSnapshot>({
@@ -699,6 +715,12 @@ export function GuardianChat({
 
   useEffect(() => () => triggerReload.cancel(), [triggerReload]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("cfy.voice.autoRead", autoReadEnabled ? "1" : "0");
+    } catch {}
+  }, [autoReadEnabled]);
+
   // Keep local thread title in sync with upstream threads when relevant
   useEffect(() => {
     const parsedId = Number(activeThread?.id);
@@ -1004,6 +1026,7 @@ export function GuardianChat({
         </DropdownMenuContent>
       </DropdownMenu>
 
+<<<<<<< HEAD
       <div
         ref={promptCostPopoverRef}
         className="relative"
@@ -1104,6 +1127,19 @@ export function GuardianChat({
           </div>
         ) : null}
       </div>
+=======
+      <TraceButton threadId={effectiveThreadId} />
+      <button
+        type="button"
+        className="icon-inline"
+        aria-label={autoReadEnabled ? "Disable auto read aloud" : "Enable auto read aloud"}
+        title={autoReadEnabled ? "Auto read aloud: On" : "Auto read aloud: Off"}
+        onClick={() => setAutoReadEnabled((v) => !v)}
+        style={{ borderRadius: "var(--radius-micro)", opacity: autoReadEnabled ? 1 : 0.65 }}
+      >
+        <Volume2 className="h-5 w-5" />
+      </button>
+>>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
       <button
         type="button"
@@ -1371,6 +1407,7 @@ export function GuardianChat({
             endCompletion={endCompletion}
             className="flex flex-col flex-1 min-h-0"
             bottomPadding={160}
+            autoReadEnabled={autoReadEnabled}
           />
         ) : (
           <div
@@ -1395,6 +1432,58 @@ export function GuardianChat({
         }}
       >
         <div className="flex flex-col p-4">
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+            <span className="opacity-70" style={{ color: "var(--muted)" }}>
+              Turn-based Voice
+            </span>
+            <button
+              type="button"
+              className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
+              style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+              disabled={voiceUploading}
+              onClick={() => {
+                if (effectiveThreadId == null) {
+                  alert("Create or open a thread before starting a voice turn.");
+                  return;
+                }
+                voiceFileInputRef.current?.click();
+              }}
+            >
+              {voiceUploading ? "Processing…" : "Upload Voice Turn"}
+            </button>
+            <input
+              ref={voiceFileInputRef}
+              type="file"
+              accept="audio/wav,audio/*"
+              className="hidden"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = "";
+                if (!file) return;
+                if (effectiveThreadId == null) {
+                  alert("Create or open a thread before starting a voice turn.");
+                  return;
+                }
+                setVoiceUploading(true);
+                try {
+                  const form = new FormData();
+                  form.append("thread_id", String(effectiveThreadId));
+                  form.append("audio_file", file);
+                  form.append("tts_enabled", "true");
+                  await api.post("/api/voice/turn", form, {
+                    headers: { "Content-Type": "multipart/form-data" },
+                    timeout: 180000,
+                  });
+                  triggerReload();
+                } catch (error) {
+                  console.warn("[guardian] voice turn failed", error);
+                  alert("Voice turn failed. Check backend voice configuration.");
+                } finally {
+                  setVoiceUploading(false);
+                }
+              }}
+            />
+          </div>
           <Composer
             onSend={handleSendMessage}
             prefill={externalPrefill ?? prefill}
