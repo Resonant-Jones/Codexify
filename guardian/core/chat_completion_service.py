@@ -55,7 +55,7 @@ def _embed_message(
             "thread_id": thread_id,
             "role": role,
             "message_id": message_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "source": "chat",
         }
         dependencies._vector_store.add_texts([{"text": content, "meta": meta}])

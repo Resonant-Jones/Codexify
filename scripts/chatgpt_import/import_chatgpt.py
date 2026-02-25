@@ -60,7 +60,7 @@ except ImportError as e:
 # Load environment variables
 load_dotenv()
 
-from guardian.identity import get_user_id
+from guardian.identity import get_or_create_user_id
 
 
 def print_colored(message: str, color: str = ""):
@@ -152,7 +152,7 @@ def import_chatgpt():
         sys.exit(1)
 
     # Perform dual-engine import
-    user_id = get_user_id()
+    user_id = get_or_create_user_id()
     if not user_id:
         raise RuntimeError(
             "Identity system failed to generate a user_id (this should never happen)"

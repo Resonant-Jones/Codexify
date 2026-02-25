@@ -37,7 +37,7 @@ class TestLogger:
     ) -> None:
         """Log a message with rate limiting."""
         event = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": level,
             "message": message,
             **kwargs,

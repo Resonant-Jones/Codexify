@@ -112,7 +112,7 @@ async def _diagnostic_loop(self) -> None:
                 self.check_results.append(result)
             
             # Update last check timestamp
-            self.last_check = datetime.utcnow()
+            self.last_check =datetime.now(UTC)
             
             # Trim results to max history
             while len(self.check_results) > self.config.get("max_history", 100):
@@ -204,9 +204,9 @@ plugins/system_diagnostics/tests/test_system_diagnostics.py::test_diagnostic_loo
 👑 CREDITS  
 ─────────────────────────────  
 🧩 **Patch Author:** BLACKBOXAI  
-🧩 **Codex Companion:** Axis • Codexify  
+🧩 **Codex Companion:** Axis • ThreadSpace  
 🧩 **Version:** Guardian Backend 2.0  
 🧩 **Powered by:** MemoryOS + Codexify MCP  
 
 ─────────────────────────────  
-#Guardian #PytestFix #CodexifyCodex #PatchSweep #COMPLETED
+#Guardian #PytestFix #ThreadSpaceCodex #PatchSweep #COMPLETED

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -17,14 +16,10 @@ except Exception:
 
 import numpy as np  # required by FAISS path
 
-<<<<<<< HEAD
-from guardian.utils.embed_paths import resolve_local_embed_model
-=======
 from guardian.utils.embed_paths import (
     get_local_embed_model,
     require_local_embed_model,
 )
->>>>>>> e27828cd (fix(embed): validate LOCAL_EMBED_MODEL only when local backend selected)
 
 try:
     import faiss  # type: ignore
@@ -36,8 +31,12 @@ try:
 except Exception:
     chromadb = None  # type: ignore
 
-logger = logging.getLogger(__name__)
-
+DEFAULT_LOCAL_MODEL = os.getenv(
+    "CODEXIFY_LOCAL_MODEL", "BAAI/bge-large-en-v1.5"
+)
+DEFAULT_OPENAI_MODEL = os.getenv(
+    "CODEXIFY_OPENAI_MODEL", "text-embedding-3-large"
+)
 DEFAULT_STORE = os.getenv(
     "CODEXIFY_VECTOR_STORE", "chroma"
 )  # 'chroma' | 'faiss'
@@ -67,14 +66,9 @@ class CodexifyEmbedder:
         collection: str | None = None,
     ):
         self.use_openai = use_openai
-        if model:
-            logger.warning(
-                "[embedder] model override ignored; use LOCAL_EMBED_MODEL or CODEXIFY_OPENAI_MODEL"
-            )
-        if self.use_openai:
-            self.model_name = (os.getenv("CODEXIFY_OPENAI_MODEL") or "").strip()
-        else:
-            self.model_name = resolve_local_embed_model()
+        self.model_name = model or (
+            DEFAULT_OPENAI_MODEL if use_openai else DEFAULT_LOCAL_MODEL
+        )
         # Resolve configuration from env if not provided
         self.store = (
             store or os.getenv("CODEXIFY_VECTOR_STORE", "chroma")
@@ -92,17 +86,8 @@ class CodexifyEmbedder:
         self._chroma_collection = None
 
         if self.use_openai:
-<<<<<<< HEAD
-            if not self.model_name or not str(self.model_name).strip():
-                raise RuntimeError(
-                    "CODEXIFY_OPENAI_MODEL is not set for OpenAI embeddings."
-                )
-            self.model_name = str(self.model_name).strip()
-            logger.info("[embedder] openai embedding model=%s", self.model_name)
-=======
             # Non-local backends should not hard-fail on missing local model.
             get_local_embed_model(strict=False)
->>>>>>> e27828cd (fix(embed): validate LOCAL_EMBED_MODEL only when local backend selected)
             if OpenAI is None:
                 raise RuntimeError(
                     "OpenAI client not installed. `pip install openai>=1.0`"
@@ -116,22 +101,10 @@ class CodexifyEmbedder:
         else:
             if SentenceTransformer is None:
                 raise RuntimeError("sentence-transformers not installed.")
-<<<<<<< HEAD
-            logger.info("[embedder] local embedding model=%s", self.model_name)
-            try:
-                self._local_model = SentenceTransformer(
-                    self.model_name, local_files_only=True
-                )
-            except Exception as exc:
-                raise RuntimeError(
-                    "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
-                ) from exc
-=======
             # Enforce LOCAL_EMBED_MODEL path rules only when local embeddings are selected.
             local_model_path = require_local_embed_model()
             self.model_name = model or local_model_path
             self._local_model = SentenceTransformer(self.model_name)
->>>>>>> e27828cd (fix(embed): validate LOCAL_EMBED_MODEL only when local backend selected)
 
         if self.store not in ("chroma", "faiss"):
             raise ValueError("VECTOR_STORE must be 'chroma' or 'faiss'")

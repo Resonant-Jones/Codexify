@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Optional
 from uuid import uuid4
 
+import requests
+from dotenv import load_dotenv
 from fastapi import (
     Body,
     Depends,
@@ -38,25 +40,19 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # Configure logging early
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from guardian.config.system_config import ensure_system_dirs
-from guardian.connectors.google import router as google_connect_router
-
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
-from guardian.core.config import (
-    ConfigCoherenceError,
-    assert_config_coherence,
-    get_settings,
-)
-from guardian.core.db import load_guardian_db_from_env
+from guardian.core.config import get_settings
 from guardian.core.dependencies import (
+    API_KEY,
     ENABLE_CONNECTOR_WORKER,
     ENABLE_OUTBOX,
     allowed_origins,
@@ -64,20 +60,6 @@ from guardian.core.dependencies import (
     init_services,
     require_api_key,
 )
-from guardian.core.media_signing import verify_media_signature
-from guardian.core.outbox import (
-    normalize_outbox_tenant_id,
-    parse_last_event_id,
-    parse_outbox_batch_size,
-    parse_outbox_poll_interval,
-)
-from guardian.core.public_exposure import (
-    DEFAULT_EXPOSURE_MODE,
-    DEFAULT_PROFILE,
-    DEFAULT_ROUTES_FILE,
-    PublicExposureMiddleware,
-)
-from guardian.core.storage import ensure_storage_base_path
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue
 from guardian.tasks.types import WarmupTask
@@ -85,6 +67,8 @@ from guardian.utils.embed_paths import (
     get_local_embed_model,
     require_local_embed_model,
 )
+from guardian.voice.config import get_voice_runtime_config
+from guardian.voice.manifest import validate_manifest_for_runtime
 
 # Optional Neo4j for graph endpoint
 try:
@@ -112,20 +96,11 @@ except Exception:
 # Load environment files
 dependencies._load_env_chain()
 
-# Resolve API key after dotenv load (no silent fallback)
-api_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
-dependencies.API_KEY = api_key
-if not api_key:
-    logger.error(
-        "[auth] GUARDIAN_API_KEY is missing. Set it in .env to start the backend."
-    )
-    raise SystemExit("GUARDIAN_API_KEY is required")
-
 # Log API key (masked)
 _mask = (
-    (api_key[:4] + "…" + api_key[-4:])
-    if api_key and len(api_key) > 8
-    else api_key
+    (API_KEY[:4] + "…" + API_KEY[-4:])
+    if API_KEY and len(API_KEY) > 8
+    else API_KEY
 )
 logger.info("[auth] Using GUARDIAN_API_KEY=%s", _mask)
 
@@ -135,15 +110,8 @@ dependencies.init_database()
 chatlog_db = dependencies.chatlog_db
 
 # Feature flags
-OUTBOX_POLL_INTERVAL = parse_outbox_poll_interval(
-    os.getenv("OUTBOX_POLL_INTERVAL", "1.0")
-)
-OUTBOX_BATCH_SIZE = parse_outbox_batch_size(
-    os.getenv("OUTBOX_BATCH_SIZE", "100")
-)
-OUTBOX_TENANT_ID = normalize_outbox_tenant_id(
-    os.getenv("OUTBOX_TENANT_ID", "default")
-)
+OUTBOX_POLL_INTERVAL = float(os.getenv("OUTBOX_POLL_INTERVAL", "1.0"))
+OUTBOX_BATCH_SIZE = int(os.getenv("OUTBOX_BATCH_SIZE", "100"))
 
 
 from guardian.realtime import collaboration
@@ -181,21 +149,17 @@ def _resolve_embedding_backend(settings_obj: Any | None = None) -> str:
 
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
-from guardian.routes import admin, agent, agent_orchestration, backfill
-from guardian.routes import command_bus as command_bus_routes
-from guardian.routes import cron as cron_routes
 from guardian.routes import (
-    devtools,
+    admin,
+    agent,
     documents,
-    embeddings,
     federation,
     health,
     memory,
     migration,
 )
 from guardian.routes import neo as neo_routes
-from guardian.routes import research, share, threads, ui_session
-from guardian.routes import websocket as websocket_routes
+from guardian.routes import research, share, threads
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
 from guardian.routes.chat import router as chat_router
@@ -203,18 +167,15 @@ from guardian.routes.chat import simple_chat_router
 from guardian.routes.codex import router as codex_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
-from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
 from guardian.routes.imprint import router as imprint_router
 from guardian.routes.imprint import system_docs_router, system_prompt_router
 from guardian.routes.media import router as media_router
 from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
-from guardian.routes.personal_facts import router as personal_facts_router
-from guardian.routes.projects import api_router as api_projects_router
-from guardian.routes.projects import ensure_default_project
+from guardian.routes.projects import ensure_loose_threads_project
 from guardian.routes.projects import router as projects_router
-from guardian.routes.tools import api_router as api_tools_router
 from guardian.routes.tools import router as tools_router
+from guardian.routes.voice import router as voice_router
 
 # =========================
 # Application Lifespan Management
@@ -235,19 +196,26 @@ async def app_lifespan(app: FastAPI):
 
     # === STARTUP ===
     logger.info("[startup] Guardian API starting...")
-    ensure_system_dirs()
 
     settings = get_settings()
-    try:
-        assert_config_coherence(settings)
-    except ConfigCoherenceError as exc:
-        logger.error("[startup] Config coherence check failed: %s", exc)
-        raise
-
+    voice_cfg = get_voice_runtime_config()
     if getattr(settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
         logger.info("[graph] Knowledge graph context: ENABLED (Neo4j)")
     else:
         logger.info("[graph] Knowledge graph context: disabled")
+
+    if voice_cfg.mode != "off":
+        ok, errors = validate_manifest_for_runtime(voice_cfg)
+        if not ok:
+            raise RuntimeError(
+                "[voice] model manifest validation failed: " + ", ".join(errors)
+            )
+        logger.info(
+            "[voice] manifest validation passed (mode=%s stt=%s tts=%s)",
+            voice_cfg.mode,
+            voice_cfg.stt_provider,
+            voice_cfg.tts_provider,
+        )
 
     # Initialize database via shared initializer (idempotent)
     db = dependencies.init_database()
@@ -267,26 +235,6 @@ async def app_lifespan(app: FastAPI):
         chatlog_db_instance=db, require_api_key_func=require_api_key
     )
 
-    guardian_db = None
-    try:
-        guardian_db = load_guardian_db_from_env()
-    except Exception as exc:
-        logger.warning("[startup] GuardianDB init failed: %s", exc)
-    if guardian_db:
-        cron_routes.configure_db(guardian_db)
-        documents.configure_db(guardian_db)
-        share.configure_db(guardian_db)
-        websocket_routes.configure_db(guardian_db)
-        agent_orchestration.configure_db(guardian_db)
-        command_bus_routes.configure_db(guardian_db)
-        logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/command_bus routes"
-        )
-        collaboration.configure_db(guardian_db)
-        logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/collaboration/websocket routes"
-        )
-
     # Configure durable outbox storage
     if ENABLE_OUTBOX:
         try:
@@ -297,32 +245,19 @@ async def app_lifespan(app: FastAPI):
                 "[outbox] Failed to configure durable event outbox; falling back to in-memory hub"
             )
 
-    # Ensure canonical default "General" project exists
+    # Ensure default "Loose Threads" project exists
     try:
-        ensure_default_project()
+        ensure_loose_threads_project()
     except Exception as exc:
-        logger.error("[startup] Failed to initialize default project: %s", exc)
+        logger.error(
+            "[startup] Failed to initialize Loose Threads project: %s", exc
+        )
 
     # Ensure sync_jobs table exists
     try:
         db.ensure_sync_job_support()
     except Exception as e:
         logger.warning("[sync] Failed to ensure sync_jobs table: %s", e)
-
-    # Seed/sync provider control-plane rows from /api/llm/catalog
-    try:
-        sync_stats = db.sync_inference_provider_rows_from_catalog()
-        logger.info(
-            "[startup] inference providers synced rows=%s created=%s updated=%s runtime_created=%s",
-            sync_stats.get("provider_rows", 0),
-            sync_stats.get("providers_created", 0),
-            sync_stats.get("providers_updated", 0),
-            sync_stats.get("runtime_created", 0),
-        )
-    except Exception as exc:
-        logger.warning(
-            "[startup] Failed to sync inference provider rows: %s", exc
-        )
 
     # Initialize Neo4j connection if graph logging is enabled
     if (
@@ -357,9 +292,6 @@ async def app_lifespan(app: FastAPI):
         local_llm_model = os.getenv("LOCAL_LLM_MODEL") or getattr(
             settings, "LOCAL_LLM_MODEL", None
         )
-<<<<<<< HEAD
-        local_embed_model = os.getenv("LOCAL_EMBED_MODEL")
-=======
         local_embed_model = get_local_embed_model(strict=False)
         if embedding_backend == "local":
             local_embed_model = require_local_embed_model()
@@ -367,12 +299,19 @@ async def app_lifespan(app: FastAPI):
             local_embed_model = os.getenv("LOCAL_EMBEDDING_MODEL") or getattr(
                 settings, "LOCAL_EMBEDDING_MODEL", None
             )
->>>>>>> e27828cd (fix(embed): validate LOCAL_EMBED_MODEL only when local backend selected)
 
         def _norm_model(name: Optional[str]) -> str:
             return str(name or "").strip().lower()
 
-        embed_models = {_norm_model(local_embed_model)}
+        embed_models = {
+            _norm_model(local_embed_model),
+            _norm_model(os.getenv("LOCAL_EMBED_MODEL")),
+            _norm_model(os.getenv("LOCAL_EMBEDDING_MODEL")),
+            _norm_model(os.getenv("LOCAL_EMBEDDER_MODEL")),
+            _norm_model(os.getenv("EMBEDDING_MODEL")),
+            _norm_model(os.getenv("CODEXIFY_LOCAL_MODEL")),
+            _norm_model(getattr(settings, "LOCAL_EMBEDDING_MODEL", None)),
+        }
         embed_models.discard("")
 
         models = []
@@ -444,82 +383,10 @@ app = FastAPI(
     lifespan=app_lifespan,
 )
 
-exposure_mode = os.getenv("GUARDIAN_EXPOSURE_MODE", DEFAULT_EXPOSURE_MODE)
-public_routes_file = os.getenv(
-    "GUARDIAN_PUBLIC_ROUTES_FILE", DEFAULT_ROUTES_FILE
-)
-public_profile = os.getenv("GUARDIAN_PUBLIC_PROFILE", DEFAULT_PROFILE)
-
-app.add_middleware(
-    PublicExposureMiddleware,
-    exposure_mode=exposure_mode,
-    routes_file=public_routes_file,
-    profile=public_profile,
-)
-logger.info(
-    "[public_exposure] mode=%s profile=%s routes_file=%s",
-    exposure_mode,
-    public_profile,
-    public_routes_file,
-)
-
-
-def _get_request_id(request: Request) -> str:
-    request_id = getattr(request.state, "request_id", None)
-    if request_id:
-        return request_id
-    header_id = request.headers.get("X-Request-ID")
-    if header_id:
-        request.state.request_id = header_id
-        return header_id
-    request_id = str(uuid4())
-    request.state.request_id = request_id
-    return request_id
-
 
 # =========================
 # Middleware Configuration
 # =========================
-
-
-# Request-id middleware
-@app.middleware("http")
-async def request_id_middleware(request: Request, call_next):
-    request_id = _get_request_id(request)
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
-
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    request_id = _get_request_id(request)
-    response = JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail, "request_id": request_id},
-        headers=getattr(exc, "headers", None),
-    )
-    response.headers["X-Request-ID"] = request_id
-    return response
-
-
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    request_id = _get_request_id(request)
-    logger.exception(
-        "[error] Unhandled exception request_id=%s method=%s path=%s query_params=%s",
-        request_id,
-        request.method,
-        request.url.path,
-        dict(request.query_params),
-    )
-    response = JSONResponse(
-        status_code=500,
-        content={"detail": "Internal Server Error", "request_id": request_id},
-    )
-    response.headers["X-Request-ID"] = request_id
-    return response
-
 
 # CORS middleware
 app.add_middleware(
@@ -531,9 +398,15 @@ app.add_middleware(
 )
 logger.info("[CORS] Allowed origins: %s", allowed_origins)
 
-# Signed media serving base path
-media_storage_path = ensure_storage_base_path().resolve()
-logger.info("[media] Signed media delivery enabled from %s", media_storage_path)
+# Static file serving for media
+media_storage_path = os.getenv("STORAGE_BASE_PATH", "/app/media")
+if os.path.exists(media_storage_path):
+    app.mount("/media", StaticFiles(directory=media_storage_path), name="media")
+    logger.info("[static] Mounted /media from %s", media_storage_path)
+else:
+    logger.warning(
+        "[static] Media storage path does not exist: %s", media_storage_path
+    )
 
 
 # =========================
@@ -557,15 +430,11 @@ app.include_router(imprint_router)
 app.include_router(system_prompt_router)
 app.include_router(system_docs_router)
 app.include_router(iddb_router)
-app.include_router(backfill.router)
-app.include_router(embeddings.router)
 
 # Core feature routers
 app.include_router(threads.router)
 app.include_router(projects_router)
-app.include_router(api_projects_router)
 app.include_router(memory.router)
-app.include_router(personal_facts_router)
 app.include_router(agent.router, prefix="/agent")
 app.include_router(research.router, prefix="/research")
 app.include_router(documents.router)
@@ -573,11 +442,9 @@ app.include_router(share.router)
 app.include_router(federation.router)
 app.include_router(collaboration.router)
 app.include_router(connectors_router)
-app.include_router(google_connect_router)
 app.include_router(media_router, prefix="/api/media")
-app.include_router(flows_router)
+app.include_router(voice_router)
 app.include_router(tools_router)
-app.include_router(api_tools_router)
 app.include_router(exports_router)
 app.include_router(codex_router)
 _embedding_backend = _resolve_embedding_backend(get_settings())
@@ -594,13 +461,6 @@ else:
         _embedding_backend or "<unset>",
     )
 app.include_router(migration.router)
-app.include_router(devtools.router)
-app.include_router(websocket_routes.router)
-app.include_router(cron_routes.router)
-app.include_router(ui_session.router)
-app.include_router(agent_orchestration.router)
-app.include_router(agent_orchestration.chat_router)
-app.include_router(command_bus_routes.router)
 
 logger.info("[routers] All routers included")
 
@@ -608,31 +468,6 @@ logger.info("[routers] All routers included")
 # =========================
 # Unique Endpoints (Not in Routers)
 # =========================
-
-
-# Compatibility aliases for legacy codex routes
-@app.get("/codex/entries", include_in_schema=False)
-def codex_entries_compat():
-    """Compatibility alias for legacy clients; redirect to the canonical /api route."""
-    return RedirectResponse(url="/api/codex/entries")
-
-
-@app.get("/codex/entries/{entry_id}", include_in_schema=False)
-def codex_entry_compat(entry_id: str):
-    """Compatibility alias for legacy clients; redirect to the canonical /api route."""
-    return RedirectResponse(url=f"/api/codex/entries/{entry_id}")
-
-
-@app.get("/codex/entries/{entry_id}/export", include_in_schema=False)
-def codex_entry_export_compat(entry_id: str):
-    """Compatibility alias for legacy clients; redirect to the canonical /api route."""
-    return RedirectResponse(url=f"/api/codex/entries/{entry_id}/export")
-
-
-@app.get("/codex/{entry_id}/source", include_in_schema=False)
-def codex_entry_source_compat(entry_id: str):
-    """Compatibility alias for codex source provenance route."""
-    return RedirectResponse(url=f"/api/codex/{entry_id}/source")
 
 
 @app.get("/api/events", tags=["Events"])
@@ -654,7 +489,10 @@ async def stream_events(
 
     async def event_stream() -> AsyncGenerator[str, None]:
         # Prefer explicit header over query, fall back to zero.
-        last_id = parse_last_event_id(last_event_id_header, last_id_query)
+        try:
+            last_id = int(last_event_id_header or last_id_query or 0)
+        except (TypeError, ValueError):
+            last_id = 0
 
         # Initial retry hint expected by many SSE clients.
         yield "retry: 3000\n\n"
@@ -667,32 +505,15 @@ async def stream_events(
                 break
 
             events = event_bus.fetch_events_after(
-                last_id,
-                limit=OUTBOX_BATCH_SIZE,
-                tenant_id=OUTBOX_TENANT_ID,
+                last_id, limit=OUTBOX_BATCH_SIZE
             )
             max_id_seen = last_id
 
             if events:
                 for ev in events:
-                    ev_id_raw = ev.get("id")
+                    ev_id = ev.get("id")
                     topic = ev.get("topic") or "message"
                     payload = ev.get("payload") or {}
-                    raw_tenant = ev.get("tenant_id")
-                    event_tenant = normalize_outbox_tenant_id(
-                        raw_tenant if isinstance(raw_tenant, str) else None
-                    )
-                    if event_tenant != OUTBOX_TENANT_ID:
-                        continue
-
-                    try:
-                        ev_id = int(ev_id_raw)
-                    except (TypeError, ValueError):
-                        logger.debug(
-                            "[outbox] skipping event with invalid id=%r",
-                            ev_id_raw,
-                        )
-                        continue
 
                     try:
                         data_str = json.dumps(payload, default=str)
@@ -710,8 +531,12 @@ async def stream_events(
                 # Update last_id for next poll
                 last_id = max_id_seen
 
-                # Keep outbox events intact so concurrent clients can resume
-                # independently without losing events due to destructive cleanup.
+                # Clean up delivered events
+                if max_id_seen > 0:
+                    try:
+                        event_bus.delete_events_up_to(max_id_seen)
+                    except Exception:
+                        pass
 
                 # Reset heartbeat timer
                 heartbeat_elapsed = 0.0
@@ -798,15 +623,11 @@ async def stream_task_events(
 
 
 @app.get("/graph", summary="Return graph data from Neo4j", tags=["Graph"])
-def get_graph(
-    scope: str = "codexify",
-    api_key: str = Depends(require_api_key),
-):
+def get_graph(scope: str = "codexify"):
     """
     Fetch graph data from Neo4j for visualization.
     Returns nodes and links for the specified scope.
     """
-    _ = api_key
     if not NEO4J_AVAILABLE:
         raise HTTPException(
             status_code=503, detail="Neo4j driver not available"
@@ -814,14 +635,7 @@ def get_graph(
 
     uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
-    password = (
-        os.getenv("NEO4J_PASSWORD") or os.getenv("NEO4J_PASS") or ""
-    ).strip()
-    if not password:
-        raise HTTPException(
-            status_code=503,
-            detail="NEO4J_PASSWORD is not configured",
-        )
+    password = os.getenv("NEO4J_PASSWORD", "test")
 
     try:
         driver = GraphDatabase.driver(uri, auth=(user, password))
@@ -874,27 +688,6 @@ def get_graph(
 
 
 # (Removed redundant /upload-chat endpoint; use guardian/routes/migration.py instead)
-
-
-@app.get("/media/{file_path:path}", include_in_schema=False)
-def serve_signed_media(
-    file_path: str,
-    sig: Optional[str] = Query(None),
-):
-    requested_path = "/" + str(Path("media") / file_path).replace("\\", "/")
-    if not verify_media_signature(requested_path, sig):
-        raise HTTPException(status_code=401, detail="Invalid media signature")
-
-    try:
-        candidate = (media_storage_path / file_path).resolve()
-        candidate.relative_to(media_storage_path)
-    except Exception:
-        raise HTTPException(status_code=403, detail="Invalid media path")
-
-    if not candidate.is_file():
-        raise HTTPException(status_code=404, detail="Media not found")
-
-    return FileResponse(candidate)
 
 
 # =========================

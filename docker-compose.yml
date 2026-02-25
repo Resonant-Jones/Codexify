@@ -4,11 +4,11 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-codexify}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codexify}
-      POSTGRES_DB: ${POSTGRES_DB:-Codexify}
+      POSTGRES_USER: codexify
+      POSTGRES_PASSWORD: codexify
+      POSTGRES_DB: Codexify
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codexify} -d ${POSTGRES_DB:-Codexify}"]
+      test: ["CMD-SHELL", "pg_isready -U codexify -d Codexify"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -19,21 +19,13 @@ services:
   neo4j:
     image: neo4j:5
     environment:
+      NEO4J_AUTH: neo4j/codexify
       NEO4J_server_default__listen__address: 0.0.0.0
-      # Let the official image handle auth via NEO4J_AUTH (no custom entrypoint).
-      # NOTE: Compose will interpolate ${NEO4J_PASS} from your project .env at deploy time.
-      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS}"
     ports: ["7474:7474", "7687:7687"]
     volumes:
       - neo4j_data:/data
     healthcheck:
-      test:
-        - CMD-SHELL
-        - >
-          /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687
-          -u "$$(echo $$NEO4J_AUTH | cut -d/ -f1)"
-          -p "$$(echo $$NEO4J_AUTH | cut -d/ -f2-)"
-          'RETURN 1' || exit 1
+      test: ["CMD-SHELL", "/var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u neo4j -p codexify 'RETURN 1' || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 30
@@ -58,21 +50,17 @@ services:
       retries: 20
   graph-init:
     image: neo4j:5
-    env_file: .env
     depends_on:
       neo4j:
         condition: service_healthy
     restart: "no"
-    entrypoint: ["/bin/sh", "-lc"]
     command:
-      - |-
+      - sh
+      - -c
+      - |
         set -e
         echo "[graph-init] Applying Neo4j constraints + seed nodes..."
-        if [ -z "$${NEO4J_PASS:-}" ]; then
-          echo "[graph-init] ERROR: NEO4J_PASS is not set (expected via env_file: .env)"
-          exit 1
-        fi
-        cat <<'CYPHER' | /var/lib/neo4j/bin/cypher-shell -a bolt://neo4j:7687 -u "$${NEO4J_USER:-neo4j}" -p "$${NEO4J_PASS}"
+        cat <<'CYPHER' | /var/lib/neo4j/bin/cypher-shell -a bolt://neo4j:7687 -u neo4j -p codexify
         CREATE CONSTRAINT user_id_unique     IF NOT EXISTS FOR (u:User)    REQUIRE u.id IS UNIQUE;
         CREATE CONSTRAINT project_id_unique  IF NOT EXISTS FOR (p:Project) REQUIRE p.id IS UNIQUE;
         CREATE CONSTRAINT thread_id_unique   IF NOT EXISTS FOR (t:Thread)  REQUIRE t.id IS UNIQUE;
@@ -84,92 +72,36 @@ services:
         MERGE (me)-[:OWNS]->(p);
         CYPHER
         echo "[graph-init] Done."
+
   migrator:
     build:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
-    entrypoint: ["python"]
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file: .env
+    entrypoint:
+      - sh
+      - -lc
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      PYTHONPATH: /app
-      ALEMBIC_CONFIG: /app/backend/alembic.ini
-      ENABLE_BLIP_MODEL: "false"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
-      # --- Required security boundary ---
-      # Guardian API key MUST be explicitly set via .env for any non-test runtime.
-      # Fail fast if missing instead of silently defaulting.
-      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:?GUARDIAN_API_KEY must be set in .env}"
-      LLM_PROVIDER: "local"
-      EMBED_PROVIDER: "local"
-      EMBEDDER_PROVIDER: "local"
-      EMBEDDING_BACKEND: "local"
-      CODEXIFY_USE_OPENAI: "0"
-    volumes:
-      - ./guardian:/app/codexify
-      - ./guardian:/app/guardian
-      - ./backend:/app/backend
-    restart: "no"
-    command: ["/app/backend/scripts/docker/run_migrator.py"]
-
-  chatgpt-migrate:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    working_dir: /app
-    profiles:
-      - cli
-    entrypoint: ["python", "scripts/chatgpt_import/import_chatgpt.py"]
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LLM_PROVIDER: "local"
-      EMBED_PROVIDER: "local"
-      EMBEDDER_PROVIDER: "local"
-      EMBEDDING_BACKEND: "local"
-      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
-      HF_HOME: /root/.cache/huggingface
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-      SENTENCE_TRANSFORMERS_HOME: /models
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      ENABLE_BLIP_MODEL: "false"   # keep migrations light (no model loading)
       # Ensure seed/init code can construct an OpenAI client even when running local-first
       OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
+      # Force local-first defaults during migrations/seeding
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      EMBEDDER_PROVIDER: "local"
+      EMBEDDING_BACKEND: "local"
       CODEXIFY_USE_OPENAI: "0"
-      CHATGPT_EXPORT_FILE: "/data/conversation.json"
     volumes:
-      - ./guardian:/app/codexify
+      - ./codexify:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
-      - ./scripts:/app/scripts
-      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
-      # Mount data directory for conversations.json
-      - ./docs:/data
-      # Mount conversations.json directly if present
-      - ./conversations.json:/app/conversations.json:ro
     depends_on:
       db:
         condition: service_healthy
-      migrator:
-        condition: service_completed_successfully
     restart: "no"
-<<<<<<< HEAD
-=======
     command: |
       set -euo pipefail
 
@@ -272,82 +204,61 @@ services:
       python backend/scripts/seed_defaults.py
       echo "[Migrator] Seed script completed."
       echo "[Migrator] Done."
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
 
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
-    entrypoint: ["python"]
-    ports: ["8888:8888"]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()\" || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 30
     env_file: .env
     volumes:
-      - ./conversations.json:/app/conversations.json:ro
-      - ./guardian:/app/codexify
+      - ./codexify:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
-<<<<<<< HEAD
-      - ./tests:/app/tests:ro
-      - ./pytest.ini:/app/pytest.ini:ro
-      - hf_cache:/root/.cache/huggingface
-      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
-      - ./.chroma:/app/.chroma
-=======
       - ./docker:/app/docker
       - hf_cache:/root/.cache/huggingface
       - codexify_models:/models
->>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       PORT: "8888"
-      # Command bus loopback: required so command execution re-enters the API via HTTP with full authz/middleware.
-      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
-      # Policy chokepoint mode for tool/command execution.
-      # Values: enforce | warn | off
-      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      # Single-user dev default (used when identity fallback is enabled).
-      CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
-      NEO4J_BOLT_URL: bolt://neo4j:7687
+      NEO4J_BOLT_URL: bolt://neo4j:codexify@neo4j:7687
+      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-}"
       ENABLE_CONNECTOR_WORKER: "false"
       REDIS_URL: redis://redis:6379/0
-      # Supported provider ids (backend): "local", "groq", "openai", "minimax"
-      LLM_PROVIDER: "${LLM_PROVIDER:-local}"
+      # Supported provider ids (backend): "local", "groq", "openai"
+      LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
-<<<<<<< HEAD
-      HF_HOME: /root/.cache/huggingface
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-=======
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
->>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
       SENTENCE_TRANSFORMERS_HOME: /models
       # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
-      # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "http://192.168.4.225:11434"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
-<<<<<<< HEAD
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
-      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
-=======
       LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
       LOCAL_EMBED_MODEL: "${LOCAL_EMBED_MODEL:-/models/bge-large-en-v1.5}"
       EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
       EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
->>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
+      CODEXIFY_VOICE_MODE: "${CODEXIFY_VOICE_MODE:-off}"
+      CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-whisper_local}"
+      CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
+      CODEXIFY_STT_TIMEOUT_SECONDS: "${CODEXIFY_STT_TIMEOUT_SECONDS:-20}"
+      CODEXIFY_VOICE_COMPLETION_TIMEOUT_SECONDS: "${CODEXIFY_VOICE_COMPLETION_TIMEOUT_SECONDS:-60}"
+      CODEXIFY_TTS_TIMEOUT_SECONDS: "${CODEXIFY_TTS_TIMEOUT_SECONDS:-30}"
+      CODEXIFY_VOICE_INPUT_MAX_BYTES: "${CODEXIFY_VOICE_INPUT_MAX_BYTES:-15728640}"
+      CODEXIFY_VOICE_OUTPUT_MAX_BYTES: "${CODEXIFY_VOICE_OUTPUT_MAX_BYTES:-15728640}"
+      CODEXIFY_VOICE_MAX_DURATION_SECONDS: "${CODEXIFY_VOICE_MAX_DURATION_SECONDS:-120}"
+      CODEXIFY_VOICE_INTERNAL_FORMAT: "${CODEXIFY_VOICE_INTERNAL_FORMAT:-wav}"
+      CODEXIFY_VOICE_DELIVERY_FORMATS: "${CODEXIFY_VOICE_DELIVERY_FORMATS:-wav,mp3}"
+      CODEXIFY_VOICE_SERVICE_URL: "${CODEXIFY_VOICE_SERVICE_URL:-}"
+      CODEXIFY_VOICE_BAKE_MODELS: "${CODEXIFY_VOICE_BAKE_MODELS:-false}"
 
       # --- OpenAI (cloud) ---
       # NOTE: We intentionally do NOT override OPENAI_BASE_URL here.
@@ -372,9 +283,6 @@ services:
         condition: service_completed_successfully
       graph-init:
         condition: service_completed_successfully
-<<<<<<< HEAD
-    command: ["/app/backend/scripts/docker/run_backend.py"]
-=======
     entrypoint:
       - sh
       - /app/docker/entrypoints/backend.sh
@@ -472,46 +380,25 @@ services:
 
         echo "[Backend] Starting API server..."
         exec uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8888
->>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
 
   worker-warmup:
     build:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
-    entrypoint: ["python"]
     depends_on:
       redis:
         condition: service_healthy
       backend:
         condition: service_healthy
-    env_file: .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LLM_PROVIDER: "${LLM_PROVIDER:-local}"
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
-      # Command bus loopback base (Docker): never use localhost for cross-container calls.
-      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
-      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
-      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "http://192.168.4.225:11434"
       LOCAL_API_KEY: "local"
-<<<<<<< HEAD
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
-      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
-      REDIS_URL: redis://redis:6379/0
-      HF_HOME: /root/.cache/huggingface
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-=======
       LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
       LOCAL_EMBED_MODEL: "${LOCAL_EMBED_MODEL:-/models/bge-large-en-v1.5}"
       EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
@@ -519,20 +406,13 @@ services:
       REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
->>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
       SENTENCE_TRANSFORMERS_HOME: /models
-      NEO4J_BOLT_URL: bolt://neo4j:7687
     volumes:
-      - ./guardian:/app/codexify
+      - ./codexify:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - ./docker:/app/docker
       - hf_cache:/root/.cache/huggingface
-<<<<<<< HEAD
-      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
-    restart: unless-stopped
-    command: ["-m", "guardian.workers.warmup_worker"]
-=======
       - codexify_models:/models
     restart: unless-stopped
     entrypoint:
@@ -545,244 +425,25 @@ services:
         echo "[worker-warmup] Starting warm-up worker..."
         ln -snf /app/codexify /app/Codexify
         exec python -m guardian.workers.warmup_worker
->>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
 
   worker-chat:
     build:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
-    entrypoint: ["python"]
     depends_on:
       redis:
         condition: service_healthy
       backend:
         condition: service_healthy
-    env_file: .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
-      # Command bus loopback base (Docker): never use localhost for cross-container calls.
-      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
-      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
-      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "http://192.168.4.225:11434"
       LOCAL_API_KEY: "local"
-<<<<<<< HEAD
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
-      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
-      REDIS_URL: redis://redis:6379/0
-      HF_HOME: /root/.cache/huggingface
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-      SENTENCE_TRANSFORMERS_HOME: /models
-      NEO4J_BOLT_URL: bolt://neo4j:7687
-    volumes:
-      - ./guardian:/app/codexify
-      - ./guardian:/app/guardian
-      - ./backend:/app/backend
-      - hf_cache:/root/.cache/huggingface
-      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
-    restart: unless-stopped
-    command: ["-m", "guardian.workers.chat_worker"]
-
-  worker-document-embed:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    working_dir: /app
-    entrypoint: ["python"]
-    depends_on:
-      redis:
-        condition: service_healthy
-      backend:
-        condition: service_healthy
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LLM_PROVIDER: "local"
-      EMBED_PROVIDER: "local"
-      # Command bus loopback base (Docker): never use localhost for cross-container calls.
-      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
-      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
-      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
-      LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
-      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
-      REDIS_URL: redis://redis:6379/0
-      HF_HOME: /root/.cache/huggingface
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-      SENTENCE_TRANSFORMERS_HOME: /models
-      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
-      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
-      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
-      NEO4J_BOLT_URL: bolt://neo4j:7687
-    volumes:
-      - ./guardian:/app/codexify
-      - ./guardian:/app/guardian
-      - ./backend:/app/backend
-      - hf_cache:/root/.cache/huggingface
-      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
-      - ./.chroma:/app/.chroma
-    restart: unless-stopped
-    command: ["-m", "guardian.workers.document_embed_worker"]
-
-  worker-chat-embed:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    working_dir: /app
-    entrypoint: ["python"]
-    depends_on:
-      redis:
-        condition: service_healthy
-      backend:
-        condition: service_healthy
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LLM_PROVIDER: "local"
-      EMBED_PROVIDER: "local"
-      # Command bus loopback base (Docker): never use localhost for cross-container calls.
-      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
-      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
-      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
-      LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
-      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
-      REDIS_URL: redis://redis:6379/0
-      HF_HOME: /root/.cache/huggingface
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-      SENTENCE_TRANSFORMERS_HOME: /models
-      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
-      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
-      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
-      NEO4J_BOLT_URL: bolt://neo4j:7687
-    volumes:
-      - ./guardian:/app/codexify
-      - ./guardian:/app/guardian
-      - ./backend:/app/backend
-      - hf_cache:/root/.cache/huggingface
-      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
-      - ./.chroma:/app/.chroma
-    restart: unless-stopped
-    command: ["-m", "guardian.workers.chat_embedding_worker"]
-
-  embedding-backfill:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    working_dir: /app
-    profiles:
-      - backfill
-    entrypoint: ["python"]
-    depends_on:
-      db:
-        condition: service_healthy
-      migrator:
-        condition: service_completed_successfully
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LLM_PROVIDER: "local"
-      EMBED_PROVIDER: "local"
-      # Command bus loopback base (Docker): never use localhost for cross-container calls.
-      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
-      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
-      LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
-      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
-      REDIS_URL: redis://redis:6379/0
-      HF_HOME: /root/.cache/huggingface
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-      SENTENCE_TRANSFORMERS_HOME: /models
-      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
-      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
-      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
-      NEO4J_BOLT_URL: bolt://neo4j:7687
-    volumes:
-      - ./guardian:/app/codexify
-      - ./guardian:/app/guardian
-      - ./backend:/app/backend
-      - hf_cache:/root/.cache/huggingface
-      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
-      - ./.chroma:/app/.chroma
-    restart: "no"
-    command: ["-m", "guardian.workers.embedding_backfill_worker"]
-
-  graph-backfill:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    working_dir: /app
-    profiles:
-      - backfill
-    entrypoint: ["python"]
-    depends_on:
-      db:
-        condition: service_healthy
-      neo4j:
-        condition: service_healthy
-      graph-init:
-        condition: service_completed_successfully
-      migrator:
-        condition: service_completed_successfully
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      # Command bus loopback base (Docker): never use localhost for cross-container calls.
-      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
-      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      NEO4J_BOLT_URL: bolt://neo4j:7687
-      EMBED_PROVIDER: "local"
-      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
-      HF_HOME: /root/.cache/huggingface
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-=======
       LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
       LOCAL_EMBED_MODEL: "${LOCAL_EMBED_MODEL:-/models/bge-large-en-v1.5}"
       EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
@@ -790,19 +451,13 @@ services:
       REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
->>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
       SENTENCE_TRANSFORMERS_HOME: /models
     volumes:
-      - ./guardian:/app/codexify
+      - ./codexify:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - ./docker:/app/docker
       - hf_cache:/root/.cache/huggingface
-<<<<<<< HEAD
-      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
-    restart: "no"
-    command: ["-m", "guardian.workers.graph_backfill_worker"]
-=======
       - codexify_models:/models
     restart: unless-stopped
     entrypoint:
@@ -815,123 +470,140 @@ services:
         echo "[worker-chat] Starting chat worker..."
         ln -snf /app/codexify /app/Codexify
         exec python -m guardian.workers.chat_worker
->>>>>>> a6a1ac8a (ops: auto-download embed model on startup)
 
-  hf-prefetch:
+  worker-voice:
     build:
       context: .
       dockerfile: backend/Dockerfile
     working_dir: /app
-    profiles:
-      - cli
-    entrypoint: ["python"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     environment:
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      HF_HOME: /root/.cache/huggingface
-      HF_HUB_OFFLINE: "0"
-      TRANSFORMERS_OFFLINE: "0"
-      HF_TOKEN: "${HF_TOKEN:-}"
-      # Comma-separated repo ids
-      HF_PREFETCH_MODELS: "${HF_PREFETCH_MODELS:-Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice,Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign,Qwen/Qwen3-TTS-12Hz-1.7B-Base,Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice,Qwen/Qwen3-TTS-12Hz-0.6B-Base,Qwen/Qwen3-TTS-Tokenizer-12Hz}"
-    volumes:
-      - hf_cache:/root/.cache/huggingface
-      - ./backend:/app/backend
-    restart: "no"
-    command: ["/app/backend/scripts/docker/run_hf_prefetch.py"]
-
-  tts:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    working_dir: /app
-    entrypoint: ["python"]
-    environment:
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      PYTHONUTF8: "1"
-      PYTHONIOENCODING: utf-8
-      PYTHONPATH: /app
-      HF_HOME: /root/.cache/huggingface
-      # Allow online downloads by default; set to 1 after running hf-prefetch for air-gapped use.
+      DATABASE_URL: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_DB_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      GUARDIAN_CHATLOG_DSN: postgresql://codexify:codexify@db:5432/Codexify
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "library2/ministral-3:14b"
+      LOCAL_EMBED_MODEL: "${LOCAL_EMBED_MODEL:-/models/bge-large-en-v1.5}"
+      EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
+      EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
+      REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      CODEXIFY_VOICE_MODE: "${CODEXIFY_VOICE_MODE:-off}"
+      CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-whisper_local}"
+      CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
+      CODEXIFY_STT_TIMEOUT_SECONDS: "${CODEXIFY_STT_TIMEOUT_SECONDS:-20}"
+      CODEXIFY_VOICE_COMPLETION_TIMEOUT_SECONDS: "${CODEXIFY_VOICE_COMPLETION_TIMEOUT_SECONDS:-60}"
+      CODEXIFY_TTS_TIMEOUT_SECONDS: "${CODEXIFY_TTS_TIMEOUT_SECONDS:-30}"
+      CODEXIFY_VOICE_INPUT_MAX_BYTES: "${CODEXIFY_VOICE_INPUT_MAX_BYTES:-15728640}"
+      CODEXIFY_VOICE_OUTPUT_MAX_BYTES: "${CODEXIFY_VOICE_OUTPUT_MAX_BYTES:-15728640}"
+      CODEXIFY_VOICE_MAX_DURATION_SECONDS: "${CODEXIFY_VOICE_MAX_DURATION_SECONDS:-120}"
+      CODEXIFY_VOICE_INTERNAL_FORMAT: "${CODEXIFY_VOICE_INTERNAL_FORMAT:-wav}"
+      CODEXIFY_VOICE_DELIVERY_FORMATS: "${CODEXIFY_VOICE_DELIVERY_FORMATS:-wav,mp3}"
+      CODEXIFY_VOICE_SERVICE_URL: "${CODEXIFY_VOICE_SERVICE_URL:-}"
+      CODEXIFY_VOICE_BAKE_MODELS: "${CODEXIFY_VOICE_BAKE_MODELS:-false}"
     volumes:
+      - ./codexify:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - ./docker:/app/docker
+      - hf_cache:/root/.cache/huggingface
+      - codexify_models:/models
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - /app/docker/entrypoints/worker-chat-embed.sh
+    command:
+      - sh
+      - -lc
+      - |
+        echo "[worker-voice] Starting voice worker..."
+        ln -snf /app/codexify /app/Codexify
+        exec python -m guardian.workers.voice_worker
+
+  voice-service:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    profiles: ["voice-service"]
+    environment:
+      CODEXIFY_VOICE_MODE: "${CODEXIFY_VOICE_MODE:-local}"
+      CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-whisper_local}"
+      CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
+      CODEXIFY_STT_TIMEOUT_SECONDS: "${CODEXIFY_STT_TIMEOUT_SECONDS:-20}"
+      CODEXIFY_TTS_TIMEOUT_SECONDS: "${CODEXIFY_TTS_TIMEOUT_SECONDS:-30}"
+      CODEXIFY_VOICE_INPUT_MAX_BYTES: "${CODEXIFY_VOICE_INPUT_MAX_BYTES:-15728640}"
+      CODEXIFY_VOICE_OUTPUT_MAX_BYTES: "${CODEXIFY_VOICE_OUTPUT_MAX_BYTES:-15728640}"
+      CODEXIFY_VOICE_MAX_DURATION_SECONDS: "${CODEXIFY_VOICE_MAX_DURATION_SECONDS:-120}"
+      CODEXIFY_VOICE_INTERNAL_FORMAT: "${CODEXIFY_VOICE_INTERNAL_FORMAT:-wav}"
+      CODEXIFY_VOICE_DELIVERY_FORMATS: "${CODEXIFY_VOICE_DELIVERY_FORMATS:-wav,mp3}"
+      LOCAL_BASE_URL: "http://192.168.4.225:11434"
+      LOCAL_API_KEY: "local"
+      CODEXIFY_STT_MODEL: "${CODEXIFY_STT_MODEL:-whisper-small.en}"
+      CODEXIFY_LOCAL_TTS_MODEL: "${CODEXIFY_LOCAL_TTS_MODEL:-qwen-tts}"
+      CODEXIFY_VOICE_BAKE_MODELS: "${CODEXIFY_VOICE_BAKE_MODELS:-false}"
+    volumes:
+      - ./codexify:/app/codexify
+      - ./guardian:/app/guardian
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
-    ports: ["8000:8000"]
-    restart: unless-stopped
-    command: ["/app/backend/scripts/docker/run_tts.py"]
+      - codexify_models:/models
+    ports:
+      - "8090:8090"
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+        ln -snf /app/codexify /app/Codexify
+        exec uvicorn guardian.voice.service_api:app --host 0.0.0.0 --port 8090
+
   frontend:
-    # NOTE: We run the dev UI using an official Node image so we always have /bin/sh.
-    # This avoids breakage if the local ./frontend Dockerfile was refactored into a distroless image.
-    image: node:20-alpine
-    pull_policy: always
-    working_dir: /app
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
     ports: ["5173:5173"]
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/src/node_modules
-    env_file: .env
     environment:
+      # Ensure pnpm installs modules inside the container mount and skips heavy postinstall scripts
       VITE_PROXY_TARGET: http://backend:8888
-      # Dev-only: frontend receives API key for local development.
-      # DO NOT use this pattern for production deployments.
-      VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-}"
+      VITE_GUARDIAN_API_KEY: "${VITE_GUARDIAN_API_KEY:-}"
+      # Local-first defaults for the UI (backend still enforces actual routing)
+      # Match backend-supported provider id while still pointing at Ollama.
       VITE_DEFAULT_LLM_PROVIDER: "local"
       VITE_DEFAULT_EMBED_PROVIDER: "local"
+      PNPM_HOME: /app
       PNPM_CONFIG_IGNORE_SCRIPTS: "true"
       CI: "true"
+      # Stabilize file watching inside Docker on macOS/Windows
       CHOKIDAR_USEPOLLING: "true"
-    entrypoint: ["sh", "-lc"]
     command:
-      - |
-        set -e
-        echo "[Frontend] Enabling pnpm via corepack..."
-        corepack enable
-        corepack prepare pnpm@9.12.1 --activate
-
-        echo "[Frontend] Installing root deps..."
-        pnpm install --frozen-lockfile=false --ignore-scripts || pnpm install --ignore-scripts
-
-        echo "[Frontend] Installing src deps..."
-        pnpm --dir src install --frozen-lockfile=false --ignore-scripts || pnpm --dir src install --ignore-scripts
-
-        echo "[Frontend] Starting Vite dev server..."
-        cd /app/src
-        exec pnpm exec vite dev --host 0.0.0.0 --port 5173
-
-  e2e:
-    image: mcr.microsoft.com/playwright:v1.56.1-jammy
-    working_dir: /work
-    environment:
-      CI: "true"
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-      PNPM_HOME: /pnpm
-      PNPM_STORE_DIR: /work/.pnpm-store
-      PW_BASE_URL: http://frontend:5173
-    shm_size: "2gb"
-    volumes:
-      - ./:/work
-      - e2e_frontend_src_node_modules:/work/frontend/src/node_modules
-      - e2e_pnpm_store:/work/.pnpm-store
-    entrypoint:
-      - /bin/sh
+      - sh
       - -lc
       - |
         set -e
-        if ! command -v pnpm >/dev/null 2>&1; then
-          corepack enable
-          corepack prepare pnpm@9.12.1 --activate
-        fi
-        if [ ! -d /work/frontend/src/node_modules ] || [ -z "$(ls -A /work/frontend/src/node_modules 2>/dev/null)" ]; then
-          pnpm --dir /work/frontend/src install --no-lockfile
-        fi
-        exec "$0" "$@"
+        echo "[Frontend] Installing root deps..."
+        pnpm install --frozen-lockfile=false --ignore-scripts || pnpm install --ignore-scripts
+        echo "[Frontend] Installing src deps..."
+        pnpm --dir src install --frozen-lockfile=false --ignore-scripts || pnpm --dir src install --ignore-scripts
+        echo "[Frontend] Starting Vite dev server..."
+        cd /app/src
+        exec npx vite dev --host 0.0.0.0 --port 5173
 
 volumes:
   pg_data:
@@ -941,5 +613,3 @@ volumes:
     name: codexify_models
   model_store:
     driver: local
-  e2e_frontend_src_node_modules:
-  e2e_pnpm_store:

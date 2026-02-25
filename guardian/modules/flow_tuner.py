@@ -7,25 +7,17 @@ local vs. cloud inference.
 
 Usage example::
 
-    import logging
     from guardian.modules.flow_tuner import FlowConfig
-
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
-
     config = FlowConfig()
-    logger.info("Context window: %s", config.context_window)
+    print(config.context_window)
 """
 
 from __future__ import annotations
 
-import logging
 from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
-
-logger = logging.getLogger(__name__)
 
 
 class FlowConfig(BaseSettings):

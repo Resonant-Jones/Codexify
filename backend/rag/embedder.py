@@ -3,15 +3,6 @@ Embedder Module
 ~~~~~~~~~~~~~~~
 
 Local semantic embedder that combines SentenceTransformers with a vector store.
-
-Environment Variables:
-    CODEXIFY_EMBEDDINGS_BACKEND: Backend selection
-        - "sentence_transformer" (default): Use local SentenceTransformers
-        - "mock": Use MockEmbeddingBackend for tests/dev
-
-    CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: Fallback behavior
-        - "0" (default): Fail if SentenceTransformer init fails
-        - "1": Fall back to MockEmbeddingBackend on init failure
 """
 
 from __future__ import annotations
@@ -20,28 +11,19 @@ import hashlib
 import logging
 import os
 import uuid
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-<<<<<<< HEAD
-from guardian.utils.embed_paths import resolve_local_embed_model
-=======
 from guardian.utils.embed_paths import (
     get_local_embed_model,
     require_local_embed_model,
 )
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
 try:
     from sentence_transformers import SentenceTransformer  # type: ignore
 except Exception:
     SentenceTransformer = None  # type: ignore
-
-try:
-    from guardian.embeddings.mock_backend import MockEmbeddingBackend
-except Exception:
-    MockEmbeddingBackend = None  # type: ignore
 
 try:
     import faiss  # type: ignore
@@ -55,8 +37,6 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
-=======
 DEFAULT_BACKEND = (
     (
         os.getenv("CODEXIFY_EMBEDDINGS_BACKEND")
@@ -69,22 +49,7 @@ DEFAULT_BACKEND = (
 DEFAULT_MODEL = os.getenv("CODEXIFY_LOCAL_MODEL") or get_local_embed_model(
     strict=False
 )
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 DEFAULT_STORE = "faiss"
-
-# Environment variable names
-_ENV_BACKEND = "CODEXIFY_EMBEDDINGS_BACKEND"
-_ENV_FALLBACK = "CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK"
-
-# Allowed backend values
-_BACKEND_LOCAL = "local"
-_BACKEND_SENTENCE_TRANSFORMER = "sentence_transformer"
-_BACKEND_MOCK = "mock"
-_ALLOWED_BACKENDS = {
-    _BACKEND_LOCAL,
-    _BACKEND_SENTENCE_TRANSFORMER,
-    _BACKEND_MOCK,
-}
 
 
 def _normalize_metadatas(
@@ -100,19 +65,6 @@ def _normalize_metadatas(
     return cleaned
 
 
-def _normalize_namespace(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _namespace_matches(meta: dict[str, Any], namespace: str | None) -> bool:
-    if namespace is None:
-        return True
-    return _normalize_namespace(meta.get("namespace")) == namespace
-
-
 def _normalize_embeddings(arr: np.ndarray) -> np.ndarray:
     if arr.size == 0:
         return arr
@@ -121,37 +73,6 @@ def _normalize_embeddings(arr: np.ndarray) -> np.ndarray:
     return arr / norms
 
 
-<<<<<<< HEAD
-def _get_embeddings_backend() -> str:
-    """Get the configured embeddings backend from environment."""
-    backend = os.getenv(_ENV_BACKEND, _BACKEND_SENTENCE_TRANSFORMER)
-    backend = backend.strip().lower()
-    if backend not in _ALLOWED_BACKENDS:
-        logger.warning(
-            "[embedder] invalid backend=%s, falling back to %s",
-            backend,
-            _BACKEND_SENTENCE_TRANSFORMER,
-        )
-        backend = _BACKEND_SENTENCE_TRANSFORMER
-    return backend
-
-
-def _allow_fallback() -> bool:
-    """Check if fallback to mock backend is allowed on init failure."""
-    val = os.getenv(_ENV_FALLBACK, "0").strip().lower()
-    return val in ("1", "true", "yes")
-
-
-def _is_local_backend(value: str) -> bool:
-    return (value or "").strip().lower() == _BACKEND_LOCAL
-
-
-def _get_local_embed_model(*, strict: bool) -> str | None:
-    if strict:
-        return resolve_local_embed_model()
-    model_name = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
-    return model_name or None
-=======
 def _stub_embed_np(texts: list[str], dim: int) -> np.ndarray:
     if not texts:
         return np.empty((0, dim), dtype="float32")
@@ -164,11 +85,10 @@ def _stub_embed_np(texts: list[str], dim: int) -> np.ndarray:
             )
             vectors[row, token_hash % dim] += 1.0
     return _normalize_embeddings(vectors)
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
 
 class LocalSemanticEmbedder:
-    """Local embedder for embedding, indexing, and semantic search."""
+    """Local embedder that supports embedding, indexing, and semantic search."""
 
     def __init__(
         self,
@@ -178,12 +98,6 @@ class LocalSemanticEmbedder:
         collection: str = "codexify_vault",
         backend: str | None = None,
     ) -> None:
-<<<<<<< HEAD
-        if model:
-            logger.warning(
-                "[embedder] model override ignored; use LOCAL_EMBED_MODEL"
-            )
-=======
         self.backend = (
             (
                 backend
@@ -216,19 +130,11 @@ class LocalSemanticEmbedder:
                 model or DEFAULT_MODEL or get_local_embed_model(strict=False)
             )
             self._model = None
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
         self.store = (store or DEFAULT_STORE).strip().lower()
         self.chroma_path = chroma_path
         self.collection = collection
-        self._backend_type: str = _get_embeddings_backend()
 
-<<<<<<< HEAD
-        # Initialize embedding model based on backend selection
-        self._model = self._init_embedding_model()
-
-=======
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
         self._index = None
         self._index_dim: int | None = None
         self._texts: list[str] = []
@@ -248,75 +154,6 @@ class LocalSemanticEmbedder:
         else:
             raise ValueError("Vector store must be 'faiss' or 'chroma'.")
 
-    def _init_embedding_model(self):
-        """Initialize the embedding model based on backend configuration."""
-        if self._backend_type == _BACKEND_MOCK:
-            return self._init_mock_backend()
-
-        return self._init_sentence_transformer(
-            strict_local=_is_local_backend(self._backend_type)
-        )
-
-    def _init_mock_backend(self):
-        """Initialize MockEmbeddingBackend."""
-        if MockEmbeddingBackend is None:
-            raise RuntimeError(
-                "MockEmbeddingBackend not available. "
-                "Ensure guardian.embeddings.mock_backend is importable."
-            )
-        # Use 384 dims to match bge-large-en-v1.5 default
-        mock = MockEmbeddingBackend(dim=384, normalize=True)
-        logger.info(
-            "[embedder] backend=mock dim=%d normalize=%d",
-            mock.dim,
-            int(mock.normalize),
-        )
-        self.model_name = "mock"
-        return mock
-
-    def _init_sentence_transformer(self, *, strict_local: bool):
-        """Initialize SentenceTransformer backend with optional fallback."""
-        self.model_name = _get_local_embed_model(strict=strict_local)
-        if not self.model_name:
-            # Non-local backends can run without LOCAL_EMBED_MODEL configured.
-            self.model_name = "BAAI/bge-large-en-v1.5"
-        logger.info("[embedder] embedding model=%s", self.model_name)
-
-        if SentenceTransformer is None:
-            if _allow_fallback() and MockEmbeddingBackend is not None:
-                logger.warning(
-                    "[embedder] sentence-transformers not installed; "
-                    "fallback to mock backend enabled"
-                )
-                return self._init_mock_backend()
-            raise RuntimeError("sentence-transformers not installed.")
-
-        try:
-            model = SentenceTransformer(
-                self.model_name,
-                local_files_only=strict_local,
-            )
-            logger.info(
-                "[embedder] backend=sentence_transformer model=%s",
-                self.model_name,
-            )
-            return model
-        except Exception as exc:
-            if _allow_fallback() and MockEmbeddingBackend is not None:
-                logger.warning(
-                    "[embedder] SentenceTransformer init failed: %s; "
-                    "falling back to mock backend",
-                    str(exc),
-                )
-                return self._init_mock_backend()
-            if strict_local:
-                raise RuntimeError(
-                    "LOCAL_EMBED_MODEL could not be loaded from local cache."
-                ) from exc
-            raise RuntimeError(
-                f"SentenceTransformer could not be initialized for model '{self.model_name}'."
-            ) from exc
-
     def _embed_np(self, texts: list[str], batch_size: int = 64) -> np.ndarray:
         if not texts:
             return np.empty((0, 0), dtype="float32")
@@ -334,7 +171,7 @@ class LocalSemanticEmbedder:
         return vectors.astype("float32")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        """Expose embeddings for external callers."""
+        """Expose embeddings for external callers (health checks, utilities)."""
         return self.embed_texts(texts)
 
     def embed_texts(
@@ -395,18 +232,12 @@ class LocalSemanticEmbedder:
         )
         return {"store": "chroma", "count": len(text_list)}
 
-    def search(
-        self,
-        query: str,
-        k: int = 5,
-        namespace: str | None = None,
-    ) -> list[dict[str, Any]]:
+    def search(self, query: str, k: int = 5) -> list[dict[str, Any]]:
         """Search the configured vector store for semantically similar text."""
         if not query or not str(query).strip():
             return []
         if k <= 0:
             return []
-        normalized_namespace = _normalize_namespace(namespace)
 
         if self.store == "faiss":
             if self._index is None or not self._texts:
@@ -415,17 +246,12 @@ class LocalSemanticEmbedder:
             if vectors.size == 0:
                 return []
             vectors = _normalize_embeddings(vectors)
-            search_k = (
-                len(self._texts) if normalized_namespace is not None else k
-            )
-            scores, indices = self._index.search(vectors, search_k)
+            scores, indices = self._index.search(vectors, k)
             results: list[dict[str, Any]] = []
             for idx, score in zip(indices[0], scores[0]):
                 if idx < 0 or idx >= len(self._texts):
                     continue
                 meta = self._metadatas[idx]
-                if not _namespace_matches(meta, normalized_namespace):
-                    continue
                 results.append(
                     {
                         "text": self._texts[idx],
@@ -434,8 +260,6 @@ class LocalSemanticEmbedder:
                         "score": float(score),
                     }
                 )
-                if len(results) >= k:
-                    break
             return results
 
         if self._chroma_collection is None:
@@ -443,13 +267,9 @@ class LocalSemanticEmbedder:
         vectors = self._embed_np([str(query)])
         if vectors.size == 0:
             return []
-        query_kwargs: dict[str, Any] = {
-            "query_embeddings": vectors.tolist(),
-            "n_results": k,
-        }
-        if normalized_namespace is not None:
-            query_kwargs["where"] = {"namespace": normalized_namespace}
-        result = self._chroma_collection.query(**query_kwargs)
+        result = self._chroma_collection.query(
+            query_embeddings=vectors.tolist(), n_results=k
+        )
         docs = result.get("documents", [[]])[0] or []
         metas = result.get("metadatas", [[]])[0] or []
         distances = result.get("distances", [[]])[0] or []

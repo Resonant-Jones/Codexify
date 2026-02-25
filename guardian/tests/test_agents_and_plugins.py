@@ -71,7 +71,7 @@ class TestAgentsAndPlugins(unittest.TestCase):
         memory_content = {
             "type": "test_memory",
             "data": "test_data",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         memory_id = self.codex.store_memory(

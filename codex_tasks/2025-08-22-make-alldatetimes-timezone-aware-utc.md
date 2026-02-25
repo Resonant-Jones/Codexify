@@ -15,9 +15,9 @@ ignores tests, scripts, demos, archives, docs, and patch files.
    Replace every usage of a naive UTC datetime with an aware one:
    - `datetime.utcnow()`                 -> `datetime.now(timezone.utc)`
    - `datetime.datetime.utcnow()`        -> `datetime.datetime.now(datetime.timezone.utc)`
-   - Any `... = datetime.utcnow().isoformat()` -> `... = datetime.now(timezone.utc).isoformat()`
+   - Any `... =datetime.now(UTC).isoformat()` -> `... = datetime.now(timezone.utc).isoformat()`
    - Any arithmetic like `datetime.utcnow() - X` -> `datetime.now(timezone.utc) - X`
-   - Any assignments like `self.start_time = datetime.utcnow()` -> `self.start_time = datetime.now(timezone.utc)`
+   - Any assignments like `self.start_time =datetime.now(UTC)` -> `self.start_time = datetime.now(timezone.utc)`
 
    Import rules (match the file’s existing style):
    - If the file has `from datetime import datetime` (maybe also timedelta):
@@ -53,7 +53,7 @@ ignores tests, scripts, demos, archives, docs, and patch files.
    fi
 
    if rg -n --no-heading 'datetime(\.datetime)?\.utcnow$begin:math:text$$end:math:text$' $files; then
-     echo "❌ Found datetime.utcnow() in source. Use datetime.now(UTC)."
+     echo "❌ Founddatetime.now(UTC) in source. Use datetime.now(UTC)."
      echo "   If this is only in tests/scripts, commit with --no-verify."
      exit 1
    fi

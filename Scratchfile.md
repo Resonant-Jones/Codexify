@@ -167,7 +167,7 @@
 544:    code_verifier = b64url(secrets.token_bytes(32))
 545:    challenge = b64url(hashlib.sha256(code_verifier.encode()).digest())
 546:    state = b64url(secrets.token_bytes(16))
-547:    AUTH_TX[state] = {"connector_id": cid, "code_verifier": code_verifier, "redirect_uri": redirect_uri, "ts": datetime.utcnow().isoformat()}
+547:    AUTH_TX[state] = {"connector_id": cid, "code_verifier": code_verifier, "redirect_uri": redirect_uri, "ts":datetime.now(UTC).isoformat()}
 553:    logger.info("[connectors] AUTHORIZE id=github state=%s", state)
 556:@app.get("/api/connectors/github/callback", tags=["Connectors"])
 558:    tx = AUTH_TX.pop(state, None)
@@ -185,7 +185,7 @@
 596:    last_error = job.get("error") if status == "error" else None
 612:        self.subscribers.append(queue)
 618:            self.subscribers.remove(queue)
-625:            "timestamp": datetime.utcnow().isoformat()
+625:            "timestamp":datetime.now(UTC).isoformat()
 631:                queue.append(event_data)
 633:                dead_subscribers.append(queue)
 637:            self.unsubscribe(queue)
@@ -239,14 +239,14 @@
 849:    content = str(body.get("content", "")).strip()
 850:    tags = ",".join(body.get("tags", []) or [])
 851:    pinned = bool(body.get("pinned", False))
-855:        entry = {"id": len(EPHEMERAL_MEMORY) + 1, "user_id": "default", "silo": "ephemeral", "content": content, "tags": tags, "pinned": pinned, "created_at": datetime.utcnow().isoformat(), "updated_at": datetime.utcnow().isoformat()}
+855:        entry = {"id": len(EPHEMERAL_MEMORY) + 1, "user_id": "default", "silo": "ephemeral", "content": content, "tags": tags, "pinned": pinned, "created_at":datetime.now(UTC).isoformat(), "updated_at":datetime.now(UTC).isoformat()}
 856:        EPHEMERAL_MEMORY.append(entry)
 859:    eid = sqlite_db.add_memory("default", silo, content, tags=tags, pinned=pinned)
 860:    sqlite_db.write_audit_log("create", "memory_entry", str(eid), user_id="default")
 863:@app.patch("/api/memory/{silo}/{entry_id}")
 869:            if e.get("id") == entry_id:
 871:                if "tags" in body: e["tags"] = ",".join(body.get("tags", []) or [])
-873:                e["updated_at"] = datetime.utcnow().isoformat()
+873:                e["updated_at"] =datetime.now(UTC).isoformat()
 877:    sqlite_db.update_memory(entry_id, content=body.get("content"), tags=",".join(body.get("tags", []) or []) if body.get("tags") is not None else None, pinned=body.get("pinned") if body.get("pinned") is not None else None)
 878:    sqlite_db.write_audit_log("update", "memory_entry", str(entry_id), user_id="default")
 881:@app.delete("/api/memory/{silo}/{entry_id}")
@@ -411,7 +411,7 @@
 1743:        queue = event_manager.subscribe()
 1748:                    event = queue.pop(0)
 1749:                    yield f"data: {json.dumps(event)}\n\n"
-1752:                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.utcnow().isoformat()})}\n\n"
+1752:                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp':datetime.now(UTC).isoformat()})}\n\n"
 1755:                await asyncio.sleep(0.1)
 1758:                if await request.is_disconnected():
 1763:            event_manager.unsubscribe(queue)

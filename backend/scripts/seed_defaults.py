@@ -23,12 +23,6 @@ import time
 from contextlib import contextmanager
 from typing import Iterable
 
-from guardian.core.default_project import (
-    DEFAULT_PROJECT_DESCRIPTION,
-    DEFAULT_PROJECT_NAME,
-    LEGACY_DEFAULT_PROJECT_ALIASES,
-)
-
 logger = logging.getLogger("seed_defaults")
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -432,86 +426,6 @@ def main() -> int:
         # Seed canonical default project (idempotent)
         logger.info("[Seed] Ensuring default project exists...")
         ensure_project(conn, DEFAULT_PROJECT_NAME, DEFAULT_PROJECT_DESCRIPTION)
-<<<<<<< HEAD
-
-        # Deduplicate default-project aliases (General / Loose Threads):
-        # keep the oldest "General" if present, otherwise the oldest alias.
-        try:
-            with _cursor(conn) as cur:
-                alias_names = [
-                    DEFAULT_PROJECT_NAME,
-                    *LEGACY_DEFAULT_PROJECT_ALIASES,
-                ]
-                placeholders = (
-                    ",".join(["%s"] * len(alias_names))
-                    if "psycopg" in conn.__class__.__module__
-                    else ",".join(["?"] * len(alias_names))
-                )
-                if "psycopg" in conn.__class__.__module__:
-                    cur.execute(
-                        f"SELECT id, name FROM projects WHERE name IN ({placeholders}) ORDER BY id ASC",
-                        tuple(alias_names),
-                    )
-                else:
-                    cur.execute(
-                        f"SELECT id, name FROM projects WHERE name IN ({placeholders}) ORDER BY id ASC",
-                        tuple(alias_names),
-                    )
-
-                rows = cur.fetchall()
-                if not rows:
-                    ids = []
-                    keep_id = None
-                else:
-                    general_rows = [
-                        row
-                        for row in rows
-                        if str(row[1]) == DEFAULT_PROJECT_NAME
-                    ]
-                    keep_id = general_rows[0][0] if general_rows else rows[0][0]
-                    ids = [r[0] for r in rows]
-
-                if len(ids) > 1:
-                    logger.info(
-                        "[Seed] Found duplicate default-project aliases: %s. Deduplicating...",
-                        ids,
-                    )
-                    remove_ids = [i for i in ids if i != keep_id]
-
-                    if remove_ids:
-                        remove_placeholders = (
-                            ",".join(["%s"] * len(remove_ids))
-                            if "psycopg" in conn.__class__.__module__
-                            else ",".join(["?"] * len(remove_ids))
-                        )
-                        # Move threads
-                        logger.info(
-                            "[Seed] Migrating threads from projects %s to %s",
-                            remove_ids,
-                            keep_id,
-                        )
-                        query_move = f"UPDATE chat_threads SET project_id = {keep_id} WHERE project_id IN ({remove_placeholders})"
-                        # Note: Execute params must be tuple
-                        cur.execute(query_move, tuple(remove_ids))
-
-                        # Delete projects
-                        logger.info(
-                            "[Seed] Deleting duplicate projects %s", remove_ids
-                        )
-                        query_del = f"DELETE FROM projects WHERE id IN ({remove_placeholders})"
-                        cur.execute(query_del, tuple(remove_ids))
-                        cur.execute(
-                            "UPDATE projects SET name = %s WHERE id = %s"
-                            if "psycopg" in conn.__class__.__module__
-                            else "UPDATE projects SET name = ? WHERE id = ?",
-                            (DEFAULT_PROJECT_NAME, keep_id),
-                        )
-                        logger.info("[Seed] Deduplication complete.")
-        except Exception as e:
-            logger.warning("[Seed] Deduplication failed (non-critical): %s", e)
-
-=======
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         logger.info("[Seed] Default project ensured.")
         dedupe_default_project_aliases(
             conn,

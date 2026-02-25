@@ -60,7 +60,7 @@ class TestWorkerThread(threading.Thread):
                 self.thread_id,
                 {
                     "status": "running",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
             )
             time.sleep(0.1)  # Reduced sleep for faster test reaction
@@ -225,7 +225,7 @@ class SystemIntegrationTest(unittest.TestCase):
         memory_id = self.codex_awareness.store_memory(
             content={
                 "type": "integration_test",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
             source="test",
             tags=["integration", "test"],

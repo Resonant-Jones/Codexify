@@ -59,7 +59,7 @@ class SystemTestSuite:
 
     def __init__(self):
         self.results: Dict[str, Any] = {
-            "start_time": datetime.utcnow().isoformat(),
+            "start_time": datetime.now(UTC).isoformat(),
             "end_time": None,
             "duration": None,
             "total_tests": 0,
@@ -189,7 +189,7 @@ class SystemTestSuite:
                 "description": description,
                 "status": "passed" if result else "failed",
                 "duration": duration,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             if result:
@@ -207,7 +207,7 @@ class SystemTestSuite:
                 "status": "error",
                 "error": str(e),
                 "duration": duration,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
             logger.error(f"Test {name}: ERROR - {e} ({duration:.2f}s)")
 
@@ -296,7 +296,7 @@ class SystemTestSuite:
             test_content = {
                 "type": "test_memory",
                 "data": "test_data",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             # Store first memory
@@ -311,7 +311,7 @@ class SystemTestSuite:
             related_content = {
                 "type": "related_memory",
                 "data": "related_data",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             artifact_id_2 = self._system.codex_awareness.store_memory(
@@ -369,7 +369,7 @@ class SystemTestSuite:
                 related_content = {
                     "type": "related_memory",
                     "data": f"test_data_{i}",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
 
                 self._system.codex_awareness.store_memory(
@@ -484,7 +484,7 @@ class SystemTestSuite:
                     ["x", "y"],
                     ["x", "y"],  # Repeated pair
                 ],
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             # Store and process memory
@@ -721,7 +721,7 @@ class SystemTestSuite:
                 "type": "integration_test",
                 "key1": "value1",
                 "key1": "value2",  # Repeated key for pattern detection
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             memory_id = self._system.codex_awareness.store_memory(
@@ -1030,7 +1030,7 @@ class SystemTestSuite:
                 "type": "performance_test",
                 "key1": "value1",
                 "key1": "value2",  # Repeated key for pattern detection
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             memory_id = self._system.codex_awareness.store_memory(
@@ -1080,7 +1080,7 @@ class SystemTestSuite:
 
     def _finalize_results(self) -> None:
         """Finalize test results."""
-        self.results["end_time"] = datetime.utcnow().isoformat()
+        self.results["end_time"] = datetime.now(UTC).isoformat()
         self.results["duration"] = (
             datetime.fromisoformat(self.results["end_time"])
             - datetime.fromisoformat(self.results["start_time"])

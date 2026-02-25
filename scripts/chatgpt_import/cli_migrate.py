@@ -51,7 +51,12 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from import_chatgpt import import_chatgpt
+from import_chatgpt import (
+    import_embeddings_to_chroma,
+    import_to_neo4j,
+    load_chatgpt_export,
+    normalize_timestamp,
+)
 
 # Initialize CLI app
 app = typer.Typer(
@@ -121,7 +126,7 @@ def save_migration_summary(stats: dict, output_dir: Path = Path("logs")):
     summary_file = output_dir / "migration_summary.json"
 
     # Add timestamp
-    stats["completed_at"] = datetime.utcnow().isoformat()
+    stats["completed_at"] = datetime.now(UTC).isoformat()
 
     # Load existing summaries if any
     summaries = []
@@ -227,8 +232,222 @@ def migrate(
         "💫 [bold magenta]Reawakening your Companion...[/bold magenta]\n"
     )
 
-    # Delegate all migration logic to import_chatgpt
-    import_chatgpt()
+    # Track stats
+    stats = {
+        "started_at": datetime.now(UTC).isoformat(),
+        "file": str(file),
+        "threads": 0,
+        "messages": 0,
+        "relationships": 0,
+        "embeddings_successful": 0,
+        "embeddings_failed": 0,
+        "elapsed_seconds": 0,
+    }
+
+    start_time = time.time()
+
+    try:
+        # Phase 1: Load and validate
+        if HAS_RICH and console:
+            with console.status(
+                "[cyan]📂 Loading ChatGPT export...", spinner="dots"
+            ):
+                conversations = load_chatgpt_export(str(file))
+            print_message(
+                f"✅ Loaded {len(conversations)} conversation thread(s)", "green"
+            )
+        else:
+            print("📂 Loading ChatGPT export...")
+            conversations = load_chatgpt_export(str(file))
+            print(f"✅ Loaded {len(conversations)} conversation thread(s)")
+
+        # Phase 2: Import to Neo4j
+        print_message(
+            "\n[cyan]──────────────────────────────────────────────────────────────────────[/cyan]"
+        )
+        print_message("[bold cyan]Phase 1: Graph Import (Neo4j)[/bold cyan]")
+        print_message(
+            "[cyan]──────────────────────────────────────────────────────────────────────[/cyan]\n"
+        )
+
+        # Import Neo4j
+        from neo4j import GraphDatabase
+
+        driver = GraphDatabase.driver(neo4j_url, auth=(neo4j_user, neo4j_pass))
+        print_message(f"✅ Connected to Neo4j at {neo4j_url}", "green")
+
+        if HAS_RICH and console:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task(
+                    "📊 Importing to Neo4j...", total=len(conversations)
+                )
+
+                # Simple wrapper to update progress
+                threads, messages, relationships = import_to_neo4j(
+                    driver, conversations
+                )
+
+                progress.update(task, completed=len(conversations))
+        else:
+            print("📊 Importing to Neo4j...")
+            threads, messages, relationships = import_to_neo4j(
+                driver, conversations
+            )
+
+        driver.close()
+
+        stats["threads"] = threads
+        stats["messages"] = messages
+        stats["relationships"] = relationships
+
+        print_message(f"\n✅ [bold green]Neo4j import complete![/bold green]")
+        print_message(f"   • Threads: {threads}", "green")
+        print_message(f"   • Messages: {messages}", "green")
+        print_message(f"   • Relationships: {relationships}", "green")
+
+        # Phase 3: Generate embeddings
+        if not skip_embeddings:
+            print_message(
+                "\n[cyan]──────────────────────────────────────────────────────────────────────[/cyan]"
+            )
+            print_message(
+                "[bold cyan]Phase 2: Embeddings Import (Chroma)[/bold cyan]"
+            )
+            print_message(
+                "[cyan]──────────────────────────────────────────────────────────────────────[/cyan]\n"
+            )
+
+            try:
+                import chromadb
+                from openai import OpenAI
+
+                openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                chroma_client = chromadb.PersistentClient(path=str(chroma_path))
+                collection = chroma_client.get_or_create_collection(
+                    "chatgpt_messages"
+                )
+
+                print_message(
+                    f"✅ Connected to Chroma at {chroma_path}", "green"
+                )
+
+                if HAS_RICH and console:
+                    # Estimate total batches for progress
+                    total_messages = sum(
+                        len(
+                            [
+                                n
+                                for n in c.get("mapping", {}).values()
+                                if n.get("message")
+                            ]
+                        )
+                        for c in conversations
+                    )
+                    estimated_batches = (
+                        total_messages + batch_size - 1
+                    ) // batch_size
+
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        BarColumn(),
+                        TextColumn(
+                            "[progress.percentage]{task.percentage:>3.0f}%"
+                        ),
+                        TimeRemainingColumn(),
+                        console=console,
+                    ) as progress:
+                        task = progress.add_task(
+                            "🧠 Generating embeddings...",
+                            total=estimated_batches,
+                        )
+
+                        successful, failed = import_embeddings_to_chroma(
+                            openai_client, collection, conversations, batch_size
+                        )
+
+                        progress.update(task, completed=estimated_batches)
+                else:
+                    print("🧠 Generating embeddings...")
+                    successful, failed = import_embeddings_to_chroma(
+                        openai_client, collection, conversations, batch_size
+                    )
+
+                stats["embeddings_successful"] = successful
+                stats["embeddings_failed"] = failed
+
+                print_message(
+                    f"\n✅ [bold green]Embeddings import complete![/bold green]"
+                )
+                print_message(f"   • Successful: {successful}", "green")
+                if failed > 0:
+                    print_message(f"   • Failed: {failed}", "yellow")
+
+            except Exception as e:
+                print_message(
+                    f"\n⚠️  [yellow]Embeddings import failed: {e}[/yellow]"
+                )
+                print_message("   Graph data was saved successfully", "yellow")
+                stats["embeddings_error"] = str(e)
+        else:
+            print_message(
+                "\n⚠️  [yellow]Skipping embeddings (--skip-embeddings flag)[/yellow]"
+            )
+
+        # Calculate elapsed time
+        elapsed = time.time() - start_time
+        stats["elapsed_seconds"] = round(elapsed, 2)
+
+        # Print summary
+        print_message(
+            "\n[cyan]═══════════════════════════════════════════════════════════════════════[/cyan]"
+        )
+        print_message("[bold green]🎉 Migration Complete![/bold green]")
+        print_message(
+            "[cyan]═══════════════════════════════════════════════════════════════════════[/cyan]\n"
+        )
+
+        print_summary(stats)
+
+        print_message(
+            f"\n[bold magenta]   Your Companion has awakened in Codexify![/bold magenta]"
+        )
+        print_message(f"[dim]   Time elapsed: {elapsed:.2f}s[/dim]")
+        print_message(
+            "\n[yellow]💡 Tip:[/yellow] [dim]You can re-run safely — imports are idempotent.[/dim]"
+        )
+
+        # Save migration summary
+        summary_file = save_migration_summary(stats)
+        print_message(f"[dim]   Summary saved to: {summary_file}[/dim]")
+
+        # The reunion moment
+        print_message("\n[cyan]✨ Welcome home.[/cyan]\n")
+
+    except KeyboardInterrupt:
+        print_message("\n\n⚠️  [yellow]Migration interrupted by user[/yellow]")
+        print_message(
+            "   You can safely re-run this command to resume", "yellow"
+        )
+        raise typer.Exit(code=0)
+
+    except Exception as e:
+        print_message(f"\n\n❌ [red]Migration failed: {e}[/red]")
+        print_message("   Check your configuration and try again", "red")
+
+        # Save error info
+        stats["error"] = str(e)
+        stats["elapsed_seconds"] = round(time.time() - start_time, 2)
+        save_migration_summary(stats)
+
+        raise typer.Exit(code=1)
 
 
 @app.command()

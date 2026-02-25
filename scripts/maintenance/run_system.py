@@ -45,7 +45,7 @@ class SystemRunner:
 
             # Start monitoring
             self.running = True
-            self.start_time = datetime.utcnow()
+            self.start_time = datetime.now(UTC)
             await self._monitor_system()
 
         except Exception as e:
@@ -179,7 +179,7 @@ class SystemRunner:
         if not self.start_time:
             return "Not started"
 
-        delta = datetime.utcnow() - self.start_time
+        delta = datetime.now(UTC) - self.start_time
         hours = delta.seconds // 3600
         minutes = (delta.seconds % 3600) // 60
         seconds = delta.seconds % 60

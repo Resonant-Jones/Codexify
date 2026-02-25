@@ -36,7 +36,7 @@ class TestResult:
         self.status = status
         self.duration = duration
         self.error = error
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary representation."""
@@ -133,7 +133,7 @@ class TestRunner:
 
     async def run_tests(self) -> TestReport:
         """Run all test suites."""
-        self.report.start_time = datetime.utcnow()
+        self.report.start_time = datetime.now(UTC)
 
         try:
             # Import test modules
@@ -152,7 +152,7 @@ class TestRunner:
                         )
                     )
         finally:
-            self.report.end_time = datetime.utcnow()
+            self.report.end_time = datetime.now(UTC)
             self.report.total_duration = (
                 self.report.end_time - self.report.start_time
             ).total_seconds()

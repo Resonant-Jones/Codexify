@@ -234,7 +234,7 @@ class TestAuditLogging:
 
     def test_audit_log_has_timestamp(self, db_session: Session):
         """Audit logs should have timestamps."""
-        before = datetime.utcnow()
+        before = datetime.now(UTC)
         manager.log_audit_event(
             doc_id="doc-789",
             user_id="user1",
@@ -242,7 +242,7 @@ class TestAuditLogging:
             payload={},
             session=db_session,
         )
-        after = datetime.utcnow()
+        after = datetime.now(UTC)
 
         logs = (
             db_session.query(CollaborationAuditLog)

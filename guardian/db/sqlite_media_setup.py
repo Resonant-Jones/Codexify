@@ -154,7 +154,6 @@ class SQLiteMediaSetup:
                     filename TEXT NOT NULL,
                     filesize INTEGER NOT NULL,
                     mime_type TEXT NOT NULL,
-                    source_tag TEXT DEFAULT NULL,
                     created_at TEXT DEFAULT (datetime('now')),
                     updated_at TEXT DEFAULT (datetime('now')),
                     deleted_at TEXT DEFAULT NULL,
@@ -201,7 +200,6 @@ class SQLiteMediaSetup:
                     filesize INTEGER NOT NULL,
                     mime_type TEXT NOT NULL,
                     src_url TEXT NOT NULL,
-                    source_tag TEXT DEFAULT NULL,
                     parsed_text TEXT DEFAULT NULL,
                     created_at TEXT DEFAULT (datetime('now')),
                     updated_at TEXT DEFAULT (datetime('now')),
@@ -337,13 +335,13 @@ if __name__ == "__main__":
     success = setup_sqlite_media("guardian.db")
 
     if success:
-        logger.info("SQLite media setup completed!")
+        print("✅ SQLite media setup completed!")
 
         # Test the tables
         setup = SQLiteMediaSetup("guardian.db")
         results = setup.test_tables()
         for table, exists in results.items():
-            status = "EXISTS" if exists else "MISSING"
-            logger.info(f"{status}: {table}")
+            status = "✅" if exists else "❌"
+            print(f"{status} {table}: {exists}")
     else:
-        logger.error("SQLite media setup failed!")
+        print("❌ SQLite media setup failed!")

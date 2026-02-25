@@ -1867,7 +1867,7 @@ class SoftDeleteMixin:
 
     def soft_delete(self):
         """Mark as deleted without removing."""
-        self.deleted_at = datetime.utcnow()
+        self.deleted_at =datetime.now(UTC)
 ```
 
 ---

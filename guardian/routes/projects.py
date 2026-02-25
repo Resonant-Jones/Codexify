@@ -3,11 +3,7 @@ Projects Routes
 ~~~~~~~~~~~~~~~
 
 Project creation and management endpoints.
-<<<<<<< HEAD
-Includes canonical default "General" project initialization.
-=======
 Includes default "General" project initialization.
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
 """
 
 import logging
@@ -17,13 +13,6 @@ from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from guardian.core.default_project import (
-    DEFAULT_PROJECT_NAME,
-    canonicalize_default_project,
-    is_default_project_name,
-    normalize_projects_for_listing,
-)
-
 logger = logging.getLogger(__name__)
 
 # Import shared dependencies from core module (avoids circular imports)
@@ -31,42 +20,19 @@ try:
     from guardian.core.dependencies import chatlog_db, require_api_key
 except ImportError:
     chatlog_db = None
-
-    def require_api_key(api_key: str = "") -> str:  # type: ignore[unused-argument]
-        return api_key
+    require_api_key = lambda x: x
 
 
-<<<<<<< HEAD
-# Helper: ensure canonical default project exists at startup
-def ensure_default_project():
-    """
-    Ensure the canonical default "General" project exists.
-=======
 # Helper: ensure default project exists at startup
 def ensure_loose_threads_project():
     """
     Ensure the default 'General' project exists for unassigned threads.
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
     This function should be called during application startup, not at import time.
 
     Returns:
         bool: True if successful, False otherwise
     """
     try:
-<<<<<<< HEAD
-        project_id = canonicalize_default_project(chatlog_db, logger=logger)
-        if project_id is None:
-            logger.warning("[projects] Failed to resolve default project")
-            return False
-        logger.info(
-            "[projects] Ensured default project '%s' (id=%s) exists",
-            DEFAULT_PROJECT_NAME,
-            project_id,
-        )
-        return True
-    except Exception as e:
-        logger.warning("[projects] Failed to ensure default project: %s", e)
-=======
         chatlog_db.ensure_project(
             "General", "Default bucket for unassigned threads"
         )
@@ -74,7 +40,6 @@ def ensure_loose_threads_project():
         return True
     except Exception as e:
         logger.warning("[projects] Failed to ensure General project: %s", e)
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         return False
 
 
@@ -83,16 +48,8 @@ class ProjectCreate(BaseModel):
     description: Optional[str] = ""
 
 
-router = APIRouter(
-    prefix="/projects",
-    tags=["Projects"],
-    dependencies=[Depends(require_api_key)],
-)
-api_router = APIRouter(
-    prefix="/api/projects",
-    tags=["Projects"],
-    dependencies=[Depends(require_api_key)],
-)
+router = APIRouter(prefix="/projects", tags=["Projects"])
+api_router = APIRouter(prefix="/api/projects", tags=["Projects"])
 
 
 @router.get("")
@@ -103,43 +60,10 @@ def list_projects():
     """
     try:
         projects = chatlog_db.list_projects()
-        projects = normalize_projects_for_listing(projects)
     except Exception as exc:
         logger.warning("[projects] failed to list projects: %s", exc)
         projects = []
     return projects
-
-
-@router.post("")
-@api_router.post("")
-def create_project(body: ProjectCreate):
-    """
-    Create a new project.
-
-    Args:
-        body: Project name and optional description
-
-    Returns:
-        Created project dict with id, name, description
-    """
-    try:
-        requested_name = (
-            DEFAULT_PROJECT_NAME
-            if is_default_project_name(body.name)
-            else body.name
-        )
-        project_id = chatlog_db.create_project(
-            requested_name, body.description or ""
-        )
-        return {
-            "id": project_id,
-            "name": requested_name,
-            "description": body.description or "",
-        }
-    except Exception as e:
-        return JSONResponse(
-            status_code=400, content={"ok": False, "error": str(e)}
-        )
 
 
 @router.patch("/{project_id}")
@@ -157,8 +81,6 @@ def patch_project(project_id: int, body: Dict[str, object] = Body(...)):
     """
     name = body.get("name")
     description = body.get("description")
-    if isinstance(name, str) and is_default_project_name(name):
-        name = DEFAULT_PROJECT_NAME
     try:
         chatlog_db.update_project(
             project_id,
@@ -202,8 +124,3 @@ def delete_project_and_eject(project_id: int):
         return JSONResponse(
             status_code=400, content={"ok": False, "error": str(e)}
         )
-
-
-# Backward-compatible alias kept for older imports.
-def ensure_loose_threads_project():
-    return ensure_default_project()

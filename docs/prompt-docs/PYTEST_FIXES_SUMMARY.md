@@ -90,7 +90,7 @@ async def _diagnostic_loop(self) -> None:
                 self.check_results.append(result)
             
             # Update last check timestamp
-            self.last_check = datetime.utcnow()
+            self.last_check =datetime.now(UTC)
             
             # Trim results to max history
             while len(self.check_results) > self.config.get("max_history", 100):

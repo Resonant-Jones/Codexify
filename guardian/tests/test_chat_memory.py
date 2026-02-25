@@ -172,7 +172,7 @@ def test_midterm_retention_pruning():
     from datetime import datetime, timedelta
 
     # Insert a midterm entry older than retention
-    cutoff = datetime.utcnow() - timedelta(days=91)
+    cutoff = datetime.now(UTC) - timedelta(days=91)
     old_entry = {
         "user_id": "default",
         "silo": "midterm",
