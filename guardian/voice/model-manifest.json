@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "whisper-small.en",
+      "kind": "stt",
+      "provider": "whisper_local",
+      "source": {
+        "type": "huggingface",
+        "repo_id": "openai/whisper-small.en",
+        "revision": "main"
+      },
+      "path": "/models/voice/whisper-small.en",
+      "checksum": "",
+      "license": "MIT"
+    },
+    {
+      "id": "qwen-tts-openai-compatible",
+      "kind": "tts",
+      "provider": "local_openai_compatible",
+      "source": {
+        "type": "external",
+        "url": "http://localhost:11434",
+        "revision": "runtime"
+      },
+      "path": "/models/voice/qwen-tts-openai-compatible",
+      "checksum": "",
+      "license": "provider-defined"
+    },
+    {
+      "id": "lfm2.5-1.5bv-openai-compatible",
+      "kind": "tts",
+      "provider": "local_openai_compatible",
+      "source": {
+        "type": "external",
+        "url": "http://localhost:11434",
+        "revision": "runtime"
+      },
+      "path": "/models/voice/lfm2.5-1.5bv-openai-compatible",
+      "checksum": "",
+      "license": "provider-defined"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import ContextMenu from "@/components/ui/ContextMenu";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
+<<<<<<< HEAD
 import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
@@ -19,6 +20,8 @@ type PollSession = {
   startedAt: number;
   initialAssistantId: number;
 };
+=======
+>>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
 export function ChatView({
   threadId,
@@ -28,6 +31,7 @@ export function ChatView({
   endCompletion,
   className,
   bottomPadding = 0,
+  autoReadEnabled = false,
 }: {
   threadId: number;
   guardianName?: string;
@@ -36,6 +40,7 @@ export function ChatView({
   endCompletion: () => void;
   className?: string;
   bottomPadding?: number;
+  autoReadEnabled?: boolean;
 }) {
   const { messages, loadMessages, appendMessage, loading, error, hasMore, shouldRefresh, markRefreshed } = useChat();
   const { containerRef, endRef } = useChatAutoScroll(messages.length);
@@ -43,8 +48,12 @@ export function ChatView({
   const [hasOverflow, setHasOverflow] = useState(false);
   const [zenMode, setZenMode] = React.useState(false);
   const scrollMeasuredRef = useRef(false);
+  const [playingMessageId, setPlayingMessageId] = useState<number | null>(null);
+  const lastAutoReadMessageIdRef = useRef<number | null>(null);
+  const autoReadPrimedRef = useRef(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const PAGE_SIZE = 100;
+<<<<<<< HEAD
   const POLL_INTERVAL_MS = 900;
   const POLL_TIMEOUT_MS = 30000;
   const pollTokenRef = useRef(0);
@@ -53,6 +62,9 @@ export function ChatView({
   const lastAssistantIdRef = useRef(0);
   const lastPolledUserIdRef = useRef(0);
   const lastReloadVersionRef = useRef(reloadVersion);
+=======
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+>>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
 
 
@@ -171,6 +183,8 @@ export function ChatView({
   useEffect(() => {
     stopPolling();
     initialScrollRef.current = true;
+    autoReadPrimedRef.current = false;
+    lastAutoReadMessageIdRef.current = null;
     loadMessages(threadId, PAGE_SIZE, 0, false);
     if (reloadVersion !== lastReloadVersionRef.current) {
       lastReloadVersionRef.current = reloadVersion;
@@ -311,6 +325,59 @@ export function ChatView({
     }
   };
 
+  const playMessageAudio = useCallback(
+    async (messageId: number) => {
+      try {
+        const res = await api.post(`/voice/messages/${messageId}/speak`, {
+          force_regenerate: false,
+        });
+        const src = res?.data?.audio_asset?.src_url;
+        if (!src) return;
+
+        const resolvedSrc =
+          typeof src === "string" && src.startsWith("http")
+            ? src
+            : String(src || "").startsWith("/")
+              ? String(src)
+              : `/${String(src || "")}`;
+
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+        const audio = new Audio(resolvedSrc);
+        audioRef.current = audio;
+        setPlayingMessageId(messageId);
+        audio.onended = () => setPlayingMessageId((prev) => (prev === messageId ? null : prev));
+        audio.onerror = () => setPlayingMessageId((prev) => (prev === messageId ? null : prev));
+        await audio.play();
+      } catch (err) {
+        console.warn("[chat] playMessageAudio failed", err);
+        setPlayingMessageId((prev) => (prev === messageId ? null : prev));
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!autoReadEnabled) return;
+    const assistants = messages.filter((m) => m.role !== "user" && Number.isFinite(Number(m.id)));
+    const latest = assistants.length > 0 ? assistants[assistants.length - 1] : null;
+    if (!latest) return;
+
+    if (!autoReadPrimedRef.current) {
+      autoReadPrimedRef.current = true;
+      lastAutoReadMessageIdRef.current = Number(latest.id);
+      return;
+    }
+
+    const latestId = Number(latest.id);
+    if (!Number.isFinite(latestId)) return;
+    if (lastAutoReadMessageIdRef.current === latestId) return;
+
+    lastAutoReadMessageIdRef.current = latestId;
+    void playMessageAudio(latestId);
+  }, [autoReadEnabled, messages, playMessageAudio]);
+
   // Context menu: Save to Prompt Library
   const [menu, setMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   function savePrompt(text: string) {
@@ -396,6 +463,13 @@ export function ChatView({
                 })),
               }}
               isGuardian={m.role !== "user"}
+              showPlay={m.role !== "user" && Number.isFinite(Number(m.id))}
+              playing={playingMessageId === Number(m.id)}
+              onPlay={() => {
+                const id = Number(m.id);
+                if (!Number.isFinite(id)) return;
+                void playMessageAudio(id);
+              }}
             />
           </div>
         ))}

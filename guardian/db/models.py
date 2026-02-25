@@ -1243,6 +1243,49 @@ class TTSOutput(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class MessageAudioAsset(Base):
+    """Message-linked synthesized audio assets for cacheable playback."""
+
+    __tablename__ = "message_audio_assets"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    message_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chat_messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    voice: Mapped[str] = mapped_column(String(128), nullable=False)
+    text_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    src_url: Mapped[str] = mapped_column(Text, nullable=False)
+    internal_format: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="wav"
+    )
+    delivery_variants_json: Mapped[dict] = mapped_column(
+        JSONB, server_default="{}", nullable=False
+    )
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
+    filesize_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    message: Mapped[ChatMessage] = relationship("ChatMessage")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id",
+            "provider",
+            "voice",
+            "text_hash",
+            name="uq_message_audio_assets_message_provider_voice_texthash",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # Document Linkage
 # =========================
@@ -2022,6 +2065,7 @@ Index("ix_tts_outputs_project", TTSOutput.project_id)
 Index("ix_tts_outputs_thread", TTSOutput.thread_id)
 Index("ix_tts_outputs_provider", TTSOutput.provider)
 Index("ix_tts_outputs_created", TTSOutput.created_at.desc())
+<<<<<<< HEAD
 Index("ix_agent_deployments_thread_id", AgentDeployment.thread_id)
 Index("ix_agent_deployments_spec_hash", AgentDeployment.spec_hash)
 Index("ix_agent_deployments_status", AgentDeployment.status)
@@ -2045,6 +2089,15 @@ Index("ix_agent_escalations_status", AgentEscalation.status)
 Index("ix_agent_events_run_id", AgentEvent.run_id)
 Index("ix_agent_events_type", AgentEvent.event_type)
 Index("ix_agent_reflections_run_id", AgentReflection.run_id)
+=======
+Index("ix_message_audio_assets_message", MessageAudioAsset.message_id)
+Index(
+    "ix_message_audio_assets_provider_voice_created",
+    MessageAudioAsset.provider,
+    MessageAudioAsset.voice,
+    MessageAudioAsset.created_at.desc(),
+)
+>>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
 
 class SharedLink(Base):
