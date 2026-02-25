@@ -492,6 +492,7 @@ class SyncJob(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+<<<<<<< HEAD
 class OAuthConnection(Base):
     """OAuth connection state per user/provider/mode."""
 
@@ -521,6 +522,20 @@ class OAuthConnection(Base):
         TIMESTAMP(timezone=True)
     )
     last_error: Mapped[str | None] = mapped_column(Text)
+=======
+class ToolJob(Base):
+    """Durable tool orchestration job state."""
+
+    __tablename__ = "tool_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    request_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    result_json: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    error_json: Mapped[dict | None] = mapped_column(JSONB)
+>>>>>>> fc08f4ce (fix(backend): persist tool jobs in Postgres)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -532,6 +547,7 @@ class OAuthConnection(Base):
     )
 
     __table_args__ = (
+<<<<<<< HEAD
         UniqueConstraint(
             "user_id",
             "provider",
@@ -667,6 +683,13 @@ class InferenceProviderRuntime(Base):
         ),
     )
 
+=======
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed')",
+            name="tool_jobs_status_check",
+        ),
+    )
+>>>>>>> fc08f4ce (fix(backend): persist tool jobs in Postgres)
     __mapper_args__ = {"eager_defaults": True}
 
 
@@ -1217,6 +1240,49 @@ class TTSOutput(Base):
     project: Mapped[Project | None] = relationship("Project")
     thread: Mapped[ChatThread | None] = relationship("ChatThread")
 
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MessageAudioAsset(Base):
+    """Message-linked synthesized audio assets for cacheable playback."""
+
+    __tablename__ = "message_audio_assets"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    message_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chat_messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    voice: Mapped[str] = mapped_column(String(128), nullable=False)
+    text_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    src_url: Mapped[str] = mapped_column(Text, nullable=False)
+    internal_format: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="wav"
+    )
+    delivery_variants_json: Mapped[dict] = mapped_column(
+        JSONB, server_default="{}", nullable=False
+    )
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
+    filesize_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    message: Mapped[ChatMessage] = relationship("ChatMessage")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id",
+            "provider",
+            "voice",
+            "text_hash",
+            name="uq_message_audio_assets_message_provider_voice_texthash",
+        ),
+    )
     __mapper_args__ = {"eager_defaults": True}
 
 
@@ -1899,6 +1965,8 @@ Index(
 Index(
     "ix_sync_jobs_connector_created", SyncJob.connector_id, SyncJob.created_at
 )
+Index("ix_tool_jobs_created_at", ToolJob.created_at)
+Index("ix_tool_jobs_status", ToolJob.status)
 
 # Audit indexes
 Index("ix_audit_log_timestamp", AuditLog.timestamp.desc())
@@ -1997,6 +2065,7 @@ Index("ix_tts_outputs_project", TTSOutput.project_id)
 Index("ix_tts_outputs_thread", TTSOutput.thread_id)
 Index("ix_tts_outputs_provider", TTSOutput.provider)
 Index("ix_tts_outputs_created", TTSOutput.created_at.desc())
+<<<<<<< HEAD
 Index("ix_agent_deployments_thread_id", AgentDeployment.thread_id)
 Index("ix_agent_deployments_spec_hash", AgentDeployment.spec_hash)
 Index("ix_agent_deployments_status", AgentDeployment.status)
@@ -2020,6 +2089,15 @@ Index("ix_agent_escalations_status", AgentEscalation.status)
 Index("ix_agent_events_run_id", AgentEvent.run_id)
 Index("ix_agent_events_type", AgentEvent.event_type)
 Index("ix_agent_reflections_run_id", AgentReflection.run_id)
+=======
+Index("ix_message_audio_assets_message", MessageAudioAsset.message_id)
+Index(
+    "ix_message_audio_assets_provider_voice_created",
+    MessageAudioAsset.provider,
+    MessageAudioAsset.voice,
+    MessageAudioAsset.created_at.desc(),
+)
+>>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
 
 class SharedLink(Base):

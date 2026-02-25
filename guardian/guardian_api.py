@@ -81,6 +81,10 @@ from guardian.core.storage import ensure_storage_base_path
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue
 from guardian.tasks.types import WarmupTask
+from guardian.utils.embed_paths import (
+    get_local_embed_model,
+    require_local_embed_model,
+)
 
 # Optional Neo4j for graph endpoint
 try:
@@ -144,6 +148,38 @@ OUTBOX_TENANT_ID = normalize_outbox_tenant_id(
 
 from guardian.realtime import collaboration
 
+
+def _resolve_embedding_backend(settings_obj: Any | None = None) -> str:
+    """
+    Resolve embedding backend selection from settings and environment.
+
+    Returns a normalized backend key (e.g. "local") or an empty string
+    when no explicit backend is configured.
+    """
+    backend = ""
+    if settings_obj is not None:
+        backend = (
+            str(getattr(settings_obj, "EMBEDDING_BACKEND", "") or "")
+            .strip()
+            .lower()
+        )
+        if not backend:
+            backend = (
+                str(getattr(settings_obj, "EMBED_BACKEND", "") or "")
+                .strip()
+                .lower()
+            )
+
+    if not backend:
+        backend = (
+            (os.getenv("EMBEDDING_BACKEND") or os.getenv("EMBED_BACKEND") or "")
+            .strip()
+            .lower()
+        )
+
+    return backend
+
+
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import admin, agent, agent_orchestration, backfill
 from guardian.routes import command_bus as command_bus_routes
@@ -165,7 +201,6 @@ from guardian.routes.chat import api_chat_router
 from guardian.routes.chat import router as chat_router
 from guardian.routes.chat import simple_chat_router
 from guardian.routes.codex import router as codex_router
-from guardian.routes.codexify_router import router as codexify_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
 from guardian.routes.flows import router as flows_router
@@ -318,10 +353,21 @@ async def app_lifespan(app: FastAPI):
 
     # Enqueue warm-up task for local models (fire-and-forget)
     try:
+        embedding_backend = _resolve_embedding_backend(settings)
         local_llm_model = os.getenv("LOCAL_LLM_MODEL") or getattr(
             settings, "LOCAL_LLM_MODEL", None
         )
+<<<<<<< HEAD
         local_embed_model = os.getenv("LOCAL_EMBED_MODEL")
+=======
+        local_embed_model = get_local_embed_model(strict=False)
+        if embedding_backend == "local":
+            local_embed_model = require_local_embed_model()
+        if local_embed_model is None:
+            local_embed_model = os.getenv("LOCAL_EMBEDDING_MODEL") or getattr(
+                settings, "LOCAL_EMBEDDING_MODEL", None
+            )
+>>>>>>> e27828cd (fix(embed): validate LOCAL_EMBED_MODEL only when local backend selected)
 
         def _norm_model(name: Optional[str]) -> str:
             return str(name or "").strip().lower()
@@ -534,7 +580,19 @@ app.include_router(tools_router)
 app.include_router(api_tools_router)
 app.include_router(exports_router)
 app.include_router(codex_router)
-app.include_router(codexify_router)
+_embedding_backend = _resolve_embedding_backend(get_settings())
+if _embedding_backend == "local":
+    from guardian.routes.codexify_router import router as codexify_router
+
+    app.include_router(codexify_router)
+else:
+    # Codexify router initializes a local vector store at import time.
+    # Skip it when local embeddings are not explicitly selected.
+    get_local_embed_model(strict=False)
+    logger.info(
+        "[routers] Skipping codexify router (embedding_backend=%s)",
+        _embedding_backend or "<unset>",
+    )
 app.include_router(migration.router)
 app.include_router(devtools.router)
 app.include_router(websocket_routes.router)

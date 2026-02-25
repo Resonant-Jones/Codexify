@@ -276,6 +276,7 @@ export function useChat() {
     }
   }, []);
 
+<<<<<<< HEAD
   const startCompletion = useCallback((threadId: number, taskId: string) => {
     setCompletionState({
       isCompleting: true,
@@ -360,6 +361,34 @@ export function useChat() {
     shouldRefresh,
     markRefreshed,
   };
+=======
+  const appendMessage = useCallback((threadId: number, payload: any) => {
+    const normalized: ChatMessage = {
+      id: Number(payload?.id ?? Date.now()),
+      thread_id: Number(payload?.thread_id ?? payload?.threadId ?? threadId),
+      role: String(payload?.role ?? "assistant"),
+      content: String(payload?.content ?? ""),
+      created_at:
+        typeof payload?.created_at === "string"
+          ? payload.created_at
+          : new Date().toISOString(),
+    };
+
+    if (!Number.isFinite(normalized.thread_id) || normalized.thread_id !== threadId) {
+      return;
+    }
+
+    setMessages((prev) => {
+      if (prev.some((item) => item.id === normalized.id)) {
+        return prev;
+      }
+      return [...prev, normalized];
+    });
+    setTotal((prev) => prev + 1);
+  }, []);
+
+  return { messages, total, loading, error, hasMore, loadMessages, sendMessage, deleteMessage, appendMessage };
+>>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 }
 
 export default useChat;
