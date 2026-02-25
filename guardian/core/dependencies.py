@@ -61,11 +61,25 @@ _DEFAULT_SINGLE_USER_ID = "local"
 # =========================
 
 
+def _dotenv_disabled() -> bool:
+    return os.getenv("CODEXIFY_DISABLE_DOTENV", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 def _load_env_chain() -> None:
     """
     Load .env files in priority order: base → mode-specific → local
     Each layer can override previous ones, but actual environment vars always win.
     """
+    if _dotenv_disabled():
+        logger.info(
+            "[env] dotenv loading skipped (CODEXIFY_DISABLE_DOTENV set)"
+        )
+        return
+
     cwd = Path(__file__).resolve().parents[2]  # Go up to project root
     base = cwd / ".env"
     mode = os.getenv("GUARDIAN_ENV", "development").strip()
