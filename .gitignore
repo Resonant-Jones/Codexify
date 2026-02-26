@@ -109,7 +109,17 @@ models/
 /guardian/secrets/*.json
 **/token.json
 **/client_secret*.json
-.gitleaks.toml
+
+# Gitleaks configuration (tracked)
+# (We want the config committed so pre-commit can run gitleaks deterministically.)
+
+# Gitleaks scan outputs (local-only)
+.gitleaks/
+gitleaks-report.json
+gitleaks-report.sarif
+gitleaks-report.txt
+gitleaks-report.*
+
 # Local audit outputs
 /docs/_audit_runs/
 
@@ -148,22 +158,18 @@ hf_cache/
 boxbeyond-kutiraai/
 output/
 tmp/
-# local agent/tooling
-.claude/
-.codex/
-
-# OS junk
-.DS_Store
-
-# local outputs / temp
-output/
-tmp/
 **/output/
 **/tmp/
 data/
 chatgpt-conversation-extractor-master/
-conversations.json
 chatgpt-conversation.json
-conversations.json
+
+# local agent/tooling
+.claude/
+.codex/
+
 # Local/vendor checkouts
 MiniMax-MCP-main/
+
+# Local exports / data dumps
+conversations.json

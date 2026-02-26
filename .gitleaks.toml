@@ -1,0 +1,4 @@
+title = "Codexify gitleaks config"
+
+[extend]
+useDefault = true
