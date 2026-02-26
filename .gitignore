@@ -155,7 +155,6 @@ hf_cache/
 **/.cache/transformers/
 
 # Local artifacts
-boxbeyond-kutiraai/
 output/
 tmp/
 **/output/
@@ -170,7 +169,6 @@ chatgpt-conversation.json
 
 # Local/vendor checkouts
 MiniMax-MCP-main/
-boxbeyond-kutiraai
 
 # Local exports / data dumps
 conversations.json
