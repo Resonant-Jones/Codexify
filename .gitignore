@@ -170,6 +170,7 @@ chatgpt-conversation.json
 
 # Local/vendor checkouts
 MiniMax-MCP-main/
+boxbeyond-kutiraai
 
 # Local exports / data dumps
 conversations.json
