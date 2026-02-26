@@ -174,3 +174,6 @@ boxbeyond-kutiraai
 
 # Local exports / data dumps
 conversations.json
+
+# Vendor repos (kept outside repo)
+boxbeyond-kutiraai/
