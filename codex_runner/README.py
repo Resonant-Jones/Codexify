@@ -10,11 +10,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m codex_runner.README",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="Deterministic Campaign Runner v2",
+        description="Codexify Campaign Runner (Deterministic v2)",
         epilog=textwrap.dedent(
             """
             Canonical runtime:
               /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner
+
+            Interactive mode:
+              No-arg startup opens command-first TUI in interactive terminals.
+              Use --tui to force interactive mode.
+              In CI/non-interactive mode, no-arg stays CLI and --tui hard-fails.
+
+            TUI interaction model:
+              Slash-command command bar with staged/apply workflow.
+              Strict run: /run or Ctrl+R.
+              Instant run: Cmd+Enter / Ctrl+Enter (skips TUI validation + preview).
 
             Deterministic IDs:
               run_id   = sha256(canonical(run_inputs.json))[:12]
@@ -23,10 +33,6 @@ def build_parser() -> argparse.ArgumentParser:
             Mapping block markers:
               <!-- RUNNER_TASK_MAP -->
               <!-- /RUNNER_TASK_MAP -->
-
-            CI verify policy:
-              local/dev default: --no-verify
-              CI=true default:   --verify
 
             Commit policy:
               --no-auto-commit intentionally hard-fails in deterministic mode.
@@ -40,9 +46,14 @@ def build_parser() -> argparse.ArgumentParser:
 def examples() -> str:
     return textwrap.dedent(
         """
-        Example: dry-run deterministic pass
+        Example: launch command-first TUI
+
+          python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py
+
+        Example: strict CLI run
 
           python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py \
+            --provider codex \
             --repo-root /Users/resonant_jones/Keep/Resonant_Constructs/Codexify \
             --audit-prompt-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/mega_audit.md \
             --audit-schema-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/mega_audit_output.schema.json \
@@ -50,9 +61,11 @@ def examples() -> str:
             --campaign-set-schema-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/campaign_set.schema.json \
             --dry-run
 
-        Example: execute with explicit base ref
+        Example: execute with Claude provider
 
           python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py \
+            --provider claude \
+            --claude-model sonnet \
             --repo-root /Users/resonant_jones/Keep/Resonant_Constructs/Codexify \
             --audit-prompt-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/mega_audit.md \
             --audit-schema-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/mega_audit_output.schema.json \
