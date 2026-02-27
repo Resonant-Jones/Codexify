@@ -322,9 +322,18 @@ def ensure_repo_root(repo_root: Path, debug: bool) -> None:
         )
 
 
-def ensure_codex_available() -> None:
-    if not shutil_which("codex"):
-        raise RunnerError("codex executable not found on PATH")
+def ensure_provider_available(provider: str) -> None:
+    binaries = {
+        "codex": "codex",
+        "claude": "claude",
+    }
+    binary = binaries.get(provider)
+    if not binary:
+        raise RunnerError(f"Unsupported provider: {provider}")
+    if not shutil_which(binary):
+        raise RunnerError(
+            f"{provider} executable ('{binary}') not found on PATH"
+        )
 
 
 def shutil_which(binary: str) -> str | None:
@@ -916,6 +925,146 @@ def render_compiler_prompt(
     return rendered
 
 
+def _schema_required_keys(schema: dict[str, Any]) -> set[str]:
+    required = schema.get("required")
+    if not isinstance(required, list):
+        return set()
+    keys: set[str] = set()
+    for key in required:
+        if isinstance(key, str) and key:
+            keys.add(key)
+    return keys
+
+
+def _strip_schema_keyword(
+    value: Any, *, keyword: str, removed: dict[str, int]
+) -> Any:
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == keyword:
+                removed[keyword] = removed.get(keyword, 0) + 1
+                _strip_schema_keyword(item, keyword=keyword, removed=removed)
+                continue
+            normalized[key] = _strip_schema_keyword(
+                item, keyword=keyword, removed=removed
+            )
+        return normalized
+    if isinstance(value, list):
+        return [
+            _strip_schema_keyword(item, keyword=keyword, removed=removed)
+            for item in value
+        ]
+    return value
+
+
+def codex_compat_schema(
+    schema_payload: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, int]]:
+    """
+    OpenAI response-format schema support rejects some JSON-Schema keywords
+    (notably allOf). We strip unsupported keys for provider-side validation;
+    runner merge validation still enforces deterministic constraints.
+    """
+    removed: dict[str, int] = {}
+    normalized = _strip_schema_keyword(
+        schema_payload, keyword="allOf", removed=removed
+    )
+    if not isinstance(normalized, dict):
+        raise RunnerError("Expected schema payload to remain an object")
+    return normalized, removed
+
+
+def _parse_json_with_fallback(raw_output: str, provider: str) -> Any:
+    text = raw_output.strip()
+    if not text:
+        raise RunnerError(f"{provider} returned empty output")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        best: Any = None
+        for idx, char in enumerate(text):
+            if char not in "[{":
+                continue
+            try:
+                value, _ = decoder.raw_decode(text[idx:])
+            except json.JSONDecodeError:
+                continue
+            best = value
+        if best is not None:
+            return best
+    raise RunnerError(
+        f"{provider} output was not valid JSON. "
+        "Expected structured JSON because schema output is required."
+    )
+
+
+def _candidate_payload_dicts(raw_value: Any) -> list[dict[str, Any]]:
+    queue: list[Any] = [raw_value]
+    seen_objects: set[int] = set()
+    seen_strings: set[str] = set()
+    candidates: list[dict[str, Any]] = []
+
+    while queue:
+        current = queue.pop(0)
+        if isinstance(current, dict):
+            marker = id(current)
+            if marker in seen_objects:
+                continue
+            seen_objects.add(marker)
+            candidates.append(current)
+            for key in ("result", "output", "response", "data", "message"):
+                if key in current:
+                    queue.append(current[key])
+            if "content" in current:
+                queue.append(current["content"])
+            continue
+        if isinstance(current, list):
+            queue.extend(current)
+            continue
+        if isinstance(current, str):
+            text = current.strip()
+            if not text or text in seen_strings or text[0] not in "{[":
+                continue
+            seen_strings.add(text)
+            try:
+                queue.append(json.loads(text))
+            except json.JSONDecodeError:
+                continue
+    return candidates
+
+
+def _select_payload(
+    candidates: list[dict[str, Any]],
+    required_keys: set[str],
+) -> dict[str, Any]:
+    if not candidates:
+        raise RunnerError("No JSON object payload found in provider response")
+
+    def score(payload: dict[str, Any]) -> int:
+        keys = set(payload.keys())
+        value = len(required_keys & keys) * 10
+        if required_keys and required_keys.issubset(keys):
+            value += 1000
+        for hint in ("status", "campaigns", "audit_id"):
+            if hint in payload:
+                value += 3
+        if required_keys and not required_keys.issubset(keys):
+            if {"type", "id", "usage", "session_id"} & keys:
+                value -= 2
+        return value
+
+    chosen = max(candidates, key=score)
+    if required_keys and not required_keys.issubset(chosen.keys()):
+        missing = sorted(required_keys - set(chosen.keys()))
+        raise RunnerError(
+            "Provider output missing required keys from schema: "
+            + ", ".join(missing)
+        )
+    return chosen
+
+
 def run_codex_exec(
     repo_root: Path,
     *,
@@ -926,6 +1075,25 @@ def run_codex_exec(
     configs: list[str],
     debug: bool,
 ) -> None:
+    schema_payload = json_read(output_schema)
+    schema_for_codex, removed = codex_compat_schema(schema_payload)
+    effective_schema_path = output_schema
+    tmp_schema_dir: tempfile.TemporaryDirectory[str] | None = None
+    if removed.get("allOf", 0) > 0:
+        tmp_schema_dir = tempfile.TemporaryDirectory(
+            prefix="codex_schema_compat_"
+        )
+        effective_schema_path = (
+            Path(tmp_schema_dir.name)
+            / f"{output_schema.stem}.codex_compat.schema.json"
+        )
+        json_write(effective_schema_path, schema_for_codex)
+        if debug:
+            log(
+                "[debug] codex schema compatibility rewrite: "
+                f"removed allOf={removed['allOf']} from {output_schema}"
+            )
+
     cmd: list[str] = ["codex"]
     if model:
         cmd.extend(["--model", model])
@@ -936,13 +1104,17 @@ def run_codex_exec(
         [
             "exec",
             "--output-schema",
-            str(output_schema),
+            str(effective_schema_path),
             "-o",
             str(output_path),
             prompt_text,
         ]
     )
-    result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
+    try:
+        result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
+    finally:
+        if tmp_schema_dir is not None:
+            tmp_schema_dir.cleanup()
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         stdout = (result.stdout or "").strip()
@@ -951,6 +1123,85 @@ def run_codex_exec(
             + (f"\nSTDERR:\n{stderr}" if stderr else "")
             + (f"\nSTDOUT:\n{stdout}" if stdout else "")
         )
+
+
+def run_claude_exec(
+    repo_root: Path,
+    *,
+    prompt_text: str,
+    output_schema: Path,
+    output_path: Path,
+    model: str | None,
+    settings: list[str],
+    debug: bool,
+) -> None:
+    schema_payload = json_read(output_schema)
+    required_keys = _schema_required_keys(schema_payload)
+    schema_json = canonical_json(schema_payload)
+
+    cmd: list[str] = [
+        "claude",
+        "-p",
+        "--output-format",
+        "json",
+        "--json-schema",
+        schema_json,
+    ]
+    if model:
+        cmd.extend(["--model", model])
+    for setting in settings:
+        cmd.extend(["--settings", setting])
+    cmd.append(prompt_text)
+
+    result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        raise RunnerError(
+            "claude exec failed"
+            + (f"\nSTDERR:\n{stderr}" if stderr else "")
+            + (f"\nSTDOUT:\n{stdout}" if stdout else "")
+        )
+
+    parsed = _parse_json_with_fallback(result.stdout or "", "claude")
+    payload = _select_payload(_candidate_payload_dicts(parsed), required_keys)
+    json_write(output_path, payload)
+
+
+def run_provider_exec(
+    repo_root: Path,
+    *,
+    provider: str,
+    prompt_text: str,
+    output_schema: Path,
+    output_path: Path,
+    model: str | None,
+    settings: list[str],
+    debug: bool,
+) -> None:
+    if provider == "codex":
+        run_codex_exec(
+            repo_root,
+            prompt_text=prompt_text,
+            output_schema=output_schema,
+            output_path=output_path,
+            model=model,
+            configs=settings,
+            debug=debug,
+        )
+        return
+    if provider == "claude":
+        run_claude_exec(
+            repo_root,
+            prompt_text=prompt_text,
+            output_schema=output_schema,
+            output_path=output_path,
+            model=model,
+            settings=settings,
+            debug=debug,
+        )
+        return
+    raise RunnerError(f"Unsupported provider: {provider}")
 
 
 def append_implementation_receipt(
@@ -995,6 +1246,64 @@ def default_verify(ci_env: str | None) -> bool:
     return ci_env.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def provider_settings(args: argparse.Namespace) -> list[str]:
+    if args.provider == "codex":
+        return list(args.codex_config)
+    if args.provider == "claude":
+        return list(args.claude_settings)
+    raise RunnerError(f"Unsupported provider: {args.provider}")
+
+
+def provider_model_for_stage(
+    args: argparse.Namespace, stage: str
+) -> str | None:
+    if args.provider == "codex":
+        if stage == "audit":
+            return args.codex_model_audit or args.codex_model
+        if stage == "compiler":
+            return args.codex_model_compiler or args.codex_model
+        if stage == "task":
+            return args.codex_model_task or args.codex_model
+    if args.provider == "claude":
+        if stage == "audit":
+            return args.claude_model_audit or args.claude_model
+        if stage == "compiler":
+            return args.claude_model_compiler or args.claude_model
+        if stage == "task":
+            return args.claude_model_task or args.claude_model
+    raise RunnerError(
+        f"Unsupported provider/stage combination: {args.provider}/{stage}"
+    )
+
+
+def provider_model_map(args: argparse.Namespace) -> dict[str, str | None]:
+    default_model = (
+        args.codex_model if args.provider == "codex" else args.claude_model
+    )
+    return {
+        "default": default_model,
+        "audit": provider_model_for_stage(args, "audit"),
+        "compiler": provider_model_for_stage(args, "compiler"),
+        "task": provider_model_for_stage(args, "task"),
+    }
+
+
+def sanitize_provider_settings(settings: list[str]) -> list[str]:
+    redacted_markers = {"token", "secret", "password", "key"}
+    sanitized: list[str] = []
+    for entry in settings:
+        lowered = entry.lower()
+        if any(marker in lowered for marker in redacted_markers):
+            if "=" in entry:
+                key = entry.split("=", 1)[0]
+                sanitized.append(f"{key}=<redacted>")
+            else:
+                sanitized.append("<redacted>")
+            continue
+        sanitized.append(entry)
+    return sanitized
+
+
 def run_inputs_payload(
     *,
     repo_root: Path,
@@ -1002,10 +1311,12 @@ def run_inputs_payload(
     hashes: StageHashes,
     pass_index: int,
     execute_mode: str,
+    provider: str,
 ) -> dict[str, Any]:
     return {
         "repo_root": str(repo_root.resolve()),
         "base_ref": base_ref_sha,
+        "provider": provider,
         "audit_prompt_sha256": hashes.audit_prompt_sha256,
         "audit_schema_sha256": hashes.audit_schema_sha256,
         "compiler_prompt_sha256": hashes.compiler_prompt_sha256,
@@ -1031,6 +1342,9 @@ def write_run_meta(
     selected_campaign: str | None,
     selection_rationale: dict[str, Any] | None,
     termination_reason: str,
+    provider: str,
+    provider_models: dict[str, str | None],
+    provider_settings_sanitized: list[str],
 ) -> None:
     payload = {
         "run_id": run_id,
@@ -1055,6 +1369,11 @@ def write_run_meta(
             "selected_campaign": selected_campaign,
             "rationale": selection_rationale,
         },
+        "provider": {
+            "name": provider,
+            "models": provider_models,
+            "settings": provider_settings_sanitized,
+        },
         "termination_reason": termination_reason,
     }
     json_write(path, payload)
@@ -1065,20 +1384,22 @@ def run_task_agent(
     repo_root: Path,
     task: dict[str, Any],
     task_result_schema_file: Path,
+    provider: str,
     model: str | None,
-    configs: list[str],
+    settings: list[str],
     debug: bool,
 ) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_root = Path(tmpdir)
         output = tmp_root / "task_result.json"
-        run_codex_exec(
+        run_provider_exec(
             repo_root,
+            provider=provider,
             prompt_text=str(task["activation_prompt"]),
             output_schema=task_result_schema_file,
             output_path=output,
             model=model,
-            configs=configs,
+            settings=settings,
             debug=debug,
         )
         payload = json_read(output)
@@ -1128,6 +1449,9 @@ def run_pass(
     cli_args: list[str],
 ) -> None:
     repo_root = args.repo_root
+    active_settings = provider_settings(args)
+    active_models = provider_model_map(args)
+    active_settings_sanitized = sanitize_provider_settings(active_settings)
     preflight_clean = git_is_clean(repo_root, args.debug)
     if not preflight_clean:
         raise RunnerError("preflight failed: git tree is not clean")
@@ -1147,6 +1471,7 @@ def run_pass(
         execute_mode="execute"
         if args.execute and not args.dry_run
         else "dry-run",
+        provider=args.provider,
     )
     run_id = sha256_text(canonical_json(run_inputs))[:12]
     audit_id = f"AUDIT_{run_id}"
@@ -1166,13 +1491,14 @@ def run_pass(
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_root = Path(tmpdir)
         stage_a_output_path = tmp_root / "audit_output.json"
-        run_codex_exec(
+        run_provider_exec(
             repo_root,
+            provider=args.provider,
             prompt_text=audit_prompt_text,
             output_schema=args.audit_schema_file,
             output_path=stage_a_output_path,
-            model=args.codex_model_audit or args.codex_model,
-            configs=args.codex_config,
+            model=active_models["audit"],
+            settings=active_settings,
             debug=args.debug,
         )
         audit_payload = json_read(stage_a_output_path)
@@ -1189,13 +1515,14 @@ def run_pass(
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_root = Path(tmpdir)
         stage_b_output_path = tmp_root / "campaign_set_output.json"
-        run_codex_exec(
+        run_provider_exec(
             repo_root,
+            provider=args.provider,
             prompt_text=compiler_prompt_text,
             output_schema=args.campaign_set_schema_file,
             output_path=stage_b_output_path,
-            model=args.codex_model_compiler or args.codex_model,
-            configs=args.codex_config,
+            model=active_models["compiler"],
+            settings=active_settings,
             debug=args.debug,
         )
         campaign_set_payload = json_read(stage_b_output_path)
@@ -1257,6 +1584,9 @@ def run_pass(
         selected_campaign=selected_campaign_id,
         selection_rationale=selection_reason,
         termination_reason=termination_reason,
+        provider=args.provider,
+        provider_models=active_models,
+        provider_settings_sanitized=active_settings_sanitized,
     )
     write_run_meta(audit_dir_abs / "run_meta.json", **run_meta_kwargs)
     write_run_meta(run_dir_abs / "run_meta.json", **run_meta_kwargs)
@@ -1423,8 +1753,9 @@ def run_pass(
                     repo_root=repo_root,
                     task=task,
                     task_result_schema_file=args.task_result_schema_file,
-                    model=args.codex_model_task or args.codex_model,
-                    configs=args.codex_config,
+                    provider=args.provider,
+                    model=provider_model_for_stage(args, "task"),
+                    settings=active_settings,
                     debug=args.debug,
                 )
 
@@ -1558,6 +1889,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Deterministic Campaign Runner"
     )
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch interactive TUI to configure and run",
+    )
+    parser.add_argument(
+        "--provider",
+        choices=["codex", "claude"],
+        default="codex",
+    )
 
     parser.add_argument(
         "--repo-root",
@@ -1617,6 +1958,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--codex-model-task", default=None)
     parser.add_argument("--codex-config", action="append", default=[])
 
+    parser.add_argument("--claude-model", default=None)
+    parser.add_argument("--claude-model-audit", default=None)
+    parser.add_argument("--claude-model-compiler", default=None)
+    parser.add_argument("--claude-model-task", default=None)
+    parser.add_argument("--claude-settings", action="append", default=[])
+
     parser.add_argument("--debug", action="store_true")
 
     return parser
@@ -1663,14 +2010,66 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def launch_tui(initial_args: list[str] | None = None) -> list[str] | None:
+    try:
+        from .tui_app import launch_tui as _launch_tui
+    except ImportError:
+        try:
+            from tui_app import launch_tui as _launch_tui  # type: ignore
+        except ImportError as exc:
+            message = str(exc).lower()
+            if "textual" in message:
+                raise RunnerError(
+                    "TUI dependency missing: install Textual to use interactive mode. "
+                    "Example: `pip install textual`"
+                ) from exc
+            raise
+    return _launch_tui(initial_args or [])
+
+
+def is_interactive_terminal() -> bool:
+    ci_mode = os.environ.get("CI", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if ci_mode:
+        return False
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def resolve_entry_argv(argv: list[str] | None = None) -> list[str] | None:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    explicit_tui = "--tui" in raw_argv
+    interactive = is_interactive_terminal()
+    if explicit_tui and not interactive:
+        raise RunnerError(
+            "--tui requires an interactive terminal. "
+            "Remove --tui or run with explicit CLI flags in non-interactive contexts."
+        )
+    if not raw_argv:
+        if not interactive:
+            return raw_argv
+        return launch_tui([])
+    if not explicit_tui:
+        return raw_argv
+    passthrough = [part for part in raw_argv if part != "--tui"]
+    return launch_tui(passthrough)
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    resolved_argv = resolve_entry_argv(argv)
+    if resolved_argv is None:
+        return 0
+
+    args = parse_args(resolved_argv)
 
     ensure_repo_root(args.repo_root, args.debug)
-    ensure_codex_available()
+    ensure_provider_available(args.provider)
 
     base_ref_sha = git_resolve_ref(args.repo_root, args.base_ref, args.debug)
-    cli_args = sanitize_cli_args(sys.argv[1:] if argv is None else argv)
+    cli_args = sanitize_cli_args(resolved_argv)
 
     for pass_index in range(1, args.passes + 1):
         run_pass(
