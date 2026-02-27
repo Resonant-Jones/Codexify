@@ -1,7 +1,4 @@
-<<<<<<< HEAD
 import logging
-=======
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 import os
 
 import chromadb
@@ -10,52 +7,41 @@ from chromadb.utils.embedding_functions.ollama_embedding_function import (
     OllamaEmbeddingFunction,
 )
 
-<<<<<<< HEAD
-logger = logging.getLogger(__name__)
-
-
-def _is_local_embeddings_backend() -> bool:
-    backend = (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "").strip().lower()
-    return backend == "local"
-
-
-def _get_local_embed_model(*, strict: bool) -> str | None:
-    model = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
-    if strict and not model:
-        raise ValueError("LOCAL_EMBED_MODEL is not set for Ollama embeddings.")
-    return model or None
-=======
 from guardian.utils.embed_paths import get_local_embed_model
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
+
+logger = logging.getLogger(__name__)
 
 
 class VectorSearch:
     def __init__(
         self,
         model: str | None = None,
-        name="new_collection",
+        name: str = "new_collection",
         path: str = "./db",
     ):
-<<<<<<< HEAD
+        # Historical API accepted `model`, but this project now drives the embed model
+        # from env so agents/ops can configure it without code changes.
         if model:
-            logger.warning(
-                "[rag] model override ignored; use LOCAL_EMBED_MODEL"
-            )
-        is_local = _is_local_embeddings_backend()
-        model = _get_local_embed_model(strict=is_local)
-        if not model:
-            model = (os.getenv("OLLAMA_EMBED_MODEL") or "").strip()
-        if not model:
-            model = "nomic-embed-text"
-        logger.info("[rag] local embedding model=%s", model)
-=======
+            logger.warning("[rag] model override ignored; configure via env")
+
         backend = (
             (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "mock").strip().lower()
         )
-        if backend != "local":
-            _ = get_local_embed_model(strict=False)
+        strict = backend == "local"
 
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
+        # Only require LOCAL_EMBED_MODEL when the local embeddings backend is selected.
+        model = get_local_embed_model(strict=strict)
+
+        # Back-compat / fallback: allow older env var, then default.
+        if not model:
+            model = (os.getenv("OLLAMA_EMBED_MODEL") or "").strip() or None
+        if not model:
+            model = "nomic-embed-text"
+
+        logger.info(
+            "[rag] embeddings_backend=%s embed_model=%s", backend, model
+        )
+
         self.client = chromadb.PersistentClient(
             path=path, settings=Settings(allow_reset=True)
         )
@@ -66,11 +52,11 @@ class VectorSearch:
             self.collection = self.client.create_collection(
                 name=name, embedding_function=self.embedding
             )
-        except:
+        except Exception:
             self.collection = self.client.get_collection(name=name)
 
     def add_document(self, documents: str, id: str, metadatas: None = None):
-        if metadatas == None:
+        if metadatas is None:
             self.collection.add(documents=documents, ids=id)
         else:
             self.collection.add(

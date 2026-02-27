@@ -8,6 +8,8 @@ Mounted without a prefix to preserve public paths like /health/chat.
 
 import logging
 import os
+import threading
+import time
 from uuid import uuid4
 
 import requests
@@ -18,6 +20,10 @@ from guardian.core.dependencies import DB_BACKEND, get_database_dsn
 from guardian.core.llm_catalog import build_llm_catalog
 
 logger = logging.getLogger(__name__)
+_LLM_HEALTH_PROBE_CACHE: dict | None = None
+_LLM_HEALTH_PROBE_TS = 0.0
+_LLM_HEALTH_CACHE_LOCK = threading.Lock()
+_LLM_HEALTH_PROBE_INFLIGHT_LOCK = threading.Lock()
 
 # Create unprefixed router to preserve /health/chat path
 router = APIRouter(tags=["Health"])
@@ -68,6 +74,55 @@ def _probe_local_llm(base_url_v1: str, timeout_seconds: float) -> dict:
     }
 
 
+def _llm_health_cache_ttl_seconds() -> float:
+    raw = (os.getenv("HEALTH_LLM_CACHE_TTL_SECONDS") or "5").strip()
+    try:
+        ttl = float(raw)
+    except ValueError:
+        ttl = 5.0
+    return max(0.0, ttl)
+
+
+def _get_cached_probe(ttl_seconds: float) -> dict | None:
+    now = time.monotonic()
+    with _LLM_HEALTH_CACHE_LOCK:
+        if _LLM_HEALTH_PROBE_CACHE is None:
+            return None
+        if ttl_seconds <= 0:
+            return None
+        age = now - _LLM_HEALTH_PROBE_TS
+        if age > ttl_seconds:
+            return None
+        return dict(_LLM_HEALTH_PROBE_CACHE)
+
+
+def _get_latest_probe() -> dict | None:
+    with _LLM_HEALTH_CACHE_LOCK:
+        if _LLM_HEALTH_PROBE_CACHE is None:
+            return None
+        return dict(_LLM_HEALTH_PROBE_CACHE)
+
+
+def _store_probe(probe_payload: dict) -> None:
+    global _LLM_HEALTH_PROBE_CACHE, _LLM_HEALTH_PROBE_TS
+    with _LLM_HEALTH_CACHE_LOCK:
+        _LLM_HEALTH_PROBE_CACHE = dict(probe_payload)
+        _LLM_HEALTH_PROBE_TS = time.monotonic()
+
+
+def _normalize_health_provider(raw_provider: str) -> str:
+    provider = (raw_provider or "").strip().lower()
+    if provider and provider != "auto":
+        return provider
+
+    legacy_backend = (os.getenv("AI_BACKEND") or "").strip().lower()
+    if legacy_backend in {"ollama", "local"}:
+        return "local"
+    if legacy_backend in {"openai", "groq", "minimax"}:
+        return legacy_backend
+    return "local"
+
+
 @router.get("/health")
 def health():
     """Base health check endpoint for system-level monitoring."""
@@ -96,7 +151,7 @@ def health_llm():
     )
 
     settings = get_settings()
-    provider = (settings.LLM_PROVIDER or "local").strip().lower()
+    provider = _normalize_health_provider(settings.LLM_PROVIDER or "local")
     model = _default_model_for_provider(provider, settings)
 
     payload = {"provider": provider, "model": model}
@@ -110,7 +165,29 @@ def health_llm():
         return payload
 
     if provider == "local":
-        timeout = float(os.getenv("HEALTH_LLM_REQUEST_TIMEOUT_SECONDS", "2.5"))
+        timeout = float(os.getenv("HEALTH_LLM_REQUEST_TIMEOUT_SECONDS", "1.0"))
+        cache_ttl = _llm_health_cache_ttl_seconds()
+        cached = _get_cached_probe(cache_ttl)
+        if cached is not None:
+            payload.update(cached)
+            payload["cache"] = "hit"
+            return payload
+
+        if not _LLM_HEALTH_PROBE_INFLIGHT_LOCK.acquire(blocking=False):
+            stale = _get_latest_probe()
+            if stale is not None:
+                payload.update(stale)
+                payload["cache"] = "stale"
+                return payload
+            payload.update(
+                {
+                    "ok": False,
+                    "status": "unknown",
+                    "error": "health probe in progress",
+                }
+            )
+            return payload
+
         try:
             local_base = _resolve_local_base(settings)
         except Exception as exc:
@@ -118,8 +195,15 @@ def health_llm():
             payload.update(
                 {"ok": False, "status": "misconfigured", "error": str(detail)}
             )
+            _LLM_HEALTH_PROBE_INFLIGHT_LOCK.release()
             return payload
-        payload.update(_probe_local_llm(local_base, timeout))
+        try:
+            probe_payload = _probe_local_llm(local_base, timeout)
+            _store_probe(probe_payload)
+            payload.update(probe_payload)
+            payload["cache"] = "miss"
+        finally:
+            _LLM_HEALTH_PROBE_INFLIGHT_LOCK.release()
         return payload
 
     # Cloud providers: keep the check lightweight and config-based.

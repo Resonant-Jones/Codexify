@@ -1,0 +1,15 @@
+SECURITY.md
+docs/infra/system_integrity_ledger.md
+docs/iddb_policy_v1.md
+docs/architecture/config-and-ops.md
+docs/architecture/data-and-storage.md
+docs/architecture/tech-debt-and-risks.md
+docs/architecture/completion_pipeline.md
+docs/architecture/system-overview.md
+docs/architecture/modules-and-ownership.md
+docs/architecture/roadmap-signals.md
+# Requested workflow names are not present in this repo; using concrete equivalents:
+.github/workflows/guardian-ci.yml
+.github/workflows/codemap-maintenance.yml
+docker-compose.yml
+Makefile

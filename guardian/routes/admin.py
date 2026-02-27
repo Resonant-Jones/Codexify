@@ -204,7 +204,7 @@ router = APIRouter(tags=["Admin"])
 
 
 @router.get("/ping", summary="Health check endpoint")
-def ping():
+async def ping():
     """Simple health check endpoint to verify that the Guardian API is awake."""
     logger.debug("Ping request received")
     return {"status": "Guardian awake!"}

@@ -492,7 +492,6 @@ class SyncJob(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
-<<<<<<< HEAD
 class OAuthConnection(Base):
     """OAuth connection state per user/provider/mode."""
 
@@ -522,20 +521,6 @@ class OAuthConnection(Base):
         TIMESTAMP(timezone=True)
     )
     last_error: Mapped[str | None] = mapped_column(Text)
-=======
-class ToolJob(Base):
-    """Durable tool orchestration job state."""
-
-    __tablename__ = "tool_jobs"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False)
-    request_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    result_json: Mapped[dict | None] = mapped_column(JSONB)
-    error: Mapped[str | None] = mapped_column(Text)
-    error_json: Mapped[dict | None] = mapped_column(JSONB)
->>>>>>> fc08f4ce (fix(backend): persist tool jobs in Postgres)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -547,7 +532,6 @@ class ToolJob(Base):
     )
 
     __table_args__ = (
-<<<<<<< HEAD
         UniqueConstraint(
             "user_id",
             "provider",
@@ -565,6 +549,37 @@ class ToolJob(Base):
         Index("ix_oauth_connections_user_provider", "user_id", "provider"),
     )
 
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ToolJob(Base):
+    """Durable tool orchestration job state."""
+
+    __tablename__ = "tool_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    request_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    result_json: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    error_json: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed')",
+            name="tool_jobs_status_check",
+        ),
+    )
     __mapper_args__ = {"eager_defaults": True}
 
 
@@ -682,14 +697,6 @@ class InferenceProviderRuntime(Base):
             "health_status",
         ),
     )
-
-=======
-        CheckConstraint(
-            "status IN ('queued','running','succeeded','failed')",
-            name="tool_jobs_status_check",
-        ),
-    )
->>>>>>> fc08f4ce (fix(backend): persist tool jobs in Postgres)
     __mapper_args__ = {"eager_defaults": True}
 
 
@@ -2065,7 +2072,6 @@ Index("ix_tts_outputs_project", TTSOutput.project_id)
 Index("ix_tts_outputs_thread", TTSOutput.thread_id)
 Index("ix_tts_outputs_provider", TTSOutput.provider)
 Index("ix_tts_outputs_created", TTSOutput.created_at.desc())
-<<<<<<< HEAD
 Index("ix_agent_deployments_thread_id", AgentDeployment.thread_id)
 Index("ix_agent_deployments_spec_hash", AgentDeployment.spec_hash)
 Index("ix_agent_deployments_status", AgentDeployment.status)
@@ -2089,7 +2095,6 @@ Index("ix_agent_escalations_status", AgentEscalation.status)
 Index("ix_agent_events_run_id", AgentEvent.run_id)
 Index("ix_agent_events_type", AgentEvent.event_type)
 Index("ix_agent_reflections_run_id", AgentReflection.run_id)
-=======
 Index("ix_message_audio_assets_message", MessageAudioAsset.message_id)
 Index(
     "ix_message_audio_assets_provider_voice_created",
@@ -2097,7 +2102,6 @@ Index(
     MessageAudioAsset.voice,
     MessageAudioAsset.created_at.desc(),
 )
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
 
 class SharedLink(Base):

@@ -121,11 +121,15 @@ def _normalize_reason(message: str) -> str:
     return text or "Provider unavailable"
 
 
+def _has_real_api_key(value: str | None) -> bool:
+    return bool(value and value.strip())
+
+
 def _env_secret(*keys: str) -> str:
     for key in keys:
-        value = str(os.getenv(key) or "").strip()
-        if value:
-            return value
+        raw = os.getenv(key)
+        if _has_real_api_key(raw):
+            return str(raw).strip()
     return ""
 
 
@@ -133,23 +137,26 @@ def _is_authorized(provider_id: str, settings: Settings) -> bool:
     if provider_id == "local":
         return True
     if provider_id == "openai":
-        return bool(str(getattr(settings, "OPENAI_API_KEY", "") or "").strip())
-    if provider_id == "groq":
-        return bool(str(getattr(settings, "GROQ_API_KEY", "") or "").strip())
-    if provider_id == "minimax":
-        has_key = bool(
-            str(getattr(settings, "MINIMAX_API_KEY", "") or "").strip()
-            or _env_secret("MINIMAX_API_KEY")
+        return _has_real_api_key(
+            str(getattr(settings, "OPENAI_API_KEY", "") or "")
         )
+    if provider_id == "groq":
+        return _has_real_api_key(
+            str(getattr(settings, "GROQ_API_KEY", "") or "")
+        )
+    if provider_id == "minimax":
+        has_key = _has_real_api_key(
+            str(getattr(settings, "MINIMAX_API_KEY", "") or "")
+        ) or _has_real_api_key(_env_secret("MINIMAX_API_KEY"))
         has_base = bool(
             str(getattr(settings, "MINIMAX_API_BASE", "") or "").strip()
             or _env_secret("MINIMAX_API_BASE")
         )
         return has_key and has_base
     if provider_id == "anthropic":
-        return bool(_env_secret("ANTHROPIC_API_KEY"))
+        return _has_real_api_key(_env_secret("ANTHROPIC_API_KEY"))
     if provider_id == "gemini":
-        return bool(
+        return _has_real_api_key(
             _env_secret("GEMINI_API_KEY", "GENAI_API_KEY", "GOOGLE_API_KEY")
         )
     return False

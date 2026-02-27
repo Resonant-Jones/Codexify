@@ -24,17 +24,8 @@ from starlette.responses import StreamingResponse
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.core.event_graph import get_event_writer
 from guardian.queue import task_events
-<<<<<<< HEAD
-from guardian.queue.redis_queue import (
-    acquire_turn_lock,
-    enqueue,
-    enqueue_chat_embed,
-    release_turn_lock,
-)
-=======
 from guardian.queue.redis_queue import enqueue
 from guardian.queue.turn_lock import acquire_turn_lock, release_turn_lock
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
@@ -605,15 +596,12 @@ def _apply_thread_update(
 # Legacy /chat routes; canonical base is /api/chat.
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
-<<<<<<< HEAD
 DOC_SCOPE_K_PROJECT = 4
 DOC_SCOPE_K_THREAD = 4
 DOC_EXCERPT_CHARS = 320
 DOC_OVERRIDE_MAX_CHARS = 2600
-=======
 DEFAULT_PROJECT_NAME = "General"
 DEFAULT_PROJECT_DESCRIPTION = "Default bucket for unassigned threads"
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
 
 
 def _ensure_default_project_id() -> Optional[int]:

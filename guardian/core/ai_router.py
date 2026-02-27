@@ -15,6 +15,21 @@ _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
 
 
+def _normalize_provider(provider: Optional[str]) -> str:
+    """
+    Normalize provider identifiers coming from API/UI/config.
+
+    Notes:
+    - `auto` is accepted as an execution-time alias. Today it resolves to
+      `local` (local-first + deterministic). This prevents config/UX mismatch
+      from hard-failing completions when UI does not send an explicit provider.
+    """
+    normalized = (provider or "").strip().lower()
+    if normalized in ("", "auto"):
+        return "local"
+    return normalized
+
+
 def _format_local_connect_error(url: str, err: Exception) -> str:
     """Produce an actionable error message for local inference failures.
 
@@ -93,9 +108,7 @@ def chat_with_ai(
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
-    provider_name = (
-        (provider or settings.LLM_PROVIDER or "groq").strip().lower()
-    )
+    provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
     target_model = model or _default_model_for_provider(provider_name, settings)
 
     if not target_model:
@@ -162,21 +175,46 @@ def call_local(
     }
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
-    base_url = _resolve_local_base(settings)
-    url = f"{base_url}/chat/completions"
+    base_url_v1 = _resolve_local_base(settings)
+    base_url = base_url_v1[:-3] if base_url_v1.endswith("/v1") else base_url_v1
+    url_openai = f"{base_url_v1}/chat/completions"
     default_timeout = getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 60)
     request_timeout = default_timeout if timeout is None else float(timeout)
 
     try:
         response = requests.post(
-            url, json=payload, headers=headers, timeout=request_timeout
+            url_openai, json=payload, headers=headers, timeout=request_timeout
         )
+        if response.status_code == 404:
+            # Fallback to Ollama native API when OpenAI-compatible routes are unavailable.
+            url_ollama = f"{base_url}/api/chat"
+            payload_ollama: Dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+            }
+            response = requests.post(
+                url_ollama,
+                json=payload_ollama,
+                headers=headers,
+                timeout=request_timeout,
+            )
         response.raise_for_status()
         data = json.loads(response.content.decode("utf-8"))
+        if (
+            isinstance(data.get("message"), dict)
+            and "content" in data["message"]
+        ):
+            return data["message"]["content"]
         return data["choices"][0]["message"]["content"]
     except req_exc.RequestException as e:
         # requests-level failures: DNS, connect, timeout, etc.
-        detail = _format_local_connect_error(url, e)
+        failed_url = (
+            response.url
+            if "response" in locals() and getattr(response, "url", None)
+            else url_openai
+        )
+        detail = _format_local_connect_error(failed_url, e)
         if log_exceptions:
             logger.exception(detail)
         else:

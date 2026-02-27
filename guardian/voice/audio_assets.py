@@ -9,7 +9,8 @@ from typing import Any, Optional
 
 from sqlalchemy.exc import IntegrityError
 
-from guardian.core.db import GuardianDB
+from guardian.core.db import GuardianDB, load_guardian_db_from_env
+from guardian.core.dependencies import chatlog_db
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import MessageAudioAsset
 
@@ -23,6 +24,9 @@ def _database_url() -> str:
 
 
 def _db() -> GuardianDB:
+    shared = chatlog_db or load_guardian_db_from_env()
+    if shared is not None:
+        return shared
     return GuardianDB(_database_url())
 
 

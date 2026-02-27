@@ -120,8 +120,14 @@ if __name__ == '__main__':
 ep.chmod(ep.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 PY
 
+# === Optional TTS deps stage: install pinned TTS runtime dependencies ===
+FROM builder AS builder-tts
+
+COPY backend/requirements-tts.txt /tmp/backend/requirements-tts.txt
+RUN python -m pip install -r /tmp/backend/requirements-tts.txt
+
 # === Final stage: Create minimal runtime image ===
-FROM dhi.io/python:3.11.14-debian13
+FROM dhi.io/python:3.11.14-debian13 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -130,6 +136,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8888
 
 WORKDIR /app
+
+# qwen-tts pulls python-sox, which shells out through /bin/sh during import.
+# Keep a POSIX shell available in the runtime image for compatibility.
+COPY --from=builder /usr/bin/bash /bin/sh
 
 # Copy Python site-packages from builder (minimal and secure)
 COPY --from=builder /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages
@@ -146,8 +156,10 @@ COPY --from=builder /app_staging/entrypoint.py /app/entrypoint.py
 # Create symlink alias at runtime (in ENTRYPOINT since no shell in runtime image for RUN)
 EXPOSE 8888
 
-<<<<<<< HEAD
 ENTRYPOINT ["python", "/app/entrypoint.py"]
-=======
-ENTRYPOINT ["/bin/sh","-lc","set -e; [ -e /app/codexify ] || ln -s /app/guardian /app/codexify; if [ ! -f /app/wait_for_db.py ]; then cat > /app/wait_for_db.py <<'PY'\n#!/usr/bin/env python3\nimport os, time, sys\ntry:\n    import psycopg2\nexcept Exception:\n    print('psycopg2 unavailable; skipping active DB wait', file=sys.stderr)\n    sys.exit(0)\ndsn = os.environ.get('DATABASE_URL')\nif not dsn:\n    print('DATABASE_URL not set; skipping DB wait', file=sys.stderr)\n    sys.exit(0)\nfor i in range(90):\n    try:\n        psycopg2.connect(dsn).close()\n        print('Postgres is up')\n        break\n    except Exception as e:\n        print('Waiting for Postgres...', e, file=sys.stderr)\n        time.sleep(2)\nPY\nchmod +x /app/wait_for_db.py; fi; python /app/wait_for_db.py || true; if [ ! -f /app/backend/alembic.ini ]; then printf '%s\n' '[alembic]' 'script_location = backend/migrations' > /app/backend/alembic.ini; fi; python -m alembic -c /app/backend/alembic.ini upgrade head; exec uvicorn codexify.guardian_api:app --host 0.0.0.0 --port ${PORT}"]
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
+
+# === TTS runtime stage: backend runtime + pinned TTS deps ===
+FROM runtime AS tts-runtime
+
+# Copy the site-packages tree with pinned TTS dependency graph.
+COPY --from=builder-tts /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages

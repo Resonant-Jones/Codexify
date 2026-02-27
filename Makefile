@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab
 
 # Python executable
 PYTHON      ?= python
@@ -257,6 +257,10 @@ ps:
 
 dlogs:
 	$(COMPOSE) --env-file $(DEV_ENV) logs -f --tail=200
+
+# Build shareable collaborator dossier (technical teaser profile)
+dossier-collab:
+	bash scripts/docs/build_collab_dossier.sh --profile $${PROFILE:-technical-teaser}
 
 # Render the fully merged compose (WITHOUT interpolating ${...} from env/shell)
 cfg:
