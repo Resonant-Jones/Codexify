@@ -1,0 +1,10 @@
+docs/architecture/system-overview.md
+docs/architecture/flows.md
+docs/architecture/modules-and-ownership.md
+docs/architecture/config-and-ops.md
+docs/architecture/roadmap-signals.md
+docs/architecture/tech-debt-and-risks.md
+docs/architecture/data-and-storage.md
+docs/architecture/completion_pipeline.md
+docker-compose.yml
+Makefile
