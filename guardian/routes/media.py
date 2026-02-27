@@ -33,7 +33,7 @@ from sqlalchemy.exc import IntegrityError
 
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.default_project import canonicalize_default_project
-from guardian.core.dependencies import chatlog_db, verify_api_key
+from guardian.core.dependencies import verify_api_key
 from guardian.core.media_signing import extract_media_path, sign_media_url
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import (
@@ -172,11 +172,13 @@ class MediaResolveResponse(BaseModel):
 # =========================
 
 
-def _get_db():
-    """Get database connection."""
-    if chatlog_db is not None:
-        return chatlog_db
+def _get_db() -> GuardianDB:
+    """Get the Guardian media database connection.
 
+    Media routes require a SQLAlchemy session (via GuardianDB.get_session). The
+    chatlog DB adapter (PostgresChatLogDB) does not provide that API, so we must
+    always resolve a GuardianDB instance here.
+    """
     resolved = load_guardian_db_from_env()
     if resolved is not None:
         return resolved
