@@ -232,7 +232,7 @@ services:
       # --- OpenAI (cloud) ---
       # NOTE: We intentionally do NOT override OPENAI_BASE_URL here.
       # Default to a harmless placeholder so the OpenAI SDK can initialize in local mode
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_CHAT_MODEL: "${OPENAI_CHAT_MODEL:-gpt-5.1}"
       OPENAI_EMBED_MODEL: "${OPENAI_EMBED_MODEL:-text-embedding-3-small}"
 
