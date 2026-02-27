@@ -123,13 +123,7 @@ class TestChatThreadsPost:
         assert data["ok"] is True
         # Should use default title "New Chat"
         mock_db.create_chat_thread.assert_called_once()
-<<<<<<< HEAD
         mock_db.ensure_default_project.assert_called_once_with()
-=======
-        mock_db.ensure_project.assert_called_once_with(
-            "General", "Default bucket for unassigned threads"
-        )
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         call_kwargs = mock_db.create_chat_thread.call_args[1]
         assert call_kwargs["title"] == "New Chat"
         assert call_kwargs["user_id"] == "default"
@@ -178,13 +172,7 @@ class TestChatThreadsPost:
         )
 
         assert response.status_code == 200
-<<<<<<< HEAD
         mock_db.ensure_default_project.assert_called_once_with()
-=======
-        mock_db.ensure_project.assert_called_once_with(
-            "General", "Default bucket for unassigned threads"
-        )
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         call_kwargs = mock_db.create_chat_thread.call_args[1]
         assert (
             call_kwargs["project_id"]
@@ -314,13 +302,7 @@ class TestChatMessagesPost:
         response = test_client.post("/chat/1/messages", json=payload)
 
         assert response.status_code == 200
-<<<<<<< HEAD
         mock_db.ensure_default_project.assert_called_once_with()
-=======
-        mock_db.ensure_project.assert_called_once_with(
-            "General", "Default bucket for unassigned threads"
-        )
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         mock_db.ensure_chat_thread.assert_called_once()
         ensure_kwargs = mock_db.ensure_chat_thread.call_args.kwargs
         assert (
@@ -417,32 +399,12 @@ class TestChatMessagesGet:
 class TestChatCompletePost:
     """Tests for POST /chat/{thread_id}/complete endpoint."""
 
-<<<<<<< HEAD
-    def test_complete_success(self, test_client, mock_db):
-        """Test successful completion deterministically enqueues a task."""
-=======
     def test_complete_success(self, test_client, mock_db, monkeypatch):
         """Test completion enqueues a task and returns a task id."""
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
         mock_db.list_messages.return_value = [
             {"role": "user", "content": "Hello"}
         ]
 
-<<<<<<< HEAD
-        with patch("guardian.routes.chat.enqueue") as mock_enqueue:
-            response = test_client.post("/chat/1/complete", json={})
-
-            assert response.status_code == 200
-            data = response.json()
-            assert "task_id" in data
-            assert isinstance(data["task_id"], str)
-            assert data["task_id"].strip()
-
-            mock_enqueue.assert_called_once()
-            enqueued_task, queue_name = mock_enqueue.call_args.args
-            assert queue_name == "codexify:queue:chat"
-            assert enqueued_task.thread_id == 1
-=======
         captured: dict[str, object] = {}
         monkeypatch.setattr(
             "guardian.routes.chat.acquire_turn_lock",
@@ -465,7 +427,6 @@ class TestChatCompletePost:
         assert getattr(task, "thread_id") == 1
         assert getattr(task, "turn_lock_owner") == data["task_id"]
         assert captured.get("queue_name") == "codexify:queue:chat"
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
     def test_complete_with_model_override(
         self, test_client, mock_db, monkeypatch
@@ -491,29 +452,10 @@ class TestChatCompletePost:
             "/chat/1/complete", json={"model": "custom-model"}
         )
 
-<<<<<<< HEAD
-            assert response.status_code == 200
-            data = response.json()
-            assert data.get("ok", True) is True
-
-            # Route may be synchronous (returns assistant message) or async/queued (returns task_id).
-            if "message" in data:
-                # Sync path: ensure model override made it to the LLM helper.
-                mock_groq.assert_called_once()
-                call_kwargs = mock_groq.call_args.kwargs
-                assert call_kwargs["model"] == "custom-model"
-            else:
-                # Async path: request is enqueued; LLM helper should not be called directly here.
-                assert "task_id" in data
-                assert isinstance(data["task_id"], str)
-                assert data["task_id"].strip()
-                assert mock_groq.call_count == 0
-=======
         assert response.status_code == 200
         task = captured.get("task")
         assert task is not None
         assert getattr(task, "model") == "custom-model"
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
     @pytest.mark.xfail(reason="Error status code difference - acceptable")
     def test_complete_empty_context(self, test_client, mock_db):
@@ -548,26 +490,8 @@ class TestChatCompletePost:
 
         response = test_client.post("/chat/1/complete", json={})
 
-<<<<<<< HEAD
-            assert response.status_code == 200
-            data = response.json()
-            assert data.get("ok", True) is True
-
-            # Route may be synchronous (calls the LLM helper) or async/queued (returns task_id).
-            if "message" in data:
-                # Verify only valid messages were passed to completion
-                assert mock_groq.call_count == 1
-                call_args = mock_groq.call_args[0][0]
-                assert len(call_args) == 3  # 1 system + 2 valid messages
-            else:
-                assert "task_id" in data
-                assert isinstance(data["task_id"], str)
-                assert data["task_id"].strip()
-                assert mock_groq.call_count == 0
-=======
         assert response.status_code == 200
         assert "task_id" in response.json()
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
     def test_complete_groq_error(self, test_client, mock_db, monkeypatch):
         """Test completion returns queue_unavailable when enqueue fails."""
@@ -575,37 +499,6 @@ class TestChatCompletePost:
             {"role": "user", "content": "Hello"}
         ]
 
-<<<<<<< HEAD
-        # Force the synchronous path so the Groq helper is exercised.
-        # (If the route takes the async/queued path, it will return a task_id and
-        # the LLM helper will not be called.)
-        with patch(
-            "guardian.routes.chat.get_queue",
-            side_effect=Exception("queue unavailable"),
-            create=True,
-        ), patch("guardian.routes.chat._groq_complete") as mock_groq:
-            mock_groq.side_effect = HTTPException(
-                status_code=502, detail="Groq error"
-            )
-
-            response = test_client.post("/chat/1/complete", json={})
-            data = response.json()
-
-            # Async path returns a task id without invoking Groq.
-            if "task_id" in data:
-                assert response.status_code == 200
-                assert isinstance(data["task_id"], str)
-                assert data["task_id"].strip()
-                assert mock_groq.call_count == 0
-            else:
-                # Sync path should surface the Groq error.
-                assert response.status_code == 502
-                detail = data.get("detail")
-                assert isinstance(detail, str)
-                assert detail.strip()
-                assert "groq" in detail.lower() or "error" in detail.lower()
-                assert mock_groq.call_count == 1
-=======
         monkeypatch.setattr(
             "guardian.routes.chat.acquire_turn_lock",
             lambda *a, **k: True,
@@ -623,7 +516,6 @@ class TestChatCompletePost:
 
         assert response.status_code == 503
         assert response.json()["detail"] == "queue_unavailable"
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
     def test_api_complete_returns_context_bundle(
         self, test_client, mock_db, monkeypatch
@@ -646,33 +538,9 @@ class TestChatCompletePost:
             "/api/chat/1/complete", json={"depth_mode": "normal"}
         )
 
-<<<<<<< HEAD
-        monkeypatch.setattr("guardian.routes.chat.ContextBroker", FakeBroker)
-
-        with patch("guardian.routes.chat._groq_complete") as mock_groq:
-            mock_groq.return_value = "Assistant reply"
-
-            response = test_client.post(
-                "/api/chat/1/complete", json={"depth_mode": "normal"}
-            )
-
-            assert response.status_code == 200
-            data = response.json()
-            # Alias route may be synchronous (message + context) or async (task_id).
-            if "message" in data:
-                assert data["message"]["content"] == "Assistant reply"
-                assert data["context"].get("semantic") == ["sem"]
-                assert mock_groq.call_count == 1
-            else:
-                assert "task_id" in data
-                assert isinstance(data["task_id"], str)
-                assert data["task_id"].strip()
-                assert mock_groq.call_count == 0
-=======
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data.get("task_id"), str)
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
 
 class TestChatMessageDelete:
@@ -911,16 +779,5 @@ class TestApiChatAlias:
             lambda *a, **k: None,
         )
         resp = test_client.post("/api/chat/1/complete", json={})
-<<<<<<< HEAD
-        data = resp.json()
-        if resp.status_code == 400:
-            assert "LLM unavailable" in data.get("detail", "")
-        else:
-            assert resp.status_code == 200
-            assert "task_id" in data
-            assert isinstance(data["task_id"], str)
-            assert data["task_id"].strip()
-=======
         assert resp.status_code == 200
         assert isinstance(resp.json().get("task_id"), str)
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)

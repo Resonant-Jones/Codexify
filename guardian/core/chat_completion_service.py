@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Optional
 
 from guardian.context.broker import ContextBroker
@@ -55,7 +55,7 @@ def _embed_message(
             "thread_id": thread_id,
             "role": role,
             "message_id": message_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "source": "chat",
         }
         dependencies._vector_store.add_texts([{"text": content, "meta": meta}])

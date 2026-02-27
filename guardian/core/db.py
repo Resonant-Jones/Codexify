@@ -9,6 +9,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import create_engine, func, inspect, or_, text
@@ -36,6 +37,10 @@ from guardian.db.models import (
 
 logger = logging.getLogger(__name__)
 EXPECTED_TABLES = set(Base.metadata.tables.keys()) | {"alembic_version"}
+_SCHEMA_VERIFIED_URLS: set[str] = set()
+_SCHEMA_VERIFY_LOCK = Lock()
+_GUARDIAN_DB_CACHE: dict[str, "GuardianDB"] = {}
+_GUARDIAN_DB_CACHE_LOCK = Lock()
 
 
 def verify_schema_consistency(engine) -> None:
@@ -90,7 +95,13 @@ class _PostgresGuardianDB:
             autoflush=False,
         )
 
-        verify_schema_consistency(self.engine)
+        with _SCHEMA_VERIFY_LOCK:
+            should_verify = db_url not in _SCHEMA_VERIFIED_URLS
+
+        if should_verify:
+            verify_schema_consistency(self.engine)
+            with _SCHEMA_VERIFY_LOCK:
+                _SCHEMA_VERIFIED_URLS.add(db_url)
 
         # Legacy flags (no-ops now, kept for compatibility)
         self._events_outbox_ready = True
@@ -1652,4 +1663,10 @@ def load_guardian_db_from_env() -> Optional[GuardianDB]:
     db_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
     if not db_url:
         return None
-    return GuardianDB(db_url)
+    with _GUARDIAN_DB_CACHE_LOCK:
+        cached = _GUARDIAN_DB_CACHE.get(db_url)
+        if cached is not None:
+            return cached
+        instance = GuardianDB(db_url)
+        _GUARDIAN_DB_CACHE[db_url] = instance
+        return instance

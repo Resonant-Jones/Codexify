@@ -5,14 +5,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import os
 import time
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from guardian.core.db import GuardianDB
+from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import chatlog_db, require_api_key
 from guardian.db.models import ChatMessage
 from guardian.queue import task_events
@@ -87,14 +86,10 @@ async def _await_terminal_task_event(
                 return event_type, (event.get("data") or {})
 
 
-def _database_url() -> str:
-    return os.getenv(
-        "DATABASE_URL", "postgresql://guardian:guardian@db:5432/guardian"
-    )
-
-
 def _load_message(message_id: int) -> ChatMessage | None:
-    db = GuardianDB(_database_url())
+    db = chatlog_db or load_guardian_db_from_env()
+    if not db or not hasattr(db, "get_session"):
+        return None
     with db.get_session() as session:
         row = session.query(ChatMessage).filter_by(id=message_id).first()
         return row

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import platform
 import sys
@@ -9,11 +10,38 @@ from common import execv, log, run
 
 
 def install_runtime_dependencies() -> None:
-    log("TTS", "Installing/upgrading qwen-tts")
-    run([sys.executable, "-m", "pip", "install", "-U", "qwen-tts"])
+    required = {
+        "qwen_tts": "qwen-tts",
+        "safetensors": "safetensors",
+    }
+    missing = [
+        pkg
+        for mod, pkg in required.items()
+        if importlib.util.find_spec(mod) is None
+    ]
+    if missing:
+        raise SystemExit(
+            "[TTS] FATAL: missing locked runtime dependencies: "
+            + ", ".join(missing)
+            + ". Rebuild the tts image."
+        )
+    log("TTS", "Using image-pinned runtime dependencies")
 
-    log("TTS", "Installing/upgrading safetensors")
-    run([sys.executable, "-m", "pip", "install", "-U", "safetensors"])
+
+def validate_qwen_runtime() -> None:
+    check_cmd = [
+        sys.executable,
+        "-c",
+        "import qwen_tts; print('[TTS] OK: qwen_tts import works')",
+    ]
+
+    result = run(check_cmd, check=False)
+    if result.returncode == 0:
+        return
+
+    raise SystemExit(
+        "[TTS] FATAL: qwen_tts import failed. Ensure /bin/sh is available in the image and rebuild tts."
+    )
 
 
 def validate_transformers_pipeline() -> None:
@@ -29,15 +57,8 @@ def validate_transformers_pipeline() -> None:
 
     log(
         "TTS",
-        "transformers.pipeline import failed; attempting torchvision install",
+        "WARNING: transformers.pipeline import failed; continuing (Qwen runtime does not require pipeline)",
     )
-    run([sys.executable, "-m", "pip", "install", "-U", "torchvision"])
-
-    retry = run(check_cmd, check=False)
-    if retry.returncode != 0:
-        raise SystemExit(
-            "[TTS] FATAL: transformers.pipeline still not importable"
-        )
 
 
 def offline_cache_checks() -> None:
@@ -74,6 +95,7 @@ def main() -> int:
     log("TTS", f"platform: {platform.platform()}")
 
     install_runtime_dependencies()
+    validate_qwen_runtime()
     validate_transformers_pipeline()
     offline_cache_checks()
 

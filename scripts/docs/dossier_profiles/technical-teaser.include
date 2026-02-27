@@ -1,0 +1,20 @@
+# Codexify collaborator dossier include list: technical teaser profile.
+# One repo-relative file path per line.
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+SECURITY.md
+docs/help/CODEXIFY_HELP_AND_FAQ.md
+docs/architecture/README.md
+docs/architecture/system-overview.md
+docs/architecture/flows.md
+docs/architecture/modules-and-ownership.md
+docs/architecture/data-and-storage.md
+docs/architecture/config-and-ops.md
+docs/architecture/roadmap-signals.md
+docs/architecture/tech-debt-and-risks.md
+docs/codexify-mvp-roadmap-2026-02-24.md
+docs/Plugins/plugin-sdk.md
+docs/Plugins/plugin_development.md
+docs/security/auth-boundary-decision.md
+docs/Ops/SOLO_OPERATOR_SYSTEM_MAP.md

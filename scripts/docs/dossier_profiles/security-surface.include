@@ -1,0 +1,8 @@
+SECURITY.md
+docs/infra/system_integrity_ledger.md
+docs/iddb_policy_v1.md
+docs/infra/sync-contract.md
+docs/architecture/config-and-ops.md
+docs/architecture/tech-debt-and-risks.md
+docs/architecture/data-and-storage.md
+docs/architecture/completion_pipeline.md

@@ -1,0 +1,10 @@
+{
+  "repo_root": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify",
+  "base_ref": "3532e63bae53d88a522699e48f1f37c8873f94cc",
+  "audit_prompt_sha256": "f3de66024ae257804ffc2a5aa03a398ee9681560ff7b8208a6d42614008ae6aa",
+  "audit_schema_sha256": "9ee2fd69035fcf1a5489d49fceb470ba1478386a19a2fda3bab0d962986a2ee7",
+  "compiler_prompt_sha256": "c0da11346723b0eb5ea214bce6a502d93bc7ee82a7bb8a3cd4bd3f57ca9ba3f5",
+  "campaign_set_schema_sha256": "c41102d10f6a95660e57d25ac726f8eac84e0fe8cc64461f206cc70c1bdacb52",
+  "pass_index": 1,
+  "execute_mode": "dry-run"
+}
