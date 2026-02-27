@@ -31,9 +31,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
-from guardian.core.db import GuardianDB
+from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.default_project import canonicalize_default_project
-from guardian.core.dependencies import verify_api_key
+from guardian.core.dependencies import chatlog_db, verify_api_key
 from guardian.core.media_signing import extract_media_path, sign_media_url
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import (
@@ -174,7 +174,12 @@ class MediaResolveResponse(BaseModel):
 
 def _get_db():
     """Get database connection."""
-    import os
+    if chatlog_db is not None:
+        return chatlog_db
+
+    resolved = load_guardian_db_from_env()
+    if resolved is not None:
+        return resolved
 
     db_url = os.getenv(
         "DATABASE_URL", "postgresql://guardian:guardian@db:5432/guardian"

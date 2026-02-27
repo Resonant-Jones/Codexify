@@ -8,7 +8,6 @@ import ContextMenu from "@/components/ui/ContextMenu";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
-<<<<<<< HEAD
 import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
@@ -20,8 +19,6 @@ type PollSession = {
   startedAt: number;
   initialAssistantId: number;
 };
-=======
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
 export function ChatView({
   threadId,
@@ -53,7 +50,6 @@ export function ChatView({
   const autoReadPrimedRef = useRef(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const PAGE_SIZE = 100;
-<<<<<<< HEAD
   const POLL_INTERVAL_MS = 900;
   const POLL_TIMEOUT_MS = 30000;
   const pollTokenRef = useRef(0);
@@ -62,9 +58,7 @@ export function ChatView({
   const lastAssistantIdRef = useRef(0);
   const lastPolledUserIdRef = useRef(0);
   const lastReloadVersionRef = useRef(reloadVersion);
-=======
   const audioRef = useRef<HTMLAudioElement | null>(null);
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
 
 

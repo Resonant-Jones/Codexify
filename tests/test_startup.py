@@ -81,11 +81,7 @@ class TestStartupBehavior:
 
     def test_default_project_created_on_startup(self):
         """
-<<<<<<< HEAD
         Test that the default General project is created during app startup.
-=======
-        Test that the default project is created during app startup.
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
         """
         # Create a mock database
         mock_db = MagicMock()
@@ -113,11 +109,7 @@ class TestStartupBehavior:
             assert len(ensure_project_calls) == 1
             assert ensure_project_calls[0][0] == (
                 "General",
-<<<<<<< HEAD
                 "Default bucket for unassigned threads and documents",
-=======
-                "Default bucket for unassigned threads",
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
             )
 
     def test_startup_calls_ensure_loose_threads(self):
@@ -205,12 +197,8 @@ class TestStartupBehavior:
 
             # Verify correct parameters
             mock_db.ensure_project.assert_called_once_with(
-<<<<<<< HEAD
                 "General",
                 "Default bucket for unassigned threads and documents",
-=======
-                "General", "Default bucket for unassigned threads"
->>>>>>> 76d4dccc (fix(ops): preserve project aliases and hard-fail alembic startup)
             )
 
 

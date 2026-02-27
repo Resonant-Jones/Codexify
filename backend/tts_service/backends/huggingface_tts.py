@@ -9,7 +9,14 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 import torch
-from transformers import pipeline
+
+try:
+    from transformers import pipeline as hf_pipeline
+except Exception as exc:  # pragma: no cover
+    hf_pipeline = None  # type: ignore[assignment]
+    _PIPELINE_IMPORT_ERROR = exc
+else:
+    _PIPELINE_IMPORT_ERROR = None
 
 # Optional: Qwen3-TTS native runtime (preferred for Qwen/Qwen3-TTS models)
 try:
@@ -74,13 +81,18 @@ def _get_pipeline(model_id: str):
         )
 
     # Non-Qwen models: use transformers pipeline.
+    if hf_pipeline is None:
+        raise RuntimeError(
+            "transformers.pipeline is unavailable in this runtime."
+        ) from _PIPELINE_IMPORT_ERROR
+
     offline = (
         os.environ.get("HF_HUB_OFFLINE") == "1"
         or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
     )
 
     try:
-        pipe = pipeline(
+        pipe = hf_pipeline(
             "text-to-speech",
             model=model_id,
             device=device,

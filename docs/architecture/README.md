@@ -26,6 +26,10 @@ Codexify is a local-first chat and knowledge workspace with a FastAPI backend (`
 - [Modules and Ownership](./modules-and-ownership.md)
 - [Roadmap Signals (Derived)](./roadmap-signals.md)
 - [Tech Debt and Risks](./tech-debt-and-risks.md)
+- [Solo Operator Runtime Bootcamp](./solo-operator-runtime-bootcamp.md)
+- [Solo Operator System Map](../Ops/SOLO_OPERATOR_SYSTEM_MAP.md)
+- [Solo Operator Automation Runbook](../Ops/SOLO_OPERATOR_AUTOMATION_RUNBOOK.md)
+- [Solo Operator Failure Signatures](../Ops/SOLO_OPERATOR_FAILURE_SIGNATURES.md)
 - [Inference Providers (Legacy Notes)](./providers.md)
 - [Completion Pipeline (Legacy Deep Dive)](./completion_pipeline.md)
 

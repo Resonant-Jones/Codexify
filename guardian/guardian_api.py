@@ -357,17 +357,7 @@ async def app_lifespan(app: FastAPI):
         local_llm_model = os.getenv("LOCAL_LLM_MODEL") or getattr(
             settings, "LOCAL_LLM_MODEL", None
         )
-<<<<<<< HEAD
         local_embed_model = os.getenv("LOCAL_EMBED_MODEL")
-=======
-        local_embed_model = get_local_embed_model(strict=False)
-        if embedding_backend == "local":
-            local_embed_model = require_local_embed_model()
-        if local_embed_model is None:
-            local_embed_model = os.getenv("LOCAL_EMBEDDING_MODEL") or getattr(
-                settings, "LOCAL_EMBEDDING_MODEL", None
-            )
->>>>>>> e27828cd (fix(embed): validate LOCAL_EMBED_MODEL only when local backend selected)
 
         def _norm_model(name: Optional[str]) -> str:
             return str(name or "").strip().lower()

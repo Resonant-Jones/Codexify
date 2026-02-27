@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 /**
  * GuardianChat.tsx
  *
@@ -7,14 +6,21 @@
  */
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { debounce } from "lodash-es";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronRight, MoreVertical, Sparkles, Layers, SquareStack, Zap } from "lucide-react";
-=======
-import { useMemo, useState, useEffect, useRef } from "react";
-import { debounce } from "lodash-es";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronRight, MoreVertical, Plus, Sparkles, Layers, SquareStack, ArrowLeft, Volume2 } from "lucide-react";
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  ChevronRight,
+  MoreVertical,
+  Sparkles,
+  Layers,
+  SquareStack,
+  Zap,
+  Volume2,
+} from "lucide-react";
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
@@ -25,6 +31,7 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
+import TraceButton from "./components/TraceButton";
 import SessionRail from "@/components/SessionRail/SessionRail";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
@@ -1026,7 +1033,6 @@ export function GuardianChat({
         </DropdownMenuContent>
       </DropdownMenu>
 
-<<<<<<< HEAD
       <div
         ref={promptCostPopoverRef}
         className="relative"
@@ -1127,7 +1133,6 @@ export function GuardianChat({
           </div>
         ) : null}
       </div>
-=======
       <TraceButton threadId={effectiveThreadId} />
       <button
         type="button"
@@ -1139,7 +1144,6 @@ export function GuardianChat({
       >
         <Volume2 className="h-5 w-5" />
       </button>
->>>>>>> 4e6eeb9b (feat(voice): add turn-based voice task pipeline and cached playback)
 
       <button
         type="button"
