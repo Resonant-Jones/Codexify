@@ -15,6 +15,21 @@ _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
 
 
+def _normalize_provider(provider: Optional[str]) -> str:
+    """
+    Normalize provider identifiers coming from API/UI/config.
+
+    Notes:
+    - `auto` is accepted as an execution-time alias. Today it resolves to
+      `local` (local-first + deterministic). This prevents config/UX mismatch
+      from hard-failing completions when UI does not send an explicit provider.
+    """
+    normalized = (provider or "").strip().lower()
+    if normalized in ("", "auto"):
+        return "local"
+    return normalized
+
+
 def _format_local_connect_error(url: str, err: Exception) -> str:
     """Produce an actionable error message for local inference failures.
 
@@ -93,9 +108,7 @@ def chat_with_ai(
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
-    provider_name = (
-        (provider or settings.LLM_PROVIDER or "groq").strip().lower()
-    )
+    provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
     target_model = model or _default_model_for_provider(provider_name, settings)
 
     if not target_model:
