@@ -975,6 +975,58 @@ def codex_compat_schema(
     return normalized, removed
 
 
+def ensure_response_format_schema_compat(
+    schema_payload: dict[str, Any]
+) -> None:
+    """
+    OpenAI response_format requires every object that defines `properties`
+    to list all of those keys in `required`.
+    """
+
+    violations: list[tuple[str, list[str]]] = []
+
+    def walk(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            properties = value.get("properties")
+            if isinstance(properties, dict):
+                property_keys = sorted(
+                    key for key in properties.keys() if isinstance(key, str)
+                )
+                required = value.get("required")
+                required_keys = (
+                    {key for key in required if isinstance(key, str) and key}
+                    if isinstance(required, list)
+                    else set()
+                )
+                missing = [
+                    key for key in property_keys if key not in required_keys
+                ]
+                if missing:
+                    violations.append((path, missing))
+
+            for key, item in value.items():
+                next_path = f"{path}.{key}" if path != "$" else f"$.{key}"
+                walk(item, next_path)
+            return
+
+        if isinstance(value, list):
+            for idx, item in enumerate(value):
+                walk(item, f"{path}[{idx}]")
+
+    walk(schema_payload, "$")
+
+    if violations:
+        details = "; ".join(
+            f"{path} missing required keys: {', '.join(missing)}"
+            for path, missing in violations
+        )
+        raise RunnerError(
+            "Schema is incompatible with OpenAI response_format: "
+            "every object with properties must include all property keys "
+            f"in required. {details}"
+        )
+
+
 def _parse_json_with_fallback(raw_output: str, provider: str) -> Any:
     text = raw_output.strip()
     if not text:
@@ -1077,6 +1129,7 @@ def run_codex_exec(
 ) -> None:
     schema_payload = json_read(output_schema)
     schema_for_codex, removed = codex_compat_schema(schema_payload)
+    ensure_response_format_schema_compat(schema_for_codex)
     effective_schema_path = output_schema
     tmp_schema_dir: tempfile.TemporaryDirectory[str] | None = None
     if removed.get("allOf", 0) > 0:

@@ -189,11 +189,16 @@ def test_run_codex_exec_strips_allof_schema_for_compatibility(
         json.dumps(
             {
                 "type": "object",
+                "required": ["campaigns"],
                 "properties": {
                     "campaigns": {
                         "type": "array",
                         "items": {
                             "type": "object",
+                            "required": [
+                                "tasks",
+                                "discovery_reason",
+                            ],
                             "properties": {
                                 "tasks": {"type": "array"},
                                 "discovery_reason": {"type": "string"},
@@ -251,6 +256,66 @@ def test_run_codex_exec_strips_allof_schema_for_compatibility(
     items = schema_payload["properties"]["campaigns"]["items"]
     assert "allOf" not in items
     assert observed["schema_arg"] != schema_path
+
+
+def test_run_codex_exec_rejects_incompatible_response_format_schema(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    schema_path = tmp_path / "schema.json"
+    output_path = tmp_path / "out.json"
+    schema_path.write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {
+                    "campaigns": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "tasks": {"type": "array"},
+                                "discovery_reason": {"type": "string"},
+                            },
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_run_cmd(
+        args: list[str],
+        *,
+        cwd: Path,
+        capture_output: bool = False,
+        debug: bool = False,
+    ):
+        raise AssertionError(
+            "run_cmd should not be called for incompatible schema"
+        )
+
+    monkeypatch.setattr(runner, "run_cmd", fake_run_cmd)
+
+    with pytest.raises(
+        runner.RunnerError,
+        match="Schema is incompatible with OpenAI response_format",
+    ):
+        runner.run_codex_exec(
+            tmp_path,
+            prompt_text="hello",
+            output_schema=schema_path,
+            output_path=output_path,
+            model=None,
+            configs=[],
+            debug=False,
+        )
+
+
+def test_default_campaign_set_schema_is_response_format_compatible() -> None:
+    schema = runner.json_read(runner.DEFAULT_CAMPAIGN_SET_SCHEMA_PATH)
+    schema_for_codex, _removed = runner.codex_compat_schema(schema)
+    runner.ensure_response_format_schema_compat(schema_for_codex)
 
 
 def test_run_codex_exec_uses_original_schema_when_compatible(
