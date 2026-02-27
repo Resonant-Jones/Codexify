@@ -1,0 +1,8 @@
+.env*
+**/*.env
+docker-compose.override.yml
+backend/rag/*
+backend/**/embedder.py
+guardian_index/
+.chroma/
+node_modules/
