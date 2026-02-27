@@ -1,0 +1,12 @@
+# Locked dependencies for the TTS runtime image.
+# Keep these pinned to avoid runtime drift and slow startup reinstalls.
+qwen-tts==0.1.1
+safetensors==0.7.0
+transformers==4.57.3
+accelerate==1.12.0
+torch==2.10.0
+torchaudio==2.10.0
+torchvision==0.25.0
+gradio==6.7.0
+gradio-client==2.2.0
+librosa==0.11.0

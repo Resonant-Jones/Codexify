@@ -24,14 +24,10 @@ from typing import Any
 
 import numpy as np
 
-<<<<<<< HEAD
-from guardian.utils.embed_paths import resolve_local_embed_model
-=======
 from guardian.utils.embed_paths import (
     get_local_embed_model,
     require_local_embed_model,
 )
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
 
 try:
     from sentence_transformers import SentenceTransformer  # type: ignore
@@ -55,21 +51,17 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
-=======
+# Default backend selection (kept compatible with legacy EMBEDDING_BACKEND)
 DEFAULT_BACKEND = (
     (
         os.getenv("CODEXIFY_EMBEDDINGS_BACKEND")
         or os.getenv("EMBEDDING_BACKEND")
-        or "mock"
+        or "sentence_transformer"
     )
     .strip()
     .lower()
 )
-DEFAULT_MODEL = os.getenv("CODEXIFY_LOCAL_MODEL") or get_local_embed_model(
-    strict=False
-)
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
+
 DEFAULT_STORE = "faiss"
 
 # Environment variable names
@@ -113,15 +105,6 @@ def _namespace_matches(meta: dict[str, Any], namespace: str | None) -> bool:
     return _normalize_namespace(meta.get("namespace")) == namespace
 
 
-def _normalize_embeddings(arr: np.ndarray) -> np.ndarray:
-    if arr.size == 0:
-        return arr
-    norms = np.linalg.norm(arr, axis=1, keepdims=True)
-    norms[norms == 0.0] = 1.0
-    return arr / norms
-
-
-<<<<<<< HEAD
 def _get_embeddings_backend() -> str:
     """Get the configured embeddings backend from environment."""
     backend = os.getenv(_ENV_BACKEND, _BACKEND_SENTENCE_TRANSFORMER)
@@ -147,24 +130,14 @@ def _is_local_backend(value: str) -> bool:
 
 
 def _get_local_embed_model(*, strict: bool) -> str | None:
+    """Return a local embedding model path if configured.
+
+    - strict=True: require a valid local model (fail-closed)
+    - strict=False: return the configured model if present, else None
+    """
     if strict:
-        return resolve_local_embed_model()
-    model_name = (os.getenv("LOCAL_EMBED_MODEL") or "").strip()
-    return model_name or None
-=======
-def _stub_embed_np(texts: list[str], dim: int) -> np.ndarray:
-    if not texts:
-        return np.empty((0, dim), dtype="float32")
-    vectors = np.zeros((len(texts), dim), dtype="float32")
-    for row, text in enumerate(texts):
-        for token in text.split():
-            token_hash = int(
-                hashlib.sha256(token.encode("utf-8")).hexdigest(),
-                16,
-            )
-            vectors[row, token_hash % dim] += 1.0
-    return _normalize_embeddings(vectors)
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
+        return require_local_embed_model()
+    return get_local_embed_model(strict=False)
 
 
 class LocalSemanticEmbedder:
@@ -178,57 +151,25 @@ class LocalSemanticEmbedder:
         collection: str = "codexify_vault",
         backend: str | None = None,
     ) -> None:
-<<<<<<< HEAD
-        if model:
-            logger.warning(
-                "[embedder] model override ignored; use LOCAL_EMBED_MODEL"
-            )
-=======
-        self.backend = (
-            (
-                backend
-                or os.getenv("CODEXIFY_EMBEDDINGS_BACKEND")
-                or os.getenv("EMBEDDING_BACKEND")
-                or DEFAULT_BACKEND
-            )
-            .strip()
-            .lower()
-        )
-        self._stub_dim = int(os.getenv("EMBEDDING_DIM", "128"))
-
-        if self.backend == "local":
-            self.model_name = (
-                model or DEFAULT_MODEL or require_local_embed_model()
-            )
-            if not self.model_name or not os.path.isdir(self.model_name):
-                raise RuntimeError(
-                    "LOCAL_EMBED_MODEL must point to a local directory, "
-                    f"got: {self.model_name}"
-                )
-            if SentenceTransformer is None:
-                raise RuntimeError("sentence-transformers not installed.")
-            self._model = SentenceTransformer(
-                self.model_name,
-                local_files_only=True,
-            )
-        else:
-            self.model_name = (
-                model or DEFAULT_MODEL or get_local_embed_model(strict=False)
-            )
-            self._model = None
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
+        self._model_override = model
 
         self.store = (store or DEFAULT_STORE).strip().lower()
         self.chroma_path = chroma_path
         self.collection = collection
-        self._backend_type: str = _get_embeddings_backend()
+        configured_backend = (
+            (backend or _get_embeddings_backend()).strip().lower()
+        )
+        if configured_backend not in _ALLOWED_BACKENDS:
+            logger.warning(
+                "[embedder] invalid backend=%s, falling back to %s",
+                configured_backend,
+                _BACKEND_SENTENCE_TRANSFORMER,
+            )
+            configured_backend = _BACKEND_SENTENCE_TRANSFORMER
+        self._backend_type = configured_backend
 
-<<<<<<< HEAD
         # Initialize embedding model based on backend selection
         self._model = self._init_embedding_model()
-
-=======
->>>>>>> 17ac719d (fix(embed): gate LOCAL_EMBED_MODEL checks behind CODEXIFY_EMBEDDINGS_BACKEND=local)
         self._index = None
         self._index_dim: int | None = None
         self._texts: list[str] = []
@@ -276,7 +217,10 @@ class LocalSemanticEmbedder:
 
     def _init_sentence_transformer(self, *, strict_local: bool):
         """Initialize SentenceTransformer backend with optional fallback."""
-        self.model_name = _get_local_embed_model(strict=strict_local)
+        # Prefer explicit override, then local model env (when strict), else default HF model.
+        self.model_name = (
+            self._model_override or ""
+        ).strip() or _get_local_embed_model(strict=strict_local)
         if not self.model_name:
             # Non-local backends can run without LOCAL_EMBED_MODEL configured.
             self.model_name = "BAAI/bge-large-en-v1.5"
@@ -320,15 +264,29 @@ class LocalSemanticEmbedder:
     def _embed_np(self, texts: list[str], batch_size: int = 64) -> np.ndarray:
         if not texts:
             return np.empty((0, 0), dtype="float32")
-        if self._model is None:
-            vectors = _stub_embed_np(texts, self._stub_dim)
-        else:
-            vectors = self._model.encode(
+
+        model = self._model
+        if model is None:
+            return np.empty((0, 0), dtype="float32")
+
+        # SentenceTransformer path
+        if hasattr(model, "encode"):
+            vectors = model.encode(
                 texts,
                 batch_size=batch_size,
                 convert_to_numpy=True,
                 show_progress_bar=False,
             )
+        # MockEmbeddingBackend path (or any backend exposing embed_texts/embed)
+        elif hasattr(model, "embed_texts"):
+            vectors = np.asarray(model.embed_texts(texts), dtype="float32")
+        elif hasattr(model, "embed"):
+            vectors = np.asarray(model.embed(texts), dtype="float32")
+        else:
+            raise RuntimeError(
+                "Unsupported embedding backend object; missing encode/embed APIs"
+            )
+
         if vectors.ndim == 1:
             vectors = vectors.reshape(1, -1)
         return vectors.astype("float32")

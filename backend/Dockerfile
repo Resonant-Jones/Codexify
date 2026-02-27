@@ -120,8 +120,14 @@ if __name__ == '__main__':
 ep.chmod(ep.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 PY
 
+# === Optional TTS deps stage: install pinned TTS runtime dependencies ===
+FROM builder AS builder-tts
+
+COPY backend/requirements-tts.txt /tmp/backend/requirements-tts.txt
+RUN python -m pip install -r /tmp/backend/requirements-tts.txt
+
 # === Final stage: Create minimal runtime image ===
-FROM dhi.io/python:3.11.14-debian13
+FROM dhi.io/python:3.11.14-debian13 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -130,6 +136,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8888
 
 WORKDIR /app
+
+# qwen-tts pulls python-sox, which shells out through /bin/sh during import.
+# Keep a POSIX shell available in the runtime image for compatibility.
+COPY --from=builder /usr/bin/bash /bin/sh
 
 # Copy Python site-packages from builder (minimal and secure)
 COPY --from=builder /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages
@@ -147,3 +157,9 @@ COPY --from=builder /app_staging/entrypoint.py /app/entrypoint.py
 EXPOSE 8888
 
 ENTRYPOINT ["python", "/app/entrypoint.py"]
+
+# === TTS runtime stage: backend runtime + pinned TTS deps ===
+FROM runtime AS tts-runtime
+
+# Copy the site-packages tree with pinned TTS dependency graph.
+COPY --from=builder-tts /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages

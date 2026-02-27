@@ -144,6 +144,7 @@ services:
       EMBEDDER_PROVIDER: "local"
       EMBEDDING_BACKEND: "local"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
@@ -205,6 +206,8 @@ services:
       # Policy chokepoint mode for tool/command execution.
       # Values: enforce | warn | off
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      # Resolve core/legacy env drift when both LLM_PROVIDER and AI_BACKEND are present.
+      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-legacy}"
       # Single-user dev default (used when identity fallback is enabled).
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
@@ -224,6 +227,7 @@ services:
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
 
       # --- OpenAI (cloud) ---
       # NOTE: We intentionally do NOT override OPENAI_BASE_URL here.
@@ -282,6 +286,7 @@ services:
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
@@ -330,6 +335,7 @@ services:
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
@@ -377,6 +383,7 @@ services:
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
@@ -428,6 +435,7 @@ services:
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
@@ -478,6 +486,7 @@ services:
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
@@ -529,6 +538,7 @@ services:
       NEO4J_BOLT_URL: bolt://neo4j:7687
       EMBED_PROVIDER: "local"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
@@ -567,10 +577,38 @@ services:
     restart: "no"
     command: ["/app/backend/scripts/docker/run_hf_prefetch.py"]
 
+  embed-prefetch:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    profiles:
+      - cli
+    entrypoint: ["python"]
+    environment:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "0"
+      TRANSFORMERS_OFFLINE: "0"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
+      EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
+    volumes:
+      - ./guardian:/app/guardian
+      - ./models:/models
+      - hf_cache:/root/.cache/huggingface
+    restart: "no"
+    command: ["/app/guardian/scripts/ensure_embed_model.py"]
+
   tts:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: tts-runtime
     working_dir: /app
     entrypoint: ["python"]
     environment:

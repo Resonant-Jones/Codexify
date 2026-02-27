@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-<<<<<<< HEAD
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
@@ -24,6 +23,8 @@ from guardian.ops.setup_wizard import (
     detect_core_dependencies,
     write_env_file,
 )
+
+logger = __import__("logging").getLogger(__name__)
 
 
 @dataclass
@@ -282,8 +283,7 @@ class SetupWizardApp(App[Optional[str]]):
             else:
                 missing = True
                 lines.append(
-                    f"[danger][MISSING][/danger] {dep.name} not found. "
-                    f"{dep.help_text}"
+                    f"[danger][MISSING][/danger] {dep.name} not found. {dep.help_text}"
                 )
         body.update("\n".join(lines))
         if missing:
@@ -385,29 +385,15 @@ class SetupWizardApp(App[Optional[str]]):
             notion_enabled and self.state.notion_target_mode == "page"
         )
 
-        notion_input.set_class(
-            not notion_enabled,
-            "hidden",
-        )
-        notion_target_mode.set_class(
-            not notion_enabled,
-            "hidden",
-        )
-        notion_databases_input.set_class(
-            not notion_database_mode,
-            "hidden",
-        )
+        notion_input.set_class(not notion_enabled, "hidden")
+        notion_target_mode.set_class(not notion_enabled, "hidden")
+        notion_databases_input.set_class(not notion_database_mode, "hidden")
         notion_default_database_input.set_class(
-            not notion_database_mode,
-            "hidden",
+            not notion_database_mode, "hidden"
         )
-        notion_parent_page_input.set_class(
-            not notion_page_mode,
-            "hidden",
-        )
+        notion_parent_page_input.set_class(not notion_page_mode, "hidden")
         github_input.set_class(
-            not (is_custom and self.state.enable_github),
-            "hidden",
+            not (is_custom and self.state.enable_github), "hidden"
         )
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
@@ -598,25 +584,23 @@ class SetupWizardApp(App[Optional[str]]):
             self._set_status(f"[danger]{validation_error}[/danger]")
             return
 
-        kv = {
-            "ALLOW_CLOUD_PROVIDERS": (
-                "true" if self.state.allow_cloud_providers else "false"
-            ),
+        kv: dict[str, str] = {
+            "ALLOW_CLOUD_PROVIDERS": "true"
+            if self.state.allow_cloud_providers
+            else "false",
             "OPENAI_API_KEY": self.state.openai_api_key,
-            "CONNECTOR_NOTION_ENABLED": (
-                "true" if self.state.enable_notion else "false"
-            ),
-            "CONNECTOR_GITHUB_ENABLED": (
-                "true" if self.state.enable_github else "false"
-            ),
-            "NOTION_API_KEY": (
-                self.state.notion_api_key if self.state.enable_notion else ""
-            ),
-            "NOTION_TARGET_MODE": (
-                self.state.notion_target_mode
-                if self.state.enable_notion
-                else ""
-            ),
+            "CONNECTOR_NOTION_ENABLED": "true"
+            if self.state.enable_notion
+            else "false",
+            "CONNECTOR_GITHUB_ENABLED": "true"
+            if self.state.enable_github
+            else "false",
+            "NOTION_API_KEY": self.state.notion_api_key
+            if self.state.enable_notion
+            else "",
+            "NOTION_TARGET_MODE": self.state.notion_target_mode
+            if self.state.enable_notion
+            else "",
             "NOTION_DATABASES": (
                 self.state.notion_databases
                 if self.state.enable_notion
@@ -640,6 +624,7 @@ class SetupWizardApp(App[Optional[str]]):
             if self.state.enable_github
             else "",
         }
+
         if (
             self.state.enable_notion
             and self.state.notion_target_mode == "database"
@@ -658,6 +643,7 @@ class SetupWizardApp(App[Optional[str]]):
                     token.split(":", 1)[1].strip() if ":" in token else token
                 )
                 kv["NOTION_DATABASE_ID"] = notion_database_id
+
         for name, value in self._current_custom_paths().items():
             if name == "docker":
                 kv["DOCKER_BIN"] = value
@@ -676,7 +662,13 @@ class SetupWizardApp(App[Optional[str]]):
                 kv["NEO4J_URL"] = self.state.neo4j_url
 
         env_path = default_env_target(self.repo_root)
-        write_env_file(env_path, kv)
+        # Newer setup flow seeds from template at repo_root (if supported by write_env_file)
+        try:
+            write_env_file(env_path, kv, repo_root=self.repo_root)
+        except TypeError:
+            # Back-compat with older signature
+            write_env_file(env_path, kv)
+
         self.exit(
             result=(
                 f"Wrote {env_path}.\n"
@@ -692,24 +684,21 @@ def run_setup_wizard(repo_root: Path | None = None) -> None:
     result = app.run()
     if result:
         print(result)
-=======
-from pathlib import Path
-from typing import Mapping
-
-from guardian.ops.setup_wizard import write_env_file
 
 
 def write_wizard_env(
     *, repo_root: Path, selections: Mapping[str, str], env_name: str = ".env"
 ) -> Path:
-    """
-    Write the setup-wizard .env file using repo-root template seeding.
+    """Programmatic helper to write the wizard .env.
 
-    The caller provides wizard selections (cloud toggle, keys, connector
-    toggles/tokens, etc.) and those values overlay template defaults.
+    The caller provides wizard selections; these values overlay template defaults
+    when `write_env_file` supports `repo_root`.
     """
     root = Path(repo_root)
     env_path = root / env_name
     overrides = {k: str(v) for k, v in selections.items()}
-    return write_env_file(env_path, overrides, repo_root=root)
->>>>>>> 487d97f5 (feat(setup): seed .env from template and overlay wizard values)
+    try:
+        return write_env_file(env_path, overrides, repo_root=root)
+    except TypeError:
+        write_env_file(env_path, overrides)
+        return env_path

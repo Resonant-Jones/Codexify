@@ -18,98 +18,137 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_table(table_name: str) -> bool:
+    inspector = sa.inspect(op.get_bind())
+    return table_name in inspector.get_table_names()
+
+
+def _has_index(table_name: str, index_name: str) -> bool:
+    if not _has_table(table_name):
+        return False
+    inspector = sa.inspect(op.get_bind())
+    return index_name in {
+        idx["name"] for idx in inspector.get_indexes(table_name)
+    }
+
+
 def upgrade() -> None:
     """Upgrade schema."""
 
-    op.create_table(
-        "cron_jobs",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("name", sa.String(length=255), nullable=False),
-        sa.Column("schedule", sa.String(length=128), nullable=False),
-        sa.Column(
-            "job_type",
-            sa.String(length=32),
-            nullable=False,
-            server_default="noop",
-        ),
-        sa.Column(
-            "payload", sa.JSON(), nullable=False, server_default=sa.text("'{}'")
-        ),
-        sa.Column(
-            "is_enabled",
-            sa.Boolean(),
-            nullable=False,
-            server_default="true",
-        ),
-        sa.Column(
-            "created_at",
-            sa.TIMESTAMP(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        ),
-        sa.Column(
-            "updated_at",
-            sa.TIMESTAMP(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        ),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
-        "ix_cron_jobs_is_enabled", "cron_jobs", ["is_enabled"], unique=False
-    )
-    op.create_index(
-        "ix_cron_jobs_updated_at", "cron_jobs", ["updated_at"], unique=False
-    )
+    if not _has_table("cron_jobs"):
+        op.create_table(
+            "cron_jobs",
+            sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+            sa.Column("name", sa.String(length=255), nullable=False),
+            sa.Column("schedule", sa.String(length=128), nullable=False),
+            sa.Column(
+                "job_type",
+                sa.String(length=32),
+                nullable=False,
+                server_default="noop",
+            ),
+            sa.Column(
+                "payload",
+                sa.JSON(),
+                nullable=False,
+                server_default=sa.text("'{}'"),
+            ),
+            sa.Column(
+                "is_enabled",
+                sa.Boolean(),
+                nullable=False,
+                server_default="true",
+            ),
+            sa.Column(
+                "created_at",
+                sa.TIMESTAMP(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()"),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.TIMESTAMP(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()"),
+            ),
+            sa.PrimaryKeyConstraint("id"),
+        )
+    if not _has_index("cron_jobs", "ix_cron_jobs_is_enabled"):
+        op.create_index(
+            "ix_cron_jobs_is_enabled",
+            "cron_jobs",
+            ["is_enabled"],
+            unique=False,
+        )
+    if not _has_index("cron_jobs", "ix_cron_jobs_updated_at"):
+        op.create_index(
+            "ix_cron_jobs_updated_at",
+            "cron_jobs",
+            ["updated_at"],
+            unique=False,
+        )
 
-    op.create_table(
-        "cron_runs",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("job_id", sa.Integer(), nullable=False),
-        sa.Column(
-            "status",
-            sa.String(length=32),
-            nullable=False,
-            server_default="queued",
-        ),
-        sa.Column("started_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        sa.Column("finished_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        sa.Column("error", sa.Text(), nullable=True),
-        sa.Column("result", sa.JSON(), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.TIMESTAMP(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        ),
-        sa.CheckConstraint(
-            "status IN ('queued', 'running', 'succeeded', 'failed')",
-            name="cron_runs_status_check",
-        ),
-        sa.ForeignKeyConstraint(
-            ["job_id"], ["cron_jobs.id"], ondelete="CASCADE"
-        ),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
-        "ix_cron_runs_job_id", "cron_runs", ["job_id"], unique=False
-    )
-    op.create_index(
-        "ix_cron_runs_status", "cron_runs", ["status"], unique=False
-    )
-    op.create_index(
-        "ix_cron_runs_created_at", "cron_runs", ["created_at"], unique=False
-    )
+    if not _has_table("cron_runs"):
+        op.create_table(
+            "cron_runs",
+            sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+            sa.Column("job_id", sa.Integer(), nullable=False),
+            sa.Column(
+                "status",
+                sa.String(length=32),
+                nullable=False,
+                server_default="queued",
+            ),
+            sa.Column("started_at", sa.TIMESTAMP(timezone=True), nullable=True),
+            sa.Column(
+                "finished_at", sa.TIMESTAMP(timezone=True), nullable=True
+            ),
+            sa.Column("error", sa.Text(), nullable=True),
+            sa.Column("result", sa.JSON(), nullable=True),
+            sa.Column(
+                "created_at",
+                sa.TIMESTAMP(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()"),
+            ),
+            sa.CheckConstraint(
+                "status IN ('queued', 'running', 'succeeded', 'failed')",
+                name="cron_runs_status_check",
+            ),
+            sa.ForeignKeyConstraint(
+                ["job_id"], ["cron_jobs.id"], ondelete="CASCADE"
+            ),
+            sa.PrimaryKeyConstraint("id"),
+        )
+    if not _has_index("cron_runs", "ix_cron_runs_job_id"):
+        op.create_index(
+            "ix_cron_runs_job_id", "cron_runs", ["job_id"], unique=False
+        )
+    if not _has_index("cron_runs", "ix_cron_runs_status"):
+        op.create_index(
+            "ix_cron_runs_status", "cron_runs", ["status"], unique=False
+        )
+    if not _has_index("cron_runs", "ix_cron_runs_created_at"):
+        op.create_index(
+            "ix_cron_runs_created_at", "cron_runs", ["created_at"], unique=False
+        )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
 
-    op.drop_index("ix_cron_runs_created_at", table_name="cron_runs")
-    op.drop_index("ix_cron_runs_status", table_name="cron_runs")
-    op.drop_index("ix_cron_runs_job_id", table_name="cron_runs")
-    op.drop_table("cron_runs")
+    if _has_index("cron_runs", "ix_cron_runs_created_at"):
+        op.drop_index("ix_cron_runs_created_at", table_name="cron_runs")
+    if _has_index("cron_runs", "ix_cron_runs_status"):
+        op.drop_index("ix_cron_runs_status", table_name="cron_runs")
+    if _has_index("cron_runs", "ix_cron_runs_job_id"):
+        op.drop_index("ix_cron_runs_job_id", table_name="cron_runs")
+    if _has_table("cron_runs"):
+        op.drop_table("cron_runs")
 
-    op.drop_index("ix_cron_jobs_updated_at", table_name="cron_jobs")
-    op.drop_index("ix_cron_jobs_is_enabled", table_name="cron_jobs")
-    op.drop_table("cron_jobs")
+    if _has_index("cron_jobs", "ix_cron_jobs_updated_at"):
+        op.drop_index("ix_cron_jobs_updated_at", table_name="cron_jobs")
+    if _has_index("cron_jobs", "ix_cron_jobs_is_enabled"):
+        op.drop_index("ix_cron_jobs_is_enabled", table_name="cron_jobs")
+    if _has_table("cron_jobs"):
+        op.drop_table("cron_jobs")
