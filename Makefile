@@ -260,7 +260,7 @@ dlogs:
 
 # Build shareable collaborator dossier (technical teaser profile)
 dossier-collab:
-	bash scripts/docs/build_collab_dossier.sh --profile technical-teaser
+	bash scripts/docs/build_collab_dossier.sh --profile $${PROFILE:-technical-teaser}
 
 # Render the fully merged compose (WITHOUT interpolating ${...} from env/shell)
 cfg:
