@@ -30,6 +30,17 @@ def _normalize_provider(provider: Optional[str]) -> str:
     return normalized
 
 
+def _messages_to_prompt(messages: list) -> str:
+    """Convert a messages array to a prompt string for /api/generate."""
+    prompt_parts = []
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        prompt_parts.append(f"{role}: {content}")
+    prompt_parts.append("assistant:")
+    return "\n".join(prompt_parts)
+
+
 def _format_local_connect_error(url: str, err: Exception) -> str:
     """Produce an actionable error message for local inference failures.
 
@@ -199,8 +210,29 @@ def call_local(
                 headers=headers,
                 timeout=request_timeout,
             )
+        if response.status_code == 404:
+            # Final fallback to /api/generate for older Ollama versions.
+            # Convert messages array to a single prompt string.
+            prompt = _messages_to_prompt(messages)
+            url_generate = f"{base_url}/api/generate"
+            payload_generate: Dict[str, Any] = {
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+            }
+            if temperature is not None:
+                payload_generate["options"] = {"temperature": temperature}
+            response = requests.post(
+                url_generate,
+                json=payload_generate,
+                headers=headers,
+                timeout=request_timeout,
+            )
         response.raise_for_status()
         data = json.loads(response.content.decode("utf-8"))
+        # Handle /api/generate response format: {"response": "...", "done": true}
+        if "response" in data:
+            return data["response"]
         if (
             isinstance(data.get("message"), dict)
             and "content" in data["message"]
@@ -251,19 +283,65 @@ def stream_local(
     }
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
-    base_url = _resolve_local_base(settings)
-    url = f"{base_url}/chat/completions"
+    base_url_v1 = _resolve_local_base(settings)
+    base_url = base_url_v1[:-3] if base_url_v1.endswith("/v1") else base_url_v1
+    url_openai = f"{base_url_v1}/chat/completions"
     timeout = getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 60)
+
+    # Track which endpoint we're using for error messages
+    current_url = url_openai
 
     try:
         with requests.post(
-            url,
+            url_openai,
             json=payload,
             headers=headers,
             stream=True,
             timeout=timeout,
         ) as response:
+            if response.status_code == 404:
+                # Fallback to /api/chat
+                url_ollama = f"{base_url}/api/chat"
+                current_url = url_ollama
+                payload_ollama = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.7
+                    if temperature is None
+                    else float(temperature),
+                    "stream": True,
+                }
+                response = requests.post(
+                    url_ollama,
+                    json=payload_ollama,
+                    headers=headers,
+                    stream=True,
+                    timeout=timeout,
+                )
+            if response.status_code == 404:
+                # Final fallback to /api/generate
+                prompt = _messages_to_prompt(messages)
+                url_generate = f"{base_url}/api/generate"
+                current_url = url_generate
+                payload_generate: Dict[str, Any] = {
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": True,
+                }
+                if temperature is not None:
+                    payload_generate["options"] = {"temperature": temperature}
+                response = requests.post(
+                    url_generate,
+                    json=payload_generate,
+                    headers=headers,
+                    stream=True,
+                    timeout=timeout,
+                )
             response.raise_for_status()
+
+            # Check which response format we're handling
+            is_generate_response = current_url.endswith("/api/generate")
+
             for raw_line in response.iter_lines(decode_unicode=False):
                 if not raw_line:
                     continue
@@ -277,23 +355,30 @@ def stream_local(
                 if data == "[DONE]":
                     break
                 try:
-                    payload = json.loads(data)
+                    chunk = json.loads(data)
                 except Exception:
                     continue
                 try:
-                    choice = payload.get("choices", [{}])[0]
-                    delta = choice.get("delta") or {}
-                    token = (
-                        delta.get("content")
-                        or choice.get("message", {}).get("content")
-                        or choice.get("text")
-                    )
-                    if token:
-                        yield token
+                    if is_generate_response:
+                        # /api/generate format: {"response": "...", "done": true}
+                        token = chunk.get("response")
+                        if token:
+                            yield token
+                    else:
+                        # OpenAI or /api/chat format
+                        choice = chunk.get("choices", [{}])[0]
+                        delta = choice.get("delta") or {}
+                        token = (
+                            delta.get("content")
+                            or choice.get("message", {}).get("content")
+                            or choice.get("text")
+                        )
+                        if token:
+                            yield token
                 except Exception:
                     continue
     except req_exc.RequestException as e:
-        detail = _format_local_connect_error(url, e)
+        detail = _format_local_connect_error(current_url, e)
         logger.exception(detail)
         raise HTTPException(status_code=502, detail=detail)
     except Exception as e:
