@@ -175,3 +175,6 @@ conversations.json
 
 # Vendor repos (kept outside repo)
 boxbeyond-kutiraai/
+
+# never track codex_runner github metadata
+codex_runner/.github/
