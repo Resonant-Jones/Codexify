@@ -175,13 +175,26 @@ class MediaResolveResponse(BaseModel):
 def _get_db() -> GuardianDB:
     """Get the Guardian media database connection.
 
-    Media routes require a SQLAlchemy session (via GuardianDB.get_session). The
-    chatlog DB adapter (PostgresChatLogDB) does not provide that API, so we must
-    always resolve a GuardianDB instance here.
+    Media routes require a SQLAlchemy session (via GuardianDB.get_session). In
+    some parts of the codebase there are other DB-like adapters (e.g.
+    PostgresChatLogDB) that do not expose `get_session()`. This helper must
+    *always* return a GuardianDB instance.
     """
+
     resolved = load_guardian_db_from_env()
+
+    # Be defensive: if env loading returns a DB-like adapter that does not
+    # support SQLAlchemy sessions, ignore it and fall back to GuardianDB.
     if resolved is not None:
-        return resolved
+        if isinstance(resolved, GuardianDB):
+            return resolved
+        if hasattr(resolved, "get_session"):
+            # Some older call sites may return a compatible object; accept it.
+            return resolved  # type: ignore[return-value]
+        logger.error(
+            "load_guardian_db_from_env() returned incompatible db type for media routes: %s",
+            type(resolved),
+        )
 
     db_url = os.getenv(
         "DATABASE_URL", "postgresql://guardian:guardian@db:5432/guardian"

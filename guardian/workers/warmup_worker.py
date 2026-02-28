@@ -48,6 +48,16 @@ ALLOW_LOCALHOST_VAULTNODE = os.getenv(
     "y",
 }
 
+# Force OpenAI-compat endpoints for local inference if requested
+FORCE_OPENAI_COMPAT = os.getenv(
+    "VAULTNODE_FORCE_OPENAI_COMPAT", ""
+).lower() in {
+    "1",
+    "true",
+    "yes",
+    "y",
+}
+
 
 def _embeddings_backend() -> str:
     return (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "").strip().lower()
@@ -96,6 +106,19 @@ def _normalize_base_url(base_url: str) -> str:
     if "://" not in base_url:
         base_url = f"http://{base_url}"
     return base_url.rstrip("/")
+
+
+# Ensure OpenAI-compat base URL (ending with /v1) for local inference if requested
+def _ensure_openai_compat_base_url(base_url: str) -> str:
+    """Force OpenAI-compat base URL (/v1) for local inference.
+
+    This keeps warmup traffic on `/v1/chat/completions` (or other OpenAI-compat routes)
+    and avoids legacy Ollama `/api/generate` usage.
+    """
+    base_url = _normalize_base_url(base_url)
+    if not base_url:
+        return base_url
+    return base_url if base_url.endswith("/v1") else f"{base_url}/v1"
 
 
 def _resolve_vaultnode_base_url() -> str:
@@ -222,13 +245,17 @@ def _await_vaultnode_ready(
 
 def _prepare_vaultnode_target() -> tuple[str, str, list[str]]:
     base_url = _resolve_vaultnode_base_url()
+    # If requested, force OpenAI-compat routing for warmup (avoids legacy /api/generate).
+    if base_url and FORCE_OPENAI_COMPAT:
+        base_url = _ensure_openai_compat_base_url(base_url)
     if base_url and not os.getenv("LOCAL_BASE_URL"):
         os.environ["LOCAL_BASE_URL"] = base_url
         settings = get_settings()
         settings.LOCAL_BASE_URL = base_url
         logger.info(
-            "[warmup] LOCAL_BASE_URL not set; defaulting to %s",
+            "[warmup] LOCAL_BASE_URL not set; defaulting to %s (openai_compat=%s)",
             base_url,
+            FORCE_OPENAI_COMPAT,
         )
     _warn_if_localhost(base_url)
     health_base = _resolve_health_base(base_url)

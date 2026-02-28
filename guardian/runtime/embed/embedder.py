@@ -4,11 +4,7 @@ import logging
 import os
 from typing import Any, Dict, Iterable, List, Optional
 
-# Optional deps; import lazily where possible
-try:
-    from openai import OpenAI  # type: ignore
-except Exception:
-    OpenAI = None  # type: ignore
+# Optional deps; import lazily where possible (local embeddings + stores)
 
 try:
     from sentence_transformers import SentenceTransformer  # type: ignore
@@ -59,49 +55,35 @@ class CodexifyEmbedder:
         chroma_path: str | None = None,
         collection: str | None = None,
     ):
-        self.use_openai = use_openai
+        # OpenAI embeddings have been removed from CodexifyEmbedder.
+        # We keep the parameter for backward compatibility but always run local embeddings.
+        if use_openai:
+            logger.warning(
+                "[embedder] use_openai=True requested but OpenAI embeddings are disabled; falling back to local embeddings"
+            )
+
+        self.use_openai = False
         self._client = None
         self._local_model = None
         self._chroma_client = None
         self._chroma_collection = None
 
-        if model:
-            logger.warning(
-                "[embedder] model override ignored; use LOCAL_EMBED_MODEL or CODEXIFY_OPENAI_MODEL"
+        if SentenceTransformer is None:
+            raise RuntimeError("sentence-transformers not installed.")
+
+        # Enforce LOCAL_EMBED_MODEL rules only for local embeddings.
+        local_model_path = require_local_embed_model()
+        self.model_name = model or local_model_path
+        logger.info("[embedder] local embedding model=%s", self.model_name)
+        try:
+            self._local_model = SentenceTransformer(
+                self.model_name, local_files_only=True
             )
-        if self.use_openai:
-            model_name = (os.getenv("CODEXIFY_OPENAI_MODEL") or "").strip()
-            if not model_name:
-                raise RuntimeError(
-                    "CODEXIFY_OPENAI_MODEL is not set for OpenAI embeddings."
-                )
-            self.model_name = model_name
-            logger.info("[embedder] openai embedding model=%s", self.model_name)
-            if OpenAI is None:
-                raise RuntimeError(
-                    "OpenAI client not installed. `pip install openai>=1.0`"
-                )
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key or api_key.lower() in ("", "local", "none", "null"):
-                raise RuntimeError(
-                    "OPENAI_API_KEY is not set to a valid value while use_openai=True"
-                )
-            self._client = OpenAI(api_key=api_key)
-        else:
-            if SentenceTransformer is None:
-                raise RuntimeError("sentence-transformers not installed.")
-            # Enforce LOCAL_EMBED_MODEL rules only when local embeddings are selected.
-            local_model_path = require_local_embed_model()
-            self.model_name = model or local_model_path
-            logger.info("[embedder] local embedding model=%s", self.model_name)
-            try:
-                self._local_model = SentenceTransformer(
-                    self.model_name, local_files_only=True
-                )
-            except Exception as exc:
-                raise RuntimeError(
-                    "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
-                ) from exc
+        except Exception as exc:
+            raise RuntimeError(
+                "LOCAL_EMBED_MODEL is set but could not be loaded from local cache."
+            ) from exc
+
         # Resolve configuration from env if not provided
         self.store = (
             store or os.getenv("CODEXIFY_VECTOR_STORE", "chroma")
@@ -132,19 +114,6 @@ class CodexifyEmbedder:
             raise RuntimeError("faiss-cpu not installed.")
 
     # ---- Embeddings ----
-    def _embed_batch_openai(self, texts: list[str]) -> list[list[float]]:
-        # Ensure no text exceeds model context length (in tokens) by clamping by characters.
-        # 16k chars is well under the 8k-token limit for typical English text.
-        safe_texts = [
-            t if len(t) <= MAX_EMBED_CHARS else t[:MAX_EMBED_CHARS]
-            for t in texts
-        ]
-        resp = self._client.embeddings.create(
-            model=self.model_name, input=safe_texts
-        )
-        data_sorted = sorted(resp.data, key=lambda d: d.index)
-        return [d.embedding for d in data_sorted]
-
     def _embed_batch_local(self, texts: list[str]) -> list[list[float]]:
         assert self._local_model is not None
         vecs = self._local_model.encode(
@@ -160,10 +129,7 @@ class CodexifyEmbedder:
     ) -> list[list[float]]:
         embeddings: list[list[float]] = []
         for chunk in _batched(texts, batch_size):
-            if self.use_openai:
-                embeddings.extend(self._embed_batch_openai(chunk))
-            else:
-                embeddings.extend(self._embed_batch_local(chunk))
+            embeddings.extend(self._embed_batch_local(chunk))
         return embeddings
 
     # ---- Stores ----
@@ -287,11 +253,8 @@ def embed_file(
     with open(path, encoding="utf-8") as f:
         contents = f.read()
     docs = [d.strip() for d in contents.split("\n\n") if d.strip()]
-    use_openai = (
-        bool(int(os.getenv("CODEXIFY_USE_OPENAI", "1")))
-        if use_openai is None
-        else use_openai
-    )
+    # OpenAI embeddings have been removed; keep arg for backward compatibility.
+    use_openai = False if use_openai is None else False
     emb = CodexifyEmbedder(
         use_openai=use_openai,
         model=model,
