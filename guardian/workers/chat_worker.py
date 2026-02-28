@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -36,22 +38,45 @@ _MEDIA_MARKER_RE = re.compile(
 
 
 def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
+    """Best-effort event publishing.
+
+    Never raise from the worker hot-path.
+    """
+    payload: dict
     try:
-        task_events.publish(task_id, event_type, data)
+        payload = dict(data) if isinstance(data, dict) else {"data": data}
+    except Exception:
+        payload = {"data": str(data)}
+
+    try:
+        task_events.publish(task_id, event_type, payload)
     except Exception as exc:
-        logger.warning("[chat-worker] failed to publish event: %s", exc)
+        logger.warning(
+            "[chat-worker] failed to publish event type=%s task_id=%s err=%s",
+            event_type,
+            task_id,
+            exc,
+        )
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
+    run_id = uuid.uuid4().hex
+    started = time.monotonic()
     _safe_publish(
         task.task_id,
         "task.running",
-        {"type": task.type, "origin": task.origin, "thread_id": task.thread_id},
+        {
+            "run_id": run_id,
+            "type": task.type,
+            "origin": task.origin,
+            "thread_id": task.thread_id,
+        },
     )
     logger.info(
-        "[task] running type=%s id=%s origin=%s thread=%s",
+        "[task] running type=%s id=%s run_id=%s origin=%s thread=%s",
         task.type,
         task.task_id,
+        run_id,
         task.origin,
         task.thread_id,
     )
@@ -61,11 +86,18 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             _safe_publish(
                 task.task_id,
                 "task.cancelled",
-                {"thread_id": task.thread_id, "origin": task.origin},
+                {
+                    "run_id": run_id,
+                    "thread_id": task.thread_id,
+                    "origin": task.origin,
+                },
             )
             clear_cancelled(task.task_id)
             logger.info(
-                "[task] cancelled type=%s id=%s", task.type, task.task_id
+                "[task] cancelled type=%s id=%s run_id=%s",
+                task.type,
+                task.task_id,
+                run_id,
             )
             return
 
@@ -74,44 +106,76 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             token_callback=lambda token: _safe_publish(
                 task.task_id,
                 "task.progress",
-                {"token": token, "thread_id": task.thread_id},
+                {
+                    "run_id": run_id,
+                    "token": (
+                        token[:4096] if isinstance(token, str) else token
+                    ),
+                    "thread_id": task.thread_id,
+                },
             ),
             cancel_check=lambda: is_cancelled(task.task_id),
             persist_assistant_message=True,
         )
-
+        duration_ms = int((time.monotonic() - started) * 1000)
         _safe_publish(
             task.task_id,
             "task.completed",
             {
+                "run_id": run_id,
+                "duration_ms": duration_ms,
                 "thread_id": task.thread_id,
                 "message_id": result.get("message_id"),
                 "provider": result.get("provider"),
                 "model": result.get("model"),
+                "selection_source": result.get("selection_source"),
+                "catalog_version_hash": result.get("catalog_version_hash"),
             },
         )
         logger.info(
-            "[task] completed type=%s id=%s thread=%s",
+            "[task] completed type=%s id=%s run_id=%s thread=%s",
             task.type,
             task.task_id,
+            run_id,
             task.thread_id,
         )
     except ChatTaskCancelled:
         _safe_publish(
             task.task_id,
             "task.cancelled",
-            {"thread_id": task.thread_id, "origin": task.origin},
+            {
+                "run_id": run_id,
+                "thread_id": task.thread_id,
+                "origin": task.origin,
+            },
         )
         clear_cancelled(task.task_id)
-        logger.info("[task] cancelled type=%s id=%s", task.type, task.task_id)
+        logger.info(
+            "[task] cancelled type=%s id=%s run_id=%s",
+            task.type,
+            task.task_id,
+            run_id,
+        )
     except Exception as exc:
+        duration_ms = int((time.monotonic() - started) * 1000)
         _safe_publish(
             task.task_id,
             "task.failed",
-            {"error": str(exc), "thread_id": task.thread_id},
+            {
+                "run_id": run_id,
+                "duration_ms": duration_ms,
+                "error": str(exc),
+                "error_type": exc.__class__.__name__,
+                "thread_id": task.thread_id,
+                "origin": task.origin,
+            },
         )
         logger.exception(
-            "[task] failed type=%s id=%s err=%s", task.type, task.task_id, exc
+            "[task] failed type=%s id=%s run_id=%s err=%s",
+            task.type,
+            task.task_id,
+            run_id,
+            exc,
         )
     finally:
         owner = (task.turn_lock_owner or "").strip()
