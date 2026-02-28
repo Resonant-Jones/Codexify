@@ -1,9 +1,56 @@
 import React from "react";
-import { useLiveEvents } from "../../hooks/useLiveEvents";
+import { useLiveEvents, ConnectionStatus } from "../../hooks/useLiveEvents";
 import { SparklesIcon } from "@heroicons/react/24/solid";
 
+// Thinking animation dots component
+const ThinkingDots: React.FC = () => (
+  <span className="inline-flex gap-0.5">
+    <span className="animate-[bounce_1s_infinite]" style={{ animationDelay: "0ms" }}>●</span>
+    <span className="animate-[bounce_1s_infinite]" style={{ animationDelay: "150ms" }}>●</span>
+    <span className="animate-[bounce_1s_infinite]" style={{ animationDelay: "300ms" }}>●</span>
+  </span>
+);
+
+// Connection status display with animations
+const ConnectionIndicator: React.FC<{ status: ConnectionStatus }> = ({ status }) => {
+  if (status === "connected") {
+    return (
+      <div className="flex items-center gap-1.5 text-sm text-emerald-400">
+        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+        <span>Live</span>
+      </div>
+    );
+  }
+
+  if (status === "connecting") {
+    return (
+      <div className="flex items-center gap-1.5 text-sm text-amber-400">
+        <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+        <span>Connecting <ThinkingDots /></span>
+      </div>
+    );
+  }
+
+  if (status === "reconnecting") {
+    return (
+      <div className="flex items-center gap-1.5 text-sm text-amber-400">
+        <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+        <span>Reconnecting <ThinkingDots /></span>
+      </div>
+    );
+  }
+
+  // disconnected
+  return (
+    <div className="flex items-center gap-1.5 text-sm text-rose-400">
+      <span className="h-2 w-2 rounded-full bg-rose-400" />
+      <span>Offline</span>
+    </div>
+  );
+};
+
 export const Header: React.FC = () => {
-  const { connected } = useLiveEvents();
+  const { connectionStatus } = useLiveEvents();
   const toggleTheme = () => {
     const html = document.documentElement;
     const next = html.classList.toggle("dark");
@@ -28,22 +75,7 @@ export const Header: React.FC = () => {
           <span className="font-semibold">Codexify</span>
         </div>
         <div className="flex items-center gap-2">
-          <div
-            className={`flex items-center gap-1 text-sm ${
-              connected ? "text-emerald-400" : "text-rose-400"
-            }`}
-          >
-            <span
-              className={`h-2 w-2 rounded-full ${
-                connected
-                  ? "bg-emerald-400 animate-pulse"
-                  : "bg-rose-400"
-              }`}
-            />
-            <span>
-              Live updates: {connected ? "Connected" : "Disconnected"}
-            </span>
-          </div>
+          <ConnectionIndicator status={connectionStatus} />
           <button className="btn" onClick={toggleTheme} aria-label="Toggle theme">
             Toggle Theme
           </button>

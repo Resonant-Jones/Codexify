@@ -36,8 +36,11 @@ export interface LiveEvent {
   data: unknown;
 }
 
+export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
+
 export interface UseLiveEventsResult {
   connected: boolean;
+  connectionStatus: ConnectionStatus;
   lastEvent: LiveEvent | null;
   subscribe: (eventType: string, handler: (event: LiveEvent) => void) => () => void;
 }
@@ -54,6 +57,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
   const { passive = false } = options;
   const auth = useAuthState();
   const [connected, setConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null);
   const listenersRef = useRef<Map<string, Set<(event: LiveEvent) => void>>>(
     new Map()
@@ -65,6 +69,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
   const lastEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingConnectedRef = useRef<boolean | null>(null);
+  const hasConnectedRef = useRef(false); // Track if we've ever successfully connected
 
   const streamUrl = useMemo(() => combineBaseAndPath(GUARDIAN_API_BASE, EVENT_ENDPOINT), []);
 
@@ -86,6 +91,13 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     if (next !== null && connectedRef.current !== next) {
       connectedRef.current = next;
       setConnected(next);
+      // Update connection status based on whether we've ever connected
+      if (next) {
+        setConnectionStatus("connected");
+        hasConnectedRef.current = true;
+      } else {
+        setConnectionStatus(hasConnectedRef.current ? "reconnecting" : "connecting");
+      }
     }
     pendingConnectedRef.current = null;
   }, [isSameEvent]);
@@ -292,6 +304,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
 
   return {
     connected,
+    connectionStatus,
     lastEvent: passive ? lastEventRef.current : lastEvent,
     subscribe,
   };

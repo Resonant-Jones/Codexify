@@ -24,7 +24,7 @@ from starlette.responses import StreamingResponse
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.core.event_graph import get_event_writer
 from guardian.queue import task_events
-from guardian.queue.redis_queue import enqueue
+from guardian.queue.redis_queue import enqueue, enqueue_chat_embed
 from guardian.queue.turn_lock import acquire_turn_lock, release_turn_lock
 from guardian.tasks.types import ChatCompletionTask
 
@@ -180,6 +180,12 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
                 "message_id": message_id,
             }
         )
+    except NameError:
+        logger.exception(
+            "[chat] enqueue_chat_embed is unavailable; cannot enqueue message_id=%s",
+            message_id,
+        )
+        raise
     except Exception as e:
         logger.warning(
             "[chat] Failed to enqueue embed message %s: %s", message_id, e
@@ -265,9 +271,10 @@ def _persist_message_to_thread(
     requested_project_id: Any = None,
 ) -> Dict[str, Any]:
     default_project_id = _coerce_project_id(requested_project_id)
+    lock_probe_owner = "api:chat.messages:user_probe"
     lock_probe_acquired = False
     try:
-        lock_probe_acquired = acquire_turn_lock(thread_id, value="user")
+        lock_probe_acquired = acquire_turn_lock(thread_id, lock_probe_owner)
         if not lock_probe_acquired:
             raise HTTPException(
                 status_code=429,
@@ -279,6 +286,8 @@ def _persist_message_to_thread(
             )
     except HTTPException:
         raise
+    except TypeError:
+        raise
     except Exception as exc:
         # If Redis is unavailable, continue without turn gating.
         logger.warning(
@@ -289,7 +298,9 @@ def _persist_message_to_thread(
     finally:
         if lock_probe_acquired:
             try:
-                release_turn_lock(thread_id)
+                release_turn_lock(thread_id, lock_probe_owner)
+            except TypeError:
+                raise
             except Exception:
                 logger.debug(
                     "[chat.messages] turn lock probe release failed thread_id=%s",
@@ -982,30 +993,6 @@ async def chat_complete(
     """
     Enqueue an assistant reply for the given thread and return a task id.
     """
-    # Turn gating: acquire and HOLD the lock while an assistant completion is running.
-    lock_acquired = False
-    try:
-        lock_acquired = acquire_turn_lock(thread_id, value="assistant")
-        if not lock_acquired:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "ok": False,
-                    "error": "turn_in_flight",
-                    "message": "Assistant is responding",
-                },
-            )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        # If Redis is unavailable, continue without turn gating.
-        logger.warning(
-            "[chat.complete] turn lock unavailable thread_id=%s err=%s",
-            thread_id,
-            exc,
-        )
-        lock_acquired = False
-
     provider = str(
         body.provider
         or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
@@ -1023,15 +1010,6 @@ async def chat_complete(
         else True
     )
     if not thread_exists:
-        if lock_acquired:
-            try:
-                release_turn_lock(thread_id)
-            except Exception:
-                logger.debug(
-                    "[chat.complete] turn lock release failed thread_id=%s",
-                    thread_id,
-                    exc_info=True,
-                )
         raise HTTPException(status_code=404, detail="Thread not found")
 
     limit = int(body.max_context or 50)
@@ -1047,15 +1025,6 @@ async def chat_complete(
         ):
             context.append({"role": role, "content": content})
     if not context:
-        if lock_acquired:
-            try:
-                release_turn_lock(thread_id)
-            except Exception:
-                logger.debug(
-                    "[chat.complete] turn lock release failed thread_id=%s",
-                    thread_id,
-                    exc_info=True,
-                )
         raise HTTPException(
             status_code=400, detail="Thread has no usable context"
         )
@@ -1130,15 +1099,6 @@ async def chat_complete(
                 exc_info=True,
             )
         logger.warning("[chat.complete] queue unavailable: %s", exc)
-        if lock_acquired:
-            try:
-                release_turn_lock(thread_id)
-            except Exception:
-                logger.debug(
-                    "[chat.complete] turn lock release failed thread_id=%s",
-                    thread_id,
-                    exc_info=True,
-                )
         raise HTTPException(status_code=503, detail="queue_unavailable")
 
     # Track latest task for debug endpoint

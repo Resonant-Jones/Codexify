@@ -92,6 +92,17 @@ def _normalize_metadatas(
     return cleaned
 
 
+def _normalize_embeddings(vectors: np.ndarray) -> np.ndarray:
+    arr = np.asarray(vectors, dtype="float32")
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    if arr.size == 0:
+        return arr
+    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+    norms[norms == 0.0] = 1.0
+    return (arr / norms).astype("float32")
+
+
 def _normalize_namespace(value: Any) -> str | None:
     if value is None:
         return None
@@ -449,8 +460,34 @@ class Embedder(LocalSemanticEmbedder):
             .strip()
             .lower()
         )
-        if use_openai and backend == "local":
-            logger.info("[embedder] use_openai ignored; local-only embedder")
+
+        if backend not in _ALLOWED_BACKENDS:
+            logger.warning(
+                "[embedder] invalid backend=%s, falling back to %s",
+                backend,
+                _BACKEND_SENTENCE_TRANSFORMER,
+            )
+            backend = _BACKEND_SENTENCE_TRANSFORMER
+
+        # Safety gate: never allow an OpenAI embedding path to be selected unless a key is present.
+        # MemoryOS/legacy integrations sometimes pass use_openai=True by default.
+        openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        if use_openai and not openai_key:
+            logger.warning(
+                "[embedder] use_openai=True requested but OPENAI_API_KEY is missing; "
+                "forcing local embeddings for stability"
+            )
+            use_openai = False
+
+        # This module implements local embeddings only (sentence-transformers / local cache / mock).
+        # If callers request OpenAI embeddings, they must do so via the Guardian runtime embedder,
+        # not this compatibility wrapper.
+        if use_openai:
+            logger.info(
+                "[embedder] use_openai=True requested; "
+                "this backend/rag embedder is local-only and will ignore OpenAI"
+            )
+
         if backend != "local":
             _ = get_local_embed_model(strict=False)
         super().__init__(

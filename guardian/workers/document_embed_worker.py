@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -184,6 +185,25 @@ def process_document_embed_task(
 
 
 def run_forever() -> None:
+    try:
+        from guardian.runtime.embed.embedder import CodexifyEmbedder
+
+        shared_embedder = CodexifyEmbedder(store="chroma")
+    except Exception as exc:
+        logger.error(
+            "[document-embed] %s",
+            json.dumps(
+                {
+                    "event": "document_embed_worker_boot_failure",
+                    "queue": QUEUE_NAME,
+                    "error": str(exc),
+                },
+                sort_keys=True,
+            ),
+        )
+        raise SystemExit(1) from exc
+
+    shared_factory = lambda: shared_embedder
     logger.info("[document-embed] worker started queue=%s", QUEUE_NAME)
     while True:
         try:
@@ -201,7 +221,9 @@ def run_forever() -> None:
         if not payload:
             continue
         try:
-            process_document_embed_task(payload)
+            process_document_embed_task(
+                payload, embedder_factory=shared_factory
+            )
         except Exception as exc:
             logger.warning(
                 "[document-embed] task failed payload=%s err=%s",

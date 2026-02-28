@@ -1,0 +1,52 @@
+{
+  "run_id": "40eb770fc038",
+  "audit_id": "AUDIT_40eb770fc038",
+  "generated_at": "2026-02-28T03:45:15+00:00",
+  "resolved_base_ref_sha": "3490488372f848331adc077076da1e6c29883e86",
+  "inputs": {
+    "audit_prompt_file": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/mega_audit.md",
+    "audit_schema_file": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/mega_audit_output.schema.json",
+    "compiler_prompt_file": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/audit_report_to_campaign_runner.md",
+    "campaign_set_schema_file": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/campaign_set.schema.json",
+    "audit_prompt_sha256": "f3de66024ae257804ffc2a5aa03a398ee9681560ff7b8208a6d42614008ae6aa",
+    "audit_schema_sha256": "9ee2fd69035fcf1a5489d49fceb470ba1478386a19a2fda3bab0d962986a2ee7",
+    "compiler_prompt_sha256": "29426765f4db908742ce241af0da7b53445e84ed160220e05179160436dc8c7a",
+    "campaign_set_schema_sha256": "a4a0bd9511191f51125596c68fbe547731488a181bc431c821f7ee09f0a9e31d"
+  },
+  "cli_args": [
+    "--repo-root",
+    "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify",
+    "--audit-prompt-file",
+    "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/mega_audit.md",
+    "--audit-schema-file",
+    "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/mega_audit_output.schema.json",
+    "--compiler-prompt-file",
+    "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/audit_report_to_campaign_runner.md",
+    "--campaign-set-schema-file",
+    "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/campaign_set.schema.json",
+    "--execute"
+  ],
+  "preflight": {
+    "git_clean": true
+  },
+  "selection": {
+    "selected_campaign": "2026-02-28::preflight_worktree_hygiene::001",
+    "rationale": {
+      "rule": "highest_high_risk_then_date_then_slug",
+      "high_risk_count": 0,
+      "campaign_date": "2026-02-28",
+      "campaign_slug": "preflight_worktree_hygiene"
+    }
+  },
+  "provider": {
+    "name": "codex",
+    "models": {
+      "default": null,
+      "audit": null,
+      "compiler": null,
+      "task": null
+    },
+    "settings": []
+  },
+  "termination_reason": "in_progress"
+}

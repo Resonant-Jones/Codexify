@@ -1,0 +1,111 @@
+{
+  "audit_id": "AUDIT_40eb770fc038",
+  "generated_at": "2026-02-28T03:43:13Z",
+  "campaigns": [
+    {
+      "campaign_id": "2026-02-28::preflight_worktree_hygiene::001",
+      "campaign_slug": "preflight_worktree_hygiene",
+      "depends_on": [],
+      "campaign_markdown": "# Campaign: Preflight Worktree Hygiene\n\n## Objective\nUnblock deterministic runner preflight by codifying a repeatable clean-worktree gate when Stage-A audit input artifacts are present as untracked files.\n\n## Source Findings\n- FINDING-2026-02-28-001\n\n## Acceptance Criteria\n- Preflight instructions explicitly cover untracked Stage-A audit inputs.\n- The checklist defines a deterministic clean-status verification step before runner execution.",
+      "tasks": [
+        {
+          "id": "TASK-2026-02-28-001",
+          "slug": "codify_preflight_clean_worktree_gate",
+          "area": "docs",
+          "risk": "MED",
+          "files": [
+            "docs/tasks/TASK_2026_02_17_002_mvp_core_loop_closure.md"
+          ],
+          "tests": [
+            "rg -n \"git status --porcelain -uall|git stash push -u -m preflight-\" docs/tasks/TASK_2026_02_17_002_mvp_core_loop_closure.md",
+            "git status --porcelain -uall"
+          ],
+          "commit_message": "docs: codify deterministic preflight worktree hygiene for core-loop task checklist",
+          "task_artifact_markdown": "### Task Artifact\n- Add a preflight subsection that explicitly handles untracked Stage-A audit inputs before deterministic runner execution.\n- Keep the sequence deterministic: check status, perform hygiene step, re-check status.\n- Preserve existing checklist intent while removing ambiguity that causes preflight halts.",
+          "activation_prompt": "Edit `docs/tasks/TASK_2026_02_17_002_mvp_core_loop_closure.md` to add explicit preflight hygiene commands for untracked Stage-A audit inputs and require a clean `git status --porcelain -uall` before runner execution.",
+          "dependencies": []
+        }
+      ],
+      "discovery_reason": ""
+    },
+    {
+      "campaign_id": "2026-02-28::mvp_docs_traceability_repair::002",
+      "campaign_slug": "mvp_docs_traceability_repair",
+      "depends_on": [
+        "2026-02-28::preflight_worktree_hygiene::001"
+      ],
+      "campaign_markdown": "# Campaign: MVP Docs Traceability Repair\n\n## Objective\nRestore authoritative MVP matrix traceability and repair checklist gates so documented validation commands operate only on committed artifacts.\n\n## Source Findings\n- FINDING-2026-02-28-002\n- FINDING-2026-02-28-003\n\n## Acceptance Criteria\n- `docs/reports/mvp-core-loop-closure-matrix.md` exists and is trackable.\n- Roadmap and task checklist references point to committed artifacts.\n- Dry-run core-loop validation commands succeed without manual path substitution.",
+      "tasks": [
+        {
+          "id": "TASK-2026-02-28-002",
+          "slug": "restore_authoritative_mvp_matrix_artifact",
+          "area": "docs",
+          "risk": "HIGH",
+          "files": [
+            ".gitignore",
+            "docs/reports/mvp-core-loop-closure-matrix.md",
+            "docs/codexify-mvp-roadmap.md"
+          ],
+          "tests": [
+            "test -f docs/reports/mvp-core-loop-closure-matrix.md",
+            "git check-ignore docs/reports/mvp-core-loop-closure-matrix.md >/dev/null && exit 1 || exit 0",
+            "rg -n \"mvp-core-loop-closure-matrix.md\" docs/codexify-mvp-roadmap.md"
+          ],
+          "commit_message": "docs: restore authoritative MVP core-loop closure matrix at superseding path",
+          "task_artifact_markdown": "### Task Artifact\n- Create or restore `docs/reports/mvp-core-loop-closure-matrix.md` as the authoritative matrix document.\n- Update `.gitignore` rules so this matrix path is commit-visible.\n- Keep roadmap supersession metadata aligned to the committed matrix path.",
+          "activation_prompt": "Add `docs/reports/mvp-core-loop-closure-matrix.md`, ensure `.gitignore` does not suppress it, and align `docs/codexify-mvp-roadmap.md` references with the restored authoritative path.",
+          "dependencies": []
+        },
+        {
+          "id": "TASK-2026-02-28-003",
+          "slug": "repair_task004_traceability_gates",
+          "area": "testing",
+          "risk": "MED",
+          "files": [
+            "docs/tasks/TASK_2026_02_17_002_mvp_core_loop_closure.md",
+            "scripts/validate_core_loops.sh"
+          ],
+          "tests": [
+            "rg -n \"mvp-core-loop-closure-matrix.md\" docs/tasks/TASK_2026_02_17_002_mvp_core_loop_closure.md",
+            "bash scripts/validate_core_loops.sh --dry-run"
+          ],
+          "commit_message": "test/docs: align Task 004 checklist gates with committed MVP matrix dependency",
+          "task_artifact_markdown": "### Task Artifact\n- Update Task 004 checklist commands so they assert only committed dependencies.\n- Preserve deterministic grep/validation gates and keep dry-run execution in the checklist.\n- Ensure commands are runnable as written with no manual path substitutions.",
+          "activation_prompt": "Revise `docs/tasks/TASK_2026_02_17_002_mvp_core_loop_closure.md` and any related harness reference in `scripts/validate_core_loops.sh` so checklist checks target committed artifacts and pass in dry-run mode.",
+          "dependencies": [
+            "TASK-2026-02-28-002"
+          ]
+        }
+      ],
+      "discovery_reason": ""
+    },
+    {
+      "campaign_id": "2026-02-28::ci_harness_selector_alignment::003",
+      "campaign_slug": "ci_harness_selector_alignment",
+      "depends_on": [
+        "2026-02-28::mvp_docs_traceability_repair::002"
+      ],
+      "campaign_markdown": "# Campaign: CI Harness Selector Alignment\n\n## Objective\nRemove misleading CI selector configurability claims by aligning workflow exports with actual harness behavior.\n\n## Source Findings\n- FINDING-2026-02-28-004\n\n## Acceptance Criteria\n- CI no longer exports unused `CORE_LOOP_*_SELECTOR` variables, or equivalent behavior alignment is implemented.\n- Core-loop dry-run behavior remains unchanged and deterministic.",
+      "tasks": [
+        {
+          "id": "TASK-2026-02-28-004",
+          "slug": "remove_unused_ci_selector_exports",
+          "area": "tooling",
+          "risk": "LOW",
+          "files": [
+            ".github/workflows/guardian-ci.yml"
+          ],
+          "tests": [
+            "rg -n \"CORE_LOOP_.*_SELECTOR\" .github/workflows/guardian-ci.yml scripts/validate_core_loops.sh",
+            "bash scripts/validate_core_loops.sh --dry-run"
+          ],
+          "commit_message": "ci: remove unused CORE_LOOP selector exports from guardian workflow",
+          "task_artifact_markdown": "### Task Artifact\n- Delete or consolidate `CORE_LOOP_*_SELECTOR` exports that are not consumed by the harness.\n- Keep workflow logs accurate to actual configurability.\n- Preserve existing validation execution semantics.",
+          "activation_prompt": "Edit `.github/workflows/guardian-ci.yml` to stop exporting unused `CORE_LOOP_*_SELECTOR` variables so CI output matches current harness capabilities.",
+          "dependencies": []
+        }
+      ],
+      "discovery_reason": ""
+    }
+  ]
+}

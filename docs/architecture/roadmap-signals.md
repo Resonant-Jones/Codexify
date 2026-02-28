@@ -44,6 +44,8 @@ Source anchors:
   - Evidence: `guardian/sync/bus.py`, `guardian/sync/api.py`.
 - Import-time side-effect risk exists via global `VectorStore()` construction in route modules.
   - Evidence: `guardian/routes/codexify_router.py`.
+- Mixed-dimension embedding corpora are now tolerated (dimension-mismatch candidates are skipped), but this can accumulate recall loss over time after provider/model swaps.
+  - Evidence: MemoryOS dimension guardrails in `guardian/memoryos/mid_term.py` and `guardian/memoryos/long_term.py`.
 
 ## High-Leverage Refactors (Recommendations)
 
@@ -100,4 +102,5 @@ Source anchors:
    - Anchors: `guardian/routes/tools.py`, `guardian/sync/bus.py`, `guardian/queue/redis_queue.py`, `guardian/db/models.py`.
 6. **Expand federation only after policy+telemetry hardening**: treat as high-blast-radius expansion after core-loop reliability targets are met.
    - Anchors: `guardian/routes/federation.py`, `guardian/core/auth.py`, `guardian/core/egress.py`.
-
+7. **Plan an opt-in full re-embedding maintenance workflow** once skip-ratio telemetry indicates sustained mixed-dimension degradation.
+   - Anchors: `guardian/memoryos/mid_term.py`, `guardian/memoryos/long_term.py`, metrics in `guardian/core/metrics.py`.

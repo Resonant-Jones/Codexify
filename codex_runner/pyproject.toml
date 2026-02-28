@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codexify-campaign-runner"
+version = "0.1.0"
+description = "Deterministic Campaign Runner with TUI orchestration"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "textual>=0.70.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

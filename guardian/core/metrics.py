@@ -90,6 +90,20 @@ DB_BACKEND_GAUGE = Gauge(
     registry=registry,
 )
 
+# MemoryOS embedding guardrail counters
+MEMORYOS_EMBEDDING_DIMENSION_SKIPS_TOTAL = Counter(
+    "codexify_memoryos_embedding_dimension_skips_total",
+    "Total MemoryOS vectors skipped due to embedding dimension mismatches",
+    ["module"],
+    registry=registry,
+)
+MEMORYOS_EMBEDDING_CANDIDATES_TOTAL = Counter(
+    "codexify_memoryos_embedding_candidates_total",
+    "Total MemoryOS embedding candidates evaluated for similarity",
+    ["module"],
+    registry=registry,
+)
+
 
 def set_db_backend(backend: str) -> None:
     """
@@ -117,6 +131,8 @@ __all__ = [
     "registry",
     "REQUEST_COUNT",
     "DB_BACKEND_GAUGE",
+    "MEMORYOS_EMBEDDING_DIMENSION_SKIPS_TOTAL",
+    "MEMORYOS_EMBEDDING_CANDIDATES_TOTAL",
     "set_db_backend",
     "generate_latest",
     "CONTENT_TYPE_LATEST",

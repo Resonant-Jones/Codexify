@@ -29,7 +29,8 @@
           "campaign_slug",
           "depends_on",
           "campaign_markdown",
-          "tasks"
+          "tasks",
+          "discovery_reason"
         ],
         "properties": {
           "campaign_id": {
@@ -134,8 +135,7 @@
             }
           },
           "discovery_reason": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           }
         },
         "allOf": [

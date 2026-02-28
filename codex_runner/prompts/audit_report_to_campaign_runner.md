@@ -26,6 +26,9 @@ Hard constraints:
 5. If a campaign has no tasks:
    - `tasks` must be `[]`
    - `discovery_reason` must be non-empty and explicit.
+6. `discovery_reason` must always be present:
+   - If `tasks` is non-empty: set `discovery_reason` to `""`.
+   - If `tasks` is empty: set `discovery_reason` to a non-empty explanation.
 
 Policy:
 - Do not infer filesystem layout.

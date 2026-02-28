@@ -206,6 +206,10 @@ def _zero_embedding() -> np.ndarray:
 
 
 def get_embedding(text, model_name: str | None = None):
+    logger.warning(
+        "[memoryos][DEPRECATED] memoryos.utils.get_embedding() is deprecated and will be removed in the next major version; "
+        "use injected MemoryOSEmbedder implementations instead."
+    )
     if model_name:
         logger.warning(
             "[memoryos] model override ignored; use LOCAL_EMBED_MODEL"
@@ -235,9 +239,7 @@ def get_embedding(text, model_name: str | None = None):
             logger.warning(
                 "[memoryos] model '%s' unavailable for backend=%s; returning zero embedding",
                 resolved_model,
-                (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "")
-                .strip()
-                .lower()
+                (os.getenv("CODEXIFY_EMBEDDINGS_BACKEND") or "").strip().lower()
                 or "<unset>",
             )
             return _zero_embedding()
