@@ -89,6 +89,215 @@ def test_chat_turn_lock_rejects(monkeypatch):
     assert r.json().get("error") == "turn_in_flight"
 
 
+def test_chat_message_turn_lock_owner_contract(monkeypatch):
+    from guardian.routes import chat as chat_routes
+
+    class _StubChatlogDB:
+        def __init__(self) -> None:
+            self._thread: dict[str, object] = {"id": 556, "title": ""}
+
+        def ensure_chat_thread(self, **_kwargs) -> None:
+            return None
+
+        def create_message(
+            self, thread_id: int, role: str, content: str
+        ) -> int:
+            _ = (thread_id, role, content)
+            return 9001
+
+        def write_audit_log(self, *_args, **_kwargs) -> None:
+            return None
+
+        def get_chat_thread(self, thread_id: int):
+            self._thread["id"] = thread_id
+            return self._thread
+
+        def count_messages(self, _thread_id: int) -> int:
+            return 1
+
+        def update_thread(self, _thread_id: int, **_kwargs) -> None:
+            return None
+
+    calls: dict[str, tuple[object, ...]] = {}
+
+    def fake_acquire_turn_lock(
+        thread_id: int, owner: str, *, ttl_seconds: int | None = None
+    ) -> bool:
+        calls["acquire"] = (thread_id, owner, ttl_seconds)
+        return True
+
+    def fake_release_turn_lock(thread_id: int, owner: str) -> bool:
+        calls["release"] = (thread_id, owner)
+        return True
+
+    monkeypatch.setattr(
+        chat_routes, "acquire_turn_lock", fake_acquire_turn_lock
+    )
+    monkeypatch.setattr(
+        chat_routes, "release_turn_lock", fake_release_turn_lock
+    )
+    monkeypatch.setattr(chat_routes, "chatlog_db", _StubChatlogDB())
+    monkeypatch.setattr(
+        chat_routes.event_bus, "emit_event", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        chat_routes, "_emit_thread_update_event", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(chat_routes, "_embed_message", lambda *_a, **_k: None)
+
+    thread_id = 556
+    message = chat_routes._persist_message_to_thread(
+        thread_id=thread_id,
+        role="user",
+        content="hi",
+        owner="default",
+    )
+    assert message["id"] == 9001
+    assert calls["acquire"][0] == thread_id
+    assert calls["acquire"][1] == calls["release"][1]
+
+
+def test_route_message_write_enqueues_embed_task(monkeypatch):
+    from guardian.routes import chat as chat_routes
+
+    class _StubChatlogDB:
+        def __init__(self) -> None:
+            self._thread: dict[str, object] = {"id": 557, "title": ""}
+
+        def ensure_chat_thread(self, **_kwargs) -> None:
+            return None
+
+        def create_message(
+            self, thread_id: int, role: str, content: str
+        ) -> int:
+            _ = (thread_id, role, content)
+            return 9002
+
+        def write_audit_log(self, *_args, **_kwargs) -> None:
+            return None
+
+        def get_chat_thread(self, thread_id: int):
+            self._thread["id"] = thread_id
+            return self._thread
+
+        def count_messages(self, _thread_id: int) -> int:
+            return 1
+
+        def update_thread(self, _thread_id: int, **_kwargs) -> None:
+            return None
+
+    captured: list[dict[str, object]] = []
+
+    def fake_enqueue_chat_embed(payload: dict[str, object]) -> str:
+        captured.append(payload)
+        return "embed-task-1"
+
+    monkeypatch.setattr(chat_routes, "chatlog_db", _StubChatlogDB())
+    monkeypatch.setattr(chat_routes, "_vector_store", object())
+    monkeypatch.setattr(
+        chat_routes, "enqueue_chat_embed", fake_enqueue_chat_embed
+    )
+    monkeypatch.setattr(
+        chat_routes.event_bus, "emit_event", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        chat_routes, "_emit_thread_update_event", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        chat_routes,
+        "acquire_turn_lock",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_routes,
+        "release_turn_lock",
+        lambda *_args, **_kwargs: True,
+    )
+
+    thread_id = 557
+    message = chat_routes._persist_message_to_thread(
+        thread_id=thread_id,
+        role="user",
+        content="queue this",
+        owner="default",
+    )
+    message_id = message["id"]
+    assert captured == [
+        {
+            "thread_id": thread_id,
+            "role": "user",
+            "content": "queue this",
+            "message_id": message_id,
+        }
+    ]
+
+
+def test_chat_complete_turn_lock_blocks_parallel_requests(monkeypatch):
+    from guardian.routes import chat as chat_routes
+
+    class _StubChatlogDB:
+        def get_chat_thread(self, _thread_id: int):
+            return {"id": 558, "project_id": None}
+
+        def list_messages(self, _thread_id: int, limit: int, offset: int):
+            _ = (limit, offset)
+            return [{"id": 1, "role": "user", "content": "seed context"}]
+
+    thread_id = 558
+    held_locks: dict[int, str] = {}
+
+    def fake_acquire_turn_lock(
+        requested_thread_id: int,
+        owner: str,
+        *,
+        ttl_seconds: int | None = None,
+    ) -> bool:
+        _ = ttl_seconds
+        if requested_thread_id in held_locks:
+            return False
+        held_locks[requested_thread_id] = owner
+        return True
+
+    def fake_release_turn_lock(requested_thread_id: int, owner: str) -> bool:
+        if held_locks.get(requested_thread_id) != owner:
+            return False
+        del held_locks[requested_thread_id]
+        return True
+
+    async def fake_doc_context_override(**_kwargs):
+        return None
+
+    enqueued: list[object] = []
+
+    def fake_enqueue(task, queue_name: str) -> None:
+        enqueued.append((task, queue_name))
+
+    monkeypatch.setattr(chat_routes, "chatlog_db", _StubChatlogDB())
+    monkeypatch.setattr(
+        chat_routes, "acquire_turn_lock", fake_acquire_turn_lock
+    )
+    monkeypatch.setattr(
+        chat_routes, "release_turn_lock", fake_release_turn_lock
+    )
+    monkeypatch.setattr(
+        chat_routes, "_build_doc_context_override", fake_doc_context_override
+    )
+    monkeypatch.setattr(chat_routes, "enqueue", fake_enqueue)
+    monkeypatch.setattr(
+        chat_routes.task_events, "publish", lambda *_a, **_k: None
+    )
+
+    first = client.post(f"/api/chat/{thread_id}/complete", json={})
+    assert first.status_code == 200
+    assert len(enqueued) == 1
+    assert enqueued[0][0].turn_lock_owner == enqueued[0][0].task_id
+    assert held_locks[thread_id] == enqueued[0][0].turn_lock_owner
+
+    second = client.post(f"/api/chat/{thread_id}/complete", json={})
+    assert second.status_code == 429
+    assert second.json().get("detail") == "turn_in_flight"
+
+
 def test_memory_crud_and_health():
     # Add longterm entry
     r = client.post(

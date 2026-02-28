@@ -119,17 +119,20 @@ class Memoryos:
         self.mid_term_memory = MidTermMemory(
             file_path=user_mid_term_path,
             client=self.client,
+            embedder=self.embedder,
             max_capacity=mid_term_capacity,
         )
         self.user_long_term_memory = LongTermMemory(
             file_path=user_long_term_path,
             knowledge_capacity=long_term_knowledge_capacity,
+            embedder=self.embedder,
         )
 
         # Initialize Memory Module for Assistant Knowledge
         self.assistant_long_term_memory = LongTermMemory(
             file_path=assistant_long_term_path,
             knowledge_capacity=long_term_knowledge_capacity,
+            embedder=self.embedder,
         )
 
         # Initialize Orchestration Modules

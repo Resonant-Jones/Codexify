@@ -145,11 +145,7 @@ def _resolve_local_base(settings: Settings) -> str:
         raise HTTPException(
             status_code=400, detail="LOCAL_BASE_URL is not configured"
         )
-    base_url = base_url.rstrip("/")
-    # Normalize accidental trailing `/v1/` (already stripped) and keep explicit versioned paths.
-    if base_url.endswith("/v1"):
-        return base_url
-    return f"{base_url}/v1"
+    return base_url.rstrip("/")
 
 
 def call_local(
@@ -175,44 +171,135 @@ def call_local(
     }
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
-    base_url_v1 = _resolve_local_base(settings)
-    base_url = base_url_v1[:-3] if base_url_v1.endswith("/v1") else base_url_v1
+    base_url = _resolve_local_base(settings)
+
+    # Endpoints
+    base_url_v1 = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
     url_openai = f"{base_url_v1}/chat/completions"
+
+    # Ollama-native base: strip explicit /v1 if present.
+    base_url_ollama = base_url[:-3] if base_url.endswith("/v1") else base_url
+    url_ollama_chat = f"{base_url_ollama}/api/chat"
+    url_ollama_generate = f"{base_url_ollama}/api/generate"
+
+    # Routing policy:
+    # - If LOCAL_BASE_URL ends with /v1, treat it as an OpenAI-compatible gateway.
+    # - Otherwise default local-first to Ollama-native /api/chat.
+    # - Allow opt-in compat-first via settings.
+    compat_first = bool(getattr(settings, "LOCAL_COMPAT_FIRST", False))
+    # Back-compat aliases if you used different env names historically.
+    compat_first = compat_first or bool(
+        getattr(settings, "LOCAL_PREFER_OPENAI_COMPAT", False)
+    )
+
+    # Optional last-resort fallback to /api/generate (disabled by default).
+    enable_generate_fallback = bool(
+        getattr(settings, "LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK", False)
+    )
+
     default_timeout = getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 60)
     request_timeout = default_timeout if timeout is None else float(timeout)
 
-    try:
-        response = requests.post(
-            url_openai, json=payload, headers=headers, timeout=request_timeout
+    # If user explicitly configured /v1, do not silently try Ollama-native endpoints.
+    is_gateway = base_url.endswith("/v1")
+
+    def _post_json(url: str, payload_obj: Dict[str, Any]) -> requests.Response:
+        return requests.post(
+            url, json=payload_obj, headers=headers, timeout=request_timeout
         )
-        if response.status_code == 404:
-            # Fallback to Ollama native API when OpenAI-compatible routes are unavailable.
-            url_ollama = f"{base_url}/api/chat"
-            payload_ollama: Dict[str, Any] = {
-                "model": model,
-                "messages": messages,
-                "stream": False,
-            }
-            response = requests.post(
-                url_ollama,
-                json=payload_ollama,
-                headers=headers,
-                timeout=request_timeout,
+
+    # Attempt order
+    if is_gateway:
+        attempt_urls = [("openai", url_openai)]
+    else:
+        if compat_first:
+            attempt_urls = [
+                ("openai", url_openai),
+                ("ollama_chat", url_ollama_chat),
+            ]
+        else:
+            attempt_urls = [
+                ("ollama_chat", url_ollama_chat),
+                ("openai", url_openai),
+            ]
+        if enable_generate_fallback:
+            attempt_urls.append(("ollama_generate", url_ollama_generate))
+
+    last_response: Optional[requests.Response] = None
+
+    try:
+        for kind, url in attempt_urls:
+            if kind == "openai":
+                resp = _post_json(url, payload)
+            elif kind == "ollama_chat":
+                payload_ollama: Dict[str, Any] = {
+                    "model": model,
+                    "messages": messages,
+                    "stream": False,
+                }
+                resp = _post_json(url, payload_ollama)
+            else:
+                # /api/generate expects a single prompt string. Keep it as a last resort.
+                prompt = "\n\n".join(
+                    str(m.get("content") or "").strip()
+                    for m in (messages or [])
+                    if isinstance(m, dict)
+                    and str(m.get("content") or "").strip()
+                ).strip()
+                payload_generate: Dict[str, Any] = {
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                }
+                resp = _post_json(url, payload_generate)
+
+            last_response = resp
+
+            # If endpoint missing, try the next one (unless we are in gateway mode)
+            if resp.status_code == 404:
+                if is_gateway:
+                    detail = (
+                        f"Local inference endpoint not found: {url_openai} returned 404. "
+                        "LOCAL_BASE_URL ends with '/v1', so OpenAI-compatible endpoints "
+                        "(e.g. /v1/chat/completions) are required."
+                    )
+                    raise HTTPException(status_code=502, detail=detail)
+                continue
+
+            resp.raise_for_status()
+            data = json.loads(resp.content.decode("utf-8"))
+
+            # Ollama /api/chat format
+            if (
+                isinstance(data.get("message"), dict)
+                and "content" in data["message"]
+            ):
+                return data["message"]["content"]
+
+            # Ollama /api/generate format
+            if "response" in data and isinstance(data.get("response"), str):
+                return data.get("response") or ""
+
+            # OpenAI-compatible format
+            return data["choices"][0]["message"]["content"]
+
+        # If we exhausted attempts, surface the last response body.
+        if last_response is not None:
+            detail = _extract_provider_error_message(
+                last_response, secret=api_key
             )
-        response.raise_for_status()
-        data = json.loads(response.content.decode("utf-8"))
-        if (
-            isinstance(data.get("message"), dict)
-            and "content" in data["message"]
-        ):
-            return data["message"]["content"]
-        return data["choices"][0]["message"]["content"]
+            raise HTTPException(
+                status_code=502,
+                detail=f"Local inference request failed ({last_response.status_code}): {detail}",
+            )
+        raise HTTPException(
+            status_code=502, detail="Local inference request failed"
+        )
     except req_exc.RequestException as e:
-        # requests-level failures: DNS, connect, timeout, etc.
         failed_url = (
-            response.url
-            if "response" in locals() and getattr(response, "url", None)
-            else url_openai
+            last_response.url
+            if last_response is not None and getattr(last_response, "url", None)
+            else (attempt_urls[0][1] if attempt_urls else url_openai)
         )
         detail = _format_local_connect_error(failed_url, e)
         if log_exceptions:
@@ -220,8 +307,9 @@ def call_local(
         else:
             logger.warning(detail)
         raise HTTPException(status_code=502, detail=detail)
+    except HTTPException:
+        raise
     except Exception as e:
-        # Non-request exceptions (e.g. JSON decode, unexpected payload shape)
         if log_exceptions:
             logger.exception("Local backend error")
         else:
@@ -252,53 +340,127 @@ def stream_local(
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
     base_url = _resolve_local_base(settings)
-    url = f"{base_url}/chat/completions"
+
+    base_url_v1 = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
+    url_openai = f"{base_url_v1}/chat/completions"
+
+    base_url_ollama = base_url[:-3] if base_url.endswith("/v1") else base_url
+    url_ollama_chat = f"{base_url_ollama}/api/chat"
+
     timeout = getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 60)
 
+    compat_first = bool(getattr(settings, "LOCAL_COMPAT_FIRST", False))
+    compat_first = compat_first or bool(
+        getattr(settings, "LOCAL_PREFER_OPENAI_COMPAT", False)
+    )
+
+    is_gateway = base_url.endswith("/v1")
+
+    # Attempt order for streaming (no /api/generate support in streaming mode)
+    if is_gateway:
+        attempt_urls = [("openai", url_openai)]
+    else:
+        if compat_first:
+            attempt_urls = [
+                ("openai", url_openai),
+                ("ollama_chat", url_ollama_chat),
+            ]
+        else:
+            attempt_urls = [
+                ("ollama_chat", url_ollama_chat),
+                ("openai", url_openai),
+            ]
+
+    current_url = attempt_urls[0][1] if attempt_urls else url_openai
+
+    response: Optional[requests.Response] = None
+
     try:
-        with requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            stream=True,
-            timeout=timeout,
-        ) as response:
-            response.raise_for_status()
-            for raw_line in response.iter_lines(decode_unicode=False):
-                if not raw_line:
-                    continue
-                line = raw_line.decode("utf-8", errors="replace")
-                if line.startswith("data:"):
-                    data = line[5:].strip()
-                else:
-                    data = line.strip()
-                if not data:
-                    continue
-                if data == "[DONE]":
-                    break
-                try:
-                    payload = json.loads(data)
-                except Exception:
-                    continue
-                try:
-                    choice = payload.get("choices", [{}])[0]
-                    delta = choice.get("delta") or {}
-                    token = (
-                        delta.get("content")
-                        or choice.get("message", {}).get("content")
-                        or choice.get("text")
+        for kind, url in attempt_urls:
+            current_url = url
+            if kind == "openai":
+                resp = requests.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    stream=True,
+                    timeout=timeout,
+                )
+            else:
+                payload_ollama = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.7
+                    if temperature is None
+                    else float(temperature),
+                    "stream": True,
+                }
+                resp = requests.post(
+                    url,
+                    json=payload_ollama,
+                    headers=headers,
+                    stream=True,
+                    timeout=timeout,
+                )
+
+            response = resp
+
+            if resp.status_code == 404:
+                if is_gateway:
+                    detail = (
+                        f"Local inference endpoint not found: {url_openai} returned 404. "
+                        "LOCAL_BASE_URL ends with '/v1', so OpenAI-compatible endpoints "
+                        "(e.g. /v1/chat/completions) are required."
                     )
-                    if token:
-                        yield token
-                except Exception:
-                    continue
-    except req_exc.RequestException as e:
-        detail = _format_local_connect_error(url, e)
-        logger.exception(detail)
-        raise HTTPException(status_code=502, detail=detail)
-    except Exception as e:
-        logger.exception("Local backend stream error")
-        raise HTTPException(status_code=502, detail=str(e))
+                    raise HTTPException(status_code=502, detail=detail)
+                # Try next endpoint
+                resp.close()
+                response = None
+                continue
+
+            resp.raise_for_status()
+            break
+
+        if response is None:
+            raise HTTPException(
+                status_code=502, detail="Local inference request failed"
+            )
+
+        for raw_line in response.iter_lines(decode_unicode=False):
+            if not raw_line:
+                continue
+            line = raw_line.decode("utf-8", errors="replace")
+            if line.startswith("data:"):
+                data = line[5:].strip()
+            else:
+                data = line.strip()
+            if not data:
+                continue
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except Exception:
+                continue
+            try:
+                # OpenAI-compatible SSE or Ollama /api/chat streaming
+                choice = chunk.get("choices", [{}])[0]
+                delta = choice.get("delta") or {}
+                token = (
+                    delta.get("content")
+                    or choice.get("message", {}).get("content")
+                    or choice.get("text")
+                )
+                if token:
+                    yield token
+            except Exception:
+                continue
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
 
 def call_groq(messages, model: str, *, settings: Optional[Settings] = None):

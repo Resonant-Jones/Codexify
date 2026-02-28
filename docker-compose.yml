@@ -280,11 +280,19 @@ services:
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
+      # VaultNode is the host running Ollama. Keep this as a pure host:port (no /v1) unless you are explicitly targeting an OpenAI-compat gateway.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
-      LOCAL_API_KEY: "local"
+
+      # Local inference base URL (Ollama native by default). If you point this at an OpenAI-compat gateway, use a /v1 suffix.
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+
+      # Routing knobs (handled by guardian/core/ai_router.py)
+      # Prefer /v1/chat/completions first only when explicitly enabled.
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
+      LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0
@@ -331,9 +339,11 @@ services:
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
+      LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0
@@ -379,9 +389,11 @@ services:
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
+      LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0
@@ -431,9 +443,11 @@ services:
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
+      LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0

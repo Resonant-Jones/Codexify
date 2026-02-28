@@ -2,18 +2,23 @@ import heapq
 import json
 import logging
 from collections import defaultdict
+from typing import Any
 
 import faiss
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
+from .embedders.base import (
+    MemoryOSEmbedder,
+    get_embedder_model_name,
+    get_embedder_provider_name,
+)
 from .utils import (
     OpenAIClient,
     compute_time_decay,
     ensure_directory_exists,
     generate_id,
-    get_embedding,
     get_timestamp,
     llm_extract_keywords,
     normalize_vector,
@@ -24,6 +29,84 @@ HEAT_ALPHA = 1.0
 HEAT_BETA = 1.0
 HEAT_GAMMA = 1
 RECENCY_TAU_HOURS = 24  # For R_recency calculation in compute_segment_heat
+
+
+def _normalize_embed_vector(raw: Any) -> np.ndarray:
+    vec = np.asarray(raw, dtype=np.float32)
+    if vec.ndim == 0:
+        return np.array([], dtype=np.float32)
+    if vec.ndim > 1:
+        vec = vec.reshape(-1)
+    return vec
+
+
+def _emit_dimension_skip_events(
+    *,
+    module: str,
+    query_dim: int,
+    mismatch_counts: dict[int, int],
+    provider: str,
+    model: str | None,
+    candidate_count: int,
+) -> None:
+    skipped_total = int(sum(mismatch_counts.values()))
+    if candidate_count > 0:
+        try:
+            from guardian.core.metrics import (
+                MEMORYOS_EMBEDDING_CANDIDATES_TOTAL,
+                MEMORYOS_EMBEDDING_DIMENSION_SKIPS_TOTAL,
+            )
+
+            MEMORYOS_EMBEDDING_CANDIDATES_TOTAL.labels(module=module).inc(
+                candidate_count
+            )
+            if skipped_total:
+                MEMORYOS_EMBEDDING_DIMENSION_SKIPS_TOTAL.labels(
+                    module=module
+                ).inc(skipped_total)
+        except Exception:
+            pass
+
+    if skipped_total <= 0:
+        return
+
+    skip_ratio = (
+        float(skipped_total) / float(candidate_count)
+        if candidate_count > 0
+        else 1.0
+    )
+    for candidate_dim, count in sorted(mismatch_counts.items()):
+        payload = {
+            "module": module,
+            "query_dim": int(query_dim),
+            "candidate_dim": int(candidate_dim),
+            "provider": provider,
+            "model": model,
+            "skipped_count": int(count),
+            "candidate_count": int(candidate_count),
+            "skip_ratio": skip_ratio,
+        }
+        logger.warning(
+            "memoryos.embedding.dimension_skip %s",
+            json.dumps(payload, sort_keys=True),
+        )
+
+    if candidate_count > 0 and skip_ratio > 0.30:
+        logger.warning(
+            "memoryos.embedding.high_skip_ratio %s",
+            json.dumps(
+                {
+                    "module": module,
+                    "query_dim": int(query_dim),
+                    "provider": provider,
+                    "model": model,
+                    "skipped_count": int(skipped_total),
+                    "candidate_count": int(candidate_count),
+                    "skip_ratio": skip_ratio,
+                },
+                sort_keys=True,
+            ),
+        )
 
 
 def compute_segment_heat(
@@ -48,10 +131,19 @@ def compute_segment_heat(
 
 
 class MidTermMemory:
-    def __init__(self, file_path: str, client: OpenAIClient, max_capacity=2000):
+    def __init__(
+        self,
+        file_path: str,
+        client: OpenAIClient,
+        embedder: MemoryOSEmbedder,
+        max_capacity=2000,
+    ):
         self.file_path = file_path
         ensure_directory_exists(self.file_path)
         self.client = client
+        self.embedder = embedder
+        self.embedding_provider = get_embedder_provider_name(embedder)
+        self.embedding_model = get_embedder_model_name(embedder)
         self.max_capacity = max_capacity
         self.sessions = {}  # {session_id: session_object}
         self.access_frequency = defaultdict(
@@ -120,8 +212,9 @@ class MidTermMemory:
 
     def add_session(self, summary, details):
         session_id = generate_id("session")
-        summary_vec = get_embedding(summary)
-        summary_vec = normalize_vector(summary_vec).tolist()
+        summary_raw = _normalize_embed_vector(self.embedder.embed(summary))
+        summary_vec = normalize_vector(summary_raw).tolist()
+        summary_dim = int(summary_raw.shape[0]) if summary_raw.size else 0
         summary_keywords = list(
             llm_extract_keywords(summary, client=self.client)
         )
@@ -130,8 +223,9 @@ class MidTermMemory:
         for page_data in details:
             page_id = page_data.get("page_id", generate_id("page"))
             full_text = f"User: {page_data.get('user_input','')} Assistant: {page_data.get('agent_response','')}"
-            inp_vec = get_embedding(full_text)
-            inp_vec = normalize_vector(inp_vec).tolist()
+            inp_raw = _normalize_embed_vector(self.embedder.embed(full_text))
+            inp_vec = normalize_vector(inp_raw).tolist()
+            inp_dim = int(inp_raw.shape[0]) if inp_raw.size else 0
             page_keywords = list(
                 llm_extract_keywords(full_text, client=self.client)
             )
@@ -147,6 +241,9 @@ class MidTermMemory:
                 "analyzed": page_data.get(
                     "analyzed", False
                 ),  # Preserve if passed
+                "embedding_provider": self.embedding_provider,
+                "embedding_model": self.embedding_model,
+                "embedding_dim": inp_dim,
                 # pre_page, next_page, meta_info are handled by DynamicUpdater
             }
             processed_details.append(processed_page)
@@ -165,6 +262,9 @@ class MidTermMemory:
             "timestamp": current_ts,  # Creation timestamp
             "last_visit_time": current_ts,  # Also initial last_visit_time for recency calc
             "access_count_lfu": 0,  # For LFU eviction policy
+            "embedding_provider": self.embedding_provider,
+            "embedding_model": self.embedding_model,
+            "embedding_dim": summary_dim,
         }
         session_obj["H_segment"] = compute_segment_heat(session_obj)
         self.sessions[session_id] = session_obj
@@ -204,16 +304,32 @@ class MidTermMemory:
             )
             return self.add_session(summary_for_new_pages, pages_to_insert)
 
-        new_summary_vec = get_embedding(summary_for_new_pages)
+        new_summary_vec = _normalize_embed_vector(
+            self.embedder.embed(summary_for_new_pages)
+        )
         new_summary_vec = normalize_vector(new_summary_vec)
+        new_summary_dim = (
+            int(new_summary_vec.shape[0]) if new_summary_vec.size else 0
+        )
 
         best_sid = None
         best_overall_score = -1
+        mismatch_counts: dict[int, int] = defaultdict(int)
+        compared_sessions = 0
 
         for sid, existing_session in self.sessions.items():
             existing_summary_vec = np.array(
                 existing_session["summary_embedding"], dtype=np.float32
             )
+            existing_dim = (
+                int(existing_session.get("embedding_dim"))
+                if existing_session.get("embedding_dim") is not None
+                else int(existing_summary_vec.shape[0])
+            )
+            compared_sessions += 1
+            if existing_dim != new_summary_dim:
+                mismatch_counts[existing_dim] += 1
+                continue
             semantic_sim = float(np.dot(existing_summary_vec, new_summary_vec))
 
             # Keyword similarity (Jaccard index based)
@@ -238,6 +354,15 @@ class MidTermMemory:
                 best_overall_score = overall_score
                 best_sid = sid
 
+        _emit_dimension_skip_events(
+            module="mid_term.insert_pages",
+            query_dim=new_summary_dim,
+            mismatch_counts=mismatch_counts,
+            provider=self.embedding_provider,
+            model=self.embedding_model,
+            candidate_count=compared_sessions,
+        )
+
         if best_sid and best_overall_score >= similarity_threshold:
             logger.info(
                 f"MidTermMemory: Merging pages into session {best_sid}. Score: {best_overall_score:.2f} (Threshold: {similarity_threshold})"
@@ -250,8 +375,11 @@ class MidTermMemory:
                     "page_id", generate_id("page")
                 )  # Use existing or generate new ID
                 full_text = f"User: {page_data.get('user_input','')} Assistant: {page_data.get('agent_response','')}"
-                inp_vec = get_embedding(full_text)
-                inp_vec = normalize_vector(inp_vec).tolist()
+                inp_raw = _normalize_embed_vector(
+                    self.embedder.embed(full_text)
+                )
+                inp_vec = normalize_vector(inp_raw).tolist()
+                inp_dim = int(inp_raw.shape[0]) if inp_raw.size else 0
                 page_keywords_current = list(
                     llm_extract_keywords(full_text, client=self.client)
                 )
@@ -261,6 +389,9 @@ class MidTermMemory:
                     "page_id": page_id,
                     "page_embedding": inp_vec,
                     "page_keywords": page_keywords_current,
+                    "embedding_provider": self.embedding_provider,
+                    "embedding_model": self.embedding_model,
+                    "embedding_dim": inp_dim,
                     # analyzed, preloaded flags should be part of page_data if set
                 }
                 target_session["details"].append(processed_page)
@@ -271,6 +402,9 @@ class MidTermMemory:
                 "last_visit_time"
             ] = get_timestamp()  # Update last visit time on modification
             target_session["H_segment"] = compute_segment_heat(target_session)
+            target_session["embedding_provider"] = self.embedding_provider
+            target_session["embedding_model"] = self.embedding_model
+            target_session["embedding_dim"] = new_summary_dim
             self.rebuild_heap()  # Rebuild heap as heat has changed
             self.save()
             return best_sid
@@ -292,20 +426,48 @@ class MidTermMemory:
         if not self.sessions:
             return []
 
-        query_vec = get_embedding(query_text)
-        query_vec = normalize_vector(query_vec)
+        query_raw = _normalize_embed_vector(self.embedder.embed(query_text))
+        query_vec = normalize_vector(query_raw)
+        query_dim = int(query_vec.shape[0]) if query_vec.size else 0
         query_keywords = set(
             llm_extract_keywords(query_text, client=self.client)
         )
 
-        candidate_sessions = []
         session_ids = list(self.sessions.keys())
         if not session_ids:
             return []
 
-        summary_embeddings_list = [
-            self.sessions[s]["summary_embedding"] for s in session_ids
-        ]
+        summary_embeddings_list = []
+        searchable_session_ids = []
+        mismatch_counts: dict[int, int] = defaultdict(int)
+        for session_id in session_ids:
+            session = self.sessions[session_id]
+            summary_vec = np.array(
+                session.get("summary_embedding", []), dtype=np.float32
+            )
+            summary_dim = (
+                int(session.get("embedding_dim"))
+                if session.get("embedding_dim") is not None
+                else int(summary_vec.shape[0])
+            )
+            if summary_dim != query_dim:
+                mismatch_counts[summary_dim] += 1
+                continue
+            searchable_session_ids.append(session_id)
+            summary_embeddings_list.append(summary_vec)
+
+        _emit_dimension_skip_events(
+            module="mid_term.search_sessions.summary",
+            query_dim=query_dim,
+            mismatch_counts=mismatch_counts,
+            provider=self.embedding_provider,
+            model=self.embedding_model,
+            candidate_count=len(session_ids),
+        )
+
+        if not searchable_session_ids:
+            return []
+
         summary_embeddings_np = np.array(
             summary_embeddings_list, dtype=np.float32
         )
@@ -316,7 +478,7 @@ class MidTermMemory:
 
         query_arr_np = np.array([query_vec], dtype=np.float32)
         distances, indices = index.search(
-            query_arr_np, min(top_k_sessions, len(session_ids))
+            query_arr_np, min(top_k_sessions, len(searchable_session_ids))
         )
 
         results = []
@@ -326,7 +488,7 @@ class MidTermMemory:
             if idx == -1:
                 continue
 
-            session_id = session_ids[idx]
+            session_id = searchable_session_ids[idx]
             session = self.sessions[session_id]
             semantic_sim_score = float(
                 distances[0][i]
@@ -353,10 +515,21 @@ class MidTermMemory:
 
             if session_relevance_score >= segment_similarity_threshold:
                 matched_pages_in_session = []
+                page_mismatch_counts: dict[int, int] = defaultdict(int)
+                page_candidate_count = 0
                 for page in session.get("details", []):
                     page_embedding = np.array(
                         page["page_embedding"], dtype=np.float32
                     )
+                    page_dim = (
+                        int(page.get("embedding_dim"))
+                        if page.get("embedding_dim") is not None
+                        else int(page_embedding.shape[0])
+                    )
+                    page_candidate_count += 1
+                    if page_dim != query_dim:
+                        page_mismatch_counts[page_dim] += 1
+                        continue
                     # page_keywords = set(page.get("page_keywords", []))
 
                     page_sim_score = float(np.dot(page_embedding, query_vec))
@@ -366,6 +539,15 @@ class MidTermMemory:
                         matched_pages_in_session.append(
                             {"page_data": page, "score": page_sim_score}
                         )
+
+                _emit_dimension_skip_events(
+                    module="mid_term.search_sessions.pages",
+                    query_dim=query_dim,
+                    mismatch_counts=page_mismatch_counts,
+                    provider=self.embedding_provider,
+                    model=self.embedding_model,
+                    candidate_count=page_candidate_count,
+                )
 
                 if matched_pages_in_session:
                     # Update session access stats

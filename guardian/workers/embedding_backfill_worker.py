@@ -318,9 +318,7 @@ def run_once():
     # Log embedding backend details in a provider-agnostic, future-proof way
     vector_backend = os.getenv("CODEXIFY_VECTOR_STORE", "faiss").lower()
     embeddings_backend = _embeddings_backend()
-    embed_model = _get_local_embed_model(
-        strict=_is_local_embeddings_backend()
-    )
+    embed_model = _get_local_embed_model(strict=_is_local_embeddings_backend())
     if not embed_model:
         embed_model = embeddings_backend or "unspecified"
         logger.info(
@@ -357,7 +355,20 @@ def run_once():
         )
         db = SessionLocal()
 
-        vector_store = VectorStore()
+        try:
+            vector_store = VectorStore()
+        except Exception as exc:
+            logger.error(
+                "[backfill] %s",
+                json.dumps(
+                    {
+                        "event": "embedding_backfill_boot_failure",
+                        "error": str(exc),
+                    },
+                    sort_keys=True,
+                ),
+            )
+            raise
 
         total_messages = int(db.query(ChatMessage).count())
         chroma_count = _get_chroma_count(vector_store)

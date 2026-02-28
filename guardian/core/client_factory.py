@@ -1,14 +1,11 @@
 # guardian/core/client_factory.py
-import os
 from functools import lru_cache
 
-# Import embedders
-from memoryos.embedders.local_embedder import LocalEmbedder
-from memoryos.embedders.openai_embedder import OpenAIEmbedder
+from memoryos.embedders.factory import build_memoryos_embedder
 from memoryos.memoryos import Memoryos
 from memoryos.utils import DEFAULT_GROQ_BASE_URL, build_llm_client
 
-from .config import settings
+from .config import settings, validate_embedding_provider_config
 
 
 @lru_cache(maxsize=1)
@@ -40,27 +37,8 @@ def get_memoryos_instance() -> Memoryos:
     llm_client = build_llm_client(provider, api_key=api_key, base_url=base_url)
 
     # --- Embedder Configuration ---
-    embedder = None
-    if settings.EMBEDDER_PROVIDER == "local":
-        embedder = LocalEmbedder()
-    elif settings.EMBEDDER_PROVIDER == "openai":
-        model = (
-            os.getenv("OPENAI_EMBED_MODEL")
-            or os.getenv("OPENAI_EMBEDDING_MODEL")
-            or (settings.EMBEDDING_MODEL or "")
-        ).strip()
-        if not model:
-            raise ValueError(
-                "OpenAI embedder requires OPENAI_EMBED_MODEL or OPENAI_EMBEDDING_MODEL."
-            )
-        embedder = OpenAIEmbedder(
-            api_key=settings.OPENAI_API_KEY,
-            model=model,
-        )
-    else:
-        raise ValueError(
-            f"Unsupported EMBEDDER_PROVIDER: {settings.EMBEDDER_PROVIDER}"
-        )
+    validate_embedding_provider_config(settings)
+    embedder = build_memoryos_embedder(settings.EMBEDDER_PROVIDER)
 
     # --- Instantiate MemoryOS ---
     return Memoryos(

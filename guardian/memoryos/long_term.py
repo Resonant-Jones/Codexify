@@ -4,6 +4,7 @@ logger = logging.getLogger(__name__)
 
 import json
 from collections import deque
+from typing import Any
 
 try:
     import faiss  # type: ignore
@@ -12,17 +13,124 @@ except ImportError:
 import numpy as np
 from memoryos.utils import (
     ensure_directory_exists,
-    get_embedding,
     get_timestamp,
     normalize_vector,
 )
 
+from .embedders.base import (
+    MemoryOSEmbedder,
+    get_embedder_model_name,
+    get_embedder_provider_name,
+)
+
+
+def _normalize_embed_vector(raw: Any) -> np.ndarray:
+    vec = np.asarray(raw, dtype=np.float32)
+    if vec.ndim == 0:
+        return np.array([], dtype=np.float32)
+    if vec.ndim > 1:
+        vec = vec.reshape(-1)
+    return vec
+
+
+class _LegacyEmbeddingAdapter:
+    """Temporary adapter for deprecated memoryos.utils.get_embedding fallback."""
+
+    name = "legacy_get_embedding"
+    model_name = None
+
+    def embed(self, text: str) -> list[float]:
+        from memoryos.utils import get_embedding
+
+        vec = get_embedding(text)
+        return _normalize_embed_vector(vec).tolist()
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
+
+
+def _emit_dimension_skip_events(
+    *,
+    module: str,
+    query_dim: int,
+    mismatch_counts: dict[int, int],
+    provider: str,
+    model: str | None,
+    candidate_count: int,
+) -> None:
+    skipped_total = int(sum(mismatch_counts.values()))
+    if candidate_count > 0:
+        try:
+            from guardian.core.metrics import (
+                MEMORYOS_EMBEDDING_CANDIDATES_TOTAL,
+                MEMORYOS_EMBEDDING_DIMENSION_SKIPS_TOTAL,
+            )
+
+            MEMORYOS_EMBEDDING_CANDIDATES_TOTAL.labels(module=module).inc(
+                candidate_count
+            )
+            if skipped_total:
+                MEMORYOS_EMBEDDING_DIMENSION_SKIPS_TOTAL.labels(
+                    module=module
+                ).inc(skipped_total)
+        except Exception:
+            pass
+
+    if skipped_total <= 0:
+        return
+
+    skip_ratio = (
+        float(skipped_total) / float(candidate_count)
+        if candidate_count > 0
+        else 1.0
+    )
+    for candidate_dim, count in sorted(mismatch_counts.items()):
+        payload = {
+            "module": module,
+            "query_dim": int(query_dim),
+            "candidate_dim": int(candidate_dim),
+            "provider": provider,
+            "model": model,
+            "skipped_count": int(count),
+            "candidate_count": int(candidate_count),
+            "skip_ratio": skip_ratio,
+        }
+        logger.warning(
+            "memoryos.embedding.dimension_skip %s",
+            json.dumps(payload, sort_keys=True),
+        )
+
+    if candidate_count > 0 and skip_ratio > 0.30:
+        logger.warning(
+            "memoryos.embedding.high_skip_ratio %s",
+            json.dumps(
+                {
+                    "module": module,
+                    "query_dim": int(query_dim),
+                    "provider": provider,
+                    "model": model,
+                    "skipped_count": int(skipped_total),
+                    "candidate_count": int(candidate_count),
+                    "skip_ratio": skip_ratio,
+                },
+                sort_keys=True,
+            ),
+        )
+
 
 class LongTermMemory:
-    def __init__(self, file_path, knowledge_capacity=100):
+    def __init__(
+        self,
+        file_path,
+        knowledge_capacity=100,
+        embedder: MemoryOSEmbedder | None = None,
+    ):
         self.file_path = file_path
         ensure_directory_exists(self.file_path)
         self.knowledge_capacity = knowledge_capacity
+        self.embedder = embedder or _LegacyEmbeddingAdapter()
+        self.embedding_provider = get_embedder_provider_name(self.embedder)
+        self.embedding_model = get_embedder_model_name(self.embedder)
         self.user_profiles = (
             {}
         )  # {user_id: {data: "profile_string", "last_updated": "timestamp"}}
@@ -86,12 +194,15 @@ class LongTermMemory:
             return
 
         # If deque is full, the oldest item is automatically removed when appending.
-        vec = get_embedding(knowledge_text)
-        vec = normalize_vector(vec).tolist()
+        vec_raw = _normalize_embed_vector(self.embedder.embed(knowledge_text))
+        vec = normalize_vector(vec_raw).tolist()
         entry = {
             "knowledge": knowledge_text,
             "timestamp": get_timestamp(),
             "knowledge_embedding": vec,
+            "embedding_provider": self.embedding_provider,
+            "embedding_model": self.embedding_model,
+            "embedding_dim": int(vec_raw.shape[0]) if vec_raw.size else 0,
         }
         knowledge_deque.append(entry)
         logger.info(
@@ -127,21 +238,44 @@ class LongTermMemory:
             )
             return []
 
-        query_vec = get_embedding(query)
-        query_vec = normalize_vector(query_vec)
+        query_vec_raw = _normalize_embed_vector(self.embedder.embed(query))
+        query_vec = normalize_vector(query_vec_raw)
+        query_dim = int(query_vec.shape[0]) if query_vec.size else 0
 
         embeddings = []
         valid_entries = []
+        mismatch_counts: dict[int, int] = {}
+        candidate_count = len(knowledge_deque)
         for entry in knowledge_deque:
             if "knowledge_embedding" in entry and entry["knowledge_embedding"]:
-                embeddings.append(
-                    np.array(entry["knowledge_embedding"], dtype=np.float32)
+                candidate_vec = np.array(
+                    entry["knowledge_embedding"], dtype=np.float32
                 )
+                candidate_dim = (
+                    int(entry.get("embedding_dim"))
+                    if entry.get("embedding_dim") is not None
+                    else int(candidate_vec.shape[0])
+                )
+                if candidate_dim != query_dim:
+                    mismatch_counts[candidate_dim] = (
+                        mismatch_counts.get(candidate_dim, 0) + 1
+                    )
+                    continue
+                embeddings.append(candidate_vec)
                 valid_entries.append(entry)
             else:
                 logger.warning(
                     f"Warning: Entry without embedding found in knowledge_deque: {entry.get('knowledge','N/A')[:50]}"
                 )
+
+        _emit_dimension_skip_events(
+            module="long_term.search_knowledge",
+            query_dim=query_dim,
+            mismatch_counts=mismatch_counts,
+            provider=self.embedding_provider,
+            model=self.embedding_model,
+            candidate_count=candidate_count,
+        )
 
         if not embeddings:
             return []

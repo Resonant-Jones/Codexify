@@ -1,11 +1,105 @@
-# Deterministic Campaign Runner v2
+# Codexify Campaign Runner (Deterministic v2)
 
 Canonical runtime: `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner`
 
 Legacy package note:
 - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/tools/codex-runner` is frozen/deprecated.
 
-## Core Guarantees
+## Interactive TUI (command-first)
+
+Running with no arguments opens the TUI in interactive terminals:
+
+```bash
+python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py
+```
+
+Force TUI mode:
+
+```bash
+python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --tui
+```
+
+Non-interactive behavior:
+- no args in non-interactive mode (CI/piped): does not launch TUI; falls back to CLI argument validation
+- explicit `--tui` in non-interactive mode: hard-fails with an interactive terminal error
+- missing Textual dependency: hard-fails with install guidance
+
+## TUI workflow
+
+The TUI is command-bar first (single input bar) with compact summaries for:
+- active settings
+- staged changes
+- recent events
+
+### Command surface
+
+- `/set <key> <value>`
+- `/toggle <key>`
+- `/preset <name>`
+- `/apply`
+- `/discard`
+- `/preview`
+- `/run`
+- `/save`
+- `/edit-paths`
+- `/help`
+- `/quit`
+
+### Staged/apply model
+
+- settings edits are staged first
+- `/apply` commits staged settings to active settings (with validation)
+- `/run` is strict and blocks if staged changes exist
+
+### Run modes
+
+Strict run (`/run` or `Ctrl+R`):
+- blocks on staged changes
+- enforces TUI validation
+- shows preview before running
+
+Instant run (`Cmd+Enter` or `Ctrl+Enter`):
+- treats key combo as explicit consent
+- auto-applies staged changes
+- skips TUI validation and preview
+- exits immediately to run
+
+### Path editing
+
+Use `/edit-paths` to bulk-edit long path settings in a focused modal.
+
+### Key bindings
+
+- `/`: focus command input
+- `Ctrl+S`: save profile
+- `Ctrl+R`: strict run
+- `Cmd+Enter`: instant run (macOS)
+- `Ctrl+Enter`: instant run fallback
+- `q`: quit
+
+## Persisted settings
+
+Stored at:
+- `~/.config/campaign_runner/settings.toml`
+
+Load order:
+1. built-in defaults
+2. persisted profile
+3. optional `--tui` CLI overrides
+
+Presets are supported via TOML blocks:
+
+```toml
+[presets.fast]
+passes = 2
+verify = false
+branch_per_campaign = true
+provider = "codex"
+```
+
+Unknown preset keys are ignored with warnings.
+
+## Core guarantees
 
 - Runner owns identifiers (`run_id`, `audit_id`) and artifact paths.
 - Runner owns state (`docs/_campaign_runs/state/state.json`) and transition history.
@@ -21,15 +115,16 @@ Legacy package note:
 - `audit_id` = `AUDIT_<run_id>`
 - Stage A output must echo `audit_id` exactly.
 
-## Run Metadata
+## Run metadata
 
 The runner writes `run_meta.json` to:
 - `docs/_audits/YYYY-MM-DD/<audit_id>/run_meta.json`
 - `docs/_campaign_runs/YYYY-MM-DD/<campaign_slug>/<run_id>/run_meta.json`
 
-Tracked by default:
-- `docs/_audits/**`
-- `docs/_campaign_runs/**`
+Additional provider traceability in `run_meta.json`:
+- provider name
+- provider model map (`default`, `audit`, `compiler`, `task`)
+- sanitized provider settings list (redacts token/secret/password/key markers)
 
 ## CLI
 
@@ -44,7 +139,8 @@ python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runn
   --campaign-set-schema-file /path/to/campaign_set.schema.json
 ```
 
-Optional flags:
+General flags:
+- `--provider {codex,claude}`
 - `--passes N` (default: `1`)
 - `--base-ref <git-ref>` (default: `HEAD`)
 - `--execute` or `--dry-run`
@@ -54,12 +150,31 @@ Optional flags:
 - `--verify` / `--no-verify`
 - `--debug`
 
+Codex provider flags:
+- `--codex-model`
+- `--codex-model-audit`
+- `--codex-model-compiler`
+- `--codex-model-task`
+- `--codex-config` (repeatable)
+
+Claude provider flags:
+- `--claude-model`
+- `--claude-model-audit`
+- `--claude-model-compiler`
+- `--claude-model-task`
+- `--claude-settings` (repeatable)
+
 Verify default policy:
 - local/dev default: `--no-verify`
 - CI default: `--verify` when `CI=true`
 - explicit flag always wins
 
-## Safety Defaults
+## Provider requirements
+
+- `codex` provider: `codex` executable on PATH
+- `claude` provider: `claude` executable on PATH
+
+## Safety defaults
 
 - Hard-fail on dirty preflight.
 - Hard-fail on schema drift.
