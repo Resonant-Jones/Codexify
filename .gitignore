@@ -178,3 +178,6 @@ boxbeyond-kutiraai/
 
 # never track codex_runner github metadata
 codex_runner/.github/
+
+# Codex runner local chatmode files
+codex_runner/.github/
