@@ -92,6 +92,17 @@ def _normalize_metadatas(
     return cleaned
 
 
+def _normalize_embeddings(vectors: np.ndarray) -> np.ndarray:
+    arr = np.asarray(vectors, dtype="float32")
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    if arr.size == 0:
+        return arr
+    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+    norms[norms == 0.0] = 1.0
+    return (arr / norms).astype("float32")
+
+
 def _normalize_namespace(value: Any) -> str | None:
     if value is None:
         return None
