@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -66,6 +67,22 @@ def process_chat_embed_task(
 
 
 def run_forever() -> None:
+    try:
+        shared_vector_store = VectorStore()
+    except Exception as exc:
+        logger.error(
+            "[chat-embed] %s",
+            json.dumps(
+                {
+                    "event": "chat_embed_worker_boot_failure",
+                    "queue": QUEUE_NAME,
+                    "error": str(exc),
+                },
+                sort_keys=True,
+            ),
+        )
+        raise SystemExit(1) from exc
+
     logger.info("[chat-embed] worker started queue=%s", QUEUE_NAME)
     while True:
         try:
@@ -80,7 +97,7 @@ def run_forever() -> None:
 
         if not payload:
             continue
-        process_chat_embed_task(payload)
+        process_chat_embed_task(payload, vector_store=shared_vector_store)
 
 
 if __name__ == "__main__":

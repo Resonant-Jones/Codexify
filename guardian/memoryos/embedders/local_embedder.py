@@ -25,6 +25,8 @@ def _get_local_embed_model(*, strict: bool) -> str | None:
 
 
 class LocalEmbedder:
+    name = "local"
+
     def __init__(self, model_name: str | None = None):
         if model_name:
             logger.warning(
@@ -34,6 +36,7 @@ class LocalEmbedder:
         is_local = _is_local_embeddings_backend()
         resolved_model = _get_local_embed_model(strict=is_local)
         self.model = None
+        self.model_name = resolved_model or None
 
         if not is_local:
             logger.info(

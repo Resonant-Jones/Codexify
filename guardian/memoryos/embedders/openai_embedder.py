@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIEmbedder:
+    name = "openai"
+
     """
     Embedder that uses OpenAI's embedding API to generate text embeddings.
     The embedding model is resolved from environment variables or explicit args.

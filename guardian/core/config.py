@@ -70,8 +70,8 @@ class Settings(BaseSettings):
     EMBEDDER_PROVIDER: str = Field(
         default="local_api",
         description=(
-            "Embedding provider (currently fixed for users): 'local_api' (Ollama via LOCAL_BASE_URL). "
-            "Advanced override only: set to 'openai' via env for emergency fallback."
+            "Embedding provider for MemoryOS and vector flows. "
+            "Supported values include local aliases ('local', 'local_api') and cloud providers (for example 'openai')."
         ),
     )
     EMBEDDING_MODEL: str | None = Field(
@@ -566,6 +566,13 @@ def is_cloud_provider(provider: str | None) -> bool:
     return provider.strip().lower() in CLOUD_LLM_PROVIDERS
 
 
+def _normalize_embedding_provider(provider: str | None) -> str:
+    normalized = (provider or "").strip().lower()
+    if normalized in {"local_api", "local"}:
+        return "local"
+    return normalized
+
+
 def validate_llm_config(
     settings: Settings, provider_override: str | None = None
 ) -> None:
@@ -635,6 +642,46 @@ def validate_llm_config(
     raise LLMConfigError(
         f"Unsupported LLM_PROVIDER: {provider or '<empty>'} (expected one of: local, groq, openai, minimax)"
     )
+
+
+def validate_embedding_provider_config(
+    settings: Settings, provider_override: str | None = None
+) -> None:
+    """
+    Validate embedding provider policy and credentials with fail-closed semantics.
+
+    Args:
+        settings: Settings instance to validate.
+        provider_override: Optional provider name to validate instead of settings.EMBEDDER_PROVIDER.
+
+    Raises:
+        LLMConfigError: if provider is unsupported or violates policy/credentials.
+    """
+    provider = _normalize_embedding_provider(
+        provider_override or settings.EMBEDDER_PROVIDER
+    )
+    if not provider:
+        raise LLMConfigError("EMBEDDER_PROVIDER is not configured")
+
+    if provider == "local":
+        # Local provider intentionally has no cloud policy requirements.
+        return
+
+    # Import lazily to avoid circular module import during config bootstrap.
+    from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+
+    try:
+        assert_egress_allowed(provider, settings=settings)
+    except EgressDeniedError as exc:
+        raise LLMConfigError(str(exc)) from exc
+
+    if provider == "openai":
+        if not settings.OPENAI_API_KEY:
+            raise LLMConfigError("OPENAI_API_KEY is not configured")
+        return
+
+    # Other providers are validated by runtime provider registry construction.
+    return
 
 
 def get_settings() -> Settings:
