@@ -737,11 +737,6 @@ def _normalize_mainline_messages(
         guardian_role, source_role_raw = _canonicalize_message_role(
             raw_role, content
         )
-        raw_envelope = _build_raw_envelope(
-            raw_role=raw_role,
-            content=content,
-            message=message,
-        )
 
         messages.append(
             {
@@ -756,7 +751,6 @@ def _normalize_mainline_messages(
                 "source_role_raw": source_role_raw,
                 "origin": "chatgpt_import",
                 "era": "pre_codexify",
-                "raw_message": raw_envelope,
             }
         )
 
@@ -869,8 +863,7 @@ def ingest_chatgpt_export(
     threads_count = 0
     messages_count = 0
     messages_filtered = 0
-    created_project_ids: set[int] = set()
-    reused_project_ids: set[int] = set()
+    imports_project_id = int(_resolve_imports_project_id(chatlog_db))
 
     for conv in data:
         try:
@@ -922,19 +915,7 @@ def ingest_chatgpt_export(
                 chatlog_db, user_id=user_id, source_thread_id=source_thread_id
             )
             if thread_id is None:
-                (
-                    project_id,
-                    resolved_template_id,
-                    project_resolution,
-                ) = _resolve_target_project(
-                    chatlog_db,
-                    user_id=user_id,
-                    conversation=conv,
-                )
-                if project_resolution == "created":
-                    created_project_ids.add(int(project_id))
-                elif project_resolution == "reused" and resolved_template_id:
-                    reused_project_ids.add(int(project_id))
+                project_id = imports_project_id
 
                 thread_metadata: Dict[str, Any] = {
                     "import_source": "chatgpt",
@@ -946,10 +927,10 @@ def ingest_chatgpt_export(
                         "filtered_reasons": filtered_reasons,
                     },
                 }
-                if resolved_template_id:
+                if template_id:
                     thread_metadata[
                         "source_conversation_template_id"
-                    ] = resolved_template_id
+                    ] = template_id
                 if (
                     isinstance(conv.get("gizmo_id"), str)
                     and str(conv.get("gizmo_id")).strip()
@@ -1023,19 +1004,8 @@ def ingest_chatgpt_export(
                     "source_message_id": source_message_id,
                     "turn_index": msg["turn_index"],
                     "source_created_at": msg["source_created_at"].isoformat(),
-                    "source_created_at_inferred": msg[
-                        "source_created_at_inferred"
-                    ],
                     "imported_at": msg["imported_at"].isoformat(),
-                    "role": msg["role"],
-                    "origin": msg["origin"],
-                    "era": msg["era"],
-                    "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
-                    "canonical_filter_version": 1,
-                    "raw_message": msg.get("raw_message") or {},
                 }
-                if msg["source_role_raw"]:
-                    temporal_meta["source_role_raw"] = msg["source_role_raw"]
 
                 if existing:
                     mid = int(existing["id"])
@@ -1097,7 +1067,7 @@ def ingest_chatgpt_export(
     return {
         "threads_imported": threads_count,
         "messages_imported": messages_count,
-        "projects_created": len(created_project_ids),
-        "projects_reused": len(reused_project_ids),
+        "projects_created": 0,
+        "projects_reused": 0,
         "messages_filtered": messages_filtered,
     }
