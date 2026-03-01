@@ -29,6 +29,21 @@ from guardian.queue.turn_lock import acquire_turn_lock, release_turn_lock
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
+COMPLETION_SERVICE_UNAVAILABLE_MESSAGE = (
+    "Completion service unavailable — check Docker/Redis."
+)
+
+
+def _completion_service_unavailable(reason: str) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "error": "completion_service_unavailable",
+            "reason": reason,
+            "message": COMPLETION_SERVICE_UNAVAILABLE_MESSAGE,
+        },
+    )
+
 
 # =========================
 # Debug / Dev Tools State
@@ -1084,7 +1099,7 @@ async def chat_complete(
         locked = acquire_turn_lock(thread_id, task.turn_lock_owner)
     except Exception as exc:
         logger.warning("[chat.complete] turn lock unavailable: %s", exc)
-        raise HTTPException(status_code=503, detail="turn_lock_unavailable")
+        raise _completion_service_unavailable("turn_lock_unavailable")
     if not locked:
         raise HTTPException(status_code=429, detail="turn_in_flight")
 
@@ -1099,7 +1114,7 @@ async def chat_complete(
                 exc_info=True,
             )
         logger.warning("[chat.complete] queue unavailable: %s", exc)
-        raise HTTPException(status_code=503, detail="queue_unavailable")
+        raise _completion_service_unavailable("queue_unavailable")
 
     # Track latest task for debug endpoint
     _thread_latest_task[thread_id] = task.task_id

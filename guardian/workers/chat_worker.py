@@ -6,6 +6,7 @@ This worker is intentionally thin: orchestration and routing live in
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -22,7 +23,12 @@ from guardian.core.chat_completion_service import (
 )
 from guardian.core.db import GuardianDB
 from guardian.queue import task_events
-from guardian.queue.redis_queue import clear_cancelled, dequeue, is_cancelled
+from guardian.queue.redis_queue import (
+    clear_cancelled,
+    dequeue,
+    get_redis_client,
+    is_cancelled,
+)
 from guardian.queue.turn_lock import release_turn_lock
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
 
@@ -30,11 +36,35 @@ logger = logging.getLogger(__name__)
 
 QUEUE_NAME = os.getenv("CHAT_QUEUE_NAME", "codexify:queue:chat")
 CONCURRENCY = int(os.getenv("CHAT_WORKER_CONCURRENCY", "2"))
+WORKER_HEARTBEAT_KEY = os.getenv(
+    "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
+)
+WORKER_HEARTBEAT_TTL_SECONDS = int(
+    os.getenv("CHAT_WORKER_HEARTBEAT_TTL_SECONDS", "45")
+)
 
 _MEDIA_DB: GuardianDB | None = None
 _MEDIA_MARKER_RE = re.compile(
     r"<!--\s*cfy-media:(image|document):([a-fA-F0-9-]+)\s*-->"
 )
+
+
+def _publish_worker_heartbeat(status: str = "idle") -> None:
+    payload = {
+        "worker": "chat",
+        "status": status,
+        "queue": QUEUE_NAME,
+        "ts": int(time.time()),
+    }
+    try:
+        client = get_redis_client()
+        client.setex(
+            WORKER_HEARTBEAT_KEY,
+            max(5, WORKER_HEARTBEAT_TTL_SECONDS),
+            json.dumps(payload),
+        )
+    except Exception as exc:
+        logger.debug("[chat-worker] heartbeat update failed: %s", exc)
 
 
 def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
@@ -210,6 +240,7 @@ def _initialize_worker() -> None:
             "[chat-worker] outbox disabled; falling back to in-memory: %s",
             exc,
         )
+    _publish_worker_heartbeat("starting")
 
 
 def run_forever() -> None:
@@ -221,6 +252,7 @@ def run_forever() -> None:
     )
     with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
         while True:
+            _publish_worker_heartbeat("idle")
             try:
                 payload = dequeue(QUEUE_NAME, block=True, timeout=5)
             except RedisTimeoutError:
@@ -229,6 +261,7 @@ def run_forever() -> None:
 
             if not payload:
                 continue
+            _publish_worker_heartbeat("active")
             try:
                 task = task_from_dict(payload)
             except Exception as exc:

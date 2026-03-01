@@ -78,8 +78,12 @@ def test_health_chat_endpoint(test_client):
     res = test_client.get("/health/chat")
     assert res.status_code == 200
     data = res.json()
-    assert data["ok"] is True
     assert "backend" in data
+    assert "completion_service" in data
+    completion = data["completion_service"]
+    assert "redis_reachable" in completion
+    assert "enqueue_test_ok" in completion
+    assert "worker_heartbeat_detected" in completion
 
 
 def test_health_vector_endpoint(test_client):
