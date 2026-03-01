@@ -479,8 +479,9 @@ export function GuardianChat({
     },
     [getDepthForThread]
   );
+  type CompletionOutcome = "ok" | "service_unavailable" | "failed";
   // Helper: ask backend to complete the thread and then refresh
-  const completeThread = async (tid: number) => {
+  const completeThread = async (tid: number): Promise<CompletionOutcome> => {
     const payload = buildChatCompletionPayload(depth, activeModelId || "default");
     try {
       const response = await api.post(buildChatCompletePath(tid), payload);
@@ -502,10 +503,25 @@ export function GuardianChat({
       } else {
         delete traceEndpointRef.current[tid];
       }
-      return true;
-    } catch (err) {
+      return "ok";
+    } catch (err: any) {
+      const statusCode = Number(err?.response?.status || 0);
+      const detail = err?.response?.data?.detail;
+      const reason =
+        detail && typeof detail === "object"
+          ? String(detail?.error || detail?.reason || "")
+          : String(detail || "");
+      if (
+        statusCode === 503 &&
+        (reason.includes("completion_service_unavailable") ||
+          reason.includes("queue_unavailable") ||
+          reason.includes("turn_lock_unavailable"))
+      ) {
+        showToast("Completion service unavailable — check Docker/Redis.");
+        return "service_unavailable";
+      }
       console.warn("[guardian] completion failed", err);
-      return false;
+      return "failed";
     } finally {
       // always nudge the view to reconcile with server state
       triggerReload();
@@ -938,10 +954,13 @@ export function GuardianChat({
         }
 
         // Complete the thread and refresh.
-        const completed = await completeThread(numericNewId);
-        if (!completed) {
+        const completionOutcome = await completeThread(numericNewId);
+        if (completionOutcome !== "ok") {
           setTurnLockForThread(numericNewId, false);
-          throw new Error("Assistant response failed.");
+          if (completionOutcome === "failed") {
+            throw new Error("Assistant response failed.");
+          }
+          return;
         }
       } catch (error) {
         console.error("Failed to create thread or send message:", error);
@@ -964,10 +983,12 @@ export function GuardianChat({
         setTimeout(() => {
           if (effectiveThreadId == null) return;
           void (async () => {
-            const completed = await completeThread(effectiveThreadId);
-            if (!completed) {
+            const completionOutcome = await completeThread(effectiveThreadId);
+            if (completionOutcome !== "ok") {
               setTurnLockForThread(effectiveThreadId, false);
-              showToast("Assistant response failed.");
+              if (completionOutcome === "failed") {
+                showToast("Assistant response failed.");
+              }
             }
           })();
         }, 100);

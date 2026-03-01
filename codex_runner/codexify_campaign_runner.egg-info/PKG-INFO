@@ -1,3 +1,15 @@
+Metadata-Version: 2.4
+Name: codexify-campaign-runner
+Version: 0.1.0
+Summary: Deterministic Campaign Runner with TUI orchestration
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: textual>=0.70.0
+Provides-Extra: dev
+Requires-Dist: build>=1.0; extra == "dev"
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: twine>=5.0; extra == "dev"
+
 # Codexify Campaign Runner (Deterministic v2)
 
 Canonical runtime: `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner`
