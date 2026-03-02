@@ -235,6 +235,45 @@ class TestImageGeneration:
         mock_ensure_alias.assert_called_once()
 
 
+class TestMediaQuarantine:
+    def test_generate_image_quarantined_when_disabled(
+        self, monkeypatch: pytest.MonkeyPatch, client: TestClient
+    ) -> None:
+        monkeypatch.setenv("CODEXIFY_ENABLE_MEDIA_GENERATION_ROUTES", "0")
+        response = client.post(
+            "/api/media/generate/image",
+            json={"prompt": "test image", "model": "dall-e-3"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Not Found"
+
+    def test_generate_image_quarantined_in_beta_core_mode(
+        self, monkeypatch: pytest.MonkeyPatch, client: TestClient
+    ) -> None:
+        monkeypatch.setenv("CODEXIFY_BETA_CORE_ONLY", "1")
+        response = client.post(
+            "/api/media/generate/image",
+            json={"prompt": "test image", "model": "dall-e-3"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Not Found"
+
+    def test_tts_quarantined_when_disabled(
+        self, monkeypatch: pytest.MonkeyPatch, client: TestClient
+    ) -> None:
+        monkeypatch.setenv("CODEXIFY_ENABLE_MEDIA_TTS_ROUTES", "0")
+        synth_response = client.post(
+            "/api/media/tts/synthesize",
+            json={"text": "hello"},
+        )
+        assert synth_response.status_code == 404
+        assert synth_response.json()["detail"] == "Not Found"
+
+        get_response = client.get("/api/media/tts/1")
+        assert get_response.status_code == 404
+        assert get_response.json()["detail"] == "Not Found"
+
+
 class TestUploadDedupeAndResolve:
     """Tests for media dedupe and resolver routes."""
 

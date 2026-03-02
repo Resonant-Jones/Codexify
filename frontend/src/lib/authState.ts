@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { hasRuntimeApiKey } from "@/lib/runtimeAuth";
 
 export type AuthStatus = "unknown" | "authenticated" | "unauthenticated";
 
@@ -65,7 +66,8 @@ function readStoredAuthToken(): string | null {
 function deriveAuthState(): AuthState {
   const token = readStoredAuthToken();
   const devApiKey = resolveDevApiKey();
-  if (token || devApiKey) {
+  const runtimeApiKeyPresent = hasRuntimeApiKey();
+  if (token || runtimeApiKeyPresent || devApiKey) {
     return {
       status: "authenticated",
       ready: true,

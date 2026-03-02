@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build
 
 # Python executable
 PYTHON      ?= python
@@ -118,6 +118,17 @@ run:
 # Start development server
 dev:
 	$(PYTHON) -m guardian.system_init --debug
+
+# Start Tauri desktop shell against frontend/src + external backend
+desktop-dev:
+	pnpm --dir frontend/src install
+	cd src-tauri && cargo tauri dev
+
+# Build frontend and package desktop bundle locally (manual release gate)
+desktop-build:
+	pnpm --dir frontend/src install
+	pnpm --dir frontend/src build
+	cd src-tauri && cargo tauri build
 
 # Initialize plugin with scaffold
 init-plugin:

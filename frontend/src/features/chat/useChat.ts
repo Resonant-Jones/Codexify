@@ -1,7 +1,7 @@
 /**
  * useChat - local chat state with semantic guards against no-op updates.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api from "@/lib/api";
 import { logOnce } from "@/lib/logging/logOnce";
 
@@ -177,6 +177,26 @@ export function useChat() {
     timestamp: 0,
   });
   const completionTimeoutRef = useRef<number | null>(null);
+  const completionGenerationRef = useRef(0);
+
+  const clearCompletionState = useCallback(() => {
+    setCompletionState((prev) => {
+      if (
+        !prev.isCompleting &&
+        prev.activeTaskId === null &&
+        prev.activeThreadId === null &&
+        prev.startedAt === null
+      ) {
+        return prev;
+      }
+      return {
+        isCompleting: false,
+        activeTaskId: null,
+        activeThreadId: null,
+        startedAt: null,
+      };
+    });
+  }, []);
 
   const loadMessages = useCallback(async (threadId: number, limit = 50, offset = 0, append = false) => {
     activeThreadRef.current = threadId;
@@ -277,6 +297,8 @@ export function useChat() {
   }, []);
 
   const startCompletion = useCallback((threadId: number, taskId: string) => {
+    const generation = completionGenerationRef.current + 1;
+    completionGenerationRef.current = generation;
     setCompletionState({
       isCompleting: true,
       activeTaskId: taskId,
@@ -292,30 +314,35 @@ export function useChat() {
 
     // Set 30s timeout to auto-end completion if no event arrives
     completionTimeoutRef.current = window.setTimeout(() => {
+      if (completionGenerationRef.current !== generation) {
+        return;
+      }
       console.warn(`[useChat] Completion timeout reached (30s), clearing state`);
-      setCompletionState({
-        isCompleting: false,
-        activeTaskId: null,
-        activeThreadId: null,
-        startedAt: null,
-      });
       completionTimeoutRef.current = null;
+      clearCompletionState();
     }, 30000);
-  }, []);
+  }, [clearCompletionState]);
 
   const endCompletion = useCallback(() => {
+    completionGenerationRef.current += 1;
     if (completionTimeoutRef.current !== null) {
       window.clearTimeout(completionTimeoutRef.current);
       completionTimeoutRef.current = null;
     }
     console.debug(`[useChat] Ended completion tracking`);
-    setCompletionState({
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    });
-  }, []);
+    clearCompletionState();
+  }, [clearCompletionState]);
+
+  useEffect(
+    () => () => {
+      completionGenerationRef.current += 1;
+      if (completionTimeoutRef.current !== null) {
+        window.clearTimeout(completionTimeoutRef.current);
+        completionTimeoutRef.current = null;
+      }
+    },
+    []
+  );
 
   const shouldRefresh = useCallback(
     (threadId: number, currentMessageCount: number) => {

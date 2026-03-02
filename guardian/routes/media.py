@@ -66,10 +66,31 @@ from guardian.services.media_identity import (
 from guardian.services.media_identity import source_label_from_filename, utcnow
 
 logger = logging.getLogger(__name__)
+_TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 
 def _is_pytest() -> bool:
     return "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST")
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in _TRUTHY_VALUES
+
+
+def _media_feature_enabled(flag_name: str) -> bool:
+    if _env_bool("CODEXIFY_BETA_CORE_ONLY", default=False):
+        return False
+    return _env_bool(flag_name, default=True)
+
+
+def _require_media_feature(flag_name: str, feature_label: str) -> None:
+    if _media_feature_enabled(flag_name):
+        return
+    logger.warning("[media] %s quarantined (flag=%s)", feature_label, flag_name)
+    raise HTTPException(status_code=404, detail="Not Found")
 
 
 def _require_media_api_key(
@@ -1211,6 +1232,10 @@ async def generate_image(request: ImageGenerationRequest):
     Calls the image generation provider (OpenAI DALL-E, Stability AI, or local),
     saves the generated image bytes to storage, and tracks in the database.
     """
+    _require_media_feature(
+        "CODEXIFY_ENABLE_MEDIA_GENERATION_ROUTES",
+        "image generation",
+    )
     db = _get_db()
     image_id = str(uuid.uuid4())
     project_id = request.project_id or 1
@@ -1442,6 +1467,7 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
 
     Uses the existing TTSManager from guardian/tts/.
     """
+    _require_media_feature("CODEXIFY_ENABLE_MEDIA_TTS_ROUTES", "tts")
     try:
         # Import TTS manager
         from guardian.tts.tts_manager import TTSManager
@@ -1506,6 +1532,7 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
 @router.get("/tts/{tts_id}", tags=["tts"])
 async def get_tts_audio(tts_id: int):
     """Get synthesized audio by ID."""
+    _require_media_feature("CODEXIFY_ENABLE_MEDIA_TTS_ROUTES", "tts")
     db = _get_db()
 
     with db.get_session() as session:

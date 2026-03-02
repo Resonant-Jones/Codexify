@@ -6,6 +6,7 @@ Health check endpoints for monitoring subsystem status.
 Mounted without a prefix to preserve public paths like /health/chat.
 """
 
+import json
 import logging
 import os
 import threading
@@ -228,6 +229,20 @@ def health_chat():
     """Get health status of chat subsystem."""
     # Import from core dependencies module
     from guardian.core.dependencies import DB_BACKEND, chatlog_db
+    from guardian.queue.redis_queue import get_redis_client
+
+    heartbeat_key = os.getenv(
+        "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
+    )
+    completion_service = {
+        "ok": False,
+        "redis_reachable": False,
+        "enqueue_test_ok": False,
+        "worker_heartbeat_detected": False,
+        "worker_heartbeat_age_seconds": None,
+        "heartbeat_key": heartbeat_key,
+        "error": None,
+    }
 
     try:
         threads = chatlog_db.count_chat_threads()
@@ -236,11 +251,62 @@ def health_chat():
         logger.warning("[health/chat] check failed: %s", _e)
         threads = 0
         messages = 0
+
+    try:
+        client = get_redis_client()
+        completion_service["redis_reachable"] = bool(client.ping())
+
+        probe_queue = f"codexify:queue:healthcheck:{uuid4().hex}"
+        probe_payload = {
+            "probe": "health_chat",
+            "probe_id": uuid4().hex,
+            "ts": int(time.time()),
+        }
+        client.lpush(probe_queue, json.dumps(probe_payload))
+        popped = client.rpop(probe_queue)
+        completion_service["enqueue_test_ok"] = bool(popped)
+        try:
+            client.delete(probe_queue)
+        except Exception:
+            logger.debug(
+                "[health/chat] probe queue cleanup failed", exc_info=True
+            )
+
+        raw_heartbeat = client.get(heartbeat_key)
+        completion_service["worker_heartbeat_detected"] = bool(raw_heartbeat)
+        if raw_heartbeat:
+            heartbeat_payload = {}
+            try:
+                if isinstance(raw_heartbeat, (bytes, bytearray)):
+                    heartbeat_payload = json.loads(
+                        raw_heartbeat.decode("utf-8")
+                    )
+                else:
+                    heartbeat_payload = json.loads(str(raw_heartbeat))
+            except Exception:
+                heartbeat_payload = {}
+            ts = heartbeat_payload.get("ts")
+            if isinstance(ts, (int, float)):
+                completion_service["worker_heartbeat_age_seconds"] = max(
+                    0.0, round(time.time() - float(ts), 3)
+                )
+
+        completion_service["ok"] = bool(
+            completion_service["redis_reachable"]
+            and completion_service["enqueue_test_ok"]
+            and completion_service["worker_heartbeat_detected"]
+        )
+    except Exception as exc:
+        completion_service["error"] = f"{type(exc).__name__}: {exc}"
+        logger.warning("[health/chat] completion service check failed: %s", exc)
+
+    ok = bool(completion_service["ok"])
     return {
-        "ok": True,
+        "ok": ok,
         "threads": threads,
         "messages": messages,
         "backend": DB_BACKEND,
+        "completion_service": completion_service,
     }
 
 

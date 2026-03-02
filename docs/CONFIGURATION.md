@@ -73,6 +73,25 @@ Notes:
 - Federation request paths also require egress allowlist permission (`federation`).
 - Federation should remain disabled unless trust policy and peer controls are configured.
 
+## Beta-1 Quarantine Controls
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CODEXIFY_BETA_CORE_ONLY` | `false` | Hard-quarantine mode. When `true`, only Beta-1 core routers are mounted (chat, migration, media upload/list, projects/threads, health/admin). |
+| `CODEXIFY_ENABLE_CONNECTOR_ROUTES` | `true` | Enable/disable connector routes when not in core-only mode. |
+| `CODEXIFY_ENABLE_FEDERATION_ROUTES` | `true` | Enable/disable federation routes when not in core-only mode. |
+| `CODEXIFY_ENABLE_FLOW_ROUTES` | `true` | Enable/disable flow routes when not in core-only mode. |
+| `CODEXIFY_ENABLE_TOOL_ROUTES` | `true` | Enable/disable `/tools` and `/api/tools` routes when not in core-only mode. |
+| `CODEXIFY_ENABLE_COMMAND_BUS_ROUTES` | `true` | Enable/disable `/api/guardian/commands/*` routes when not in core-only mode. |
+| `CODEXIFY_ENABLE_CRON_ROUTES` | `true` | Enable/disable `/api/cron/*` routes when not in core-only mode. |
+| `CODEXIFY_ENABLE_WEBSOCKET_ROUTES` | `true` | Enable/disable websocket route surface when not in core-only mode. |
+| `CODEXIFY_ENABLE_MEDIA_GENERATION_ROUTES` | `true` | Enable/disable `/api/media/generate/image`. |
+| `CODEXIFY_ENABLE_MEDIA_TTS_ROUTES` | `true` | Enable/disable `/api/media/tts/*`. |
+
+Notes:
+- `CODEXIFY_BETA_CORE_ONLY=true` takes precedence and quarantines non-core routers regardless of per-route toggles.
+- Quarantined routes are not mounted (or return `404` for media subfeatures that share the media router).
+
 ## Plugin Loader Surface
 
 Plugin loading is centralized through `guardian/core/plugins.py`.

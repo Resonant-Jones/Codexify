@@ -26,6 +26,8 @@ Source anchors:
 | `GUARDIAN_AUTH_MODE` | `local` default; `remote` requires session/JWT tokens | `guardian/core/dependencies.py` |
 | `GUARDIAN_SESSION_SECRET` / `GUARDIAN_JWT_SECRET` | Required for remote session/JWT verification | `guardian/core/dependencies.py` |
 | `GUARDIAN_ALLOWED_ORIGINS` | Comma-separated CORS origins | `guardian/core/dependencies.py`, `guardian/guardian_api.py` |
+| `CODEXIFY_DESKTOP_BACKEND_URL` | Default backend URL for Tauri shell runtime config | `src-tauri/src/commands.rs`, `.env.template` |
+| `CODEXIFY_DESKTOP_SHARE_BASE_URL` | Default web share origin used by desktop copy-link flows | `src-tauri/src/commands.rs`, `.env.template` |
 | `CODEXIFY_SINGLE_USER_ID` | Canonical user id in single-user mode | `guardian/core/dependencies.py` |
 
 ### Data/DB/queues
@@ -100,6 +102,9 @@ Unverified:
 - Frontend only:
   - `pnpm --dir frontend/src install`
   - `pnpm --dir frontend/src dev`
+- Desktop shell:
+  - `make desktop-dev`
+  - `make desktop-build`
 - Test/lint entrypoints:
   - `make test`
   - `make lint`
@@ -149,4 +154,3 @@ Anchors:
 | Webhook cron run fails immediately | egress denied or target host forbidden | `guardian/routes/cron.py`, `guardian/cron/executor.py`, `guardian/core/egress.py` |
 | `/api/events` appears idle while UI expects updates | outbox disabled/misconfigured tenant/polling mismatch | `guardian/guardian_api.py`, `guardian/core/event_bus.py` |
 | Websocket RPC closes unexpectedly | auth failure, rate limit, payload too large, or idle timeout | `guardian/routes/websocket.py` |
-

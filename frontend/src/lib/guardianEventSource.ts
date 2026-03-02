@@ -23,6 +23,7 @@ export interface GuardianEventSourceOptions {
   heartbeatTimeout?: number; // Temporal boundary before consciousness validation required
   retryInterval?: number; // Duration between consciousness reconnection attempts
   onUnauthorized?: () => void;
+  autoReconnect?: boolean;
 }
 
 type MessageListener = (event: MessageEvent<string>) => void;
@@ -56,6 +57,7 @@ export class GuardianEventSource extends EventTarget {
   private retryInterval: number;
   private readonly heartbeatTimeout: number | null;
   private readonly onUnauthorized: (() => void) | null;
+  private readonly autoReconnect: boolean;
 
   private abortController: AbortController | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -76,6 +78,7 @@ export class GuardianEventSource extends EventTarget {
         ? 45000
         : options.heartbeatTimeout;
     this.onUnauthorized = options.onUnauthorized ?? null;
+    this.autoReconnect = options.autoReconnect !== false;
 
     if (typeof window === "undefined" || typeof fetch !== "function") {
       console.warn("GuardianEventSource requires a browser fetch implementation.");
@@ -107,7 +110,9 @@ export class GuardianEventSource extends EventTarget {
         return;
       }
       this.dispatchError(error instanceof Error ? error : new Error(String(error)));
-      this.scheduleReconnect();
+      if (this.autoReconnect) {
+        this.scheduleReconnect();
+      }
     });
   }
 
@@ -258,7 +263,9 @@ export class GuardianEventSource extends EventTarget {
 
   private handleStreamEnd(): void {
     this.readyState = GuardianEventSource.CLOSED;
-    this.scheduleReconnect();
+    if (this.autoReconnect) {
+      this.scheduleReconnect();
+    }
   }
 
   private scheduleReconnect(): void {
@@ -310,7 +317,9 @@ export class GuardianEventSource extends EventTarget {
     this.heartbeatTimer = setTimeout(() => {
       if (!this.closedByClient) {
         this.abortController?.abort();
-        this.scheduleReconnect();
+        if (this.autoReconnect) {
+          this.scheduleReconnect();
+        }
       }
     }, this.heartbeatTimeout);
   }

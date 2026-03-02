@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from guardian.core.ai_router import chat_with_ai
+from guardian.core.ai_router import chat_with_ai, stream_local
 from guardian.core.config import Settings
 
 
@@ -16,6 +16,23 @@ class _FakeResponse:
 
     def json(self):
         return self._payload
+
+
+class _FakeStreamingResponse:
+    def __init__(self, lines):
+        self._lines = lines
+        self.status_code = 200
+        self.text = ""
+
+    def raise_for_status(self):
+        return None
+
+    def iter_lines(self, decode_unicode=False):
+        _ = decode_unicode
+        yield from self._lines
+
+    def close(self):
+        return None
 
 
 def _fake_settings(provider: str) -> Settings:
@@ -174,3 +191,53 @@ def test_chat_with_ai_openai_blocked_when_local_only_enabled(monkeypatch):
 
     assert exc.value.status_code == 403
     assert "LOCAL_ONLY_MODE" in str(exc.value.detail)
+
+
+def test_stream_local_parses_openai_sse_chunks(monkeypatch):
+    def fake_post(url, json, headers, stream, timeout):
+        _ = (url, json, headers, stream, timeout)
+        return _FakeStreamingResponse(
+            [
+                b'data: {"choices":[{"delta":{"content":"Hi"}}]}',
+                b'data: {"choices":[{"delta":{"content":"!"}}]}',
+                b"data: [DONE]",
+            ]
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("local")
+    settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+    tokens = list(
+        stream_local(
+            [{"role": "user", "content": "hello"}],
+            "ministral-3:3b",
+            settings=settings,
+        )
+    )
+    assert "".join(tokens) == "Hi!"
+
+
+def test_stream_local_parses_ollama_chat_chunks(monkeypatch):
+    def fake_post(url, json, headers, stream, timeout):
+        _ = (url, json, headers, stream, timeout)
+        return _FakeStreamingResponse(
+            [
+                b'{"message":{"role":"assistant","content":"Hel"},"done":false}',
+                b'{"message":{"role":"assistant","content":"lo"},"done":false}',
+                b'{"done":true}',
+            ]
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("local")
+    settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+    tokens = list(
+        stream_local(
+            [{"role": "user", "content": "hello"}],
+            "ministral-3:3b",
+            settings=settings,
+        )
+    )
+    assert "".join(tokens) == "Hello"

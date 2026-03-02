@@ -451,6 +451,13 @@ def stream_local(
                     or choice.get("message", {}).get("content")
                     or choice.get("text")
                 )
+                if not token and isinstance(chunk.get("message"), dict):
+                    # Ollama /api/chat streaming shape:
+                    # {"message":{"role":"assistant","content":"..."}, ...}
+                    token = chunk["message"].get("content")
+                if not token and isinstance(chunk.get("response"), str):
+                    # Ollama /api/generate streaming shape.
+                    token = chunk.get("response")
                 if token:
                     yield token
             except Exception:

@@ -12,6 +12,21 @@ import {
   ChatGPTImportModal,
   type MigrationStats,
 } from "@/components/modals/ChatGPTImportModal";
+import {
+  getDesktopConnectionSettings,
+  initRuntimeConfig,
+  invokeTauriCommand,
+  isTauriRuntime,
+  openExternalUrl,
+  resolveBackendUrl,
+  saveDesktopConnectionSettings,
+} from "@/lib/runtimeConfig";
+import {
+  clearRuntimeApiKey,
+  readRuntimeApiKey,
+  refreshApiBaseUrl,
+  setRuntimeApiKey,
+} from "@/lib/api";
 
 export function SettingsView({
   mode,
@@ -66,7 +81,10 @@ export function SettingsView({
   dashboardThreadRows: number;
   setDashboardThreadRows: (n: number) => void;
 }) {
-  const [tab, setTab] = useState<"appearance" | "system" | "connectors" | "data" | "diagnostics">("appearance");
+  const desktopMode = isTauriRuntime();
+  const [tab, setTab] = useState<
+    "appearance" | "system" | "connectors" | "data" | "connection" | "diagnostics"
+  >("appearance");
   const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
   const [migrationStepSkipped, setMigrationStepSkipped] = useState(false);
   const [migrationStats, setMigrationStats] = useState<MigrationStats | null>(
@@ -77,11 +95,24 @@ export function SettingsView({
   const [uRole, setURole] = useState(role);
   const [prompt, setPrompt] = useState(systemPrompt);
   const [memo, setMemo] = useState(notes);
+  const [desktopBackendBaseUrl, setDesktopBackendBaseUrl] = useState("");
+  const [desktopShareBaseUrl, setDesktopShareBaseUrl] = useState("");
+  const [desktopApiKeyInput, setDesktopApiKeyInput] = useState("");
+  const [connectionBusy, setConnectionBusy] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   useEffect(() => setName(guardianName), [guardianName]);
   useEffect(() => setUName(userName), [userName]);
   useEffect(() => setURole(role), [role]);
   useEffect(() => setPrompt(systemPrompt), [systemPrompt]);
   useEffect(() => setMemo(notes), [notes]);
+  useEffect(() => {
+    if (!desktopMode) return;
+    const settings = getDesktopConnectionSettings();
+    setDesktopBackendBaseUrl(settings.backendBaseUrl);
+    setDesktopShareBaseUrl(settings.sharePublicBaseUrl);
+    setDesktopApiKeyInput(readRuntimeApiKey() ?? "");
+  }, [desktopMode]);
 
   function handleSave() {
     setGuardianName(name);
@@ -126,9 +157,104 @@ export function SettingsView({
   const migrationComplete =
     migrationStepSkipped || migrationStats !== null;
 
-  function handleDownloadExport() {
+  async function handleSaveConnectionSettings() {
+    if (!desktopMode) return;
+    setConnectionBusy(true);
+    setConnectionError(null);
+    setConnectionMessage(null);
+    try {
+      await saveDesktopConnectionSettings({
+        backendBaseUrl: desktopBackendBaseUrl,
+        sharePublicBaseUrl: desktopShareBaseUrl,
+      });
+      refreshApiBaseUrl();
+      setConnectionMessage("Connection settings saved.");
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to save connection settings."
+      );
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+
+  async function handleSaveDesktopApiKey() {
+    if (!desktopMode) return;
+    setConnectionBusy(true);
+    setConnectionError(null);
+    setConnectionMessage(null);
+    try {
+      await invokeTauriCommand("desktop_set_api_key", {
+        apiKey: desktopApiKeyInput,
+      });
+      setRuntimeApiKey(desktopApiKeyInput);
+      setConnectionMessage("Desktop API key saved to secure keychain.");
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to save desktop API key."
+      );
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+
+  async function handleClearDesktopApiKey() {
+    if (!desktopMode) return;
+    setConnectionBusy(true);
+    setConnectionError(null);
+    setConnectionMessage(null);
+    try {
+      await invokeTauriCommand("desktop_clear_api_key");
+      setDesktopApiKeyInput("");
+      clearRuntimeApiKey();
+      setConnectionMessage("Desktop API key cleared.");
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to clear desktop API key."
+      );
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+
+  async function handleTestConnection() {
+    if (!desktopMode) return;
+    setConnectionBusy(true);
+    setConnectionError(null);
+    setConnectionMessage(null);
+    try {
+      const config = await initRuntimeConfig({ force: true });
+      refreshApiBaseUrl();
+      const response = await fetch(resolveBackendUrl("/ping", config));
+      if (!response.ok) {
+        throw new Error(`Backend ping failed (${response.status})`);
+      }
+      setConnectionMessage("Connection test passed.");
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error
+          ? error.message
+          : "Connection test failed."
+      );
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+
+  async function handleDownloadExport() {
     if (typeof window === "undefined") return;
-    window.location.href = "/exports/chatgpt.zip";
+    const exportUrl = resolveBackendUrl("/exports/chatgpt.zip");
+    if (desktopMode) {
+      const opened = await openExternalUrl(exportUrl);
+      if (opened) return;
+    }
+    window.location.href = exportUrl;
   }
 
   const { connectors, updateConnector, loading, error, authorizeOAuth, testConnector, syncConnector } = useConnectors();
@@ -149,6 +275,17 @@ export function SettingsView({
           <Button type="button" variant={tab === "data" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("data")}>
             Data
           </Button>
+          {desktopMode && (
+            <Button
+              type="button"
+              variant={tab === "connection" ? "default" : "ghost"}
+              size="sm"
+              className="rounded-[var(--tile-radius,19px)]"
+              onClick={() => setTab("connection")}
+            >
+              Connection
+            </Button>
+          )}
           <Button type="button" variant={tab === "diagnostics" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("diagnostics")}>
             Diagnostics
           </Button>
@@ -369,7 +506,7 @@ export function SettingsView({
                 </Button>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   onClick={handleDownloadExport}
                   className="rounded-[var(--tile-radius,19px)] w-full"
                 >
@@ -428,6 +565,91 @@ export function SettingsView({
                 </p>
               )}
             </div>
+          </div>
+        )}
+
+        {tab === "connection" && desktopMode && (
+          <div className="space-y-4">
+            <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
+              <div className="text-sm font-semibold">Desktop Connection</div>
+              <p className="text-xs opacity-70">
+                Configure backend routing and the public base URL used for copied share links.
+              </p>
+              <div className="space-y-2">
+                <label className="text-xs opacity-80">Backend Base URL</label>
+                <Input
+                  value={desktopBackendBaseUrl}
+                  onChange={(event) => setDesktopBackendBaseUrl(event.target.value)}
+                  placeholder="http://127.0.0.1:8888"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs opacity-80">Share Public Base URL</label>
+                <Input
+                  value={desktopShareBaseUrl}
+                  onChange={(event) => setDesktopShareBaseUrl(event.target.value)}
+                  placeholder="http://127.0.0.1:5173"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={handleSaveConnectionSettings}
+                  disabled={connectionBusy}
+                  className="rounded-[var(--tile-radius,19px)]"
+                >
+                  Save Connection
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleTestConnection}
+                  disabled={connectionBusy}
+                  className="rounded-[var(--tile-radius,19px)]"
+                >
+                  Test Connection
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
+              <div className="text-sm font-semibold">Local API Key (Secure Store)</div>
+              <p className="text-xs opacity-70">
+                Stored in macOS keychain for desktop local-safe auth.
+              </p>
+              <Input
+                type="password"
+                value={desktopApiKeyInput}
+                onChange={(event) => setDesktopApiKeyInput(event.target.value)}
+                placeholder="Enter Guardian API key"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={handleSaveDesktopApiKey}
+                  disabled={connectionBusy || !desktopApiKeyInput.trim()}
+                  className="rounded-[var(--tile-radius,19px)]"
+                >
+                  Save API Key
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleClearDesktopApiKey}
+                  disabled={connectionBusy}
+                  className="rounded-[var(--tile-radius,19px)]"
+                >
+                  Clear API Key
+                </Button>
+              </div>
+            </div>
+
+            {connectionMessage && (
+              <div className="text-xs text-emerald-300">{connectionMessage}</div>
+            )}
+            {connectionError && (
+              <div className="text-xs text-red-400">{connectionError}</div>
+            )}
           </div>
         )}
 

@@ -29,6 +29,21 @@ from guardian.queue.turn_lock import acquire_turn_lock, release_turn_lock
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
+COMPLETION_SERVICE_UNAVAILABLE_MESSAGE = (
+    "Completion service unavailable — check Docker/Redis."
+)
+
+
+def _completion_service_unavailable(reason: str) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "error": "completion_service_unavailable",
+            "reason": reason,
+            "message": COMPLETION_SERVICE_UNAVAILABLE_MESSAGE,
+        },
+    )
+
 
 # =========================
 # Debug / Dev Tools State
@@ -163,7 +178,7 @@ class ChatCompletionRequest(BaseModel):
     system_override: Optional[str] = None
     depth_mode: Optional[
         str
-    ] = "normal"  # "shallow", "normal", "deep", "diagnostic"
+    ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
 
 
 # Helper functions
@@ -805,14 +820,39 @@ def chat_create_thread(
 
 
 @router.get("/threads")
-def chat_list_threads(api_key: str = Depends(require_api_key)):
+def chat_list_threads(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user_id: Optional[str] = Query(default=None),
+    project_id: Optional[int] = Query(default=None),
+    api_key: str = Depends(require_api_key),
+):
     """Return the list of persisted chat threads."""
     try:
-        threads = chatlog_db.list_chat_threads()
-        return {"ok": True, "threads": threads}
+        threads = chatlog_db.list_chat_threads(
+            limit=limit,
+            offset=offset,
+            user_id=user_id,
+            project_id=project_id,
+        )
+        return {
+            "ok": True,
+            "threads": threads,
+            "limit": limit,
+            "offset": offset,
+            "next_offset": offset + len(threads),
+            "has_more": len(threads) >= limit,
+        }
     except Exception as exc:
         logger.exception("Failed to list chat threads: %s", exc)
-        return {"ok": True, "threads": []}
+        return {
+            "ok": True,
+            "threads": [],
+            "limit": limit,
+            "offset": offset,
+            "next_offset": offset,
+            "has_more": False,
+        }
 
 
 # =========================
@@ -1029,7 +1069,7 @@ async def chat_complete(
             status_code=400, detail="Thread has no usable context"
         )
 
-    requested_depth_mode = str(body.depth_mode or "normal").strip().lower()
+    requested_depth_mode = str(body.depth_mode or "deep").strip().lower()
     effective_depth_mode = body.depth_mode
     thread_project_id: Optional[int] = None
     if isinstance(thread_exists, dict):
@@ -1055,7 +1095,7 @@ async def chat_complete(
                 project_depth,
             )
 
-    effective_depth = str(effective_depth_mode or "normal").strip().lower()
+    effective_depth = str(effective_depth_mode or "deep").strip().lower()
     doc_context_override = await _build_doc_context_override(
         thread_id=thread_id,
         depth_mode=effective_depth,
@@ -1084,7 +1124,7 @@ async def chat_complete(
         locked = acquire_turn_lock(thread_id, task.turn_lock_owner)
     except Exception as exc:
         logger.warning("[chat.complete] turn lock unavailable: %s", exc)
-        raise HTTPException(status_code=503, detail="turn_lock_unavailable")
+        raise _completion_service_unavailable("turn_lock_unavailable")
     if not locked:
         raise HTTPException(status_code=429, detail="turn_in_flight")
 
@@ -1099,7 +1139,7 @@ async def chat_complete(
                 exc_info=True,
             )
         logger.warning("[chat.complete] queue unavailable: %s", exc)
-        raise HTTPException(status_code=503, detail="queue_unavailable")
+        raise _completion_service_unavailable("queue_unavailable")
 
     # Track latest task for debug endpoint
     _thread_latest_task[thread_id] = task.task_id
@@ -1662,9 +1702,21 @@ def api_chat_create_thread(
 
 
 @api_chat_router.get("/threads")
-def api_chat_list_threads(api_key: str = Depends(require_api_key)):
+def api_chat_list_threads(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user_id: Optional[str] = Query(default=None),
+    project_id: Optional[int] = Query(default=None),
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for GET /chat/threads used in tests."""
-    return chat_list_threads(api_key=api_key)
+    return chat_list_threads(
+        limit=limit,
+        offset=offset,
+        user_id=user_id,
+        project_id=project_id,
+        api_key=api_key,
+    )
 
 
 @api_chat_router.post("/{thread_id}/messages")

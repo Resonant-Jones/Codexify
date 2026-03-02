@@ -39,6 +39,32 @@ type PanelShellProps = React.PropsWithChildren<{
   disabled?: boolean;
 }>;
 
+function PanelShell({ className, surfaceStyle, disabled, children }: PanelShellProps) {
+  const panelStyle: React.CSSProperties = {
+    opacity: disabled ? 0.35 : 1,
+    pointerEvents: disabled ? "none" : undefined,
+    ...(surfaceStyle ?? {}),
+  };
+  return (
+    <FrameCard
+      fill
+      refractiveFallback
+      shimmerMode="subtle"
+      liquidBezelWidth={3}
+      className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)}
+      hoverPop={!disabled}
+      ariaLabel={disabled ? "panel disabled" : undefined}
+      style={{
+        borderRadius: "var(--card-radius)",
+        border: "1px solid var(--panel-border)",
+        ...panelStyle,
+      }}
+    >
+      {children}
+    </FrameCard>
+  );
+}
+
 const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
   return a.id === b.id
     && a.title === b.title
@@ -53,6 +79,13 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
 };
 
 const DEVICE_ID_STORAGE_KEY = "cfy.deviceId";
+const THREAD_PAGE_SIZE = 50;
+const NEW_THREAD_TITLE = "New Thread";
+
+function isDraftTitle(value: string | null | undefined): boolean {
+  const normalized = (value ?? "").trim();
+  return normalized === "New Thread" || normalized === "New Chat" || normalized === "Untitled Chat";
+}
 
 function getOrCreateDeviceId(): string {
   if (typeof window === "undefined") return "server-device";
@@ -96,9 +129,13 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
+  const [threadsHasMore, setThreadsHasMore] = React.useState(true);
+  const [threadsLoadingMore, setThreadsLoadingMore] = React.useState(false);
   const [sessionSpine, setSessionSpine] = React.useState<SessionSpine | null>(null);
   const [sessionReady, setSessionReady] = React.useState(false);
   const sessionHydratedRef = React.useRef(false);
+  const paginationRef = React.useRef({ offset: 0, hasMore: true, loading: false });
+  const threadsRef = React.useRef<Thread[]>([]);
   const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
   const imprintZero = useImprintZero();
@@ -109,6 +146,10 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     if (match && match[1]) return match[1];
     return null;
   }, []);
+
+  React.useEffect(() => {
+    threadsRef.current = threads;
+  }, [threads]);
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -176,6 +217,11 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     DEFAULT_MODEL_ID
   );
   const [activeSessionDraftSeed, setActiveSessionDraftSeed] = React.useState("");
+  const selectedProjectFilter = React.useMemo(() => {
+    if (!selectedProjectId) return null;
+    const parsed = Number(selectedProjectId);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [selectedProjectId]);
   React.useEffect(() => {
     if (!sessionSpine || !activeSessionTabId) {
       setActiveSessionDraftSeed("");
@@ -183,13 +229,32 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     }
     setActiveSessionDraftSeed(sessionSpine.getDraft(activeSessionTabId));
   }, [activeSessionTabId, sessionSpine]);
-  const sessionControlsThreadSelection = sessionReady && Boolean(activeSessionTab);
 
-  // Sync URL with session tab - only push when route differs to avoid loop
+  // Sync URL with session tab - only push when route differs to avoid loop.
+  // Guard against stale session thread ids that no longer exist in the loaded list.
   React.useEffect(() => {
     if (!sessionReady || !activeSessionTab) return;
     const targetThreadId = activeSessionTab.threadId ?? null;
     const currentRouteThreadId = resolveRouteThreadId();
+    const targetMissingFromThreads =
+      targetThreadId != null &&
+      threadsLoaded &&
+      !threads.some((thread) => thread.id === targetThreadId);
+
+    if (targetMissingFromThreads) {
+      if (activeId !== null) {
+        setActiveId(null);
+      }
+      if (sessionSpine && activeSessionTabId) {
+        // Clear stale thread linkage once so tab state stops forcing an invalid route id.
+        sessionSpine.tabSetThread(activeSessionTabId, undefined, undefined);
+      }
+      if (currentRouteThreadId !== null && typeof window !== "undefined") {
+        window.history.replaceState({}, "", "/chat");
+      }
+      return;
+    }
+
     if (targetThreadId === activeId) return;
     setActiveId(targetThreadId);
     // Only push state if the route actually differs from target
@@ -197,7 +262,16 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const newPath = targetThreadId ? `/chat/${targetThreadId}` : "/chat";
       window.history.replaceState({}, "", newPath);
     }
-  }, [activeId, activeSessionTab, sessionReady, resolveRouteThreadId]);
+  }, [
+    activeId,
+    activeSessionTab,
+    activeSessionTabId,
+    resolveRouteThreadId,
+    sessionReady,
+    sessionSpine,
+    threads,
+    threadsLoaded,
+  ]);
 
   // Sync sessionSpine with active thread - only depends on primitives needed to initiate side effect
   React.useEffect(() => {
@@ -351,13 +425,12 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   );
 
   const handleNewChat = React.useCallback(async () => {
+    setActiveId(null);
+    if (typeof window !== "undefined") {
+      window.history.replaceState({}, "", "/chat");
+    }
     if (sessionSpine) {
-      sessionSpine.tabOpen(undefined, "New Chat");
-    } else {
-      setActiveId(null);
-      if (typeof window !== "undefined") {
-        window.history.replaceState({}, "", "/chat");
-      }
+      sessionSpine.tabOpen(undefined, NEW_THREAD_TITLE);
     }
     return null;
   }, [sessionSpine]);
@@ -367,7 +440,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       void handleNewChat();
       return;
     }
-    sessionSpine.tabOpen(undefined, "New Chat");
+    sessionSpine.tabOpen(undefined, NEW_THREAD_TITLE);
   }, [handleNewChat, sessionSpine]);
 
   const handleSessionTabActivate = React.useCallback((tabId: TabId) => {
@@ -439,24 +512,57 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     }
   }
 
+  const mergeThreadsPage = React.useCallback(
+    (existing: Thread[], incoming: Thread[], reset: boolean): Thread[] => {
+      const next = reset ? [] : existing.map((thread) => ({ ...thread }));
+      const indexById = new Map<string, number>();
+      for (let i = 0; i < next.length; i += 1) {
+        const id = String(next[i]?.id ?? "");
+        if (!id || indexById.has(id)) continue;
+        indexById.set(id, i);
+      }
+      for (const thread of incoming) {
+        const id = String(thread.id ?? "");
+        if (!id) continue;
+        const existingIndex = indexById.get(id);
+        if (existingIndex != null) {
+          next[existingIndex] = thread;
+          continue;
+        }
+        indexById.set(id, next.length);
+        next.push(thread);
+      }
+      return next;
+    },
+    []
+  );
+
   // ----- Thread loader (hoisted early to avoid TDZ) -----
-  const loadThreads = React.useCallback(async () => {
+  const loadThreads = React.useCallback(async ({ reset = false }: { reset?: boolean } = {}) => {
     if (!checkAuthGate(auth, "threads load")) {
       setThreadsLoaded(true);
       return;
     }
+    if (!reset && (paginationRef.current.loading || !paginationRef.current.hasMore)) {
+      return;
+    }
+    const offset = reset ? 0 : paginationRef.current.offset;
+    paginationRef.current.loading = true;
+    setThreadsLoadingMore(true);
     try {
-      const res = await api.get("/chat/threads");
+      const res = await api.get("/chat/threads", {
+        params: {
+          limit: THREAD_PAGE_SIZE,
+          offset,
+          ...(selectedProjectFilter != null ? { project_id: selectedProjectFilter } : {}),
+        },
+      });
       const data = res?.data;
       const rawList = Array.isArray(data?.threads)
         ? data.threads
         : Array.isArray(data)
         ? data
         : [];
-
-      if (!rawList.length) {
-        setThreads([]);
-      }
 
       const mapped = rawList.map(mapThreadRecord).filter(Boolean);
       // Deduplicate by thread id
@@ -465,28 +571,36 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         if (thread && thread.id) dedupedMap.set(thread.id, thread);
       }
       const visible = Array.from(dedupedMap.values()).filter((t) => !t.archivedAt);
+      const existingThreads = reset ? [] : threadsRef.current;
+      const merged = mergeThreadsPage(existingThreads, visible, reset);
+      threadsRef.current = merged;
+      setThreads(merged);
 
-      setThreads(visible);
-
-      // Only set activeId if we don't have one, or if the URL dictates it
-      setActiveId((prev) => {
-        const routeId = resolveRouteThreadId();
-        if (routeId && visible.some((t) => t.id === routeId)) {
-          return routeId;
-        }
-        // If we have a previous ID and it's still in the list, KEEP IT
-        if (prev && visible.some((t) => t.id === prev)) {
-          return prev;
-        }
-        // Otherwise default to first
-        return visible[0] ? visible[0].id : null;
-      });
+      const fetchedCount = visible.length;
+      const addedCount = merged.length - existingThreads.length;
+      const backendHasMore =
+        typeof data?.has_more === "boolean"
+          ? data.has_more
+          : fetchedCount >= THREAD_PAGE_SIZE;
+      const hasMore = backendHasMore && (reset || addedCount > 0);
+      paginationRef.current.offset = offset + fetchedCount;
+      paginationRef.current.hasMore = hasMore;
+      setThreadsHasMore(hasMore);
     } catch (err) {
       console.warn("[guardian] failed to load threads", err);
+      if (reset) {
+        threadsRef.current = [];
+        setThreads([]);
+        paginationRef.current.offset = 0;
+        paginationRef.current.hasMore = false;
+        setThreadsHasMore(false);
+      }
     } finally {
+      paginationRef.current.loading = false;
+      setThreadsLoadingMore(false);
       setThreadsLoaded(true);
     }
-  }, [auth, mapThreadRecord, resolveRouteThreadId]); // Remove threads dependency to avoid loops
+  }, [auth, mapThreadRecord, mergeThreadsPage, selectedProjectFilter]);
 
   React.useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -494,7 +608,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const detail = (event as CustomEvent)?.detail ?? {};
       const kind = detail?.kind ?? detail?.type;
       if (kind !== "refresh" && kind !== "import") return;
-      void loadThreads();
+      void loadThreads({ reset: true });
     };
     window.addEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
     return () => window.removeEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
@@ -512,7 +626,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
 
   // Initial load only
   React.useEffect(() => {
-    void loadThreads();
+    void loadThreads({ reset: true });
   }, [loadThreads]);
 
   const handleBranchThread = React.useCallback(
@@ -582,31 +696,28 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   }, [activeSessionTabId, sessionSpine, threads]);
 
 
-  // Keep active thread selection coherent after thread list refreshes.
+  // Never auto-select on list refresh. If selected thread disappears, clear it.
   React.useEffect(() => {
     if (!threadsLoaded) return;
-    if (!threads || threads.length === 0) return;
-    // Once session hydration completes, SessionSpine owns active thread selection.
-    if (sessionControlsThreadSelection) {
-      return;
-    }
-    if (!activeId) {
-      setActiveId(threads[0]?.id ?? null);
-    }
+    if (!activeId) return;
+    if (threads.some((thread) => thread.id === activeId)) return;
+    setActiveId(null);
   }, [
-    sessionControlsThreadSelection,
     threadsLoaded,
-    threads.length,
     activeId,
-  ]); // Depend on length, not array identity
+    threads,
+  ]);
 
   React.useEffect(() => {
     const onPopstate = () => {
       const routeId = resolveRouteThreadId();
-      if (!routeId) return;
+      if (!routeId) {
+        setActiveId(null);
+        return;
+      }
       setActiveId((prev) => (prev === routeId ? prev : routeId));
       if (threadsLoaded && !threads.some((t) => t.id === routeId)) {
-        void loadThreads();
+        void loadThreads({ reset: true });
       }
     };
     if (typeof window !== "undefined") {
@@ -615,29 +726,19 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     }
   }, [loadThreads, resolveRouteThreadId, threads, threadsLoaded]);
 
+  const loadMoreThreads = React.useCallback(async () => {
+    if (!threadsHasMore || threadsLoadingMore) {
+      return;
+    }
+    await loadThreads({ reset: false });
+  }, [loadThreads, threadsHasMore, threadsLoadingMore]);
+
   const activeThread = React.useMemo(() => {
-    // Always return a usable thread object for GuardianChat
     let found = threads.find((t) => t.id === activeId) || null;
     if (found) return found;
-    // A tab with no bound thread intentionally represents "new chat".
-    if (!activeId) {
-      return {
-        id: "temp",
-        title: "New Chat",
-        lastMessage: "",
-        unread: 0,
-        participants: [
-          { id: "me", name: userName || "You" },
-          { id: "bot", name: guardianName || "Guardian" },
-        ],
-        messages: [],
-      };
-    }
-    if (threads.length > 0) return threads[0];
-    // Fallback to a synthetic blank thread
     return {
       id: "temp",
-      title: "New Chat",
+      title: NEW_THREAD_TITLE,
       lastMessage: "",
       unread: 0,
       participants: [
@@ -672,12 +773,12 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
         if (t.id !== threadKey) return t;
         let newTitle = t.title;
         if (
-          (t.title === "New Chat" || t.title === "Untitled Chat") &&
+          isDraftTitle(t.title) &&
           (!t.messages || t.messages.length === 0)
         ) {
           const words = text.trim().split(/\s+/);
           const head = words.slice(0, 6).join(" ");
-          newTitle = head.length > 0 ? head + (words.length > 6 ? "…" : "") : "New Chat";
+          newTitle = head.length > 0 ? head + (words.length > 6 ? "…" : "") : NEW_THREAD_TITLE;
         }
         return {
           ...t,
@@ -695,12 +796,12 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const thread = threads.find((t) => t.id === threadKey);
       if (
         thread &&
-        (thread.title === "New Chat" || thread.title === "Untitled Chat") &&
+        isDraftTitle(thread.title) &&
         (!thread.messages || thread.messages.length === 0)
       ) {
         const words = text.trim().split(/\s+/);
         const head = words.slice(0, 6).join(" ");
-        const newTitle = head.length > 0 ? head + (words.length > 6 ? "…" : "") : "New Chat";
+        const newTitle = head.length > 0 ? head + (words.length > 6 ? "…" : "") : NEW_THREAD_TITLE;
         await api.patch(`/chat/threads/${numericThreadId}`, { title: newTitle });
       }
 
@@ -761,7 +862,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const handleDraftThreadPersisted = React.useCallback(
     (threadId: number, title?: string) => {
       const idStr = String(threadId);
-      const nextTitle = (title || "").trim() || "New Chat";
+      const nextTitle = (title || "").trim() || NEW_THREAD_TITLE;
       setActiveId(idStr);
       setThreads((prev) => {
         const existing = prev.find((thread) => thread.id === idStr);
@@ -824,13 +925,13 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       setThreads((prev) => {
         if (!prev.length) {
           // If we have no threads, we might need to load them
-          void loadThreads();
+          void loadThreads({ reset: true });
           return prev;
         }
         const idx = prev.findIndex((t) => t.id === threadId);
         if (idx === -1) {
           // New thread we don't know about? Load to be safe, or ignore
-          void loadThreads();
+          void loadThreads({ reset: true });
           return prev;
         }
         const target = prev[idx];
@@ -917,7 +1018,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
               return [mapped, ...prev];
           });
       } else {
-          void loadThreads();
+          void loadThreads({ reset: true });
       }
     });
 
@@ -931,7 +1032,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             return [mapped, ...prev];
           });
       } else {
-          void loadThreads();
+          void loadThreads({ reset: true });
       }
     });
 
@@ -945,7 +1046,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
             return next.length === prev.length ? prev : next;
           });
       } else {
-          void loadThreads();
+          void loadThreads({ reset: true });
       }
     });
 
@@ -979,32 +1080,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
   }, []);
-
-  const PanelShell: React.FC<PanelShellProps> = ({ className, surfaceStyle, disabled, children }) => {
-    const panelStyle: React.CSSProperties = {
-      opacity: disabled ? 0.35 : 1,
-      pointerEvents: disabled ? "none" : undefined,
-      ...(surfaceStyle ?? {}),
-    };
-    return (
-      <FrameCard
-        fill
-        refractiveFallback
-        shimmerMode="subtle"
-        liquidBezelWidth={3}
-        className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)}
-        hoverPop={!disabled}
-        ariaLabel={disabled ? "panel disabled" : undefined}
-        style={{
-          borderRadius: "var(--card-radius)",
-          border: "1px solid var(--panel-border)",
-          ...panelStyle,
-        }}
-      >
-        {children}
-      </FrameCard>
-    );
-  };
 
   const mobileOverlay = isMobileOverlayActive && portalTarget
     ? createPortal(
@@ -1060,6 +1135,9 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                     onNewChat={handleNewChatImmediate}
                     projectId={selectedProjectId}
                     onProjectChange={setSelectedProjectId}
+                    hasMoreThreads={threadsHasMore}
+                    loadingMoreThreads={threadsLoadingMore}
+                    onLoadMoreThreads={loadMoreThreads}
                   />
                 </PanelShell>
               </div>
@@ -1121,6 +1199,9 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   onNewChat={handleNewChatImmediate}
                   projectId={selectedProjectId}
                   onProjectChange={setSelectedProjectId}
+                  hasMoreThreads={threadsHasMore}
+                  loadingMoreThreads={threadsLoadingMore}
+                  onLoadMoreThreads={loadMoreThreads}
                 />
               </PanelShell>
             </div>
@@ -1191,7 +1272,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   onBack={() => {
                     setActiveId(null);
                     if (sessionSpine && activeSessionTabId) {
-                      sessionSpine.tabSetThread(activeSessionTabId, undefined, "New Chat");
+                      sessionSpine.tabSetThread(activeSessionTabId, undefined, NEW_THREAD_TITLE);
                     }
                     if (typeof window !== "undefined") {
                       window.history.pushState({}, "", "/guardian");

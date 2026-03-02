@@ -44,6 +44,7 @@ const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST = "One moment—finish the current reply first.";
 const LLM_HEALTH_POLL_MS = 15000;
 const THREAD_PROFILE_POLL_MS = 15000;
+const NEW_THREAD_TITLE = "New Thread";
 
 /**
  * RAG depth modes: Four lenses of consciousness.
@@ -233,7 +234,7 @@ export function GuardianChat({
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
-  const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? "New Chat");
+  const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
   const [voiceUploading, setVoiceUploading] = useState(false);
   const [autoReadEnabled, setAutoReadEnabled] = useState<boolean>(() => {
@@ -479,8 +480,9 @@ export function GuardianChat({
     },
     [getDepthForThread]
   );
+  type CompletionOutcome = "ok" | "service_unavailable" | "failed";
   // Helper: ask backend to complete the thread and then refresh
-  const completeThread = async (tid: number) => {
+  const completeThread = async (tid: number): Promise<CompletionOutcome> => {
     const payload = buildChatCompletionPayload(depth, activeModelId || "default");
     try {
       const response = await api.post(buildChatCompletePath(tid), payload);
@@ -502,10 +504,25 @@ export function GuardianChat({
       } else {
         delete traceEndpointRef.current[tid];
       }
-      return true;
-    } catch (err) {
+      return "ok";
+    } catch (err: any) {
+      const statusCode = Number(err?.response?.status || 0);
+      const detail = err?.response?.data?.detail;
+      const reason =
+        detail && typeof detail === "object"
+          ? String(detail?.error || detail?.reason || "")
+          : String(detail || "");
+      if (
+        statusCode === 503 &&
+        (reason.includes("completion_service_unavailable") ||
+          reason.includes("queue_unavailable") ||
+          reason.includes("turn_lock_unavailable"))
+      ) {
+        showToast("Completion service unavailable — check Docker/Redis.");
+        return "service_unavailable";
+      }
       console.warn("[guardian] completion failed", err);
-      return false;
+      return "failed";
     } finally {
       // always nudge the view to reconcile with server state
       triggerReload();
@@ -528,9 +545,7 @@ export function GuardianChat({
 
   // Update currentThreadId when numericThreadId changes
   useEffect(() => {
-    if (numericThreadId != null && numericThreadId !== currentThreadId) {
-      setCurrentThreadId(numericThreadId);
-    }
+    setCurrentThreadId((prev) => (prev === numericThreadId ? prev : numericThreadId));
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
@@ -733,10 +748,10 @@ export function GuardianChat({
     const parsedId = Number(activeThread?.id);
     if (Number.isFinite(parsedId)) {
       if (currentThreadId == null || currentThreadId === parsedId) {
-        setThreadTitle(activeThread?.title ?? "New Chat");
+        setThreadTitle(activeThread?.title ?? NEW_THREAD_TITLE);
       }
     } else if (currentThreadId == null) {
-      setThreadTitle(activeThread?.title ?? "New Chat");
+      setThreadTitle(activeThread?.title ?? NEW_THREAD_TITLE);
     }
   }, [activeThread?.id, activeThread?.title, currentThreadId]);
 
@@ -801,7 +816,7 @@ export function GuardianChat({
   const handleThreadCreated = (threadId: number, title?: string) => {
     setCurrentThreadId(threadId);
 
-    const nextTitle = (title && title.trim().length > 0) ? title.trim() : "New Chat";
+    const nextTitle = (title && title.trim().length > 0) ? title.trim() : NEW_THREAD_TITLE;
     setThreadTitle(nextTitle);
 
     // Notify other panes that a new thread exists so sidebars can update immediately
@@ -818,7 +833,7 @@ export function GuardianChat({
       showToast("Thread is not persisted yet.");
       return;
     }
-    const suggestion = `${threadTitle || "New Chat"} (branch)`;
+    const suggestion = `${threadTitle || NEW_THREAD_TITLE} (branch)`;
     const nextTitle = window.prompt("Branch thread title", suggestion);
     if (nextTitle === null) return;
     const trimmedTitle = nextTitle.trim();
@@ -903,7 +918,7 @@ export function GuardianChat({
     }
     if (!effectiveThreadId) {
       const firstLine = text.trim().split(/\n+/)[0] ?? "";
-      const provisionalTitle = firstLine.slice(0, 60) || "New Chat";
+      const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
       let createdThreadId: number | null = null;
       setPendingTurnLock(true);
       try {
@@ -938,10 +953,13 @@ export function GuardianChat({
         }
 
         // Complete the thread and refresh.
-        const completed = await completeThread(numericNewId);
-        if (!completed) {
+        const completionOutcome = await completeThread(numericNewId);
+        if (completionOutcome !== "ok") {
           setTurnLockForThread(numericNewId, false);
-          throw new Error("Assistant response failed.");
+          if (completionOutcome === "failed") {
+            throw new Error("Assistant response failed.");
+          }
+          return;
         }
       } catch (error) {
         console.error("Failed to create thread or send message:", error);
@@ -964,10 +982,12 @@ export function GuardianChat({
         setTimeout(() => {
           if (effectiveThreadId == null) return;
           void (async () => {
-            const completed = await completeThread(effectiveThreadId);
-            if (!completed) {
+            const completionOutcome = await completeThread(effectiveThreadId);
+            if (completionOutcome !== "ok") {
               setTurnLockForThread(effectiveThreadId, false);
-              showToast("Assistant response failed.");
+              if (completionOutcome === "failed") {
+                showToast("Assistant response failed.");
+              }
             }
           })();
         }, 100);
@@ -1000,39 +1020,6 @@ export function GuardianChat({
 
   const headerActions = (
     <div className="flex items-center gap-1">
-      {/* RAG Depth Selector */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="icon-inline"
-            aria-label="RAG depth selector"
-            title={`Depth: ${depthLabels[depth]} - ${depthDescriptions[depth]}`}
-            style={{ borderRadius: "var(--radius-micro)" }}
-          >
-            <Layers className="h-5 w-5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <div className="px-2 py-1.5 text-xs font-semibold opacity-60">RAG Depth</div>
-          {(["shallow", "normal", "deep", "diagnostic"] as DepthMode[]).map((d) => (
-            <DropdownMenuItem
-              key={d}
-              onClick={() => {
-                setDepth(d);
-                console.log(`[guardian] Depth changed to: ${d}`);
-              }}
-              className={depth === d ? "bg-accent" : ""}
-            >
-              <div className="flex flex-col flex-1 min-h-0">
-                <div className="font-medium">{depthLabels[d]}</div>
-                <div className="text-xs opacity-70">{depthDescriptions[d]}</div>
-              </div>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
       <div
         ref={promptCostPopoverRef}
         className="relative"
@@ -1240,7 +1227,7 @@ export function GuardianChat({
                 await api.delete(`/chat/${effectiveThreadId}`);
                 emitThreadsRefresh("delete", { id: String(effectiveThreadId) });
                 setCurrentThreadId(null);
-                setThreadTitle("New Chat");
+                setThreadTitle(NEW_THREAD_TITLE);
                 if (typeof window !== "undefined") {
                   window.history.replaceState({}, "", `/chat`);
                 }
@@ -1261,7 +1248,7 @@ export function GuardianChat({
                 await onArchiveThread(effectiveThreadId);
                 emitThreadsRefresh("archive", { id: String(effectiveThreadId), archived: true });
                 setCurrentThreadId(null);
-                setThreadTitle("New Chat");
+                setThreadTitle(NEW_THREAD_TITLE);
                 if (typeof window !== "undefined") {
                   window.history.replaceState({}, "", `/chat`);
                 }
@@ -1412,6 +1399,8 @@ export function GuardianChat({
             className="flex flex-col flex-1 min-h-0"
             bottomPadding={160}
             autoReadEnabled={autoReadEnabled}
+            depthMode={depth}
+            profileId={resolvedProfile.id}
           />
         ) : (
           <div
@@ -1437,9 +1426,73 @@ export function GuardianChat({
       >
         <div className="flex flex-col p-4">
           <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-            <span className="opacity-70" style={{ color: "var(--muted)" }}>
-              Turn-based Voice
-            </span>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="opacity-70" style={{ color: "var(--muted)" }}>
+                Turn-based Voice
+              </span>
+
+              {/* RAG Depth Selector (moved from header) */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] transition hover:opacity-90"
+                    aria-label="RAG depth selector"
+                    title={`Depth: ${depthLabels[depth]} - ${depthDescriptions[depth]}`}
+                    style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    <span className="truncate max-w-[8rem]">{depthLabels[depth]}</span>
+                    <ChevronRight className="h-3.5 w-3.5 rotate-90 opacity-70" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  className="z-[999] min-w-[16rem] rounded-lg border p-1 shadow-xl"
+                  style={{
+                    borderColor: "var(--panel-border)",
+                    background: "var(--panel-sheet)",
+                    color: "var(--text)",
+                  }}
+                >
+                  <div
+                    className="px-2 py-1.5 text-xs font-semibold"
+                    style={{ color: "var(--muted)", opacity: 0.85 }}
+                  >
+                    RAG Depth
+                  </div>
+                  {(["shallow", "normal", "deep", "diagnostic"] as DepthMode[]).map((d) => (
+                    <DropdownMenuItem
+                      key={d}
+                      onClick={() => {
+                        setDepth(d);
+                        console.log(`[guardian] Depth changed to: ${d}`);
+                      }}
+                      className={
+                        "cursor-pointer rounded-md px-2 py-2 focus:outline-none" +
+                        (depth === d ? " bg-accent" : "")
+                      }
+                      style={{
+                        background:
+                          depth === d
+                            ? "color-mix(in oklab, var(--panel-bg), var(--accent) 22%)"
+                            : "transparent",
+                      }}
+                    >
+                      <div className="flex flex-col flex-1 min-h-0">
+                        <div className="font-medium">{depthLabels[d]}</div>
+                        <div className="text-xs" style={{ color: "var(--muted)", opacity: 0.9 }}>
+                          {depthDescriptions[d]}
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
             <button
               type="button"
               className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
@@ -1455,6 +1508,7 @@ export function GuardianChat({
             >
               {voiceUploading ? "Processing…" : "Upload Voice Turn"}
             </button>
+
             <input
               ref={voiceFileInputRef}
               type="file"

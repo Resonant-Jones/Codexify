@@ -41,10 +41,7 @@ function makeSessionKey(userId: string, deviceId: string): string {
 export class InMemorySessionStateStore implements SessionStateStore {
   private readonly map = new Map<string, SessionState>();
 
-  async getSessionState(
-    userId: string,
-    deviceId: string
-  ): Promise<SessionState | null> {
+  async getSessionState(userId: string, deviceId: string): Promise<SessionState | null> {
     const key = makeSessionKey(userId, deviceId);
     const state = this.map.get(key);
     return state ? structuredClone(state) : null;
@@ -80,17 +77,33 @@ export class InMemorySessionStateStore implements SessionStateStore {
 }
 
 export class RedisSessionStateStore implements SessionStateStore {
-  async getSessionState(
-    userId: string,
-    deviceId: string
-  ): Promise<SessionState | null> {
-    const response = await api.get<SessionEnvelope>("/ui/session", {
-      params: {
-        user_id: userId,
-        device_id: deviceId,
-      },
-    });
-    return coerceSessionState(response?.data?.state ?? null);
+  // Guardrail: if the backend doesn’t expose /ui/session, stop calling it after first 404.
+  private sessionEndpointMissing = false;
+
+  private markMissingIf404(error: unknown): boolean {
+    const status = (error as any)?.response?.status;
+    if (status === 404) {
+      this.sessionEndpointMissing = true;
+      return true;
+    }
+    return false;
+  }
+
+  async getSessionState(userId: string, deviceId: string): Promise<SessionState | null> {
+    if (this.sessionEndpointMissing) return null;
+
+    try {
+      const response = await api.get<SessionEnvelope>("/ui/session", {
+        params: {
+          user_id: userId,
+          device_id: deviceId,
+        },
+      });
+      return coerceSessionState(response?.data?.state ?? null);
+    } catch (error) {
+      if (this.markMissingIf404(error)) return null;
+      throw error;
+    }
   }
 
   async setSessionState(
@@ -99,12 +112,19 @@ export class RedisSessionStateStore implements SessionStateStore {
     state: SessionState,
     ttlSeconds = SESSION_TTL_SECONDS
   ): Promise<void> {
-    await api.put("/ui/session", {
-      user_id: userId,
-      device_id: deviceId,
-      state,
-      ttl_seconds: ttlSeconds,
-    });
+    if (this.sessionEndpointMissing) return;
+
+    try {
+      await api.put("/ui/session", {
+        user_id: userId,
+        device_id: deviceId,
+        state,
+        ttl_seconds: ttlSeconds,
+      });
+    } catch (error) {
+      if (this.markMissingIf404(error)) return;
+      throw error;
+    }
   }
 
   async patchSessionState(
@@ -113,21 +133,35 @@ export class RedisSessionStateStore implements SessionStateStore {
     patch: Partial<SessionState>,
     ttlSeconds = SESSION_TTL_SECONDS
   ): Promise<SessionState | null> {
-    const response = await api.patch<SessionEnvelope>("/ui/session", {
-      user_id: userId,
-      device_id: deviceId,
-      patch,
-      ttl_seconds: ttlSeconds,
-    });
-    return coerceSessionState(response?.data?.state ?? null);
+    if (this.sessionEndpointMissing) return null;
+
+    try {
+      const response = await api.patch<SessionEnvelope>("/ui/session", {
+        user_id: userId,
+        device_id: deviceId,
+        patch,
+        ttl_seconds: ttlSeconds,
+      });
+      return coerceSessionState(response?.data?.state ?? null);
+    } catch (error) {
+      if (this.markMissingIf404(error)) return null;
+      throw error;
+    }
   }
 
   async deleteSessionState(userId: string, deviceId: string): Promise<void> {
-    await api.delete("/ui/session", {
-      params: {
-        user_id: userId,
-        device_id: deviceId,
-      },
-    });
+    if (this.sessionEndpointMissing) return;
+
+    try {
+      await api.delete("/ui/session", {
+        params: {
+          user_id: userId,
+          device_id: deviceId,
+        },
+      });
+    } catch (error) {
+      if (this.markMissingIf404(error)) return;
+      throw error;
+    }
   }
 }

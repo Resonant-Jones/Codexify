@@ -24,6 +24,9 @@ type Props = {
   onProjectChange?: (id: string | null) => void;
   projects?: Project[];
   creatingThread?: boolean;
+  hasMoreThreads?: boolean;
+  loadingMoreThreads?: boolean;
+  onLoadMoreThreads?: () => void | Promise<void>;
   onDeleteThread?: (threadId: string) => void;
   onCreateProject?: (data: { name: string; icon?: string; color?: string }) => Promise<Project | void> | Project | void;
 };
@@ -76,6 +79,8 @@ function isDefaultProjectAlias(value: unknown): boolean {
   return normalized === "general" || normalized === "loose threads";
 }
 
+const SIDEBAR_RAIL = "px-3";
+
 export default function SidebarRoot({
   threads,
   activeId,
@@ -85,6 +90,9 @@ export default function SidebarRoot({
   onProjectChange,
   projects = [],
   creatingThread,
+  hasMoreThreads = false,
+  loadingMoreThreads = false,
+  onLoadMoreThreads,
   onDeleteThread,
   onCreateProject,
 }: Props) {
@@ -133,7 +141,7 @@ export default function SidebarRoot({
     setScope(String(defaultProject.id));
   }, [currentProjectId, projectList, setScope]);
 
-  const columnClass = "w-full px-[5px]";
+  const columnClass = clsx("w-full", SIDEBAR_RAIL);
 
   const accentColor = React.useMemo(() => getComputedStyleVar("--accent", "#6B7280"), []);
   const successBg = React.useMemo(
@@ -297,7 +305,7 @@ export default function SidebarRoot({
           overflow: "hidden",
         }}
       >
-        <div className="flex items-center gap-[14px] w-full px-[5px]">
+        <div className={clsx("flex items-center gap-[14px] w-full", SIDEBAR_RAIL)}>
           <div className="flex-1 flex justify-center mt-[3px]">
             <div className="glass-pill" role="tablist" aria-label="Sidebar tabs">
               <button
@@ -338,15 +346,24 @@ export default function SidebarRoot({
           </div>
         </div>
 
-        <div className={clsx("relative", columnClass, tab === "projects" && "mb-[5px]")}>
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60" />
-          <Input
-            className="pl-9 pr-3 h-9 rounded-xl"
-            placeholder={tab === "projects" ? "Search projects…" : "Search threads…"}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            style={{ background: "transparent", borderColor: "var(--panel-border)", color: "var(--text)" }}
-          />
+        <div className={clsx(columnClass, tab === "projects" && "mb-[5px]")}>
+          <div className="relative">
+            <div
+              data-testid="sidebar-search-icon"
+              className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60"
+              aria-hidden="true"
+            >
+              <Search className="h-4 w-4" />
+            </div>
+            <Input
+              data-testid="sidebar-search-input"
+              className="h-10 w-full rounded-xl pl-10 pr-3 bg-[var(--chip-bg)] border border-white/10"
+              placeholder={tab === "projects" ? "Search projects…" : "Search threads…"}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              style={{ color: "var(--text)" }}
+            />
+          </div>
         </div>
 
         {tab === "projects" ? (
@@ -369,6 +386,9 @@ export default function SidebarRoot({
             onSelect={onSelect}
             onNewChat={onNewChat}
             creatingThread={creatingThread}
+            hasMore={hasMoreThreads}
+            isLoadingMore={loadingMoreThreads}
+            onLoadMore={onLoadMoreThreads}
             onRename={renameThread}
             onArchiveToggle={handleArchiveToggle}
             onDelete={handleDelete}

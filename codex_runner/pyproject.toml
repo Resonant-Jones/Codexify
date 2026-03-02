@@ -12,9 +12,29 @@ dependencies = [
   "textual>=0.70.0",
 ]
 
+[project.scripts]
+codex-runner = "codex_runner.__main__:main"
+codex_runner = "codex_runner.__main__:main"
+
 [project.optional-dependencies]
 dev = [
+  "build>=1.0",
   "pytest>=8.0",
+  "twine>=5.0",
+]
+
+[tool.setuptools]
+packages = ["codex_runner"]
+include-package-data = true
+
+[tool.setuptools.package-dir]
+codex_runner = "."
+
+[tool.setuptools.package-data]
+codex_runner = [
+  "prompts/*.md",
+  "schemas/*.json",
+  "templates/*.tmpl",
 ]
 
 [tool.pytest.ini_options]

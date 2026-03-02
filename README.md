@@ -65,7 +65,7 @@ This section is intentionally explicit. It lists what is **implemented**, what i
 - **Embeddings API** `/api/embeddings` returns **dummy vectors only when explicitly requested** (`embedder=dummy`) or when fallback is enabled; otherwise it returns 503 until a real backend is configured.
 - **Local/Stability image generation** is intentionally deferred for MVP and is non-blocking; selecting those providers can return `503` until implementations are added.
 - **TTS**: API uses a **mock local provider** (sine wave). A separate HuggingFace TTS microservice exists (`backend/tts_service`) but is not integrated into the main API.
-- **Desktop app** (Tauri) is a skeleton config (`src-tauri`) without a published build pipeline.
+- **Desktop app** (Tauri) is available for local parity validation (`src-tauri`) with manual build/release commands.
 
 ## What You Can Do With It Today
 
@@ -221,6 +221,34 @@ pnpm --dir frontend/src install
 pnpm --dir frontend/src dev
 ```
 
+## Desktop (Tauri) Local Parity Flow
+
+The desktop shell expects the same external Guardian backend used by WebUI.
+
+1) Ensure backend is reachable (default `http://127.0.0.1:8888`)
+2) Install frontend deps (first run)
+
+```bash
+pnpm --dir frontend/src install
+```
+
+3) Run desktop dev
+
+```bash
+make desktop-dev
+```
+
+4) Build local desktop bundle (manual release gate)
+
+```bash
+make desktop-build
+```
+
+Desktop connection defaults are configurable via:
+- `.env`: `CODEXIFY_DESKTOP_BACKEND_URL`, `CODEXIFY_DESKTOP_SHARE_BASE_URL`
+- Settings -> Connection (desktop-only overrides, persisted locally)
+- Validation checklist: `docs/desktop/TAURI_PARITY_CHECKLIST.md`
+
 ## Runtime Topology
 
 **Always-on containers (Compose default)**
@@ -261,7 +289,7 @@ pnpm --dir frontend/src dev
 - `guardian/` - **Main backend package** (FastAPI app, routes, DB logic, workers, plugins, providers).
 - `backend/` - Dockerfile, Alembic config, RAG embedder, and **separate** TTS microservice.
 - `frontend/` - React + Vite app (source in `frontend/src`).
-- `src-tauri/` - Tauri desktop shell (not a published app yet).
+- `src-tauri/` - Tauri desktop shell (macOS-first local parity flow, manual packaging gate).
 - `guardian/db/migrations/` - Alembic migrations (authoritative schema path).
 - `scripts/` - CLI tools (ChatGPT import, maintenance scripts).
 - `models/` - Local embedding model files (mounted into containers).
@@ -294,6 +322,7 @@ pnpm --dir frontend/src dev
 - `ENABLE_CONNECTOR_WORKER=true` (and provider tokens like `GITHUB_TOKEN`)
 - `IMAGE_GEN_PROVIDER` + `IMAGE_GEN_MODEL` (image generation; MVP path is `openai`, while `local`/`stability` are deferred and may return `503`)
 - `ELEVENLABS_API_KEY` or `GOOGLE_APPLICATION_CREDENTIALS` (real TTS)
+- `GUARDIAN_ALLOWED_ORIGINS` (include browser + desktop origins, e.g. `http://localhost:5173,tauri://localhost,https://tauri.localhost`)
 
 ## Development Workflow (As It Exists)
 
@@ -428,7 +457,7 @@ alembic -c backend/alembic.ini upgrade head
 - Embeddings API returns mock vectors only when explicitly requested; otherwise it fails closed until configured.
 - Local/Stability image generation is deferred for MVP and is non-blocking; these providers may return `503` until implemented.
 - TTS microservice exists but is not integrated into the main API.
-- Desktop/Tauri app is not production-ready.
+- Desktop/Tauri app uses a manual packaging flow (no CI signing/notarization pipeline yet).
 
 ## Documentation Map (Read This in Order)
 
@@ -555,4 +584,4 @@ If you're unsure, open a small PR touching one area (UI or a single route) and a
 * Embeddings API returns mock vectors only when explicitly requested; otherwise it fails closed until configured.
 * Local/Stability image generation is deferred for MVP and is non-blocking; these providers may return `503` until implemented.
 * TTS microservice exists but is not integrated into the main API.
-* Desktop/Tauri app is not production-ready.
+* Desktop/Tauri app uses a manual packaging flow (no CI signing/notarization pipeline yet).

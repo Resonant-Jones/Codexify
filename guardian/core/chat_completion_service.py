@@ -245,16 +245,31 @@ def run_chat_completion_task(
 
     assistant_text = ""
     if provider == "local":
+        streamed_any = False
         token_stream = stream_local(messages_for_llm, model)
         try:
             for token in token_stream:
                 if cancel_check and cancel_check():
                     raise ChatTaskCancelled("task_cancelled")
-                assistant_text += token
-                if token_callback:
-                    token_callback(token)
+                if token:
+                    streamed_any = True
+                    assistant_text += token
+                    if token_callback:
+                        token_callback(token)
         finally:
             token_stream.close()
+
+        # Defensive fallback: some local providers may return a full completion
+        # without producing incremental stream chunks (or our stream parser yields none).
+        # We still want a completion persisted, but we must avoid emitting a duplicate
+        # message to the UI when streaming already happened.
+        if not assistant_text.strip():
+            assistant_text = str(
+                chat_with_ai(messages_for_llm, model=model, provider=provider)
+            )
+            # Only emit via callback when nothing was streamed.
+            if token_callback and (not streamed_any) and assistant_text:
+                token_callback(assistant_text)
     else:
         if cancel_check and cancel_check():
             raise ChatTaskCancelled("task_cancelled")
