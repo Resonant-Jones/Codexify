@@ -23,7 +23,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Callable, Dict, Optional
 from uuid import uuid4
 
 from fastapi import (
@@ -144,6 +144,45 @@ OUTBOX_BATCH_SIZE = parse_outbox_batch_size(
 OUTBOX_TENANT_ID = normalize_outbox_tenant_id(
     os.getenv("OUTBOX_TENANT_ID", "default")
 )
+
+_TRUTHY_VALUES = {"1", "true", "yes", "on"}
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in _TRUTHY_VALUES
+
+
+_BETA_CORE_ONLY = _env_bool("CODEXIFY_BETA_CORE_ONLY", default=False)
+
+
+def _include_router(
+    *,
+    label: str,
+    flag_name: str,
+    include_fn: Callable[[], None],
+    default_enabled: bool = True,
+    core_surface: bool = False,
+) -> None:
+    if _BETA_CORE_ONLY and not core_surface:
+        logger.info(
+            "[routers] quarantined %s (CODEXIFY_BETA_CORE_ONLY=true)",
+            label,
+        )
+        return
+    if not _env_bool(flag_name, default=default_enabled):
+        logger.info("[routers] quarantined %s (%s=false)", label, flag_name)
+        return
+    include_fn()
+    logger.info("[routers] enabled %s", label)
+
+
+def _codex_routes_enabled() -> bool:
+    if _BETA_CORE_ONLY:
+        return False
+    return _env_bool("CODEXIFY_ENABLE_CODEX_ROUTES", default=True)
 
 
 from guardian.realtime import collaboration
@@ -530,51 +569,179 @@ logger.info("[media] Signed media delivery enabled from %s", media_storage_path)
 # Router Inclusion
 # =========================
 
-# Health endpoints (no prefix to preserve /health/chat paths)
-app.include_router(health.router)
-
-# Admin endpoints (auth, session, config debugging)
-app.include_router(admin.router)
-
-# Neo graph logging (safe stub; exposed under /api/neo/…)
-app.include_router(neo_routes.router, prefix="/api")
-
-# Chat endpoints (includes /chat/*, /api/chat/*, and simple chat endpoints)
-app.include_router(chat_router)
-app.include_router(simple_chat_router)
-app.include_router(api_chat_router)
-app.include_router(imprint_router)
-app.include_router(system_prompt_router)
-app.include_router(system_docs_router)
-app.include_router(iddb_router)
-app.include_router(backfill.router)
-app.include_router(embeddings.router)
-
-# Core feature routers
-app.include_router(threads.router)
-app.include_router(projects_router)
-app.include_router(api_projects_router)
-app.include_router(memory.router)
-app.include_router(personal_facts_router)
-app.include_router(agent.router, prefix="/agent")
-app.include_router(research.router, prefix="/research")
-app.include_router(documents.router)
-app.include_router(share.router)
-app.include_router(federation.router)
-app.include_router(collaboration.router)
-app.include_router(connectors_router)
-app.include_router(google_connect_router)
-app.include_router(media_router, prefix="/api/media")
-app.include_router(flows_router)
-app.include_router(tools_router)
-app.include_router(api_tools_router)
-app.include_router(exports_router)
-app.include_router(codex_router)
+_include_router(
+    label="health",
+    flag_name="CODEXIFY_ENABLE_HEALTH_ROUTES",
+    include_fn=lambda: app.include_router(health.router),
+    core_surface=True,
+)
+_include_router(
+    label="admin",
+    flag_name="CODEXIFY_ENABLE_ADMIN_ROUTES",
+    include_fn=lambda: app.include_router(admin.router),
+    core_surface=True,
+)
+_include_router(
+    label="neo",
+    flag_name="CODEXIFY_ENABLE_NEO_ROUTES",
+    include_fn=lambda: app.include_router(neo_routes.router, prefix="/api"),
+)
+_include_router(
+    label="chat",
+    flag_name="CODEXIFY_ENABLE_CHAT_ROUTES",
+    include_fn=lambda: app.include_router(chat_router),
+    core_surface=True,
+)
+_include_router(
+    label="simple_chat",
+    flag_name="CODEXIFY_ENABLE_CHAT_ROUTES",
+    include_fn=lambda: app.include_router(simple_chat_router),
+    core_surface=True,
+)
+_include_router(
+    label="api_chat",
+    flag_name="CODEXIFY_ENABLE_CHAT_ROUTES",
+    include_fn=lambda: app.include_router(api_chat_router),
+    core_surface=True,
+)
+_include_router(
+    label="imprint",
+    flag_name="CODEXIFY_ENABLE_IMPRINT_ROUTES",
+    include_fn=lambda: app.include_router(imprint_router),
+)
+_include_router(
+    label="system_prompt",
+    flag_name="CODEXIFY_ENABLE_SYSTEM_PROMPT_ROUTES",
+    include_fn=lambda: app.include_router(system_prompt_router),
+)
+_include_router(
+    label="system_docs",
+    flag_name="CODEXIFY_ENABLE_SYSTEM_DOCS_ROUTES",
+    include_fn=lambda: app.include_router(system_docs_router),
+)
+_include_router(
+    label="iddb",
+    flag_name="CODEXIFY_ENABLE_IDDB_ROUTES",
+    include_fn=lambda: app.include_router(iddb_router),
+)
+_include_router(
+    label="backfill",
+    flag_name="CODEXIFY_ENABLE_BACKFILL_ROUTES",
+    include_fn=lambda: app.include_router(backfill.router),
+)
+_include_router(
+    label="embeddings",
+    flag_name="CODEXIFY_ENABLE_EMBEDDINGS_ROUTES",
+    include_fn=lambda: app.include_router(embeddings.router),
+)
+_include_router(
+    label="threads",
+    flag_name="CODEXIFY_ENABLE_THREADS_ROUTES",
+    include_fn=lambda: app.include_router(threads.router),
+    core_surface=True,
+)
+_include_router(
+    label="projects",
+    flag_name="CODEXIFY_ENABLE_PROJECT_ROUTES",
+    include_fn=lambda: app.include_router(projects_router),
+    core_surface=True,
+)
+_include_router(
+    label="api_projects",
+    flag_name="CODEXIFY_ENABLE_PROJECT_ROUTES",
+    include_fn=lambda: app.include_router(api_projects_router),
+    core_surface=True,
+)
+_include_router(
+    label="memory",
+    flag_name="CODEXIFY_ENABLE_MEMORY_ROUTES",
+    include_fn=lambda: app.include_router(memory.router),
+)
+_include_router(
+    label="personal_facts",
+    flag_name="CODEXIFY_ENABLE_PERSONAL_FACTS_ROUTES",
+    include_fn=lambda: app.include_router(personal_facts_router),
+)
+_include_router(
+    label="agent",
+    flag_name="CODEXIFY_ENABLE_AGENT_ROUTES",
+    include_fn=lambda: app.include_router(agent.router, prefix="/agent"),
+)
+_include_router(
+    label="research",
+    flag_name="CODEXIFY_ENABLE_RESEARCH_ROUTES",
+    include_fn=lambda: app.include_router(research.router, prefix="/research"),
+)
+_include_router(
+    label="documents",
+    flag_name="CODEXIFY_ENABLE_DOCUMENT_ROUTES",
+    include_fn=lambda: app.include_router(documents.router),
+)
+_include_router(
+    label="share",
+    flag_name="CODEXIFY_ENABLE_SHARE_ROUTES",
+    include_fn=lambda: app.include_router(share.router),
+)
+_include_router(
+    label="federation",
+    flag_name="CODEXIFY_ENABLE_FEDERATION_ROUTES",
+    include_fn=lambda: app.include_router(federation.router),
+)
+_include_router(
+    label="collaboration",
+    flag_name="CODEXIFY_ENABLE_COLLABORATION_ROUTES",
+    include_fn=lambda: app.include_router(collaboration.router),
+)
+_include_router(
+    label="connectors",
+    flag_name="CODEXIFY_ENABLE_CONNECTOR_ROUTES",
+    include_fn=lambda: app.include_router(connectors_router),
+)
+_include_router(
+    label="google_connect",
+    flag_name="CODEXIFY_ENABLE_GOOGLE_CONNECT_ROUTES",
+    include_fn=lambda: app.include_router(google_connect_router),
+)
+_include_router(
+    label="media",
+    flag_name="CODEXIFY_ENABLE_MEDIA_ROUTES",
+    include_fn=lambda: app.include_router(media_router, prefix="/api/media"),
+    core_surface=True,
+)
+_include_router(
+    label="flows",
+    flag_name="CODEXIFY_ENABLE_FLOW_ROUTES",
+    include_fn=lambda: app.include_router(flows_router),
+)
+_include_router(
+    label="tools",
+    flag_name="CODEXIFY_ENABLE_TOOL_ROUTES",
+    include_fn=lambda: app.include_router(tools_router),
+)
+_include_router(
+    label="api_tools",
+    flag_name="CODEXIFY_ENABLE_TOOL_ROUTES",
+    include_fn=lambda: app.include_router(api_tools_router),
+)
+_include_router(
+    label="exports",
+    flag_name="CODEXIFY_ENABLE_EXPORT_ROUTES",
+    include_fn=lambda: app.include_router(exports_router),
+)
+_include_router(
+    label="codex",
+    flag_name="CODEXIFY_ENABLE_CODEX_ROUTES",
+    include_fn=lambda: app.include_router(codex_router),
+)
 _embedding_backend = _resolve_embedding_backend(get_settings())
 if _embedding_backend == "local":
     from guardian.routes.codexify_router import router as codexify_router
 
-    app.include_router(codexify_router)
+    _include_router(
+        label="codexify",
+        flag_name="CODEXIFY_ENABLE_CODEXIFY_ROUTES",
+        include_fn=lambda: app.include_router(codexify_router),
+    )
 else:
     # Codexify router initializes a local vector store at import time.
     # Skip it when local embeddings are not explicitly selected.
@@ -583,16 +750,52 @@ else:
         "[routers] Skipping codexify router (embedding_backend=%s)",
         _embedding_backend or "<unset>",
     )
-app.include_router(migration.router)
-app.include_router(devtools.router)
-app.include_router(websocket_routes.router)
-app.include_router(cron_routes.router)
-app.include_router(ui_session.router)
-app.include_router(agent_orchestration.router)
-app.include_router(agent_orchestration.chat_router)
-app.include_router(command_bus_routes.router)
+_include_router(
+    label="migration",
+    flag_name="CODEXIFY_ENABLE_MIGRATION_ROUTES",
+    include_fn=lambda: app.include_router(migration.router),
+    core_surface=True,
+)
+_include_router(
+    label="devtools",
+    flag_name="CODEXIFY_ENABLE_DEVTOOLS_ROUTES",
+    include_fn=lambda: app.include_router(devtools.router),
+)
+_include_router(
+    label="websocket",
+    flag_name="CODEXIFY_ENABLE_WEBSOCKET_ROUTES",
+    include_fn=lambda: app.include_router(websocket_routes.router),
+)
+_include_router(
+    label="cron",
+    flag_name="CODEXIFY_ENABLE_CRON_ROUTES",
+    include_fn=lambda: app.include_router(cron_routes.router),
+)
+_include_router(
+    label="ui_session",
+    flag_name="CODEXIFY_ENABLE_UI_SESSION_ROUTES",
+    include_fn=lambda: app.include_router(ui_session.router),
+)
+_include_router(
+    label="agent_orchestration",
+    flag_name="CODEXIFY_ENABLE_AGENT_ORCHESTRATION_ROUTES",
+    include_fn=lambda: app.include_router(agent_orchestration.router),
+)
+_include_router(
+    label="agent_orchestration_chat",
+    flag_name="CODEXIFY_ENABLE_AGENT_ORCHESTRATION_ROUTES",
+    include_fn=lambda: app.include_router(agent_orchestration.chat_router),
+)
+_include_router(
+    label="command_bus",
+    flag_name="CODEXIFY_ENABLE_COMMAND_BUS_ROUTES",
+    include_fn=lambda: app.include_router(command_bus_routes.router),
+)
 
-logger.info("[routers] All routers included")
+logger.info(
+    "[routers] Router registration complete (beta_core_only=%s)",
+    _BETA_CORE_ONLY,
+)
 
 
 # =========================
@@ -604,24 +807,32 @@ logger.info("[routers] All routers included")
 @app.get("/codex/entries", include_in_schema=False)
 def codex_entries_compat():
     """Compatibility alias for legacy clients; redirect to the canonical /api route."""
+    if not _codex_routes_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
     return RedirectResponse(url="/api/codex/entries")
 
 
 @app.get("/codex/entries/{entry_id}", include_in_schema=False)
 def codex_entry_compat(entry_id: str):
     """Compatibility alias for legacy clients; redirect to the canonical /api route."""
+    if not _codex_routes_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
     return RedirectResponse(url=f"/api/codex/entries/{entry_id}")
 
 
 @app.get("/codex/entries/{entry_id}/export", include_in_schema=False)
 def codex_entry_export_compat(entry_id: str):
     """Compatibility alias for legacy clients; redirect to the canonical /api route."""
+    if not _codex_routes_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
     return RedirectResponse(url=f"/api/codex/entries/{entry_id}/export")
 
 
 @app.get("/codex/{entry_id}/source", include_in_schema=False)
 def codex_entry_source_compat(entry_id: str):
     """Compatibility alias for codex source provenance route."""
+    if not _codex_routes_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
     return RedirectResponse(url=f"/api/codex/{entry_id}/source")
 
 
