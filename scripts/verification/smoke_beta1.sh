@@ -18,29 +18,59 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
-assert_status() {
-  local expected="$1"
+probe_http_status() {
+  local method="$1"
   local path="$2"
+  local data_json="${3:-}"
+  local -a curl_args
+
+  curl_args=(
+    --silent
+    --show-error
+    --output /tmp/beta1_smoke_body.json
+    --write-out '%{http_code}'
+    -X "$method"
+  )
+  if [[ -n "${GUARDIAN_API_KEY:-}" ]]; then
+    curl_args+=(-H "X-API-Key: ${GUARDIAN_API_KEY}")
+  fi
+  if [[ -n "$data_json" ]]; then
+    curl_args+=(-H "Content-Type: application/json" --data "$data_json")
+  fi
+
+  curl "${curl_args[@]}" "${API_BASE}${path}"
+}
+
+probe_expect_404() {
+  local method="$1"
+  local path="$2"
+  local data_json="${3:-}"
   local status
-  status="$(curl -sS -o /tmp/beta1_smoke_body.json -w '%{http_code}' \
-    -H "X-API-Key: ${GUARDIAN_API_KEY}" \
-    "${API_BASE}${path}")"
-  [[ "$status" == "$expected" ]] || {
+  local url="${API_BASE}${path}"
+
+  status="$(probe_http_status "$method" "$path" "$data_json")"
+  [[ "$status" == "404" ]] || {
     cat /tmp/beta1_smoke_body.json || true
-    fail "Expected ${path} status=${expected}, got ${status}"
+    fail "Route appears mounted: method=${method} url=${url} expected_status=404 actual_status=${status}"
   }
+}
+
+probe_expect_not_mounted() {
+  probe_expect_404 "$@"
 }
 
 assert_not_status() {
   local disallowed="$1"
-  local path="$2"
+  local method="$2"
+  local path="$3"
+  local data_json="${4:-}"
   local status
-  status="$(curl -sS -o /tmp/beta1_smoke_body.json -w '%{http_code}' \
-    -H "X-API-Key: ${GUARDIAN_API_KEY}" \
-    "${API_BASE}${path}")"
+  local url="${API_BASE}${path}"
+
+  status="$(probe_http_status "$method" "$path" "$data_json")"
   [[ "$status" != "$disallowed" ]] || {
     cat /tmp/beta1_smoke_body.json || true
-    fail "Expected ${path} status!=${disallowed}, got ${status}"
+    fail "Probe failed: method=${method} url=${url} expected_status!=${disallowed} actual_status=${status}"
   }
 }
 
@@ -113,17 +143,17 @@ PY
   }
 
   log "Checking Beta-1 quarantined routes"
-  assert_status "404" "/api/connectors"
-  assert_status "404" "/api/guardian/commands/manifest"
-  assert_status "404" "/api/cron/jobs"
-  assert_status "404" "/api/tools/manifest"
-  assert_status "404" "/api/media/generate/image"
-  assert_status "404" "/api/media/tts/1"
+  probe_expect_not_mounted "GET" "/api/connectors"
+  probe_expect_not_mounted "GET" "/api/guardian/commands/manifest"
+  probe_expect_not_mounted "GET" "/api/cron/jobs"
+  probe_expect_not_mounted "GET" "/api/tools/manifest"
+  probe_expect_not_mounted "POST" "/api/media/generate/image" '{"prompt":"smoke"}'
+  probe_expect_not_mounted "POST" "/api/media/tts/synthesize" '{"text":"smoke"}'
 
   log "Checking Beta-1 core routes remain mounted"
-  assert_not_status "404" "/api/chat/threads"
-  assert_not_status "404" "/api/upload-chatgpt-export"
-  assert_not_status "404" "/api/media/documents"
+  assert_not_status "404" "GET" "/api/chat/threads"
+  assert_not_status "404" "POST" "/api/upload-chatgpt-export"
+  assert_not_status "404" "GET" "/api/media/documents"
 
   now="$(date +%s)"
   elapsed=$((now - start_ts))
