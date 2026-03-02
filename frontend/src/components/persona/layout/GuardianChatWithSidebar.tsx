@@ -230,11 +230,31 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     setActiveSessionDraftSeed(sessionSpine.getDraft(activeSessionTabId));
   }, [activeSessionTabId, sessionSpine]);
 
-  // Sync URL with session tab - only push when route differs to avoid loop
+  // Sync URL with session tab - only push when route differs to avoid loop.
+  // Guard against stale session thread ids that no longer exist in the loaded list.
   React.useEffect(() => {
     if (!sessionReady || !activeSessionTab) return;
     const targetThreadId = activeSessionTab.threadId ?? null;
     const currentRouteThreadId = resolveRouteThreadId();
+    const targetMissingFromThreads =
+      targetThreadId != null &&
+      threadsLoaded &&
+      !threads.some((thread) => thread.id === targetThreadId);
+
+    if (targetMissingFromThreads) {
+      if (activeId !== null) {
+        setActiveId(null);
+      }
+      if (sessionSpine && activeSessionTabId) {
+        // Clear stale thread linkage once so tab state stops forcing an invalid route id.
+        sessionSpine.tabSetThread(activeSessionTabId, undefined, undefined);
+      }
+      if (currentRouteThreadId !== null && typeof window !== "undefined") {
+        window.history.replaceState({}, "", "/chat");
+      }
+      return;
+    }
+
     if (targetThreadId === activeId) return;
     setActiveId(targetThreadId);
     // Only push state if the route actually differs from target
@@ -242,7 +262,16 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       const newPath = targetThreadId ? `/chat/${targetThreadId}` : "/chat";
       window.history.replaceState({}, "", newPath);
     }
-  }, [activeId, activeSessionTab, sessionReady, resolveRouteThreadId]);
+  }, [
+    activeId,
+    activeSessionTab,
+    activeSessionTabId,
+    resolveRouteThreadId,
+    sessionReady,
+    sessionSpine,
+    threads,
+    threadsLoaded,
+  ]);
 
   // Sync sessionSpine with active thread - only depends on primitives needed to initiate side effect
   React.useEffect(() => {

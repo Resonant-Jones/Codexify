@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import { Message, MessageAttachment } from "@/types/ui";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { cn } from "@/lib/utils";
 
 type Attachment = {
   kind: "image" | "document";
@@ -193,12 +194,14 @@ export function ChatBubble({
   isGuardian,
   showPlay = false,
   playing = false,
+  playState,
   onPlay,
 }: {
   message: Message;
   isGuardian: boolean;
   showPlay?: boolean;
   playing?: boolean;
+  playState?: "idle" | "playing" | "unavailable" | "disabled";
   onPlay?: () => void;
 }) {
   const fmtTime = (ts: number) =>
@@ -209,6 +212,18 @@ export function ChatBubble({
   const cleanedContent = text;
   const hasAttachments = attachments.length > 0;
   const hasText = Boolean(cleanedContent.trim());
+  const resolvedPlayState =
+    playState ?? (playing ? "playing" : "idle");
+  const playButtonLabel =
+    resolvedPlayState === "playing"
+      ? "Playing..."
+      : resolvedPlayState === "unavailable"
+        ? "Audio unavailable"
+        : resolvedPlayState === "disabled"
+          ? "Voice disabled"
+          : "Read Aloud";
+  const playDisabled =
+    resolvedPlayState === "unavailable" || resolvedPlayState === "disabled";
 
   const markdownComponents = {
     code({ node, inline, className, children, ...props }: any) {
@@ -302,15 +317,19 @@ export function ChatBubble({
           {showPlay && (
             <button
               type="button"
-              className="text-[10px] px-2 py-0.5 rounded border opacity-80 hover:opacity-100"
+              className={cn(
+                "text-[10px] px-2 py-0.5 rounded border",
+                playDisabled ? "opacity-55 cursor-not-allowed" : "opacity-80 hover:opacity-100"
+              )}
               style={{
                 borderColor: "var(--panel-border)",
                 color: "var(--text)",
                 background: "transparent",
               }}
-              onClick={onPlay}
+              onClick={playDisabled ? undefined : onPlay}
+              disabled={playDisabled}
             >
-              {playing ? "Playing…" : "Read Aloud"}
+              {playButtonLabel}
             </button>
           )}
         </div>
