@@ -107,12 +107,31 @@ Example after changing only passes and execute mode:
 python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --passes 2 --execute
 ```
 
+The deterministic runner now accepts these omitted defaults directly:
+- `--repo-root` defaults to current working directory
+- prompt/schema file flags default to bundled files in `codex_runner/`
+
 This means common speed-run defaults are implicit unless changed:
 - verify default (`--no-verify` in local/dev, `--verify` in CI)
 - `--branch-per-campaign`
 - `--passes 1`
 
 For a full explicit flag list (debugging/tooling), use `to_cli_args(..., minimal=False)`.
+
+### Important: legacy `codex-runner` binary on PATH
+
+If `codex-runner -h` shows legacy flags like `--cycles` and does not show `--tui`,
+your shell is using an older global binary. Use one of these instead:
+
+```bash
+python -m codex_runner --tui
+```
+
+or:
+
+```bash
+python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --tui
+```
 
 ### Path editing
 
