@@ -178,7 +178,7 @@ class ChatCompletionRequest(BaseModel):
     system_override: Optional[str] = None
     depth_mode: Optional[
         str
-    ] = "normal"  # "shallow", "normal", "deep", "diagnostic"
+    ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
 
 
 # Helper functions
@@ -1069,7 +1069,7 @@ async def chat_complete(
             status_code=400, detail="Thread has no usable context"
         )
 
-    requested_depth_mode = str(body.depth_mode or "normal").strip().lower()
+    requested_depth_mode = str(body.depth_mode or "deep").strip().lower()
     effective_depth_mode = body.depth_mode
     thread_project_id: Optional[int] = None
     if isinstance(thread_exists, dict):
@@ -1095,7 +1095,7 @@ async def chat_complete(
                 project_depth,
             )
 
-    effective_depth = str(effective_depth_mode or "normal").strip().lower()
+    effective_depth = str(effective_depth_mode or "deep").strip().lower()
     doc_context_override = await _build_doc_context_override(
         thread_id=thread_id,
         depth_mode=effective_depth,

@@ -28,7 +28,18 @@ python -m codex_runner --tui
 For local development install:
 
 ```bash
-pip install -e .
+# from repo root
+python -m pip install --no-build-isolation -e ./codex_runner
+```
+
+Commands provided:
+- `codex-runner`
+- `codex_runner`
+
+If your shell still resolves an older global binary, run with:
+
+```bash
+python -m codex_runner --tui
 ```
 
 ## Interactive TUI (command-first)
@@ -108,7 +119,7 @@ python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runn
 ```
 
 The deterministic runner now accepts these omitted defaults directly:
-- `--repo-root` defaults to current working directory
+- `--repo-root` defaults to the git top-level resolved from current working directory
 - prompt/schema file flags default to bundled files in `codex_runner/`
 
 This means common speed-run defaults are implicit unless changed:

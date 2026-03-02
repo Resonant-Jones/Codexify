@@ -16,6 +16,9 @@ def build_parser() -> argparse.ArgumentParser:
             Canonical runtime:
               /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner
 
+            Local editable install (from repo root):
+              python -m pip install --no-build-isolation -e ./codex_runner
+
             Interactive mode:
               No-arg startup opens command-first TUI in interactive terminals.
               Use --tui to force interactive mode.
