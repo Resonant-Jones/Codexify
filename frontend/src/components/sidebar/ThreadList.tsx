@@ -23,6 +23,9 @@ type ThreadListProps = {
   onRename: (threadId: string, title: string) => Promise<void>;
   onArchiveToggle: (threadId: string, archived: boolean) => Promise<void>;
   onDelete: (threadId: string) => Promise<void>;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void | Promise<void>;
   creatingThread?: boolean;
   className?: string;
 };
@@ -72,6 +75,9 @@ export default function ThreadList({
   onRename,
   onArchiveToggle,
   onDelete,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
   creatingThread,
   className,
 }: ThreadListProps) {
@@ -88,6 +94,9 @@ export default function ThreadList({
       onRename={onRename}
       onArchiveToggle={onArchiveToggle}
       onDelete={onDelete}
+      hasMore={hasMore}
+      isLoadingMore={isLoadingMore}
+      onLoadMore={onLoadMore}
       creatingThread={creatingThread}
     />
   );
@@ -105,6 +114,9 @@ function ThreadPreviewList({
   onRename,
   onArchiveToggle,
   onDelete,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: {
   threads: Thread[];
   activeId: string | null;
@@ -117,11 +129,34 @@ function ThreadPreviewList({
   onRename: (threadId: string, title: string) => Promise<void>;
   onArchiveToggle: (threadId: string, archived: boolean) => Promise<void>;
   onDelete: (threadId: string) => Promise<void>;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void | Promise<void>;
 }) {
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+
+  const maybeLoadMore = React.useCallback(() => {
+    if (!onLoadMore || !hasMore || isLoadingMore) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const remaining = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    if (remaining <= 160) {
+      void onLoadMore();
+    }
+  }, [hasMore, isLoadingMore, onLoadMore]);
+
+  React.useEffect(() => {
+    maybeLoadMore();
+  }, [threads.length, maybeLoadMore]);
+
   return (
-    <div className={clsx("flex-1 min-h-0 overflow-y-auto", className)}>
+    <div
+      ref={scrollRef}
+      className={clsx("flex-1 min-h-0 overflow-y-auto", className)}
+      onScroll={maybeLoadMore}
+    >
       {showHeader && (
-        <div className="flex items-center justify-between pb-2 px-[5px]">
+        <div className="flex items-center justify-between pb-2">
           <div className="inline-flex items-center gap-1 text-xs opacity-70">
             <ChevronDown className="h-3 w-3" /> <span>Scope:</span>{" "}
             <span className="font-medium">{scopeLabel ?? "—"}</span>
@@ -134,9 +169,9 @@ function ThreadPreviewList({
         </div>
       )}
       <div className="space-y-2">
-        {threads.map((t, idx) => (
+        {threads.map((t) => (
           <ThreadTileRow
-            key={t.id != null && String(t.id) ? `t:${String(t.id)}` : `t:temp:${idx}`}
+            key={`t:${String(t.id)}`}
             thread={t}
             active={t.id === activeId}
             onSelect={onSelect}
@@ -147,6 +182,12 @@ function ThreadPreviewList({
           />
         ))}
       </div>
+      {isLoadingMore && (
+        <div className="flex items-center justify-center py-3 opacity-70 text-xs">
+          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          Loading more threads...
+        </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   __resetAuthStateForTests,
   __setAuthStateForTests,
 } from "@/lib/authState";
+import { __resetLiveEventsHubForTests } from "@/lib/liveEventsHub";
 
 type MockSource = {
   url: string;
@@ -20,8 +21,13 @@ const createdSources: MockSource[] = [];
 
 vi.mock("@/lib/guardianEventSource", () => {
   class MockGuardianEventSource {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSED = 2;
+
     url: string;
     options: Record<string, unknown>;
+    readyState = MockGuardianEventSource.CONNECTING;
     onmessage: ((event: MessageEvent) => void) | null = null;
     onerror: ((event: Event) => void) | null = null;
     addEventListener = vi.fn();
@@ -42,6 +48,7 @@ describe("useLiveEvents auth gating", () => {
   beforeEach(() => {
     createdSources.length = 0;
     __resetAuthStateForTests();
+    __resetLiveEventsHubForTests();
     vi.spyOn(console, "debug").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
   });

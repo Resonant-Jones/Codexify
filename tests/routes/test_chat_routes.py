@@ -494,7 +494,7 @@ class TestChatCompletePost:
         assert "task_id" in response.json()
 
     def test_complete_groq_error(self, test_client, mock_db, monkeypatch):
-        """Test completion returns queue_unavailable when enqueue fails."""
+        """Test completion returns structured 503 when enqueue fails."""
         mock_db.list_messages.return_value = [
             {"role": "user", "content": "Hello"}
         ]
@@ -515,7 +515,31 @@ class TestChatCompletePost:
         response = test_client.post("/chat/1/complete", json={})
 
         assert response.status_code == 503
-        assert response.json()["detail"] == "queue_unavailable"
+        detail = response.json()["detail"]
+        assert detail["error"] == "completion_service_unavailable"
+        assert detail["reason"] == "queue_unavailable"
+        assert "Completion service unavailable" in detail["message"]
+
+    def test_complete_turn_lock_error_returns_structured_503(
+        self, test_client, mock_db, monkeypatch
+    ):
+        """Turn lock failures should fail loudly with completion-service detail."""
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("redis down")),
+        )
+
+        response = test_client.post("/chat/1/complete", json={})
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert detail["error"] == "completion_service_unavailable"
+        assert detail["reason"] == "turn_lock_unavailable"
+        assert "Completion service unavailable" in detail["message"]
 
     def test_api_complete_returns_context_bundle(
         self, test_client, mock_db, monkeypatch

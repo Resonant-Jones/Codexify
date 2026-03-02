@@ -27,11 +27,15 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_MEGA_AUDIT_SCHEMA_PATH = (
     SCRIPT_DIR / "schemas" / "mega_audit_output.schema.json"
 )
+DEFAULT_MEGA_AUDIT_PROMPT_PATH = SCRIPT_DIR / "prompts" / "mega_audit.md"
 DEFAULT_CAMPAIGN_SET_SCHEMA_PATH = (
     SCRIPT_DIR / "schemas" / "campaign_set.schema.json"
 )
 DEFAULT_TASK_RESULT_SCHEMA_PATH = (
     SCRIPT_DIR / "schemas" / "task_result.schema.json"
+)
+DEFAULT_COMPILER_PROMPT_PATH = (
+    SCRIPT_DIR / "prompts" / "audit_report_to_campaign_runner.md"
 )
 DEFAULT_COMPILER_JSON_TOKEN = "<PASTE MEGA_AUDIT_OUTPUT_JSON_HERE>"
 DEFAULT_REPO_ROOT_TOKEN = "<REPO_ROOT>"
@@ -1956,13 +1960,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        required=True,
-        help="Absolute path to repo root",
+        default=default_repo_root(Path.cwd()),
+        help="Repo root (defaults to git top-level from current directory)",
     )
-    parser.add_argument("--audit-prompt-file", type=Path, required=True)
-    parser.add_argument("--audit-schema-file", type=Path, required=True)
-    parser.add_argument("--compiler-prompt-file", type=Path, required=True)
-    parser.add_argument("--campaign-set-schema-file", type=Path, required=True)
+    parser.add_argument(
+        "--audit-prompt-file", type=Path, default=DEFAULT_MEGA_AUDIT_PROMPT_PATH
+    )
+    parser.add_argument(
+        "--audit-schema-file", type=Path, default=DEFAULT_MEGA_AUDIT_SCHEMA_PATH
+    )
+    parser.add_argument(
+        "--compiler-prompt-file",
+        type=Path,
+        default=DEFAULT_COMPILER_PROMPT_PATH,
+    )
+    parser.add_argument(
+        "--campaign-set-schema-file",
+        type=Path,
+        default=DEFAULT_CAMPAIGN_SET_SCHEMA_PATH,
+    )
     parser.add_argument(
         "--task-result-schema-file",
         type=Path,
@@ -2020,6 +2036,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--debug", action="store_true")
 
     return parser
+
+
+def default_repo_root(cwd: Path | None = None) -> Path:
+    probe = (cwd or Path.cwd()).expanduser().resolve()
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(probe),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return probe
+    if result.returncode == 0 and result.stdout.strip():
+        return Path(result.stdout.strip()).expanduser().resolve()
+    return probe
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

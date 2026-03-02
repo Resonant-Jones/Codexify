@@ -5,18 +5,55 @@ Canonical runtime: `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/code
 Legacy package note:
 - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/tools/codex-runner` is frozen/deprecated.
 
+## Install (pip)
+
+Install from PyPI:
+
+```bash
+pip install codexify-campaign-runner
+```
+
+Run:
+
+```bash
+codex-runner --tui
+```
+
+or:
+
+```bash
+python -m codex_runner --tui
+```
+
+For local development install:
+
+```bash
+# from repo root
+python -m pip install --no-build-isolation -e ./codex_runner
+```
+
+Commands provided:
+- `codex-runner`
+- `codex_runner`
+
+If your shell still resolves an older global binary, run with:
+
+```bash
+python -m codex_runner --tui
+```
+
 ## Interactive TUI (command-first)
 
 Running with no arguments opens the TUI in interactive terminals:
 
 ```bash
-python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py
+codex-runner
 ```
 
 Force TUI mode:
 
 ```bash
-python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --tui
+codex-runner --tui
 ```
 
 Non-interactive behavior:
@@ -63,6 +100,49 @@ Instant run (`Cmd+Enter` or `Ctrl+Enter`):
 - auto-applies staged changes
 - skips TUI validation and preview
 - exits immediately to run
+
+### Preview command behavior (minimal args by default)
+
+TUI preview/run now emits a minimal argument set by default. Flags that match
+`default_settings()` are omitted.
+
+Example with defaults unchanged:
+
+```bash
+python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py
+```
+
+Example after changing only passes and execute mode:
+
+```bash
+python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --passes 2 --execute
+```
+
+The deterministic runner now accepts these omitted defaults directly:
+- `--repo-root` defaults to the git top-level resolved from current working directory
+- prompt/schema file flags default to bundled files in `codex_runner/`
+
+This means common speed-run defaults are implicit unless changed:
+- verify default (`--no-verify` in local/dev, `--verify` in CI)
+- `--branch-per-campaign`
+- `--passes 1`
+
+For a full explicit flag list (debugging/tooling), use `to_cli_args(..., minimal=False)`.
+
+### Important: legacy `codex-runner` binary on PATH
+
+If `codex-runner -h` shows legacy flags like `--cycles` and does not show `--tui`,
+your shell is using an older global binary. Use one of these instead:
+
+```bash
+python -m codex_runner --tui
+```
+
+or:
+
+```bash
+python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --tui
+```
 
 ### Path editing
 
@@ -131,7 +211,7 @@ Additional provider traceability in `run_meta.json`:
 Required:
 
 ```bash
-python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py \
+codex-runner \
   --repo-root /absolute/path/to/repo \
   --audit-prompt-file /path/to/mega_audit.md \
   --audit-schema-file /path/to/mega_audit_output.schema.json \

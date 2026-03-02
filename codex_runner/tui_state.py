@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -75,8 +76,25 @@ def default_verify(ci_env: str | None) -> bool:
     return ci_env.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def default_repo_root(cwd: Path | None = None) -> str:
+    probe = (cwd or Path.cwd()).expanduser().resolve()
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(probe),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return str(probe)
+    if result.returncode == 0 and result.stdout.strip():
+        return str(Path(result.stdout.strip()).expanduser().resolve())
+    return str(probe)
+
+
 def default_settings(cwd: Path | None = None) -> RunnerSettings:
-    root = str((cwd or Path.cwd()).resolve())
+    root = default_repo_root(cwd)
     return RunnerSettings(
         provider="codex",
         repo_root=root,
@@ -353,48 +371,121 @@ def list_to_csv(items: list[str]) -> str:
     return ", ".join(item for item in items if item)
 
 
-def to_cli_args(settings: RunnerSettings) -> list[str]:
-    args: list[str] = [
-        "--provider",
-        settings.provider,
-        "--repo-root",
-        settings.repo_root,
-        "--audit-prompt-file",
-        settings.audit_prompt_file,
-        "--audit-schema-file",
-        settings.audit_schema_file,
-        "--compiler-prompt-file",
-        settings.compiler_prompt_file,
-        "--campaign-set-schema-file",
-        settings.campaign_set_schema_file,
-        "--task-result-schema-file",
-        settings.task_result_schema_file,
-        "--passes",
-        str(max(1, settings.passes)),
-        "--base-ref",
-        settings.base_ref or "HEAD",
-    ]
+def to_cli_args(
+    settings: RunnerSettings,
+    *,
+    minimal: bool = True,
+    cwd: Path | None = None,
+) -> list[str]:
+    """Render CLI args for runner.py.
 
-    if settings.execute_mode == "execute":
-        args.append("--execute")
+    By default we emit a *minimal* argument list (only flags that differ from
+    `default_settings()`), so common runs don't require managing many flags.
+
+    Set `minimal=False` to force the full, explicit flag set.
+    """
+    base = default_settings(cwd=cwd)
+
+    def differs(value: object, base_value: object) -> bool:
+        return value != base_value
+
+    args: list[str] = []
+
+    # Only include provider when it differs from the default.
+    if not minimal or differs(settings.provider, base.provider):
+        args.extend(["--provider", settings.provider])
+
+    # repo-root: if omitted, runner defaults should take over (typically CWD).
+    if not minimal or differs(settings.repo_root, base.repo_root):
+        args.extend(["--repo-root", settings.repo_root])
+
+    # Path fields: only include if they differ from defaults.
+    if not minimal or differs(
+        settings.audit_prompt_file, base.audit_prompt_file
+    ):
+        args.extend(["--audit-prompt-file", settings.audit_prompt_file])
+    if not minimal or differs(
+        settings.audit_schema_file, base.audit_schema_file
+    ):
+        args.extend(["--audit-schema-file", settings.audit_schema_file])
+    if not minimal or differs(
+        settings.compiler_prompt_file, base.compiler_prompt_file
+    ):
+        args.extend(["--compiler-prompt-file", settings.compiler_prompt_file])
+    if not minimal or differs(
+        settings.campaign_set_schema_file, base.campaign_set_schema_file
+    ):
+        args.extend(
+            ["--campaign-set-schema-file", settings.campaign_set_schema_file]
+        )
+    if not minimal or differs(
+        settings.task_result_schema_file, base.task_result_schema_file
+    ):
+        args.extend(
+            ["--task-result-schema-file", settings.task_result_schema_file]
+        )
+
+    # passes: only include when >1 (or differs from defaults).
+    if not minimal or differs(max(1, settings.passes), max(1, base.passes)):
+        args.extend(["--passes", str(max(1, settings.passes))])
+
+    # base-ref: default HEAD.
+    effective_base_ref = settings.base_ref or "HEAD"
+    if not minimal or differs(effective_base_ref, base.base_ref or "HEAD"):
+        args.extend(["--base-ref", effective_base_ref])
+
+    # execute mode: default dry-run.
+    if not minimal:
+        if settings.execute_mode == "execute":
+            args.append("--execute")
+        else:
+            args.append("--dry-run")
     else:
-        args.append("--dry-run")
+        if (
+            settings.execute_mode == "execute"
+            and base.execute_mode != "execute"
+        ):
+            args.append("--execute")
+        # If both are dry-run, omit.
 
-    if settings.branch_per_campaign:
-        args.append("--branch-per-campaign")
+    # branch-per-campaign: default true.
+    if not minimal:
+        if settings.branch_per_campaign:
+            args.append("--branch-per-campaign")
+        else:
+            args.append("--no-branch-per-campaign")
     else:
-        args.append("--no-branch-per-campaign")
+        if differs(settings.branch_per_campaign, base.branch_per_campaign):
+            args.append(
+                "--branch-per-campaign"
+                if settings.branch_per_campaign
+                else "--no-branch-per-campaign"
+            )
 
-    if settings.allow_discovery_fallback:
-        args.append("--allow-discovery-fallback")
-
-    args.append("--auto-commit")
-
-    if settings.verify:
-        args.append("--verify")
+    # discovery fallback: default false.
+    if not minimal:
+        if settings.allow_discovery_fallback:
+            args.append("--allow-discovery-fallback")
     else:
-        args.append("--no-verify")
+        if (
+            settings.allow_discovery_fallback
+            and not base.allow_discovery_fallback
+        ):
+            args.append("--allow-discovery-fallback")
 
+    # auto-commit: default true today; keep explicit in full mode only.
+    if not minimal:
+        args.append("--auto-commit")
+
+    # verify: default false (unless CI says otherwise). In minimal mode,
+    # emit only when it differs from the computed default.
+    if not minimal:
+        args.append("--verify" if settings.verify else "--no-verify")
+    else:
+        if differs(settings.verify, base.verify):
+            args.append("--verify" if settings.verify else "--no-verify")
+
+    # Models/config: only emit if non-empty.
     if settings.codex_model:
         args.extend(["--codex-model", settings.codex_model])
     if settings.codex_model_audit:
@@ -417,7 +508,12 @@ def to_cli_args(settings: RunnerSettings) -> list[str]:
     for setting in settings.claude_settings:
         args.extend(["--claude-settings", setting])
 
-    if settings.debug:
-        args.append("--debug")
+    # debug: default false.
+    if not minimal:
+        if settings.debug:
+            args.append("--debug")
+    else:
+        if settings.debug and not base.debug:
+            args.append("--debug")
 
     return args

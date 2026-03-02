@@ -48,18 +48,41 @@ test.describe('Sidebar project context persistence', () => {
     const drawer = page.locator('[data-testid="mobile-sidebar-drawer"]');
     await expect(drawer).toBeVisible();
 
-    await drawer.getByTestId('sidebar-projects-tab').click();
-
-    const projectTile = drawer.locator('.project-tile', { hasText: 'Apex' });
-    await expect(projectTile).toBeVisible();
-    await projectTile.click();
-
     const threadsTab = drawer.getByTestId('sidebar-threads-tab');
     await threadsTab.click();
     await expect(threadsTab).toHaveAttribute('data-state', 'active');
 
+    const searchInput = drawer.getByTestId('sidebar-search-input');
+    await expect(searchInput).toBeVisible();
+    const searchBox = await searchInput.boundingBox();
+    expect(searchBox).not.toBeNull();
+    if (!searchBox) throw new Error('Sidebar search input bounding box is null');
+    expect(searchBox.height).toBeGreaterThanOrEqual(40);
+
+    const panelBox = await drawer.boundingBox();
+    expect(panelBox).not.toBeNull();
+    if (!panelBox) throw new Error('Sidebar drawer bounding box is null');
+
     const threadTile = drawer.locator('.thread-preview', { hasText: 'Apex Thread' });
     await expect(threadTile).toBeVisible();
+    const threadTileBox = await threadTile.first().boundingBox();
+    expect(threadTileBox).not.toBeNull();
+    if (!threadTileBox) throw new Error('Thread tile bounding box is null');
+    expect(threadTileBox.x + threadTileBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 1);
+
+    await drawer.getByTestId('sidebar-projects-tab').click();
+
+    const projectTile = drawer.locator('.project-tile', { hasText: 'Apex' });
+    await expect(projectTile).toBeVisible();
+    const projectTileBox = await projectTile.first().boundingBox();
+    expect(projectTileBox).not.toBeNull();
+    if (!projectTileBox) throw new Error('Project tile bounding box is null');
+    expect(Math.abs(threadTileBox.height - projectTileBox.height)).toBeLessThanOrEqual(2);
+    expect(projectTileBox.x + projectTileBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 1);
+    await projectTile.click();
+
+    await threadsTab.click();
+    await expect(threadsTab).toHaveAttribute('data-state', 'active');
     await threadTile.click();
 
     await expect(drawer.locator('.thread-preview')).not.toHaveCount(0);

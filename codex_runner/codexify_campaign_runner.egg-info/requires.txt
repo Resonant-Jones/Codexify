@@ -1,0 +1,6 @@
+textual>=0.70.0
+
+[dev]
+build>=1.0
+pytest>=8.0
+twine>=5.0

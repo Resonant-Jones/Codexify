@@ -2,7 +2,6 @@ import * as React from "react";
 import clsx from "clsx";
 import { FolderOpen, PlusCircle } from "lucide-react";
 import type { Project } from "@/types/common";
-import TileShell from "@/components/surface/TileShell";
 
 type Props = {
   projects: Project[];
@@ -26,7 +25,7 @@ export default function ProjectList({
 
   return (
     <div className={clsx("flex-1 min-h-0 overflow-auto pt-[5px]", className)}>
-      <div className="grid auto-rows-[minmax(140px,auto)] grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
+      <div className="flex flex-col gap-2">
         {filtered.map((p) => (
           <ProjectTileCard
             key={p.id}
@@ -70,24 +69,18 @@ function ProjectTileCard({
       })
     : <span className="project-tile__icon">{baseIcon}</span>;
   return (
-    <TileShell
-      as="button"
+    <button
       type="button"
       onClick={onClick}
       className={clsx(
         "project-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]",
+        "w-full min-h-[60px]",
         active && "project-tile--active"
       )}
-      style={{
-        background: "color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 60%,transparent)",
-        border: `1.5px solid ${
-          active ? "color-mix(in oklab,var(--accent-strong) 55%, var(--panel-border))" : "var(--panel-border)"
-        }`,
-      }}
       aria-pressed={active}
     >
       {iconNode}
-      <span className="project-tile__label">{label}</span>
-    </TileShell>
+      <span className="project-tile__label" title={label}>{label}</span>
+    </button>
   );
 }

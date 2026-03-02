@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tui_state import RunnerSettings
+try:
+    from .tui_state import RunnerSettings
+except ImportError:
+    from tui_state import RunnerSettings  # type: ignore
 
 BOOLEAN_KEYS = {
     "verify": "verify",

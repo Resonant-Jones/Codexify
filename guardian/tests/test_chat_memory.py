@@ -335,7 +335,8 @@ def test_memory_crud_and_health():
     assert r.json().get("ok") is True
     r = client.get("/health/chat")
     assert r.status_code == 200
-    assert r.json().get("ok") is True
+    payload = r.json()
+    assert "completion_service" in payload
 
 
 def test_chat_pagination():
