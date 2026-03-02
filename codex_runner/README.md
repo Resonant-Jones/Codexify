@@ -90,6 +90,30 @@ Instant run (`Cmd+Enter` or `Ctrl+Enter`):
 - skips TUI validation and preview
 - exits immediately to run
 
+### Preview command behavior (minimal args by default)
+
+TUI preview/run now emits a minimal argument set by default. Flags that match
+`default_settings()` are omitted.
+
+Example with defaults unchanged:
+
+```bash
+python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py
+```
+
+Example after changing only passes and execute mode:
+
+```bash
+python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --passes 2 --execute
+```
+
+This means common speed-run defaults are implicit unless changed:
+- verify default (`--no-verify` in local/dev, `--verify` in CI)
+- `--branch-per-campaign`
+- `--passes 1`
+
+For a full explicit flag list (debugging/tooling), use `to_cli_args(..., minimal=False)`.
+
 ### Path editing
 
 Use `/edit-paths` to bulk-edit long path settings in a focused modal.
