@@ -1960,8 +1960,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=Path.cwd(),
-        help="Absolute path to repo root",
+        default=default_repo_root(Path.cwd()),
+        help="Repo root (defaults to git top-level from current directory)",
     )
     parser.add_argument(
         "--audit-prompt-file", type=Path, default=DEFAULT_MEGA_AUDIT_PROMPT_PATH
@@ -2036,6 +2036,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--debug", action="store_true")
 
     return parser
+
+
+def default_repo_root(cwd: Path | None = None) -> Path:
+    probe = (cwd or Path.cwd()).expanduser().resolve()
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(probe),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return probe
+    if result.returncode == 0 and result.stdout.strip():
+        return Path(result.stdout.strip()).expanduser().resolve()
+    return probe
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

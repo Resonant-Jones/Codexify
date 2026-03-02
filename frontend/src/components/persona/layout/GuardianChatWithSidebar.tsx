@@ -39,6 +39,32 @@ type PanelShellProps = React.PropsWithChildren<{
   disabled?: boolean;
 }>;
 
+function PanelShell({ className, surfaceStyle, disabled, children }: PanelShellProps) {
+  const panelStyle: React.CSSProperties = {
+    opacity: disabled ? 0.35 : 1,
+    pointerEvents: disabled ? "none" : undefined,
+    ...(surfaceStyle ?? {}),
+  };
+  return (
+    <FrameCard
+      fill
+      refractiveFallback
+      shimmerMode="subtle"
+      liquidBezelWidth={3}
+      className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)}
+      hoverPop={!disabled}
+      ariaLabel={disabled ? "panel disabled" : undefined}
+      style={{
+        borderRadius: "var(--card-radius)",
+        border: "1px solid var(--panel-border)",
+        ...panelStyle,
+      }}
+    >
+      {children}
+    </FrameCard>
+  );
+}
+
 const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
   return a.id === b.id
     && a.title === b.title
@@ -1025,32 +1051,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
   }, []);
-
-  const PanelShell: React.FC<PanelShellProps> = ({ className, surfaceStyle, disabled, children }) => {
-    const panelStyle: React.CSSProperties = {
-      opacity: disabled ? 0.35 : 1,
-      pointerEvents: disabled ? "none" : undefined,
-      ...(surfaceStyle ?? {}),
-    };
-    return (
-      <FrameCard
-        fill
-        refractiveFallback
-        shimmerMode="subtle"
-        liquidBezelWidth={3}
-        className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)}
-        hoverPop={!disabled}
-        ariaLabel={disabled ? "panel disabled" : undefined}
-        style={{
-          borderRadius: "var(--card-radius)",
-          border: "1px solid var(--panel-border)",
-          ...panelStyle,
-        }}
-      >
-        {children}
-      </FrameCard>
-    );
-  };
 
   const mobileOverlay = isMobileOverlayActive && portalTarget
     ? createPortal(

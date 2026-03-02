@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -75,8 +76,25 @@ def default_verify(ci_env: str | None) -> bool:
     return ci_env.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def default_repo_root(cwd: Path | None = None) -> str:
+    probe = (cwd or Path.cwd()).expanduser().resolve()
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(probe),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return str(probe)
+    if result.returncode == 0 and result.stdout.strip():
+        return str(Path(result.stdout.strip()).expanduser().resolve())
+    return str(probe)
+
+
 def default_settings(cwd: Path | None = None) -> RunnerSettings:
-    root = str((cwd or Path.cwd()).resolve())
+    root = default_repo_root(cwd)
     return RunnerSettings(
         provider="codex",
         repo_root=root,
