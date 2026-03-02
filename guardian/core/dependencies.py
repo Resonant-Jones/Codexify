@@ -135,7 +135,10 @@ ENABLE_CONNECTOR_WORKER = os.getenv("ENABLE_CONNECTOR_WORKER", "0").lower() in (
 MEMORY_RETENTION_DAYS = int(os.getenv("MEMORY_RETENTION_DAYS", "90"))
 
 # CORS configuration
-_origins_env = os.getenv("GUARDIAN_ALLOWED_ORIGINS", "http://localhost:5173")
+_origins_env = os.getenv(
+    "GUARDIAN_ALLOWED_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost,https://tauri.localhost",
+)
 allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
 
 

@@ -5,6 +5,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 const IS_DEV = process.env.NODE_ENV !== 'production';
+const IS_TAURI_BUILD =
+  Boolean(process.env.TAURI_ENV_PLATFORM) ||
+  Boolean(process.env.TAURI_ENV_ARCH) ||
+  Boolean(process.env.TAURI_ENV_TARGET_TRIPLE);
 const DEV_API_KEY = IS_DEV
   ? (process.env.VITE_GUARDIAN_DEV_API_KEY ?? '').trim()
   : '';
@@ -38,7 +42,7 @@ export default defineConfig({
       },
     },
     VitePWA({
-      disable: IS_DEV,
+      disable: IS_DEV || IS_TAURI_BUILD,
       registerType: 'autoUpdate',
       manifest: {
         name: 'Codexify',

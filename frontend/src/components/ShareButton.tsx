@@ -1,4 +1,6 @@
 import { CSSProperties, useState } from "react";
+import { buildAuthenticatedFetchInit } from "@/lib/api";
+import { resolveApiUrl, resolveSharePublicUrl } from "@/lib/runtimeConfig";
 
 type ShareButtonProps = {
   targetType: "thread" | "document";
@@ -7,8 +9,6 @@ type ShareButtonProps = {
   style?: CSSProperties;
   dataState?: "active" | "inactive";
 };
-
-const API_KEY = (import.meta.env.VITE_GUARDIAN_API_KEY ?? "").trim();
 
 type CopyMethod = "clipboard" | "execCommand" | "prompt" | "none";
 
@@ -67,20 +67,19 @@ export function ShareButton({
   const handleShare = async () => {
     setIsLoading(true);
     try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (API_KEY) {
-        headers["X-API-Key"] = API_KEY;
-      }
-      const response = await fetch("/api/share", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          target_type: targetType,
-          target_id: targetId,
-        }),
-      });
+      const response = await fetch(
+        resolveApiUrl("/api/share"),
+        buildAuthenticatedFetchInit({
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            target_type: targetType,
+            target_id: targetId,
+          }),
+        })
+      );
 
       if (!response.ok) {
         throw new Error(`Failed to create share link: ${response.status}`);
@@ -91,9 +90,7 @@ export function ShareButton({
         throw new Error(data.detail || "Failed to create share link");
       }
 
-      // Build full URL
-      const baseUrl = window.location.origin;
-      const fullUrl = `${baseUrl}${data.url}`;
+      const fullUrl = resolveSharePublicUrl(String(data.url || ""));
 
       // Copy to clipboard with fallback support for non-secure or restricted contexts.
       const copyMethod = await copyTextWithFallback(fullUrl);
