@@ -120,7 +120,7 @@ main() {
   upload_json="$(mktemp)"
   threads_json="$(mktemp)"
   messages_json="$(mktemp)"
-  trap 'rm -f "$payload_file" "$upload_json" "$threads_json" "$messages_json"' EXIT
+  trap 'for f in "${payload_file:-}" "${upload_json:-}" "${threads_json:-}" "${messages_json:-}"; do [[ -n "$f" ]] && rm -f "$f"; done' EXIT
 
   cat >"$payload_file" <<JSON
 [
