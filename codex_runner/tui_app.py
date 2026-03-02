@@ -74,6 +74,68 @@ PATH_FIELDS = [
     "task_result_schema_file",
 ]
 
+CHEATSHEET_TEXT = (
+    "Type in the bottom command bar, then press Enter.\n"
+    "Examples: /set passes 2 | /toggle verify | /apply | /run | /help"
+)
+
+
+class HelpScreen(ModalScreen[None]):
+    CSS = """
+    #help {
+        width: 85%;
+        max-width: 130;
+        height: 70%;
+        border: tall $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #help-body {
+        border: round $panel;
+        padding: 1;
+        height: 1fr;
+        overflow: auto;
+    }
+    """
+
+    BODY = (
+        "How commands work\n"
+        "- Type in the bottom bar and press Enter.\n"
+        "- Leading '/' is optional.\n"
+        "- Changes are staged first.\n\n"
+        "Common flow\n"
+        "1) /set passes 2\n"
+        "2) /toggle verify\n"
+        "3) /apply\n"
+        "4) /preview\n"
+        "5) /run\n\n"
+        "Commands\n"
+        "- /set <key> <value>\n"
+        "- /toggle <verify|branch|fallback|debug>\n"
+        "- /preset <name>\n"
+        "- /apply\n"
+        "- /discard\n"
+        "- /preview\n"
+        "- /run\n"
+        "- /save\n"
+        "- /edit-paths\n"
+        "- /help\n"
+        "- /quit"
+    )
+
+    def compose(self) -> ComposeResult:
+        with Container(id="help"):
+            yield Static("Command Help")
+            yield Static(self.BODY, id="help-body")
+            yield Button("Close", id="help-close")
+
+    def key_escape(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "help-close":
+            self.dismiss(None)
+
 
 class PreviewScreen(ModalScreen[bool]):
     CSS = """
@@ -290,9 +352,7 @@ class CampaignRunnerTUI(App[list[str] | None]):
                 yield Static(id="staged-summary")
             with Container(classes="card"):
                 yield Static("Cheatsheet", classes="title")
-                yield Static(
-                    "/set key value | /toggle key | /preset name | /apply | /discard | /preview | /run | /save | /edit-paths | /help"
-                )
+                yield Static(CHEATSHEET_TEXT)
             with Container(classes="card"):
                 yield Static("Recent", classes="title")
                 yield Static(id="events")
@@ -308,7 +368,9 @@ class CampaignRunnerTUI(App[list[str] | None]):
 
     def on_mount(self) -> None:
         self.query_one("#command-input", Input).focus()
-        self._refresh_view("Ready")
+        self._append_event("Type /help then Enter for examples")
+        self._append_event("Quick start: /set passes 2 -> /apply -> /run")
+        self._refresh_view("Ready. Type /help and press Enter.")
 
     def _active_view(self) -> RunnerSettings:
         return self.active_settings
@@ -555,10 +617,9 @@ class CampaignRunnerTUI(App[list[str] | None]):
             raise ValueError(f"Unknown command: {command.name}")
 
         if command.name == "help":
-            self._append_event(
-                "Commands: /set /toggle /preset /apply /discard /preview /run /save /edit-paths /help /quit"
-            )
-            self._refresh_view("Help shown")
+            self.push_screen(HelpScreen())
+            self._append_event("Opened help")
+            self._refresh_view("Help opened")
             return
 
         if command.name == "quit":
