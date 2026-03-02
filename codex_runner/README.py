@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
               Strict run: /run or Ctrl+R.
               Instant run: Cmd+Enter / Ctrl+Enter (skips TUI validation + preview).
               Preview/run command args are minimal by default (only non-default flags).
+              Omitted core paths are resolved from built-in defaults.
 
             Deterministic IDs:
               run_id   = sha256(canonical(run_inputs.json))[:12]
@@ -65,6 +66,11 @@ def examples() -> str:
         Example: TUI preview command (minimal defaults)
 
           python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --passes 2 --execute
+
+        PATH note:
+          If `codex-runner -h` shows legacy flags like `--cycles`, your shell is
+          picking up an older binary. Prefer:
+            python -m codex_runner --tui
 
         Example: execute with Claude provider
 
