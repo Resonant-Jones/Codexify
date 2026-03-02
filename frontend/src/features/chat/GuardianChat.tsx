@@ -1446,8 +1446,23 @@ export function GuardianChat({
                     <ChevronRight className="h-3.5 w-3.5 rotate-90 opacity-70" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <div className="px-2 py-1.5 text-xs font-semibold opacity-60">RAG Depth</div>
+                <DropdownMenuContent
+                  align="start"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  className="z-[999] min-w-[16rem] rounded-lg border p-1 shadow-xl"
+                  style={{
+                    borderColor: "var(--panel-border)",
+                    background: "var(--panel-sheet)",
+                    color: "var(--text)",
+                  }}
+                >
+                  <div
+                    className="px-2 py-1.5 text-xs font-semibold"
+                    style={{ color: "var(--muted)", opacity: 0.85 }}
+                  >
+                    RAG Depth
+                  </div>
                   {(["shallow", "normal", "deep", "diagnostic"] as DepthMode[]).map((d) => (
                     <DropdownMenuItem
                       key={d}
@@ -1455,11 +1470,22 @@ export function GuardianChat({
                         setDepth(d);
                         console.log(`[guardian] Depth changed to: ${d}`);
                       }}
-                      className={depth === d ? "bg-accent" : ""}
+                      className={
+                        "cursor-pointer rounded-md px-2 py-2 focus:outline-none" +
+                        (depth === d ? " bg-accent" : "")
+                      }
+                      style={{
+                        background:
+                          depth === d
+                            ? "color-mix(in oklab, var(--panel-bg), var(--accent) 22%)"
+                            : "transparent",
+                      }}
                     >
                       <div className="flex flex-col flex-1 min-h-0">
                         <div className="font-medium">{depthLabels[d]}</div>
-                        <div className="text-xs opacity-70">{depthDescriptions[d]}</div>
+                        <div className="text-xs" style={{ color: "var(--muted)", opacity: 0.9 }}>
+                          {depthDescriptions[d]}
+                        </div>
                       </div>
                     </DropdownMenuItem>
                   ))}
