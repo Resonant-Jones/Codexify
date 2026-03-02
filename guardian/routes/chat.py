@@ -820,14 +820,39 @@ def chat_create_thread(
 
 
 @router.get("/threads")
-def chat_list_threads(api_key: str = Depends(require_api_key)):
+def chat_list_threads(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user_id: Optional[str] = Query(default=None),
+    project_id: Optional[int] = Query(default=None),
+    api_key: str = Depends(require_api_key),
+):
     """Return the list of persisted chat threads."""
     try:
-        threads = chatlog_db.list_chat_threads()
-        return {"ok": True, "threads": threads}
+        threads = chatlog_db.list_chat_threads(
+            limit=limit,
+            offset=offset,
+            user_id=user_id,
+            project_id=project_id,
+        )
+        return {
+            "ok": True,
+            "threads": threads,
+            "limit": limit,
+            "offset": offset,
+            "next_offset": offset + len(threads),
+            "has_more": len(threads) >= limit,
+        }
     except Exception as exc:
         logger.exception("Failed to list chat threads: %s", exc)
-        return {"ok": True, "threads": []}
+        return {
+            "ok": True,
+            "threads": [],
+            "limit": limit,
+            "offset": offset,
+            "next_offset": offset,
+            "has_more": False,
+        }
 
 
 # =========================
@@ -1677,9 +1702,21 @@ def api_chat_create_thread(
 
 
 @api_chat_router.get("/threads")
-def api_chat_list_threads(api_key: str = Depends(require_api_key)):
+def api_chat_list_threads(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user_id: Optional[str] = Query(default=None),
+    project_id: Optional[int] = Query(default=None),
+    api_key: str = Depends(require_api_key),
+):
     """Compat alias for GET /chat/threads used in tests."""
-    return chat_list_threads(api_key=api_key)
+    return chat_list_threads(
+        limit=limit,
+        offset=offset,
+        user_id=user_id,
+        project_id=project_id,
+        api_key=api_key,
+    )
 
 
 @api_chat_router.post("/{thread_id}/messages")
