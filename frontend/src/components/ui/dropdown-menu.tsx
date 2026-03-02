@@ -6,8 +6,23 @@ type Ctx = {
 };
 const DropdownCtx = React.createContext<Ctx | null>(null);
 
-export const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
-  const [open, setOpen] = React.useState(false);
+type DropdownMenuProps = {
+  children: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+};
+
+export const DropdownMenu = ({ children, open: controlledOpen, onOpenChange }: DropdownMenuProps) => {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const setOpen = (value: boolean) => {
+    if (isControlled) {
+      onOpenChange?.(value);
+    } else {
+      setUncontrolledOpen(value);
+    }
+  };
   return (
     <DropdownCtx.Provider value={{ open, setOpen }}>
       <div className="relative inline-block">{children}</div>
