@@ -480,7 +480,7 @@ class CampaignRunnerTUI(App[list[str] | None]):
 
     def _preview_command_text(self, settings: RunnerSettings) -> str:
         runner_path = Path(__file__).resolve().parent / "runner.py"
-        args = to_cli_args(settings)
+        args = to_cli_args(settings, minimal=True, cwd=Path.cwd())
         escaped = " ".join(shlex.quote(part) for part in args)
         return f"python {shlex.quote(str(runner_path))} {escaped}".strip()
 
@@ -505,7 +505,7 @@ class CampaignRunnerTUI(App[list[str] | None]):
                 self._refresh_view("Validation failed")
                 return
 
-        args = to_cli_args(run_settings)
+        args = to_cli_args(run_settings, minimal=True, cwd=Path.cwd())
         if strict:
             preview = self._preview_command_text(run_settings)
             self._pending_run_args = args
