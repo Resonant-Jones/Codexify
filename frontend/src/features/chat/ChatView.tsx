@@ -1,7 +1,14 @@
 /**
  * ChatView - renders message history with scroll/stream coherence.
  */
-import React, { useCallback, useEffect, useRef, useState, useLayoutEffect } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useChat, parseMessagesResponse, CompletionState } from "@/features/chat/useChat";
 import ChatBubble from "@/features/chat/components/ChatBubble";
 import ContextMenu from "@/components/ui/ContextMenu";
@@ -12,13 +19,80 @@ import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
 
+type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
+type BubblePlayState = "idle" | "playing" | "unavailable" | "disabled";
+
 type PollSession = {
   token: number;
   tid: number;
   reason: string;
+  key: string;
   startedAt: number;
+  lastUserMessageId: number;
   initialAssistantId: number;
 };
+
+type Voice404Classification = "message_not_found" | "route_missing" | "unknown";
+
+const PAGE_SIZE = 100;
+const POLL_INTERVAL_MS = 900;
+const POLL_TIMEOUT_MS = 30000;
+const COMPLETION_SETTLE_MS = 150;
+
+function parseMessageId(raw: any): number {
+  const value = Number(raw?.id ?? raw?.message_id ?? raw?.messageId);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getLastUserMessageId(messages: Array<{ id: unknown; role?: string }>): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (String(msg?.role ?? "").trim().toLowerCase() !== "user") continue;
+    const id = Number(msg?.id);
+    if (Number.isFinite(id)) {
+      return id;
+    }
+  }
+  return 0;
+}
+
+function classifyVoice404Error(err: unknown): Voice404Classification {
+  const status = Number((err as any)?.response?.status ?? 0);
+  if (status !== 404) {
+    return "unknown";
+  }
+
+  const detail = (err as any)?.response?.data?.detail;
+  const normalized = (() => {
+    if (typeof detail === "string") return detail.toLowerCase();
+    if (detail && typeof detail === "object") {
+      const bits = [
+        (detail as any).error,
+        (detail as any).reason,
+        (detail as any).code,
+        (detail as any).type,
+        (detail as any).message,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase());
+      return bits.join(" ");
+    }
+    return "";
+  })();
+
+  if (
+    normalized.includes("message_not_found") ||
+    normalized.includes("message not found")
+  ) {
+    return "message_not_found";
+  }
+  if (normalized.includes("route_not_found")) {
+    return "route_missing";
+  }
+
+  // Generic 404 from speak endpoint is treated as route-missing for this session.
+  return "route_missing";
+}
 
 export function ChatView({
   threadId,
@@ -29,6 +103,8 @@ export function ChatView({
   className,
   bottomPadding = 0,
   autoReadEnabled = false,
+  depthMode = "normal",
+  profileId = null,
 }: {
   threadId: number;
   guardianName?: string;
@@ -38,29 +114,153 @@ export function ChatView({
   className?: string;
   bottomPadding?: number;
   autoReadEnabled?: boolean;
+  depthMode?: DepthMode;
+  profileId?: string | null;
 }) {
-  const { messages, loadMessages, appendMessage, loading, error, hasMore, shouldRefresh, markRefreshed } = useChat();
+  const {
+    messages,
+    loadMessages,
+    appendMessage,
+    loading,
+    error,
+    hasMore,
+    shouldRefresh,
+    markRefreshed,
+  } = useChat();
   const { containerRef, endRef } = useChatAutoScroll(messages.length);
   const initialScrollRef = useRef(true);
   const [hasOverflow, setHasOverflow] = useState(false);
-  const [zenMode, setZenMode] = React.useState(false);
-  const scrollMeasuredRef = useRef(false);
   const [playingMessageId, setPlayingMessageId] = useState<number | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [voiceUnavailableMessageIds, setVoiceUnavailableMessageIds] = useState<
+    Record<number, true>
+  >({});
+  const [voiceRouteMissing, setVoiceRouteMissing] = useState(false);
   const lastAutoReadMessageIdRef = useRef<number | null>(null);
   const autoReadPrimedRef = useRef(false);
   const { subscribe } = useLiveEvents({ passive: true });
-  const PAGE_SIZE = 100;
-  const POLL_INTERVAL_MS = 900;
-  const POLL_TIMEOUT_MS = 30000;
   const pollTokenRef = useRef(0);
+  const activePollKeyRef = useRef<string | null>(null);
   const [pollSession, setPollSession] = useState<PollSession | null>(null);
+  const pollSessionRef = useRef<PollSession | null>(null);
   const lastMessageIdRef = useRef(0);
   const lastAssistantIdRef = useRef(0);
   const lastPolledUserIdRef = useRef(0);
   const lastReloadVersionRef = useRef(reloadVersion);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const activeThreadRef = useRef(threadId);
+  const completionStateRef = useRef(completionState);
+  const endCompletionRef = useRef(endCompletion);
+  const loadMessagesRef = useRef(loadMessages);
+  const shouldRefreshRef = useRef(shouldRefresh);
+  const markRefreshedRef = useRef(markRefreshed);
+  const messagesRef = useRef(messages);
+  const completionFinalizeTimerRef = useRef<number | null>(null);
+  const inFlightCompletionByThreadRef = useRef<Map<number, string>>(new Map());
+  const completionFinalizePendingRef = useRef<Set<number>>(new Set());
+  const liveSubscriptionCleanupRef = useRef<(() => void) | null>(null);
+  const voiceUnavailableMessageIdsRef = useRef<Record<number, true>>({});
+  const voiceRouteMissingRef = useRef(false);
+  const logTimestampsRef = useRef<Map<string, number>>(new Map());
 
+  const profileKey = profileId ?? "none";
+  const resolvedDepthMode: DepthMode = depthMode ?? "normal";
 
+  const debugLog = useCallback((key: string, message: string, ttlMs = 1000) => {
+    const now = Date.now();
+    const previous = logTimestampsRef.current.get(key) ?? 0;
+    if (now - previous < ttlMs) return;
+    logTimestampsRef.current.set(key, now);
+    console.debug(message);
+  }, []);
+
+  const showToast = useCallback((message: string) => {
+    try {
+      window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message } }));
+    } catch {
+      // no-op
+    }
+  }, []);
+
+  const buildPollKey = useCallback(
+    (tid: number, lastUserMessageId: number): string =>
+      `${tid}:${Math.max(0, lastUserMessageId)}:${resolvedDepthMode}:${profileKey}`,
+    [profileKey, resolvedDepthMode]
+  );
+
+  const isVoiceUnavailable = useCallback((messageId: number): boolean => {
+    return Boolean(voiceUnavailableMessageIdsRef.current[messageId]);
+  }, []);
+
+  const markVoiceUnavailable = useCallback(
+    (messageId: number) => {
+      if (voiceUnavailableMessageIdsRef.current[messageId]) {
+        return;
+      }
+      voiceUnavailableMessageIdsRef.current = {
+        ...voiceUnavailableMessageIdsRef.current,
+        [messageId]: true,
+      };
+      setVoiceUnavailableMessageIds(voiceUnavailableMessageIdsRef.current);
+      debugLog(
+        `voice:unavailable:${messageId}`,
+        `[chat:voice] marked message ${messageId} unavailable`,
+        5000
+      );
+    },
+    [debugLog]
+  );
+
+  const disableVoiceRoute = useCallback(() => {
+    if (voiceRouteMissingRef.current) return;
+    voiceRouteMissingRef.current = true;
+    setVoiceRouteMissing(true);
+    debugLog(
+      "voice:route-missing",
+      "[chat:voice] route missing detected, disabling auto-read for session",
+      5000
+    );
+  }, [debugLog]);
+
+  const stopPolling = useCallback((expectedKey?: string) => {
+    if (expectedKey && activePollKeyRef.current !== expectedKey) return;
+    pollTokenRef.current += 1;
+    activePollKeyRef.current = null;
+    setPollSession((prev) => (prev ? null : prev));
+  }, []);
+
+  const startPolling = useCallback(
+    (tid: number, reason: string, lastUserMessageId: number) => {
+      if (!Number.isFinite(tid)) return;
+      const normalizedUserId = Number.isFinite(lastUserMessageId)
+        ? Math.max(0, lastUserMessageId)
+        : 0;
+      const key = buildPollKey(tid, normalizedUserId);
+      if (activePollKeyRef.current === key) {
+        debugLog(
+          `poll:skip:${key}`,
+          `[chat:poll] skip duplicate poll session key=${key}`,
+          1000
+        );
+        return;
+      }
+
+      const token = pollTokenRef.current + 1;
+      pollTokenRef.current = token;
+      activePollKeyRef.current = key;
+      setPollSession({
+        token,
+        tid,
+        reason,
+        key,
+        startedAt: Date.now(),
+        lastUserMessageId: normalizedUserId,
+        initialAssistantId: lastAssistantIdRef.current,
+      });
+      debugLog(`poll:start:${key}`, `[chat:poll] start reason=${reason} key=${key}`, 500);
+    },
+    [buildPollKey, debugLog]
+  );
 
   const ingestIncoming = useCallback(
     (payload: any) => {
@@ -72,102 +272,81 @@ export function ChatView({
     [appendMessage, threadId]
   );
 
-  const stopPolling = useCallback(() => {
-    pollTokenRef.current += 1;
-    setPollSession(null);
-  }, []);
-
-  const startPolling = useCallback(
-    (tid: number, reason: string) => {
-      if (!Number.isFinite(tid)) return;
-      stopPolling();
-      const token = ++pollTokenRef.current;
-      setPollSession({
-        token,
-        tid,
-        reason,
-        startedAt: Date.now(),
-        initialAssistantId: lastAssistantIdRef.current,
-      });
-    },
-    [stopPolling]
-  );
-
   const pollOnce = useCallback(async () => {
-    if (!pollSession) return;
-    if (pollTokenRef.current !== pollSession.token) return;
+    const session = pollSessionRef.current;
+    if (!session) return;
+    if (activePollKeyRef.current !== session.key) return;
+    if (pollTokenRef.current !== session.token) return;
 
-    if (Date.now() - pollSession.startedAt >= POLL_TIMEOUT_MS) {
+    if (Date.now() - session.startedAt >= POLL_TIMEOUT_MS) {
       logOnce("poll:messages:timeout", 10_000, () => {
-        console.info(`[chat] polling timed out (${pollSession.reason})`);
+        console.info(`[chat] polling timed out (${session.reason})`);
       });
-      stopPolling();
+      stopPolling(session.key);
       return;
     }
 
     try {
-      const res = await api.get(`/chat/${pollSession.tid}/messages`, {
+      const res = await api.get(`/chat/${session.tid}/messages`, {
         params: { limit: PAGE_SIZE, offset: 0 },
       });
-      if (pollTokenRef.current !== pollSession.token) return;
+      if (pollTokenRef.current !== session.token) return;
+      if (activePollKeyRef.current !== session.key) return;
 
       const parsed = parseMessagesResponse(res?.data);
-      if (parsed) {
-        const [page] = parsed;
+      if (!parsed) return;
+      const [page] = parsed;
+      console.debug(`[chat:poll] Parsed ${page.length} messages for thread ${session.tid}`);
+
+      let maxId = lastMessageIdRef.current;
+      let maxAssistantId = session.initialAssistantId;
+      const newMessages: any[] = [];
+
+      for (const msg of page) {
+        const id = parseMessageId(msg);
+        if (!Number.isFinite(id)) continue;
+        if (id > maxId) {
+          maxId = id;
+        }
+        if (msg?.role && msg.role !== "user" && id > maxAssistantId) {
+          maxAssistantId = id;
+        }
+        if (id > lastMessageIdRef.current) {
+          newMessages.push(msg);
+        }
+      }
+
+      if (newMessages.length) {
         console.debug(
-          `[chat:poll] Parsed ${page.length} messages for thread ${pollSession.tid}`
+          `[chat:poll] Found ${newMessages.length} new messages for thread ${session.tid}`
         );
-        let maxId = lastMessageIdRef.current;
-        let maxAssistantId = pollSession.initialAssistantId;
-        const newMessages = [];
-        const getMessageId = (msg: any) => {
-          const value = Number(msg?.id ?? msg?.message_id ?? msg?.messageId);
-          return Number.isFinite(value) ? value : 0;
-        };
+        newMessages
+          .sort((a, b) => parseMessageId(a) - parseMessageId(b))
+          .forEach((msg) => appendMessage(session.tid, msg));
+      }
 
-        for (const msg of page) {
-          const id = getMessageId(msg);
-          if (!Number.isFinite(id)) continue;
-          if (id > maxId) {
-            maxId = id;
-          }
-          if (msg?.role && msg.role !== "user" && id > maxAssistantId) {
-            maxAssistantId = id;
-          }
-          if (id > lastMessageIdRef.current) {
-            newMessages.push(msg);
-          }
-        }
-
-        if (newMessages.length) {
-          console.debug(
-            `[chat:poll] Found ${newMessages.length} new messages for thread ${pollSession.tid}`
-          );
-          newMessages
-            .sort((a, b) => getMessageId(a) - getMessageId(b))
-            .forEach((msg) => appendMessage(pollSession.tid, msg));
-        }
-
-        if (maxId > lastMessageIdRef.current) {
-          lastMessageIdRef.current = maxId;
-        }
-        if (maxAssistantId > lastAssistantIdRef.current) {
-          lastAssistantIdRef.current = maxAssistantId;
-        }
-        if (maxAssistantId > pollSession.initialAssistantId) {
-          stopPolling();
-        }
+      if (maxId > lastMessageIdRef.current) {
+        lastMessageIdRef.current = maxId;
+      }
+      if (maxAssistantId > lastAssistantIdRef.current) {
+        lastAssistantIdRef.current = maxAssistantId;
+      }
+      if (
+        maxAssistantId > session.initialAssistantId &&
+        activePollKeyRef.current === session.key
+      ) {
+        stopPolling(session.key);
       }
     } catch (err) {
       logOnce("poll:messages", 10_000, () => {
-        console.warn(`[chat] polling failed (${pollSession.reason})`, err);
+        console.warn("[chat] polling failed", err);
       });
       throw err;
     }
-  }, [appendMessage, pollSession, stopPolling]);
+  }, [appendMessage, stopPolling]);
 
   usePollWithBackoff(pollOnce, {
-    enabled: Boolean(pollSession),
+    enabled: Boolean(pollSession && activePollKeyRef.current === pollSession.key),
     intervalMs: POLL_INTERVAL_MS,
     maxBackoffMs: 8_000,
     onErrorKey: "poll:messages",
@@ -175,72 +354,198 @@ export function ChatView({
   });
 
   useEffect(() => {
+    activeThreadRef.current = threadId;
+  }, [threadId]);
+
+  useEffect(() => {
+    completionStateRef.current = completionState;
+    if (completionState.isCompleting && completionState.activeThreadId != null) {
+      const marker = completionState.activeTaskId ?? `thread-${completionState.activeThreadId}`;
+      inFlightCompletionByThreadRef.current.set(completionState.activeThreadId, marker);
+      return;
+    }
+    if (!completionState.isCompleting) {
+      inFlightCompletionByThreadRef.current.clear();
+      completionFinalizePendingRef.current.clear();
+    }
+  }, [completionState]);
+
+  useEffect(() => {
+    endCompletionRef.current = endCompletion;
+  }, [endCompletion]);
+
+  useEffect(() => {
+    loadMessagesRef.current = loadMessages;
+  }, [loadMessages]);
+
+  useEffect(() => {
+    shouldRefreshRef.current = shouldRefresh;
+  }, [shouldRefresh]);
+
+  useEffect(() => {
+    markRefreshedRef.current = markRefreshed;
+  }, [markRefreshed]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    pollSessionRef.current = pollSession;
+  }, [pollSession]);
+
+  useEffect(() => {
     stopPolling();
     initialScrollRef.current = true;
     autoReadPrimedRef.current = false;
     lastAutoReadMessageIdRef.current = null;
-    loadMessages(threadId, PAGE_SIZE, 0, false);
-    if (reloadVersion !== lastReloadVersionRef.current) {
-      lastReloadVersionRef.current = reloadVersion;
-      startPolling(threadId, "completion");
+    lastPolledUserIdRef.current = 0;
+    lastMessageIdRef.current = 0;
+    lastAssistantIdRef.current = 0;
+    inFlightCompletionByThreadRef.current.clear();
+    completionFinalizePendingRef.current.clear();
+    const completionSnapshot = completionStateRef.current;
+    if (
+      completionSnapshot.isCompleting &&
+      completionSnapshot.activeThreadId === threadId
+    ) {
+      const marker = completionSnapshot.activeTaskId ?? `thread-${threadId}`;
+      inFlightCompletionByThreadRef.current.set(threadId, marker);
     }
-  }, [threadId, reloadVersion, loadMessages, startPolling, stopPolling]);
 
-  // Live updates: append message for active thread without refetching
+    if (completionFinalizeTimerRef.current !== null) {
+      window.clearTimeout(completionFinalizeTimerRef.current);
+      completionFinalizeTimerRef.current = null;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setPlayingMessageId(null);
+
+    voiceUnavailableMessageIdsRef.current = {};
+    setVoiceUnavailableMessageIds({});
+    voiceRouteMissingRef.current = false;
+    setVoiceRouteMissing(false);
+
+    loadMessages(threadId, PAGE_SIZE, 0, false);
+  }, [loadMessages, stopPolling, threadId]);
+
   useEffect(() => {
-    const offMessage = subscribe("message.created", (event) => {
-      const payload = (event.data as any)?.data ?? event.data;
-      const messageRole = payload?.role ?? "";
-      const tid = Number(payload?.thread_id ?? payload?.threadId);
+    if (reloadVersion === lastReloadVersionRef.current) return;
+    lastReloadVersionRef.current = reloadVersion;
+    startPolling(threadId, "completion", getLastUserMessageId(messagesRef.current));
+  }, [reloadVersion, startPolling, threadId]);
 
-      // Ingest the message into the UI
+  useEffect(() => {
+    const active = pollSessionRef.current;
+    if (!active || active.tid !== threadId) return;
+    const nextKey = buildPollKey(threadId, active.lastUserMessageId);
+    if (nextKey !== active.key) {
+      startPolling(threadId, "poll-context-change", active.lastUserMessageId);
+    }
+  }, [buildPollKey, startPolling, threadId, resolvedDepthMode, profileKey]);
+
+  useEffect(() => {
+    liveSubscriptionCleanupRef.current?.();
+
+    const onMessageCreated = (event: any) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const messageRole = String(payload?.role ?? "").trim().toLowerCase();
+      const tid = Number(payload?.thread_id ?? payload?.threadId ?? payload?.thread?.id);
+      const messageId = parseMessageId(payload);
+
       ingestIncoming(payload);
 
-      // If this is an assistant message for the active thread and we're completing, end completion tracking
-      if (
-        messageRole === "assistant" &&
-        Number.isFinite(tid) &&
-        tid === threadId &&
-        completionState.isCompleting
-      ) {
-        console.debug(
-          `[chat] Assistant message arrived for thread ${tid}, ending completion tracking`
-        );
-        // Small delay to ensure message is visible before hiding loader
-        setTimeout(() => {
-          endCompletion();
-          // Trigger a debounced refresh to ensure all messages are loaded
-          if (shouldRefresh(threadId, messages.length)) {
-            loadMessages(threadId, 50, 0, false);
-            markRefreshed(threadId, messages.length + 1);
-          }
-        }, 150);
+      if (!Number.isFinite(tid) || messageRole !== "assistant") {
+        return;
       }
-    });
-    const onLocal = (e: Event) => {
-      const detail = (e as CustomEvent).detail || {};
+      if (messageId > lastAssistantIdRef.current) {
+        lastAssistantIdRef.current = messageId;
+      }
+      if (tid !== activeThreadRef.current) {
+        return;
+      }
+
+      const completionSnapshot = completionStateRef.current;
+      const hasInFlight = inFlightCompletionByThreadRef.current.has(tid);
+      if (
+        !completionSnapshot.isCompleting ||
+        completionSnapshot.activeThreadId !== tid ||
+        !hasInFlight
+      ) {
+        return;
+      }
+
+      if (completionFinalizePendingRef.current.has(tid)) {
+        return;
+      }
+      completionFinalizePendingRef.current.add(tid);
+
+      if (completionFinalizeTimerRef.current !== null) {
+        window.clearTimeout(completionFinalizeTimerRef.current);
+      }
+
+      completionFinalizeTimerRef.current = window.setTimeout(() => {
+        completionFinalizeTimerRef.current = null;
+        completionFinalizePendingRef.current.delete(tid);
+
+        if (activeThreadRef.current !== tid) {
+          return;
+        }
+        if (!inFlightCompletionByThreadRef.current.has(tid)) {
+          return;
+        }
+
+        inFlightCompletionByThreadRef.current.delete(tid);
+        endCompletionRef.current();
+
+        const messageCount = messagesRef.current.length;
+        if (shouldRefreshRef.current(tid, messageCount)) {
+          void loadMessagesRef.current(tid, 50, 0, false);
+          markRefreshedRef.current(tid, messageCount + 1);
+        }
+
+        const activeKey = activePollKeyRef.current;
+        if (activeKey && activeKey.startsWith(`${tid}:`)) {
+          stopPolling(activeKey);
+        }
+      }, COMPLETION_SETTLE_MS);
+    };
+
+    const offMessageCreated = subscribe("message.created", onMessageCreated);
+    const onLocal = (evt: Event) => {
+      const detail = (evt as CustomEvent).detail || {};
       ingestIncoming(detail.message ?? detail);
     };
     window.addEventListener("cfy:chat:message", onLocal as EventListener);
-    return () => {
-      offMessage();
+
+    const cleanup = () => {
+      offMessageCreated();
       window.removeEventListener("cfy:chat:message", onLocal as EventListener);
     };
-  }, [ingestIncoming, subscribe, threadId, completionState.isCompleting, endCompletion, messages.length, shouldRefresh, loadMessages, markRefreshed]);
+    liveSubscriptionCleanupRef.current = cleanup;
+
+    return () => {
+      cleanup();
+      if (liveSubscriptionCleanupRef.current === cleanup) {
+        liveSubscriptionCleanupRef.current = null;
+      }
+    };
+  }, [ingestIncoming, stopPolling, subscribe, threadId]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-
     const overflowing = el.scrollHeight > el.clientHeight + 1;
     setHasOverflow(overflowing);
-  }, [messages.length]);
+  }, [containerRef, messages.length]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    // On initial load, try to restore saved scroll position
     if (initialScrollRef.current && typeof window !== "undefined") {
       try {
         const saved = sessionStorage.getItem(`chat-scroll-${threadId}`);
@@ -253,14 +558,16 @@ export function ChatView({
           initialScrollRef.current = false;
           return;
         }
-      } catch {}
+      } catch {
+        // no-op
+      }
     }
 
     if (initialScrollRef.current) {
       el.scrollTop = el.scrollHeight;
       initialScrollRef.current = false;
     }
-  }, [messages.length, threadId]);
+  }, [containerRef, messages.length, threadId]);
 
   useEffect(() => {
     let maxId = 0;
@@ -284,43 +591,45 @@ export function ChatView({
   }, [messages]);
 
   useEffect(() => {
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== "user") return;
-    const lastId = Number(lastMessage.id);
-    if (!Number.isFinite(lastId)) return;
-    if (lastId <= lastPolledUserIdRef.current) return;
-    lastPolledUserIdRef.current = lastId;
-    startPolling(threadId, "user-message");
+    const lastUserMessageId = getLastUserMessageId(messages);
+    if (!Number.isFinite(lastUserMessageId) || lastUserMessageId <= 0) return;
+    if (lastUserMessageId <= lastPolledUserIdRef.current) return;
+    lastPolledUserIdRef.current = lastUserMessageId;
+    startPolling(threadId, "user-message", lastUserMessageId);
   }, [messages, startPolling, threadId]);
 
-  useEffect(() => () => stopPolling(), [stopPolling]);
-
-  const onScroll = async () => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    // Save scroll position
-    if (typeof window !== "undefined") {
-      try {
-        sessionStorage.setItem(`chat-scroll-${threadId}`, String(el.scrollTop));
-      } catch {}
-    }
-
-    // Infinite scroll at top
-    if (loading || !hasMore) return;
-    if (el.scrollTop === 0) {
-      const prevHeight = el.scrollHeight;
-      await loadMessages(threadId, PAGE_SIZE, messages.length, true);
-      requestAnimationFrame(() => {
-        if (containerRef.current) {
-          containerRef.current.scrollTop = containerRef.current.scrollHeight - prevHeight;
-        }
-      });
-    }
-  };
+  useEffect(
+    () => () => {
+      liveSubscriptionCleanupRef.current?.();
+      stopPolling();
+      if (completionFinalizeTimerRef.current !== null) {
+        window.clearTimeout(completionFinalizeTimerRef.current);
+        completionFinalizeTimerRef.current = null;
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    },
+    [stopPolling]
+  );
 
   const playMessageAudio = useCallback(
-    async (messageId: number) => {
+    async (messageId: number, options?: { manual?: boolean }) => {
+      const manual = Boolean(options?.manual);
+      if (voiceRouteMissingRef.current) {
+        if (manual) {
+          showToast("Voice disabled");
+        }
+        return;
+      }
+      if (isVoiceUnavailable(messageId)) {
+        if (manual) {
+          showToast("Audio unavailable");
+        }
+        return;
+      }
+
       try {
         const res = await api.post(`/voice/messages/${messageId}/speak`, {
           force_regenerate: false,
@@ -338,23 +647,58 @@ export function ChatView({
         if (audioRef.current) {
           audioRef.current.pause();
         }
+
         const audio = new Audio(resolvedSrc);
         audioRef.current = audio;
         setPlayingMessageId(messageId);
-        audio.onended = () => setPlayingMessageId((prev) => (prev === messageId ? null : prev));
-        audio.onerror = () => setPlayingMessageId((prev) => (prev === messageId ? null : prev));
+        audio.onended = () =>
+          setPlayingMessageId((prev) => (prev === messageId ? null : prev));
+        audio.onerror = () =>
+          setPlayingMessageId((prev) => (prev === messageId ? null : prev));
         await audio.play();
       } catch (err) {
-        console.warn("[chat] playMessageAudio failed", err);
+        const classification = classifyVoice404Error(err);
+        if (classification === "message_not_found") {
+          markVoiceUnavailable(messageId);
+          if (manual) {
+            showToast("Audio unavailable");
+          }
+        } else if (classification === "route_missing") {
+          disableVoiceRoute();
+          if (manual) {
+            showToast("Voice disabled");
+          }
+        } else {
+          console.warn("[chat] playMessageAudio failed", err);
+        }
         setPlayingMessageId((prev) => (prev === messageId ? null : prev));
       }
     },
-    []
+    [disableVoiceRoute, isVoiceUnavailable, markVoiceUnavailable, showToast]
+  );
+
+  const handlePlayClick = useCallback(
+    (messageId: number) => {
+      if (voiceRouteMissingRef.current) {
+        showToast("Voice disabled");
+        return;
+      }
+      if (isVoiceUnavailable(messageId)) {
+        showToast("Audio unavailable");
+        return;
+      }
+      void playMessageAudio(messageId, { manual: true });
+    },
+    [isVoiceUnavailable, playMessageAudio, showToast]
   );
 
   useEffect(() => {
     if (!autoReadEnabled) return;
-    const assistants = messages.filter((m) => m.role !== "user" && Number.isFinite(Number(m.id)));
+    if (voiceRouteMissingRef.current) return;
+
+    const assistants = messages.filter(
+      (msg) => msg.role !== "user" && Number.isFinite(Number(msg.id))
+    );
     const latest = assistants.length > 0 ? assistants[assistants.length - 1] : null;
     if (!latest) return;
 
@@ -369,12 +713,37 @@ export function ChatView({
     if (lastAutoReadMessageIdRef.current === latestId) return;
 
     lastAutoReadMessageIdRef.current = latestId;
+    if (isVoiceUnavailable(latestId)) {
+      return;
+    }
     void playMessageAudio(latestId);
-  }, [autoReadEnabled, messages, playMessageAudio]);
+  }, [autoReadEnabled, isVoiceUnavailable, messages, playMessageAudio, voiceRouteMissing]);
 
-  // Context menu: Save to Prompt Library
-  const [menu, setMenu] = useState<{ x: number; y: number; text: string } | null>(null);
-  function savePrompt(text: string) {
+  const onScroll = async () => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem(`chat-scroll-${threadId}`, String(el.scrollTop));
+      } catch {
+        // no-op
+      }
+    }
+
+    if (loading || !hasMore) return;
+    if (el.scrollTop === 0) {
+      const prevHeight = el.scrollHeight;
+      await loadMessages(threadId, PAGE_SIZE, messages.length, true);
+      requestAnimationFrame(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight - prevHeight;
+        }
+      });
+    }
+  };
+
+  const savePrompt = (text: string) => {
     const title = window.prompt("Optional title", "");
     const category = window.prompt("Optional category", "");
     const tagsRaw = window.prompt("Optional tags (comma-separated)", "");
@@ -385,7 +754,10 @@ export function ChatView({
       source: "manual",
       title: title || undefined,
       category: category || undefined,
-      tags: (tagsRaw || "").split(",").map((t) => t.trim()).filter(Boolean),
+      tags: (tagsRaw || "")
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
       pinned: pin || false,
     };
     try {
@@ -393,30 +765,32 @@ export function ChatView({
       const arr = raw ? JSON.parse(raw) : [];
       const next = [item, ...(Array.isArray(arr) ? arr : [])];
       localStorage.setItem("cfy.prompts", JSON.stringify(next));
-      window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Saved to Prompt Library" } }));
-    } catch {}
-  }
-
-  const shouldMask = hasOverflow && bottomPadding > 0;
-  const scrollStyle: React.CSSProperties = {
-    paddingBottom: bottomPadding ?? 0,
-    ...(shouldMask
-      ? {
-          maskImage:
-            "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
-          WebkitMaskImage:
-            "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
-        }
-      : {}),
+      window.dispatchEvent(
+        new CustomEvent("cfy:toast", { detail: { message: "Saved to Prompt Library" } })
+      );
+    } catch {
+      // no-op
+    }
   };
 
+  const shouldMask = hasOverflow && bottomPadding > 0;
+  const scrollStyle: React.CSSProperties = useMemo(
+    () => ({
+      paddingBottom: bottomPadding ?? 0,
+      ...(shouldMask
+        ? {
+            maskImage:
+              "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, black 0%, black calc(100% - 80px), transparent 100%)",
+          }
+        : {}),
+    }),
+    [bottomPadding, shouldMask]
+  );
+
   return (
-    <div
-      className={cn(
-        "flex flex-col h-full min-h-0",
-        className
-      )}
-    >
+    <div className={cn("flex flex-col h-full min-h-0", className)}>
       <div
         ref={containerRef}
         onScroll={onScroll}
@@ -425,55 +799,70 @@ export function ChatView({
         className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain px-4 space-y-4"
         style={scrollStyle}
       >
-        {messages.map((m, index) => (
-          <div
-            data-testid="chat-message"
-            key={m.id ?? `${m.role}-${m.created_at ?? index}`}
-            className="max-w-full"
-            onContextMenu={(e) => {
-              e.preventDefault();
-              const content = String(m.content ?? "");
-              if (!content.trim()) return;
-              setMenu({ x: e.clientX, y: e.clientY, text: content });
-            }}
-          >
-            <ChatBubble
-              message={{
-                id: String(m.id ?? `${m.role}-${m.created_at ?? index}`),
-                authorId: m.role === "user" ? "me" : "bot",
-                authorName: m.role === "user" ? "You" : (guardianName || "Guardian"),
-                content: m.content ?? "",
-                createdAt:
-                  typeof m.created_at === "number"
-                    ? m.created_at
-                    : typeof m.created_at === "string"
-                      ? Date.parse(m.created_at)
-                      : Date.now(),
-                attachments: m.attachments?.map((att) => ({
-                  id: att.id,
-                  kind: att.kind,
-                  src: att.src_url,
-                  name: att.filename,
-                })),
+        {messages.map((m, index) => {
+          const messageId = Number(m.id);
+          const canPlay = m.role !== "user" && Number.isFinite(messageId);
+          const messageVoiceUnavailable = Boolean(
+            Number.isFinite(messageId) && voiceUnavailableMessageIds[messageId]
+          );
+          const playState: BubblePlayState = !canPlay
+            ? "idle"
+            : voiceRouteMissing
+              ? "disabled"
+              : messageVoiceUnavailable
+                ? "unavailable"
+                : playingMessageId === messageId
+                  ? "playing"
+                  : "idle";
+
+          return (
+            <div
+              data-testid="chat-message"
+              key={m.id ?? `${m.role}-${m.created_at ?? index}`}
+              className="max-w-full"
+              onContextMenu={(event) => {
+                event.preventDefault();
+                const content = String(m.content ?? "");
+                if (!content.trim()) return;
+                setMenu({ x: event.clientX, y: event.clientY, text: content });
               }}
-              isGuardian={m.role !== "user"}
-              showPlay={m.role !== "user" && Number.isFinite(Number(m.id))}
-              playing={playingMessageId === Number(m.id)}
-              onPlay={() => {
-                const id = Number(m.id);
-                if (!Number.isFinite(id)) return;
-                void playMessageAudio(id);
-              }}
-            />
-          </div>
-        ))}
+            >
+              <ChatBubble
+                message={{
+                  id: String(m.id ?? `${m.role}-${m.created_at ?? index}`),
+                  authorId: m.role === "user" ? "me" : "bot",
+                  authorName: m.role === "user" ? "You" : guardianName || "Guardian",
+                  content: m.content ?? "",
+                  createdAt:
+                    typeof m.created_at === "number"
+                      ? m.created_at
+                      : typeof m.created_at === "string"
+                        ? Date.parse(m.created_at)
+                        : Date.now(),
+                  attachments: m.attachments?.map((att) => ({
+                    id: att.id,
+                    kind: att.kind,
+                    src: att.src_url,
+                    name: att.filename,
+                  })),
+                }}
+                isGuardian={m.role !== "user"}
+                showPlay={canPlay}
+                playing={playState === "playing"}
+                playState={playState}
+                onPlay={() => {
+                  if (!Number.isFinite(messageId)) return;
+                  handlePlayClick(messageId);
+                }}
+              />
+            </div>
+          );
+        })}
+
         {completionState.isCompleting && (
           <div className="max-w-full" data-testid="chat-completing-indicator">
             <div className="flex items-start gap-3 px-4 py-3">
-              {/* Guardian avatar skeleton */}
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-400 to-blue-500 flex-shrink-0 animate-pulse" />
-
-              {/* Skeleton content with pulsing animation */}
               <div className="flex-1 space-y-2 min-w-0">
                 <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
                 <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
@@ -491,16 +880,17 @@ export function ChatView({
                     style={{ animationDelay: "300ms" }}
                   />
                   <span className="text-xs ml-2 opacity-60" style={{ color: "var(--muted)" }}>
-                    Guardian is thinking…
+                    Guardian is thinking...
                   </span>
                 </div>
               </div>
             </div>
           </div>
         )}
+
         {loading && (
           <div className="text-xs opacity-70" data-testid="chat-loading">
-            Loading…
+            Loading...
           </div>
         )}
         {error && (
@@ -510,14 +900,13 @@ export function ChatView({
         )}
         <div ref={endRef} />
       </div>
+
       {menu && (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            { label: "Save to Prompt Library", onClick: () => savePrompt(menu.text) },
-          ]}
+          items={[{ label: "Save to Prompt Library", onClick: () => savePrompt(menu.text) }]}
         />
       )}
     </div>

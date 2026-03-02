@@ -8,6 +8,12 @@ import api from "@/lib/api";
 
 const guardianPropsSpy = vi.hoisted(() => vi.fn());
 const sidebarPropsSpy = vi.hoisted(() => vi.fn());
+const sessionSpineInstances = vi.hoisted(() => [] as any[]);
+const sessionHooksState = vi.hoisted(() => ({
+  railSlice: { tabs: [] as any[], activeTabId: null as string | null },
+  activeTab: null as any,
+  activeModelId: "default",
+}));
 const authState = vi.hoisted(() => ({
   ready: true,
   status: "authenticated" as const,
@@ -111,13 +117,17 @@ vi.mock("@/state/session/SessionSpine", () => ({
     tabClose = vi.fn();
     tabSetModel = vi.fn();
     tabSetDraft = vi.fn();
+
+    constructor() {
+      sessionSpineInstances.push(this);
+    }
   },
 }));
 
 vi.mock("@/state/session/hooks", () => ({
-  useSessionRailSlice: () => ({ tabs: [], activeTabId: null }),
-  useSessionActiveTab: () => null,
-  useSessionActiveModelId: () => "default",
+  useSessionRailSlice: () => sessionHooksState.railSlice,
+  useSessionActiveTab: () => sessionHooksState.activeTab,
+  useSessionActiveModelId: () => sessionHooksState.activeModelId,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -182,6 +192,10 @@ function setupThreadApi(
 describe("GuardianChatWithSidebar stability contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionSpineInstances.length = 0;
+    sessionHooksState.railSlice = { tabs: [], activeTabId: null };
+    sessionHooksState.activeTab = null;
+    sessionHooksState.activeModelId = "default";
     localStorage.clear();
     window.history.pushState({}, "", "/chat");
     Object.defineProperty(window, "matchMedia", {
@@ -286,5 +300,49 @@ describe("GuardianChatWithSidebar stability contract", () => {
     expect(screen.getByTestId("active-thread-title").textContent).toBe("New Thread");
     expect(screen.getByTestId("active-thread-messages").textContent).toBe("0");
     expect(window.location.pathname).toBe("/chat");
+  });
+
+  it("clears stale session tab thread ids that are missing from loaded threads", async () => {
+    setupThreadApi({
+      all: {
+        0: { threads: [t(2, "Thread 2")], has_more: false },
+      },
+    });
+
+    sessionHooksState.railSlice = {
+      tabs: [
+        {
+          tabId: "tab-1",
+          threadId: "1",
+          title: "Stale Thread",
+          modelId: "default",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      activeTabId: "tab-1",
+    };
+    sessionHooksState.activeTab = sessionHooksState.railSlice.tabs[0];
+    sessionHooksState.activeModelId = "default";
+
+    window.history.pushState({}, "", "/chat/1");
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("thread-2");
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/chat");
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("active-thread-id").textContent).toBe("temp");
+    });
+
+    const spine = sessionSpineInstances[0];
+    expect(spine).toBeDefined();
+    expect(
+      spine.tabSetThread.mock.calls.some(
+        (args: unknown[]) =>
+          args[0] === "tab-1" && args[1] === undefined && args[2] === undefined
+      )
+    ).toBe(true);
   });
 });

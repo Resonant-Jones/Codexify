@@ -1020,39 +1020,6 @@ export function GuardianChat({
 
   const headerActions = (
     <div className="flex items-center gap-1">
-      {/* RAG Depth Selector */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="icon-inline"
-            aria-label="RAG depth selector"
-            title={`Depth: ${depthLabels[depth]} - ${depthDescriptions[depth]}`}
-            style={{ borderRadius: "var(--radius-micro)" }}
-          >
-            <Layers className="h-5 w-5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <div className="px-2 py-1.5 text-xs font-semibold opacity-60">RAG Depth</div>
-          {(["shallow", "normal", "deep", "diagnostic"] as DepthMode[]).map((d) => (
-            <DropdownMenuItem
-              key={d}
-              onClick={() => {
-                setDepth(d);
-                console.log(`[guardian] Depth changed to: ${d}`);
-              }}
-              className={depth === d ? "bg-accent" : ""}
-            >
-              <div className="flex flex-col flex-1 min-h-0">
-                <div className="font-medium">{depthLabels[d]}</div>
-                <div className="text-xs opacity-70">{depthDescriptions[d]}</div>
-              </div>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
       <div
         ref={promptCostPopoverRef}
         className="relative"
@@ -1432,6 +1399,8 @@ export function GuardianChat({
             className="flex flex-col flex-1 min-h-0"
             bottomPadding={160}
             autoReadEnabled={autoReadEnabled}
+            depthMode={depth}
+            profileId={resolvedProfile.id}
           />
         ) : (
           <div
@@ -1457,9 +1426,47 @@ export function GuardianChat({
       >
         <div className="flex flex-col p-4">
           <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-            <span className="opacity-70" style={{ color: "var(--muted)" }}>
-              Turn-based Voice
-            </span>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="opacity-70" style={{ color: "var(--muted)" }}>
+                Turn-based Voice
+              </span>
+
+              {/* RAG Depth Selector (moved from header) */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] transition hover:opacity-90"
+                    aria-label="RAG depth selector"
+                    title={`Depth: ${depthLabels[depth]} - ${depthDescriptions[depth]}`}
+                    style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    <span className="truncate max-w-[8rem]">{depthLabels[depth]}</span>
+                    <ChevronRight className="h-3.5 w-3.5 rotate-90 opacity-70" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <div className="px-2 py-1.5 text-xs font-semibold opacity-60">RAG Depth</div>
+                  {(["shallow", "normal", "deep", "diagnostic"] as DepthMode[]).map((d) => (
+                    <DropdownMenuItem
+                      key={d}
+                      onClick={() => {
+                        setDepth(d);
+                        console.log(`[guardian] Depth changed to: ${d}`);
+                      }}
+                      className={depth === d ? "bg-accent" : ""}
+                    >
+                      <div className="flex flex-col flex-1 min-h-0">
+                        <div className="font-medium">{depthLabels[d]}</div>
+                        <div className="text-xs opacity-70">{depthDescriptions[d]}</div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
             <button
               type="button"
               className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
@@ -1475,6 +1482,7 @@ export function GuardianChat({
             >
               {voiceUploading ? "Processing…" : "Upload Voice Turn"}
             </button>
+
             <input
               ref={voiceFileInputRef}
               type="file"

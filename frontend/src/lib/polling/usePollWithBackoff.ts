@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getBackendOutageRemainingMs } from "@/lib/api";
 
 export type PollOptions = {
   intervalMs: number;
@@ -50,17 +51,33 @@ export function usePollWithBackoff(
         await fnRef.current();
         failures = 0;
         schedule(intervalMs);
-      } catch {
+      } catch (error: any) {
         failures += 1;
-        const nextDelay = Math.min(
-          intervalMs * Math.pow(2, failures),
-          maxBackoffMs
+        const retryAfterMs = Number(error?.waitMs ?? 0);
+        const outageMs = getBackendOutageRemainingMs();
+        const nextDelay = Math.max(
+          Math.min(
+            intervalMs * Math.pow(2, failures),
+            maxBackoffMs
+          ),
+          Number.isFinite(retryAfterMs) ? Math.max(0, retryAfterMs) : 0,
+          outageMs
         );
         schedule(nextDelay);
       }
     };
 
-    void tick();
+    const initialOutageMs = getBackendOutageRemainingMs();
+    if (initialOutageMs > 0) {
+      const boundedInitialDelay = Math.max(
+        intervalMs,
+        intervalMs * Math.pow(2, failures),
+        Math.min(maxBackoffMs, initialOutageMs)
+      );
+      schedule(boundedInitialDelay);
+    } else {
+      void tick();
+    }
 
     return () => {
       cancelled = true;
