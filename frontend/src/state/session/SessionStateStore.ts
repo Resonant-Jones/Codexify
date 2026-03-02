@@ -41,10 +41,7 @@ function makeSessionKey(userId: string, deviceId: string): string {
 export class InMemorySessionStateStore implements SessionStateStore {
   private readonly map = new Map<string, SessionState>();
 
-  async getSessionState(
-    userId: string,
-    deviceId: string
-  ): Promise<SessionState | null> {
+  async getSessionState(userId: string, deviceId: string): Promise<SessionState | null> {
     const key = makeSessionKey(userId, deviceId);
     const state = this.map.get(key);
     return state ? structuredClone(state) : null;
@@ -80,6 +77,7 @@ export class InMemorySessionStateStore implements SessionStateStore {
 }
 
 export class RedisSessionStateStore implements SessionStateStore {
+  // Guardrail: if the backend doesn’t expose /ui/session, stop calling it after first 404.
   private sessionEndpointMissing = false;
 
   private markMissingIf404(error: unknown): boolean {
@@ -91,10 +89,7 @@ export class RedisSessionStateStore implements SessionStateStore {
     return false;
   }
 
-  async getSessionState(
-    userId: string,
-    deviceId: string
-  ): Promise<SessionState | null> {
+  async getSessionState(userId: string, deviceId: string): Promise<SessionState | null> {
     if (this.sessionEndpointMissing) return null;
 
     try {
