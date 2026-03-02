@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
               Slash-command command bar with staged/apply workflow.
               Strict run: /run or Ctrl+R.
               Instant run: Cmd+Enter / Ctrl+Enter (skips TUI validation + preview).
+              Preview/run command args are minimal by default (only non-default flags).
 
             Deterministic IDs:
               run_id   = sha256(canonical(run_inputs.json))[:12]
@@ -60,6 +61,10 @@ def examples() -> str:
             --compiler-prompt-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/audit_report_to_campaign_runner.md \
             --campaign-set-schema-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/campaign_set.schema.json \
             --dry-run
+
+        Example: TUI preview command (minimal defaults)
+
+          python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --passes 2 --execute
 
         Example: execute with Claude provider
 
