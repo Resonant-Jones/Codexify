@@ -6,6 +6,7 @@
  */
 import { useCallback } from "react";
 import { buildAuthenticatedFetchInit } from "../lib/api";
+import { resolveApiUrl, resolveBackendUrl } from "../lib/runtimeConfig";
 
 export type Accepted = ".pdf" | ".docx" | ".md" | ".txt" | ".png" | ".jpg" | ".jpeg" | ".webp";
 
@@ -49,15 +50,7 @@ const DOC_EXT = new Set([".pdf", ".docx", ".md", ".txt"]);
 export const toAbsoluteMediaUrl = (srcUrl: string) => {
   if (!srcUrl) return srcUrl;
   if (srcUrl.startsWith("http://") || srcUrl.startsWith("https://")) return srcUrl;
-
-  const rawBase =
-    (import.meta as any).env?.VITE_API_BASE_URL ||
-    (import.meta as any).env?.VITE_BACKEND_URL ||
-    "http://localhost:8888";
-
-  const base = String(rawBase).replace(/\/+$/, "");
-  const path = srcUrl.startsWith("/") ? srcUrl : `/${srcUrl}`;
-  return `${base}${path}`;
+  return resolveBackendUrl(srcUrl);
 };
 
 function extOf(name: string): Accepted | null {
@@ -159,6 +152,7 @@ export function useUploader({
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     const withAuth = (init: RequestInit): RequestInit =>
       buildAuthenticatedFetchInit(init, { forceApiKey });
+    const apiUrl = (path: string): string => resolveApiUrl(path);
 
     if (disabled) {
       // Respect upstream gating (e.g., turn-in-flight) by ignoring new uploads.
@@ -229,7 +223,7 @@ export function useUploader({
 
       for (const url of candidates) {
         try {
-          const r = await fetch(url, withAuth({ method: "GET" }));
+          const r = await fetch(apiUrl(url), withAuth({ method: "GET" }));
           if (!r.ok) continue;
           const j: any = await r.json();
           const pid = extract(j);
@@ -254,7 +248,7 @@ export function useUploader({
       if (cached !== undefined) return cached;
 
       try {
-        const response = await fetch("/api/projects", withAuth({ method: "GET" }));
+        const response = await fetch(apiUrl("/api/projects"), withAuth({ method: "GET" }));
         if (!response.ok) return undefined;
         const payload: any = await response.json();
         const list = Array.isArray(payload)
@@ -354,7 +348,7 @@ export function useUploader({
             }
 
             const uploadResp = await fetch(
-              "/api/media/upload/image",
+              apiUrl("/api/media/upload/image"),
               withAuth({
                 method: "POST",
                 body: formData,
@@ -426,7 +420,7 @@ export function useUploader({
 
             // Try multipart/form-data first (the "standard" upload method).
             let uploadResp = await fetch(
-              "/api/media/upload/document",
+              apiUrl("/api/media/upload/document"),
               withAuth({
                 method: "POST",
                 body: formData,
@@ -494,7 +488,7 @@ export function useUploader({
 
                 for (const payload of payloads) {
                   const r = await fetch(
-                    "/api/media/upload/document",
+                    apiUrl("/api/media/upload/document"),
                     withAuth({
                       method: "POST",
                       headers: {
@@ -565,7 +559,14 @@ export function useUploader({
           // Best-effort embedding call; ignore failures.
           try {
             const body = { texts: [preview] } as any;
-            fetch("/api/embeddings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
+            fetch(
+              apiUrl("/api/embeddings"),
+              withAuth({
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(body),
+              })
+            ).catch(() => {});
           } catch {}
         }
       } catch {}
@@ -591,13 +592,20 @@ export function useUploader({
       const runtimeOverride = localStorage.getItem("cfy.ingest.endpoint.override");
       const effectiveEndpoint = runtimeOverride || endpoint;
       if (enabled && effectiveEndpoint && ingestItems.length) {
+        const resolvedIngestEndpoint =
+          /^https?:\/\//i.test(effectiveEndpoint)
+            ? effectiveEndpoint
+            : apiUrl(effectiveEndpoint);
         for (const it of ingestItems) {
           try {
-            const resp = await fetch(effectiveEndpoint, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ ...it }),
-            });
+            const resp = await fetch(
+              resolvedIngestEndpoint,
+              withAuth({
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ ...it }),
+              })
+            );
             if (!resp.ok) throw new Error(String(resp.status));
           } catch (err) {
             totalFailed++;

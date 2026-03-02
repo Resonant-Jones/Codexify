@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { resolveApiUrl } from "@/lib/runtimeConfig";
 
 type ThreadContent = {
   id: number;
@@ -46,7 +47,7 @@ export function SharePage({ token }: SharePageProps) {
   useEffect(() => {
     const fetchSharedContent = async () => {
       try {
-        const response = await fetch(`/api/share/${token}`);
+        const response = await fetch(resolveApiUrl(`/api/share/${token}`));
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));

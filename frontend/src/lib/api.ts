@@ -3,6 +3,15 @@ import {
   markAuthUnauthenticatedFrom401,
   syncAuthStateFromCredentials,
 } from "@/lib/authState";
+import {
+  getRuntimeConfigSync,
+  resolveApiUrl,
+} from "@/lib/runtimeConfig";
+import {
+  clearRuntimeApiKey as clearRuntimeApiKeyState,
+  getRuntimeApiKey,
+  setRuntimeApiKey as setRuntimeApiKeyState,
+} from "@/lib/runtimeAuth";
 
 function readRuntimeEnv(name: string, fallback = ""): string {
   const viteEnv =
@@ -91,6 +100,20 @@ export function getDevApiKey(): string {
   return resolveDevApiKey();
 }
 
+export function setRuntimeApiKey(apiKey: string | null): void {
+  setRuntimeApiKeyState(apiKey);
+  syncAuthStateFromCredentials();
+}
+
+export function clearRuntimeApiKey(): void {
+  clearRuntimeApiKeyState();
+  syncAuthStateFromCredentials();
+}
+
+export function readRuntimeApiKey(): string | null {
+  return getRuntimeApiKey();
+}
+
 function applyAuthToken(
   normalized: string | null,
   options: { syncAuthState?: boolean } = {}
@@ -126,16 +149,30 @@ function clearAuthTokenAfterUnauthorized(): void {
   applyAuthToken(null, { syncAuthState: false });
 }
 
-function applyAuthHeaders(headers: Record<string, string>): void {
+function applyAuthHeaders(
+  headers: Record<string, string>,
+  options: { forceApiKey?: boolean } = {}
+): void {
+  const forceApiKey = options.forceApiKey ?? false;
   const token = getAuthToken();
-  if (token && !hasHeader(headers, "Authorization")) {
+  const runtimeApiKey = getRuntimeApiKey();
+  const devApiKey = resolveDevApiKey();
+  const apiKey = runtimeApiKey || devApiKey;
+  const hasAuthorization = hasHeader(headers, "Authorization");
+  const hasApiKey = hasHeader(headers, "X-API-Key");
+
+  if (!forceApiKey && token && !hasAuthorization) {
     headers.Authorization = `Bearer ${token}`;
     return;
   }
 
-  const devApiKey = resolveDevApiKey();
-  if (!token && devApiKey && !hasHeader(headers, "X-API-Key")) {
-    headers["X-API-Key"] = devApiKey;
+  if (apiKey && !hasApiKey) {
+    headers["X-API-Key"] = apiKey;
+    return;
+  }
+
+  if (token && !hasAuthorization) {
+    headers.Authorization = `Bearer ${token}`;
   }
 }
 
@@ -143,9 +180,8 @@ export function buildAuthenticatedFetchInit(
   init: RequestInit = {},
   options: { forceApiKey?: boolean } = {}
 ): RequestInit {
-  void options;
   const headers = toHeaderRecord(init.headers);
-  applyAuthHeaders(headers);
+  applyAuthHeaders(headers, options);
 
   return {
     ...init,
@@ -188,12 +224,22 @@ export function buildChatCompletePath(threadId: string | number): string {
   return `/chat/${normalizePathSegment(threadId)}/complete`;
 }
 
+function isAbsoluteUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+export function refreshApiBaseUrl(): string {
+  const runtimeConfig = getRuntimeConfigSync();
+  api.defaults.baseURL = runtimeConfig.apiBaseUrl;
+  return runtimeConfig.apiBaseUrl;
+}
+
 /**
  * Central Axios instance for the frontend.
  * Reads `VITE_API_BASE_URL` at build time; defaults to "/api".
  */
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "/api",
+  baseURL: getRuntimeConfigSync().apiBaseUrl,
   withCredentials: true,
   timeout: DEFAULT_TIMEOUT_MS,
 });
@@ -230,15 +276,37 @@ api.interceptors.request.use((config) => {
     (headers as Record<string, string | undefined>)["x-api-key"];
 
   const token = getAuthToken();
+  const runtimeApiKey = getRuntimeApiKey();
   if (token && !existingAuthorization) {
     setHeader("Authorization", `Bearer ${token}`);
   } else if (!token) {
-    const devApiKey = resolveDevApiKey();
-    if (devApiKey && !existingAuthorization && !existingApiKey) {
-      setHeader("X-API-Key", devApiKey);
+    if (runtimeApiKey && !existingAuthorization && !existingApiKey) {
+      setHeader("X-API-Key", runtimeApiKey);
+    } else {
+      const devApiKey = resolveDevApiKey();
+      if (devApiKey && !existingAuthorization && !existingApiKey) {
+        setHeader("X-API-Key", devApiKey);
+      }
     }
+  } else if (runtimeApiKey && !existingApiKey) {
+    setHeader("X-API-Key", runtimeApiKey);
   }
   config.headers = headers;
+
+  const runtimeConfig = getRuntimeConfigSync();
+  if (runtimeConfig.mode === "tauri" && runtimeConfig.apiBaseUrl) {
+    config.baseURL = runtimeConfig.apiBaseUrl;
+  }
+
+  if (typeof config.url === "string" && !isAbsoluteUrl(config.url)) {
+    const resolvedUrl = resolveApiUrl(config.url, runtimeConfig);
+    if (isAbsoluteUrl(resolvedUrl)) {
+      config.baseURL = undefined;
+      config.url = resolvedUrl;
+    } else {
+      config.url = resolvedUrl;
+    }
+  }
 
   const baseURL = String(
     config.baseURL ?? api.defaults.baseURL ?? ""

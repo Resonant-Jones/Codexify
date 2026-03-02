@@ -3,16 +3,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GuardianEventSource } from "@/lib/guardianEventSource";
-import { GUARDIAN_API_BASE } from "@/lib/env";
-import { combineBaseAndPath } from "@/lib/urlJoin";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
+import { getRuntimeConfigSync, resolveSseEndpoint } from "@/lib/runtimeConfig";
 import {
   checkAuthGate,
   markAuthUnauthenticatedFrom401,
   useAuthState,
 } from "@/lib/authState";
 
-const EVENT_ENDPOINT = "/api/events";
 const DEFAULT_EVENT_TYPES = [
   "ping",
   "message.created",
@@ -71,7 +69,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
   const pendingConnectedRef = useRef<boolean | null>(null);
   const hasConnectedRef = useRef(false); // Track if we've ever successfully connected
 
-  const streamUrl = useMemo(() => combineBaseAndPath(GUARDIAN_API_BASE, EVENT_ENDPOINT), []);
+  const streamUrl = useMemo(() => resolveSseEndpoint(getRuntimeConfigSync()), []);
 
   const isSameEvent = useCallback((prev: LiveEvent | null, next: LiveEvent) => {
     if (!prev) return false;

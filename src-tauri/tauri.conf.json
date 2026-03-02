@@ -1,20 +1,20 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0.0-rc",
-  "productName": "Tauri App",
+  "productName": "Codexify",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.codexify.desktop",
   "build": {
-    "frontendDist": "../frontend/dist",
+    "frontendDist": "../frontend/src/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "pnpm --dir frontend build"
+    "beforeDevCommand": "pnpm --dir frontend/src dev",
+    "beforeBuildCommand": "pnpm --dir frontend/src build"
   },
   "app": {
     "windows": [
       {
-        "title": "Tauri",
-        "width": 800,
-        "height": 600,
+        "title": "Codexify",
+        "width": 1440,
+        "height": 900,
         "resizable": true,
         "fullscreen": false
       }
@@ -25,7 +25,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
