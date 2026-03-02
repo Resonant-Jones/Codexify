@@ -44,6 +44,7 @@ const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST = "One moment—finish the current reply first.";
 const LLM_HEALTH_POLL_MS = 15000;
 const THREAD_PROFILE_POLL_MS = 15000;
+const NEW_THREAD_TITLE = "New Thread";
 
 /**
  * RAG depth modes: Four lenses of consciousness.
@@ -233,7 +234,7 @@ export function GuardianChat({
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
-  const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? "New Chat");
+  const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
   const [voiceUploading, setVoiceUploading] = useState(false);
   const [autoReadEnabled, setAutoReadEnabled] = useState<boolean>(() => {
@@ -544,9 +545,7 @@ export function GuardianChat({
 
   // Update currentThreadId when numericThreadId changes
   useEffect(() => {
-    if (numericThreadId != null && numericThreadId !== currentThreadId) {
-      setCurrentThreadId(numericThreadId);
-    }
+    setCurrentThreadId((prev) => (prev === numericThreadId ? prev : numericThreadId));
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
@@ -749,10 +748,10 @@ export function GuardianChat({
     const parsedId = Number(activeThread?.id);
     if (Number.isFinite(parsedId)) {
       if (currentThreadId == null || currentThreadId === parsedId) {
-        setThreadTitle(activeThread?.title ?? "New Chat");
+        setThreadTitle(activeThread?.title ?? NEW_THREAD_TITLE);
       }
     } else if (currentThreadId == null) {
-      setThreadTitle(activeThread?.title ?? "New Chat");
+      setThreadTitle(activeThread?.title ?? NEW_THREAD_TITLE);
     }
   }, [activeThread?.id, activeThread?.title, currentThreadId]);
 
@@ -817,7 +816,7 @@ export function GuardianChat({
   const handleThreadCreated = (threadId: number, title?: string) => {
     setCurrentThreadId(threadId);
 
-    const nextTitle = (title && title.trim().length > 0) ? title.trim() : "New Chat";
+    const nextTitle = (title && title.trim().length > 0) ? title.trim() : NEW_THREAD_TITLE;
     setThreadTitle(nextTitle);
 
     // Notify other panes that a new thread exists so sidebars can update immediately
@@ -834,7 +833,7 @@ export function GuardianChat({
       showToast("Thread is not persisted yet.");
       return;
     }
-    const suggestion = `${threadTitle || "New Chat"} (branch)`;
+    const suggestion = `${threadTitle || NEW_THREAD_TITLE} (branch)`;
     const nextTitle = window.prompt("Branch thread title", suggestion);
     if (nextTitle === null) return;
     const trimmedTitle = nextTitle.trim();
@@ -919,7 +918,7 @@ export function GuardianChat({
     }
     if (!effectiveThreadId) {
       const firstLine = text.trim().split(/\n+/)[0] ?? "";
-      const provisionalTitle = firstLine.slice(0, 60) || "New Chat";
+      const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
       let createdThreadId: number | null = null;
       setPendingTurnLock(true);
       try {
@@ -1261,7 +1260,7 @@ export function GuardianChat({
                 await api.delete(`/chat/${effectiveThreadId}`);
                 emitThreadsRefresh("delete", { id: String(effectiveThreadId) });
                 setCurrentThreadId(null);
-                setThreadTitle("New Chat");
+                setThreadTitle(NEW_THREAD_TITLE);
                 if (typeof window !== "undefined") {
                   window.history.replaceState({}, "", `/chat`);
                 }
@@ -1282,7 +1281,7 @@ export function GuardianChat({
                 await onArchiveThread(effectiveThreadId);
                 emitThreadsRefresh("archive", { id: String(effectiveThreadId), archived: true });
                 setCurrentThreadId(null);
-                setThreadTitle("New Chat");
+                setThreadTitle(NEW_THREAD_TITLE);
                 if (typeof window !== "undefined") {
                   window.history.replaceState({}, "", `/chat`);
                 }
