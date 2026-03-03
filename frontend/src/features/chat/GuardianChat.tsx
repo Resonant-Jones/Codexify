@@ -1425,32 +1425,56 @@ export function GuardianChat({
         }}
       >
         <div className="flex flex-col p-4">
-          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="opacity-70" style={{ color: "var(--muted)" }}>
-                Turn-based Voice
-              </span>
+          <Composer
+            onSend={handleSendMessage}
+            prefill={externalPrefill ?? prefill}
+            onPrefillConsumed={() => {
+              setExternalPrefill(undefined);
+              onPrefillConsumed?.();
+            }}
+            threadId={effectiveThreadId ?? undefined}
+            isTurnInFlight={isTurnLocked(effectiveThreadId)}
+            draftValue={activeDraft}
+            draftScopeKey={activeSessionTabId ?? "global"}
+            onDraftValueChange={onSessionDraftChange}
+          />
+          {/* Bottom controls bar (aligned to bottom edge) */}
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {/* Voice mode indicator (icon-only, label via tooltip) */}
+              <button
+                type="button"
+                className="icon-inline"
+                aria-label="Turn-based voice"
+                title="Turn-based voice"
+                style={{ borderRadius: "var(--radius-micro)", opacity: 0.8 }}
+                onClick={() => {
+                  // purely informational affordance for now
+                  console.debug("[guardian] turn-based voice affordance clicked");
+                }}
+              >
+                <Volume2 className="h-4 w-4" />
+              </button>
 
-              {/* RAG Depth Selector (moved from header) */}
+              {/* RAG Depth Selector (icon-only) */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] transition hover:opacity-90"
+                    className="icon-inline"
                     aria-label="RAG depth selector"
-                    title={`Depth: ${depthLabels[depth]} - ${depthDescriptions[depth]}`}
-                    style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                    title={`RAG Depth: ${depthLabels[depth]} — ${depthDescriptions[depth]}`}
+                    style={{ borderRadius: "var(--radius-micro)" }}
                   >
-                    <Layers className="h-3.5 w-3.5" />
-                    <span className="truncate max-w-[8rem]">{depthLabels[depth]}</span>
-                    <ChevronRight className="h-3.5 w-3.5 rotate-90 opacity-70" />
+                    <Layers className="h-4 w-4" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
+                  side="top"
                   align="start"
-                  sideOffset={8}
+                  sideOffset={10}
                   collisionPadding={12}
-                  className="z-[999] min-w-[16rem] rounded-lg border p-1 shadow-xl"
+                  className="z-[9999] min-w-[16rem] rounded-lg border p-1 shadow-xl"
                   style={{
                     borderColor: "var(--panel-border)",
                     background: "var(--panel-sheet)",
@@ -1493,68 +1517,57 @@ export function GuardianChat({
               </DropdownMenu>
             </div>
 
-            <button
-              type="button"
-              className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
-              style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
-              disabled={voiceUploading}
-              onClick={() => {
-                if (effectiveThreadId == null) {
-                  alert("Create or open a thread before starting a voice turn.");
-                  return;
-                }
-                voiceFileInputRef.current?.click();
-              }}
-            >
-              {voiceUploading ? "Processing…" : "Upload Voice Turn"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
+                style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                disabled={voiceUploading}
+                onClick={() => {
+                  if (effectiveThreadId == null) {
+                    alert("Create or open a thread before starting a voice turn.");
+                    return;
+                  }
+                  voiceFileInputRef.current?.click();
+                }}
+              >
+                {voiceUploading ? "Processing…" : "Upload Voice Turn"}
+              </button>
 
-            <input
-              ref={voiceFileInputRef}
-              type="file"
-              accept="audio/wav,audio/*"
-              className="hidden"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                event.currentTarget.value = "";
-                if (!file) return;
-                if (effectiveThreadId == null) {
-                  alert("Create or open a thread before starting a voice turn.");
-                  return;
-                }
-                setVoiceUploading(true);
-                try {
-                  const form = new FormData();
-                  form.append("thread_id", String(effectiveThreadId));
-                  form.append("audio_file", file);
-                  form.append("tts_enabled", "true");
-                  await api.post("/api/voice/turn", form, {
-                    headers: { "Content-Type": "multipart/form-data" },
-                    timeout: 180000,
-                  });
-                  triggerReload();
-                } catch (error) {
-                  console.warn("[guardian] voice turn failed", error);
-                  alert("Voice turn failed. Check backend voice configuration.");
-                } finally {
-                  setVoiceUploading(false);
-                }
-              }}
-            />
+              <input
+                ref={voiceFileInputRef}
+                type="file"
+                accept="audio/wav,audio/*"
+                className="hidden"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  event.currentTarget.value = "";
+                  if (!file) return;
+                  if (effectiveThreadId == null) {
+                    alert("Create or open a thread before starting a voice turn.");
+                    return;
+                  }
+                  setVoiceUploading(true);
+                  try {
+                    const form = new FormData();
+                    form.append("thread_id", String(effectiveThreadId));
+                    form.append("audio_file", file);
+                    form.append("tts_enabled", "true");
+                    await api.post("/api/voice/turn", form, {
+                      headers: { "Content-Type": "multipart/form-data" },
+                      timeout: 180000,
+                    });
+                    triggerReload();
+                  } catch (error) {
+                    console.warn("[guardian] voice turn failed", error);
+                    alert("Voice turn failed. Check backend voice configuration.");
+                  } finally {
+                    setVoiceUploading(false);
+                  }
+                }}
+              />
+            </div>
           </div>
-          <Composer
-            onSend={handleSendMessage}
-            prefill={externalPrefill ?? prefill}
-            onPrefillConsumed={() => {
-              setExternalPrefill(undefined);
-              onPrefillConsumed?.();
-            }}
-            threadId={effectiveThreadId ?? undefined}
-            isTurnInFlight={isTurnLocked(effectiveThreadId)}
-            draftValue={activeDraft}
-            draftScopeKey={activeSessionTabId ?? "global"}
-            onDraftValueChange={onSessionDraftChange}
-          />
         </div>
       </div>
     </div>
