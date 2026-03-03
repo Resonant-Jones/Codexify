@@ -378,6 +378,14 @@ function shouldThrottleDuplicateRequest(
   return { throttled: false, waitMs: 0, key };
 }
 
+function isRequestGuardEnabled(): boolean {
+  const raw = readRuntimeEnv("VITE_ENABLE_REQUEST_GUARD", "true")
+    .trim()
+    .toLowerCase();
+  if (!raw) return true;
+  return !["0", "false", "off", "no"].includes(raw);
+}
+
 export function refreshApiBaseUrl(): string {
   const runtimeConfig = getRuntimeConfigSync();
   api.defaults.baseURL = runtimeConfig.apiBaseUrl;
@@ -482,7 +490,9 @@ api.interceptors.request.use((config) => {
     config.url = config.url.replace(/^\/api/, "");
   }
 
-  const guard = shouldThrottleDuplicateRequest(config.method, config.url);
+  const guard = isRequestGuardEnabled()
+    ? shouldThrottleDuplicateRequest(config.method, config.url)
+    : { throttled: false, waitMs: 0, key: "" };
   if (guard.throttled) {
     const now = Date.now();
     if (now - lastRequestGuardLogAt >= REQUEST_GUARD_LOG_TTL_MS) {
