@@ -86,26 +86,40 @@ function formatElapsed(startedAt: number, now: number): string {
 
 function extractTaskEventDetail(data: unknown, fallbackType: string): string {
   if (typeof data === "string") {
-    const trimmed = data.trim();
-    if (trimmed) return trimmed;
+    const lines = data
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length > 0) {
+      return lines[lines.length - 1];
+    }
   }
   if (data && typeof data === "object") {
-    const record = data as Record<string, unknown>;
-    const candidates = [
-      record.message,
-      record.detail,
-      record.stage,
-      record.status,
-      record.state,
-      record.error,
-    ];
-    for (const candidate of candidates) {
-      if (typeof candidate === "string" && candidate.trim()) {
-        return candidate.trim();
-      }
+    const records: Array<Record<string, unknown>> = [data as Record<string, unknown>];
+    const top = data as Record<string, unknown>;
+    if (top.data && typeof top.data === "object") {
+      records.push(top.data as Record<string, unknown>);
     }
-    if (typeof record.progress === "number") {
-      return `Progress ${Math.max(0, Math.min(100, record.progress))}%`;
+    if (top.payload && typeof top.payload === "object") {
+      records.push(top.payload as Record<string, unknown>);
+    }
+    for (const record of records) {
+      const candidates = [
+        record.message,
+        record.detail,
+        record.stage,
+        record.status,
+        record.state,
+        record.error,
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim()) {
+          return candidate.trim();
+        }
+      }
+      if (typeof record.progress === "number") {
+        return `Progress ${Math.max(0, Math.min(100, record.progress))}%`;
+      }
     }
   }
   return fallbackType;
@@ -116,44 +130,64 @@ function normalizeTaskEventStatus(
   data: unknown
 ): ImportRuntimeStatus | null {
   const normalizedType = eventType.toLowerCase();
-  const normalizedDataStatus =
-    data && typeof data === "object" && typeof (data as any).status === "string"
-      ? String((data as any).status).toLowerCase()
-      : "";
+  const candidateSignals: string[] = [normalizedType];
+
+  if (typeof data === "string") {
+    const trimmed = data.trim().toLowerCase();
+    if (trimmed) {
+      candidateSignals.push(trimmed);
+    }
+  } else if (data && typeof data === "object") {
+    const records: Array<Record<string, unknown>> = [data as Record<string, unknown>];
+    const top = data as Record<string, unknown>;
+    if (top.data && typeof top.data === "object") {
+      records.push(top.data as Record<string, unknown>);
+    }
+    if (top.payload && typeof top.payload === "object") {
+      records.push(top.payload as Record<string, unknown>);
+    }
+
+    for (const record of records) {
+      const maybeSignals = [
+        record.type,
+        record.event,
+        record.status,
+        record.state,
+        record.stage,
+      ];
+      for (const signal of maybeSignals) {
+        if (typeof signal === "string" && signal.trim()) {
+          candidateSignals.push(signal.toLowerCase());
+        }
+      }
+    }
+  }
+
+  const normalizedSignals = candidateSignals.join(" ");
 
   if (
-    normalizedType.includes("failed") ||
-    normalizedType.includes("cancel") ||
-    normalizedDataStatus.includes("failed") ||
-    normalizedDataStatus.includes("cancel")
+    normalizedSignals.includes("failed") ||
+    normalizedSignals.includes("cancel")
   ) {
     return "failed";
   }
   if (
-    normalizedType.includes("completed") ||
-    normalizedType.includes("succeeded") ||
-    normalizedType.includes("done") ||
-    normalizedDataStatus.includes("completed") ||
-    normalizedDataStatus.includes("succeeded") ||
-    normalizedDataStatus.includes("done")
+    normalizedSignals.includes("completed") ||
+    normalizedSignals.includes("succeeded") ||
+    normalizedSignals.includes("done")
   ) {
     return "succeeded";
   }
   if (
-    normalizedType.includes("running") ||
-    normalizedType.includes("started") ||
-    normalizedType.includes("progress") ||
-    normalizedDataStatus.includes("running") ||
-    normalizedDataStatus.includes("started") ||
-    normalizedDataStatus.includes("progress")
+    normalizedSignals.includes("running") ||
+    normalizedSignals.includes("started") ||
+    normalizedSignals.includes("progress")
   ) {
     return "running";
   }
   if (
-    normalizedType.includes("queued") ||
-    normalizedType.includes("created") ||
-    normalizedDataStatus.includes("queued") ||
-    normalizedDataStatus.includes("created")
+    normalizedSignals.includes("queued") ||
+    normalizedSignals.includes("created")
   ) {
     return "queued";
   }
@@ -397,13 +431,23 @@ export function SettingsView({
       }
 
       const nextStatus = normalizeTaskEventStatus(message.type, payload);
-      const detail = extractTaskEventDetail(payload, message.type);
+      const fallbackDetail =
+        message.type === "message"
+          ? "Import event received."
+          : message.type.replace("task.", "").replace(/\./g, " ");
+      const detail = extractTaskEventDetail(payload, fallbackDetail);
       const now = Date.now();
 
       setImportLastEventAt(now);
       setImportDetail(detail);
       if (nextStatus) {
         setImportStatus(nextStatus);
+        if (isTerminalStatus(nextStatus)) {
+          stream.close();
+          if (importTaskStreamRef.current === stream) {
+            importTaskStreamRef.current = null;
+          }
+        }
       }
     };
 
