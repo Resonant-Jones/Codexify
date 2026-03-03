@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 from typing import Dict, List
 
@@ -7,6 +8,8 @@ import typer
 from guardian.vector.store import VectorStore
 
 app = typer.Typer(name="ingest")
+logger = logging.getLogger(__name__)
+_LOGGED_FRONTMATTER_FAILURES: set[str] = set()
 
 
 def _yield_md_files(root: Path):
@@ -15,16 +18,33 @@ def _yield_md_files(root: Path):
             yield p
 
 
-def _parse_frontmatter(text: str) -> Dict:
-    # Minimal frontmatter parser: expects leading --- lines
-    if text.startswith("---\n"):
-        end = text.find("\n---\n", 4)
-        if end != -1:
-            import yaml  # type: ignore
+def _warn_frontmatter_parse_failed(path: str) -> None:
+    if path in _LOGGED_FRONTMATTER_FAILURES:
+        return
+    _LOGGED_FRONTMATTER_FAILURES.add(path)
+    logger.warning("frontmatter_parse_failed:%s", path)
 
-            fm = yaml.safe_load(text[4:end]) or {}
-            content = text[end + 5 :]
-            return {"frontmatter": fm, "content": content}
+
+def _parse_frontmatter(text: str, *, path: str) -> Dict:
+    # Parse frontmatter only when file starts with a leading fence.
+    if text.startswith("---"):
+        first_newline = text.find("\n")
+        if first_newline != -1 and text[:first_newline].strip() == "---":
+            end = text.find("\n---\n", first_newline + 1)
+            if end != -1:
+                try:
+                    import yaml  # type: ignore
+
+                    fm = yaml.safe_load(text[first_newline + 1 : end]) or {}
+                    if not isinstance(fm, dict):
+                        raise ValueError(
+                            "frontmatter must parse to a mapping"
+                        )
+                    content = text[end + 5 :]
+                    return {"frontmatter": fm, "content": content}
+                except Exception:
+                    _warn_frontmatter_parse_failed(path)
+                    return {"frontmatter": {}, "content": text}
     return {"frontmatter": {}, "content": text}
 
 
@@ -35,7 +55,7 @@ def ingest_obsidian(dir: str):
     items: List[Dict] = []
     for md in _yield_md_files(root):
         t = md.read_text(encoding="utf-8", errors="ignore")
-        parsed = _parse_frontmatter(t)
+        parsed = _parse_frontmatter(t, path=str(md))
         fm = parsed["frontmatter"]
         title = fm.get("title") or md.stem
         tags = fm.get("tags") or []
