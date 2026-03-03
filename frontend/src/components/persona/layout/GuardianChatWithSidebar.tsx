@@ -576,14 +576,18 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       threadsRef.current = merged;
       setThreads(merged);
 
-      const fetchedCount = visible.length;
-      const addedCount = merged.length - existingThreads.length;
+      const rawCount = rawList.length;
+      const nextOffsetFromBackend = Number(data?.next_offset);
+      const computedNextOffset =
+        Number.isFinite(nextOffsetFromBackend) && nextOffsetFromBackend > offset
+          ? nextOffsetFromBackend
+          : offset + rawCount;
       const backendHasMore =
         typeof data?.has_more === "boolean"
           ? data.has_more
-          : fetchedCount >= THREAD_PAGE_SIZE;
-      const hasMore = backendHasMore && (reset || addedCount > 0);
-      paginationRef.current.offset = offset + fetchedCount;
+          : rawCount >= THREAD_PAGE_SIZE;
+      const hasMore = rawCount > 0 && backendHasMore;
+      paginationRef.current.offset = computedNextOffset;
       paginationRef.current.hasMore = hasMore;
       setThreadsHasMore(hasMore);
     } catch (err) {
