@@ -1,4 +1,8 @@
 import { renderHook, act, waitFor } from "@testing-library/react";
+import { vi } from "vitest";
+
+import api from "@/lib/api";
+
 import { parseMessagesResponse, useChat } from "../useChat";
 
 describe("parseMessagesResponse", () => {
@@ -322,5 +326,40 @@ describe("useChat - completion state management", () => {
 
     expect(result.current.completionState.activeTaskId).toBe("task-second");
     expect(result.current.completionState.activeThreadId).toBe(456);
+  });
+});
+
+describe("useChat - loadMessages error hygiene", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("suppresses internal request guard metadata from UI error state", async () => {
+    vi.spyOn(api, "get").mockRejectedValueOnce(
+      Object.assign(new Error("request guard active (1200ms)"), {
+        code: "ERR_CLIENT_RATE_GUARD",
+        waitMs: 1200,
+      })
+    );
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.loadMessages(32);
+    });
+
+    expect(result.current.error).toBeNull();
+  });
+
+  it("maps transport/internal exception text to a stable user-facing message", async () => {
+    vi.spyOn(api, "get").mockRejectedValueOnce(
+      new Error("HTTPConnectionPool(host='100.109.4.57', port=11434): Read timed out")
+    );
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.loadMessages(32);
+    });
+
+    expect(result.current.error).toBe("Unable to refresh messages right now.");
   });
 });

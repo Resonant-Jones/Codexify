@@ -125,6 +125,12 @@ describe("GuardianChat offline provider reroute", () => {
     );
 
     await screen.findByText("LLM backend offline");
+    expect(screen.queryByText(/ConnectTimeout/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Guardian cannot reach the model endpoint right now. Check connectivity and model service health."
+      )
+    ).toBeInTheDocument();
     const switchButton = screen.getByRole("button", { name: "Switch provider" });
     expect(switchButton).toBeInTheDocument();
     expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("0");

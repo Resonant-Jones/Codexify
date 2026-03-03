@@ -24,6 +24,33 @@ export type ChatMessage = {
   attachments?: ChatAttachment[];
 };
 
+function isInternalPollBackpressureError(error: any): boolean {
+  const code = String(error?.code ?? "").trim().toUpperCase();
+  if (code === "ERR_CLIENT_RATE_GUARD" || code === "ERR_BACKEND_OUTAGE_FUSE") {
+    return true;
+  }
+  const message = String(error?.message ?? "").toLowerCase();
+  return (
+    message.includes("request guard active") ||
+    message.includes("backend outage fuse active")
+  );
+}
+
+function toUserFacingLoadMessagesError(error: any): string | null {
+  if (isInternalPollBackpressureError(error)) {
+    // Internal control-flow signals should never render in the chat surface.
+    return null;
+  }
+  const status = Number(error?.response?.status ?? 0);
+  if (status === 401 || status === 403) {
+    return "You are not authorized to load this thread.";
+  }
+  if (status === 404) {
+    return "Thread not found.";
+  }
+  return "Unable to refresh messages right now.";
+}
+
 /**
  * Safely extract messages from API response.
  * Handles both envelope format { ok, total, messages } and raw array format.
@@ -231,7 +258,7 @@ export function useChat() {
       logOnce("poll:messages", 10_000, () => {
         console.warn(`[useChat] Failed to load messages for thread ${threadId}`, e);
       });
-      setError(e?.message || "Failed to load messages");
+      setError(toUserFacingLoadMessagesError(e));
       setMessages((prev) => (prev.length ? [] : prev));
       setTotal((prev) => (prev === 0 ? prev : 0));
       setHasMore((prev) => (prev === false ? prev : false));

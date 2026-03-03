@@ -64,6 +64,7 @@ type LlmHealthSnapshot = {
   provider: string | null;
   model: string | null;
   error: string | null;
+  rawError: string | null;
   checkedAt: number | null;
 };
 
@@ -128,6 +129,49 @@ function normalizeProfileOption(
     modelOverride:
       raw.model_override != null ? String(raw.model_override) : null,
   };
+}
+
+function normalizeLlmHealthRawError(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function toUserFacingLlmHealthError(
+  rawError: string | null,
+  status: LlmHealthStatus
+): string | null {
+  if (!rawError) return null;
+  const normalized = rawError.toLowerCase();
+
+  if (/allow_cloud_providers\s*=\s*false/i.test(rawError)) {
+    return "Cloud providers are disabled by configuration.";
+  }
+  if (
+    normalized.includes("timeout") ||
+    normalized.includes("timed out") ||
+    normalized.includes("connecttimeout") ||
+    normalized.includes("readtimeout")
+  ) {
+    return "Guardian cannot reach the model endpoint right now. Check connectivity and model service health.";
+  }
+  if (
+    normalized.includes("connection refused") ||
+    normalized.includes("econnrefused") ||
+    normalized.includes("enotfound") ||
+    normalized.includes("httpconnectionpool")
+  ) {
+    return "Guardian cannot connect to the configured model service. Start it or switch providers.";
+  }
+  if (
+    status === "misconfigured" ||
+    normalized.includes("misconfig") ||
+    normalized.includes("invalid model") ||
+    normalized.includes("unknown model")
+  ) {
+    return "Model configuration is invalid. Review provider/model settings.";
+  }
+  return "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
 }
 
 /**
@@ -252,6 +296,7 @@ export function GuardianChat({
     provider: null,
     model: null,
     error: null,
+    rawError: null,
     checkedAt: null,
   });
   const [availableProfiles, setAvailableProfiles] = useState<SystemProfileOption[]>(PROFILE_FALLBACK_OPTIONS);
@@ -328,22 +373,26 @@ export function GuardianChat({
           : data?.ok
             ? "online"
             : "unknown";
+      const rawError = normalizeLlmHealthRawError(data?.error);
 
       setLlmHealth({
         ok: typeof data?.ok === "boolean" ? data.ok : status === "online",
         status,
         provider: typeof data?.provider === "string" ? data.provider : null,
         model: typeof data?.model === "string" ? data.model : null,
-        error: typeof data?.error === "string" ? data.error : null,
+        error: toUserFacingLlmHealthError(rawError, status),
+        rawError,
         checkedAt: Date.now(),
       });
     } catch (err: any) {
+      const rawError = normalizeLlmHealthRawError(err?.message) || "LLM health check failed";
       setLlmHealth({
         ok: null,
         status: "unknown",
         provider: null,
         model: null,
-        error: err?.message || "LLM health check failed",
+        error: toUserFacingLlmHealthError(rawError, "unknown"),
+        rawError,
         checkedAt: Date.now(),
       });
       logOnce("poll:health-llm", 10_000, () => {
@@ -364,7 +413,7 @@ export function GuardianChat({
   const llmBackendUnavailable =
     llmHealth.status === "offline" || llmHealth.status === "misconfigured";
   const cloudProvidersDisabled = /ALLOW_CLOUD_PROVIDERS\s*=\s*false/i.test(
-    llmHealth.error || ""
+    llmHealth.rawError || ""
   );
   const llmStatusMessage =
     llmHealth.error
