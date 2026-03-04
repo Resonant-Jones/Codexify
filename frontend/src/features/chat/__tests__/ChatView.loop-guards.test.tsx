@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatView from "@/features/chat/ChatView";
@@ -12,6 +12,9 @@ const shouldRefreshMock = vi.fn().mockReturnValue(false);
 const markRefreshedMock = vi.fn();
 const subscribeMock = vi.fn();
 const apiPostMock = vi.fn();
+const apiGetMock = vi.fn();
+const pollOptionsHistory: any[] = [];
+let pollFnRef: (() => Promise<void>) | null = null;
 
 const liveSubscribersByType = new Map<string, Set<Subscriber>>();
 let unsubscribeCount = 0;
@@ -70,7 +73,10 @@ vi.mock("@/features/chat/hooks/useChatAutoScroll", async () => {
 });
 
 vi.mock("@/lib/polling/usePollWithBackoff", () => ({
-  usePollWithBackoff: () => {},
+  usePollWithBackoff: (fn: () => Promise<void>, opts: any) => {
+    pollFnRef = fn;
+    pollOptionsHistory.push(opts);
+  },
 }));
 
 vi.mock("@/components/ui/ContextMenu", () => ({
@@ -118,8 +124,9 @@ vi.mock("@/features/chat/components/ChatBubble", () => ({
 vi.mock("@/lib/api", () => ({
   default: {
     post: (...args: any[]) => apiPostMock(...args),
-    get: vi.fn(),
+    get: (...args: any[]) => apiGetMock(...args),
   },
+  getBackendOutageRemainingMs: vi.fn(() => 0),
 }));
 
 describe("ChatView loop guards", () => {
@@ -131,6 +138,9 @@ describe("ChatView loop guards", () => {
     shouldRefreshMock.mockReturnValue(false);
     markRefreshedMock.mockClear();
     apiPostMock.mockReset();
+    apiGetMock.mockReset();
+    pollFnRef = null;
+    pollOptionsHistory.length = 0;
     resetLiveSubscribers();
 
     subscribeMock.mockImplementation((eventType: string, handler: Subscriber) => {
@@ -246,10 +256,10 @@ describe("ChatView loop guards", () => {
     ];
 
     const completion = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
+      isCompleting: true,
+      activeTaskId: "task-1",
+      activeThreadId: 1,
+      startedAt: Date.now(),
     };
     const endCompletion = vi.fn();
 
@@ -281,6 +291,11 @@ describe("ChatView loop guards", () => {
         )
       ).toBe(true);
     });
+
+    expect(pollOptionsHistory.length).toBeGreaterThan(0);
+    const latestOptions = pollOptionsHistory[pollOptionsHistory.length - 1];
+    expect(latestOptions.intervalMs).toBe(1500);
+    expect(latestOptions.maxBackoffMs).toBe(5000);
 
     rerender(
       <ChatView
@@ -317,6 +332,122 @@ describe("ChatView loop guards", () => {
         )
       ).toBe(true);
     });
+  });
+
+  it("does not start polling from reload updates when completion is inactive", async () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    mockMessages = [
+      {
+        id: 201,
+        thread_id: 1,
+        role: "user",
+        content: "hello",
+        created_at: "2026-03-02T00:00:00.000Z",
+      },
+    ];
+    const completion = {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    };
+
+    const { rerender } = render(
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={vi.fn()}
+        reloadVersion={0}
+      />
+    );
+
+    rerender(
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={vi.fn()}
+        reloadVersion={1}
+      />
+    );
+
+    await waitFor(() => {
+      expect(loadMessagesMock).toHaveBeenCalled();
+    });
+
+    expect(
+      debugSpy.mock.calls.some((call) =>
+        String(call[0]).includes("[chat:poll] start reason=")
+      )
+    ).toBe(false);
+  });
+
+  it("stops polling when assistant reply arrives after user message", async () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    mockMessages = [
+      {
+        id: 301,
+        thread_id: 1,
+        role: "user",
+        content: "pending",
+        created_at: "2026-03-02T00:00:00.000Z",
+      },
+    ];
+    apiGetMock.mockResolvedValue({
+      data: {
+        ok: true,
+        messages: [
+          {
+            id: 302,
+            thread_id: 1,
+            role: "assistant",
+            content: "done",
+            created_at: "2026-03-02T00:00:01.000Z",
+          },
+        ],
+        total: 2,
+      },
+    });
+    const completion = {
+      isCompleting: true,
+      activeTaskId: "task-301",
+      activeThreadId: 1,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={vi.fn()}
+        reloadVersion={1}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        debugSpy.mock.calls.some((call) =>
+          String(call[0]).includes("[chat:poll] start reason=user-message")
+        )
+      ).toBe(true);
+    });
+
+    expect(pollFnRef).not.toBeNull();
+    await act(async () => {
+      await pollFnRef?.();
+    });
+
+    expect(apiGetMock).toHaveBeenCalledWith("/chat/1/messages", {
+      params: { limit: 100, offset: 0 },
+    });
+    expect(appendMessageMock).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ id: 302, role: "assistant" })
+    );
+    expect(
+      debugSpy.mock.calls.some((call) =>
+        String(call[0]).includes("stop reason=assistant-reply-arrived")
+      )
+    ).toBe(true);
   });
 
   it("classifies voice 404s: message-level unavailable and route-level disable", async () => {
