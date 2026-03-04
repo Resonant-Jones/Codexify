@@ -98,11 +98,14 @@ except ModuleNotFoundError:
 
 # Optional Neo4j imports for graph sync
 try:
+    from neomodel import db as neo4j_db
+
     from guardian.graph.connection import connect_neo4j
     from guardian.graph.models import MessageNode, ThreadNode, UserNode
 
     NEO4J_SYNC_AVAILABLE = True
 except Exception:
+    neo4j_db = None
     NEO4J_SYNC_AVAILABLE = False
 
 # LLM configuration validation
@@ -287,6 +290,40 @@ def _derive_thread_title_from_content(content: str) -> str:
     return first_line
 
 
+def _merge_neo4j_message_edge(
+    *, message_node: Any, target_node: Any, rel_type: str
+) -> None:
+    """
+    Merge MessageNode->Target relationship with anchored MATCH clauses.
+
+    This avoids Neo4j cartesian-product planner warnings emitted by OGM
+    generated queries for disconnected MATCH patterns.
+    """
+    if neo4j_db is None:
+        return
+    if rel_type == "SENT_BY":
+        query = """
+        MATCH (them) WHERE elementId(them) = $them
+        MATCH (us)   WHERE elementId(us)   = $self
+        MERGE(us)-[r:`SENT_BY`]->(them)
+        """
+    elif rel_type == "PART_OF":
+        query = """
+        MATCH (them) WHERE elementId(them) = $them
+        MATCH (us)   WHERE elementId(us)   = $self
+        MERGE(us)-[r:`PART_OF`]->(them)
+        """
+    else:
+        raise ValueError(f"Unsupported relationship type: {rel_type}")
+    neo4j_db.cypher_query(
+        query,
+        {
+            "them": str(target_node.element_id),
+            "self": str(message_node.element_id),
+        },
+    )
+
+
 def _persist_message_to_thread(
     *,
     thread_id: int,
@@ -457,8 +494,16 @@ def _persist_message_to_thread(
             if isinstance(neo_msg, list):
                 neo_msg = neo_msg[0]
 
-            neo_msg.user.connect(neo_user)
-            neo_msg.thread.connect(neo_thread)
+            _merge_neo4j_message_edge(
+                message_node=neo_msg,
+                target_node=neo_user,
+                rel_type="SENT_BY",
+            )
+            _merge_neo4j_message_edge(
+                message_node=neo_msg,
+                target_node=neo_thread,
+                rel_type="PART_OF",
+            )
 
         except Exception as e:
             logger.warning("[Neo4j Sync Error] %s", e, exc_info=True)
