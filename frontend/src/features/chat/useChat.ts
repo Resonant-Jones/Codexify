@@ -22,6 +22,7 @@ export type ChatMessage = {
   content: string;
   created_at: string;
   attachments?: ChatAttachment[];
+  turn_id?: string | null;
 };
 
 function isInternalPollBackpressureError(error: any): boolean {
@@ -118,6 +119,29 @@ const normalizeAttachments = (raw: any): ChatAttachment[] => {
   return out;
 };
 
+const UUID_V4ISH_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function normalizeTurnId(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return UUID_V4ISH_RE.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+
+function readTurnId(raw: any): string | null {
+  const direct = normalizeTurnId(raw?.turn_id ?? raw?.turnId);
+  if (direct) return direct;
+  const base = raw?.message && typeof raw.message === "object" ? raw.message : raw;
+  const metadataCandidate =
+    base?.metadata ?? base?.extra_meta ?? base?.extraMeta;
+  if (metadataCandidate && typeof metadataCandidate === "object") {
+    const nested = metadataCandidate as Record<string, unknown>;
+    return normalizeTurnId(nested.turn_id ?? nested.turnId);
+  }
+  return null;
+}
+
 const normalizeMessage = (raw: any, fallbackThreadId?: number): ChatMessage | null => {
   if (!raw) return null;
   const base = raw.message && typeof raw.message === "object" ? raw.message : raw;
@@ -128,6 +152,7 @@ const normalizeMessage = (raw: any, fallbackThreadId?: number): ChatMessage | nu
   const createdAtRaw = base.created_at ?? base.createdAt;
   const createdAt = createdAtRaw ? String(createdAtRaw) : "";
   const attachments = normalizeAttachments(raw);
+  const turnId = readTurnId(raw);
   if (!Number.isFinite(threadId) || !Number.isFinite(id)) return null;
   // Drop true no-op messages, but allow attachment-only messages (uploads).
   const hasText = !!content.trim();
@@ -140,6 +165,7 @@ const normalizeMessage = (raw: any, fallbackThreadId?: number): ChatMessage | nu
     content,
     created_at: createdAt,
     attachments: attachments.length ? attachments : undefined,
+    turn_id: turnId,
   };
 };
 
@@ -166,7 +192,8 @@ const sameMessage = (a: ChatMessage, b: ChatMessage): boolean => {
     && a.thread_id === b.thread_id
     && a.role === b.role
     && a.content === b.content
-    && (a.created_at || "") === (b.created_at || "");
+    && (a.created_at || "") === (b.created_at || "")
+    && (a.turn_id || null) === (b.turn_id || null);
 };
 
 const equalMessageLists = (a: ChatMessage[], b: ChatMessage[]): boolean => {
@@ -177,6 +204,41 @@ const equalMessageLists = (a: ChatMessage[], b: ChatMessage[]): boolean => {
   }
   return true;
 };
+
+function isAssistantWithTurnId(message: ChatMessage): boolean {
+  return (
+    String(message.role || "").trim().toLowerCase() === "assistant" &&
+    Boolean(message.turn_id)
+  );
+}
+
+function findAssistantTurnDuplicateIndex(
+  messages: ChatMessage[],
+  incoming: ChatMessage
+): number {
+  if (!isAssistantWithTurnId(incoming)) return -1;
+  return messages.findIndex((candidate) => {
+    if (!isAssistantWithTurnId(candidate)) return false;
+    return candidate.turn_id === incoming.turn_id;
+  });
+}
+
+function collapseAssistantTurnDuplicates(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length < 2) return messages;
+  const seenTurns = new Set<string>();
+  const next: ChatMessage[] = [];
+  for (const message of messages) {
+    if (!isAssistantWithTurnId(message)) {
+      next.push(message);
+      continue;
+    }
+    const turnId = message.turn_id as string;
+    if (seenTurns.has(turnId)) continue;
+    seenTurns.add(turnId);
+    next.push(message);
+  }
+  return next;
+}
 
 export type CompletionState = {
   isCompleting: boolean;
@@ -268,7 +330,8 @@ export function useChat() {
         const nextHasMore = offset + page.length < tot;
         setHasMore((prev) => (prev === nextHasMore ? prev : nextHasMore));
         setMessages((prev) => {
-          const next = append ? mergeMessagePages(prev, page) : page;
+          const merged = append ? mergeMessagePages(prev, page) : page;
+          const next = collapseAssistantTurnDuplicates(merged);
           return equalMessageLists(prev, next) ? prev : next;
         });
       } else {
@@ -293,6 +356,15 @@ export function useChat() {
     const incoming = normalizeMessage(raw, threadId);
     if (!incoming || incoming.thread_id !== threadId) return;
     setMessages((prev) => {
+      const turnDuplicateIdx = findAssistantTurnDuplicateIndex(prev, incoming);
+      if (
+        turnDuplicateIdx >= 0 &&
+        prev[turnDuplicateIdx] &&
+        prev[turnDuplicateIdx].id !== incoming.id
+      ) {
+        return prev;
+      }
+
       const idx = prev.findIndex((msg) => msg.id === incoming.id);
       if (idx >= 0) {
         const existing = prev[idx];
@@ -306,7 +378,10 @@ export function useChat() {
         next[idx] = merged;
         return next;
       }
-      const next = [...prev, incoming];
+      const next = collapseAssistantTurnDuplicates([...prev, incoming]);
+      if (next.length === prev.length) {
+        return prev;
+      }
       setTotal((prevTotal) => prevTotal + 1);
       return next;
     });
@@ -483,18 +558,38 @@ function mergeMessagePages(prev: ChatMessage[], page: ChatMessage[]): ChatMessag
   const next = [...prev];
   // Deduplicate by id so SSE inserts do not re-add fetched messages.
   const indexById = new Map<number, number>();
-  next.forEach((msg, idx) => indexById.set(msg.id, idx));
+  const assistantTurnIndex = new Map<string, number>();
+  next.forEach((msg, idx) => {
+    indexById.set(msg.id, idx);
+    if (isAssistantWithTurnId(msg) && msg.turn_id) {
+      if (!assistantTurnIndex.has(msg.turn_id)) {
+        assistantTurnIndex.set(msg.turn_id, idx);
+      }
+    }
+  });
   page.forEach((msg) => {
+    if (isAssistantWithTurnId(msg) && msg.turn_id) {
+      const turnIdx = assistantTurnIndex.get(msg.turn_id);
+      if (turnIdx != null && next[turnIdx]?.id !== msg.id) {
+        return;
+      }
+    }
     const existingIdx = indexById.get(msg.id);
     if (existingIdx == null) {
       indexById.set(msg.id, next.length);
       next.push(msg);
+      if (isAssistantWithTurnId(msg) && msg.turn_id) {
+        assistantTurnIndex.set(msg.turn_id, next.length - 1);
+      }
       return;
     }
     const existing = next[existingIdx];
     if (!sameMessage(existing, msg)) {
       next[existingIdx] = msg;
+      if (isAssistantWithTurnId(msg) && msg.turn_id) {
+        assistantTurnIndex.set(msg.turn_id, existingIdx);
+      }
     }
   });
-  return next;
+  return collapseAssistantTurnDuplicates(next);
 }
