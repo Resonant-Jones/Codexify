@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 import time
-from typing import Any, Optional
+from functools import lru_cache
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -17,7 +19,6 @@ from guardian.db.models import ChatMessage
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue
 from guardian.queue.turn_lock import acquire_turn_lock, turn_lock_key
-from guardian.tasks.types import VoiceTurnTask
 from guardian.voice.audio_assets import (
     compute_text_hash,
     find_cached_asset,
@@ -35,6 +36,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/voice", tags=["Voice"])
 
 VOICE_QUEUE_NAME = os.getenv("VOICE_QUEUE_NAME", "codexify:queue:voice")
+_TRUTHY = {"1", "true", "yes", "on"}
+_FALSY = {"0", "false", "no", "off"}
 
 
 class SpeakRequest(BaseModel):
@@ -49,6 +52,29 @@ class SpeakResponse(BaseModel):
     audio_asset: dict[str, Any]
     cached: bool
     text_hash: str
+
+
+@lru_cache(maxsize=1)
+def _get_voice_turn_task_cls():
+    try:
+        from guardian.tasks.types import VoiceTurnTask
+    except Exception:
+        return None
+    return VoiceTurnTask
+
+
+def _voice_turns_enabled(cfg) -> bool:
+    explicit = (os.getenv("CODEXIFY_ENABLE_VOICE_TURNS") or "").strip().lower()
+    if explicit in _TRUTHY:
+        return True
+    if explicit in _FALSY:
+        return False
+    return str(getattr(cfg, "mode", "") or "").strip().lower() not in {
+        "",
+        "off",
+        "disabled",
+        "none",
+    }
 
 
 async def _await_terminal_task_event(
@@ -110,6 +136,17 @@ async def voice_turn(
     system_override: str | None = Form(None),
     api_key: str = Depends(require_api_key),
 ):
+    cfg = get_voice_runtime_config()
+    if not _voice_turns_enabled(cfg):
+        raise HTTPException(status_code=403, detail="voice_turns_disabled")
+
+    voice_turn_task_cls = _get_voice_turn_task_cls()
+    if voice_turn_task_cls is None:
+        raise HTTPException(
+            status_code=503,
+            detail="voice_turn_task_unavailable",
+        )
+
     if not chatlog_db or not hasattr(chatlog_db, "get_chat_thread"):
         raise HTTPException(status_code=503, detail="chat_db_unavailable")
 
@@ -118,7 +155,6 @@ async def voice_turn(
         raise HTTPException(status_code=404, detail="thread_not_found")
 
     audio_bytes = await audio_file.read()
-    cfg = get_voice_runtime_config()
     try:
         duration = enforce_audio_input_limits(
             audio_bytes,
@@ -128,7 +164,7 @@ async def voice_turn(
     except VoiceValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    task = VoiceTurnTask(
+    task = voice_turn_task_cls(
         thread_id=thread_id,
         audio_b64=base64.b64encode(audio_bytes).decode("ascii"),
         audio_mime=audio_file.content_type,
