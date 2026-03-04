@@ -6,8 +6,10 @@ Executes STT -> shared completion -> optional TTS, then emits terminal task even
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 
@@ -19,7 +21,12 @@ from guardian.core.chat_completion_service import (
     run_chat_completion_task,
 )
 from guardian.queue import task_events
-from guardian.queue.redis_queue import clear_cancelled, dequeue, is_cancelled
+from guardian.queue.redis_queue import (
+    clear_cancelled,
+    dequeue,
+    get_redis_client,
+    is_cancelled,
+)
 from guardian.queue.turn_lock import release_turn_lock
 from guardian.tasks.types import (
     ChatCompletionTask,
@@ -29,11 +36,17 @@ from guardian.tasks.types import (
 from guardian.voice.audio_assets import save_message_audio_asset
 from guardian.voice.client import synthesize, transcribe
 from guardian.voice.config import get_voice_runtime_config
+from guardian.voice.runtime import (
+    VOICE_HEARTBEAT_INTERVAL_SECONDS,
+    VOICE_HEARTBEAT_KEY,
+    VOICE_HEARTBEAT_TTL_SECONDS,
+    VOICE_QUEUE_NAME,
+)
 from guardian.voice.service import VoiceTimeoutError, VoiceValidationError
 
 logger = logging.getLogger(__name__)
 
-QUEUE_NAME = os.getenv("VOICE_QUEUE_NAME", "codexify:queue:voice")
+QUEUE_NAME = VOICE_QUEUE_NAME
 CONCURRENCY = int(os.getenv("VOICE_WORKER_CONCURRENCY", "1"))
 
 
@@ -42,6 +55,24 @@ def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
         task_events.publish(task_id, event_type, data)
     except Exception as exc:
         logger.warning("[voice-worker] failed to publish event: %s", exc)
+
+
+def _publish_worker_heartbeat(status: str = "idle") -> None:
+    payload = {
+        "worker": "voice",
+        "status": status,
+        "queue": QUEUE_NAME,
+        "ts": int(time.time()),
+    }
+    try:
+        client = get_redis_client()
+        client.setex(
+            VOICE_HEARTBEAT_KEY,
+            max(5, VOICE_HEARTBEAT_TTL_SECONDS),
+            json.dumps(payload),
+        )
+    except Exception as exc:
+        logger.debug("[voice-worker] heartbeat update failed: %s", exc)
 
 
 def _run_voice_task(task: VoiceTurnTask) -> None:
@@ -118,6 +149,9 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
             },
         )
 
+        completion_origin = "worker:voice_turn"
+        if task.turn_id:
+            completion_origin = f"{completion_origin}|turn_id={task.turn_id}"
         completion_task = ChatCompletionTask(
             thread_id=task.thread_id,
             provider=task.completion_provider,
@@ -125,9 +159,10 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
             max_context=task.max_context,
             depth_mode=task.depth_mode,
             system_override=task.system_override,
-            origin="worker:voice_turn",
-            turn_lock_owner=task.turn_lock_owner,
+            origin=completion_origin,
         )
+        if task.turn_id:
+            completion_task.turn_id = task.turn_id
 
         try:
             from guardian.core.config import settings as llm_settings
@@ -280,13 +315,20 @@ def _initialize_worker() -> None:
 
 def run_forever() -> None:
     _initialize_worker()
+    _publish_worker_heartbeat("starting")
     logger.info(
         "[voice-worker] started queue=%s concurrency=%s",
         QUEUE_NAME,
         CONCURRENCY,
     )
     with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
+        last_heartbeat = 0.0
         while True:
+            now = time.time()
+            if now - last_heartbeat >= max(1, VOICE_HEARTBEAT_INTERVAL_SECONDS):
+                _publish_worker_heartbeat("idle")
+                last_heartbeat = now
+
             try:
                 payload = dequeue(QUEUE_NAME, block=True, timeout=5)
             except RedisTimeoutError:
@@ -294,6 +336,9 @@ def run_forever() -> None:
 
             if not payload:
                 continue
+
+            _publish_worker_heartbeat("active")
+            last_heartbeat = time.time()
 
             try:
                 task = task_from_dict(payload)

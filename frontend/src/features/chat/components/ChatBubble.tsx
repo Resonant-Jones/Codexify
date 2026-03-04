@@ -6,6 +6,7 @@
  */
 import React from "react";
 import { motion } from "framer-motion";
+import { Volume2 } from "lucide-react";
 import { Message, MessageAttachment } from "@/types/ui";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -214,7 +215,7 @@ export function ChatBubble({
   const hasText = Boolean(cleanedContent.trim());
   const resolvedPlayState =
     playState ?? (playing ? "playing" : "idle");
-  const playButtonLabel =
+  const playButtonTitle =
     resolvedPlayState === "playing"
       ? "Playing..."
       : resolvedPlayState === "unavailable"
@@ -222,6 +223,8 @@ export function ChatBubble({
         : resolvedPlayState === "disabled"
           ? "Voice disabled"
           : "Read Aloud";
+  const playButtonAriaLabel =
+    resolvedPlayState === "playing" ? "Playing audio" : "Read message aloud";
   const playDisabled =
     resolvedPlayState === "unavailable" || resolvedPlayState === "disabled";
 
@@ -318,7 +321,7 @@ export function ChatBubble({
             <button
               type="button"
               className={cn(
-                "text-[10px] px-2 py-0.5 rounded border",
+                "inline-flex h-6 w-6 items-center justify-center rounded border",
                 playDisabled ? "opacity-55 cursor-not-allowed" : "opacity-80 hover:opacity-100"
               )}
               style={{
@@ -328,8 +331,10 @@ export function ChatBubble({
               }}
               onClick={playDisabled ? undefined : onPlay}
               disabled={playDisabled}
+              aria-label={playButtonAriaLabel}
+              title={playButtonTitle}
             >
-              {playButtonLabel}
+              <Volume2 className="h-3.5 w-3.5" />
             </button>
           )}
         </div>

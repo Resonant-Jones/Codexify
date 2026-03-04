@@ -86,6 +86,22 @@ type ResolvedProfileState = {
   modelOverride: string | null;
 };
 
+type VoiceCapabilities = {
+  read_aloud_enabled: boolean;
+  turn_based_enabled: boolean;
+  supported_input_mime: string[];
+  limits: { max_upload_bytes: number; max_duration_s: number } | null;
+};
+
+type VoiceCapabilitiesStatus = "loading" | "ready" | "error";
+
+const DEFAULT_VOICE_CAPABILITIES: VoiceCapabilities = {
+  read_aloud_enabled: false,
+  turn_based_enabled: false,
+  supported_input_mime: ["audio/wav", "audio/x-wav", "audio/webm", "audio/ogg"],
+  limits: null,
+};
+
 const PROFILE_FALLBACK_OPTIONS: SystemProfileOption[] = [
   { id: "default", name: "Default", mode: "cloud" },
   { id: "cloud_mode", name: "Cloud Profile", mode: "cloud" },
@@ -135,6 +151,32 @@ function normalizeLlmHealthRawError(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function normalizeVoiceCapabilities(raw: any): VoiceCapabilities {
+  const limitsRaw = raw?.limits;
+  const maxUploadBytes = Number(limitsRaw?.max_upload_bytes);
+  const maxDurationSeconds = Number(limitsRaw?.max_duration_s);
+  const supportedInputMime = Array.isArray(raw?.supported_input_mime)
+    ? raw.supported_input_mime
+        .map((entry: unknown) => String(entry ?? "").trim().toLowerCase())
+        .filter(Boolean)
+    : DEFAULT_VOICE_CAPABILITIES.supported_input_mime;
+
+  return {
+    read_aloud_enabled: Boolean(raw?.read_aloud_enabled),
+    turn_based_enabled: Boolean(raw?.turn_based_enabled),
+    supported_input_mime: supportedInputMime.length
+      ? supportedInputMime
+      : DEFAULT_VOICE_CAPABILITIES.supported_input_mime,
+    limits:
+      Number.isFinite(maxUploadBytes) && Number.isFinite(maxDurationSeconds)
+        ? {
+            max_upload_bytes: Math.max(0, Math.floor(maxUploadBytes)),
+            max_duration_s: Math.max(0, Math.floor(maxDurationSeconds)),
+          }
+        : null,
+  };
 }
 
 function toUserFacingLlmHealthError(
@@ -288,6 +330,11 @@ export function GuardianChat({
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
   const [voiceUploading, setVoiceUploading] = useState(false);
+  const [voiceCapabilities, setVoiceCapabilities] = useState<VoiceCapabilities>(
+    DEFAULT_VOICE_CAPABILITIES
+  );
+  const [voiceCapabilitiesStatus, setVoiceCapabilitiesStatus] =
+    useState<VoiceCapabilitiesStatus>("loading");
   const [autoReadEnabled, setAutoReadEnabled] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem("cfy.voice.autoRead") === "1";
@@ -327,6 +374,27 @@ export function GuardianChat({
         new CustomEvent("cfy:toast", { detail: { message, kind: "error" } })
       );
     } catch {}
+  }, []);
+  const voiceReadAloudEnabled = voiceCapabilities.read_aloud_enabled;
+  const voiceTurnBasedEnabled = voiceCapabilities.turn_based_enabled;
+  const voiceCapabilitiesFailed = voiceCapabilitiesStatus === "error";
+  const supportedVoiceInputMime = voiceCapabilities.supported_input_mime;
+  const voiceUploadAccept = useMemo(
+    () => supportedVoiceInputMime.join(","),
+    [supportedVoiceInputMime]
+  );
+  const voiceUploadLimitBytes = voiceCapabilities.limits?.max_upload_bytes ?? null;
+
+  const refreshVoiceCapabilities = useCallback(async () => {
+    try {
+      const response = await api.get("/voice/capabilities");
+      setVoiceCapabilities(normalizeVoiceCapabilities(response?.data));
+      setVoiceCapabilitiesStatus("ready");
+    } catch (error) {
+      console.warn("[guardian] voice capabilities unavailable", error);
+      setVoiceCapabilities(DEFAULT_VOICE_CAPABILITIES);
+      setVoiceCapabilitiesStatus("error");
+    }
   }, []);
   const resolveProfileIdFromCommand = useCallback(
     (text: string): string | null => {
@@ -810,6 +878,16 @@ export function GuardianChat({
   useEffect(() => () => triggerReload.cancel(), [triggerReload]);
 
   useEffect(() => {
+    void refreshVoiceCapabilities();
+  }, [effectiveThreadId, refreshVoiceCapabilities]);
+
+  useEffect(() => {
+    if (voiceReadAloudEnabled) return;
+    if (!autoReadEnabled) return;
+    setAutoReadEnabled(false);
+  }, [autoReadEnabled, voiceReadAloudEnabled]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem("cfy.voice.autoRead", autoReadEnabled ? "1" : "0");
     } catch {}
@@ -1200,10 +1278,29 @@ export function GuardianChat({
       <button
         type="button"
         className="icon-inline"
-        aria-label={autoReadEnabled ? "Disable auto read aloud" : "Enable auto read aloud"}
-        title={autoReadEnabled ? "Auto read aloud: On" : "Auto read aloud: Off"}
-        onClick={() => setAutoReadEnabled((v) => !v)}
-        style={{ borderRadius: "var(--radius-micro)", opacity: autoReadEnabled ? 1 : 0.65 }}
+        aria-label={
+          voiceReadAloudEnabled
+            ? autoReadEnabled
+              ? "Disable auto read aloud"
+              : "Enable auto read aloud"
+            : "Auto read aloud unavailable"
+        }
+        title={
+          voiceReadAloudEnabled
+            ? autoReadEnabled
+              ? "Auto read aloud: On"
+              : "Auto read aloud: Off"
+            : "Read-aloud unavailable"
+        }
+        onClick={() => {
+          if (!voiceReadAloudEnabled) return;
+          setAutoReadEnabled((v) => !v);
+        }}
+        disabled={!voiceReadAloudEnabled}
+        style={{
+          borderRadius: "var(--radius-micro)",
+          opacity: voiceReadAloudEnabled ? (autoReadEnabled ? 1 : 0.65) : 0.45,
+        }}
       >
         <Volume2 className="h-5 w-5" />
       </button>
@@ -1477,6 +1574,8 @@ export function GuardianChat({
             autoReadEnabled={autoReadEnabled}
             depthMode={depth}
             profileId={resolvedProfile.id}
+            voiceReadAloudEnabled={voiceReadAloudEnabled}
+            voiceCapabilitiesFailed={voiceCapabilitiesFailed}
           />
         ) : (
           <div
@@ -1517,20 +1616,20 @@ export function GuardianChat({
           {/* Bottom controls bar (aligned to bottom edge) */}
           <div className="mt-3 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              {/* Voice mode indicator (icon-only, label via tooltip) */}
-              <button
-                type="button"
-                className="icon-inline"
-                aria-label="Turn-based voice"
-                title="Turn-based voice"
-                style={{ borderRadius: "var(--radius-micro)", opacity: 0.8 }}
-                onClick={() => {
-                  // purely informational affordance for now
-                  console.debug("[guardian] turn-based voice affordance clicked");
-                }}
-              >
-                <Volume2 className="h-4 w-4" />
-              </button>
+              {voiceTurnBasedEnabled ? (
+                <button
+                  type="button"
+                  className="icon-inline"
+                  aria-label="Turn-based voice"
+                  title="Turn-based voice"
+                  style={{ borderRadius: "var(--radius-micro)", opacity: 0.8 }}
+                  onClick={() => {
+                    console.debug("[guardian] turn-based voice affordance clicked");
+                  }}
+                >
+                  <Volume2 className="h-4 w-4" />
+                </button>
+              ) : null}
 
               {/* RAG Depth Selector (icon-only) */}
               <DropdownMenu>
@@ -1594,54 +1693,77 @@ export function GuardianChat({
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
-                style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
-                disabled={voiceUploading}
-                onClick={() => {
-                  if (effectiveThreadId == null) {
-                    alert("Create or open a thread before starting a voice turn.");
-                    return;
-                  }
-                  voiceFileInputRef.current?.click();
-                }}
-              >
-                {voiceUploading ? "Processing…" : "Upload Voice Turn"}
-              </button>
+              {voiceTurnBasedEnabled ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
+                    style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                    disabled={voiceUploading}
+                    onClick={() => {
+                      if (effectiveThreadId == null) {
+                        alert("Create or open a thread before starting a voice turn.");
+                        return;
+                      }
+                      voiceFileInputRef.current?.click();
+                    }}
+                  >
+                    {voiceUploading ? "Processing…" : "Upload Voice Turn"}
+                  </button>
 
-              <input
-                ref={voiceFileInputRef}
-                type="file"
-                accept="audio/wav,audio/*"
-                className="hidden"
-                onChange={async (event) => {
-                  const file = event.target.files?.[0];
-                  event.currentTarget.value = "";
-                  if (!file) return;
-                  if (effectiveThreadId == null) {
-                    alert("Create or open a thread before starting a voice turn.");
-                    return;
-                  }
-                  setVoiceUploading(true);
-                  try {
-                    const form = new FormData();
-                    form.append("thread_id", String(effectiveThreadId));
-                    form.append("audio_file", file);
-                    form.append("tts_enabled", "true");
-                    await api.post("/api/voice/turn", form, {
-                      headers: { "Content-Type": "multipart/form-data" },
-                      timeout: 180000,
-                    });
-                    triggerReload();
-                  } catch (error) {
-                    console.warn("[guardian] voice turn failed", error);
-                    alert("Voice turn failed. Check backend voice configuration.");
-                  } finally {
-                    setVoiceUploading(false);
-                  }
-                }}
-              />
+                  <input
+                    ref={voiceFileInputRef}
+                    type="file"
+                    accept={voiceUploadAccept}
+                    className="hidden"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      event.currentTarget.value = "";
+                      if (!file) return;
+                      if (effectiveThreadId == null) {
+                        alert("Create or open a thread before starting a voice turn.");
+                        return;
+                      }
+                      const normalizedMime = String(file.type || "")
+                        .trim()
+                        .toLowerCase();
+                      if (
+                        normalizedMime &&
+                        supportedVoiceInputMime.length > 0 &&
+                        !supportedVoiceInputMime.includes(normalizedMime)
+                      ) {
+                        alert(`Unsupported audio type: ${normalizedMime}`);
+                        return;
+                      }
+                      if (
+                        voiceUploadLimitBytes != null &&
+                        file.size > voiceUploadLimitBytes
+                      ) {
+                        const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
+                        alert(`Audio file too large. Max ${limitMb} MB.`);
+                        return;
+                      }
+                      setVoiceUploading(true);
+                      try {
+                        const form = new FormData();
+                        form.append("thread_id", String(effectiveThreadId));
+                        form.append("audio_file", file);
+                        form.append("tts_enabled", "true");
+                        await api.post("/voice/turn", form, {
+                          headers: { "Content-Type": "multipart/form-data" },
+                          timeout: 180000,
+                        });
+                        triggerReload();
+                      } catch (error) {
+                        console.warn("[guardian] voice turn failed", error);
+                        alert("Voice turn failed. Check backend voice configuration.");
+                      } finally {
+                        setVoiceUploading(false);
+                      }
+                    }}
+                  />
+                </>
+              ) : null}
             </div>
           </div>
         </div>
