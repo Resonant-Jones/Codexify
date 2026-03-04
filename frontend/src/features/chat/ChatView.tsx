@@ -35,7 +35,8 @@ type PollSession = {
 type Voice404Classification = "message_not_found" | "route_missing" | "unknown";
 
 const PAGE_SIZE = 100;
-const POLL_INTERVAL_MS = 900;
+// Keep poll cadence moderate to avoid backend global rate-limit pressure.
+const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 30000;
 const COMPLETION_SETTLE_MS = 150;
 

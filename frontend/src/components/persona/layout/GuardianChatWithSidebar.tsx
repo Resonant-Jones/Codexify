@@ -852,12 +852,35 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       );
     } catch (err) {
       console.warn("[guardian] failed to persist user message", err);
-      // Surface per-thread turn lock errors as a friendly retry prompt.
       const status = (err as any)?.response?.status;
-      const errorCode = (err as any)?.response?.data?.error;
-      const message =
-        status === 429 || errorCode === "turn_in_flight"
-          ? "One moment—finish the current reply first."
+      const payload = (err as any)?.response?.data ?? {};
+      const errorCode = String(payload?.error ?? payload?.code ?? "")
+        .trim()
+        .toLowerCase();
+      const detail = String(payload?.detail ?? payload?.message ?? "")
+        .trim()
+        .toLowerCase();
+      const retryAfterRaw = Number(
+        payload?.retry_after
+          ?? (err as any)?.response?.headers?.["retry-after"]
+          ?? 0
+      );
+      const retryAfterSeconds = Number.isFinite(retryAfterRaw)
+        ? Math.max(0, Math.ceil(retryAfterRaw))
+        : 0;
+
+      // Surface per-thread turn lock errors as a friendly retry prompt.
+      const isTurnInFlight =
+        errorCode === "turn_in_flight"
+        || detail.includes("turn_in_flight")
+        || detail.includes("assistant is responding");
+
+      const message = isTurnInFlight
+        ? "One moment—finish the current reply first."
+        : status === 429
+          ? retryAfterSeconds > 0
+            ? `Too many requests right now. Try again in ${retryAfterSeconds}s.`
+            : "Too many requests right now. Please wait a moment and retry."
           : "Failed to send message.";
       throw new Error(message);
     }
