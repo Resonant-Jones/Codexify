@@ -649,8 +649,12 @@ def _ensure_default_project_id() -> Optional[int]:
     """
     if not chatlog_db:
         return None
+    ensure_default_project = getattr(chatlog_db, "ensure_default_project", None)
+    if not callable(ensure_default_project):
+        # Some DB backends (e.g., PostgresChatLogDB) may not implement this shim.
+        return None
     try:
-        pid = chatlog_db.ensure_default_project()
+        pid = ensure_default_project()
         return int(pid) if pid is not None else None
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.warning("[chat] failed to ensure default project: %s", exc)
@@ -1103,6 +1107,31 @@ async def chat_complete(
         thread_project_id = _coerce_positive_int(
             thread_exists.get("project_id")
         )
+    if thread_project_id is None:
+        try:
+            # Optional backend seam: infer project association from thread profile.
+            profile_getter = getattr(chatlog_db, "get_thread_profile", None)
+            if callable(profile_getter):
+                profile = profile_getter(thread_id)
+                inferred_project_id: Any = None
+                if isinstance(profile, dict):
+                    inferred_project_id = profile.get("project_id")
+                    if not isinstance(inferred_project_id, int):
+                        thread_payload = profile.get("thread")
+                        if isinstance(thread_payload, dict):
+                            inferred_project_id = thread_payload.get(
+                                "project_id"
+                            )
+                if isinstance(inferred_project_id, int):
+                    thread_project_id = _coerce_positive_int(
+                        inferred_project_id
+                    )
+        except Exception as exc:
+            logger.debug(
+                "[chat.complete] failed to infer project_id from thread profile thread_id=%s err=%s",
+                thread_id,
+                exc,
+            )
     thread_has_project = thread_project_id is not None
 
     project_identity_depth_raw: str | None = None
