@@ -334,6 +334,38 @@ describe("useChat - completion state management", () => {
     expect(result.current.completionState.activeTaskId).toBe("task-second");
     expect(result.current.completionState.activeThreadId).toBe(456);
   });
+
+  it("retains the first assistant message when duplicate turn_id responses arrive", () => {
+    const { result } = renderHook(() => useChat());
+    const turnId = "11111111-1111-4111-8111-111111111111";
+
+    act(() => {
+      result.current.appendMessage(7, {
+        id: 701,
+        thread_id: 7,
+        role: "assistant",
+        content: "first response",
+        created_at: "2026-03-04T00:00:00.000Z",
+        turn_id: turnId,
+      });
+    });
+
+    act(() => {
+      result.current.appendMessage(7, {
+        id: 702,
+        thread_id: 7,
+        role: "assistant",
+        content: "duplicate response",
+        created_at: "2026-03-04T00:00:01.000Z",
+        metadata: { turn_id: turnId },
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].id).toBe(701);
+    expect(result.current.messages[0].content).toBe("first response");
+    expect(result.current.messages[0].turn_id).toBe(turnId);
+  });
 });
 
 describe("useChat - loadMessages error hygiene", () => {
