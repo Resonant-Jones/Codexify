@@ -36,7 +36,8 @@ type Voice404Classification = "message_not_found" | "route_missing" | "unknown";
 
 const PAGE_SIZE = 100;
 // Keep poll cadence moderate to avoid backend global rate-limit pressure.
-const POLL_INTERVAL_MS = 2000;
+const MESSAGE_POLL_MIN_MS = 1500;
+const MESSAGE_POLL_MAX_MS = 5000;
 const POLL_TIMEOUT_MS = 300_000; // 5 minutes slow-path ceiling
 const COMPLETION_SETTLE_MS = 150;
 
@@ -166,6 +167,8 @@ export function ChatView({
 
   const profileKey = profileId ?? "none";
   const resolvedDepthMode: DepthMode = depthMode ?? "normal";
+  const isCompletingForThread =
+    completionState.isCompleting && completionState.activeThreadId === threadId;
 
   const debugLog = useCallback((key: string, message: string, ttlMs = 1000) => {
     const now = Date.now();
@@ -229,6 +232,14 @@ export function ChatView({
     activePollKeyRef.current = null;
     setPollSession((prev) => (prev ? null : prev));
   }, []);
+
+  const stopPollingWithReason = useCallback(
+    (reason: string, expectedKey?: string) => {
+      debugLog(`poll:stop:${reason}`, `[chat:poll] stop reason=${reason}`, 500);
+      stopPolling(expectedKey);
+    },
+    [debugLog, stopPolling]
+  );
 
   const startPolling = useCallback(
     (tid: number, reason: string, lastUserMessageId: number) => {
@@ -333,11 +344,11 @@ export function ChatView({
       if (maxAssistantId > lastAssistantIdRef.current) {
         lastAssistantIdRef.current = maxAssistantId;
       }
-      if (
+      const assistantReplyArrived =
         maxAssistantId > session.initialAssistantId &&
-        activePollKeyRef.current === session.key
-      ) {
-        stopPolling(session.key);
+        maxAssistantId > session.lastUserMessageId;
+      if (assistantReplyArrived && activePollKeyRef.current === session.key) {
+        stopPollingWithReason("assistant-reply-arrived", session.key);
       }
     } catch (err) {
       logOnce("poll:messages", 10_000, () => {
@@ -345,12 +356,12 @@ export function ChatView({
       });
       throw err;
     }
-  }, [appendMessage, stopPolling]);
+  }, [appendMessage, stopPollingWithReason]);
 
   usePollWithBackoff(pollOnce, {
     enabled: Boolean(pollSession && activePollKeyRef.current === pollSession.key),
-    intervalMs: POLL_INTERVAL_MS,
-    maxBackoffMs: 8_000,
+    intervalMs: MESSAGE_POLL_MIN_MS,
+    maxBackoffMs: MESSAGE_POLL_MAX_MS,
     onErrorKey: "poll:messages",
     logTtlMs: 10_000,
   });
@@ -435,19 +446,28 @@ export function ChatView({
   }, [loadMessages, stopPolling, threadId]);
 
   useEffect(() => {
+    if (!isCompletingForThread) return;
     if (reloadVersion === lastReloadVersionRef.current) return;
     lastReloadVersionRef.current = reloadVersion;
     startPolling(threadId, "completion", getLastUserMessageId(messagesRef.current));
-  }, [reloadVersion, startPolling, threadId]);
+  }, [isCompletingForThread, reloadVersion, startPolling, threadId]);
 
   useEffect(() => {
+    if (!isCompletingForThread) return;
     const active = pollSessionRef.current;
     if (!active || active.tid !== threadId) return;
     const nextKey = buildPollKey(threadId, active.lastUserMessageId);
     if (nextKey !== active.key) {
       startPolling(threadId, "poll-context-change", active.lastUserMessageId);
     }
-  }, [buildPollKey, startPolling, threadId, resolvedDepthMode, profileKey]);
+  }, [
+    buildPollKey,
+    isCompletingForThread,
+    profileKey,
+    resolvedDepthMode,
+    startPolling,
+    threadId,
+  ]);
 
   useEffect(() => {
     liveSubscriptionCleanupRef.current?.();
@@ -593,12 +613,21 @@ export function ChatView({
   }, [messages]);
 
   useEffect(() => {
+    if (!isCompletingForThread) return;
     const lastUserMessageId = getLastUserMessageId(messages);
     if (!Number.isFinite(lastUserMessageId) || lastUserMessageId <= 0) return;
     if (lastUserMessageId <= lastPolledUserIdRef.current) return;
     lastPolledUserIdRef.current = lastUserMessageId;
     startPolling(threadId, "user-message", lastUserMessageId);
-  }, [messages, startPolling, threadId]);
+  }, [isCompletingForThread, messages, startPolling, threadId]);
+
+  useEffect(() => {
+    if (isCompletingForThread) return;
+    const activeKey = activePollKeyRef.current;
+    if (activeKey && activeKey.startsWith(`${threadId}:`)) {
+      stopPollingWithReason("completion-inactive", activeKey);
+    }
+  }, [isCompletingForThread, stopPollingWithReason, threadId]);
 
   useEffect(
     () => () => {
