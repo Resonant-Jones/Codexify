@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 
@@ -132,6 +132,24 @@ def save_message_audio_asset(
         return _serialize_asset(row)
 
 
+def _maybe_sign_url(url: str | None) -> str | None:
+    if not url:
+        return url
+
+    for method_name in ("sign_url", "get_signed_url", "signed_url"):
+        signer = getattr(_storage, method_name, None)
+        if not callable(signer):
+            continue
+        try:
+            signed = signer(url)
+        except Exception:
+            continue
+        if isinstance(signed, str) and signed:
+            return signed
+
+    return url
+
+
 def _serialize_asset(asset: MessageAudioAsset) -> dict[str, Any]:
     return {
         "id": asset.id,
@@ -139,7 +157,7 @@ def _serialize_asset(asset: MessageAudioAsset) -> dict[str, Any]:
         "provider": asset.provider,
         "voice": asset.voice,
         "text_hash": asset.text_hash,
-        "src_url": asset.src_url,
+        "src_url": _maybe_sign_url(asset.src_url),
         "internal_format": asset.internal_format,
         "delivery_variants_json": asset.delivery_variants_json or {},
         "duration_seconds": asset.duration_seconds,
