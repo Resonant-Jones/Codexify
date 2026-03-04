@@ -12,7 +12,9 @@ Frontend contract (primary calls today):
 """
 
 import asyncio
+import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -189,6 +191,7 @@ class ChatCompletionRequest(BaseModel):
     max_context: Optional[int] = 50
     provider: Optional[str] = None
     system_override: Optional[str] = None
+    turn_id: Optional[str] = None
     depth_mode: Optional[
         str
     ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
@@ -725,6 +728,98 @@ def _coerce_positive_int(raw: Any) -> Optional[int]:
     return value if value > 0 else None
 
 
+def _normalize_turn_id(raw: Any) -> str:
+    """Return a normalized UUID turn_id; generate one when missing/invalid."""
+    if isinstance(raw, str):
+        candidate = raw.strip()
+        if candidate:
+            try:
+                return str(uuid.UUID(candidate))
+            except ValueError:
+                logger.debug(
+                    "[chat.complete] invalid turn_id=%s; generating server-side UUID",
+                    candidate,
+                )
+    return str(uuid.uuid4())
+
+
+def _coerce_message_meta(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _coerce_message_id(raw: Any) -> int | None:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _fetch_message_extra_meta(
+    *, thread_id: int, message_ids: list[int]
+) -> dict[int, dict[str, Any]]:
+    if not message_ids:
+        return {}
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return {}
+
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, extra_meta
+                    FROM chat_messages
+                    WHERE thread_id = %s
+                      AND id = ANY(%s::int[])
+                    """,
+                    (thread_id, message_ids),
+                )
+                rows = cur.fetchall() or []
+    except Exception:
+        logger.debug(
+            "[chat.messages] failed to backfill extra_meta thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+        return {}
+
+    backfill: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        raw_id: Any = None
+        raw_meta: Any = None
+        if isinstance(row, dict):
+            raw_id = row.get("id")
+            raw_meta = row.get("extra_meta")
+        elif hasattr(row, "keys"):
+            row_map = dict(row)  # psycopg row mapping
+            raw_id = row_map.get("id")
+            raw_meta = row_map.get("extra_meta")
+        elif isinstance(row, (list, tuple)) and len(row) >= 2:
+            raw_id = row[0]
+            raw_meta = row[1]
+
+        message_id = _coerce_message_id(raw_id)
+        if message_id is None:
+            continue
+        meta = _coerce_message_meta(raw_meta)
+        if meta:
+            backfill[message_id] = meta
+    return backfill
+
+
 def _build_scoped_doc_override(
     docs_bundle: Dict[str, Any] | None,
     *,
@@ -1092,8 +1187,45 @@ def chat_list_messages(
         offset=offset,
         exclude_kinds=exclude_kinds,
     )
+    normalized_items: list[dict[str, Any]] = []
+    missing_meta_ids: list[int] = []
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
+        message_id = _coerce_message_id(item.get("id"))
+        metadata = _coerce_message_meta(item.get("metadata"))
+        if not metadata:
+            metadata = _coerce_message_meta(item.get("extra_meta"))
+        if metadata:
+            item["metadata"] = metadata
+            turn_id_raw = metadata.get("turn_id")
+            if isinstance(turn_id_raw, str) and turn_id_raw.strip():
+                item["turn_id"] = turn_id_raw.strip()
+        elif message_id is not None:
+            missing_meta_ids.append(message_id)
+        normalized_items.append(item)
+
+    if missing_meta_ids:
+        backfill = _fetch_message_extra_meta(
+            thread_id=thread_id,
+            message_ids=missing_meta_ids,
+        )
+        if backfill:
+            for item in normalized_items:
+                message_id = _coerce_message_id(item.get("id"))
+                if message_id is None or "metadata" in item:
+                    continue
+                metadata = backfill.get(message_id)
+                if not metadata:
+                    continue
+                item["metadata"] = metadata
+                turn_id_raw = metadata.get("turn_id")
+                if isinstance(turn_id_raw, str) and turn_id_raw.strip():
+                    item["turn_id"] = turn_id_raw.strip()
+
     total = chatlog_db.count_messages(thread_id)
-    return {"ok": True, "total": total, "messages": items}
+    return {"ok": True, "total": total, "messages": normalized_items}
 
 
 @router.post("/{thread_id}/complete")
@@ -1105,6 +1237,8 @@ async def chat_complete(
     """
     Enqueue an assistant reply for the given thread and return a task id.
     """
+    turn_id = _normalize_turn_id(body.turn_id)
+
     provider = str(
         body.provider
         or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
@@ -1259,9 +1393,11 @@ async def chat_complete(
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
-        origin="api:chat.complete",
+        # Encode turn_id into origin so it survives dataclass serialization.
+        origin=f"api:chat.complete|turn_id={turn_id}",
     )
     task.turn_lock_owner = task.task_id
+    task.turn_id = turn_id
 
     try:
         locked = acquire_turn_lock(thread_id, task.turn_lock_owner)
@@ -1291,7 +1427,12 @@ async def chat_complete(
         task_events.publish(
             task.task_id,
             "task.created",
-            {"type": task.type, "thread_id": thread_id, "origin": task.origin},
+            {
+                "type": task.type,
+                "thread_id": thread_id,
+                "origin": task.origin,
+                "turn_id": turn_id,
+            },
         )
     except Exception:
         logger.debug("[chat.complete] task.created emit failed", exc_info=True)
@@ -1309,6 +1450,7 @@ async def chat_complete(
     return {
         "ok": True,
         "task_id": task.task_id,
+        "turn_id": turn_id,
         "thread_id": thread_id,
         "depth_mode": internal_depth_mode,
         "requested_depth_mode": requested_depth_mode,

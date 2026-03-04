@@ -27,6 +27,7 @@ type PollSession = {
   tid: number;
   reason: string;
   key: string;
+  turnId: string | null;
   startedAt: number;
   lastUserMessageId: number;
   initialAssistantId: number;
@@ -40,10 +41,46 @@ const MESSAGE_POLL_MIN_MS = 1500;
 const MESSAGE_POLL_MAX_MS = 5000;
 const POLL_TIMEOUT_MS = 300_000; // 5 minutes slow-path ceiling
 const COMPLETION_SETTLE_MS = 150;
+const UUID_V4ISH_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function parseMessageId(raw: any): number {
   const value = Number(raw?.id ?? raw?.message_id ?? raw?.messageId);
   return Number.isFinite(value) ? value : 0;
+}
+
+function normalizeTurnId(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return UUID_V4ISH_RE.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+
+function readMessageTurnId(raw: any): string | null {
+  const direct = normalizeTurnId(raw?.turn_id ?? raw?.turnId);
+  if (direct) return direct;
+
+  const metadataCandidate = raw?.metadata ?? raw?.extra_meta ?? raw?.extraMeta;
+  if (metadataCandidate && typeof metadataCandidate === "object") {
+    const nested = metadataCandidate as Record<string, unknown>;
+    return normalizeTurnId(nested.turn_id ?? nested.turnId);
+  }
+  return null;
+}
+
+function getTrackedTurnId(threadId: number | null | undefined): string | null {
+  const getter = (api as any)?.getInFlightCompletionTurnId;
+  if (typeof getter !== "function") return null;
+  return getter(threadId);
+}
+
+function clearTrackedTurnId(
+  threadId: number | null | undefined,
+  expectedTurnId?: string | null
+): void {
+  const clearer = (api as any)?.clearInFlightCompletionTurnId;
+  if (typeof clearer !== "function") return;
+  clearer(threadId, expectedTurnId);
 }
 
 function getLastUserMessageId(messages: Array<{ id: unknown; role?: string }>): number {
@@ -137,6 +174,7 @@ export function ChatView({
   const [voiceUnavailableMessageIds, setVoiceUnavailableMessageIds] = useState<
     Record<number, true>
   >({});
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [voiceRouteMissing, setVoiceRouteMissing] = useState(false);
   const lastAutoReadMessageIdRef = useRef<number | null>(null);
   const autoReadPrimedRef = useRef(false);
@@ -159,6 +197,7 @@ export function ChatView({
   const messagesRef = useRef(messages);
   const completionFinalizeTimerRef = useRef<number | null>(null);
   const inFlightCompletionByThreadRef = useRef<Map<number, string>>(new Map());
+  const activeTurnIdRef = useRef<string | null>(null);
   const completionFinalizePendingRef = useRef<Set<number>>(new Set());
   const liveSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const voiceUnavailableMessageIdsRef = useRef<Record<number, true>>({});
@@ -247,6 +286,7 @@ export function ChatView({
       const normalizedUserId = Number.isFinite(lastUserMessageId)
         ? Math.max(0, lastUserMessageId)
         : 0;
+      const turnId = activeTurnIdRef.current;
       const key = buildPollKey(tid, normalizedUserId);
       if (activePollKeyRef.current === key) {
         debugLog(
@@ -265,6 +305,7 @@ export function ChatView({
         tid,
         reason,
         key,
+        turnId,
         startedAt: Date.now(),
         lastUserMessageId: normalizedUserId,
         initialAssistantId: lastAssistantIdRef.current,
@@ -313,6 +354,8 @@ export function ChatView({
 
       let maxId = lastMessageIdRef.current;
       let maxAssistantId = session.initialAssistantId;
+      const expectedTurnId = session.turnId ?? activeTurnIdRef.current;
+      let matchingTurnAssistantId = 0;
       const newMessages: any[] = [];
 
       for (const msg of page) {
@@ -323,6 +366,15 @@ export function ChatView({
         }
         if (msg?.role && msg.role !== "user" && id > maxAssistantId) {
           maxAssistantId = id;
+        }
+        const messageRole = String(msg?.role ?? "").trim().toLowerCase();
+        if (
+          expectedTurnId &&
+          messageRole === "assistant" &&
+          readMessageTurnId(msg) === expectedTurnId &&
+          id > matchingTurnAssistantId
+        ) {
+          matchingTurnAssistantId = id;
         }
         if (id > lastMessageIdRef.current) {
           newMessages.push(msg);
@@ -344,6 +396,22 @@ export function ChatView({
       if (maxAssistantId > lastAssistantIdRef.current) {
         lastAssistantIdRef.current = maxAssistantId;
       }
+
+      if (expectedTurnId && matchingTurnAssistantId > 0) {
+        if (inFlightCompletionByThreadRef.current.has(session.tid)) {
+          inFlightCompletionByThreadRef.current.delete(session.tid);
+          endCompletionRef.current();
+        }
+        clearTrackedTurnId(session.tid, expectedTurnId);
+        if (activeThreadRef.current === session.tid) {
+          setActiveTurnId((prev) =>
+            prev === expectedTurnId ? null : prev
+          );
+        }
+        stopPollingWithReason("assistant-turn-arrived", session.key);
+        return;
+      }
+
       const assistantReplyArrived =
         maxAssistantId > session.initialAssistantId &&
         maxAssistantId > session.lastUserMessageId;
@@ -373,15 +441,30 @@ export function ChatView({
   useEffect(() => {
     completionStateRef.current = completionState;
     if (completionState.isCompleting && completionState.activeThreadId != null) {
-      const marker = completionState.activeTaskId ?? `thread-${completionState.activeThreadId}`;
-      inFlightCompletionByThreadRef.current.set(completionState.activeThreadId, marker);
+      const marker =
+        completionState.activeTaskId ??
+        `thread-${completionState.activeThreadId}`;
+      inFlightCompletionByThreadRef.current.set(
+        completionState.activeThreadId,
+        marker
+      );
+      const currentTurnId = getTrackedTurnId(
+        completionState.activeThreadId
+      );
+      if (currentTurnId !== activeTurnIdRef.current) {
+        setActiveTurnId(currentTurnId);
+      }
       return;
     }
     if (!completionState.isCompleting) {
+      if (activeTurnIdRef.current && threadId != null) {
+        clearTrackedTurnId(threadId, activeTurnIdRef.current);
+      }
+      setActiveTurnId(null);
       inFlightCompletionByThreadRef.current.clear();
       completionFinalizePendingRef.current.clear();
     }
-  }, [completionState]);
+  }, [completionState, threadId]);
 
   useEffect(() => {
     endCompletionRef.current = endCompletion;
@@ -404,6 +487,10 @@ export function ChatView({
   }, [messages]);
 
   useEffect(() => {
+    activeTurnIdRef.current = activeTurnId;
+  }, [activeTurnId]);
+
+  useEffect(() => {
     pollSessionRef.current = pollSession;
   }, [pollSession]);
 
@@ -417,6 +504,7 @@ export function ChatView({
     lastAssistantIdRef.current = 0;
     inFlightCompletionByThreadRef.current.clear();
     completionFinalizePendingRef.current.clear();
+    setActiveTurnId(getTrackedTurnId(threadId));
     const completionSnapshot = completionStateRef.current;
     if (
       completionSnapshot.isCompleting &&
@@ -461,6 +549,7 @@ export function ChatView({
       startPolling(threadId, "poll-context-change", active.lastUserMessageId);
     }
   }, [
+    activeTurnId,
     buildPollKey,
     isCompletingForThread,
     profileKey,
@@ -477,10 +566,22 @@ export function ChatView({
       const messageRole = String(payload?.role ?? "").trim().toLowerCase();
       const tid = Number(payload?.thread_id ?? payload?.threadId ?? payload?.thread?.id);
       const messageId = parseMessageId(payload);
+      const expectedTurnId = activeTurnIdRef.current;
+      const observedTurnId = readMessageTurnId(payload);
 
       ingestIncoming(payload);
 
       if (!Number.isFinite(tid) || messageRole !== "assistant") {
+        return;
+      }
+      if (
+        expectedTurnId &&
+        observedTurnId &&
+        observedTurnId !== expectedTurnId
+      ) {
+        return;
+      }
+      if (expectedTurnId && !observedTurnId) {
         return;
       }
       if (messageId > lastAssistantIdRef.current) {
@@ -521,6 +622,14 @@ export function ChatView({
         }
 
         inFlightCompletionByThreadRef.current.delete(tid);
+        const completionTurnId =
+          activeTurnIdRef.current ?? getTrackedTurnId(tid);
+        if (completionTurnId) {
+          clearTrackedTurnId(tid, completionTurnId);
+          setActiveTurnId((prev) =>
+            prev === completionTurnId ? null : prev
+          );
+        }
         endCompletionRef.current();
 
         const messageCount = messagesRef.current.length;
@@ -626,6 +735,10 @@ export function ChatView({
     const activeKey = activePollKeyRef.current;
     if (activeKey && activeKey.startsWith(`${threadId}:`)) {
       stopPollingWithReason("completion-inactive", activeKey);
+    }
+    if (activeTurnIdRef.current) {
+      clearTrackedTurnId(threadId, activeTurnIdRef.current);
+      setActiveTurnId(null);
     }
   }, [isCompletingForThread, stopPollingWithReason, threadId]);
 
