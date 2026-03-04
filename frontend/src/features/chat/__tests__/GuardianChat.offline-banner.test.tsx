@@ -49,6 +49,9 @@ vi.mock("@/features/chat/useChat", () => ({
     completionState: { isCompleting: false, activeThreadId: null },
     startCompletion: vi.fn(),
     endCompletion: vi.fn(),
+    updateCompletionTaskId: vi.fn(),
+    isCompletionInFlight: vi.fn(() => false),
+    setCompletionInFlight: vi.fn(),
   }),
 }));
 

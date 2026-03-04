@@ -252,7 +252,14 @@ export function GuardianChat({
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
   // Chat state management including completion tracking
-  const { completionState, startCompletion, endCompletion } = useChat();
+  const {
+    completionState,
+    startCompletion,
+    endCompletion,
+    updateCompletionTaskId,
+    isCompletionInFlight,
+    setCompletionInFlight,
+  } = useChat();
   const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
   const [pendingTurnLock, setPendingTurnLock] = useState(false);
   const lastCompletionThreadRef = useRef<number | null>(null);
@@ -438,9 +445,9 @@ export function GuardianChat({
   const isTurnLocked = useCallback(
     (threadId: number | null) => {
       if (threadId == null) return pendingTurnLock;
-      return Boolean(turnLocks[threadId]);
+      return Boolean(turnLocks[threadId]) || isCompletionInFlight(threadId);
     },
-    [pendingTurnLock, turnLocks]
+    [isCompletionInFlight, pendingTurnLock, turnLocks]
   );
   const notifyTurnLocked = () => {
     showToast(TURN_LOCK_TOAST);
@@ -529,22 +536,25 @@ export function GuardianChat({
     },
     [getDepthForThread]
   );
-  type CompletionOutcome = "ok" | "service_unavailable" | "failed";
+  type CompletionOutcome = "ok" | "service_unavailable" | "failed" | "inflight";
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number): Promise<CompletionOutcome> => {
     const payload = buildChatCompletionPayload(depth, activeModelId || "default");
+    const provisionalTaskId = `pending-${Date.now()}`;
+    setCompletionInFlight(tid, true);
+    startCompletion(tid, provisionalTaskId);
     try {
       const response = await api.post(buildChatCompletePath(tid), payload);
       console.log(`[guardian] Completing with depth=${depth}`);
 
       // Capture task_id for completion state tracking
-      const taskId = response?.data?.task_id;
+      const taskId = response?.data?.task_id ?? provisionalTaskId;
       const responseDepth = (response?.data?.depth_mode as DepthMode | undefined) ?? depth;
       lastCompletionDepthRef.current[tid] = responseDepth;
 
       if (taskId) {
         console.debug(`[guardian] Starting completion tracking: task=${taskId}`);
-        startCompletion(tid, taskId);
+        updateCompletionTaskId(taskId);
       }
 
       const traceUrlRaw = response?.data?.trace_url;
@@ -561,6 +571,17 @@ export function GuardianChat({
         detail && typeof detail === "object"
           ? String(detail?.error || detail?.reason || "")
           : String(detail || "");
+      if (statusCode === 429) {
+        logOnce("complete:turn-lock", 5_000, () => {
+          console.warn("[guardian] completion hit turn-lock (429) — waiting for prior turn");
+        });
+        showToast("Finishing previous turn…");
+        setCompletionInFlight(tid, true);
+        if (!completionState.isCompleting || completionState.activeThreadId !== tid) {
+          startCompletion(tid, `turn-lock-${tid}`);
+        }
+        return "inflight";
+      }
       if (
         statusCode === 503 &&
         (reason.includes("completion_service_unavailable") ||
@@ -568,9 +589,11 @@ export function GuardianChat({
           reason.includes("turn_lock_unavailable"))
       ) {
         showToast("Completion service unavailable — check Docker/Redis.");
+        endCompletion();
         return "service_unavailable";
       }
       console.warn("[guardian] completion failed", err);
+      endCompletion();
       return "failed";
     } finally {
       // always nudge the view to reconcile with server state
@@ -932,6 +955,10 @@ export function GuardianChat({
       notifyTurnLocked();
       return;
     }
+    if (effectiveThreadId != null && isCompletionInFlight(effectiveThreadId)) {
+      notifyTurnLocked();
+      return;
+    }
     if (effectiveThreadId != null && requestedProfileId) {
       if (typeof window !== "undefined") {
         sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${effectiveThreadId}`);
@@ -1003,7 +1030,7 @@ export function GuardianChat({
 
         // Complete the thread and refresh.
         const completionOutcome = await completeThread(numericNewId);
-        if (completionOutcome !== "ok") {
+        if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
           setTurnLockForThread(numericNewId, false);
           if (completionOutcome === "failed") {
             throw new Error("Assistant response failed.");
@@ -1028,16 +1055,16 @@ export function GuardianChat({
         await onSendMessage(text);
 
         // Fire-and-forget completion a beat later so the just-sent message is persisted
-        setTimeout(() => {
-          if (effectiveThreadId == null) return;
-          void (async () => {
-            const completionOutcome = await completeThread(effectiveThreadId);
-            if (completionOutcome !== "ok") {
-              setTurnLockForThread(effectiveThreadId, false);
-              if (completionOutcome === "failed") {
-                showToast("Assistant response failed.");
-              }
-            }
+            setTimeout(() => {
+              if (effectiveThreadId == null) return;
+              void (async () => {
+                const completionOutcome = await completeThread(effectiveThreadId);
+                if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
+                  setTurnLockForThread(effectiveThreadId, false);
+                  if (completionOutcome === "failed") {
+                    showToast("Assistant response failed.");
+                  }
+                }
           })();
         }, 100);
       } catch (error) {

@@ -221,7 +221,7 @@ describe("useChat - completion state management", () => {
     expect(result.current.completionState.startedAt).toBeNull();
   });
 
-  it("should auto-clear completion state after 30s timeout", async () => {
+  it("keeps completion active after 30s and clears on hard timeout", async () => {
     const { result } = renderHook(() => useChat());
 
     act(() => {
@@ -230,9 +230,16 @@ describe("useChat - completion state management", () => {
 
     expect(result.current.completionState.isCompleting).toBe(true);
 
-    // Fast-forward 30 seconds
+    // Fast-forward 30 seconds (slow path hint) — should still be completing
     act(() => {
-      jest.advanceTimersByTime(30000);
+      jest.advanceTimersByTime(30_000);
+    });
+
+    expect(result.current.completionState.isCompleting).toBe(true);
+
+    // Fast-forward to hard timeout (5 minutes)
+    act(() => {
+      jest.advanceTimersByTime(5 * 60_000);
     });
 
     await waitFor(() => {
