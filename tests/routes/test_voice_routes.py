@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -31,6 +32,33 @@ def _runtime_cfg(**overrides):
     }
     base.update(overrides)
     return SimpleNamespace(**base)
+
+
+def test_normalize_turn_id_missing_generates_unique_uuid_fallbacks():
+    from guardian.routes import voice as voice_route
+
+    first = voice_route._normalize_turn_id(None)
+    second = voice_route._normalize_turn_id("")
+
+    assert first != second
+    assert str(uuid.UUID(first)) == first
+    assert str(uuid.UUID(second)) == second
+
+
+def test_normalize_turn_id_invalid_replaced_with_uuid():
+    from guardian.routes import voice as voice_route
+
+    normalized = voice_route._normalize_turn_id("not-a-uuid")
+
+    assert normalized != "legacy"
+    assert str(uuid.UUID(normalized)) == normalized
+
+
+def test_normalize_turn_id_valid_uuid_preserved():
+    from guardian.routes import voice as voice_route
+
+    turn_id = str(uuid.uuid4())
+    assert voice_route._normalize_turn_id(turn_id) == turn_id
 
 
 def test_voice_capabilities_contract(test_client, monkeypatch):
@@ -169,6 +197,68 @@ def test_voice_turn_dedupe_hit(test_client, monkeypatch):
         "status": "in_flight",
     }
     assert lock_calls["count"] == 0
+
+
+def test_voice_turn_missing_turn_id_uses_unique_per_request_turn_ids(
+    test_client, monkeypatch
+):
+    monkeypatch.setattr(
+        "guardian.routes.voice.get_voice_runtime_config",
+        lambda: _runtime_cfg(turns_enabled=True),
+    )
+    monkeypatch.setattr(
+        "guardian.routes.voice._voice_worker_available", lambda: True
+    )
+    monkeypatch.setattr(
+        "guardian.routes.voice.chatlog_db",
+        SimpleNamespace(get_chat_thread=lambda *_: {"id": 1}),
+    )
+    monkeypatch.setattr(
+        "guardian.routes.voice.normalize_audio_input",
+        lambda *_a, **_k: (
+            b"wav-bytes",
+            "audio/wav",
+            {
+                "duration_seconds": 1.0,
+                "sample_rate_hz": 16000,
+                "channels": 1,
+                "size_bytes": 9,
+            },
+        ),
+    )
+
+    observed_turn_ids: list[str] = []
+
+    def _record_dedupe_hit(**kwargs):
+        observed_turn_ids.append(str(kwargs.get("turn_id") or ""))
+        return {
+            "deduped": True,
+            "task_id": f"existing-task-{len(observed_turn_ids)}",
+            "status": "in_flight",
+        }
+
+    monkeypatch.setattr(
+        "guardian.routes.voice._get_dedupe_hit",
+        _record_dedupe_hit,
+    )
+
+    first = test_client.post(
+        "/api/voice/turn",
+        data={"thread_id": "1", "tts_enabled": "true"},
+        files=_dummy_audio_file(),
+    )
+    second = test_client.post(
+        "/api/voice/turn",
+        data={"thread_id": "1", "tts_enabled": "true"},
+        files=_dummy_audio_file(),
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(observed_turn_ids) == 2
+    assert observed_turn_ids[0] != observed_turn_ids[1]
+    assert str(uuid.UUID(observed_turn_ids[0])) == observed_turn_ids[0]
+    assert str(uuid.UUID(observed_turn_ids[1])) == observed_turn_ids[1]
 
 
 def test_voice_turn_completed(test_client, mock_db, monkeypatch):
