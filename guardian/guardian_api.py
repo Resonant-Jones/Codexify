@@ -733,18 +733,24 @@ _include_router(
     flag_name="CODEXIFY_ENABLE_CODEX_ROUTES",
     include_fn=lambda: app.include_router(codex_router),
 )
-_embedding_backend = _resolve_embedding_backend(get_settings())
-if _embedding_backend == "local":
+
+
+def _include_codexify_router() -> None:
+    # Import lazily so startup does not eagerly initialize embedding stack.
     from guardian.routes.codexify_router import router as codexify_router
 
+    app.include_router(codexify_router)
+
+
+_embedding_backend = _resolve_embedding_backend(get_settings())
+if _embedding_backend == "local":
     _include_router(
         label="codexify",
         flag_name="CODEXIFY_ENABLE_CODEXIFY_ROUTES",
-        include_fn=lambda: app.include_router(codexify_router),
+        include_fn=_include_codexify_router,
     )
 else:
-    # Codexify router initializes a local vector store at import time.
-    # Skip it when local embeddings are not explicitly selected.
+    # Skip codexify routes when local embeddings are not explicitly selected.
     get_local_embed_model(strict=False)
     logger.info(
         "[routers] Skipping codexify router (embedding_backend=%s)",
