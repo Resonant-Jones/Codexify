@@ -86,6 +86,7 @@ describe("ShareButton", () => {
           target_type: "thread",
           target_id: 42,
         }),
+        credentials: "include",
       });
     });
   });
@@ -125,6 +126,7 @@ describe("ShareButton", () => {
           target_type: "document",
           target_id: 99,
         }),
+        credentials: "include",
       });
     });
   });
