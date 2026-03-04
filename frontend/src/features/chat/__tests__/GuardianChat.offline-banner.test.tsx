@@ -11,6 +11,7 @@ vi.mock("@/lib/api", () => ({
     patch: vi.fn(),
     delete: vi.fn(),
   },
+  buildLlmCatalogPath: () => "/llm/catalog",
   getBackendOutageRemainingMs: vi.fn(() => 0),
 }));
 

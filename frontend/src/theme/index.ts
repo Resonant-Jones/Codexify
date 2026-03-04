@@ -24,6 +24,9 @@ const BASE_VARS: CSSVarMap = {
   '--muted': 'rgba(255,255,255,0.88)',
   '--accent': '#8ec5ff',
   '--accent-strong': '#5ab7ff',
+  '--cfy-session-tab-inactive-basis': 'clamp(88px, 16vw, 140px)',
+  '--cfy-session-tab-active-basis': 'clamp(150px, 24vw, 220px)',
+  '--cfy-transition-rolodex': '140ms',
 }
 
 let alreadyInjected = false

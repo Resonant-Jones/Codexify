@@ -2,6 +2,7 @@ import * as React from "react";
 import clsx from "clsx";
 import {
   ChevronDown,
+  Bolt,
   Plus,
   MoreVertical,
   Pencil,
@@ -345,10 +346,35 @@ function ThreadTileRow({
     ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
     : <Trash2 className="h-4 w-4" aria-hidden="true" />;
 
+  const canonicalMode = thread.profileMode;
+  const heuristicProvider = (thread.providerOverride || thread.modelOverride || "").toLowerCase();
+  const heuristicCloud = heuristicProvider
+    ? !heuristicProvider.includes("ollama")
+    : null;
+  const isCloud =
+    canonicalMode === "cloud"
+      ? true
+      : canonicalMode === "local"
+        ? false
+        : heuristicCloud;
+
   const safeTitle = (thread.title || "").trim() || "Untitled";
   const titleNode = (
     <span key="title" className="thread-title block truncate" title={safeTitle}>
-      {safeTitle}
+      <span className="inline-flex items-center gap-1 truncate">
+        <span className="truncate">{safeTitle}</span>
+        {isCloud ? (
+          <span
+            className="inline-flex items-center justify-center rounded-full text-[10px] px-1.5 py-0.5"
+            style={{
+              background: "color-mix(in oklab, var(--accent), transparent 40%)",
+              color: "var(--accent-strong)",
+            }}
+          >
+            <Bolt className="h-3 w-3" />
+          </span>
+        ) : null}
+      </span>
     </span>
   );
   const snippet = typeof thread.lastMessage === "string" ? thread.lastMessage.trim() : "";
