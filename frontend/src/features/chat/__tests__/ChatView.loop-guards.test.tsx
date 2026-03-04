@@ -104,15 +104,22 @@ vi.mock("@/features/chat/components/ChatBubble", () => ({
         ? "Playing..."
         : resolved === "unavailable"
           ? "Audio unavailable"
-          : resolved === "disabled"
+        : resolved === "disabled"
             ? "Voice disabled"
             : "Read Aloud";
     const disabled = resolved === "unavailable" || resolved === "disabled";
+    const ariaLabel = label === "Read Aloud" ? "Read message aloud" : label;
     return (
       <div data-testid={`bubble-${message.id}`}>
         <div>{message.content}</div>
         {showPlay ? (
-          <button type="button" onClick={onPlay} disabled={disabled}>
+          <button
+            type="button"
+            onClick={onPlay}
+            disabled={disabled}
+            aria-label={ariaLabel}
+            title={label}
+          >
             {label}
           </button>
         ) : null}
@@ -474,10 +481,18 @@ describe("ChatView loop guards", () => {
     });
 
     const { rerender } = render(
-      <ChatView threadId={1} completionState={completion} endCompletion={endCompletion} />
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={endCompletion}
+        voiceReadAloudEnabled
+        voiceCapabilitiesFailed
+      />
     );
 
-    const firstPlay = await screen.findByRole("button", { name: "Read Aloud" });
+    const firstPlay = await screen.findByRole("button", {
+      name: "Read message aloud",
+    });
     fireEvent.click(firstPlay);
 
     await waitFor(() => {
@@ -501,17 +516,28 @@ describe("ChatView loop guards", () => {
       response: { status: 404, data: { detail: "route_not_found" } },
     });
 
-    rerender(<ChatView threadId={2} completionState={completion} endCompletion={endCompletion} />);
+    rerender(
+      <ChatView
+        threadId={2}
+        completionState={completion}
+        endCompletion={endCompletion}
+        voiceReadAloudEnabled
+        voiceCapabilitiesFailed
+      />
+    );
 
-    const secondPlay = await screen.findByRole("button", { name: "Read Aloud" });
+    const secondPlay = await screen.findByRole("button", {
+      name: "Read message aloud",
+    });
     fireEvent.click(secondPlay);
 
     await waitFor(() => {
       expect(apiPostMock).toHaveBeenCalledTimes(2);
     });
-    expect(await screen.findByRole("button", { name: "Voice disabled" })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Voice disabled" }));
-    expect(apiPostMock).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Read message aloud" })
+      ).not.toBeInTheDocument();
+    });
   });
 });

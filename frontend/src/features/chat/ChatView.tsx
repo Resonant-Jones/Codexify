@@ -142,6 +142,8 @@ export function ChatView({
   className,
   bottomPadding = 0,
   autoReadEnabled = false,
+  voiceReadAloudEnabled = false,
+  voiceCapabilitiesFailed = false,
   depthMode = "normal",
   profileId = null,
 }: {
@@ -153,6 +155,8 @@ export function ChatView({
   className?: string;
   bottomPadding?: number;
   autoReadEnabled?: boolean;
+  voiceReadAloudEnabled?: boolean;
+  voiceCapabilitiesFailed?: boolean;
   depthMode?: DepthMode;
   profileId?: string | null;
 }) {
@@ -761,6 +765,12 @@ export function ChatView({
   const playMessageAudio = useCallback(
     async (messageId: number, options?: { manual?: boolean }) => {
       const manual = Boolean(options?.manual);
+      if (!voiceReadAloudEnabled) {
+        if (manual) {
+          showToast("Voice disabled");
+        }
+        return;
+      }
       if (voiceRouteMissingRef.current) {
         if (manual) {
           showToast("Voice disabled");
@@ -807,7 +817,7 @@ export function ChatView({
           if (manual) {
             showToast("Audio unavailable");
           }
-        } else if (classification === "route_missing") {
+        } else if (classification === "route_missing" && voiceCapabilitiesFailed) {
           disableVoiceRoute();
           if (manual) {
             showToast("Voice disabled");
@@ -818,11 +828,22 @@ export function ChatView({
         setPlayingMessageId((prev) => (prev === messageId ? null : prev));
       }
     },
-    [disableVoiceRoute, isVoiceUnavailable, markVoiceUnavailable, showToast]
+    [
+      disableVoiceRoute,
+      isVoiceUnavailable,
+      markVoiceUnavailable,
+      showToast,
+      voiceCapabilitiesFailed,
+      voiceReadAloudEnabled,
+    ]
   );
 
   const handlePlayClick = useCallback(
     (messageId: number) => {
+      if (!voiceReadAloudEnabled) {
+        showToast("Voice disabled");
+        return;
+      }
       if (voiceRouteMissingRef.current) {
         showToast("Voice disabled");
         return;
@@ -833,10 +854,11 @@ export function ChatView({
       }
       void playMessageAudio(messageId, { manual: true });
     },
-    [isVoiceUnavailable, playMessageAudio, showToast]
+    [isVoiceUnavailable, playMessageAudio, showToast, voiceReadAloudEnabled]
   );
 
   useEffect(() => {
+    if (!voiceReadAloudEnabled) return;
     if (!autoReadEnabled) return;
     if (voiceRouteMissingRef.current) return;
 
@@ -861,7 +883,14 @@ export function ChatView({
       return;
     }
     void playMessageAudio(latestId);
-  }, [autoReadEnabled, isVoiceUnavailable, messages, playMessageAudio, voiceRouteMissing]);
+  }, [
+    autoReadEnabled,
+    isVoiceUnavailable,
+    messages,
+    playMessageAudio,
+    voiceReadAloudEnabled,
+    voiceRouteMissing,
+  ]);
 
   const onScroll = async () => {
     const el = containerRef.current;
@@ -946,14 +975,14 @@ export function ChatView({
         {messages.map((m, index) => {
           const messageId = Number(m.id);
           const canPlay = m.role !== "user" && Number.isFinite(messageId);
+          const showPlay =
+            canPlay && voiceReadAloudEnabled && !voiceRouteMissing;
           const messageVoiceUnavailable = Boolean(
             Number.isFinite(messageId) && voiceUnavailableMessageIds[messageId]
           );
-          const playState: BubblePlayState = !canPlay
+          const playState: BubblePlayState = !showPlay
             ? "idle"
-            : voiceRouteMissing
-              ? "disabled"
-              : messageVoiceUnavailable
+            : messageVoiceUnavailable
                 ? "unavailable"
                 : playingMessageId === messageId
                   ? "playing"
@@ -991,7 +1020,7 @@ export function ChatView({
                   })),
                 }}
                 isGuardian={m.role !== "user"}
-                showPlay={canPlay}
+                showPlay={showPlay}
                 playing={playState === "playing"}
                 playState={playState}
                 onPlay={() => {

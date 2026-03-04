@@ -137,6 +137,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Voice normalization/transcoding dependency (also includes ffprobe).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
 # qwen-tts pulls python-sox, which shells out through /bin/sh during import.
 # Keep a POSIX shell available in the runtime image for compatibility.
 COPY --from=builder /usr/bin/bash /bin/sh
