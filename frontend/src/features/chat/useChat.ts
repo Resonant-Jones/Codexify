@@ -185,6 +185,9 @@ export type CompletionState = {
   startedAt: number | null;
 };
 
+const COMPLETION_SLOW_PATH_MS = 30_000;
+const COMPLETION_HARD_TIMEOUT_MS = 5 * 60_000; // 5 minutes
+
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [total, setTotal] = useState(0);
@@ -203,8 +206,24 @@ export function useChat() {
     messageCount: 0,
     timestamp: 0,
   });
-  const completionTimeoutRef = useRef<number | null>(null);
+  const completionSlowTimeoutRef = useRef<number | null>(null);
+  const completionHardTimeoutRef = useRef<number | null>(null);
+  const inFlightCompletionRef = useRef<Record<number, boolean>>({});
   const completionGenerationRef = useRef(0);
+
+  const isCompletionInFlight = useCallback((threadId: number | null | undefined) => {
+    if (threadId == null) return false;
+    return Boolean(inFlightCompletionRef.current[threadId]);
+  }, []);
+
+  const setCompletionInFlight = useCallback((threadId: number, value: boolean) => {
+    if (!Number.isFinite(threadId)) return;
+    if (value) {
+      inFlightCompletionRef.current[threadId] = true;
+    } else {
+      delete inFlightCompletionRef.current[threadId];
+    }
+  }, []);
 
   const clearCompletionState = useCallback(() => {
     setCompletionState((prev) => {
@@ -216,6 +235,9 @@ export function useChat() {
       ) {
         return prev;
       }
+      if (prev.activeThreadId != null) {
+        setCompletionInFlight(prev.activeThreadId, false);
+      }
       return {
         isCompleting: false,
         activeTaskId: null,
@@ -223,7 +245,7 @@ export function useChat() {
         startedAt: null,
       };
     });
-  }, []);
+  }, [setCompletionInFlight]);
 
   const loadMessages = useCallback(async (threadId: number, limit = 50, offset = 0, append = false) => {
     activeThreadRef.current = threadId;
@@ -326,46 +348,81 @@ export function useChat() {
   const startCompletion = useCallback((threadId: number, taskId: string) => {
     const generation = completionGenerationRef.current + 1;
     completionGenerationRef.current = generation;
-    setCompletionState({
-      isCompleting: true,
-      activeTaskId: taskId,
-      activeThreadId: threadId,
-      startedAt: Date.now(),
+    setCompletionInFlight(threadId, true);
+    setCompletionState((prev) => {
+      const startedAt =
+        prev.isCompleting && prev.activeThreadId === threadId
+          ? prev.startedAt ?? Date.now()
+          : Date.now();
+      return {
+        isCompleting: true,
+        activeTaskId: taskId,
+        activeThreadId: threadId,
+        startedAt,
+      };
     });
     console.debug(`[useChat] Started completion tracking: thread=${threadId}, task=${taskId}`);
 
-    // Clear any existing timeout
-    if (completionTimeoutRef.current !== null) {
-      window.clearTimeout(completionTimeoutRef.current);
+    // Clear any existing timeouts
+    if (completionSlowTimeoutRef.current !== null) {
+      window.clearTimeout(completionSlowTimeoutRef.current);
+    }
+    if (completionHardTimeoutRef.current !== null) {
+      window.clearTimeout(completionHardTimeoutRef.current);
     }
 
-    // Set 30s timeout to auto-end completion if no event arrives
-    completionTimeoutRef.current = window.setTimeout(() => {
-      if (completionGenerationRef.current !== generation) {
-        return;
-      }
-      console.warn(`[useChat] Completion timeout reached (30s), clearing state`);
-      completionTimeoutRef.current = null;
+    // Hint timeout: after 30s, stay in slow-path but keep completion active
+    completionSlowTimeoutRef.current = window.setTimeout(() => {
+      if (completionGenerationRef.current !== generation) return;
+      console.warn(`[useChat] Completion still in progress after 30s (slow-path)`);
+      completionSlowTimeoutRef.current = null;
+    }, COMPLETION_SLOW_PATH_MS);
+
+    // Hard timeout: release after extended wait
+    completionHardTimeoutRef.current = window.setTimeout(() => {
+      if (completionGenerationRef.current !== generation) return;
+      console.warn(`[useChat] Completion hard-timeout reached (${COMPLETION_HARD_TIMEOUT_MS}ms), clearing state`);
+      completionHardTimeoutRef.current = null;
       clearCompletionState();
-    }, 30000);
-  }, [clearCompletionState]);
+    }, COMPLETION_HARD_TIMEOUT_MS);
+  }, [clearCompletionState, setCompletionInFlight]);
 
   const endCompletion = useCallback(() => {
     completionGenerationRef.current += 1;
-    if (completionTimeoutRef.current !== null) {
-      window.clearTimeout(completionTimeoutRef.current);
-      completionTimeoutRef.current = null;
+
+    if (completionSlowTimeoutRef.current !== null) {
+      window.clearTimeout(completionSlowTimeoutRef.current);
+      completionSlowTimeoutRef.current = null;
+    }
+    if (completionHardTimeoutRef.current !== null) {
+      window.clearTimeout(completionHardTimeoutRef.current);
+      completionHardTimeoutRef.current = null;
+    }
+    if (completionState.activeThreadId != null) {
+      setCompletionInFlight(completionState.activeThreadId, false);
     }
     console.debug(`[useChat] Ended completion tracking`);
     clearCompletionState();
-  }, [clearCompletionState]);
+  }, [clearCompletionState, completionState.activeThreadId, setCompletionInFlight]);
+
+  const updateCompletionTaskId = useCallback((taskId: string | null) => {
+    setCompletionState((prev) => {
+      if (!prev.isCompleting) return prev;
+      if (prev.activeTaskId === taskId) return prev;
+      return { ...prev, activeTaskId: taskId };
+    });
+  }, []);
 
   useEffect(
     () => () => {
       completionGenerationRef.current += 1;
-      if (completionTimeoutRef.current !== null) {
-        window.clearTimeout(completionTimeoutRef.current);
-        completionTimeoutRef.current = null;
+      if (completionSlowTimeoutRef.current !== null) {
+        window.clearTimeout(completionSlowTimeoutRef.current);
+        completionSlowTimeoutRef.current = null;
+      }
+      if (completionHardTimeoutRef.current !== null) {
+        window.clearTimeout(completionHardTimeoutRef.current);
+        completionHardTimeoutRef.current = null;
       }
     },
     []
@@ -411,6 +468,9 @@ export function useChat() {
     completionState,
     startCompletion,
     endCompletion,
+    updateCompletionTaskId,
+    isCompletionInFlight,
+    setCompletionInFlight,
     shouldRefresh,
     markRefreshed,
   };

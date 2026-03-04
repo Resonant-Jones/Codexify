@@ -37,7 +37,7 @@ type Voice404Classification = "message_not_found" | "route_missing" | "unknown";
 const PAGE_SIZE = 100;
 // Keep poll cadence moderate to avoid backend global rate-limit pressure.
 const POLL_INTERVAL_MS = 2000;
-const POLL_TIMEOUT_MS = 30000;
+const POLL_TIMEOUT_MS = 300_000; // 5 minutes slow-path ceiling
 const COMPLETION_SETTLE_MS = 150;
 
 function parseMessageId(raw: any): number {
@@ -283,6 +283,7 @@ export function ChatView({
       logOnce("poll:messages:timeout", 10_000, () => {
         console.info(`[chat] polling timed out (${session.reason})`);
       });
+      showToast("Still working; refresh or retry.");
       stopPolling(session.key);
       return;
     }
