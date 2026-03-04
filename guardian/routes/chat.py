@@ -23,6 +23,16 @@ from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.core.event_graph import get_event_writer
+from guardian.depth import (
+    DepthDowngradeReason,
+    DepthMode,
+    ProjectDepthState,
+    classify_project_identity_depth,
+    normalize_project_identity_depth,
+    normalize_requested_depth_raw,
+    project_requested_depth_mode,
+    resolve_depth,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue, enqueue_chat_embed
 from guardian.queue.turn_lock import acquire_turn_lock, release_turn_lock
@@ -760,6 +770,19 @@ async def _build_doc_context_override(
         return None
 
 
+def map_internal_depth_mode(
+    requested_depth_raw: str, effective_depth_mode: DepthMode
+) -> str:
+    """
+    Map API contract depth to runtime/broker depth_mode.
+
+    Contract-only task: internal RAG/broker depth behavior must remain unchanged.
+    """
+    if requested_depth_raw == "deep":
+        return "deep" if effective_depth_mode == "deep" else "normal"
+    return requested_depth_raw
+
+
 # =========================
 # Chat Threads API
 # =========================
@@ -1069,36 +1092,82 @@ async def chat_complete(
             status_code=400, detail="Thread has no usable context"
         )
 
-    requested_depth_mode = str(body.depth_mode or "deep").strip().lower()
-    effective_depth_mode = body.depth_mode
+    requested_depth_raw = normalize_requested_depth_raw(body.depth_mode)
+    # Binary projection: deep iff raw request is exactly "deep".
+    requested_depth_mode: DepthMode = project_requested_depth_mode(
+        requested_depth_raw
+    )
+    depth_downgrade_reason: DepthDowngradeReason | None = None
     thread_project_id: Optional[int] = None
     if isinstance(thread_exists, dict):
         thread_project_id = _coerce_positive_int(
             thread_exists.get("project_id")
         )
-    if requested_depth_mode == "deep":
-        project_depth = "light"
-        getter = getattr(chatlog_db, "get_project_identity_depth", None)
-        if callable(getter):
-            try:
-                project_depth = str(
-                    getter(thread_project_id) or "light"
-                ).lower()
-            except Exception:
-                project_depth = "light"
-        if not can_run_deep_identity_modeling(project_depth):
-            effective_depth_mode = "normal"
-            logger.info(
-                "[chat.complete] downgraded depth_mode=deep to normal thread_id=%s project_id=%s identity_depth=%s",
+    thread_has_project = thread_project_id is not None
+
+    project_identity_depth_raw: str | None = None
+    project_identity_depth_norm = normalize_project_identity_depth(None)
+    project_depth_state: ProjectDepthState = "missing"
+    policy_allows_deep = False
+
+    if requested_depth_raw == "deep" and thread_has_project:
+        try:
+            getter = getattr(chatlog_db, "get_project_identity_depth", None)
+            if callable(getter):
+                raw_project_depth = getter(thread_project_id)
+                project_identity_depth_raw = (
+                    None
+                    if raw_project_depth is None
+                    else str(raw_project_depth)
+                )
+            else:
+                project_identity_depth_raw = "__missing_project_depth_getter__"
+            project_identity_depth_norm = normalize_project_identity_depth(
+                project_identity_depth_raw
+            )
+            project_depth_state = classify_project_identity_depth(
+                project_identity_depth_raw
+            )
+            if project_depth_state == "known":
+                policy_allows_deep = bool(
+                    can_run_deep_identity_modeling(project_identity_depth_norm)
+                )
+        except Exception:
+            logger.exception(
+                "[chat.complete] depth resolution failed thread_id=%s project_id=%s",
                 thread_id,
                 thread_project_id,
-                project_depth,
             )
+            project_identity_depth_raw = "__depth_resolution_exception__"
+            project_identity_depth_norm = normalize_project_identity_depth(
+                project_identity_depth_raw
+            )
+            project_depth_state = classify_project_identity_depth(
+                project_identity_depth_raw
+            )
+            policy_allows_deep = False
 
-    effective_depth = str(effective_depth_mode or "deep").strip().lower()
+    effective_depth_mode, depth_downgrade_reason = resolve_depth(
+        requested_depth_raw,
+        thread_has_project=thread_has_project,
+        project_depth_state=project_depth_state,
+        project_identity_depth_norm=project_identity_depth_norm,
+        policy_allows_deep=policy_allows_deep,
+    )
+    if requested_depth_mode == "deep" and effective_depth_mode == "light":
+        logger.info(
+            "[chat.complete] downgraded depth_mode=deep thread_id=%s project_id=%s reason=%s",
+            thread_id,
+            thread_project_id,
+            depth_downgrade_reason,
+        )
+
+    internal_depth_mode = map_internal_depth_mode(
+        requested_depth_raw, effective_depth_mode
+    )
     doc_context_override = await _build_doc_context_override(
         thread_id=thread_id,
-        depth_mode=effective_depth,
+        depth_mode=internal_depth_mode,
         project_id=thread_project_id,
     )
     merged_system_override = user_system_override
@@ -1114,7 +1183,7 @@ async def chat_complete(
         provider=provider,
         model=body.model,
         max_context=body.max_context,
-        depth_mode=effective_depth_mode,
+        depth_mode=internal_depth_mode,
         system_override=merged_system_override,
         origin="api:chat.complete",
     )
@@ -1167,7 +1236,10 @@ async def chat_complete(
         "ok": True,
         "task_id": task.task_id,
         "thread_id": thread_id,
-        "depth_mode": effective_depth_mode,
+        "depth_mode": internal_depth_mode,
+        "requested_depth_mode": requested_depth_mode,
+        "effective_depth_mode": effective_depth_mode,
+        "depth_downgrade_reason": depth_downgrade_reason,
         "messages_url": messages_url,
         "trace_url": trace_url,
     }

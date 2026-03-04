@@ -428,6 +428,201 @@ class TestChatCompletePost:
         assert getattr(task, "turn_lock_owner") == data["task_id"]
         assert captured.get("queue_name") == "codexify:queue:chat"
 
+    def test_complete_depth_contract_non_deep_request(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.enqueue", lambda *a, **k: None
+        )
+
+        response = test_client.post(
+            "/chat/1/complete", json={"depth_mode": "diagnostic"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "requested_depth_mode" in data
+        assert "effective_depth_mode" in data
+        assert "depth_downgrade_reason" in data
+        assert data["requested_depth_mode"] == "light"
+        assert data["effective_depth_mode"] == "light"
+        assert data["depth_downgrade_reason"] is None
+        # Internal legacy runtime depth_mode remains unchanged for non-deep.
+        assert data["depth_mode"] == "diagnostic"
+        assert data["depth_downgrade_reason"] not in {
+            "capability_missing",
+            "server_forced",
+        }
+
+    def test_complete_depth_contract_deep_no_project(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": None}
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.enqueue", lambda *a, **k: None
+        )
+
+        response = test_client.post(
+            "/chat/1/complete", json={"depth_mode": "deep"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["requested_depth_mode"] == "deep"
+        assert data["effective_depth_mode"] == "light"
+        assert data["depth_downgrade_reason"] == "no_project"
+        assert data["depth_mode"] == "normal"
+        assert data["depth_downgrade_reason"] not in {
+            "capability_missing",
+            "server_forced",
+        }
+
+    def test_complete_depth_contract_deep_project_light(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.get_project_identity_depth.return_value = "light"
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.enqueue", lambda *a, **k: None
+        )
+
+        response = test_client.post(
+            "/chat/1/complete", json={"depth_mode": "deep"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["requested_depth_mode"] == "deep"
+        assert data["effective_depth_mode"] == "light"
+        assert data["depth_downgrade_reason"] == "project_identity_depth_light"
+        assert data["depth_mode"] == "normal"
+        assert data["depth_downgrade_reason"] not in {
+            "capability_missing",
+            "server_forced",
+        }
+
+    def test_complete_depth_contract_deep_policy_rejected(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.get_project_identity_depth.return_value = "deep"
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+        monkeypatch.setattr(
+            "guardian.routes.chat.can_run_deep_identity_modeling",
+            lambda *_a, **_k: False,
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.enqueue", lambda *a, **k: None
+        )
+
+        response = test_client.post(
+            "/chat/1/complete", json={"depth_mode": "deep"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["requested_depth_mode"] == "deep"
+        assert data["effective_depth_mode"] == "light"
+        assert data["depth_downgrade_reason"] == "policy_gate_rejected"
+        assert data["depth_mode"] == "normal"
+        assert data["depth_downgrade_reason"] not in {
+            "capability_missing",
+            "server_forced",
+        }
+
+    def test_complete_depth_contract_deep_allowed(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.get_project_identity_depth.return_value = "deep"
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+        monkeypatch.setattr(
+            "guardian.routes.chat.can_run_deep_identity_modeling",
+            lambda *_a, **_k: True,
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.enqueue", lambda *a, **k: None
+        )
+
+        response = test_client.post(
+            "/chat/1/complete", json={"depth_mode": "deep"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["requested_depth_mode"] == "deep"
+        assert data["effective_depth_mode"] == "deep"
+        assert data["depth_downgrade_reason"] is None
+        assert data["depth_mode"] == "deep"
+        assert data["depth_downgrade_reason"] not in {
+            "capability_missing",
+            "server_forced",
+        }
+
+    def test_complete_depth_contract_exception_logs_once(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.get_chat_thread.return_value = {"id": 1, "project_id": 7}
+        mock_db.get_project_identity_depth.side_effect = RuntimeError("boom")
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+        exception_spy = MagicMock()
+        monkeypatch.setattr(
+            "guardian.routes.chat.logger.exception", exception_spy
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.enqueue", lambda *a, **k: None
+        )
+
+        response = test_client.post(
+            "/chat/1/complete", json={"depth_mode": "deep"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["requested_depth_mode"] == "deep"
+        assert data["effective_depth_mode"] == "light"
+        assert data["depth_downgrade_reason"] == "unknown"
+        assert data["depth_mode"] == "normal"
+        assert exception_spy.call_count == 1
+        assert data["depth_downgrade_reason"] not in {
+            "capability_missing",
+            "server_forced",
+        }
+
     def test_complete_with_model_override(
         self, test_client, mock_db, monkeypatch
     ):
