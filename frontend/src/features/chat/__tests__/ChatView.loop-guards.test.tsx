@@ -13,6 +13,8 @@ const markRefreshedMock = vi.fn();
 const subscribeMock = vi.fn();
 const apiPostMock = vi.fn();
 const apiGetMock = vi.fn();
+const getInFlightCompletionTurnIdMock = vi.fn();
+const clearInFlightCompletionTurnIdMock = vi.fn();
 const pollOptionsHistory: any[] = [];
 let pollFnRef: (() => Promise<void>) | null = null;
 
@@ -125,6 +127,10 @@ vi.mock("@/lib/api", () => ({
   default: {
     post: (...args: any[]) => apiPostMock(...args),
     get: (...args: any[]) => apiGetMock(...args),
+    getInFlightCompletionTurnId: (...args: any[]) =>
+      getInFlightCompletionTurnIdMock(...args),
+    clearInFlightCompletionTurnId: (...args: any[]) =>
+      clearInFlightCompletionTurnIdMock(...args),
   },
   getBackendOutageRemainingMs: vi.fn(() => 0),
 }));
@@ -139,6 +145,9 @@ describe("ChatView loop guards", () => {
     markRefreshedMock.mockClear();
     apiPostMock.mockReset();
     apiGetMock.mockReset();
+    getInFlightCompletionTurnIdMock.mockReset();
+    clearInFlightCompletionTurnIdMock.mockReset();
+    getInFlightCompletionTurnIdMock.mockReturnValue(null);
     pollFnRef = null;
     pollOptionsHistory.length = 0;
     resetLiveSubscribers();
@@ -448,6 +457,130 @@ describe("ChatView loop guards", () => {
         String(call[0]).includes("stop reason=assistant-reply-arrived")
       )
     ).toBe(true);
+  });
+
+  it("ignores stale turn-matched assistant messages until a new turn-matched message arrives", async () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const endCompletion = vi.fn();
+    const activeTurnId = "5df4dcbb-74de-4f95-8e99-581ce4665a4c";
+
+    getInFlightCompletionTurnIdMock.mockReturnValue(activeTurnId);
+    mockMessages = [
+      {
+        id: 500,
+        thread_id: 1,
+        role: "assistant",
+        content: "old assistant",
+        turn_id: activeTurnId,
+        created_at: "2026-03-02T00:00:00.000Z",
+      },
+      {
+        id: 501,
+        thread_id: 1,
+        role: "user",
+        content: "new question",
+        created_at: "2026-03-02T00:00:02.000Z",
+      },
+    ];
+
+    apiGetMock
+      .mockResolvedValueOnce({
+        data: {
+          ok: true,
+          messages: [
+            {
+              id: 500,
+              thread_id: 1,
+              role: "assistant",
+              content: "old assistant",
+              turn_id: activeTurnId,
+              created_at: "2026-03-02T00:00:00.000Z",
+            },
+            {
+              id: 501,
+              thread_id: 1,
+              role: "user",
+              content: "new question",
+              created_at: "2026-03-02T00:00:02.000Z",
+            },
+          ],
+          total: 2,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          ok: true,
+          messages: [
+            {
+              id: 502,
+              thread_id: 1,
+              role: "assistant",
+              content: "new assistant",
+              turn_id: activeTurnId,
+              created_at: "2026-03-02T00:00:03.000Z",
+            },
+            {
+              id: 501,
+              thread_id: 1,
+              role: "user",
+              content: "new question",
+              created_at: "2026-03-02T00:00:02.000Z",
+            },
+          ],
+          total: 3,
+        },
+      });
+
+    const completion = {
+      isCompleting: true,
+      activeTaskId: "task-501",
+      activeThreadId: 1,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={endCompletion}
+        reloadVersion={1}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        debugSpy.mock.calls.some((call) =>
+          String(call[0]).includes("[chat:poll] start reason=user-message")
+        )
+      ).toBe(true);
+    });
+
+    expect(pollFnRef).not.toBeNull();
+    await act(async () => {
+      await pollFnRef?.();
+    });
+
+    expect(
+      debugSpy.mock.calls.some((call) =>
+        String(call[0]).includes("stop reason=assistant-turn-arrived")
+      )
+    ).toBe(false);
+    expect(endCompletion).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await pollFnRef?.();
+    });
+
+    expect(appendMessageMock).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ id: 502, role: "assistant", turn_id: activeTurnId })
+    );
+    expect(
+      debugSpy.mock.calls.some((call) =>
+        String(call[0]).includes("stop reason=assistant-turn-arrived")
+      )
+    ).toBe(true);
+    expect(endCompletion).toHaveBeenCalledTimes(1);
   });
 
   it("classifies voice 404s: message-level unavailable and route-level disable", async () => {
