@@ -94,28 +94,19 @@ def _persist_turn_id_metadata(
         )
         return False
 
-    try:
-        with connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE chat_messages
-                SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
-                WHERE thread_id = %s
-                  AND id = %s
-                RETURNING id
-                """,
-                (json.dumps({"turn_id": turn_id}), thread_id, message_id),
-            )
-            row = cur.fetchone()
-            return bool(row)
-    except Exception:
-        logger.debug(
-            "[chat-worker] failed to persist turn_id metadata thread_id=%s message_id=%s",
-            thread_id,
-            message_id,
-            exc_info=True,
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE chat_messages
+            SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
+            WHERE thread_id = %s
+              AND id = %s
+            RETURNING id
+            """,
+            (json.dumps({"turn_id": turn_id}), thread_id, message_id),
         )
-        return False
+        row = cur.fetchone()
+        return bool(row)
 
 
 def _coerce_row_message_id(row: Any) -> int | None:
@@ -336,16 +327,31 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             )
             raise RuntimeError("assistant_message_missing")
 
-        if turn_id and not _persist_turn_id_metadata(
-            thread_id=task.thread_id, message_id=message_id, turn_id=turn_id
-        ):
-            logger.warning(
-                "[chat-worker] completion_turn_metadata_missing thread_id=%s turn_id=%s task_id=%s message_id=%s",
-                task.thread_id,
-                turn_id,
-                task.task_id,
-                message_id,
-            )
+        if turn_id:
+            try:
+                persisted = _persist_turn_id_metadata(
+                    thread_id=task.thread_id,
+                    message_id=message_id,
+                    turn_id=turn_id,
+                )
+                if not persisted:
+                    logger.warning(
+                        "[chat-worker] turn_id_metadata_persist_failed reason=persist_returned_false thread_id=%s turn_id=%s task_id=%s message_id=%s",
+                        task.thread_id,
+                        turn_id,
+                        task.task_id,
+                        message_id,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "[chat-worker] turn_id_metadata_persist_failed reason=exception thread_id=%s turn_id=%s task_id=%s message_id=%s err=%s",
+                    task.thread_id,
+                    turn_id,
+                    task.task_id,
+                    message_id,
+                    exc,
+                    exc_info=True,
+                )
         if turn_id:
             canonical_message_id = _find_assistant_message_id_by_turn_id(
                 thread_id=task.thread_id,
