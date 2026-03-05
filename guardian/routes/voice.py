@@ -90,11 +90,11 @@ def _dedupe_key(thread_id: int, turn_id: str, audio_sha256: str) -> str:
 def _normalize_turn_id(raw: str | None) -> str:
     value = (raw or "").strip()
     if not value:
-        return "legacy"
+        return str(uuid.uuid4())
     try:
         return str(uuid.UUID(value)).lower()
     except Exception:
-        return "legacy"
+        return str(uuid.uuid4())
 
 
 def _task_terminal_status(task_id: str) -> str:
