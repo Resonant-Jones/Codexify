@@ -13,6 +13,8 @@ const markRefreshedMock = vi.fn();
 const subscribeMock = vi.fn();
 const apiPostMock = vi.fn();
 const apiGetMock = vi.fn();
+const getInFlightCompletionTurnIdMock = vi.fn();
+const clearInFlightCompletionTurnIdMock = vi.fn();
 const pollOptionsHistory: any[] = [];
 let pollFnRef: (() => Promise<void>) | null = null;
 
@@ -125,6 +127,10 @@ vi.mock("@/lib/api", () => ({
   default: {
     post: (...args: any[]) => apiPostMock(...args),
     get: (...args: any[]) => apiGetMock(...args),
+    getInFlightCompletionTurnId: (...args: any[]) =>
+      getInFlightCompletionTurnIdMock(...args),
+    clearInFlightCompletionTurnId: (...args: any[]) =>
+      clearInFlightCompletionTurnIdMock(...args),
   },
   getBackendOutageRemainingMs: vi.fn(() => 0),
 }));
@@ -139,6 +145,8 @@ describe("ChatView loop guards", () => {
     markRefreshedMock.mockClear();
     apiPostMock.mockReset();
     apiGetMock.mockReset();
+    getInFlightCompletionTurnIdMock.mockReset();
+    clearInFlightCompletionTurnIdMock.mockReset();
     pollFnRef = null;
     pollOptionsHistory.length = 0;
     resetLiveSubscribers();
@@ -513,5 +521,52 @@ describe("ChatView loop guards", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Voice disabled" }));
     expect(apiPostMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("clears tracked turn id for the thread that completed after navigation", async () => {
+    const trackedTurns = new Map<number, string>([[1, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]]);
+    getInFlightCompletionTurnIdMock.mockImplementation((tid?: number | null) => {
+      if (tid == null) return null;
+      return trackedTurns.get(Number(tid)) ?? null;
+    });
+    clearInFlightCompletionTurnIdMock.mockImplementation(
+      (tid?: number | null, expectedTurnId?: string | null) => {
+        if (tid == null) return;
+        const numericTid = Number(tid);
+        const current = trackedTurns.get(numericTid);
+        if (!current) return;
+        if (expectedTurnId && current !== expectedTurnId) return;
+        trackedTurns.delete(numericTid);
+      }
+    );
+
+    const completion = {
+      isCompleting: true,
+      activeTaskId: "task-thread-1",
+      activeThreadId: 1,
+      startedAt: Date.now(),
+    };
+    const { rerender } = render(
+      <ChatView threadId={1} completionState={completion} endCompletion={vi.fn()} />
+    );
+
+    rerender(<ChatView threadId={2} completionState={completion} endCompletion={vi.fn()} />);
+
+    rerender(
+      <ChatView
+        threadId={2}
+        completionState={{ ...completion, isCompleting: false, activeThreadId: null }}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(clearInFlightCompletionTurnIdMock).toHaveBeenCalledWith(
+        1,
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      );
+    });
+    expect(trackedTurns.has(1)).toBe(false);
+    expect(trackedTurns.has(2)).toBe(false);
   });
 });
