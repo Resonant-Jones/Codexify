@@ -284,6 +284,42 @@ export function ChatView({
     [debugLog, stopPolling]
   );
 
+  const clearCompletionAfterFailure = useCallback(
+    (tid: number, reason: string, toastMessage?: string) => {
+      if (!Number.isFinite(tid)) return;
+
+      if (completionFinalizeTimerRef.current !== null) {
+        window.clearTimeout(completionFinalizeTimerRef.current);
+        completionFinalizeTimerRef.current = null;
+      }
+      completionFinalizePendingRef.current.delete(tid);
+
+      const activeKey = activePollKeyRef.current;
+      if (activeKey && activeKey.startsWith(`${tid}:`)) {
+        stopPollingWithReason(reason, activeKey);
+      }
+
+      inFlightCompletionByThreadRef.current.delete(tid);
+
+      const completionTurnId = activeTurnIdRef.current ?? getTrackedTurnId(tid);
+      if (completionTurnId) {
+        clearTrackedTurnId(tid, completionTurnId);
+        if (activeThreadRef.current === tid) {
+          setActiveTurnId((prev) => (prev === completionTurnId ? null : prev));
+        }
+      } else if (activeThreadRef.current === tid) {
+        setActiveTurnId(null);
+      }
+
+      if (toastMessage && activeThreadRef.current === tid) {
+        showToast(toastMessage);
+      }
+
+      endCompletionRef.current();
+    },
+    [showToast, stopPollingWithReason]
+  );
+
   const startPolling = useCallback(
     (tid: number, reason: string, lastUserMessageId: number) => {
       if (!Number.isFinite(tid)) return;
@@ -739,6 +775,85 @@ export function ChatView({
     };
 
     const offMessageCreated = subscribe("message.created", onMessageCreated);
+    const onTerminalTaskEvent = (
+      event: any,
+      eventType: "task.failed" | "task.cancelled" | "completion.error"
+    ) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const completionSnapshot = completionStateRef.current;
+      if (!completionSnapshot.isCompleting) return;
+
+      const tid = Number(
+        payload?.thread_id ??
+          payload?.threadId ??
+          completionSnapshot.activeThreadId
+      );
+      if (!Number.isFinite(tid)) return;
+      if (completionSnapshot.activeThreadId !== tid) return;
+
+      const incomingTaskId = String(
+        payload?.task_id ?? payload?.taskId ?? ""
+      ).trim();
+      if (
+        completionSnapshot.activeTaskId &&
+        incomingTaskId &&
+        incomingTaskId !== completionSnapshot.activeTaskId
+      ) {
+        return;
+      }
+
+      const shouldToast =
+        eventType === "task.failed" || eventType === "completion.error";
+      clearCompletionAfterFailure(
+        tid,
+        eventType,
+        shouldToast ? "Assistant response failed. Please retry." : undefined
+      );
+    };
+    const onTaskFailed = (event: any) => onTerminalTaskEvent(event, "task.failed");
+    const onTaskCancelled = (event: any) =>
+      onTerminalTaskEvent(event, "task.cancelled");
+    const onCompletionError = (event: any) =>
+      onTerminalTaskEvent(event, "completion.error");
+    const onTaskCompleted = (event: any) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const completionSnapshot = completionStateRef.current;
+      if (!completionSnapshot.isCompleting) return;
+
+      const tid = Number(
+        payload?.thread_id ??
+          payload?.threadId ??
+          completionSnapshot.activeThreadId
+      );
+      if (!Number.isFinite(tid)) return;
+      if (completionSnapshot.activeThreadId !== tid) return;
+
+      const incomingTaskId = String(
+        payload?.task_id ?? payload?.taskId ?? ""
+      ).trim();
+      if (
+        completionSnapshot.activeTaskId &&
+        incomingTaskId &&
+        incomingTaskId !== completionSnapshot.activeTaskId
+      ) {
+        return;
+      }
+
+      const messageId = Number(payload?.message_id ?? payload?.messageId);
+      if (Number.isFinite(messageId) && messageId > 0) {
+        return;
+      }
+
+      clearCompletionAfterFailure(
+        tid,
+        "task.completed:missing-message",
+        "Assistant response failed. Please retry."
+      );
+    };
+    const offTaskFailed = subscribe("task.failed", onTaskFailed);
+    const offTaskCancelled = subscribe("task.cancelled", onTaskCancelled);
+    const offCompletionError = subscribe("completion.error", onCompletionError);
+    const offTaskCompleted = subscribe("task.completed", onTaskCompleted);
     const onLocal = (evt: Event) => {
       const detail = (evt as CustomEvent).detail || {};
       ingestIncoming(detail.message ?? detail);
@@ -747,6 +862,10 @@ export function ChatView({
 
     const cleanup = () => {
       offMessageCreated();
+      offTaskFailed();
+      offTaskCancelled();
+      offCompletionError();
+      offTaskCompleted();
       window.removeEventListener("cfy:chat:message", onLocal as EventListener);
     };
     liveSubscriptionCleanupRef.current = cleanup;
@@ -757,7 +876,7 @@ export function ChatView({
         liveSubscriptionCleanupRef.current = null;
       }
     };
-  }, [ingestIncoming, stopPolling, subscribe, threadId]);
+  }, [clearCompletionAfterFailure, ingestIncoming, stopPolling, subscribe, threadId]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;

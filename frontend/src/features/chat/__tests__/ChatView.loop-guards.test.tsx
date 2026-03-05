@@ -250,6 +250,98 @@ describe("ChatView loop guards", () => {
     vi.useRealTimers();
   });
 
+  it("clears completion immediately when task.failed arrives for the active task", async () => {
+    const endCompletion = vi.fn();
+    const completion = {
+      isCompleting: true,
+      activeTaskId: "task-11",
+      activeThreadId: 11,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView
+        threadId={11}
+        completionState={completion}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.failed")).toBe(1);
+    });
+
+    emitLiveEvent("task.failed", {
+      thread_id: 11,
+      task_id: "task-11",
+      error: "boom",
+    });
+
+    await waitFor(() => {
+      expect(endCompletion).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("ignores stale task.failed and only finalizes for the active thread/task", async () => {
+    const endCompletion = vi.fn();
+    const completionThread2 = {
+      isCompleting: true,
+      activeTaskId: "task-2",
+      activeThreadId: 2,
+      startedAt: Date.now(),
+    };
+    const completionThread3 = {
+      isCompleting: true,
+      activeTaskId: "task-3",
+      activeThreadId: 3,
+      startedAt: Date.now(),
+    };
+
+    const { rerender } = render(
+      <ChatView
+        threadId={2}
+        completionState={completionThread2}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.failed")).toBe(1);
+    });
+
+    rerender(
+      <ChatView
+        threadId={3}
+        completionState={completionThread3}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.failed")).toBe(1);
+    });
+
+    act(() => {
+      emitLiveEvent("task.failed", {
+        thread_id: 2,
+        task_id: "task-2",
+        error: "stale",
+      });
+    });
+    expect(endCompletion).toHaveBeenCalledTimes(0);
+
+    act(() => {
+      emitLiveEvent("task.failed", {
+        thread_id: 3,
+        task_id: "task-3",
+        error: "active",
+      });
+    });
+    await waitFor(() => {
+      expect(endCompletion).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("uses poll-key idempotency and restarts when depth/profile context changes", async () => {
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     mockMessages = [

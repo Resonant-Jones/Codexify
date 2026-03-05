@@ -47,6 +47,11 @@ const DEFAULT_EVENT_TYPES = [
   "thread.branch",
   "thread.archived",
   "thread.profile.switched",
+  "task.running",
+  "task.completed",
+  "task.failed",
+  "task.cancelled",
+  "completion.error",
   "connector.status",
   "connector.sync",
 ];
