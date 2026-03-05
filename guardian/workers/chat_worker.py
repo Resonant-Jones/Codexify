@@ -112,6 +112,45 @@ def _persist_turn_id_metadata(
         return False
 
 
+def _find_assistant_message_for_turn(*, thread_id: int, turn_id: str) -> int | None:
+    """Return an existing assistant message id for the turn when present."""
+    if not turn_id:
+        return None
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return None
+
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return None
+
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id
+                FROM chat_messages
+                WHERE thread_id = %s
+                  AND role = 'assistant'
+                  AND COALESCE(extra_meta, '{}'::jsonb)->>'turn_id' = %s
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (thread_id, turn_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return _coerce_message_id(row[0])
+    except Exception:
+        logger.debug(
+            "[chat-worker] failed to check existing turn_id message thread_id=%s turn_id=%s",
+            thread_id,
+            turn_id,
+            exc_info=True,
+        )
+        return None
+
 def _publish_worker_heartbeat(status: str = "idle") -> None:
     payload = {
         "worker": "chat",
@@ -178,6 +217,36 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     )
 
     try:
+        existing_message_id = _find_assistant_message_for_turn(
+            thread_id=task.thread_id,
+            turn_id=turn_id,
+        )
+        if existing_message_id is not None:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            logger.warning(
+                "[chat-worker] duplicate_turn_detected thread_id=%s turn_id=%s task_id=%s existing_message_id=%s",
+                task.thread_id,
+                turn_id,
+                task.task_id,
+                existing_message_id,
+            )
+            _safe_publish(
+                task.task_id,
+                "task.completed",
+                {
+                    "run_id": run_id,
+                    "duration_ms": duration_ms,
+                    "thread_id": task.thread_id,
+                    "turn_id": turn_id,
+                    "message_id": existing_message_id,
+                    "provider": task.provider,
+                    "model": task.model,
+                    "selection_source": "turn_id_dedupe",
+                    "catalog_version_hash": None,
+                },
+            )
+            return
+
         if is_cancelled(task.task_id):
             _safe_publish(
                 task.task_id,
@@ -228,14 +297,13 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         if turn_id and not _persist_turn_id_metadata(
             thread_id=task.thread_id, message_id=message_id, turn_id=turn_id
         ):
-            logger.error(
-                "[chat-worker] completion_turn_metadata_missing thread_id=%s turn_id=%s task_id=%s message_id=%s",
+            logger.warning(
+                "[chat-worker] completion_turn_metadata_missing_non_fatal thread_id=%s turn_id=%s task_id=%s message_id=%s",
                 task.thread_id,
                 turn_id,
                 task.task_id,
                 message_id,
             )
-            raise RuntimeError("assistant_message_turn_metadata_missing")
 
         logger.info(
             "[chat-worker] assistant_message_persisted thread_id=%s turn_id=%s task_id=%s assistant_message_id=%s",
