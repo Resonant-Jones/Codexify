@@ -240,11 +240,17 @@ services:
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
       # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       LOCAL_EMBEDDINGS_REQUIRED: "${LOCAL_EMBEDDINGS_REQUIRED:-0}"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
+      CODEXIFY_VOICE_ROUTES_ENABLED: "${CODEXIFY_VOICE_ROUTES_ENABLED:-true}"
+      CODEXIFY_VOICE_TURNS_ENABLED: "${CODEXIFY_VOICE_TURNS_ENABLED:-false}"
+      CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
+      CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-local_openai_compatible}"
+      CODEXIFY_DEFAULT_VOICE: "${CODEXIFY_DEFAULT_VOICE:-alloy}"
 
       # --- OpenAI (cloud) ---
       # NOTE: We intentionally do NOT override OPENAI_BASE_URL here.
@@ -405,6 +411,58 @@ services:
       - ./models:/models
     restart: unless-stopped
     command: ["-m", "guardian.workers.chat_worker"]
+
+  worker-voice:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app
+    entrypoint: ["python"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
+      LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
+      CODEXIFY_VOICE_ROUTES_ENABLED: "${CODEXIFY_VOICE_ROUTES_ENABLED:-true}"
+      CODEXIFY_VOICE_TURNS_ENABLED: "${CODEXIFY_VOICE_TURNS_ENABLED:-false}"
+      CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
+      CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-local_openai_compatible}"
+      CODEXIFY_DEFAULT_VOICE: "${CODEXIFY_DEFAULT_VOICE:-alloy}"
+      REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - hf_cache:/root/.cache/huggingface
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+    restart: unless-stopped
+    command: ["-m", "guardian.workers.voice_worker"]
 
   worker-document-embed:
     build:

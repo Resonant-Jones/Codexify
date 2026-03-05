@@ -613,9 +613,9 @@ api.interceptors.request.use((config) => {
     : null;
   if (completionThreadId != null) {
     const { payload, wasJsonString } = readCompletionPayload(config.data);
-    const existingTurnId = getInFlightCompletionTurnId(completionThreadId);
     const requestedTurnId = normalizeCompletionTurnId(payload.turn_id ?? payload.turnId);
-    const turnId = existingTurnId || requestedTurnId || generateCompletionTurnId();
+    // Use per-request turn ids by default; do not carry stale ids between requests.
+    const turnId = requestedTurnId || generateCompletionTurnId();
     payload.turn_id = turnId;
     config.data = wasJsonString ? JSON.stringify(payload) : payload;
     inFlightCompletionTurnByThread.set(completionThreadId, turnId);

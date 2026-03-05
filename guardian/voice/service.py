@@ -21,8 +21,20 @@ import requests
 from guardian.tts.tts_manager import TTSManager
 from guardian.voice.config import VoiceRuntimeConfig, get_voice_runtime_config
 from guardian.voice.manifest import load_manifest
+from guardian.voice.runtime import SUPPORTED_INPUT_MIME
 
 logger = logging.getLogger(__name__)
+
+_CANONICAL_INPUT_MIME = "audio/wav"
+_INPUT_MIME_ALIASES = {
+    "audio/x-wav": "audio/wav",
+}
+_INPUT_MIME_TO_EXT = {
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+}
 
 
 class VoiceServiceError(RuntimeError):
@@ -39,6 +51,50 @@ class VoiceTimeoutError(VoiceServiceError):
 
 class VoiceProviderError(VoiceServiceError):
     """Provider-level execution failure."""
+
+
+def _normalize_input_mime(mime_type: str | None) -> str:
+    raw = str(mime_type or "").strip().lower()
+    normalized = _INPUT_MIME_ALIASES.get(raw, raw)
+    if normalized in SUPPORTED_INPUT_MIME:
+        return normalized
+    if raw in SUPPORTED_INPUT_MIME:
+        return raw
+    raise VoiceValidationError(f"invalid_mime:{raw or '<missing>'}")
+
+
+def ffmpeg_available() -> bool:
+    return bool(shutil.which("ffmpeg"))
+
+
+def ffprobe_available() -> bool:
+    return bool(shutil.which("ffprobe"))
+
+
+def validate_voice_runtime_dependencies(
+    *,
+    routes_enabled: bool,
+    accepted_mime: tuple[str, ...] = SUPPORTED_INPUT_MIME,
+) -> None:
+    if not routes_enabled:
+        return
+
+    requires_normalization = any(
+        mime not in {"audio/wav", "audio/x-wav"} for mime in accepted_mime
+    )
+    if not requires_normalization:
+        return
+
+    missing: list[str] = []
+    if not ffmpeg_available():
+        missing.append("ffmpeg")
+    if not ffprobe_available():
+        missing.append("ffprobe")
+    if missing:
+        logger.warning(
+            "[voice] missing runtime dependencies for non-WAV ingest: %s",
+            ",".join(missing),
+        )
 
 
 def _openai_endpoint(base_url: str, suffix: str) -> str:
@@ -110,25 +166,74 @@ def enforce_audio_input_limits(
     *,
     cfg: VoiceRuntimeConfig | None = None,
 ) -> float | None:
+    _, _, meta = normalize_audio_input(audio_bytes, mime_type, cfg=cfg)
+    return meta.get("duration_seconds")
+
+
+def normalize_audio_input(
+    audio_bytes: bytes,
+    mime_type: str | None,
+    *,
+    cfg: VoiceRuntimeConfig | None = None,
+) -> tuple[bytes, str, dict[str, Any]]:
     config = cfg or get_voice_runtime_config()
+    normalized_mime = _normalize_input_mime(mime_type)
     size = len(audio_bytes)
     if size <= 0:
         raise VoiceValidationError("empty_audio")
     if size > config.input_max_bytes:
         raise VoiceValidationError(
-            f"audio_too_large:{size}>{config.input_max_bytes}"
+            f"payload_too_large:{size}>{config.input_max_bytes}"
         )
 
-    duration = detect_audio_duration_seconds(audio_bytes, mime_type)
+    output_bytes = audio_bytes
+    output_mime = normalized_mime
+    if normalized_mime != _CANONICAL_INPUT_MIME:
+        source_ext = _INPUT_MIME_TO_EXT.get(normalized_mime)
+        if not source_ext or not ffmpeg_available():
+            raise VoiceValidationError("normalization_failed")
+        try:
+            output_bytes = _transcode_with_ffmpeg(
+                audio_bytes,
+                source_ext=source_ext,
+                target_ext="wav",
+            )
+        except Exception as exc:
+            logger.warning(
+                "[voice] normalization failed mime=%s err=%s", mime_type, exc
+            )
+            raise VoiceValidationError("normalization_failed")
+        output_mime = _CANONICAL_INPUT_MIME
+
+    duration = detect_audio_duration_seconds(output_bytes, output_mime)
     if duration is None:
-        raise VoiceValidationError(
-            "audio_duration_unknown:provide wav or install ffprobe"
-        )
+        raise VoiceValidationError("normalization_failed")
     if duration > config.max_duration_seconds:
         raise VoiceValidationError(
-            f"audio_too_long:{duration:.2f}>{config.max_duration_seconds}"
+            f"duration_exceeded:{duration:.2f}>{config.max_duration_seconds}"
         )
-    return duration
+
+    sample_rate = None
+    channels = None
+    if output_mime == _CANONICAL_INPUT_MIME:
+        try:
+            with wave.open(io.BytesIO(output_bytes), "rb") as wav_fp:
+                sample_rate = int(wav_fp.getframerate() or 0) or None
+                channels = int(wav_fp.getnchannels() or 0) or None
+        except Exception:
+            sample_rate = None
+            channels = None
+
+    return (
+        output_bytes,
+        output_mime,
+        {
+            "duration_seconds": duration,
+            "sample_rate_hz": sample_rate,
+            "channels": channels,
+            "size_bytes": len(output_bytes),
+        },
+    )
 
 
 def _request_transcription_openai_compatible(
@@ -188,9 +293,15 @@ def transcribe_audio(
             os.getenv("CODEXIFY_STT_MOCK_TEXT") or "mock transcript"
         ).strip()
 
-    if active_provider == "whisper_local":
+    if active_provider in {
+        "whisper_local",
+        "whispercpp",
+        "local_openai_compatible",
+    }:
         base_url = (
-            os.getenv("CODEXIFY_STT_BASE_URL")
+            cfg.local_voice_base_url
+            or os.getenv("CODEXIFY_LOCAL_VOICE_BASE_URL")
+            or os.getenv("CODEXIFY_STT_BASE_URL")
             or os.getenv("CODEXIFY_LOCAL_STT_BASE_URL")
             or os.getenv("LOCAL_BASE_URL")
             or "http://localhost:11434"
