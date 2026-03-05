@@ -462,13 +462,14 @@ function requestGuardWindowMs(
   const path = pathFromUrl(url);
   if (!path) return 0;
   if (/\/api\/events$|\/events$/.test(path)) return 4000;
-  // Allow normal polling, but still damp accidental duplicate bursts.
-  if (/\/chat\/\d+\/messages$/.test(path)) return 500;
-  if (/\/chat\/\d+\/profile$/.test(path)) return 5000;
-  if (/\/health\/llm$/.test(path)) return 5000;
+  // Chat-critical reads must never be dropped by client-side throttling.
+  if (/\/chat\/\d+\/messages$/.test(path)) return 0;
+  if (/\/chat\/\d+\/profile$/.test(path)) return 0;
+  if (/\/chat\/threads$/.test(path)) return 0;
+  if (/\/health\/llm$/.test(path)) return 0;
   // Catalog fetches can be intentionally triggered by menu open + refresh polling.
   if (/\/llm\/catalog$/.test(path)) return 0;
-  if (/\/ui\/session$/.test(path)) return 10000;
+  if (/\/ui\/session$/.test(path)) return 0;
   // Project cache and shell hydration may issue close-in-time reads.
   if (/\/projects$/.test(path) || /\/api\/projects$/.test(path)) return 0;
   return 0;

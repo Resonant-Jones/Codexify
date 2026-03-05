@@ -90,6 +90,21 @@ function sanitizeThread(raw: Thread): Thread {
   };
 }
 
+function readStoredGeneralProjectId(): string | null {
+  if (typeof window === "undefined") return null;
+  const candidates = [
+    window.localStorage.getItem("cfy.generalProjectId"),
+    window.localStorage.getItem("cfy.defaultProjectId"),
+  ];
+  for (const raw of candidates) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return String(parsed);
+    }
+  }
+  return null;
+}
+
 export function useSidebarThreads({
   initialThreads,
   projectId,
@@ -344,16 +359,41 @@ export function useSidebarThreads({
   );
 
   const currentProjectId = onProjectChange ? (projectId ?? null) : localProjectId;
+  const generalProjectId = useMemo(() => {
+    const fromProjects = projects.find((project) => isDefaultAliasName(project?.name));
+    if (fromProjects?.id != null) {
+      return String(fromProjects.id);
+    }
+    return readStoredGeneralProjectId();
+  }, [projects]);
 
   const scopedThreads = useMemo(() => {
+    const includesUnassignedAndGeneral = (scopeId: string | null): boolean => {
+      if (!scopeId) return false;
+      if (!generalProjectId) return false;
+      return String(scopeId) === String(generalProjectId);
+    };
+
     const base =
       currentProjectId === null
-        ? threadList.filter((t) => !t.projectId)
+        ? threadList.filter((t) => {
+            if (!t.projectId) return true;
+            if (!generalProjectId) return false;
+            return String(t.projectId) === String(generalProjectId);
+          })
         : currentProjectId
-        ? threadList.filter((t) => String(t.projectId ?? "") === String(currentProjectId))
+        ? includesUnassignedAndGeneral(currentProjectId)
+          ? threadList.filter(
+              (t) =>
+                !t.projectId
+                || String(t.projectId ?? "") === String(currentProjectId)
+            )
+          : threadList.filter(
+              (t) => String(t.projectId ?? "") === String(currentProjectId)
+            )
         : threadList;
     return base.filter((t) => !t.archivedAt);
-  }, [currentProjectId, threadList]);
+  }, [currentProjectId, generalProjectId, threadList]);
 
   const displayThreads = useMemo(() => {
     const titleMap = stableTitleRef.current;
