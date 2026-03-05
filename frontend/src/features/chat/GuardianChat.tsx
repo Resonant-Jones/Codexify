@@ -25,7 +25,10 @@ import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
 import useChat from "@/features/chat/useChat";
-import api, { buildChatCompletePath } from "@/lib/api";
+import api, {
+  buildChatCompletePath,
+  clearInFlightCompletionTurnId,
+} from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
@@ -943,13 +946,58 @@ export function GuardianChat({
       const role = String(payload?.role ?? "").trim().toLowerCase();
       if (!Number.isFinite(tid) || role !== "assistant") return;
       setTurnLockForThread(tid, false);
+      clearInFlightCompletionTurnId(tid);
       void fetchTraceForThread(tid, "message-event");
+      if (
+        completionState.isCompleting &&
+        completionState.activeThreadId === tid
+      ) {
+        endCompletion();
+      }
     });
+    const finalizeCompletionFromTaskEvent = (event: any) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const tid = Number(payload?.thread_id ?? payload?.threadId);
+      if (!Number.isFinite(tid)) return;
+      clearInFlightCompletionTurnId(tid);
+      setTurnLockForThread(tid, false);
+      const eventTaskId = String(
+        payload?.task_id ?? payload?.taskId ?? ""
+      ).trim();
+      if (
+        completionState.isCompleting &&
+        completionState.activeThreadId === tid &&
+        (!completionState.activeTaskId ||
+          !eventTaskId ||
+          eventTaskId === completionState.activeTaskId)
+      ) {
+        endCompletion();
+      }
+    };
+    const offTaskCompleted = subscribe("task.completed", finalizeCompletionFromTaskEvent);
+    const offTaskFailed = subscribe("task.failed", finalizeCompletionFromTaskEvent);
+    const offTaskCancelled = subscribe("task.cancelled", finalizeCompletionFromTaskEvent);
+    const offCompletionError = subscribe(
+      "completion.error",
+      finalizeCompletionFromTaskEvent
+    );
 
     return () => {
       offMessage();
+      offTaskCompleted();
+      offTaskFailed();
+      offTaskCancelled();
+      offCompletionError();
     };
-  }, [fetchTraceForThread, setTurnLockForThread, subscribe]);
+  }, [
+    completionState.activeTaskId,
+    completionState.activeThreadId,
+    completionState.isCompleting,
+    endCompletion,
+    fetchTraceForThread,
+    setTurnLockForThread,
+    subscribe,
+  ]);
   useEffect(() => {
     if (completionState.isCompleting && completionState.activeThreadId != null) {
       lastCompletionThreadRef.current = completionState.activeThreadId;
