@@ -61,6 +61,76 @@ def test_normalize_turn_id_valid_uuid_preserved():
     assert voice_route._normalize_turn_id(turn_id) == turn_id
 
 
+def test_get_dedupe_hit_returns_none_and_clears_failed_task_record(monkeypatch):
+    from guardian.routes import voice as voice_route
+
+    key = voice_route._dedupe_key(1, "turn-id", "audio-sha")
+
+    class _DummyRedis:
+        def __init__(self):
+            self.deleted_keys = []
+
+        def get(self, raw_key):
+            if raw_key == key:
+                return '{"task_id":"failed-task"}'
+            return None
+
+        def delete(self, raw_key):
+            self.deleted_keys.append(raw_key)
+
+    redis_client = _DummyRedis()
+    monkeypatch.setattr(
+        "guardian.routes.voice.get_redis_client", lambda: redis_client
+    )
+    monkeypatch.setattr(
+        "guardian.routes.voice._task_terminal_status",
+        lambda _task_id: "failed",
+    )
+
+    hit = voice_route._get_dedupe_hit(
+        thread_id=1,
+        turn_id="turn-id",
+        audio_sha256="audio-sha",
+    )
+
+    assert hit is None
+    assert redis_client.deleted_keys == [key]
+
+
+def test_get_dedupe_hit_keeps_in_flight_task_record(monkeypatch):
+    from guardian.routes import voice as voice_route
+
+    key = voice_route._dedupe_key(1, "turn-id", "audio-sha")
+
+    class _DummyRedis:
+        def get(self, raw_key):
+            if raw_key == key:
+                return '{"task_id":"active-task"}'
+            return None
+
+        def delete(self, _raw_key):
+            raise AssertionError("delete should not be called for active tasks")
+
+    monkeypatch.setattr(
+        "guardian.routes.voice.get_redis_client", lambda: _DummyRedis()
+    )
+    monkeypatch.setattr(
+        "guardian.routes.voice._task_terminal_status",
+        lambda _task_id: "in_flight",
+    )
+
+    hit = voice_route._get_dedupe_hit(
+        thread_id=1,
+        turn_id="turn-id",
+        audio_sha256="audio-sha",
+    )
+
+    assert hit == {
+        "deduped": True,
+        "task_id": "active-task",
+        "status": "in_flight",
+    }
+
 def test_voice_capabilities_contract(test_client, monkeypatch):
     monkeypatch.setattr(
         "guardian.routes.voice.get_voice_runtime_config",
