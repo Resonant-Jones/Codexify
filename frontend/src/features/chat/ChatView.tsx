@@ -200,6 +200,7 @@ export function ChatView({
   const inFlightCompletionByThreadRef = useRef<Map<number, string>>(new Map());
   const activeTurnIdRef = useRef<string | null>(null);
   const completionFinalizePendingRef = useRef<Set<number>>(new Set());
+  const lastCompletingThreadIdRef = useRef<number | null>(null);
   const liveSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const voiceUnavailableMessageIdsRef = useRef<Record<number, true>>({});
   const voiceRouteMissingRef = useRef(false);
@@ -444,6 +445,7 @@ export function ChatView({
   useEffect(() => {
     completionStateRef.current = completionState;
     if (completionState.isCompleting && completionState.activeThreadId != null) {
+      lastCompletingThreadIdRef.current = completionState.activeThreadId;
       const marker =
         completionState.activeTaskId ??
         `thread-${completionState.activeThreadId}`;
@@ -460,9 +462,11 @@ export function ChatView({
       return;
     }
     if (!completionState.isCompleting) {
-      if (activeTurnIdRef.current && threadId != null) {
-        clearTrackedTurnId(threadId, activeTurnIdRef.current);
+      const completingThreadId = lastCompletingThreadIdRef.current;
+      if (completingThreadId != null) {
+        clearTrackedTurnId(completingThreadId, activeTurnIdRef.current);
       }
+      lastCompletingThreadIdRef.current = null;
       setActiveTurnId(null);
       inFlightCompletionByThreadRef.current.clear();
       completionFinalizePendingRef.current.clear();
@@ -739,8 +743,11 @@ export function ChatView({
     if (activeKey && activeKey.startsWith(`${threadId}:`)) {
       stopPollingWithReason("completion-inactive", activeKey);
     }
-    if (activeTurnIdRef.current) {
-      clearTrackedTurnId(threadId, activeTurnIdRef.current);
+    const trackedTurnId = getTrackedTurnId(threadId);
+    if (trackedTurnId) {
+      clearTrackedTurnId(threadId, trackedTurnId);
+    }
+    if (activeTurnIdRef.current && completionStateRef.current.activeThreadId !== threadId) {
       setActiveTurnId(null);
     }
   }, [isCompletingForThread, stopPollingWithReason, threadId]);
