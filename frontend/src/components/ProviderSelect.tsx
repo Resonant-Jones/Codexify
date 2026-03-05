@@ -21,6 +21,9 @@ type ProviderSelectProps = {
   triggerStyle?: React.CSSProperties;
   openSignal?: number;
   cloudProvidersDisabled?: boolean;
+  displayMode?: "provider" | "model";
+  label?: string;
+  preferredProviderId?: string;
 };
 
 type CatalogModel = {
@@ -51,6 +54,9 @@ export function ProviderSelect({
   triggerStyle,
   openSignal,
   cloudProvidersDisabled = false,
+  displayMode = "provider",
+  label,
+  preferredProviderId,
 }: ProviderSelectProps) {
   const { provider, setProvider } = usePreferredProvider();
   const [providers, setProviders] = useState<CatalogProvider[]>([]);
@@ -137,12 +143,54 @@ export function ProviderSelect({
     void loadCatalog();
   }, [loadCatalog]);
 
+  const selectedRaw = String(value ?? provider ?? "default").trim() || "default";
+
+  const selectedProvider = useMemo(() => {
+    if (selectedRaw === "default") return null;
+    const byModel = providers.find((entry) =>
+      entry.models.some((model) => model.id === selectedRaw)
+    );
+    if (byModel) return byModel;
+    return providers.find((entry) => entry.id === selectedRaw) ?? null;
+  }, [providers, selectedRaw]);
+
+  const selectedModel = useMemo(() => {
+    if (!selectedProvider) return null;
+    return selectedProvider.models.find((m) => m.id === selectedRaw) ?? null;
+  }, [selectedProvider, selectedRaw]);
+
+  const owningProviderId = useMemo(() => {
+    if (displayMode === "model" && selectedProvider?.id) return selectedProvider.id;
+    return null;
+  }, [displayMode, selectedProvider?.id]);
+
+  const triggerProviderLabel = (() => {
+    if (displayMode === "model" && selectedModel?.displayName) {
+      return selectedModel.displayName;
+    }
+    if (selectedProvider?.displayName) return selectedProvider.displayName;
+    if (providers[0]?.displayName) return providers[0].displayName;
+    return displayMode === "model" ? "Model" : "Provider";
+  })();
+
+  const activeProvider = useMemo(
+    () =>
+      activeProviderId
+        ? providers.find((entry) => entry.id === activeProviderId) || null
+        : null,
+    [providers, activeProviderId]
+  );
+
   useEffect(() => {
     if (typeof openSignal !== "number" || openSignal <= 0) return;
     setOpen(true);
-    setActiveProviderId(null);
+    const initialProvider =
+      displayMode === "model"
+        ? preferredProviderId || owningProviderId || null
+        : null;
+    setActiveProviderId(initialProvider);
     void loadCatalog();
-  }, [openSignal, loadCatalog]);
+  }, [openSignal, loadCatalog, displayMode, preferredProviderId, owningProviderId]);
 
   usePollWithBackoff(
     () => loadCatalog({ throwOnError: true, silent: true }),
@@ -162,34 +210,14 @@ export function ProviderSelect({
         setActiveProviderId(null);
         return;
       }
-      setActiveProviderId(null);
+      const initialProvider =
+        displayMode === "model"
+          ? preferredProviderId || owningProviderId || null
+          : null;
+      setActiveProviderId(initialProvider);
       void loadCatalog();
     },
-    [loadCatalog]
-  );
-
-  const selectedRaw = String(value ?? provider ?? "default").trim() || "default";
-
-  const selectedProvider = useMemo(() => {
-    if (selectedRaw === "default") return null;
-    const byModel = providers.find((entry) =>
-      entry.models.some((model) => model.id === selectedRaw)
-    );
-    if (byModel) return byModel;
-    return providers.find((entry) => entry.id === selectedRaw) ?? null;
-  }, [providers, selectedRaw]);
-
-  const triggerProviderLabel =
-    selectedProvider?.displayName
-    || providers[0]?.displayName
-    || "Provider";
-
-  const activeProvider = useMemo(
-    () =>
-      activeProviderId
-        ? providers.find((entry) => entry.id === activeProviderId) || null
-        : null,
-    [providers, activeProviderId]
+    [loadCatalog, displayMode, preferredProviderId, owningProviderId]
   );
 
   const applySelection = useCallback(
@@ -264,7 +292,10 @@ export function ProviderSelect({
         aria-label="Open provider selector"
       >
         <span className="opacity-90">⚡</span>
-        <span className="font-medium">{triggerProviderLabel}</span>
+        {label ? (
+          <span className="uppercase tracking-wide text-[10px] opacity-70">{label}</span>
+        ) : null}
+        <span className="font-medium truncate max-w-[160px]">{triggerProviderLabel}</span>
         <ChevronDown className="h-3 w-3 opacity-50" />
       </DropdownMenuTrigger>
 
@@ -283,7 +314,13 @@ export function ProviderSelect({
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
           ) : null}
-          <span>{activeProvider ? `${activeProvider.displayName} Models` : "Select Provider"}</span>
+          <span>
+            {activeProvider
+              ? `${activeProvider.displayName} Models`
+              : displayMode === "model"
+                ? "Select Model"
+                : "Select Provider"}
+          </span>
         </div>
 
         {loading ? (
