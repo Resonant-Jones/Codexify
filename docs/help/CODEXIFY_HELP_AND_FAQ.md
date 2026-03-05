@@ -24,6 +24,8 @@ cd codexify
 docker compose up --build
 ```
 
+On the first boot, Codexify may spend a few minutes downloading the default local embedding model into `./models` before the backend and workers come fully online.
+
 Once services are running:
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:8888

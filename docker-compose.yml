@@ -113,6 +113,7 @@ services:
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       EMBEDDER_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       EMBEDDING_BACKEND: "local"
       CODEXIFY_USE_OPENAI: "0"
     volumes:
@@ -142,6 +143,7 @@ services:
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       EMBEDDER_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       EMBEDDING_BACKEND: "local"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
@@ -174,15 +176,25 @@ services:
       dockerfile: backend/Dockerfile
     image: codexify-backend
     working_dir: /app
-    profiles:
-      - local-embeddings
     entrypoint: ["python"]
     volumes:
+      - ./guardian:/app/guardian
       - ./models:/models
+      - hf_cache:/root/.cache/huggingface
     environment:
-      - CFY_EMBED_MODEL_DIR=/models/bge-large-en-v1.5
-      - CFY_EMBED_MODEL_REPO=BAAI/bge-large-en-v1.5
-    command: ["backend/scripts/ensure_embedding_model.py"]
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
+      EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+    restart: "no"
+    command: ["/app/guardian/scripts/ensure_embed_model.py"]
 
   backend:
     build:
@@ -232,6 +244,7 @@ services:
       # Supported provider ids (backend): "local", "groq", "openai", "minimax"
       LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
       TRANSFORMERS_OFFLINE: "1"
@@ -273,6 +286,8 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
+      model-prep:
+        condition: service_completed_successfully
       graph-init:
         condition: service_completed_successfully
     command:
@@ -292,7 +307,7 @@ services:
               file=sys.stderr,
           )
           print(
-              "[backend] Run `docker compose --profile local-embeddings run --rm model-prep` or mount a pre-provisioned model.",
+              "[backend] Run `docker compose run --rm model-prep` or mount a pre-provisioned model.",
               file=sys.stderr,
           )
           raise SystemExit(1)
@@ -323,6 +338,7 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
@@ -383,6 +399,7 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
@@ -434,6 +451,7 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
@@ -488,6 +506,7 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
@@ -545,6 +564,7 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
@@ -604,6 +624,7 @@ services:
       GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
@@ -665,6 +686,7 @@ services:
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
       EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       HF_HOME: /root/.cache/huggingface

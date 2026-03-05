@@ -29,6 +29,7 @@ If you want to **run Codexify locally** with the least friction:
 * `.env` is local-only; never commit it (templates are the source of truth)
 * Set `GUARDIAN_API_KEY`, `NEO4J_PASS`, and your local LLM settings
 * Run: `docker compose up --build`
+* First boot auto-downloads the default local embedding model into `./models` if it is missing
 * Open:
 
   * UI: [http://localhost:5173](http://localhost:5173)
@@ -265,6 +266,7 @@ Desktop connection defaults are configurable via:
 **One-shot containers**
 - `migrator` -> runs Alembic + seed defaults, then exits
 - `graph-init` -> applies Neo4j constraints + seed nodes, then exits
+- `model-prep` -> ensures the local embedding model exists under `./models`, then exits
 
 **Profiled containers (not started unless enabled)**
 - `chatgpt-migrate` (`cli` profile)
@@ -281,8 +283,9 @@ Desktop connection defaults are configurable via:
 1. Postgres + Neo4j start
 2. `graph-init` applies constraints (requires `NEO4J_PASS`)
 3. `migrator` runs Alembic + `seed_defaults.py`
-4. Backend starts, verifies required tables, seeds defaults again, then serves API
-5. Workers start (Redis required)
+4. `model-prep` ensures the local embedding model is present, downloading it on first boot if needed
+5. Backend starts, verifies required tables, seeds defaults again, then serves API
+6. Workers start (Redis required)
 
 ## Repo Structure (Truthful)
 
@@ -317,7 +320,7 @@ Desktop connection defaults are configurable via:
   - `OPENAI_API_KEY` (for `openai`) or `GROQ_API_KEY` (for `groq`) or (`MINIMAX_API_KEY` + `MINIMAX_API_BASE`) for `minimax`
 - `CODEXIFY_VECTOR_STORE=chroma|faiss`
 - `CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK=1` (allow mock embeddings fallback and `/api/embeddings` dummy mode)
-- `EMBEDDING_BACKEND=dummy|gpt_oss|nomic` (`stub` is accepted as an alias for `dummy`)
+- `EMBEDDING_BACKEND=local|dummy|gpt_oss|nomic` (`stub` is accepted as an alias for `dummy`)
 - `GUARDIAN_ENABLE_GRAPH_CONTEXT=true` / `GUARDIAN_ENABLE_GRAPH_LOGGING=true`
 - `ENABLE_CONNECTOR_WORKER=true` (and provider tokens like `GITHUB_TOKEN`)
 - `IMAGE_GEN_PROVIDER` + `IMAGE_GEN_MODEL` (image generation; MVP path is `openai`, while `local`/`stability` are deferred and may return `503`)
