@@ -31,6 +31,7 @@ type PollSession = {
   startedAt: number;
   lastUserMessageId: number;
   initialAssistantId: number;
+  initialLatestMessageId: number;
 };
 
 type Voice404Classification = "message_not_found" | "route_missing" | "unknown";
@@ -309,6 +310,7 @@ export function ChatView({
         startedAt: Date.now(),
         lastUserMessageId: normalizedUserId,
         initialAssistantId: lastAssistantIdRef.current,
+        initialLatestMessageId: lastMessageIdRef.current,
       });
       debugLog(`poll:start:${key}`, `[chat:poll] start reason=${reason} key=${key}`, 500);
     },
@@ -372,6 +374,7 @@ export function ChatView({
           expectedTurnId &&
           messageRole === "assistant" &&
           readMessageTurnId(msg) === expectedTurnId &&
+          id > session.initialLatestMessageId &&
           id > matchingTurnAssistantId
         ) {
           matchingTurnAssistantId = id;
