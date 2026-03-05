@@ -127,7 +127,9 @@ COPY backend/requirements-tts.txt /tmp/backend/requirements-tts.txt
 RUN python -m pip install -r /tmp/backend/requirements-tts.txt
 
 # === Final stage: Create minimal runtime image ===
-FROM dhi.io/python:3.11.14-debian13 AS runtime
+ # NOTE: The non-"-dev" runtime image is intentionally hardened/minimal and does not ship with apt.
+ # We use the "-dev" variant here because this stage needs to install ffmpeg via apt-get.
+FROM dhi.io/python:3.11.14-debian13-dev AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -137,14 +139,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+
 # Voice normalization/transcoding dependency (also includes ffprobe).
+# ffmpeg pulls packages (e.g., x11-common) whose postinst calls update-rc.d.
+# Ensure update-rc.d is present via init-system-helpers.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get install -y --no-install-recommends ffmpeg init-system-helpers && \
     rm -rf /var/lib/apt/lists/*
 
 # qwen-tts pulls python-sox, which shells out through /bin/sh during import.
 # Keep a POSIX shell available in the runtime image for compatibility.
-COPY --from=builder /usr/bin/bash /bin/sh
 
 # Copy Python site-packages from builder (minimal and secure)
 COPY --from=builder /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages
