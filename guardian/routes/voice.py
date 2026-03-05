@@ -7,6 +7,7 @@ import base64
 import logging
 import os
 import time
+import uuid
 from functools import lru_cache
 from typing import Any
 
@@ -112,6 +113,21 @@ async def _await_terminal_task_event(
                 return event_type, (event.get("data") or {})
 
 
+def _normalize_turn_id(raw: Any) -> str:
+    """Return a normalized UUID turn_id; generate one when missing/invalid."""
+    if isinstance(raw, str):
+        candidate = raw.strip()
+        if candidate:
+            try:
+                return str(uuid.UUID(candidate))
+            except ValueError:
+                logger.debug(
+                    "[voice.turn] invalid turn_id=%s; generating server-side UUID",
+                    candidate,
+                )
+    return str(uuid.uuid4())
+
+
 def _load_message(message_id: int) -> ChatMessage | None:
     db = chatlog_db or load_guardian_db_from_env()
     if not db or not hasattr(db, "get_session"):
@@ -134,6 +150,7 @@ async def voice_turn(
     completion_model: str | None = Form(None),
     depth_mode: str | None = Form(None),
     system_override: str | None = Form(None),
+    turn_id: str | None = Form(None),
     api_key: str = Depends(require_api_key),
 ):
     cfg = get_voice_runtime_config()
@@ -164,6 +181,8 @@ async def voice_turn(
     except VoiceValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    normalized_turn_id = _normalize_turn_id(turn_id)
+
     task = voice_turn_task_cls(
         thread_id=thread_id,
         audio_b64=base64.b64encode(audio_bytes).decode("ascii"),
@@ -177,7 +196,7 @@ async def voice_turn(
         completion_model=completion_model,
         depth_mode=depth_mode,
         system_override=system_override,
-        origin="api:voice.turn",
+        origin=f"api:voice.turn|turn_id={normalized_turn_id}",
     )
     task.turn_lock_owner = task.task_id
 
@@ -217,6 +236,7 @@ async def voice_turn(
                 "origin": task.origin,
                 "lock": turn_lock_key(thread_id),
                 "duration_seconds": duration,
+                "turn_id": normalized_turn_id,
             },
         )
     except Exception:
@@ -242,6 +262,7 @@ async def voice_turn(
         payload.setdefault("task_id", task.task_id)
         payload.setdefault("thread_id", thread_id)
         payload.setdefault("status", "succeeded")
+        payload.setdefault("turn_id", normalized_turn_id)
         return payload
 
     if event_type == "task.cancelled":

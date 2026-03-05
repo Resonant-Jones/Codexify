@@ -374,8 +374,13 @@ export function ChatView({
         if (
           expectedTurnId &&
           messageRole === "assistant" &&
-          readMessageTurnId(msg) === expectedTurnId &&
-          id > session.initialLatestMessageId &&
+          (() => {
+            const messageTurnId = readMessageTurnId(msg);
+            if (messageTurnId) {
+              return messageTurnId === expectedTurnId;
+            }
+            return id > session.lastUserMessageId;
+          })() &&
           id > matchingTurnAssistantId
         ) {
           matchingTurnAssistantId = id;
@@ -586,9 +591,6 @@ export function ChatView({
         observedTurnId &&
         observedTurnId !== expectedTurnId
       ) {
-        return;
-      }
-      if (expectedTurnId && !observedTurnId) {
         return;
       }
       if (messageId > lastAssistantIdRef.current) {
