@@ -52,6 +52,12 @@ _TURN_ID_ORIGIN_RE = re.compile(
     r"(?:^|\|)turn_id=(?P<turn_id>[a-f0-9-]{36})(?:\||$)",
     flags=re.IGNORECASE,
 )
+_MIRRORED_LIVE_EVENT_TYPES = {
+    "task.running",
+    "task.completed",
+    "task.failed",
+    "task.cancelled",
+}
 
 
 def _coerce_message_id(raw: Any) -> int | None:
@@ -88,29 +94,108 @@ def _persist_turn_id_metadata(
         )
         return False
 
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE chat_messages
+            SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
+            WHERE thread_id = %s
+              AND id = %s
+            RETURNING id
+            """,
+            (json.dumps({"turn_id": turn_id}), thread_id, message_id),
+        )
+        row = cur.fetchone()
+        return bool(row)
+
+
+def _coerce_row_message_id(row: Any) -> int | None:
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return _coerce_message_id(row.get("id"))
+    if isinstance(row, (tuple, list)):
+        return _coerce_message_id(row[0] if row else None)
+    try:
+        return _coerce_message_id(row["id"])  # type: ignore[index]
+    except Exception:
+        return _coerce_message_id(getattr(row, "id", None))
+
+
+def _find_assistant_message_id_by_turn_id(
+    *, thread_id: int, turn_id: str
+) -> int | None:
+    if not turn_id:
+        return None
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return None
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return None
     try:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                UPDATE chat_messages
-                SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
+                SELECT id
+                FROM chat_messages
                 WHERE thread_id = %s
-                  AND id = %s
-                RETURNING id
+                  AND role = 'assistant'
+                  AND COALESCE(extra_meta, '{}'::jsonb)->>'turn_id' = %s
+                ORDER BY id ASC
+                LIMIT 1
                 """,
-                (json.dumps({"turn_id": turn_id}), thread_id, message_id),
+                (thread_id, turn_id),
             )
-            row = cur.fetchone()
-            return bool(row)
+            return _coerce_row_message_id(cur.fetchone())
     except Exception:
         logger.debug(
-            "[chat-worker] failed to persist turn_id metadata thread_id=%s message_id=%s",
+            "[chat-worker] failed turn_id lookup thread_id=%s turn_id=%s",
             thread_id,
-            message_id,
+            turn_id,
             exc_info=True,
         )
-        return False
+        return None
 
+
+def _find_assistant_message_for_turn(*, thread_id: int, turn_id: str) -> int | None:
+    """Return an existing assistant message id for the turn when present."""
+    if not turn_id:
+        return None
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return None
+
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return None
+
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id
+                FROM chat_messages
+                WHERE thread_id = %s
+                  AND role = 'assistant'
+                  AND COALESCE(extra_meta, '{}'::jsonb)->>'turn_id' = %s
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (thread_id, turn_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return _coerce_message_id(row[0])
+    except Exception:
+        logger.debug(
+            "[chat-worker] failed to check existing turn_id message thread_id=%s turn_id=%s",
+            thread_id,
+            turn_id,
+            exc_info=True,
+        )
+        return None
 
 def _publish_worker_heartbeat(status: str = "idle") -> None:
     payload = {
@@ -128,6 +213,17 @@ def _publish_worker_heartbeat(status: str = "idle") -> None:
         )
     except Exception as exc:
         logger.debug("[chat-worker] heartbeat update failed: %s", exc)
+
+
+def _safe_emit_live_event(event_type: str, payload: dict[str, Any]) -> None:
+    try:
+        event_bus.emit_event(event_type, payload)
+    except Exception as exc:
+        logger.debug(
+            "[chat-worker] failed to mirror live event type=%s err=%s",
+            event_type,
+            exc,
+        )
 
 
 def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
@@ -150,6 +246,11 @@ def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
             task_id,
             exc,
         )
+
+    if event_type in _MIRRORED_LIVE_EVENT_TYPES:
+        mirror_payload = dict(payload)
+        mirror_payload.setdefault("task_id", task_id)
+        _safe_emit_live_event(event_type, mirror_payload)
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
@@ -178,6 +279,36 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     )
 
     try:
+        existing_message_id = _find_assistant_message_for_turn(
+            thread_id=task.thread_id,
+            turn_id=turn_id,
+        )
+        if existing_message_id is not None:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            logger.warning(
+                "[chat-worker] duplicate_turn_detected thread_id=%s turn_id=%s task_id=%s existing_message_id=%s",
+                task.thread_id,
+                turn_id,
+                task.task_id,
+                existing_message_id,
+            )
+            _safe_publish(
+                task.task_id,
+                "task.completed",
+                {
+                    "run_id": run_id,
+                    "duration_ms": duration_ms,
+                    "thread_id": task.thread_id,
+                    "turn_id": turn_id,
+                    "message_id": existing_message_id,
+                    "provider": task.provider,
+                    "model": task.model,
+                    "selection_source": "turn_id_dedupe",
+                    "catalog_version_hash": None,
+                },
+            )
+            return
+
         if is_cancelled(task.task_id):
             _safe_publish(
                 task.task_id,
@@ -198,6 +329,46 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 turn_id,
             )
             return
+
+        if turn_id:
+            existing_message_id = _find_assistant_message_id_by_turn_id(
+                thread_id=task.thread_id,
+                turn_id=turn_id,
+            )
+            if existing_message_id is not None:
+                duration_ms = int((time.monotonic() - started) * 1000)
+                logger.warning(
+                    "[chat-worker] duplicate_turn_prevented thread_id=%s turn_id=%s task_id=%s message_id=%s",
+                    task.thread_id,
+                    turn_id,
+                    task.task_id,
+                    existing_message_id,
+                )
+                _safe_publish(
+                    task.task_id,
+                    "task.completed",
+                    {
+                        "run_id": run_id,
+                        "duration_ms": duration_ms,
+                        "thread_id": task.thread_id,
+                        "turn_id": turn_id,
+                        "message_id": existing_message_id,
+                        "deduplicated": True,
+                        "provider": task.provider,
+                        "model": task.model,
+                    },
+                )
+                logger.info(
+                    "[task] completed type=%s id=%s run_id=%s thread=%s turn_id=%s message_id=%s deduplicated=%s",
+                    task.type,
+                    task.task_id,
+                    run_id,
+                    task.thread_id,
+                    turn_id,
+                    existing_message_id,
+                    True,
+                )
+                return
 
         result = run_chat_completion_task(
             task,
@@ -235,6 +406,49 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 task.task_id,
                 message_id,
             )
+        if turn_id:
+            try:
+                persisted = _persist_turn_id_metadata(
+                    thread_id=task.thread_id,
+                    message_id=message_id,
+                    turn_id=turn_id,
+                )
+                if not persisted:
+                    logger.warning(
+                        "[chat-worker] turn_id_metadata_persist_failed reason=persist_returned_false thread_id=%s turn_id=%s task_id=%s message_id=%s",
+                        task.thread_id,
+                        turn_id,
+                        task.task_id,
+                        message_id,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "[chat-worker] turn_id_metadata_persist_failed reason=exception thread_id=%s turn_id=%s task_id=%s message_id=%s err=%s",
+                    task.thread_id,
+                    turn_id,
+                    task.task_id,
+                    message_id,
+                    exc,
+                    exc_info=True,
+                )
+        if turn_id:
+            canonical_message_id = _find_assistant_message_id_by_turn_id(
+                thread_id=task.thread_id,
+                turn_id=turn_id,
+            )
+            if (
+                canonical_message_id is not None
+                and canonical_message_id != message_id
+            ):
+                logger.warning(
+                    "[chat-worker] completion_duplicate_turn_detected thread_id=%s turn_id=%s task_id=%s canonical_message_id=%s duplicate_message_id=%s",
+                    task.thread_id,
+                    turn_id,
+                    task.task_id,
+                    canonical_message_id,
+                    message_id,
+                )
+                message_id = canonical_message_id
 
         logger.info(
             "[chat-worker] assistant_message_persisted thread_id=%s turn_id=%s task_id=%s assistant_message_id=%s",
@@ -289,17 +503,25 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         )
     except Exception as exc:
         duration_ms = int((time.monotonic() - started) * 1000)
+        failure_payload = {
+            "run_id": run_id,
+            "duration_ms": duration_ms,
+            "error": str(exc),
+            "error_type": exc.__class__.__name__,
+            "thread_id": task.thread_id,
+            "origin": task.origin,
+            "turn_id": turn_id,
+        }
         _safe_publish(
             task.task_id,
             "task.failed",
+            failure_payload,
+        )
+        _safe_emit_live_event(
+            "completion.error",
             {
-                "run_id": run_id,
-                "duration_ms": duration_ms,
-                "error": str(exc),
-                "error_type": exc.__class__.__name__,
-                "thread_id": task.thread_id,
-                "origin": task.origin,
-                "turn_id": turn_id,
+                **failure_payload,
+                "task_id": task.task_id,
             },
         )
         logger.exception(

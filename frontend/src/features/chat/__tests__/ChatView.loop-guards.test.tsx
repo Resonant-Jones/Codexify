@@ -106,15 +106,22 @@ vi.mock("@/features/chat/components/ChatBubble", () => ({
         ? "Playing..."
         : resolved === "unavailable"
           ? "Audio unavailable"
-          : resolved === "disabled"
+        : resolved === "disabled"
             ? "Voice disabled"
             : "Read Aloud";
     const disabled = resolved === "unavailable" || resolved === "disabled";
+    const ariaLabel = label === "Read Aloud" ? "Read message aloud" : label;
     return (
       <div data-testid={`bubble-${message.id}`}>
         <div>{message.content}</div>
         {showPlay ? (
-          <button type="button" onClick={onPlay} disabled={disabled}>
+          <button
+            type="button"
+            onClick={onPlay}
+            disabled={disabled}
+            aria-label={ariaLabel}
+            title={label}
+          >
             {label}
           </button>
         ) : null}
@@ -258,6 +265,42 @@ describe("ChatView loop guards", () => {
     const endCompletion = vi.fn();
     const completion = {
       isCompleting: true,
+  it("clears completion immediately when task.failed arrives for the active task", async () => {
+    const endCompletion = vi.fn();
+    const completion = {
+      isCompleting: true,
+      activeTaskId: "task-11",
+      activeThreadId: 11,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView
+        threadId={11}
+        completionState={completion}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.failed")).toBe(1);
+    });
+
+    emitLiveEvent("task.failed", {
+      thread_id: 11,
+      task_id: "task-11",
+      error: "boom",
+    });
+
+    await waitFor(() => {
+      expect(endCompletion).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("ignores stale task.failed and only finalizes for the active thread/task", async () => {
+    const endCompletion = vi.fn();
+    const completionThread2 = {
+      isCompleting: true,
       activeTaskId: "task-2",
       activeThreadId: 2,
       startedAt: Date.now(),
@@ -281,6 +324,58 @@ describe("ChatView loop guards", () => {
     expect(endCompletion).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
+    const completionThread3 = {
+      isCompleting: true,
+      activeTaskId: "task-3",
+      activeThreadId: 3,
+      startedAt: Date.now(),
+    };
+
+    const { rerender } = render(
+      <ChatView
+        threadId={2}
+        completionState={completionThread2}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.failed")).toBe(1);
+    });
+
+    rerender(
+      <ChatView
+        threadId={3}
+        completionState={completionThread3}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.failed")).toBe(1);
+    });
+
+    act(() => {
+      emitLiveEvent("task.failed", {
+        thread_id: 2,
+        task_id: "task-2",
+        error: "stale",
+      });
+    });
+    expect(endCompletion).toHaveBeenCalledTimes(0);
+
+    act(() => {
+      emitLiveEvent("task.failed", {
+        thread_id: 3,
+        task_id: "task-3",
+        error: "active",
+      });
+    });
+    await waitFor(() => {
+      expect(endCompletion).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("uses poll-key idempotency and restarts when depth/profile context changes", async () => {
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     mockMessages = [
@@ -636,10 +731,18 @@ describe("ChatView loop guards", () => {
     });
 
     const { rerender } = render(
-      <ChatView threadId={1} completionState={completion} endCompletion={endCompletion} />
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={endCompletion}
+        voiceReadAloudEnabled
+        voiceCapabilitiesFailed
+      />
     );
 
-    const firstPlay = await screen.findByRole("button", { name: "Read Aloud" });
+    const firstPlay = await screen.findByRole("button", {
+      name: "Read message aloud",
+    });
     fireEvent.click(firstPlay);
 
     await waitFor(() => {
@@ -663,18 +766,61 @@ describe("ChatView loop guards", () => {
       response: { status: 404, data: { detail: "route_not_found" } },
     });
 
-    rerender(<ChatView threadId={2} completionState={completion} endCompletion={endCompletion} />);
+    rerender(
+      <ChatView
+        threadId={2}
+        completionState={completion}
+        endCompletion={endCompletion}
+        voiceReadAloudEnabled
+        voiceCapabilitiesFailed
+      />
+    );
 
-    const secondPlay = await screen.findByRole("button", { name: "Read Aloud" });
+    const secondPlay = await screen.findByRole("button", {
+      name: "Read message aloud",
+    });
     fireEvent.click(secondPlay);
 
     await waitFor(() => {
       expect(apiPostMock).toHaveBeenCalledTimes(2);
     });
-    expect(await screen.findByRole("button", { name: "Voice disabled" })).toBeDisabled();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Read message aloud" })
+      ).not.toBeInTheDocument();
+    });
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Voice disabled" }));
-    expect(apiPostMock).toHaveBeenCalledTimes(2);
+  it("clears active completion immediately on task.failed events", async () => {
+    const endCompletion = vi.fn();
+    const completionState = {
+      isCompleting: true,
+      activeTaskId: "task-failed-1",
+      activeThreadId: 9,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView
+        threadId={9}
+        completionState={completionState}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.failed")).toBe(1);
+    });
+
+    emitLiveEvent("task.failed", {
+      task_id: "task-failed-1",
+      thread_id: 9,
+      error: "assistant_message_missing",
+    });
+
+    await waitFor(() => {
+      expect(endCompletion).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("clears tracked turn id for the thread that completed after navigation", async () => {
@@ -711,6 +857,62 @@ describe("ChatView loop guards", () => {
         threadId={2}
         completionState={{ ...completion, isCompleting: false, activeThreadId: null }}
         endCompletion={vi.fn()}
+  it("treats task.completed without assistant message as completion failure", async () => {
+    const endCompletion = vi.fn();
+    const completionState = {
+      isCompleting: true,
+      activeTaskId: "task-no-message",
+      activeThreadId: 11,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView
+        threadId={11}
+        completionState={completionState}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.completed")).toBe(1);
+    });
+
+    emitLiveEvent("task.completed", {
+      task_id: "task-no-message",
+      thread_id: 11,
+      message_id: null,
+    });
+
+    await waitFor(() => {
+      expect(endCompletion).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("drops duplicate assistant messages for the same turn_id", async () => {
+    const endCompletion = vi.fn();
+    const completionState = {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    };
+    mockMessages = [
+      {
+        id: 301,
+        thread_id: 12,
+        role: "assistant",
+        content: "First response",
+        created_at: "2026-03-05T00:00:00Z",
+        turn_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      },
+    ];
+
+    render(
+      <ChatView
+        threadId={12}
+        completionState={completionState}
+        endCompletion={endCompletion}
       />
     );
 
@@ -723,4 +925,20 @@ describe("ChatView loop guards", () => {
     expect(trackedTurns.has(1)).toBe(false);
     expect(trackedTurns.has(2)).toBe(false);
   });
+      expect(activeSubscriberCount("message.created")).toBe(1);
+    });
+
+    emitLiveEvent("message.created", {
+      id: 302,
+      thread_id: 12,
+      role: "assistant",
+      content: "Duplicate response",
+      turn_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+
+    await waitFor(() => {
+      expect(appendMessageMock).toHaveBeenCalledTimes(0);
+    });
+  });
+
 });

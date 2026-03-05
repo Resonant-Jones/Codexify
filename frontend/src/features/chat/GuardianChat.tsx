@@ -19,13 +19,17 @@ import {
   Layers,
   SquareStack,
   Zap,
+  Plus,
   Volume2,
 } from "lucide-react";
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
 import useChat from "@/features/chat/useChat";
-import api, { buildChatCompletePath } from "@/lib/api";
+import api, {
+  buildChatCompletePath,
+  clearInFlightCompletionTurnId,
+} from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
@@ -33,6 +37,7 @@ import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import TraceButton from "./components/TraceButton";
 import SessionRail from "@/components/SessionRail/SessionRail";
+import { ProviderSelect } from "@/components/ProviderSelect";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
@@ -86,6 +91,22 @@ type ResolvedProfileState = {
   modelOverride: string | null;
 };
 
+type VoiceCapabilities = {
+  read_aloud_enabled: boolean;
+  turn_based_enabled: boolean;
+  supported_input_mime: string[];
+  limits: { max_upload_bytes: number; max_duration_s: number } | null;
+};
+
+type VoiceCapabilitiesStatus = "loading" | "ready" | "error";
+
+const DEFAULT_VOICE_CAPABILITIES: VoiceCapabilities = {
+  read_aloud_enabled: false,
+  turn_based_enabled: false,
+  supported_input_mime: ["audio/wav", "audio/x-wav", "audio/webm", "audio/ogg"],
+  limits: null,
+};
+
 const PROFILE_FALLBACK_OPTIONS: SystemProfileOption[] = [
   { id: "default", name: "Default", mode: "cloud" },
   { id: "cloud_mode", name: "Cloud Profile", mode: "cloud" },
@@ -135,6 +156,32 @@ function normalizeLlmHealthRawError(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function normalizeVoiceCapabilities(raw: any): VoiceCapabilities {
+  const limitsRaw = raw?.limits;
+  const maxUploadBytes = Number(limitsRaw?.max_upload_bytes);
+  const maxDurationSeconds = Number(limitsRaw?.max_duration_s);
+  const supportedInputMime = Array.isArray(raw?.supported_input_mime)
+    ? raw.supported_input_mime
+        .map((entry: unknown) => String(entry ?? "").trim().toLowerCase())
+        .filter(Boolean)
+    : DEFAULT_VOICE_CAPABILITIES.supported_input_mime;
+
+  return {
+    read_aloud_enabled: Boolean(raw?.read_aloud_enabled),
+    turn_based_enabled: Boolean(raw?.turn_based_enabled),
+    supported_input_mime: supportedInputMime.length
+      ? supportedInputMime
+      : DEFAULT_VOICE_CAPABILITIES.supported_input_mime,
+    limits:
+      Number.isFinite(maxUploadBytes) && Number.isFinite(maxDurationSeconds)
+        ? {
+            max_upload_bytes: Math.max(0, Math.floor(maxUploadBytes)),
+            max_duration_s: Math.max(0, Math.floor(maxDurationSeconds)),
+          }
+        : null,
+  };
 }
 
 function toUserFacingLlmHealthError(
@@ -288,6 +335,11 @@ export function GuardianChat({
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
   const [voiceUploading, setVoiceUploading] = useState(false);
+  const [voiceCapabilities, setVoiceCapabilities] = useState<VoiceCapabilities>(
+    DEFAULT_VOICE_CAPABILITIES
+  );
+  const [voiceCapabilitiesStatus, setVoiceCapabilitiesStatus] =
+    useState<VoiceCapabilitiesStatus>("loading");
   const [autoReadEnabled, setAutoReadEnabled] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem("cfy.voice.autoRead") === "1";
@@ -327,6 +379,27 @@ export function GuardianChat({
         new CustomEvent("cfy:toast", { detail: { message, kind: "error" } })
       );
     } catch {}
+  }, []);
+  const voiceReadAloudEnabled = voiceCapabilities.read_aloud_enabled;
+  const voiceTurnBasedEnabled = voiceCapabilities.turn_based_enabled;
+  const voiceCapabilitiesFailed = voiceCapabilitiesStatus === "error";
+  const supportedVoiceInputMime = voiceCapabilities.supported_input_mime;
+  const voiceUploadAccept = useMemo(
+    () => supportedVoiceInputMime.join(","),
+    [supportedVoiceInputMime]
+  );
+  const voiceUploadLimitBytes = voiceCapabilities.limits?.max_upload_bytes ?? null;
+
+  const refreshVoiceCapabilities = useCallback(async () => {
+    try {
+      const response = await api.get("/voice/capabilities");
+      setVoiceCapabilities(normalizeVoiceCapabilities(response?.data));
+      setVoiceCapabilitiesStatus("ready");
+    } catch (error) {
+      console.warn("[guardian] voice capabilities unavailable", error);
+      setVoiceCapabilities(DEFAULT_VOICE_CAPABILITIES);
+      setVoiceCapabilitiesStatus("error");
+    }
   }, []);
   const resolveProfileIdFromCommand = useCallback(
     (text: string): string | null => {
@@ -454,17 +527,13 @@ export function GuardianChat({
   };
   const requestProviderSwitch = useCallback(
     (options?: { openPopover?: boolean }) => {
-      if (sessionTabs.length <= 0) {
-        showToast("Provider selector unavailable in this view.");
-        return;
-      }
       if (options?.openPopover) {
         setPromptCostPopoverSection("providers");
         setPromptCostPopoverOpen(true);
       }
       setProviderMenuOpenSignal((prev) => prev + 1);
     },
-    [sessionTabs.length, showToast]
+    []
   );
   const getDepthForThread = useCallback(
     (threadId: number): DepthMode =>
@@ -810,6 +879,16 @@ export function GuardianChat({
   useEffect(() => () => triggerReload.cancel(), [triggerReload]);
 
   useEffect(() => {
+    void refreshVoiceCapabilities();
+  }, [effectiveThreadId, refreshVoiceCapabilities]);
+
+  useEffect(() => {
+    if (voiceReadAloudEnabled) return;
+    if (!autoReadEnabled) return;
+    setAutoReadEnabled(false);
+  }, [autoReadEnabled, voiceReadAloudEnabled]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem("cfy.voice.autoRead", autoReadEnabled ? "1" : "0");
     } catch {}
@@ -865,13 +944,58 @@ export function GuardianChat({
       const role = String(payload?.role ?? "").trim().toLowerCase();
       if (!Number.isFinite(tid) || role !== "assistant") return;
       setTurnLockForThread(tid, false);
+      clearInFlightCompletionTurnId(tid);
       void fetchTraceForThread(tid, "message-event");
+      if (
+        completionState.isCompleting &&
+        completionState.activeThreadId === tid
+      ) {
+        endCompletion();
+      }
     });
+    const finalizeCompletionFromTaskEvent = (event: any) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const tid = Number(payload?.thread_id ?? payload?.threadId);
+      if (!Number.isFinite(tid)) return;
+      clearInFlightCompletionTurnId(tid);
+      setTurnLockForThread(tid, false);
+      const eventTaskId = String(
+        payload?.task_id ?? payload?.taskId ?? ""
+      ).trim();
+      if (
+        completionState.isCompleting &&
+        completionState.activeThreadId === tid &&
+        (!completionState.activeTaskId ||
+          !eventTaskId ||
+          eventTaskId === completionState.activeTaskId)
+      ) {
+        endCompletion();
+      }
+    };
+    const offTaskCompleted = subscribe("task.completed", finalizeCompletionFromTaskEvent);
+    const offTaskFailed = subscribe("task.failed", finalizeCompletionFromTaskEvent);
+    const offTaskCancelled = subscribe("task.cancelled", finalizeCompletionFromTaskEvent);
+    const offCompletionError = subscribe(
+      "completion.error",
+      finalizeCompletionFromTaskEvent
+    );
 
     return () => {
       offMessage();
+      offTaskCompleted();
+      offTaskFailed();
+      offTaskCancelled();
+      offCompletionError();
     };
-  }, [fetchTraceForThread, setTurnLockForThread, subscribe]);
+  }, [
+    completionState.activeTaskId,
+    completionState.activeThreadId,
+    completionState.isCompleting,
+    endCompletion,
+    fetchTraceForThread,
+    setTurnLockForThread,
+    subscribe,
+  ]);
   useEffect(() => {
     if (completionState.isCompleting && completionState.activeThreadId != null) {
       lastCompletionThreadRef.current = completionState.activeThreadId;
@@ -1200,10 +1324,29 @@ export function GuardianChat({
       <button
         type="button"
         className="icon-inline"
-        aria-label={autoReadEnabled ? "Disable auto read aloud" : "Enable auto read aloud"}
-        title={autoReadEnabled ? "Auto read aloud: On" : "Auto read aloud: Off"}
-        onClick={() => setAutoReadEnabled((v) => !v)}
-        style={{ borderRadius: "var(--radius-micro)", opacity: autoReadEnabled ? 1 : 0.65 }}
+        aria-label={
+          voiceReadAloudEnabled
+            ? autoReadEnabled
+              ? "Disable auto read aloud"
+              : "Enable auto read aloud"
+            : "Auto read aloud unavailable"
+        }
+        title={
+          voiceReadAloudEnabled
+            ? autoReadEnabled
+              ? "Auto read aloud: On"
+              : "Auto read aloud: Off"
+            : "Read-aloud unavailable"
+        }
+        onClick={() => {
+          if (!voiceReadAloudEnabled) return;
+          setAutoReadEnabled((v) => !v);
+        }}
+        disabled={!voiceReadAloudEnabled}
+        style={{
+          borderRadius: "var(--radius-micro)",
+          opacity: voiceReadAloudEnabled ? (autoReadEnabled ? 1 : 0.65) : 0.45,
+        }}
       >
         <Volume2 className="h-5 w-5" />
       </button>
@@ -1226,14 +1369,13 @@ export function GuardianChat({
       >
         <SquareStack className="h-5 w-5" />
       </button>
-      <DropdownMenu>
+          <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" className="icon-inline" aria-label="Thread actions" style={{ borderRadius: "var(--radius-micro)" }}>
             <MoreVertical className="h-5 w-5" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onWorkspaceToggle}>Workspace</DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
@@ -1257,7 +1399,7 @@ export function GuardianChat({
             title="Create a new thread that inherits a summary/briefing and continue with a different model."
           >
             <div className="flex flex-col flex-1 min-h-0">
-              <div className="font-medium">Branch thread</div>
+              <div className="font-medium">Branch Thread</div>
               <div className="text-xs opacity-70">
                 Create a new thread that inherits a summary/briefing and continue with a different model.
               </div>
@@ -1266,7 +1408,7 @@ export function GuardianChat({
           <DropdownMenuItem
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
-              const pidRaw = window.prompt("Assign to project id (blank to cancel)", "");
+              const pidRaw = window.prompt("Add to project id (blank to cancel)", "");
               if (pidRaw == null || pidRaw === "") return;
               const pid = Number(pidRaw);
               if (!Number.isFinite(pid)) return alert("Invalid project id");
@@ -1275,11 +1417,29 @@ export function GuardianChat({
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
               } catch (e) {
                 console.warn(e);
-                alert("Assign failed.");
+                alert("Add failed.");
               }
             }}
           >
-            Assign to Project…
+            Add to Project…
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              const pidRaw = window.prompt("Move to project id (blank to cancel)", "");
+              if (pidRaw == null || pidRaw === "") return;
+              const pid = Number(pidRaw);
+              if (!Number.isFinite(pid)) return alert("Invalid project id");
+              try {
+                await api.patch(`/chat/${effectiveThreadId}`, { project_id: pid });
+                emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
+              } catch (e) {
+                console.warn(e);
+                alert("Move failed.");
+              }
+            }}
+          >
+            Move to Project…
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
@@ -1294,6 +1454,27 @@ export function GuardianChat({
             }}
           >
             Eject from Project
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              if (!onArchiveThread) return alert("Archiving is unavailable in this view");
+              if (!window.confirm("Archive this thread? It will be hidden from the sidebar.")) return;
+              try {
+                await onArchiveThread(effectiveThreadId);
+                emitThreadsRefresh("archive", { id: String(effectiveThreadId), archived: true });
+                setCurrentThreadId(null);
+                setThreadTitle(NEW_THREAD_TITLE);
+                if (typeof window !== "undefined") {
+                  window.history.replaceState({}, "", `/chat`);
+                }
+              } catch (err) {
+                console.warn("[guardian] archive failed", err);
+                alert("Archive failed.");
+              }
+            }}
+          >
+            Archive Thread
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
@@ -1318,23 +1499,13 @@ export function GuardianChat({
           <DropdownMenuItem
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
-              if (!onArchiveThread) return alert("Archiving is unavailable in this view");
-              if (!window.confirm("Archive this thread? It will be hidden from the sidebar.")) return;
-              try {
-                await onArchiveThread(effectiveThreadId);
-                emitThreadsRefresh("archive", { id: String(effectiveThreadId), archived: true });
-                setCurrentThreadId(null);
-                setThreadTitle(NEW_THREAD_TITLE);
-                if (typeof window !== "undefined") {
-                  window.history.replaceState({}, "", `/chat`);
-                }
-              } catch (err) {
-                console.warn("[guardian] archive failed", err);
-                alert("Archive failed.");
-              }
+              const nextProfile = window.prompt("Switch to profile id", resolvedProfile.id || "default");
+              const profileId = (nextProfile || "").trim();
+              if (!profileId) return;
+              await switchThreadProfile(effectiveThreadId, profileId);
             }}
           >
-            Archive Thread
+            Switch profile…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -1343,12 +1514,10 @@ export function GuardianChat({
 
   const body = (
     <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
-      {/* Header - Flex Item (Sticky behavior handled by layout if needed, but flex is safer for resizing) */}
-      <header
-        className="shrink-0 z-20 px-4 py-3"
-      >
+      {/* Single header rail */}
+      <header className="shrink-0 z-20 px-4 py-2">
         <div
-          className="relative flex items-center justify-between gap-2 rounded-full border px-3 py-2"
+          className="relative flex items-center gap-2 rounded-full border px-3 py-2 flex-nowrap"
           style={{
             borderColor: "var(--panel-border)",
             background:
@@ -1358,8 +1527,7 @@ export function GuardianChat({
               "inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 18px rgba(0,0,0,0.10)",
           }}
         >
-          {/* Left section: mobile back + chevron */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {onSidebarToggle && (
               <button
                 type="button"
@@ -1378,48 +1546,28 @@ export function GuardianChat({
             )}
           </div>
 
-          {/* Center section: centered title */}
-          <div
-            className="absolute left-1/2 -translate-x-1/2 truncate font-semibold max-w-[50%]"
-            style={{ color: "var(--text)" }}
-          >
-            {threadTitle}
+          <div className="flex-1 min-w-0">
+            <SessionRail
+              tabs={sessionTabs}
+              activeTabId={activeSessionTabId}
+              activeModelId={activeModelId || "default"}
+              providerMenuOpenSignal={providerMenuOpenSignal}
+              providerPickerOpenSignal={providerMenuOpenSignal}
+              cloudProvidersDisabled={cloudProvidersDisabled}
+              isCloud={resolvedProfile.mode === "cloud" ? true : resolvedProfile.mode === "local" ? false : undefined}
+              showTabs={sessionTabs.length > 1}
+              onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
+              onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
+              onOpenTab={() => (onSessionTabOpen ? onSessionTabOpen() : onNewChat())}
+              onSetModel={(modelId) => onSessionModelChange?.(modelId)}
+            />
           </div>
 
-          {/* Right section: header actions */}
-          <div className="flex items-center gap-1 justify-end flex-shrink-0">
+          <div className="flex items-center gap-1 justify-end shrink-0">
             {headerActions}
           </div>
         </div>
       </header>
-
-      {sessionTabs.length > 0 && (
-        <SessionRail
-          tabs={sessionTabs}
-          activeTabId={activeSessionTabId}
-          activeModelId={activeModelId || "default"}
-          activeProfileId={resolvedProfile.id}
-          activeProfileName={resolvedProfile.name}
-          activeProfileMode={resolvedProfile.mode}
-          profiles={availableProfiles}
-          profileSwitching={profileSwitching}
-          providerMenuOpenSignal={providerMenuOpenSignal}
-          providerPickerOpenSignal={providerMenuOpenSignal}
-          cloudProvidersDisabled={cloudProvidersDisabled}
-          showTabs={sessionTabs.length > 1}
-          onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
-          onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
-          onOpenTab={() => (onSessionTabOpen ? onSessionTabOpen() : onNewChat())}
-          onSetModel={(modelId) => onSessionModelChange?.(modelId)}
-          onSetProfile={(profileId) => {
-            if (effectiveThreadId == null) {
-              showToast("Thread is not persisted yet.");
-              return;
-            }
-            void switchThreadProfile(effectiveThreadId, profileId);
-          }}
-        />
-      )}
 
       {llmBackendUnavailable && (
         <div
@@ -1477,6 +1625,8 @@ export function GuardianChat({
             autoReadEnabled={autoReadEnabled}
             depthMode={depth}
             profileId={resolvedProfile.id}
+            voiceReadAloudEnabled={voiceReadAloudEnabled}
+            voiceCapabilitiesFailed={voiceCapabilitiesFailed}
           />
         ) : (
           <div
@@ -1517,20 +1667,20 @@ export function GuardianChat({
           {/* Bottom controls bar (aligned to bottom edge) */}
           <div className="mt-3 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              {/* Voice mode indicator (icon-only, label via tooltip) */}
-              <button
-                type="button"
-                className="icon-inline"
-                aria-label="Turn-based voice"
-                title="Turn-based voice"
-                style={{ borderRadius: "var(--radius-micro)", opacity: 0.8 }}
-                onClick={() => {
-                  // purely informational affordance for now
-                  console.debug("[guardian] turn-based voice affordance clicked");
-                }}
-              >
-                <Volume2 className="h-4 w-4" />
-              </button>
+              {voiceTurnBasedEnabled ? (
+                <button
+                  type="button"
+                  className="icon-inline"
+                  aria-label="Turn-based voice"
+                  title="Turn-based voice"
+                  style={{ borderRadius: "var(--radius-micro)", opacity: 0.8 }}
+                  onClick={() => {
+                    console.debug("[guardian] turn-based voice affordance clicked");
+                  }}
+                >
+                  <Volume2 className="h-4 w-4" />
+                </button>
+              ) : null}
 
               {/* RAG Depth Selector (icon-only) */}
               <DropdownMenu>
@@ -1563,11 +1713,11 @@ export function GuardianChat({
                   >
                     RAG Depth
                   </div>
-                  {(["shallow", "normal", "deep", "diagnostic"] as DepthMode[]).map((d) => (
+                  {["shallow", "normal", "deep", "diagnostic"].map((d) => (
                     <DropdownMenuItem
                       key={d}
                       onClick={() => {
-                        setDepth(d);
+                        setDepth(d as DepthMode);
                         console.log(`[guardian] Depth changed to: ${d}`);
                       }}
                       className={
@@ -1582,66 +1732,112 @@ export function GuardianChat({
                       }}
                     >
                       <div className="flex flex-col flex-1 min-h-0">
-                        <div className="font-medium">{depthLabels[d]}</div>
+                        <div className="font-medium">{depthLabels[d as DepthMode]}</div>
                         <div className="text-xs" style={{ color: "var(--muted)", opacity: 0.9 }}>
-                          {depthDescriptions[d]}
+                          {depthDescriptions[d as DepthMode]}
                         </div>
                       </div>
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              <ProviderSelect
+                value={activeModelId || "default"}
+                onChange={(modelId) => onSessionModelChange?.(modelId)}
+                triggerClassName="composer__model-trigger"
+                displayMode="model"
+                label="Model"
+                preferredProviderId={resolvedProfile.providerOverride || undefined}
+                cloudProvidersDisabled={cloudProvidersDisabled}
+              />
+
+              <button
+                type="button"
+                className="icon-inline"
+                aria-label="Open tools and connectors"
+                title="Tools and connectors"
+                style={{ borderRadius: "var(--radius-micro)" }}
+                onClick={() => {
+                  console.debug("[guardian] tools/connectors launcher clicked");
+                }}
+              >
+                <Plus className="h-4 w-4" />
+              </button>
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
-                style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
-                disabled={voiceUploading}
-                onClick={() => {
-                  if (effectiveThreadId == null) {
-                    alert("Create or open a thread before starting a voice turn.");
-                    return;
-                  }
-                  voiceFileInputRef.current?.click();
-                }}
-              >
-                {voiceUploading ? "Processing…" : "Upload Voice Turn"}
-              </button>
+              {voiceTurnBasedEnabled ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
+                    style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                    disabled={voiceUploading}
+                    onClick={() => {
+                      if (effectiveThreadId == null) {
+                        alert("Create or open a thread before starting a voice turn.");
+                        return;
+                      }
+                      voiceFileInputRef.current?.click();
+                    }}
+                  >
+                    {voiceUploading ? "Processing…" : "Upload Voice Turn"}
+                  </button>
 
-              <input
-                ref={voiceFileInputRef}
-                type="file"
-                accept="audio/wav,audio/*"
-                className="hidden"
-                onChange={async (event) => {
-                  const file = event.target.files?.[0];
-                  event.currentTarget.value = "";
-                  if (!file) return;
-                  if (effectiveThreadId == null) {
-                    alert("Create or open a thread before starting a voice turn.");
-                    return;
-                  }
-                  setVoiceUploading(true);
-                  try {
-                    const form = new FormData();
-                    form.append("thread_id", String(effectiveThreadId));
-                    form.append("audio_file", file);
-                    form.append("tts_enabled", "true");
-                    await api.post("/api/voice/turn", form, {
-                      headers: { "Content-Type": "multipart/form-data" },
-                      timeout: 180000,
-                    });
-                    triggerReload();
-                  } catch (error) {
-                    console.warn("[guardian] voice turn failed", error);
-                    alert("Voice turn failed. Check backend voice configuration.");
-                  } finally {
-                    setVoiceUploading(false);
-                  }
-                }}
-              />
+                  <input
+                    ref={voiceFileInputRef}
+                    type="file"
+                    accept={voiceUploadAccept}
+                    className="hidden"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      event.currentTarget.value = "";
+                      if (!file) return;
+                      if (effectiveThreadId == null) {
+                        alert("Create or open a thread before starting a voice turn.");
+                        return;
+                      }
+                      const normalizedMime = String(file.type || "")
+                        .trim()
+                        .toLowerCase();
+                      if (
+                        normalizedMime &&
+                        supportedVoiceInputMime.length > 0 &&
+                        !supportedVoiceInputMime.includes(normalizedMime)
+                      ) {
+                        alert(`Unsupported audio type: ${normalizedMime}`);
+                        return;
+                      }
+                      if (
+                        voiceUploadLimitBytes != null &&
+                        file.size > voiceUploadLimitBytes
+                      ) {
+                        const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
+                        alert(`Audio file too large. Max ${limitMb} MB.`);
+                        return;
+                      }
+                      setVoiceUploading(true);
+                      try {
+                        const form = new FormData();
+                        form.append("thread_id", String(effectiveThreadId));
+                        form.append("audio_file", file);
+                        form.append("tts_enabled", "true");
+                        await api.post("/voice/turn", form, {
+                          headers: { "Content-Type": "multipart/form-data" },
+                          timeout: 180000,
+                        });
+                        triggerReload();
+                      } catch (error) {
+                        console.warn("[guardian] voice turn failed", error);
+                        alert("Voice turn failed. Check backend voice configuration.");
+                      } finally {
+                        setVoiceUploading(false);
+                      }
+                    }}
+                  />
+                </>
+              ) : null}
             </div>
           </div>
         </div>

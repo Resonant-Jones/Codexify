@@ -16,6 +16,11 @@ vi.mock("@/hooks/useLiveEvents", () => ({
   }),
 }));
 
+// JSDOM lacks scrollIntoView in some environments; stub for auto-scroll logic
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = vi.fn();
+}
+
 describe("Thread document rehydration", () => {
   beforeEach(() => {
     localStorage.clear();

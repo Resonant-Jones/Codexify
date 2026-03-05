@@ -254,6 +254,10 @@ from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
 from guardian.routes.tools import api_router as api_tools_router
 from guardian.routes.tools import router as tools_router
+from guardian.routes.voice import router as voice_router
+from guardian.voice.config import get_voice_runtime_config
+from guardian.voice.runtime import SUPPORTED_INPUT_MIME
+from guardian.voice.service import validate_voice_runtime_dependencies
 
 # =========================
 # Application Lifespan Management
@@ -287,6 +291,15 @@ async def app_lifespan(app: FastAPI):
         logger.info("[graph] Knowledge graph context: ENABLED (Neo4j)")
     else:
         logger.info("[graph] Knowledge graph context: disabled")
+
+    try:
+        voice_cfg = get_voice_runtime_config()
+        validate_voice_runtime_dependencies(
+            routes_enabled=voice_cfg.routes_enabled,
+            accepted_mime=SUPPORTED_INPUT_MIME,
+        )
+    except Exception as exc:
+        logger.warning("[startup] voice dependency validation failed: %s", exc)
 
     # Initialize database via shared initializer (idempotent)
     db = dependencies.init_database()
@@ -706,6 +719,12 @@ _include_router(
     label="media",
     flag_name="CODEXIFY_ENABLE_MEDIA_ROUTES",
     include_fn=lambda: app.include_router(media_router, prefix="/api/media"),
+    core_surface=True,
+)
+_include_router(
+    label="voice",
+    flag_name="CODEXIFY_VOICE_ROUTES_ENABLED",
+    include_fn=lambda: app.include_router(voice_router),
     core_surface=True,
 )
 _include_router(
