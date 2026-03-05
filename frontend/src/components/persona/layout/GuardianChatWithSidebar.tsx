@@ -82,6 +82,21 @@ const DEVICE_ID_STORAGE_KEY = "cfy.deviceId";
 const THREAD_PAGE_SIZE = 50;
 const NEW_THREAD_TITLE = "New Thread";
 
+function readStoredGeneralProjectId(): number | null {
+  if (typeof window === "undefined") return null;
+  const candidates = [
+    window.localStorage.getItem("cfy.generalProjectId"),
+    window.localStorage.getItem("cfy.defaultProjectId"),
+  ];
+  for (const raw of candidates) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 function isDraftTitle(value: string | null | undefined): boolean {
   const normalized = (value ?? "").trim();
   return normalized === "New Thread" || normalized === "New Chat" || normalized === "Untitled Chat";
@@ -240,8 +255,16 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       targetThreadId != null &&
       threadsLoaded &&
       !threads.some((thread) => thread.id === targetThreadId);
+    const shouldClearMissingTarget =
+      selectedProjectFilter == null &&
+      !threadsHasMore &&
+      !threadsLoadingMore;
 
     if (targetMissingFromThreads) {
+      if (!shouldClearMissingTarget) {
+        // Keep session linkage intact: filtered/paginated lists can omit a valid thread.
+        return;
+      }
       if (activeId !== null) {
         setActiveId(null);
       }
@@ -269,8 +292,11 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     resolveRouteThreadId,
     sessionReady,
     sessionSpine,
+    selectedProjectFilter,
     threads,
+    threadsHasMore,
     threadsLoaded,
+    threadsLoadingMore,
   ]);
 
   // Sync sessionSpine with active thread - only depends on primitives needed to initiate side effect
@@ -540,7 +566,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
   // ----- Thread loader (hoisted early to avoid TDZ) -----
   const loadThreads = React.useCallback(async ({ reset = false }: { reset?: boolean } = {}) => {
     if (!checkAuthGate(auth, "threads load")) {
-      setThreadsLoaded(true);
       return;
     }
     if (!reset && (paginationRef.current.loading || !paginationRef.current.hasMore)) {
@@ -550,11 +575,17 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
     paginationRef.current.loading = true;
     setThreadsLoadingMore(true);
     try {
+      const generalProjectId = readStoredGeneralProjectId();
+      const projectFilter =
+        selectedProjectFilter != null
+          && !(generalProjectId != null && selectedProjectFilter === generalProjectId)
+          ? selectedProjectFilter
+          : null;
       const res = await api.get("/chat/threads", {
         params: {
           limit: THREAD_PAGE_SIZE,
           offset,
-          ...(selectedProjectFilter != null ? { project_id: selectedProjectFilter } : {}),
+          ...(projectFilter != null ? { project_id: projectFilter } : {}),
         },
       });
       const data = res?.data;
@@ -592,13 +623,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       setThreadsHasMore(hasMore);
     } catch (err) {
       console.warn("[guardian] failed to load threads", err);
-      if (reset) {
-        threadsRef.current = [];
-        setThreads([]);
-        paginationRef.current.offset = 0;
-        paginationRef.current.hasMore = false;
-        setThreadsHasMore(false);
-      }
+      // Preserve last-known list when refresh fails; avoid transient UI data loss.
     } finally {
       paginationRef.current.loading = false;
       setThreadsLoadingMore(false);
