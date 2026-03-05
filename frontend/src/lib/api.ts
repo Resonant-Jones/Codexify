@@ -658,15 +658,10 @@ api.interceptors.response.use(
   (error) => {
     const completionMeta = readCompletionMeta(error?.config);
     if (completionMeta) {
-      const status = Number(error?.response?.status ?? 0);
-      const shouldKeep =
-        status === 429 && completionErrorDetail(error).includes("turn_in_flight");
-      if (!shouldKeep) {
-        clearInFlightCompletionTurnId(
-          completionMeta.threadId,
-          completionMeta.turnId
-        );
-      }
+      clearInFlightCompletionTurnId(
+        completionMeta.threadId,
+        completionMeta.turnId
+      );
     }
 
     if (isBackendTransportError(error)) {
