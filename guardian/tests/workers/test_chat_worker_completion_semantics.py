@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
 
@@ -19,7 +21,7 @@ def _build_task(
     return task
 
 
-def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
+def _stubbed_success_setup(monkeypatch):
     published: list[tuple[str, dict]] = []
 
     monkeypatch.setattr(
@@ -50,17 +52,52 @@ def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
         "_find_assistant_message_id_by_turn_id",
         lambda **_kwargs: None,
     )
+    return published
+
+
+def test_metadata_persistence_false_is_non_fatal(monkeypatch, caplog):
+    published = _stubbed_success_setup(monkeypatch)
     monkeypatch.setattr(
         chat_worker,
         "_persist_turn_id_metadata",
         lambda **_kwargs: False,
     )
 
-    chat_worker._run_chat_task(_build_task())
+    with caplog.at_level(logging.WARNING):
+        chat_worker._run_chat_task(_build_task())
 
     event_types = [event_type for event_type, _payload in published]
     assert "task.completed" in event_types
     assert "task.failed" not in event_types
+    assert any(
+        "turn_id_metadata_persist_failed reason=persist_returned_false"
+        in record.message
+        for record in caplog.records
+    )
+
+
+def test_metadata_persistence_exception_is_non_fatal(monkeypatch, caplog):
+    published = _stubbed_success_setup(monkeypatch)
+
+    def _raise_persist(**_kwargs):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_turn_id_metadata",
+        _raise_persist,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        chat_worker._run_chat_task(_build_task())
+
+    event_types = [event_type for event_type, _payload in published]
+    assert "task.completed" in event_types
+    assert "task.failed" not in event_types
+    assert any(
+        "turn_id_metadata_persist_failed reason=exception" in record.message
+        for record in caplog.records
+    )
 
 
 def test_worker_failure_before_assistant_emit_marks_failed_and_emits_completion_error(
