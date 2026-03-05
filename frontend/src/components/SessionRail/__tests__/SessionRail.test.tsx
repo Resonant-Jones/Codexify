@@ -74,30 +74,21 @@ describe("SessionRail", () => {
     expect(container.querySelector(".overflow-x-auto")).toBeInTheDocument();
   });
 
-  it("renders active system profile badge near model controls", () => {
+  it("shows cloud badge when isCloud is true", () => {
     render(
       <SessionRail
         tabs={[mkTab("tab-1", "Alpha")]}
         activeTabId="tab-1"
         activeModelId="default"
-        activeProfileId="local_mode"
-        activeProfileName="Local Mode"
-        activeProfileMode="local"
-        profiles={[
-          { id: "default", name: "Default", mode: "cloud" },
-          { id: "local_mode", name: "Local Mode", mode: "local" },
-        ]}
+        isCloud
+        showTabs
         onActivateTab={vi.fn()}
         onCloseTab={vi.fn()}
         onOpenTab={vi.fn()}
         onSetModel={vi.fn()}
-        onSetProfile={vi.fn()}
       />
     );
 
-    const profileTrigger = screen.getByRole("button", {
-      name: "Switch system profile",
-    });
-    expect(profileTrigger).toHaveTextContent("Local Mode");
+    expect(screen.getByLabelText("Cloud mode")).toBeInTheDocument();
   });
 });

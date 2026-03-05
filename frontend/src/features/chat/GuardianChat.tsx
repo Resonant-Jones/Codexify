@@ -19,6 +19,7 @@ import {
   Layers,
   SquareStack,
   Zap,
+  Plus,
   Volume2,
 } from "lucide-react";
 import { Thread } from "@/types/ui";
@@ -36,6 +37,7 @@ import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import TraceButton from "./components/TraceButton";
 import SessionRail from "@/components/SessionRail/SessionRail";
+import { ProviderSelect } from "@/components/ProviderSelect";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
@@ -525,17 +527,13 @@ export function GuardianChat({
   };
   const requestProviderSwitch = useCallback(
     (options?: { openPopover?: boolean }) => {
-      if (sessionTabs.length <= 0) {
-        showToast("Provider selector unavailable in this view.");
-        return;
-      }
       if (options?.openPopover) {
         setPromptCostPopoverSection("providers");
         setPromptCostPopoverOpen(true);
       }
       setProviderMenuOpenSignal((prev) => prev + 1);
     },
-    [sessionTabs.length, showToast]
+    []
   );
   const getDepthForThread = useCallback(
     (threadId: number): DepthMode =>
@@ -1371,14 +1369,13 @@ export function GuardianChat({
       >
         <SquareStack className="h-5 w-5" />
       </button>
-      <DropdownMenu>
+          <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" className="icon-inline" aria-label="Thread actions" style={{ borderRadius: "var(--radius-micro)" }}>
             <MoreVertical className="h-5 w-5" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onWorkspaceToggle}>Workspace</DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
@@ -1402,7 +1399,7 @@ export function GuardianChat({
             title="Create a new thread that inherits a summary/briefing and continue with a different model."
           >
             <div className="flex flex-col flex-1 min-h-0">
-              <div className="font-medium">Branch thread</div>
+              <div className="font-medium">Branch Thread</div>
               <div className="text-xs opacity-70">
                 Create a new thread that inherits a summary/briefing and continue with a different model.
               </div>
@@ -1411,7 +1408,7 @@ export function GuardianChat({
           <DropdownMenuItem
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
-              const pidRaw = window.prompt("Assign to project id (blank to cancel)", "");
+              const pidRaw = window.prompt("Add to project id (blank to cancel)", "");
               if (pidRaw == null || pidRaw === "") return;
               const pid = Number(pidRaw);
               if (!Number.isFinite(pid)) return alert("Invalid project id");
@@ -1420,11 +1417,29 @@ export function GuardianChat({
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
               } catch (e) {
                 console.warn(e);
-                alert("Assign failed.");
+                alert("Add failed.");
               }
             }}
           >
-            Assign to Project…
+            Add to Project…
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              const pidRaw = window.prompt("Move to project id (blank to cancel)", "");
+              if (pidRaw == null || pidRaw === "") return;
+              const pid = Number(pidRaw);
+              if (!Number.isFinite(pid)) return alert("Invalid project id");
+              try {
+                await api.patch(`/chat/${effectiveThreadId}`, { project_id: pid });
+                emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
+              } catch (e) {
+                console.warn(e);
+                alert("Move failed.");
+              }
+            }}
+          >
+            Move to Project…
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
@@ -1439,6 +1454,27 @@ export function GuardianChat({
             }}
           >
             Eject from Project
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              if (!onArchiveThread) return alert("Archiving is unavailable in this view");
+              if (!window.confirm("Archive this thread? It will be hidden from the sidebar.")) return;
+              try {
+                await onArchiveThread(effectiveThreadId);
+                emitThreadsRefresh("archive", { id: String(effectiveThreadId), archived: true });
+                setCurrentThreadId(null);
+                setThreadTitle(NEW_THREAD_TITLE);
+                if (typeof window !== "undefined") {
+                  window.history.replaceState({}, "", `/chat`);
+                }
+              } catch (err) {
+                console.warn("[guardian] archive failed", err);
+                alert("Archive failed.");
+              }
+            }}
+          >
+            Archive Thread
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
@@ -1463,23 +1499,13 @@ export function GuardianChat({
           <DropdownMenuItem
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
-              if (!onArchiveThread) return alert("Archiving is unavailable in this view");
-              if (!window.confirm("Archive this thread? It will be hidden from the sidebar.")) return;
-              try {
-                await onArchiveThread(effectiveThreadId);
-                emitThreadsRefresh("archive", { id: String(effectiveThreadId), archived: true });
-                setCurrentThreadId(null);
-                setThreadTitle(NEW_THREAD_TITLE);
-                if (typeof window !== "undefined") {
-                  window.history.replaceState({}, "", `/chat`);
-                }
-              } catch (err) {
-                console.warn("[guardian] archive failed", err);
-                alert("Archive failed.");
-              }
+              const nextProfile = window.prompt("Switch to profile id", resolvedProfile.id || "default");
+              const profileId = (nextProfile || "").trim();
+              if (!profileId) return;
+              await switchThreadProfile(effectiveThreadId, profileId);
             }}
           >
-            Archive Thread
+            Switch profile…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -1488,12 +1514,10 @@ export function GuardianChat({
 
   const body = (
     <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
-      {/* Header - Flex Item (Sticky behavior handled by layout if needed, but flex is safer for resizing) */}
-      <header
-        className="shrink-0 z-20 px-4 py-3"
-      >
+      {/* Single header rail */}
+      <header className="shrink-0 z-20 px-4 py-2">
         <div
-          className="relative flex items-center justify-between gap-2 rounded-full border px-3 py-2"
+          className="relative flex items-center gap-2 rounded-full border px-3 py-2 flex-nowrap"
           style={{
             borderColor: "var(--panel-border)",
             background:
@@ -1503,8 +1527,7 @@ export function GuardianChat({
               "inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 18px rgba(0,0,0,0.10)",
           }}
         >
-          {/* Left section: mobile back + chevron */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {onSidebarToggle && (
               <button
                 type="button"
@@ -1523,48 +1546,28 @@ export function GuardianChat({
             )}
           </div>
 
-          {/* Center section: centered title */}
-          <div
-            className="absolute left-1/2 -translate-x-1/2 truncate font-semibold max-w-[50%]"
-            style={{ color: "var(--text)" }}
-          >
-            {threadTitle}
+          <div className="flex-1 min-w-0">
+            <SessionRail
+              tabs={sessionTabs}
+              activeTabId={activeSessionTabId}
+              activeModelId={activeModelId || "default"}
+              providerMenuOpenSignal={providerMenuOpenSignal}
+              providerPickerOpenSignal={providerMenuOpenSignal}
+              cloudProvidersDisabled={cloudProvidersDisabled}
+              isCloud={resolvedProfile.mode === "cloud" ? true : resolvedProfile.mode === "local" ? false : undefined}
+              showTabs={sessionTabs.length > 1}
+              onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
+              onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
+              onOpenTab={() => (onSessionTabOpen ? onSessionTabOpen() : onNewChat())}
+              onSetModel={(modelId) => onSessionModelChange?.(modelId)}
+            />
           </div>
 
-          {/* Right section: header actions */}
-          <div className="flex items-center gap-1 justify-end flex-shrink-0">
+          <div className="flex items-center gap-1 justify-end shrink-0">
             {headerActions}
           </div>
         </div>
       </header>
-
-      {sessionTabs.length > 0 && (
-        <SessionRail
-          tabs={sessionTabs}
-          activeTabId={activeSessionTabId}
-          activeModelId={activeModelId || "default"}
-          activeProfileId={resolvedProfile.id}
-          activeProfileName={resolvedProfile.name}
-          activeProfileMode={resolvedProfile.mode}
-          profiles={availableProfiles}
-          profileSwitching={profileSwitching}
-          providerMenuOpenSignal={providerMenuOpenSignal}
-          providerPickerOpenSignal={providerMenuOpenSignal}
-          cloudProvidersDisabled={cloudProvidersDisabled}
-          showTabs={sessionTabs.length > 1}
-          onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
-          onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
-          onOpenTab={() => (onSessionTabOpen ? onSessionTabOpen() : onNewChat())}
-          onSetModel={(modelId) => onSessionModelChange?.(modelId)}
-          onSetProfile={(profileId) => {
-            if (effectiveThreadId == null) {
-              showToast("Thread is not persisted yet.");
-              return;
-            }
-            void switchThreadProfile(effectiveThreadId, profileId);
-          }}
-        />
-      )}
 
       {llmBackendUnavailable && (
         <div
@@ -1710,11 +1713,11 @@ export function GuardianChat({
                   >
                     RAG Depth
                   </div>
-                  {(["shallow", "normal", "deep", "diagnostic"] as DepthMode[]).map((d) => (
+                  {["shallow", "normal", "deep", "diagnostic"].map((d) => (
                     <DropdownMenuItem
                       key={d}
                       onClick={() => {
-                        setDepth(d);
+                        setDepth(d as DepthMode);
                         console.log(`[guardian] Depth changed to: ${d}`);
                       }}
                       className={
@@ -1729,15 +1732,38 @@ export function GuardianChat({
                       }}
                     >
                       <div className="flex flex-col flex-1 min-h-0">
-                        <div className="font-medium">{depthLabels[d]}</div>
+                        <div className="font-medium">{depthLabels[d as DepthMode]}</div>
                         <div className="text-xs" style={{ color: "var(--muted)", opacity: 0.9 }}>
-                          {depthDescriptions[d]}
+                          {depthDescriptions[d as DepthMode]}
                         </div>
                       </div>
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              <ProviderSelect
+                value={activeModelId || "default"}
+                onChange={(modelId) => onSessionModelChange?.(modelId)}
+                triggerClassName="composer__model-trigger"
+                displayMode="model"
+                label="Model"
+                preferredProviderId={resolvedProfile.providerOverride || undefined}
+                cloudProvidersDisabled={cloudProvidersDisabled}
+              />
+
+              <button
+                type="button"
+                className="icon-inline"
+                aria-label="Open tools and connectors"
+                title="Tools and connectors"
+                style={{ borderRadius: "var(--radius-micro)" }}
+                onClick={() => {
+                  console.debug("[guardian] tools/connectors launcher clicked");
+                }}
+              >
+                <Plus className="h-4 w-4" />
+              </button>
             </div>
 
             <div className="flex items-center gap-2">

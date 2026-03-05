@@ -275,7 +275,13 @@ html, body {
   border-radius: var(--tile-radius, 20px);
   backdrop-filter: blur(10px) saturate(128%);
   -webkit-backdrop-filter: blur(10px) saturate(128%);
-  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .12s ease;
+  transition:
+    background .18s ease,
+    border-color .18s ease,
+    box-shadow .18s ease,
+    transform .12s ease,
+    flex-basis var(--cfy-transition-rolodex) ease,
+    width var(--cfy-transition-rolodex) ease;
 }
 
 .session-rail__tab-shell[data-state="inactive"] {

@@ -632,4 +632,113 @@ describe("ChatView loop guards", () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  it("clears active completion immediately on task.failed events", async () => {
+    const endCompletion = vi.fn();
+    const completionState = {
+      isCompleting: true,
+      activeTaskId: "task-failed-1",
+      activeThreadId: 9,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView
+        threadId={9}
+        completionState={completionState}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.failed")).toBe(1);
+    });
+
+    emitLiveEvent("task.failed", {
+      task_id: "task-failed-1",
+      thread_id: 9,
+      error: "assistant_message_missing",
+    });
+
+    await waitFor(() => {
+      expect(endCompletion).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("treats task.completed without assistant message as completion failure", async () => {
+    const endCompletion = vi.fn();
+    const completionState = {
+      isCompleting: true,
+      activeTaskId: "task-no-message",
+      activeThreadId: 11,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView
+        threadId={11}
+        completionState={completionState}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.completed")).toBe(1);
+    });
+
+    emitLiveEvent("task.completed", {
+      task_id: "task-no-message",
+      thread_id: 11,
+      message_id: null,
+    });
+
+    await waitFor(() => {
+      expect(endCompletion).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("drops duplicate assistant messages for the same turn_id", async () => {
+    const endCompletion = vi.fn();
+    const completionState = {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    };
+    mockMessages = [
+      {
+        id: 301,
+        thread_id: 12,
+        role: "assistant",
+        content: "First response",
+        created_at: "2026-03-05T00:00:00Z",
+        turn_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      },
+    ];
+
+    render(
+      <ChatView
+        threadId={12}
+        completionState={completionState}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("message.created")).toBe(1);
+    });
+
+    emitLiveEvent("message.created", {
+      id: 302,
+      thread_id: 12,
+      role: "assistant",
+      content: "Duplicate response",
+      turn_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+
+    await waitFor(() => {
+      expect(appendMessageMock).toHaveBeenCalledTimes(0);
+    });
+  });
+
 });
