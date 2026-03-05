@@ -396,16 +396,32 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             )
             raise RuntimeError("assistant_message_missing")
 
-        if turn_id and not _persist_turn_id_metadata(
-            thread_id=task.thread_id, message_id=message_id, turn_id=turn_id
-        ):
-            logger.warning(
-                "[chat-worker] completion_turn_metadata_missing thread_id=%s turn_id=%s task_id=%s message_id=%s",
-                task.thread_id,
-                turn_id,
-                task.task_id,
-                message_id,
-            )
+        if turn_id:
+            metadata_persisted = False
+            try:
+                metadata_persisted = _persist_turn_id_metadata(
+                    thread_id=task.thread_id,
+                    message_id=message_id,
+                    turn_id=turn_id,
+                )
+            except Exception:
+                logger.warning(
+                    "[chat-worker] completion_turn_metadata_exception thread_id=%s turn_id=%s task_id=%s message_id=%s",
+                    task.thread_id,
+                    turn_id,
+                    task.task_id,
+                    message_id,
+                    exc_info=True,
+                )
+
+            if not metadata_persisted:
+                logger.warning(
+                    "[chat-worker] completion_turn_metadata_missing thread_id=%s turn_id=%s task_id=%s message_id=%s",
+                    task.thread_id,
+                    turn_id,
+                    task.task_id,
+                    message_id,
+                )
         if turn_id:
             try:
                 persisted = _persist_turn_id_metadata(
