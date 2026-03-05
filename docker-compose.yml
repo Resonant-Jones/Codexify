@@ -168,6 +168,22 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  model-prep:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: codexify-backend
+    working_dir: /app
+    profiles:
+      - local-embeddings
+    entrypoint: ["python"]
+    volumes:
+      - ./models:/models
+    environment:
+      - CFY_EMBED_MODEL_DIR=/models/bge-large-en-v1.5
+      - CFY_EMBED_MODEL_REPO=BAAI/bge-large-en-v1.5
+    command: ["backend/scripts/ensure_embedding_model.py"]
+
   backend:
     build:
       context: .
@@ -191,7 +207,7 @@ services:
       - ./.chroma:/app/.chroma
       - ./docker:/app/docker
       - hf_cache:/root/.cache/huggingface
-      - codexify_models:/models
+      - ./models:/models
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -228,6 +244,7 @@ services:
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      LOCAL_EMBEDDINGS_REQUIRED: "${LOCAL_EMBEDDINGS_REQUIRED:-0}"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       CODEXIFY_VOICE_ROUTES_ENABLED: "${CODEXIFY_VOICE_ROUTES_ENABLED:-true}"
       CODEXIFY_VOICE_TURNS_ENABLED: "${CODEXIFY_VOICE_TURNS_ENABLED:-false}"
@@ -258,7 +275,29 @@ services:
         condition: service_completed_successfully
       graph-init:
         condition: service_completed_successfully
-    command: ["/app/backend/scripts/docker/run_backend.py"]
+    command:
+      - -c
+      - |
+        import os
+        import pathlib
+        import runpy
+        import sys
+
+        required = os.getenv("LOCAL_EMBEDDINGS_REQUIRED", "0").strip().lower() in {"1", "true", "yes", "on"}
+        model_dir = pathlib.Path(os.getenv("LOCAL_EMBED_MODEL", "/models/bge-large-en-v1.5"))
+
+        if required and not model_dir.exists():
+          print(
+              f"[backend] ERROR: LOCAL_EMBEDDINGS_REQUIRED=1 but model directory is missing: {model_dir}",
+              file=sys.stderr,
+          )
+          print(
+              "[backend] Run `docker compose --profile local-embeddings run --rm model-prep` or mount a pre-provisioned model.",
+              file=sys.stderr,
+          )
+          raise SystemExit(1)
+
+        runpy.run_path("/app/backend/scripts/docker/run_backend.py", run_name="__main__")
 
   worker-warmup:
     build:
@@ -271,6 +310,8 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+      model-prep:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
@@ -314,6 +355,7 @@ services:
       - ./docker:/app/docker
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./models:/models
     restart: unless-stopped
     command: ["-m", "guardian.workers.warmup_worker"]
 
@@ -328,6 +370,8 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+      model-prep:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
@@ -364,6 +408,7 @@ services:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./models:/models
     restart: unless-stopped
     command: ["-m", "guardian.workers.chat_worker"]
 
@@ -430,6 +475,8 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+      model-prep:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
@@ -469,6 +516,7 @@ services:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./models:/models
       - ./.chroma:/app/.chroma
     restart: unless-stopped
     command: ["-m", "guardian.workers.document_embed_worker"]
@@ -484,6 +532,8 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+      model-prep:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
@@ -523,6 +573,7 @@ services:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./models:/models
       - ./.chroma:/app/.chroma
     restart: unless-stopped
     command: ["-m", "guardian.workers.chat_embedding_worker"]
@@ -539,6 +590,8 @@ services:
       db:
         condition: service_healthy
       migrator:
+        condition: service_completed_successfully
+      model-prep:
         condition: service_completed_successfully
     env_file: .env
     environment:
@@ -574,6 +627,7 @@ services:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./models:/models
       - ./.chroma:/app/.chroma
     restart: "no"
     command: ["-m", "guardian.workers.embedding_backfill_worker"]
@@ -595,6 +649,8 @@ services:
         condition: service_completed_successfully
       migrator:
         condition: service_completed_successfully
+      model-prep:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
@@ -621,6 +677,7 @@ services:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./models:/models
     restart: "no"
     command: ["-m", "guardian.workers.graph_backfill_worker"]
 

@@ -31,6 +31,7 @@ type PollSession = {
   startedAt: number;
   lastUserMessageId: number;
   initialAssistantId: number;
+  initialLatestMessageId: number;
 };
 
 type Voice404Classification = "message_not_found" | "route_missing" | "unknown";
@@ -203,6 +204,7 @@ export function ChatView({
   const inFlightCompletionByThreadRef = useRef<Map<number, string>>(new Map());
   const activeTurnIdRef = useRef<string | null>(null);
   const completionFinalizePendingRef = useRef<Set<number>>(new Set());
+  const lastCompletingThreadIdRef = useRef<number | null>(null);
   const liveSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const voiceUnavailableMessageIdsRef = useRef<Record<number, true>>({});
   const voiceRouteMissingRef = useRef(false);
@@ -349,6 +351,7 @@ export function ChatView({
         startedAt: Date.now(),
         lastUserMessageId: normalizedUserId,
         initialAssistantId: lastAssistantIdRef.current,
+        initialLatestMessageId: lastMessageIdRef.current,
       });
       debugLog(`poll:start:${key}`, `[chat:poll] start reason=${reason} key=${key}`, 500);
     },
@@ -433,7 +436,13 @@ export function ChatView({
         if (
           expectedTurnId &&
           messageRole === "assistant" &&
-          readMessageTurnId(msg) === expectedTurnId &&
+          (() => {
+            const messageTurnId = readMessageTurnId(msg);
+            if (messageTurnId) {
+              return messageTurnId === expectedTurnId;
+            }
+            return id > session.lastUserMessageId;
+          })() &&
           id > matchingTurnAssistantId
         ) {
           matchingTurnAssistantId = id;
@@ -503,6 +512,7 @@ export function ChatView({
   useEffect(() => {
     completionStateRef.current = completionState;
     if (completionState.isCompleting && completionState.activeThreadId != null) {
+      lastCompletingThreadIdRef.current = completionState.activeThreadId;
       const marker =
         completionState.activeTaskId ??
         `thread-${completionState.activeThreadId}`;
@@ -519,9 +529,11 @@ export function ChatView({
       return;
     }
     if (!completionState.isCompleting) {
-      if (activeTurnIdRef.current && threadId != null) {
-        clearTrackedTurnId(threadId, activeTurnIdRef.current);
+      const completingThreadId = lastCompletingThreadIdRef.current;
+      if (completingThreadId != null) {
+        clearTrackedTurnId(completingThreadId, activeTurnIdRef.current);
       }
+      lastCompletingThreadIdRef.current = null;
       setActiveTurnId(null);
       inFlightCompletionByThreadRef.current.clear();
       completionFinalizePendingRef.current.clear();
@@ -708,9 +720,6 @@ export function ChatView({
         observedTurnId &&
         observedTurnId !== expectedTurnId
       ) {
-        return;
-      }
-      if (expectedTurnId && !observedTurnId) {
         return;
       }
       if (messageId > lastAssistantIdRef.current) {
@@ -948,8 +957,11 @@ export function ChatView({
     if (activeKey && activeKey.startsWith(`${threadId}:`)) {
       stopPollingWithReason("completion-inactive", activeKey);
     }
-    if (activeTurnIdRef.current) {
-      clearTrackedTurnId(threadId, activeTurnIdRef.current);
+    const trackedTurnId = getTrackedTurnId(threadId);
+    if (trackedTurnId) {
+      clearTrackedTurnId(threadId, trackedTurnId);
+    }
+    if (activeTurnIdRef.current && completionStateRef.current.activeThreadId !== threadId) {
       setActiveTurnId(null);
     }
   }, [isCompletingForThread, stopPollingWithReason, threadId]);

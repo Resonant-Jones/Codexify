@@ -247,8 +247,8 @@ export type CompletionState = {
   startedAt: number | null;
 };
 
-const COMPLETION_SLOW_PATH_MS = 30_000;
-const COMPLETION_HARD_TIMEOUT_MS = 5 * 60_000; // 5 minutes
+const COMPLETION_SLOW_PATH_MS = 15_000;
+const COMPLETION_HARD_TIMEOUT_MS = 30_000;
 
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -446,10 +446,12 @@ export function useChat() {
       window.clearTimeout(completionHardTimeoutRef.current);
     }
 
-    // Hint timeout: after 30s, stay in slow-path but keep completion active
+    // Hint timeout: after a short delay, stay in slow-path but keep completion active
     completionSlowTimeoutRef.current = window.setTimeout(() => {
       if (completionGenerationRef.current !== generation) return;
-      console.warn(`[useChat] Completion still in progress after 30s (slow-path)`);
+      console.warn(
+        `[useChat] Completion still in progress after ${COMPLETION_SLOW_PATH_MS}ms (slow-path)`
+      );
       completionSlowTimeoutRef.current = null;
     }, COMPLETION_SLOW_PATH_MS);
 
