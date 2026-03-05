@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from neomodel import db as neo4j_db
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -80,6 +81,33 @@ def _resolve_database_url() -> str:
 
 def _iter_threads(db) -> Iterable[models.ChatThread]:
     return db.query(models.ChatThread).all()
+
+
+def _merge_message_edge(
+    *, message_node: MessageNode, target_node: object, rel_type: str
+) -> None:
+    """Merge graph edges with anchored MATCH clauses (no cartesian pattern)."""
+    if rel_type == "SENT_BY":
+        query = """
+        MATCH (them) WHERE elementId(them) = $them
+        MATCH (us)   WHERE elementId(us)   = $self
+        MERGE(us)-[r:`SENT_BY`]->(them)
+        """
+    elif rel_type == "PART_OF":
+        query = """
+        MATCH (them) WHERE elementId(them) = $them
+        MATCH (us)   WHERE elementId(us)   = $self
+        MERGE(us)-[r:`PART_OF`]->(them)
+        """
+    else:
+        raise ValueError(f"Unsupported relationship type: {rel_type}")
+    neo4j_db.cypher_query(
+        query,
+        {
+            "them": str(getattr(target_node, "element_id")),
+            "self": str(message_node.element_id),
+        },
+    )
 
 
 def backfill_graph(batch_size: int = 500) -> int:
@@ -182,9 +210,17 @@ def backfill_graph(batch_size: int = 500) -> int:
                             f"Expected MessageNode, got {type(msg_node)}"
                         )
                     if not msg_node.user.is_connected(user_node):
-                        msg_node.user.connect(user_node)
+                        _merge_message_edge(
+                            message_node=msg_node,
+                            target_node=user_node,
+                            rel_type="SENT_BY",
+                        )
                     if not msg_node.thread.is_connected(thread_node):
-                        msg_node.thread.connect(thread_node)
+                        _merge_message_edge(
+                            message_node=msg_node,
+                            target_node=thread_node,
+                            rel_type="PART_OF",
+                        )
                     processed_total += 1
 
                 # Update status after each thread so progress is visible in logs.

@@ -12,7 +12,9 @@ Frontend contract (primary calls today):
 """
 
 import asyncio
+import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -23,6 +25,16 @@ from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.core.event_graph import get_event_writer
+from guardian.depth import (
+    DepthDowngradeReason,
+    DepthMode,
+    ProjectDepthState,
+    classify_project_identity_depth,
+    normalize_project_identity_depth,
+    normalize_requested_depth_raw,
+    project_requested_depth_mode,
+    resolve_depth,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue, enqueue_chat_embed
 from guardian.queue.turn_lock import acquire_turn_lock, release_turn_lock
@@ -88,11 +100,14 @@ except ModuleNotFoundError:
 
 # Optional Neo4j imports for graph sync
 try:
+    from neomodel import db as neo4j_db
+
     from guardian.graph.connection import connect_neo4j
     from guardian.graph.models import MessageNode, ThreadNode, UserNode
 
     NEO4J_SYNC_AVAILABLE = True
 except Exception:
+    neo4j_db = None
     NEO4J_SYNC_AVAILABLE = False
 
 # LLM configuration validation
@@ -176,6 +191,7 @@ class ChatCompletionRequest(BaseModel):
     max_context: Optional[int] = 50
     provider: Optional[str] = None
     system_override: Optional[str] = None
+    turn_id: Optional[str] = None
     depth_mode: Optional[
         str
     ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
@@ -275,6 +291,40 @@ def _derive_thread_title_from_content(content: str) -> str:
     if len(first_line) > 80:
         return first_line[:80]
     return first_line
+
+
+def _merge_neo4j_message_edge(
+    *, message_node: Any, target_node: Any, rel_type: str
+) -> None:
+    """
+    Merge MessageNode->Target relationship with anchored MATCH clauses.
+
+    This avoids Neo4j cartesian-product planner warnings emitted by OGM
+    generated queries for disconnected MATCH patterns.
+    """
+    if neo4j_db is None:
+        return
+    if rel_type == "SENT_BY":
+        query = """
+        MATCH (them) WHERE elementId(them) = $them
+        MATCH (us)   WHERE elementId(us)   = $self
+        MERGE(us)-[r:`SENT_BY`]->(them)
+        """
+    elif rel_type == "PART_OF":
+        query = """
+        MATCH (them) WHERE elementId(them) = $them
+        MATCH (us)   WHERE elementId(us)   = $self
+        MERGE(us)-[r:`PART_OF`]->(them)
+        """
+    else:
+        raise ValueError(f"Unsupported relationship type: {rel_type}")
+    neo4j_db.cypher_query(
+        query,
+        {
+            "them": str(target_node.element_id),
+            "self": str(message_node.element_id),
+        },
+    )
 
 
 def _persist_message_to_thread(
@@ -447,8 +497,16 @@ def _persist_message_to_thread(
             if isinstance(neo_msg, list):
                 neo_msg = neo_msg[0]
 
-            neo_msg.user.connect(neo_user)
-            neo_msg.thread.connect(neo_thread)
+            _merge_neo4j_message_edge(
+                message_node=neo_msg,
+                target_node=neo_user,
+                rel_type="SENT_BY",
+            )
+            _merge_neo4j_message_edge(
+                message_node=neo_msg,
+                target_node=neo_thread,
+                rel_type="PART_OF",
+            )
 
         except Exception as e:
             logger.warning("[Neo4j Sync Error] %s", e, exc_info=True)
@@ -639,8 +697,12 @@ def _ensure_default_project_id() -> Optional[int]:
     """
     if not chatlog_db:
         return None
+    ensure_default_project = getattr(chatlog_db, "ensure_default_project", None)
+    if not callable(ensure_default_project):
+        # Some DB backends (e.g., PostgresChatLogDB) may not implement this shim.
+        return None
     try:
-        pid = chatlog_db.ensure_default_project()
+        pid = ensure_default_project()
         return int(pid) if pid is not None else None
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.warning("[chat] failed to ensure default project: %s", exc)
@@ -664,6 +726,98 @@ def _coerce_positive_int(raw: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
+
+
+def _normalize_turn_id(raw: Any) -> str:
+    """Return a normalized UUID turn_id; generate one when missing/invalid."""
+    if isinstance(raw, str):
+        candidate = raw.strip()
+        if candidate:
+            try:
+                return str(uuid.UUID(candidate))
+            except ValueError:
+                logger.debug(
+                    "[chat.complete] invalid turn_id=%s; generating server-side UUID",
+                    candidate,
+                )
+    return str(uuid.uuid4())
+
+
+def _coerce_message_meta(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _coerce_message_id(raw: Any) -> int | None:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _fetch_message_extra_meta(
+    *, thread_id: int, message_ids: list[int]
+) -> dict[int, dict[str, Any]]:
+    if not message_ids:
+        return {}
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return {}
+
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, extra_meta
+                    FROM chat_messages
+                    WHERE thread_id = %s
+                      AND id = ANY(%s::int[])
+                    """,
+                    (thread_id, message_ids),
+                )
+                rows = cur.fetchall() or []
+    except Exception:
+        logger.debug(
+            "[chat.messages] failed to backfill extra_meta thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+        return {}
+
+    backfill: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        raw_id: Any = None
+        raw_meta: Any = None
+        if isinstance(row, dict):
+            raw_id = row.get("id")
+            raw_meta = row.get("extra_meta")
+        elif hasattr(row, "keys"):
+            row_map = dict(row)  # psycopg row mapping
+            raw_id = row_map.get("id")
+            raw_meta = row_map.get("extra_meta")
+        elif isinstance(row, (list, tuple)) and len(row) >= 2:
+            raw_id = row[0]
+            raw_meta = row[1]
+
+        message_id = _coerce_message_id(raw_id)
+        if message_id is None:
+            continue
+        meta = _coerce_message_meta(raw_meta)
+        if meta:
+            backfill[message_id] = meta
+    return backfill
 
 
 def _build_scoped_doc_override(
@@ -758,6 +912,19 @@ async def _build_doc_context_override(
             exc,
         )
         return None
+
+
+def map_internal_depth_mode(
+    requested_depth_raw: str, effective_depth_mode: DepthMode
+) -> str:
+    """
+    Map API contract depth to runtime/broker depth_mode.
+
+    Contract-only task: internal RAG/broker depth behavior must remain unchanged.
+    """
+    if requested_depth_raw == "deep":
+        return "deep" if effective_depth_mode == "deep" else "normal"
+    return requested_depth_raw
 
 
 # =========================
@@ -1020,8 +1187,45 @@ def chat_list_messages(
         offset=offset,
         exclude_kinds=exclude_kinds,
     )
+    normalized_items: list[dict[str, Any]] = []
+    missing_meta_ids: list[int] = []
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
+        message_id = _coerce_message_id(item.get("id"))
+        metadata = _coerce_message_meta(item.get("metadata"))
+        if not metadata:
+            metadata = _coerce_message_meta(item.get("extra_meta"))
+        if metadata:
+            item["metadata"] = metadata
+            turn_id_raw = metadata.get("turn_id")
+            if isinstance(turn_id_raw, str) and turn_id_raw.strip():
+                item["turn_id"] = turn_id_raw.strip()
+        elif message_id is not None:
+            missing_meta_ids.append(message_id)
+        normalized_items.append(item)
+
+    if missing_meta_ids:
+        backfill = _fetch_message_extra_meta(
+            thread_id=thread_id,
+            message_ids=missing_meta_ids,
+        )
+        if backfill:
+            for item in normalized_items:
+                message_id = _coerce_message_id(item.get("id"))
+                if message_id is None or "metadata" in item:
+                    continue
+                metadata = backfill.get(message_id)
+                if not metadata:
+                    continue
+                item["metadata"] = metadata
+                turn_id_raw = metadata.get("turn_id")
+                if isinstance(turn_id_raw, str) and turn_id_raw.strip():
+                    item["turn_id"] = turn_id_raw.strip()
+
     total = chatlog_db.count_messages(thread_id)
-    return {"ok": True, "total": total, "messages": items}
+    return {"ok": True, "total": total, "messages": normalized_items}
 
 
 @router.post("/{thread_id}/complete")
@@ -1033,6 +1237,8 @@ async def chat_complete(
     """
     Enqueue an assistant reply for the given thread and return a task id.
     """
+    turn_id = _normalize_turn_id(body.turn_id)
+
     provider = str(
         body.provider
         or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
@@ -1069,36 +1275,107 @@ async def chat_complete(
             status_code=400, detail="Thread has no usable context"
         )
 
-    requested_depth_mode = str(body.depth_mode or "deep").strip().lower()
-    effective_depth_mode = body.depth_mode
+    requested_depth_raw = normalize_requested_depth_raw(body.depth_mode)
+    # Binary projection: deep iff raw request is exactly "deep".
+    requested_depth_mode: DepthMode = project_requested_depth_mode(
+        requested_depth_raw
+    )
+    depth_downgrade_reason: DepthDowngradeReason | None = None
     thread_project_id: Optional[int] = None
     if isinstance(thread_exists, dict):
         thread_project_id = _coerce_positive_int(
             thread_exists.get("project_id")
         )
-    if requested_depth_mode == "deep":
-        project_depth = "light"
-        getter = getattr(chatlog_db, "get_project_identity_depth", None)
-        if callable(getter):
-            try:
-                project_depth = str(
-                    getter(thread_project_id) or "light"
-                ).lower()
-            except Exception:
-                project_depth = "light"
-        if not can_run_deep_identity_modeling(project_depth):
-            effective_depth_mode = "normal"
-            logger.info(
-                "[chat.complete] downgraded depth_mode=deep to normal thread_id=%s project_id=%s identity_depth=%s",
+    if thread_project_id is None:
+        try:
+            # Optional backend seam: infer project association from thread profile.
+            profile_getter = getattr(chatlog_db, "get_thread_profile", None)
+            if callable(profile_getter):
+                profile = profile_getter(thread_id)
+                inferred_project_id: Any = None
+                if isinstance(profile, dict):
+                    inferred_project_id = profile.get("project_id")
+                    if not isinstance(inferred_project_id, int):
+                        thread_payload = profile.get("thread")
+                        if isinstance(thread_payload, dict):
+                            inferred_project_id = thread_payload.get(
+                                "project_id"
+                            )
+                if isinstance(inferred_project_id, int):
+                    thread_project_id = _coerce_positive_int(
+                        inferred_project_id
+                    )
+        except Exception as exc:
+            logger.debug(
+                "[chat.complete] failed to infer project_id from thread profile thread_id=%s err=%s",
+                thread_id,
+                exc,
+            )
+    thread_has_project = thread_project_id is not None
+
+    project_identity_depth_raw: str | None = None
+    project_identity_depth_norm = normalize_project_identity_depth(None)
+    project_depth_state: ProjectDepthState = "missing"
+    policy_allows_deep = False
+
+    if requested_depth_raw == "deep" and thread_has_project:
+        try:
+            getter = getattr(chatlog_db, "get_project_identity_depth", None)
+            if callable(getter):
+                raw_project_depth = getter(thread_project_id)
+                project_identity_depth_raw = (
+                    None
+                    if raw_project_depth is None
+                    else str(raw_project_depth)
+                )
+            else:
+                project_identity_depth_raw = "__missing_project_depth_getter__"
+            project_identity_depth_norm = normalize_project_identity_depth(
+                project_identity_depth_raw
+            )
+            project_depth_state = classify_project_identity_depth(
+                project_identity_depth_raw
+            )
+            if project_depth_state == "known":
+                policy_allows_deep = bool(
+                    can_run_deep_identity_modeling(project_identity_depth_norm)
+                )
+        except Exception:
+            logger.exception(
+                "[chat.complete] depth resolution failed thread_id=%s project_id=%s",
                 thread_id,
                 thread_project_id,
-                project_depth,
             )
+            project_identity_depth_raw = "__depth_resolution_exception__"
+            project_identity_depth_norm = normalize_project_identity_depth(
+                project_identity_depth_raw
+            )
+            project_depth_state = classify_project_identity_depth(
+                project_identity_depth_raw
+            )
+            policy_allows_deep = False
 
-    effective_depth = str(effective_depth_mode or "deep").strip().lower()
+    effective_depth_mode, depth_downgrade_reason = resolve_depth(
+        requested_depth_raw,
+        thread_has_project=thread_has_project,
+        project_depth_state=project_depth_state,
+        project_identity_depth_norm=project_identity_depth_norm,
+        policy_allows_deep=policy_allows_deep,
+    )
+    if requested_depth_mode == "deep" and effective_depth_mode == "light":
+        logger.info(
+            "[chat.complete] downgraded depth_mode=deep thread_id=%s project_id=%s reason=%s",
+            thread_id,
+            thread_project_id,
+            depth_downgrade_reason,
+        )
+
+    internal_depth_mode = map_internal_depth_mode(
+        requested_depth_raw, effective_depth_mode
+    )
     doc_context_override = await _build_doc_context_override(
         thread_id=thread_id,
-        depth_mode=effective_depth,
+        depth_mode=internal_depth_mode,
         project_id=thread_project_id,
     )
     merged_system_override = user_system_override
@@ -1114,11 +1391,13 @@ async def chat_complete(
         provider=provider,
         model=body.model,
         max_context=body.max_context,
-        depth_mode=effective_depth_mode,
+        depth_mode=internal_depth_mode,
         system_override=merged_system_override,
-        origin="api:chat.complete",
+        # Encode turn_id into origin so it survives dataclass serialization.
+        origin=f"api:chat.complete|turn_id={turn_id}",
     )
     task.turn_lock_owner = task.task_id
+    task.turn_id = turn_id
 
     try:
         locked = acquire_turn_lock(thread_id, task.turn_lock_owner)
@@ -1148,7 +1427,12 @@ async def chat_complete(
         task_events.publish(
             task.task_id,
             "task.created",
-            {"type": task.type, "thread_id": thread_id, "origin": task.origin},
+            {
+                "type": task.type,
+                "thread_id": thread_id,
+                "origin": task.origin,
+                "turn_id": turn_id,
+            },
         )
     except Exception:
         logger.debug("[chat.complete] task.created emit failed", exc_info=True)
@@ -1166,8 +1450,12 @@ async def chat_complete(
     return {
         "ok": True,
         "task_id": task.task_id,
+        "turn_id": turn_id,
         "thread_id": thread_id,
-        "depth_mode": effective_depth_mode,
+        "depth_mode": internal_depth_mode,
+        "requested_depth_mode": requested_depth_mode,
+        "effective_depth_mode": effective_depth_mode,
+        "depth_downgrade_reason": depth_downgrade_reason,
         "messages_url": messages_url,
         "trace_url": trace_url,
     }

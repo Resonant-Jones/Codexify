@@ -1,4 +1,8 @@
 import { renderHook, act, waitFor } from "@testing-library/react";
+import { vi } from "vitest";
+
+import api from "@/lib/api";
+
 import { parseMessagesResponse, useChat } from "../useChat";
 
 describe("parseMessagesResponse", () => {
@@ -217,7 +221,7 @@ describe("useChat - completion state management", () => {
     expect(result.current.completionState.startedAt).toBeNull();
   });
 
-  it("should auto-clear completion state after 30s timeout", async () => {
+  it("keeps completion active after 30s and clears on hard timeout", async () => {
     const { result } = renderHook(() => useChat());
 
     act(() => {
@@ -226,9 +230,16 @@ describe("useChat - completion state management", () => {
 
     expect(result.current.completionState.isCompleting).toBe(true);
 
-    // Fast-forward 30 seconds
+    // Fast-forward 30 seconds (slow path hint) — should still be completing
     act(() => {
-      jest.advanceTimersByTime(30000);
+      jest.advanceTimersByTime(30_000);
+    });
+
+    expect(result.current.completionState.isCompleting).toBe(true);
+
+    // Fast-forward to hard timeout (5 minutes)
+    act(() => {
+      jest.advanceTimersByTime(5 * 60_000);
     });
 
     await waitFor(() => {
@@ -322,5 +333,72 @@ describe("useChat - completion state management", () => {
 
     expect(result.current.completionState.activeTaskId).toBe("task-second");
     expect(result.current.completionState.activeThreadId).toBe(456);
+  });
+
+  it("retains the first assistant message when duplicate turn_id responses arrive", () => {
+    const { result } = renderHook(() => useChat());
+    const turnId = "11111111-1111-4111-8111-111111111111";
+
+    act(() => {
+      result.current.appendMessage(7, {
+        id: 701,
+        thread_id: 7,
+        role: "assistant",
+        content: "first response",
+        created_at: "2026-03-04T00:00:00.000Z",
+        turn_id: turnId,
+      });
+    });
+
+    act(() => {
+      result.current.appendMessage(7, {
+        id: 702,
+        thread_id: 7,
+        role: "assistant",
+        content: "duplicate response",
+        created_at: "2026-03-04T00:00:01.000Z",
+        metadata: { turn_id: turnId },
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].id).toBe(701);
+    expect(result.current.messages[0].content).toBe("first response");
+    expect(result.current.messages[0].turn_id).toBe(turnId);
+  });
+});
+
+describe("useChat - loadMessages error hygiene", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("suppresses internal request guard metadata from UI error state", async () => {
+    vi.spyOn(api, "get").mockRejectedValueOnce(
+      Object.assign(new Error("request guard active (1200ms)"), {
+        code: "ERR_CLIENT_RATE_GUARD",
+        waitMs: 1200,
+      })
+    );
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.loadMessages(32);
+    });
+
+    expect(result.current.error).toBeNull();
+  });
+
+  it("maps transport/internal exception text to a stable user-facing message", async () => {
+    vi.spyOn(api, "get").mockRejectedValueOnce(
+      new Error("HTTPConnectionPool(host='100.109.4.57', port=11434): Read timed out")
+    );
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.loadMessages(32);
+    });
+
+    expect(result.current.error).toBe("Unable to refresh messages right now.");
   });
 });

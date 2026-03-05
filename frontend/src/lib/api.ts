@@ -211,12 +211,16 @@ const BACKEND_OUTAGE_BASE_MS = 1000;
 const BACKEND_OUTAGE_MAX_MS = 30000;
 const BACKEND_OUTAGE_LOG_TTL_MS = 5000;
 const REQUEST_GUARD_LOG_TTL_MS = 4000;
+const CHAT_COMPLETE_PATH_RE = /\/chat\/(\d+)\/complete$/i;
+const UUID_V4ISH_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 let backendOutageUntil = 0;
 let backendOutageFailures = 0;
 let lastBackendOutageLogAt = 0;
 let lastRequestGuardLogAt = 0;
 const lastRequestByKey = new Map<string, number>();
+const inFlightCompletionTurnByThread = new Map<number, string>();
 
 function normalizePathSegment(value: string | number): string {
   return encodeURIComponent(String(value).trim());
@@ -319,6 +323,114 @@ function clearBackendOutage(): void {
   backendOutageUntil = 0;
 }
 
+function normalizeCompletionTurnId(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return UUID_V4ISH_RE.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+
+function generateCompletionTurnId(): string {
+  const randomUUID = (globalThis as any)?.crypto?.randomUUID;
+  if (typeof randomUUID === "function") {
+    try {
+      return String(randomUUID.call((globalThis as any).crypto));
+    } catch {
+      // Fall back below.
+    }
+  }
+  const template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
+  return template.replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16);
+    const nibble = char === "x" ? value : (value & 0x3) | 0x8;
+    return nibble.toString(16);
+  });
+}
+
+function extractCompletionThreadId(url: unknown): number | null {
+  const match = pathFromUrl(url).match(CHAT_COMPLETE_PATH_RE);
+  if (!match || !match[1]) return null;
+  const threadId = Number(match[1]);
+  return Number.isFinite(threadId) ? threadId : null;
+}
+
+function readCompletionPayload(data: unknown): {
+  payload: Record<string, unknown>;
+  wasJsonString: boolean;
+} {
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    return {
+      payload: { ...(data as Record<string, unknown>) },
+      wasJsonString: false,
+    };
+  }
+  if (typeof data === "string" && data.trim()) {
+    try {
+      const parsed = JSON.parse(data);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return {
+          payload: { ...(parsed as Record<string, unknown>) },
+          wasJsonString: true,
+        };
+      }
+    } catch {
+      // Ignore malformed payloads; we'll replace with an object below.
+    }
+  }
+  return { payload: {}, wasJsonString: false };
+}
+
+function readCompletionMeta(config: unknown): {
+  threadId: number;
+  turnId: string | null;
+} | null {
+  const candidate = config as any;
+  const threadId = Number(candidate?.__cfyCompletionThreadId);
+  if (!Number.isFinite(threadId)) return null;
+  return {
+    threadId,
+    turnId: normalizeCompletionTurnId(candidate?.__cfyCompletionTurnId),
+  };
+}
+
+function completionErrorDetail(error: any): string {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string") return detail.toLowerCase();
+  if (!detail || typeof detail !== "object") return "";
+  return [
+    detail?.error,
+    detail?.reason,
+    detail?.message,
+    detail?.code,
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase())
+    .join(" ");
+}
+
+export function getInFlightCompletionTurnId(
+  threadId: number | null | undefined
+): string | null {
+  if (threadId == null) return null;
+  const normalizedThreadId = Number(threadId);
+  if (!Number.isFinite(normalizedThreadId)) return null;
+  return inFlightCompletionTurnByThread.get(normalizedThreadId) ?? null;
+}
+
+export function clearInFlightCompletionTurnId(
+  threadId: number | null | undefined,
+  expectedTurnId?: string | null
+): void {
+  if (threadId == null) return;
+  const normalizedThreadId = Number(threadId);
+  if (!Number.isFinite(normalizedThreadId)) return;
+  if (expectedTurnId) {
+    const current = inFlightCompletionTurnByThread.get(normalizedThreadId);
+    if (current !== expectedTurnId) return;
+  }
+  inFlightCompletionTurnByThread.delete(normalizedThreadId);
+}
+
 export function getBackendOutageRemainingMs(now = Date.now()): number {
   return Math.max(0, backendOutageUntil - now);
 }
@@ -350,12 +462,15 @@ function requestGuardWindowMs(
   const path = pathFromUrl(url);
   if (!path) return 0;
   if (/\/api\/events$|\/events$/.test(path)) return 4000;
-  if (/\/chat\/\d+\/messages$/.test(path)) return 1200;
+  // Allow normal polling, but still damp accidental duplicate bursts.
+  if (/\/chat\/\d+\/messages$/.test(path)) return 500;
   if (/\/chat\/\d+\/profile$/.test(path)) return 5000;
   if (/\/health\/llm$/.test(path)) return 5000;
-  if (/\/llm\/catalog$/.test(path)) return 5000;
+  // Catalog fetches can be intentionally triggered by menu open + refresh polling.
+  if (/\/llm\/catalog$/.test(path)) return 0;
   if (/\/ui\/session$/.test(path)) return 10000;
-  if (/\/projects$/.test(path) || /\/api\/projects$/.test(path)) return 5000;
+  // Project cache and shell hydration may issue close-in-time reads.
+  if (/\/projects$/.test(path) || /\/api\/projects$/.test(path)) return 0;
   return 0;
 }
 
@@ -376,6 +491,14 @@ function shouldThrottleDuplicateRequest(
   }
   lastRequestByKey.set(key, now);
   return { throttled: false, waitMs: 0, key };
+}
+
+function isRequestGuardEnabled(): boolean {
+  const raw = readRuntimeEnv("VITE_ENABLE_REQUEST_GUARD", "true")
+    .trim()
+    .toLowerCase();
+  if (!raw) return true;
+  return !["0", "false", "off", "no"].includes(raw);
 }
 
 export function refreshApiBaseUrl(): string {
@@ -482,7 +605,26 @@ api.interceptors.request.use((config) => {
     config.url = config.url.replace(/^\/api/, "");
   }
 
-  const guard = shouldThrottleDuplicateRequest(config.method, config.url);
+  const isPostCompletionRequest =
+    String(config.method ?? "get").toLowerCase() === "post";
+  const completionThreadId = isPostCompletionRequest
+    ? extractCompletionThreadId(config.url)
+    : null;
+  if (completionThreadId != null) {
+    const { payload, wasJsonString } = readCompletionPayload(config.data);
+    const requestedTurnId = normalizeCompletionTurnId(payload.turn_id ?? payload.turnId);
+    // Use per-request turn ids by default; do not carry stale ids between requests.
+    const turnId = requestedTurnId || generateCompletionTurnId();
+    payload.turn_id = turnId;
+    config.data = wasJsonString ? JSON.stringify(payload) : payload;
+    inFlightCompletionTurnByThread.set(completionThreadId, turnId);
+    (config as any).__cfyCompletionThreadId = completionThreadId;
+    (config as any).__cfyCompletionTurnId = turnId;
+  }
+
+  const guard = isRequestGuardEnabled()
+    ? shouldThrottleDuplicateRequest(config.method, config.url)
+    : { throttled: false, waitMs: 0, key: "" };
   if (guard.throttled) {
     const now = Date.now();
     if (now - lastRequestGuardLogAt >= REQUEST_GUARD_LOG_TTL_MS) {
@@ -502,10 +644,30 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => {
+    const completionMeta = readCompletionMeta(response?.config);
+    if (completionMeta) {
+      const returnedTurnId = normalizeCompletionTurnId(response?.data?.turn_id);
+      if (returnedTurnId) {
+        inFlightCompletionTurnByThread.set(completionMeta.threadId, returnedTurnId);
+      }
+    }
     clearBackendOutage();
     return response;
   },
   (error) => {
+    const completionMeta = readCompletionMeta(error?.config);
+    if (completionMeta) {
+      const status = Number(error?.response?.status ?? 0);
+      const shouldKeep =
+        status === 429 && completionErrorDetail(error).includes("turn_in_flight");
+      if (!shouldKeep) {
+        clearInFlightCompletionTurnId(
+          completionMeta.threadId,
+          completionMeta.turnId
+        );
+      }
+    }
+
     if (isBackendTransportError(error)) {
       applyBackendOutage("transport");
     } else if (isBackendProxyOutageResponse(error)) {
@@ -522,5 +684,8 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+(api as any).getInFlightCompletionTurnId = getInFlightCompletionTurnId;
+(api as any).clearInFlightCompletionTurnId = clearInFlightCompletionTurnId;
 
 export default api;

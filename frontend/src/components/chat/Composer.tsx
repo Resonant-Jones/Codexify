@@ -26,7 +26,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Sparkles, ImagePlus, Paperclip, X, FileText } from "lucide-react";
+import { Send, Sparkles, ImagePlus, Paperclip, Plus, X, FileText } from "lucide-react";
 import { ModelProvider } from "@/Providers/ModelProvider";
 import api from "@/lib/api";
 
@@ -145,6 +145,9 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+
   type DraftAttachment = {
     id: string;
     file: File;
@@ -226,6 +229,28 @@ export function Composer({
   useEffect(() => {
     autoResize();
   }, [value, autoResize]);
+
+  useEffect(() => {
+    if (!addMenuOpen) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setAddMenuOpen(false);
+    }
+
+    function onMouseDown(e: MouseEvent) {
+      const el = addMenuRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && el.contains(e.target)) return;
+      setAddMenuOpen(false);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onMouseDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onMouseDown);
+    };
+  }, [addMenuOpen]);
 
   function stageFiles(files: FileList | File[]) {
     const arr = Array.from(files || []);
@@ -342,6 +367,7 @@ export function Composer({
   // Send handler: uploads attachments (if any) and sends message.
   async function send() {
     if (sending || uploading) return;
+    if (addMenuOpen) setAddMenuOpen(false);
 
     const bodyText = value.trim();
     const hasAttachments = draftAttachments.length > 0;
@@ -492,7 +518,7 @@ export function Composer({
           ref={fileInputRef}
           type="file"
           // Allow docs too; backend route is /api/media/upload/file
-          accept="image/*,application/pdf,text/plain,text/markdown,.md,.txt"
+          accept="application/pdf,text/plain,text/markdown,.md,.txt"
           multiple
           style={{ display: "none" }}
           onChange={(e) => {
@@ -502,51 +528,86 @@ export function Composer({
           }}
         />
 
-        {/* Attach Image */}
-        <Button
-          type="button"
-          size="icon"
-          aria-label="Attach image"
-          title="Attach image"
-          onClick={onPickImageClick}
-          disabled={sending || uploading}
-          className="relative grid h-11 w-11 place-items-center rounded-2xl border focus:outline-none m-0"
-          style={{
-            background:
-              "radial-gradient(120% 120% at 30% 12%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.38) 10%, rgba(255,255,255,0.0) 36%), " +
-              `linear-gradient(180deg, ${accentStrong} 0%, color-mix(in srgb, ${accentStrong} 85%, black 15%) 100%)`,
-            color: "#fff",
-            borderColor: "color-mix(in srgb, var(--accent-strong) 70%, white 30%)",
-            boxShadow:
-              "inset 0 1px rgba(255,255,255,0.35), inset 0 -8px 12px rgba(0,0,0,0.28), 0 8px 18px color-mix(in srgb, var(--accent-strong) 55%, black 45%)",
-            outlineColor: "var(--accent-weak)",
-          }}
-        >
-          <ImagePlus className="h-5 w-5" />
-        </Button>
+        {/* Add menu (attachments + creation) */}
+        <div className="relative" ref={addMenuRef}>
+          <Button
+            type="button"
+            size="icon"
+            aria-label="Add"
+            title="Add"
+            onClick={() => setAddMenuOpen((v) => !v)}
+            disabled={sending || uploading}
+            className="relative grid h-11 w-11 place-items-center rounded-2xl border focus:outline-none m-0"
+            style={{
+              background:
+                "radial-gradient(120% 120% at 30% 12%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.38) 10%, rgba(255,255,255,0.0) 36%), " +
+                `linear-gradient(180deg, ${accentStrong} 0%, color-mix(in srgb, ${accentStrong} 85%, black 15%) 100%)`,
+              color: "#fff",
+              borderColor: "color-mix(in srgb, var(--accent-strong) 70%, white 30%)",
+              boxShadow:
+                "inset 0 1px rgba(255,255,255,0.35), inset 0 -8px 12px rgba(0,0,0,0.28), 0 8px 18px color-mix(in srgb, var(--accent-strong) 55%, black 45%)",
+              outlineColor: "var(--accent-weak)",
+            }}
+          >
+            <Plus className="h-5 w-5" />
+          </Button>
 
-        {/* Attach File */}
-        <Button
-          type="button"
-          size="icon"
-          aria-label="Attach file"
-          title="Attach file"
-          onClick={onPickFileClick}
-          disabled={sending || uploading}
-          className="relative grid h-11 w-11 place-items-center rounded-2xl border focus:outline-none m-0"
-          style={{
-            background:
-              "radial-gradient(120% 120% at 30% 12%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.38) 10%, rgba(255,255,255,0.0) 36%), " +
-              `linear-gradient(180deg, ${accentStrong} 0%, color-mix(in srgb, ${accentStrong} 85%, black 15%) 100%)`,
-            color: "#fff",
-            borderColor: "color-mix(in srgb, var(--accent-strong) 70%, white 30%)",
-            boxShadow:
-              "inset 0 1px rgba(255,255,255,0.35), inset 0 -8px 12px rgba(0,0,0,0.28), 0 8px 18px color-mix(in srgb, var(--accent-strong) 55%, black 45%)",
-            outlineColor: "var(--accent-weak)",
-          }}
-        >
-          <Paperclip className="h-5 w-5" />
-        </Button>
+          {addMenuOpen && (
+            <div
+              role="menu"
+              aria-label="Add menu"
+              className="absolute bottom-14 left-0 z-50 min-w-[220px] overflow-hidden rounded-xl border border-black/10 dark:border-white/10 bg-white/95 dark:bg-black/80 shadow-2xl"
+              style={{ backdropFilter: "blur(10px)" }}
+            >
+              <div className="px-3 py-2 text-[11px] uppercase tracking-wide opacity-70">Attach</div>
+
+              <button
+                type="button"
+                role="menuitem"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                onClick={() => {
+                  setAddMenuOpen(false);
+                  onPickImageClick();
+                }}
+              >
+                <ImagePlus className="h-4 w-4" />
+                <span>Attach image</span>
+              </button>
+
+              <button
+                type="button"
+                role="menuitem"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                onClick={() => {
+                  setAddMenuOpen(false);
+                  onPickFileClick();
+                }}
+              >
+                <Paperclip className="h-4 w-4" />
+                <span>Attach file</span>
+              </button>
+
+              <div className="my-1 h-px bg-black/10 dark:bg-white/10" />
+              <div className="px-3 py-2 text-[11px] uppercase tracking-wide opacity-70">Create</div>
+
+              <button
+                type="button"
+                role="menuitem"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                onClick={() => {
+                  setAddMenuOpen(false);
+                  // If an ImageGen surface exists elsewhere, it should listen for this event.
+                  window.dispatchEvent(
+                    new CustomEvent("cfy:imagegen:open", { detail: { source: "composer" } })
+                  );
+                }}
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>Generate image</span>
+              </button>
+            </div>
+          )}
+        </div>
 
       {/* Open Prompt Library Button: visually prominent, similar styling to Send button */}
         <Button

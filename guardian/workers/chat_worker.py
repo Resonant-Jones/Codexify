@@ -13,6 +13,7 @@ import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
@@ -47,6 +48,123 @@ _MEDIA_DB: GuardianDB | None = None
 _MEDIA_MARKER_RE = re.compile(
     r"<!--\s*cfy-media:(image|document):([a-fA-F0-9-]+)\s*-->"
 )
+_TURN_ID_ORIGIN_RE = re.compile(
+    r"(?:^|\|)turn_id=(?P<turn_id>[a-f0-9-]{36})(?:\||$)",
+    flags=re.IGNORECASE,
+)
+_MIRRORED_LIVE_EVENT_TYPES = {
+    "task.running",
+    "task.completed",
+    "task.failed",
+    "task.cancelled",
+}
+
+
+def _coerce_message_id(raw: Any) -> int | None:
+    try:
+        value = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _extract_turn_id(task: ChatCompletionTask) -> str:
+    explicit = str(getattr(task, "turn_id", "") or "").strip()
+    if explicit:
+        return explicit
+    origin = str(getattr(task, "origin", "") or "")
+    match = _TURN_ID_ORIGIN_RE.search(origin)
+    return match.group("turn_id").strip().lower() if match else ""
+
+
+def _persist_turn_id_metadata(
+    *, thread_id: int, message_id: int, turn_id: str
+) -> bool:
+    """Persist turn correlation key in chat_messages.extra_meta."""
+    if not turn_id:
+        return True
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return False
+
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        logger.debug(
+            "[chat-worker] chatlog_db has no _connect; skipping turn metadata update"
+        )
+        return False
+
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE chat_messages
+                SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
+                WHERE thread_id = %s
+                  AND id = %s
+                RETURNING id
+                """,
+                (json.dumps({"turn_id": turn_id}), thread_id, message_id),
+            )
+            row = cur.fetchone()
+            return bool(row)
+    except Exception:
+        logger.debug(
+            "[chat-worker] failed to persist turn_id metadata thread_id=%s message_id=%s",
+            thread_id,
+            message_id,
+            exc_info=True,
+        )
+        return False
+
+
+def _coerce_row_message_id(row: Any) -> int | None:
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return _coerce_message_id(row.get("id"))
+    if isinstance(row, (tuple, list)):
+        return _coerce_message_id(row[0] if row else None)
+    try:
+        return _coerce_message_id(row["id"])  # type: ignore[index]
+    except Exception:
+        return _coerce_message_id(getattr(row, "id", None))
+
+
+def _find_assistant_message_id_by_turn_id(
+    *, thread_id: int, turn_id: str
+) -> int | None:
+    if not turn_id:
+        return None
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return None
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return None
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id
+                FROM chat_messages
+                WHERE thread_id = %s
+                  AND role = 'assistant'
+                  AND COALESCE(extra_meta, '{}'::jsonb)->>'turn_id' = %s
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (thread_id, turn_id),
+            )
+            return _coerce_row_message_id(cur.fetchone())
+    except Exception:
+        logger.debug(
+            "[chat-worker] failed turn_id lookup thread_id=%s turn_id=%s",
+            thread_id,
+            turn_id,
+            exc_info=True,
+        )
+        return None
 
 
 def _publish_worker_heartbeat(status: str = "idle") -> None:
@@ -65,6 +183,17 @@ def _publish_worker_heartbeat(status: str = "idle") -> None:
         )
     except Exception as exc:
         logger.debug("[chat-worker] heartbeat update failed: %s", exc)
+
+
+def _safe_emit_live_event(event_type: str, payload: dict[str, Any]) -> None:
+    try:
+        event_bus.emit_event(event_type, payload)
+    except Exception as exc:
+        logger.debug(
+            "[chat-worker] failed to mirror live event type=%s err=%s",
+            event_type,
+            exc,
+        )
 
 
 def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
@@ -88,10 +217,16 @@ def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
             exc,
         )
 
+    if event_type in _MIRRORED_LIVE_EVENT_TYPES:
+        mirror_payload = dict(payload)
+        mirror_payload.setdefault("task_id", task_id)
+        _safe_emit_live_event(event_type, mirror_payload)
+
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
     run_id = uuid.uuid4().hex
     started = time.monotonic()
+    turn_id = _extract_turn_id(task)
     _safe_publish(
         task.task_id,
         "task.running",
@@ -100,15 +235,17 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "type": task.type,
             "origin": task.origin,
             "thread_id": task.thread_id,
+            "turn_id": turn_id,
         },
     )
     logger.info(
-        "[task] running type=%s id=%s run_id=%s origin=%s thread=%s",
+        "[task] running type=%s id=%s run_id=%s origin=%s thread=%s turn_id=%s",
         task.type,
         task.task_id,
         run_id,
         task.origin,
         task.thread_id,
+        turn_id,
     )
 
     try:
@@ -120,16 +257,58 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "run_id": run_id,
                     "thread_id": task.thread_id,
                     "origin": task.origin,
+                    "turn_id": turn_id,
                 },
             )
             clear_cancelled(task.task_id)
             logger.info(
-                "[task] cancelled type=%s id=%s run_id=%s",
+                "[task] cancelled type=%s id=%s run_id=%s turn_id=%s",
                 task.type,
                 task.task_id,
                 run_id,
+                turn_id,
             )
             return
+
+        if turn_id:
+            existing_message_id = _find_assistant_message_id_by_turn_id(
+                thread_id=task.thread_id,
+                turn_id=turn_id,
+            )
+            if existing_message_id is not None:
+                duration_ms = int((time.monotonic() - started) * 1000)
+                logger.warning(
+                    "[chat-worker] duplicate_turn_prevented thread_id=%s turn_id=%s task_id=%s message_id=%s",
+                    task.thread_id,
+                    turn_id,
+                    task.task_id,
+                    existing_message_id,
+                )
+                _safe_publish(
+                    task.task_id,
+                    "task.completed",
+                    {
+                        "run_id": run_id,
+                        "duration_ms": duration_ms,
+                        "thread_id": task.thread_id,
+                        "turn_id": turn_id,
+                        "message_id": existing_message_id,
+                        "deduplicated": True,
+                        "provider": task.provider,
+                        "model": task.model,
+                    },
+                )
+                logger.info(
+                    "[task] completed type=%s id=%s run_id=%s thread=%s turn_id=%s message_id=%s deduplicated=%s",
+                    task.type,
+                    task.task_id,
+                    run_id,
+                    task.thread_id,
+                    turn_id,
+                    existing_message_id,
+                    True,
+                )
+                return
 
         result = run_chat_completion_task(
             task,
@@ -147,6 +326,52 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             cancel_check=lambda: is_cancelled(task.task_id),
             persist_assistant_message=True,
         )
+        message_id = _coerce_message_id(result.get("message_id"))
+        if message_id is None:
+            logger.error(
+                "[chat-worker] completion_missing_message thread_id=%s turn_id=%s task_id=%s",
+                task.thread_id,
+                turn_id,
+                task.task_id,
+            )
+            raise RuntimeError("assistant_message_missing")
+
+        if turn_id and not _persist_turn_id_metadata(
+            thread_id=task.thread_id, message_id=message_id, turn_id=turn_id
+        ):
+            logger.warning(
+                "[chat-worker] completion_turn_metadata_missing thread_id=%s turn_id=%s task_id=%s message_id=%s",
+                task.thread_id,
+                turn_id,
+                task.task_id,
+                message_id,
+            )
+        if turn_id:
+            canonical_message_id = _find_assistant_message_id_by_turn_id(
+                thread_id=task.thread_id,
+                turn_id=turn_id,
+            )
+            if (
+                canonical_message_id is not None
+                and canonical_message_id != message_id
+            ):
+                logger.warning(
+                    "[chat-worker] completion_duplicate_turn_detected thread_id=%s turn_id=%s task_id=%s canonical_message_id=%s duplicate_message_id=%s",
+                    task.thread_id,
+                    turn_id,
+                    task.task_id,
+                    canonical_message_id,
+                    message_id,
+                )
+                message_id = canonical_message_id
+
+        logger.info(
+            "[chat-worker] assistant_message_persisted thread_id=%s turn_id=%s task_id=%s assistant_message_id=%s",
+            task.thread_id,
+            turn_id,
+            task.task_id,
+            message_id,
+        )
         duration_ms = int((time.monotonic() - started) * 1000)
         _safe_publish(
             task.task_id,
@@ -155,7 +380,8 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "run_id": run_id,
                 "duration_ms": duration_ms,
                 "thread_id": task.thread_id,
-                "message_id": result.get("message_id"),
+                "turn_id": turn_id,
+                "message_id": message_id,
                 "provider": result.get("provider"),
                 "model": result.get("model"),
                 "selection_source": result.get("selection_source"),
@@ -163,11 +389,13 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             },
         )
         logger.info(
-            "[task] completed type=%s id=%s run_id=%s thread=%s",
+            "[task] completed type=%s id=%s run_id=%s thread=%s turn_id=%s message_id=%s",
             task.type,
             task.task_id,
             run_id,
             task.thread_id,
+            turn_id,
+            message_id,
         )
     except ChatTaskCancelled:
         _safe_publish(
@@ -177,38 +405,52 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "run_id": run_id,
                 "thread_id": task.thread_id,
                 "origin": task.origin,
+                "turn_id": turn_id,
             },
         )
         clear_cancelled(task.task_id)
         logger.info(
-            "[task] cancelled type=%s id=%s run_id=%s",
+            "[task] cancelled type=%s id=%s run_id=%s turn_id=%s",
             task.type,
             task.task_id,
             run_id,
+            turn_id,
         )
     except Exception as exc:
         duration_ms = int((time.monotonic() - started) * 1000)
+        failure_payload = {
+            "run_id": run_id,
+            "duration_ms": duration_ms,
+            "error": str(exc),
+            "error_type": exc.__class__.__name__,
+            "thread_id": task.thread_id,
+            "origin": task.origin,
+            "turn_id": turn_id,
+        }
         _safe_publish(
             task.task_id,
             "task.failed",
+            failure_payload,
+        )
+        _safe_emit_live_event(
+            "completion.error",
             {
-                "run_id": run_id,
-                "duration_ms": duration_ms,
-                "error": str(exc),
-                "error_type": exc.__class__.__name__,
-                "thread_id": task.thread_id,
-                "origin": task.origin,
+                **failure_payload,
+                "task_id": task.task_id,
             },
         )
         logger.exception(
-            "[task] failed type=%s id=%s run_id=%s err=%s",
+            "[task] failed type=%s id=%s run_id=%s turn_id=%s err=%s",
             task.type,
             task.task_id,
             run_id,
+            turn_id,
             exc,
         )
     finally:
-        owner = (task.turn_lock_owner or "").strip()
+        owner = str(getattr(task, "turn_lock_owner", "") or "").strip()
+        if not owner:
+            owner = str(task.task_id or "").strip()
         if owner:
             try:
                 released = release_turn_lock(task.thread_id, owner)
@@ -274,11 +516,22 @@ def run_forever() -> None:
                     task.task_id,
                 )
                 continue
+            if isinstance(payload, dict):
+                raw_turn_id = payload.get("turn_id")
+                if isinstance(raw_turn_id, str) and raw_turn_id.strip():
+                    task.turn_id = raw_turn_id.strip()
+                raw_owner = payload.get("turn_lock_owner")
+                if isinstance(raw_owner, str) and raw_owner.strip():
+                    task.turn_lock_owner = raw_owner.strip()
             if is_cancelled(task.task_id):
                 _safe_publish(
                     task.task_id,
                     "task.cancelled",
-                    {"type": task.type, "origin": task.origin},
+                    {
+                        "type": task.type,
+                        "origin": task.origin,
+                        "turn_id": _extract_turn_id(task),
+                    },
                 )
                 clear_cancelled(task.task_id)
                 logger.info(
