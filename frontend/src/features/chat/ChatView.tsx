@@ -27,6 +27,7 @@ type PollSession = {
   tid: number;
   reason: string;
   key: string;
+  turnId: string | null;
   startedAt: number;
   lastUserMessageId: number;
   initialAssistantId: number;
@@ -35,13 +36,51 @@ type PollSession = {
 type Voice404Classification = "message_not_found" | "route_missing" | "unknown";
 
 const PAGE_SIZE = 100;
-const POLL_INTERVAL_MS = 900;
-const POLL_TIMEOUT_MS = 30000;
+// Keep poll cadence moderate to avoid backend global rate-limit pressure.
+const MESSAGE_POLL_MIN_MS = 1500;
+const MESSAGE_POLL_MAX_MS = 5000;
+const POLL_TIMEOUT_MS = 300_000; // 5 minutes slow-path ceiling
 const COMPLETION_SETTLE_MS = 150;
+const UUID_V4ISH_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function parseMessageId(raw: any): number {
   const value = Number(raw?.id ?? raw?.message_id ?? raw?.messageId);
   return Number.isFinite(value) ? value : 0;
+}
+
+function normalizeTurnId(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return UUID_V4ISH_RE.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+
+function readMessageTurnId(raw: any): string | null {
+  const direct = normalizeTurnId(raw?.turn_id ?? raw?.turnId);
+  if (direct) return direct;
+
+  const metadataCandidate = raw?.metadata ?? raw?.extra_meta ?? raw?.extraMeta;
+  if (metadataCandidate && typeof metadataCandidate === "object") {
+    const nested = metadataCandidate as Record<string, unknown>;
+    return normalizeTurnId(nested.turn_id ?? nested.turnId);
+  }
+  return null;
+}
+
+function getTrackedTurnId(threadId: number | null | undefined): string | null {
+  const getter = (api as any)?.getInFlightCompletionTurnId;
+  if (typeof getter !== "function") return null;
+  return getter(threadId);
+}
+
+function clearTrackedTurnId(
+  threadId: number | null | undefined,
+  expectedTurnId?: string | null
+): void {
+  const clearer = (api as any)?.clearInFlightCompletionTurnId;
+  if (typeof clearer !== "function") return;
+  clearer(threadId, expectedTurnId);
 }
 
 function getLastUserMessageId(messages: Array<{ id: unknown; role?: string }>): number {
@@ -103,6 +142,8 @@ export function ChatView({
   className,
   bottomPadding = 0,
   autoReadEnabled = false,
+  voiceReadAloudEnabled = false,
+  voiceCapabilitiesFailed = false,
   depthMode = "normal",
   profileId = null,
 }: {
@@ -114,6 +155,8 @@ export function ChatView({
   className?: string;
   bottomPadding?: number;
   autoReadEnabled?: boolean;
+  voiceReadAloudEnabled?: boolean;
+  voiceCapabilitiesFailed?: boolean;
   depthMode?: DepthMode;
   profileId?: string | null;
 }) {
@@ -135,6 +178,7 @@ export function ChatView({
   const [voiceUnavailableMessageIds, setVoiceUnavailableMessageIds] = useState<
     Record<number, true>
   >({});
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [voiceRouteMissing, setVoiceRouteMissing] = useState(false);
   const lastAutoReadMessageIdRef = useRef<number | null>(null);
   const autoReadPrimedRef = useRef(false);
@@ -157,6 +201,7 @@ export function ChatView({
   const messagesRef = useRef(messages);
   const completionFinalizeTimerRef = useRef<number | null>(null);
   const inFlightCompletionByThreadRef = useRef<Map<number, string>>(new Map());
+  const activeTurnIdRef = useRef<string | null>(null);
   const completionFinalizePendingRef = useRef<Set<number>>(new Set());
   const liveSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const voiceUnavailableMessageIdsRef = useRef<Record<number, true>>({});
@@ -165,6 +210,8 @@ export function ChatView({
 
   const profileKey = profileId ?? "none";
   const resolvedDepthMode: DepthMode = depthMode ?? "normal";
+  const isCompletingForThread =
+    completionState.isCompleting && completionState.activeThreadId === threadId;
 
   const debugLog = useCallback((key: string, message: string, ttlMs = 1000) => {
     const now = Date.now();
@@ -229,12 +276,57 @@ export function ChatView({
     setPollSession((prev) => (prev ? null : prev));
   }, []);
 
+  const stopPollingWithReason = useCallback(
+    (reason: string, expectedKey?: string) => {
+      debugLog(`poll:stop:${reason}`, `[chat:poll] stop reason=${reason}`, 500);
+      stopPolling(expectedKey);
+    },
+    [debugLog, stopPolling]
+  );
+
+  const clearCompletionAfterFailure = useCallback(
+    (tid: number, reason: string, toastMessage?: string) => {
+      if (!Number.isFinite(tid)) return;
+
+      if (completionFinalizeTimerRef.current !== null) {
+        window.clearTimeout(completionFinalizeTimerRef.current);
+        completionFinalizeTimerRef.current = null;
+      }
+      completionFinalizePendingRef.current.delete(tid);
+
+      const activeKey = activePollKeyRef.current;
+      if (activeKey && activeKey.startsWith(`${tid}:`)) {
+        stopPollingWithReason(reason, activeKey);
+      }
+
+      inFlightCompletionByThreadRef.current.delete(tid);
+
+      const completionTurnId = activeTurnIdRef.current ?? getTrackedTurnId(tid);
+      if (completionTurnId) {
+        clearTrackedTurnId(tid, completionTurnId);
+        if (activeThreadRef.current === tid) {
+          setActiveTurnId((prev) => (prev === completionTurnId ? null : prev));
+        }
+      } else if (activeThreadRef.current === tid) {
+        setActiveTurnId(null);
+      }
+
+      if (toastMessage && activeThreadRef.current === tid) {
+        showToast(toastMessage);
+      }
+
+      endCompletionRef.current();
+    },
+    [showToast, stopPollingWithReason]
+  );
+
   const startPolling = useCallback(
     (tid: number, reason: string, lastUserMessageId: number) => {
       if (!Number.isFinite(tid)) return;
       const normalizedUserId = Number.isFinite(lastUserMessageId)
         ? Math.max(0, lastUserMessageId)
         : 0;
+      const turnId = activeTurnIdRef.current;
       const key = buildPollKey(tid, normalizedUserId);
       if (activePollKeyRef.current === key) {
         debugLog(
@@ -253,6 +345,7 @@ export function ChatView({
         tid,
         reason,
         key,
+        turnId,
         startedAt: Date.now(),
         lastUserMessageId: normalizedUserId,
         initialAssistantId: lastAssistantIdRef.current,
@@ -282,6 +375,7 @@ export function ChatView({
       logOnce("poll:messages:timeout", 10_000, () => {
         console.info(`[chat] polling timed out (${session.reason})`);
       });
+      showToast("Still working; refresh or retry.");
       stopPolling(session.key);
       return;
     }
@@ -300,6 +394,8 @@ export function ChatView({
 
       let maxId = lastMessageIdRef.current;
       let maxAssistantId = session.initialAssistantId;
+      const expectedTurnId = session.turnId ?? activeTurnIdRef.current;
+      let matchingTurnAssistantId = 0;
       const newMessages: any[] = [];
 
       for (const msg of page) {
@@ -310,6 +406,15 @@ export function ChatView({
         }
         if (msg?.role && msg.role !== "user" && id > maxAssistantId) {
           maxAssistantId = id;
+        }
+        const messageRole = String(msg?.role ?? "").trim().toLowerCase();
+        if (
+          expectedTurnId &&
+          messageRole === "assistant" &&
+          readMessageTurnId(msg) === expectedTurnId &&
+          id > matchingTurnAssistantId
+        ) {
+          matchingTurnAssistantId = id;
         }
         if (id > lastMessageIdRef.current) {
           newMessages.push(msg);
@@ -331,11 +436,27 @@ export function ChatView({
       if (maxAssistantId > lastAssistantIdRef.current) {
         lastAssistantIdRef.current = maxAssistantId;
       }
-      if (
+
+      if (expectedTurnId && matchingTurnAssistantId > 0) {
+        if (inFlightCompletionByThreadRef.current.has(session.tid)) {
+          inFlightCompletionByThreadRef.current.delete(session.tid);
+          endCompletionRef.current();
+        }
+        clearTrackedTurnId(session.tid, expectedTurnId);
+        if (activeThreadRef.current === session.tid) {
+          setActiveTurnId((prev) =>
+            prev === expectedTurnId ? null : prev
+          );
+        }
+        stopPollingWithReason("assistant-turn-arrived", session.key);
+        return;
+      }
+
+      const assistantReplyArrived =
         maxAssistantId > session.initialAssistantId &&
-        activePollKeyRef.current === session.key
-      ) {
-        stopPolling(session.key);
+        maxAssistantId > session.lastUserMessageId;
+      if (assistantReplyArrived && activePollKeyRef.current === session.key) {
+        stopPollingWithReason("assistant-reply-arrived", session.key);
       }
     } catch (err) {
       logOnce("poll:messages", 10_000, () => {
@@ -343,12 +464,12 @@ export function ChatView({
       });
       throw err;
     }
-  }, [appendMessage, stopPolling]);
+  }, [appendMessage, stopPollingWithReason]);
 
   usePollWithBackoff(pollOnce, {
     enabled: Boolean(pollSession && activePollKeyRef.current === pollSession.key),
-    intervalMs: POLL_INTERVAL_MS,
-    maxBackoffMs: 8_000,
+    intervalMs: MESSAGE_POLL_MIN_MS,
+    maxBackoffMs: MESSAGE_POLL_MAX_MS,
     onErrorKey: "poll:messages",
     logTtlMs: 10_000,
   });
@@ -360,15 +481,30 @@ export function ChatView({
   useEffect(() => {
     completionStateRef.current = completionState;
     if (completionState.isCompleting && completionState.activeThreadId != null) {
-      const marker = completionState.activeTaskId ?? `thread-${completionState.activeThreadId}`;
-      inFlightCompletionByThreadRef.current.set(completionState.activeThreadId, marker);
+      const marker =
+        completionState.activeTaskId ??
+        `thread-${completionState.activeThreadId}`;
+      inFlightCompletionByThreadRef.current.set(
+        completionState.activeThreadId,
+        marker
+      );
+      const currentTurnId = getTrackedTurnId(
+        completionState.activeThreadId
+      );
+      if (currentTurnId !== activeTurnIdRef.current) {
+        setActiveTurnId(currentTurnId);
+      }
       return;
     }
     if (!completionState.isCompleting) {
+      if (activeTurnIdRef.current && threadId != null) {
+        clearTrackedTurnId(threadId, activeTurnIdRef.current);
+      }
+      setActiveTurnId(null);
       inFlightCompletionByThreadRef.current.clear();
       completionFinalizePendingRef.current.clear();
     }
-  }, [completionState]);
+  }, [completionState, threadId]);
 
   useEffect(() => {
     endCompletionRef.current = endCompletion;
@@ -391,6 +527,10 @@ export function ChatView({
   }, [messages]);
 
   useEffect(() => {
+    activeTurnIdRef.current = activeTurnId;
+  }, [activeTurnId]);
+
+  useEffect(() => {
     pollSessionRef.current = pollSession;
   }, [pollSession]);
 
@@ -404,6 +544,7 @@ export function ChatView({
     lastAssistantIdRef.current = 0;
     inFlightCompletionByThreadRef.current.clear();
     completionFinalizePendingRef.current.clear();
+    setActiveTurnId(getTrackedTurnId(threadId));
     const completionSnapshot = completionStateRef.current;
     if (
       completionSnapshot.isCompleting &&
@@ -433,19 +574,29 @@ export function ChatView({
   }, [loadMessages, stopPolling, threadId]);
 
   useEffect(() => {
+    if (!isCompletingForThread) return;
     if (reloadVersion === lastReloadVersionRef.current) return;
     lastReloadVersionRef.current = reloadVersion;
     startPolling(threadId, "completion", getLastUserMessageId(messagesRef.current));
-  }, [reloadVersion, startPolling, threadId]);
+  }, [isCompletingForThread, reloadVersion, startPolling, threadId]);
 
   useEffect(() => {
+    if (!isCompletingForThread) return;
     const active = pollSessionRef.current;
     if (!active || active.tid !== threadId) return;
     const nextKey = buildPollKey(threadId, active.lastUserMessageId);
     if (nextKey !== active.key) {
       startPolling(threadId, "poll-context-change", active.lastUserMessageId);
     }
-  }, [buildPollKey, startPolling, threadId, resolvedDepthMode, profileKey]);
+  }, [
+    activeTurnId,
+    buildPollKey,
+    isCompletingForThread,
+    profileKey,
+    resolvedDepthMode,
+    startPolling,
+    threadId,
+  ]);
 
   useEffect(() => {
     liveSubscriptionCleanupRef.current?.();
@@ -455,10 +606,22 @@ export function ChatView({
       const messageRole = String(payload?.role ?? "").trim().toLowerCase();
       const tid = Number(payload?.thread_id ?? payload?.threadId ?? payload?.thread?.id);
       const messageId = parseMessageId(payload);
+      const expectedTurnId = activeTurnIdRef.current;
+      const observedTurnId = readMessageTurnId(payload);
 
       ingestIncoming(payload);
 
       if (!Number.isFinite(tid) || messageRole !== "assistant") {
+        return;
+      }
+      if (
+        expectedTurnId &&
+        observedTurnId &&
+        observedTurnId !== expectedTurnId
+      ) {
+        return;
+      }
+      if (expectedTurnId && !observedTurnId) {
         return;
       }
       if (messageId > lastAssistantIdRef.current) {
@@ -499,6 +662,14 @@ export function ChatView({
         }
 
         inFlightCompletionByThreadRef.current.delete(tid);
+        const completionTurnId =
+          activeTurnIdRef.current ?? getTrackedTurnId(tid);
+        if (completionTurnId) {
+          clearTrackedTurnId(tid, completionTurnId);
+          setActiveTurnId((prev) =>
+            prev === completionTurnId ? null : prev
+          );
+        }
         endCompletionRef.current();
 
         const messageCount = messagesRef.current.length;
@@ -515,6 +686,85 @@ export function ChatView({
     };
 
     const offMessageCreated = subscribe("message.created", onMessageCreated);
+    const onTerminalTaskEvent = (
+      event: any,
+      eventType: "task.failed" | "task.cancelled" | "completion.error"
+    ) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const completionSnapshot = completionStateRef.current;
+      if (!completionSnapshot.isCompleting) return;
+
+      const tid = Number(
+        payload?.thread_id ??
+          payload?.threadId ??
+          completionSnapshot.activeThreadId
+      );
+      if (!Number.isFinite(tid)) return;
+      if (completionSnapshot.activeThreadId !== tid) return;
+
+      const incomingTaskId = String(
+        payload?.task_id ?? payload?.taskId ?? ""
+      ).trim();
+      if (
+        completionSnapshot.activeTaskId &&
+        incomingTaskId &&
+        incomingTaskId !== completionSnapshot.activeTaskId
+      ) {
+        return;
+      }
+
+      const shouldToast =
+        eventType === "task.failed" || eventType === "completion.error";
+      clearCompletionAfterFailure(
+        tid,
+        eventType,
+        shouldToast ? "Assistant response failed. Please retry." : undefined
+      );
+    };
+    const onTaskFailed = (event: any) => onTerminalTaskEvent(event, "task.failed");
+    const onTaskCancelled = (event: any) =>
+      onTerminalTaskEvent(event, "task.cancelled");
+    const onCompletionError = (event: any) =>
+      onTerminalTaskEvent(event, "completion.error");
+    const onTaskCompleted = (event: any) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const completionSnapshot = completionStateRef.current;
+      if (!completionSnapshot.isCompleting) return;
+
+      const tid = Number(
+        payload?.thread_id ??
+          payload?.threadId ??
+          completionSnapshot.activeThreadId
+      );
+      if (!Number.isFinite(tid)) return;
+      if (completionSnapshot.activeThreadId !== tid) return;
+
+      const incomingTaskId = String(
+        payload?.task_id ?? payload?.taskId ?? ""
+      ).trim();
+      if (
+        completionSnapshot.activeTaskId &&
+        incomingTaskId &&
+        incomingTaskId !== completionSnapshot.activeTaskId
+      ) {
+        return;
+      }
+
+      const messageId = Number(payload?.message_id ?? payload?.messageId);
+      if (Number.isFinite(messageId) && messageId > 0) {
+        return;
+      }
+
+      clearCompletionAfterFailure(
+        tid,
+        "task.completed:missing-message",
+        "Assistant response failed. Please retry."
+      );
+    };
+    const offTaskFailed = subscribe("task.failed", onTaskFailed);
+    const offTaskCancelled = subscribe("task.cancelled", onTaskCancelled);
+    const offCompletionError = subscribe("completion.error", onCompletionError);
+    const offTaskCompleted = subscribe("task.completed", onTaskCompleted);
     const onLocal = (evt: Event) => {
       const detail = (evt as CustomEvent).detail || {};
       ingestIncoming(detail.message ?? detail);
@@ -523,6 +773,10 @@ export function ChatView({
 
     const cleanup = () => {
       offMessageCreated();
+      offTaskFailed();
+      offTaskCancelled();
+      offCompletionError();
+      offTaskCompleted();
       window.removeEventListener("cfy:chat:message", onLocal as EventListener);
     };
     liveSubscriptionCleanupRef.current = cleanup;
@@ -533,7 +787,7 @@ export function ChatView({
         liveSubscriptionCleanupRef.current = null;
       }
     };
-  }, [ingestIncoming, stopPolling, subscribe, threadId]);
+  }, [clearCompletionAfterFailure, ingestIncoming, stopPolling, subscribe, threadId]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -591,12 +845,25 @@ export function ChatView({
   }, [messages]);
 
   useEffect(() => {
+    if (!isCompletingForThread) return;
     const lastUserMessageId = getLastUserMessageId(messages);
     if (!Number.isFinite(lastUserMessageId) || lastUserMessageId <= 0) return;
     if (lastUserMessageId <= lastPolledUserIdRef.current) return;
     lastPolledUserIdRef.current = lastUserMessageId;
     startPolling(threadId, "user-message", lastUserMessageId);
-  }, [messages, startPolling, threadId]);
+  }, [isCompletingForThread, messages, startPolling, threadId]);
+
+  useEffect(() => {
+    if (isCompletingForThread) return;
+    const activeKey = activePollKeyRef.current;
+    if (activeKey && activeKey.startsWith(`${threadId}:`)) {
+      stopPollingWithReason("completion-inactive", activeKey);
+    }
+    if (activeTurnIdRef.current) {
+      clearTrackedTurnId(threadId, activeTurnIdRef.current);
+      setActiveTurnId(null);
+    }
+  }, [isCompletingForThread, stopPollingWithReason, threadId]);
 
   useEffect(
     () => () => {
@@ -617,6 +884,12 @@ export function ChatView({
   const playMessageAudio = useCallback(
     async (messageId: number, options?: { manual?: boolean }) => {
       const manual = Boolean(options?.manual);
+      if (!voiceReadAloudEnabled) {
+        if (manual) {
+          showToast("Voice disabled");
+        }
+        return;
+      }
       if (voiceRouteMissingRef.current) {
         if (manual) {
           showToast("Voice disabled");
@@ -663,7 +936,7 @@ export function ChatView({
           if (manual) {
             showToast("Audio unavailable");
           }
-        } else if (classification === "route_missing") {
+        } else if (classification === "route_missing" && voiceCapabilitiesFailed) {
           disableVoiceRoute();
           if (manual) {
             showToast("Voice disabled");
@@ -674,11 +947,22 @@ export function ChatView({
         setPlayingMessageId((prev) => (prev === messageId ? null : prev));
       }
     },
-    [disableVoiceRoute, isVoiceUnavailable, markVoiceUnavailable, showToast]
+    [
+      disableVoiceRoute,
+      isVoiceUnavailable,
+      markVoiceUnavailable,
+      showToast,
+      voiceCapabilitiesFailed,
+      voiceReadAloudEnabled,
+    ]
   );
 
   const handlePlayClick = useCallback(
     (messageId: number) => {
+      if (!voiceReadAloudEnabled) {
+        showToast("Voice disabled");
+        return;
+      }
       if (voiceRouteMissingRef.current) {
         showToast("Voice disabled");
         return;
@@ -689,10 +973,11 @@ export function ChatView({
       }
       void playMessageAudio(messageId, { manual: true });
     },
-    [isVoiceUnavailable, playMessageAudio, showToast]
+    [isVoiceUnavailable, playMessageAudio, showToast, voiceReadAloudEnabled]
   );
 
   useEffect(() => {
+    if (!voiceReadAloudEnabled) return;
     if (!autoReadEnabled) return;
     if (voiceRouteMissingRef.current) return;
 
@@ -717,7 +1002,14 @@ export function ChatView({
       return;
     }
     void playMessageAudio(latestId);
-  }, [autoReadEnabled, isVoiceUnavailable, messages, playMessageAudio, voiceRouteMissing]);
+  }, [
+    autoReadEnabled,
+    isVoiceUnavailable,
+    messages,
+    playMessageAudio,
+    voiceReadAloudEnabled,
+    voiceRouteMissing,
+  ]);
 
   const onScroll = async () => {
     const el = containerRef.current;
@@ -802,14 +1094,14 @@ export function ChatView({
         {messages.map((m, index) => {
           const messageId = Number(m.id);
           const canPlay = m.role !== "user" && Number.isFinite(messageId);
+          const showPlay =
+            canPlay && voiceReadAloudEnabled && !voiceRouteMissing;
           const messageVoiceUnavailable = Boolean(
             Number.isFinite(messageId) && voiceUnavailableMessageIds[messageId]
           );
-          const playState: BubblePlayState = !canPlay
+          const playState: BubblePlayState = !showPlay
             ? "idle"
-            : voiceRouteMissing
-              ? "disabled"
-              : messageVoiceUnavailable
+            : messageVoiceUnavailable
                 ? "unavailable"
                 : playingMessageId === messageId
                   ? "playing"
@@ -847,7 +1139,7 @@ export function ChatView({
                   })),
                 }}
                 isGuardian={m.role !== "user"}
-                showPlay={canPlay}
+                showPlay={showPlay}
                 playing={playState === "playing"}
                 playState={playState}
                 onPlay={() => {

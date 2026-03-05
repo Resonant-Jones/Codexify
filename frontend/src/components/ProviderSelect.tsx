@@ -346,7 +346,7 @@ export function ProviderSelect({
             {providers.map((entry) => (
               <DropdownMenuItem
                 key={entry.id}
-                onSelect={(event) => {
+                onClick={(event) => {
                   event.preventDefault();
                   setActiveProviderId(entry.id);
                 }}

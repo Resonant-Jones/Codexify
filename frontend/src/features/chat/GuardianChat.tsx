@@ -25,7 +25,10 @@ import { Thread } from "@/types/ui";
 import { Composer } from "./components";
 import ChatView from "@/features/chat/ChatView";
 import useChat from "@/features/chat/useChat";
-import api, { buildChatCompletePath } from "@/lib/api";
+import api, {
+  buildChatCompletePath,
+  clearInFlightCompletionTurnId,
+} from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
@@ -64,6 +67,7 @@ type LlmHealthSnapshot = {
   provider: string | null;
   model: string | null;
   error: string | null;
+  rawError: string | null;
   checkedAt: number | null;
 };
 
@@ -83,6 +87,22 @@ type ResolvedProfileState = {
   mode: ProfileMode;
   providerOverride: string | null;
   modelOverride: string | null;
+};
+
+type VoiceCapabilities = {
+  read_aloud_enabled: boolean;
+  turn_based_enabled: boolean;
+  supported_input_mime: string[];
+  limits: { max_upload_bytes: number; max_duration_s: number } | null;
+};
+
+type VoiceCapabilitiesStatus = "loading" | "ready" | "error";
+
+const DEFAULT_VOICE_CAPABILITIES: VoiceCapabilities = {
+  read_aloud_enabled: false,
+  turn_based_enabled: false,
+  supported_input_mime: ["audio/wav", "audio/x-wav", "audio/webm", "audio/ogg"],
+  limits: null,
 };
 
 const PROFILE_FALLBACK_OPTIONS: SystemProfileOption[] = [
@@ -128,6 +148,75 @@ function normalizeProfileOption(
     modelOverride:
       raw.model_override != null ? String(raw.model_override) : null,
   };
+}
+
+function normalizeLlmHealthRawError(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function normalizeVoiceCapabilities(raw: any): VoiceCapabilities {
+  const limitsRaw = raw?.limits;
+  const maxUploadBytes = Number(limitsRaw?.max_upload_bytes);
+  const maxDurationSeconds = Number(limitsRaw?.max_duration_s);
+  const supportedInputMime = Array.isArray(raw?.supported_input_mime)
+    ? raw.supported_input_mime
+        .map((entry: unknown) => String(entry ?? "").trim().toLowerCase())
+        .filter(Boolean)
+    : DEFAULT_VOICE_CAPABILITIES.supported_input_mime;
+
+  return {
+    read_aloud_enabled: Boolean(raw?.read_aloud_enabled),
+    turn_based_enabled: Boolean(raw?.turn_based_enabled),
+    supported_input_mime: supportedInputMime.length
+      ? supportedInputMime
+      : DEFAULT_VOICE_CAPABILITIES.supported_input_mime,
+    limits:
+      Number.isFinite(maxUploadBytes) && Number.isFinite(maxDurationSeconds)
+        ? {
+            max_upload_bytes: Math.max(0, Math.floor(maxUploadBytes)),
+            max_duration_s: Math.max(0, Math.floor(maxDurationSeconds)),
+          }
+        : null,
+  };
+}
+
+function toUserFacingLlmHealthError(
+  rawError: string | null,
+  status: LlmHealthStatus
+): string | null {
+  if (!rawError) return null;
+  const normalized = rawError.toLowerCase();
+
+  if (/allow_cloud_providers\s*=\s*false/i.test(rawError)) {
+    return "Cloud providers are disabled by configuration.";
+  }
+  if (
+    normalized.includes("timeout") ||
+    normalized.includes("timed out") ||
+    normalized.includes("connecttimeout") ||
+    normalized.includes("readtimeout")
+  ) {
+    return "Guardian cannot reach the model endpoint right now. Check connectivity and model service health.";
+  }
+  if (
+    normalized.includes("connection refused") ||
+    normalized.includes("econnrefused") ||
+    normalized.includes("enotfound") ||
+    normalized.includes("httpconnectionpool")
+  ) {
+    return "Guardian cannot connect to the configured model service. Start it or switch providers.";
+  }
+  if (
+    status === "misconfigured" ||
+    normalized.includes("misconfig") ||
+    normalized.includes("invalid model") ||
+    normalized.includes("unknown model")
+  ) {
+    return "Model configuration is invalid. Review provider/model settings.";
+  }
+  return "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
 }
 
 /**
@@ -208,7 +297,14 @@ export function GuardianChat({
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
   // Chat state management including completion tracking
-  const { completionState, startCompletion, endCompletion } = useChat();
+  const {
+    completionState,
+    startCompletion,
+    endCompletion,
+    updateCompletionTaskId,
+    isCompletionInFlight,
+    setCompletionInFlight,
+  } = useChat();
   const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
   const [pendingTurnLock, setPendingTurnLock] = useState(false);
   const lastCompletionThreadRef = useRef<number | null>(null);
@@ -237,6 +333,11 @@ export function GuardianChat({
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
   const [voiceUploading, setVoiceUploading] = useState(false);
+  const [voiceCapabilities, setVoiceCapabilities] = useState<VoiceCapabilities>(
+    DEFAULT_VOICE_CAPABILITIES
+  );
+  const [voiceCapabilitiesStatus, setVoiceCapabilitiesStatus] =
+    useState<VoiceCapabilitiesStatus>("loading");
   const [autoReadEnabled, setAutoReadEnabled] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem("cfy.voice.autoRead") === "1";
@@ -252,6 +353,7 @@ export function GuardianChat({
     provider: null,
     model: null,
     error: null,
+    rawError: null,
     checkedAt: null,
   });
   const [availableProfiles, setAvailableProfiles] = useState<SystemProfileOption[]>(PROFILE_FALLBACK_OPTIONS);
@@ -275,6 +377,27 @@ export function GuardianChat({
         new CustomEvent("cfy:toast", { detail: { message, kind: "error" } })
       );
     } catch {}
+  }, []);
+  const voiceReadAloudEnabled = voiceCapabilities.read_aloud_enabled;
+  const voiceTurnBasedEnabled = voiceCapabilities.turn_based_enabled;
+  const voiceCapabilitiesFailed = voiceCapabilitiesStatus === "error";
+  const supportedVoiceInputMime = voiceCapabilities.supported_input_mime;
+  const voiceUploadAccept = useMemo(
+    () => supportedVoiceInputMime.join(","),
+    [supportedVoiceInputMime]
+  );
+  const voiceUploadLimitBytes = voiceCapabilities.limits?.max_upload_bytes ?? null;
+
+  const refreshVoiceCapabilities = useCallback(async () => {
+    try {
+      const response = await api.get("/voice/capabilities");
+      setVoiceCapabilities(normalizeVoiceCapabilities(response?.data));
+      setVoiceCapabilitiesStatus("ready");
+    } catch (error) {
+      console.warn("[guardian] voice capabilities unavailable", error);
+      setVoiceCapabilities(DEFAULT_VOICE_CAPABILITIES);
+      setVoiceCapabilitiesStatus("error");
+    }
   }, []);
   const resolveProfileIdFromCommand = useCallback(
     (text: string): string | null => {
@@ -328,22 +451,26 @@ export function GuardianChat({
           : data?.ok
             ? "online"
             : "unknown";
+      const rawError = normalizeLlmHealthRawError(data?.error);
 
       setLlmHealth({
         ok: typeof data?.ok === "boolean" ? data.ok : status === "online",
         status,
         provider: typeof data?.provider === "string" ? data.provider : null,
         model: typeof data?.model === "string" ? data.model : null,
-        error: typeof data?.error === "string" ? data.error : null,
+        error: toUserFacingLlmHealthError(rawError, status),
+        rawError,
         checkedAt: Date.now(),
       });
     } catch (err: any) {
+      const rawError = normalizeLlmHealthRawError(err?.message) || "LLM health check failed";
       setLlmHealth({
         ok: null,
         status: "unknown",
         provider: null,
         model: null,
-        error: err?.message || "LLM health check failed",
+        error: toUserFacingLlmHealthError(rawError, "unknown"),
+        rawError,
         checkedAt: Date.now(),
       });
       logOnce("poll:health-llm", 10_000, () => {
@@ -364,7 +491,7 @@ export function GuardianChat({
   const llmBackendUnavailable =
     llmHealth.status === "offline" || llmHealth.status === "misconfigured";
   const cloudProvidersDisabled = /ALLOW_CLOUD_PROVIDERS\s*=\s*false/i.test(
-    llmHealth.error || ""
+    llmHealth.rawError || ""
   );
   const llmStatusMessage =
     llmHealth.error
@@ -389,9 +516,9 @@ export function GuardianChat({
   const isTurnLocked = useCallback(
     (threadId: number | null) => {
       if (threadId == null) return pendingTurnLock;
-      return Boolean(turnLocks[threadId]);
+      return Boolean(turnLocks[threadId]) || isCompletionInFlight(threadId);
     },
-    [pendingTurnLock, turnLocks]
+    [isCompletionInFlight, pendingTurnLock, turnLocks]
   );
   const notifyTurnLocked = () => {
     showToast(TURN_LOCK_TOAST);
@@ -480,22 +607,25 @@ export function GuardianChat({
     },
     [getDepthForThread]
   );
-  type CompletionOutcome = "ok" | "service_unavailable" | "failed";
+  type CompletionOutcome = "ok" | "service_unavailable" | "failed" | "inflight";
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (tid: number): Promise<CompletionOutcome> => {
     const payload = buildChatCompletionPayload(depth, activeModelId || "default");
+    const provisionalTaskId = `pending-${Date.now()}`;
+    setCompletionInFlight(tid, true);
+    startCompletion(tid, provisionalTaskId);
     try {
       const response = await api.post(buildChatCompletePath(tid), payload);
       console.log(`[guardian] Completing with depth=${depth}`);
 
       // Capture task_id for completion state tracking
-      const taskId = response?.data?.task_id;
+      const taskId = response?.data?.task_id ?? provisionalTaskId;
       const responseDepth = (response?.data?.depth_mode as DepthMode | undefined) ?? depth;
       lastCompletionDepthRef.current[tid] = responseDepth;
 
       if (taskId) {
         console.debug(`[guardian] Starting completion tracking: task=${taskId}`);
-        startCompletion(tid, taskId);
+        updateCompletionTaskId(taskId);
       }
 
       const traceUrlRaw = response?.data?.trace_url;
@@ -512,6 +642,17 @@ export function GuardianChat({
         detail && typeof detail === "object"
           ? String(detail?.error || detail?.reason || "")
           : String(detail || "");
+      if (statusCode === 429) {
+        logOnce("complete:turn-lock", 5_000, () => {
+          console.warn("[guardian] completion hit turn-lock (429) — waiting for prior turn");
+        });
+        showToast("Finishing previous turn…");
+        setCompletionInFlight(tid, true);
+        if (!completionState.isCompleting || completionState.activeThreadId !== tid) {
+          startCompletion(tid, `turn-lock-${tid}`);
+        }
+        return "inflight";
+      }
       if (
         statusCode === 503 &&
         (reason.includes("completion_service_unavailable") ||
@@ -519,9 +660,11 @@ export function GuardianChat({
           reason.includes("turn_lock_unavailable"))
       ) {
         showToast("Completion service unavailable — check Docker/Redis.");
+        endCompletion();
         return "service_unavailable";
       }
       console.warn("[guardian] completion failed", err);
+      endCompletion();
       return "failed";
     } finally {
       // always nudge the view to reconcile with server state
@@ -738,6 +881,16 @@ export function GuardianChat({
   useEffect(() => () => triggerReload.cancel(), [triggerReload]);
 
   useEffect(() => {
+    void refreshVoiceCapabilities();
+  }, [effectiveThreadId, refreshVoiceCapabilities]);
+
+  useEffect(() => {
+    if (voiceReadAloudEnabled) return;
+    if (!autoReadEnabled) return;
+    setAutoReadEnabled(false);
+  }, [autoReadEnabled, voiceReadAloudEnabled]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem("cfy.voice.autoRead", autoReadEnabled ? "1" : "0");
     } catch {}
@@ -793,13 +946,58 @@ export function GuardianChat({
       const role = String(payload?.role ?? "").trim().toLowerCase();
       if (!Number.isFinite(tid) || role !== "assistant") return;
       setTurnLockForThread(tid, false);
+      clearInFlightCompletionTurnId(tid);
       void fetchTraceForThread(tid, "message-event");
+      if (
+        completionState.isCompleting &&
+        completionState.activeThreadId === tid
+      ) {
+        endCompletion();
+      }
     });
+    const finalizeCompletionFromTaskEvent = (event: any) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      const tid = Number(payload?.thread_id ?? payload?.threadId);
+      if (!Number.isFinite(tid)) return;
+      clearInFlightCompletionTurnId(tid);
+      setTurnLockForThread(tid, false);
+      const eventTaskId = String(
+        payload?.task_id ?? payload?.taskId ?? ""
+      ).trim();
+      if (
+        completionState.isCompleting &&
+        completionState.activeThreadId === tid &&
+        (!completionState.activeTaskId ||
+          !eventTaskId ||
+          eventTaskId === completionState.activeTaskId)
+      ) {
+        endCompletion();
+      }
+    };
+    const offTaskCompleted = subscribe("task.completed", finalizeCompletionFromTaskEvent);
+    const offTaskFailed = subscribe("task.failed", finalizeCompletionFromTaskEvent);
+    const offTaskCancelled = subscribe("task.cancelled", finalizeCompletionFromTaskEvent);
+    const offCompletionError = subscribe(
+      "completion.error",
+      finalizeCompletionFromTaskEvent
+    );
 
     return () => {
       offMessage();
+      offTaskCompleted();
+      offTaskFailed();
+      offTaskCancelled();
+      offCompletionError();
     };
-  }, [fetchTraceForThread, setTurnLockForThread, subscribe]);
+  }, [
+    completionState.activeTaskId,
+    completionState.activeThreadId,
+    completionState.isCompleting,
+    endCompletion,
+    fetchTraceForThread,
+    setTurnLockForThread,
+    subscribe,
+  ]);
   useEffect(() => {
     if (completionState.isCompleting && completionState.activeThreadId != null) {
       lastCompletionThreadRef.current = completionState.activeThreadId;
@@ -883,6 +1081,10 @@ export function GuardianChat({
       notifyTurnLocked();
       return;
     }
+    if (effectiveThreadId != null && isCompletionInFlight(effectiveThreadId)) {
+      notifyTurnLocked();
+      return;
+    }
     if (effectiveThreadId != null && requestedProfileId) {
       if (typeof window !== "undefined") {
         sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${effectiveThreadId}`);
@@ -954,7 +1156,7 @@ export function GuardianChat({
 
         // Complete the thread and refresh.
         const completionOutcome = await completeThread(numericNewId);
-        if (completionOutcome !== "ok") {
+        if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
           setTurnLockForThread(numericNewId, false);
           if (completionOutcome === "failed") {
             throw new Error("Assistant response failed.");
@@ -979,16 +1181,16 @@ export function GuardianChat({
         await onSendMessage(text);
 
         // Fire-and-forget completion a beat later so the just-sent message is persisted
-        setTimeout(() => {
-          if (effectiveThreadId == null) return;
-          void (async () => {
-            const completionOutcome = await completeThread(effectiveThreadId);
-            if (completionOutcome !== "ok") {
-              setTurnLockForThread(effectiveThreadId, false);
-              if (completionOutcome === "failed") {
-                showToast("Assistant response failed.");
-              }
-            }
+            setTimeout(() => {
+              if (effectiveThreadId == null) return;
+              void (async () => {
+                const completionOutcome = await completeThread(effectiveThreadId);
+                if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
+                  setTurnLockForThread(effectiveThreadId, false);
+                  if (completionOutcome === "failed") {
+                    showToast("Assistant response failed.");
+                  }
+                }
           })();
         }, 100);
       } catch (error) {
@@ -1124,10 +1326,29 @@ export function GuardianChat({
       <button
         type="button"
         className="icon-inline"
-        aria-label={autoReadEnabled ? "Disable auto read aloud" : "Enable auto read aloud"}
-        title={autoReadEnabled ? "Auto read aloud: On" : "Auto read aloud: Off"}
-        onClick={() => setAutoReadEnabled((v) => !v)}
-        style={{ borderRadius: "var(--radius-micro)", opacity: autoReadEnabled ? 1 : 0.65 }}
+        aria-label={
+          voiceReadAloudEnabled
+            ? autoReadEnabled
+              ? "Disable auto read aloud"
+              : "Enable auto read aloud"
+            : "Auto read aloud unavailable"
+        }
+        title={
+          voiceReadAloudEnabled
+            ? autoReadEnabled
+              ? "Auto read aloud: On"
+              : "Auto read aloud: Off"
+            : "Read-aloud unavailable"
+        }
+        onClick={() => {
+          if (!voiceReadAloudEnabled) return;
+          setAutoReadEnabled((v) => !v);
+        }}
+        disabled={!voiceReadAloudEnabled}
+        style={{
+          borderRadius: "var(--radius-micro)",
+          opacity: voiceReadAloudEnabled ? (autoReadEnabled ? 1 : 0.65) : 0.45,
+        }}
       >
         <Volume2 className="h-5 w-5" />
       </button>
@@ -1401,6 +1622,8 @@ export function GuardianChat({
             autoReadEnabled={autoReadEnabled}
             depthMode={depth}
             profileId={resolvedProfile.id}
+            voiceReadAloudEnabled={voiceReadAloudEnabled}
+            voiceCapabilitiesFailed={voiceCapabilitiesFailed}
           />
         ) : (
           <div
@@ -1425,32 +1648,56 @@ export function GuardianChat({
         }}
       >
         <div className="flex flex-col p-4">
-          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="opacity-70" style={{ color: "var(--muted)" }}>
-                Turn-based Voice
-              </span>
+          <Composer
+            onSend={handleSendMessage}
+            prefill={externalPrefill ?? prefill}
+            onPrefillConsumed={() => {
+              setExternalPrefill(undefined);
+              onPrefillConsumed?.();
+            }}
+            threadId={effectiveThreadId ?? undefined}
+            isTurnInFlight={isTurnLocked(effectiveThreadId)}
+            draftValue={activeDraft}
+            draftScopeKey={activeSessionTabId ?? "global"}
+            onDraftValueChange={onSessionDraftChange}
+          />
+          {/* Bottom controls bar (aligned to bottom edge) */}
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {voiceTurnBasedEnabled ? (
+                <button
+                  type="button"
+                  className="icon-inline"
+                  aria-label="Turn-based voice"
+                  title="Turn-based voice"
+                  style={{ borderRadius: "var(--radius-micro)", opacity: 0.8 }}
+                  onClick={() => {
+                    console.debug("[guardian] turn-based voice affordance clicked");
+                  }}
+                >
+                  <Volume2 className="h-4 w-4" />
+                </button>
+              ) : null}
 
-              {/* RAG Depth Selector (moved from header) */}
+              {/* RAG Depth Selector (icon-only) */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] transition hover:opacity-90"
+                    className="icon-inline"
                     aria-label="RAG depth selector"
-                    title={`Depth: ${depthLabels[depth]} - ${depthDescriptions[depth]}`}
-                    style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                    title={`RAG Depth: ${depthLabels[depth]} — ${depthDescriptions[depth]}`}
+                    style={{ borderRadius: "var(--radius-micro)" }}
                   >
-                    <Layers className="h-3.5 w-3.5" />
-                    <span className="truncate max-w-[8rem]">{depthLabels[depth]}</span>
-                    <ChevronRight className="h-3.5 w-3.5 rotate-90 opacity-70" />
+                    <Layers className="h-4 w-4" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
+                  side="top"
                   align="start"
-                  sideOffset={8}
+                  sideOffset={10}
                   collisionPadding={12}
-                  className="z-[999] min-w-[16rem] rounded-lg border p-1 shadow-xl"
+                  className="z-[9999] min-w-[16rem] rounded-lg border p-1 shadow-xl"
                   style={{
                     borderColor: "var(--panel-border)",
                     background: "var(--panel-sheet)",
@@ -1493,68 +1740,80 @@ export function GuardianChat({
               </DropdownMenu>
             </div>
 
-            <button
-              type="button"
-              className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
-              style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
-              disabled={voiceUploading}
-              onClick={() => {
-                if (effectiveThreadId == null) {
-                  alert("Create or open a thread before starting a voice turn.");
-                  return;
-                }
-                voiceFileInputRef.current?.click();
-              }}
-            >
-              {voiceUploading ? "Processing…" : "Upload Voice Turn"}
-            </button>
+            <div className="flex items-center gap-2">
+              {voiceTurnBasedEnabled ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
+                    style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                    disabled={voiceUploading}
+                    onClick={() => {
+                      if (effectiveThreadId == null) {
+                        alert("Create or open a thread before starting a voice turn.");
+                        return;
+                      }
+                      voiceFileInputRef.current?.click();
+                    }}
+                  >
+                    {voiceUploading ? "Processing…" : "Upload Voice Turn"}
+                  </button>
 
-            <input
-              ref={voiceFileInputRef}
-              type="file"
-              accept="audio/wav,audio/*"
-              className="hidden"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                event.currentTarget.value = "";
-                if (!file) return;
-                if (effectiveThreadId == null) {
-                  alert("Create or open a thread before starting a voice turn.");
-                  return;
-                }
-                setVoiceUploading(true);
-                try {
-                  const form = new FormData();
-                  form.append("thread_id", String(effectiveThreadId));
-                  form.append("audio_file", file);
-                  form.append("tts_enabled", "true");
-                  await api.post("/api/voice/turn", form, {
-                    headers: { "Content-Type": "multipart/form-data" },
-                    timeout: 180000,
-                  });
-                  triggerReload();
-                } catch (error) {
-                  console.warn("[guardian] voice turn failed", error);
-                  alert("Voice turn failed. Check backend voice configuration.");
-                } finally {
-                  setVoiceUploading(false);
-                }
-              }}
-            />
+                  <input
+                    ref={voiceFileInputRef}
+                    type="file"
+                    accept={voiceUploadAccept}
+                    className="hidden"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      event.currentTarget.value = "";
+                      if (!file) return;
+                      if (effectiveThreadId == null) {
+                        alert("Create or open a thread before starting a voice turn.");
+                        return;
+                      }
+                      const normalizedMime = String(file.type || "")
+                        .trim()
+                        .toLowerCase();
+                      if (
+                        normalizedMime &&
+                        supportedVoiceInputMime.length > 0 &&
+                        !supportedVoiceInputMime.includes(normalizedMime)
+                      ) {
+                        alert(`Unsupported audio type: ${normalizedMime}`);
+                        return;
+                      }
+                      if (
+                        voiceUploadLimitBytes != null &&
+                        file.size > voiceUploadLimitBytes
+                      ) {
+                        const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
+                        alert(`Audio file too large. Max ${limitMb} MB.`);
+                        return;
+                      }
+                      setVoiceUploading(true);
+                      try {
+                        const form = new FormData();
+                        form.append("thread_id", String(effectiveThreadId));
+                        form.append("audio_file", file);
+                        form.append("tts_enabled", "true");
+                        await api.post("/voice/turn", form, {
+                          headers: { "Content-Type": "multipart/form-data" },
+                          timeout: 180000,
+                        });
+                        triggerReload();
+                      } catch (error) {
+                        console.warn("[guardian] voice turn failed", error);
+                        alert("Voice turn failed. Check backend voice configuration.");
+                      } finally {
+                        setVoiceUploading(false);
+                      }
+                    }}
+                  />
+                </>
+              ) : null}
+            </div>
           </div>
-          <Composer
-            onSend={handleSendMessage}
-            prefill={externalPrefill ?? prefill}
-            onPrefillConsumed={() => {
-              setExternalPrefill(undefined);
-              onPrefillConsumed?.();
-            }}
-            threadId={effectiveThreadId ?? undefined}
-            isTurnInFlight={isTurnLocked(effectiveThreadId)}
-            draftValue={activeDraft}
-            draftScopeKey={activeSessionTabId ?? "global"}
-            onDraftValueChange={onSessionDraftChange}
-          />
         </div>
       </div>
     </div>

@@ -22,11 +22,177 @@ import {
   saveDesktopConnectionSettings,
 } from "@/lib/runtimeConfig";
 import {
+  default as api,
   clearRuntimeApiKey,
+  getAuthToken,
+  getDevApiKey,
   readRuntimeApiKey,
   refreshApiBaseUrl,
   setRuntimeApiKey,
 } from "@/lib/api";
+import { GuardianEventSource } from "@/lib/guardianEventSource";
+
+type ImportRuntimeStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed";
+
+type StoredChatGPTImportTask = {
+  taskId: string;
+  startedAt: number;
+  status: ImportRuntimeStatus;
+  detail: string;
+  lastEventAt: number;
+};
+
+const CHATGPT_IMPORT_TASK_STORAGE_KEY = "codexify.chatgpt_import_task";
+
+function isChatGPTImportPath(rawUrl: unknown): boolean {
+  if (typeof rawUrl !== "string") return false;
+  try {
+    const parsed = new URL(rawUrl, "http://localhost");
+    const path = parsed.pathname.replace(/\/+$/, "");
+    return (
+      path.endsWith("/upload-chatgpt-export") ||
+      path.endsWith("/api/upload-chatgpt-export")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function statusLabel(status: ImportRuntimeStatus): string {
+  if (status === "queued") return "Queued";
+  if (status === "running") return "Running";
+  if (status === "succeeded") return "Succeeded";
+  if (status === "failed") return "Failed";
+  return "Idle";
+}
+
+function isTerminalStatus(status: ImportRuntimeStatus): boolean {
+  return status === "succeeded" || status === "failed";
+}
+
+function formatElapsed(startedAt: number, now: number): string {
+  if (!Number.isFinite(startedAt) || startedAt <= 0) return "0s";
+  const elapsedSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+}
+
+function extractTaskEventDetail(data: unknown, fallbackType: string): string {
+  if (typeof data === "string") {
+    const lines = data
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length > 0) {
+      return lines[lines.length - 1];
+    }
+  }
+  if (data && typeof data === "object") {
+    const records: Array<Record<string, unknown>> = [data as Record<string, unknown>];
+    const top = data as Record<string, unknown>;
+    if (top.data && typeof top.data === "object") {
+      records.push(top.data as Record<string, unknown>);
+    }
+    if (top.payload && typeof top.payload === "object") {
+      records.push(top.payload as Record<string, unknown>);
+    }
+    for (const record of records) {
+      const candidates = [
+        record.message,
+        record.detail,
+        record.stage,
+        record.status,
+        record.state,
+        record.error,
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim()) {
+          return candidate.trim();
+        }
+      }
+      if (typeof record.progress === "number") {
+        return `Progress ${Math.max(0, Math.min(100, record.progress))}%`;
+      }
+    }
+  }
+  return fallbackType;
+}
+
+function normalizeTaskEventStatus(
+  eventType: string,
+  data: unknown
+): ImportRuntimeStatus | null {
+  const normalizedType = eventType.toLowerCase();
+  const candidateSignals: string[] = [normalizedType];
+
+  if (typeof data === "string") {
+    const trimmed = data.trim().toLowerCase();
+    if (trimmed) {
+      candidateSignals.push(trimmed);
+    }
+  } else if (data && typeof data === "object") {
+    const records: Array<Record<string, unknown>> = [data as Record<string, unknown>];
+    const top = data as Record<string, unknown>;
+    if (top.data && typeof top.data === "object") {
+      records.push(top.data as Record<string, unknown>);
+    }
+    if (top.payload && typeof top.payload === "object") {
+      records.push(top.payload as Record<string, unknown>);
+    }
+
+    for (const record of records) {
+      const maybeSignals = [
+        record.type,
+        record.event,
+        record.status,
+        record.state,
+        record.stage,
+      ];
+      for (const signal of maybeSignals) {
+        if (typeof signal === "string" && signal.trim()) {
+          candidateSignals.push(signal.toLowerCase());
+        }
+      }
+    }
+  }
+
+  const normalizedSignals = candidateSignals.join(" ");
+
+  if (
+    normalizedSignals.includes("failed") ||
+    normalizedSignals.includes("cancel")
+  ) {
+    return "failed";
+  }
+  if (
+    normalizedSignals.includes("completed") ||
+    normalizedSignals.includes("succeeded") ||
+    normalizedSignals.includes("done")
+  ) {
+    return "succeeded";
+  }
+  if (
+    normalizedSignals.includes("running") ||
+    normalizedSignals.includes("started") ||
+    normalizedSignals.includes("progress")
+  ) {
+    return "running";
+  }
+  if (
+    normalizedSignals.includes("queued") ||
+    normalizedSignals.includes("created")
+  ) {
+    return "queued";
+  }
+  return null;
+}
 
 export function SettingsView({
   mode,
@@ -101,6 +267,42 @@ export function SettingsView({
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [importTaskId, setImportTaskId] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<ImportRuntimeStatus>("idle");
+  const [importDetail, setImportDetail] = useState("");
+  const [importStartedAt, setImportStartedAt] = useState(0);
+  const [importLastEventAt, setImportLastEventAt] = useState(0);
+  const [importPanelHidden, setImportPanelHidden] = useState(false);
+  const [importNow, setImportNow] = useState(() => Date.now());
+  const importPendingStartedAtRef = useRef(0);
+  const importTaskStreamRef = useRef<GuardianEventSource | null>(null);
+  const isImportActive = importStatus === "queued" || importStatus === "running";
+  const isImportTerminal = isTerminalStatus(importStatus);
+  const shouldShowImportStatusPanel = importStatus !== "idle" && !importPanelHidden;
+  const importElapsed = formatElapsed(importStartedAt, importNow);
+
+  function resetImportStatus() {
+    setImportTaskId(null);
+    setImportStatus("idle");
+    setImportDetail("");
+    setImportStartedAt(0);
+    setImportLastEventAt(0);
+    setImportPanelHidden(false);
+    importPendingStartedAtRef.current = 0;
+    importTaskStreamRef.current?.close();
+    importTaskStreamRef.current = null;
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(CHATGPT_IMPORT_TASK_STORAGE_KEY);
+    }
+  }
+
+  function handleImportPanelAction() {
+    if (isImportTerminal) {
+      resetImportStatus();
+      return;
+    }
+    setImportPanelHidden(true);
+  }
   useEffect(() => setName(guardianName), [guardianName]);
   useEffect(() => setUName(userName), [userName]);
   useEffect(() => setURole(role), [role]);
@@ -114,6 +316,286 @@ export function SettingsView({
     setDesktopApiKeyInput(readRuntimeApiKey() ?? "");
   }, [desktopMode]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(CHATGPT_IMPORT_TASK_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Partial<StoredChatGPTImportTask>;
+      const storedTaskId =
+        typeof parsed.taskId === "string" ? parsed.taskId.trim() : "";
+      if (!storedTaskId) {
+        window.localStorage.removeItem(CHATGPT_IMPORT_TASK_STORAGE_KEY);
+        return;
+      }
+      const startedAt =
+        typeof parsed.startedAt === "number" && Number.isFinite(parsed.startedAt)
+          ? parsed.startedAt
+          : Date.now();
+      const status =
+        parsed.status === "queued" ||
+        parsed.status === "running" ||
+        parsed.status === "succeeded" ||
+        parsed.status === "failed"
+          ? parsed.status
+          : "running";
+      setImportTaskId(storedTaskId);
+      setImportStatus(status);
+      setImportStartedAt(startedAt);
+      setImportDetail(
+        typeof parsed.detail === "string" && parsed.detail.trim()
+          ? parsed.detail
+          : "Reattached to background import task."
+      );
+      setImportLastEventAt(
+        typeof parsed.lastEventAt === "number" && Number.isFinite(parsed.lastEventAt)
+          ? parsed.lastEventAt
+          : startedAt
+      );
+      setImportPanelHidden(false);
+    } catch {
+      window.localStorage.removeItem(CHATGPT_IMPORT_TASK_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!importTaskId) return;
+    const snapshot: StoredChatGPTImportTask = {
+      taskId: importTaskId,
+      startedAt: importStartedAt || Date.now(),
+      status: importStatus,
+      detail: importDetail,
+      lastEventAt: importLastEventAt || Date.now(),
+    };
+    window.localStorage.setItem(
+      CHATGPT_IMPORT_TASK_STORAGE_KEY,
+      JSON.stringify(snapshot)
+    );
+  }, [
+    importTaskId,
+    importStartedAt,
+    importStatus,
+    importDetail,
+    importLastEventAt,
+  ]);
+
+  useEffect(() => {
+    if (importStatus === "idle") return;
+    const timer = window.setInterval(() => {
+      setImportNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [importStatus]);
+
+  useEffect(() => {
+    if (!importTaskId || isImportTerminal) {
+      importTaskStreamRef.current?.close();
+      importTaskStreamRef.current = null;
+      return;
+    }
+
+    const apiKey = readRuntimeApiKey() || getDevApiKey();
+    const authToken = getAuthToken();
+    const headers: Record<string, string> = {};
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    } else if (apiKey) {
+      headers["X-API-Key"] = apiKey;
+    }
+
+    const stream = new GuardianEventSource(
+      `/api/tasks/${encodeURIComponent(importTaskId)}/events`,
+      {
+        headers,
+        withCredentials: true,
+        autoReconnect: true,
+        retryInterval: 3000,
+      }
+    );
+
+    importTaskStreamRef.current?.close();
+    importTaskStreamRef.current = stream;
+
+    const handleTaskEvent = (event: Event) => {
+      const message = event as MessageEvent<string>;
+      let payload: unknown = message.data;
+      if (typeof payload === "string") {
+        const trimmed = payload.trim();
+        if (!trimmed) return;
+        try {
+          payload = JSON.parse(trimmed);
+        } catch {
+          payload = trimmed;
+        }
+      }
+
+      const nextStatus = normalizeTaskEventStatus(message.type, payload);
+      const fallbackDetail =
+        message.type === "message"
+          ? "Import event received."
+          : message.type.replace("task.", "").replace(/\./g, " ");
+      const detail = extractTaskEventDetail(payload, fallbackDetail);
+      const now = Date.now();
+
+      setImportLastEventAt(now);
+      setImportDetail(detail);
+      if (nextStatus) {
+        setImportStatus(nextStatus);
+        if (isTerminalStatus(nextStatus)) {
+          stream.close();
+          if (importTaskStreamRef.current === stream) {
+            importTaskStreamRef.current = null;
+          }
+        }
+      }
+    };
+
+    stream.onopen = () => {
+      const now = Date.now();
+      setImportLastEventAt(now);
+      setImportStatus((current) =>
+        current === "queued" ? "running" : current
+      );
+      setImportDetail((current) =>
+        current || "Import task connected. Waiting for updates..."
+      );
+    };
+
+    stream.onerror = () => {
+      const now = Date.now();
+      setImportLastEventAt(now);
+      setImportStatus((current) =>
+        current === "queued" ? "running" : current
+      );
+      setImportDetail((current) =>
+        current || "Import is still running. Waiting for next update..."
+      );
+    };
+
+    const eventTypes = [
+      "message",
+      "task.created",
+      "task.queued",
+      "task.running",
+      "task.started",
+      "task.progress",
+      "task.completed",
+      "task.failed",
+      "task.cancelled",
+    ];
+
+    for (const eventType of eventTypes) {
+      stream.addEventListener(eventType, handleTaskEvent);
+    }
+
+    return () => {
+      for (const eventType of eventTypes) {
+        stream.removeEventListener(eventType, handleTaskEvent);
+      }
+      stream.close();
+      if (importTaskStreamRef.current === stream) {
+        importTaskStreamRef.current = null;
+      }
+    };
+  }, [importTaskId, isImportTerminal]);
+
+  useEffect(() => {
+    const requestInterceptorId = api.interceptors.request.use((config: any) => {
+      if (!isChatGPTImportPath(config?.url)) return config;
+      const startedAt = Date.now();
+      importPendingStartedAtRef.current = startedAt;
+      setImportPanelHidden(false);
+      setImportStartedAt(startedAt);
+      setImportLastEventAt(startedAt);
+      setImportStatus("queued");
+      setImportDetail("Import started. Preparing background task...");
+      setMigrationStepSkipped(false);
+      return config;
+    });
+
+    const responseInterceptorId = api.interceptors.response.use(
+      (response: any) => {
+        if (!isChatGPTImportPath(response?.config?.url)) {
+          return response;
+        }
+
+        const now = Date.now();
+        const startedAt = importPendingStartedAtRef.current || now;
+        importPendingStartedAtRef.current = 0;
+
+        const rawTaskId =
+          response?.data?.task_id ??
+          response?.data?.taskId ??
+          response?.headers?.["x-task-id"] ??
+          response?.headers?.["X-Task-Id"];
+        const taskId =
+          typeof rawTaskId === "string" ? rawTaskId.trim() : String(rawTaskId || "");
+
+        if (taskId) {
+          setImportTaskId(taskId);
+          setImportStartedAt(startedAt);
+          setImportLastEventAt(now);
+          setImportStatus("queued");
+          setImportDetail("Import queued. Live progress is now attached.");
+          return response;
+        }
+
+        const threads = Number(response?.data?.threads_imported ?? 0);
+        const messages = Number(response?.data?.messages_imported ?? 0);
+        setImportTaskId(null);
+        setImportStartedAt(startedAt);
+        setImportLastEventAt(now);
+        setImportStatus("succeeded");
+        setImportDetail(
+          `Import completed. Imported ${threads} thread${
+            threads === 1 ? "" : "s"
+          } and ${messages} message${messages === 1 ? "" : "s"}.`
+        );
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(CHATGPT_IMPORT_TASK_STORAGE_KEY);
+        }
+        return response;
+      },
+      (error: any) => {
+        if (!isChatGPTImportPath(error?.config?.url)) {
+          return Promise.reject(error);
+        }
+
+        const now = Date.now();
+        const startedAt = importPendingStartedAtRef.current || now;
+        importPendingStartedAtRef.current = 0;
+        const detail =
+          error?.response?.data?.detail ??
+          error?.response?.data?.error ??
+          error?.message ??
+          "ChatGPT import failed.";
+
+        setImportTaskId(null);
+        setImportStartedAt(startedAt);
+        setImportLastEventAt(now);
+        setImportStatus("failed");
+        setImportDetail(String(detail));
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(CHATGPT_IMPORT_TASK_STORAGE_KEY);
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      api.interceptors.request.eject(requestInterceptorId);
+      api.interceptors.response.eject(responseInterceptorId);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      importTaskStreamRef.current?.close();
+      importTaskStreamRef.current = null;
+    };
+  }, []);
+
   function handleSave() {
     setGuardianName(name);
     setUserName(uName);
@@ -123,7 +605,7 @@ export function SettingsView({
   }
 
   const [fileLabel, setFileLabel] = useState<string>("");
-  const [uploading, setUploading] = useState(false);
+  const [, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   function triggerFile() {
     fileRef.current?.click();
@@ -155,7 +637,7 @@ export function SettingsView({
   }
 
   const migrationComplete =
-    migrationStepSkipped || migrationStats !== null;
+    migrationStepSkipped || migrationStats !== null || importStatus === "succeeded";
 
   async function handleSaveConnectionSettings() {
     if (!desktopMode) return;
@@ -499,10 +981,14 @@ export function SettingsView({
               <div className="grid gap-2 sm:grid-cols-2">
                 <Button
                   type="button"
-                  onClick={() => setChatGPTModalOpen(true)}
+                  onClick={() => {
+                    setImportPanelHidden(false);
+                    setChatGPTModalOpen(true);
+                  }}
+                  disabled={isImportActive}
                   className="rounded-[var(--tile-radius,19px)] w-full"
                 >
-                  Import ChatGPT history
+                  {isImportActive ? "Import in progress..." : "Import ChatGPT history"}
                 </Button>
                 <Button
                   type="button"
@@ -513,6 +999,74 @@ export function SettingsView({
                   Download Codexify ZIP export
                 </Button>
               </div>
+
+              {shouldShowImportStatusPanel && (
+                <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      {isImportActive && (
+                        <span className="inline-block h-3 w-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                      )}
+                      <span
+                        className="rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                        style={{
+                          borderColor:
+                            importStatus === "failed"
+                              ? "rgba(248, 113, 113, 0.4)"
+                              : importStatus === "succeeded"
+                                ? "rgba(34, 197, 94, 0.4)"
+                                : "rgba(125, 211, 252, 0.4)",
+                          color:
+                            importStatus === "failed"
+                              ? "rgb(254, 202, 202)"
+                              : importStatus === "succeeded"
+                                ? "rgb(134, 239, 172)"
+                                : "rgb(186, 230, 253)",
+                        }}
+                      >
+                        {statusLabel(importStatus)}
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleImportPanelAction}
+                      className="rounded-[var(--tile-radius,19px)]"
+                    >
+                      {isImportTerminal ? "Dismiss" : "Hide"}
+                    </Button>
+                  </div>
+                  <div className="mt-2 text-xs opacity-80">
+                    Elapsed: {importElapsed}
+                    {importLastEventAt > 0 ? " • Live updates active" : ""}
+                  </div>
+                  {importTaskId && (
+                    <div className="mt-1 text-[11px] opacity-70 break-all">
+                      Task ID: {importTaskId}
+                    </div>
+                  )}
+                  <div className="mt-1 text-xs">{importDetail || "Import task running."}</div>
+                  <div className="mt-2 text-xs opacity-70">
+                    You can navigate away; this continues in the background.
+                  </div>
+                </div>
+              )}
+
+              {!shouldShowImportStatusPanel && isImportActive && (
+                <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-3 text-xs flex items-center justify-between gap-3">
+                  <span>Import is running in the background.</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setImportPanelHidden(false)}
+                    className="rounded-[var(--tile-radius,19px)]"
+                  >
+                    Show status
+                  </Button>
+                </div>
+              )}
 
               {!migrationComplete && (
                 <div className="flex justify-end">

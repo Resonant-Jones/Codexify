@@ -1,5 +1,7 @@
+import logging
 import re
 import time
+from threading import Lock
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -11,6 +13,7 @@ from guardian.core.dependencies import get_current_user, require_api_key
 from guardian.vector.store import VectorStore
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 MAX_CODEXIFY_TEXT_CHARS = 12_000
 MAX_EMBED_TEXT_CHARS = 20_000
@@ -54,9 +57,23 @@ class SearchRequest(BaseModel):
 
 
 # ----------------------------------------------------------------------
-# Global unified vector store
+# Global unified vector store (lazily initialized)
 # ----------------------------------------------------------------------
-vector_store = VectorStore()
+vector_store: VectorStore | None = None
+_vector_store_lock = Lock()
+
+
+def _get_vector_store() -> VectorStore:
+    global vector_store
+    if vector_store is not None:
+        return vector_store
+
+    with _vector_store_lock:
+        if vector_store is None:
+            vector_store = VectorStore()
+            logger.info("[codexify] vector store initialized on first use")
+
+    return vector_store
 
 
 def _normalize_user_namespace(user_id: str) -> str:
@@ -217,7 +234,7 @@ async def embed_endpoint(
         md["owner_user_id"] = current_user
 
         # VectorStore handles embedding internally now
-        vector_store.add_texts([{"text": payload.text, "meta": md}])
+        _get_vector_store().add_texts([{"text": payload.text, "meta": md}])
 
         return {
             "message": "Embedding stored successfully",
@@ -255,7 +272,7 @@ async def search_endpoint(
             action="vector:read",
             resource=f"ns:{namespace}",
         )
-        results = vector_store.search(
+        results = _get_vector_store().search(
             payload.query,
             k=5,
             namespace=namespace,

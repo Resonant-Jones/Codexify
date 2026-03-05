@@ -25,6 +25,7 @@ class LocalOpenAICompatibleProvider(TTSProvider):
     ):
         self.base_url = (
             base_url
+            or os.getenv("CODEXIFY_LOCAL_VOICE_BASE_URL")
             or os.getenv("CODEXIFY_LOCAL_TTS_BASE_URL")
             or os.getenv("LOCAL_BASE_URL")
             or "http://localhost:11434/v1"

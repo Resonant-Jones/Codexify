@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import os
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy.exc import IntegrityError
 
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.dependencies import chatlog_db
+from guardian.core.media_signing import sign_media_url
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import MessageAudioAsset
 
@@ -132,14 +134,82 @@ def save_message_audio_asset(
         return _serialize_asset(row)
 
 
+def _looks_like_remote_url(url: str) -> bool:
+    lowered = (url or "").strip().lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
+
+
+def _sign_with_storage_signer(url: str) -> tuple[str, int | None]:
+    for method_name in ("sign_url", "get_signed_url", "signed_url"):
+        signer = getattr(_storage, method_name, None)
+        if not callable(signer):
+            continue
+        try:
+            signed = signer(url)
+        except Exception:
+            continue
+
+        if isinstance(signed, str) and signed:
+            return signed, None
+        if isinstance(signed, dict):
+            signed_url = str(
+                signed.get("url") or signed.get("src_url") or ""
+            ).strip()
+            if not signed_url:
+                continue
+            expires_at = signed.get("expires_at") or signed.get(
+                "url_expires_at"
+            )
+            try:
+                expires_at_int = (
+                    int(expires_at) if expires_at is not None else None
+                )
+            except Exception:
+                expires_at_int = None
+            return signed_url, expires_at_int
+    return url, None
+
+
+def _sign_local_media_url(url: str) -> str:
+    candidate = (url or "").strip()
+    if candidate.startswith("/media/"):
+        return sign_media_url(candidate)
+
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return candidate
+
+    normalized = candidate.lstrip("/")
+    if normalized.startswith("media/"):
+        return sign_media_url(f"/{normalized}")
+    return sign_media_url(f"/media/{normalized}")
+
+
+def _signed_asset_url(url: str | None) -> tuple[str | None, int | None]:
+    if not url:
+        return url, None
+
+    candidate = str(url).strip()
+    if not candidate:
+        return None, None
+
+    if _looks_like_remote_url(candidate):
+        return _sign_with_storage_signer(candidate)
+
+    # Local /media paths or local storage keys always use Guardian media signing.
+    return _sign_local_media_url(candidate), None
+
+
 def _serialize_asset(asset: MessageAudioAsset) -> dict[str, Any]:
+    signed_src, expires_at = _signed_asset_url(asset.src_url)
     return {
         "id": asset.id,
         "message_id": asset.message_id,
         "provider": asset.provider,
         "voice": asset.voice,
         "text_hash": asset.text_hash,
-        "src_url": asset.src_url,
+        "src_url": signed_src,
+        "url_expires_at": expires_at,
         "internal_format": asset.internal_format,
         "delivery_variants_json": asset.delivery_variants_json or {},
         "duration_seconds": asset.duration_seconds,

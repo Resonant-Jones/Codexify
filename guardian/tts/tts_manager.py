@@ -62,7 +62,8 @@ class TTSManager:
                 },
                 "local": {"enabled": True},
                 "local_openai_compatible": {
-                    "base_url": os.getenv("CODEXIFY_LOCAL_TTS_BASE_URL")
+                    "base_url": os.getenv("CODEXIFY_LOCAL_VOICE_BASE_URL")
+                    or os.getenv("CODEXIFY_LOCAL_TTS_BASE_URL")
                     or os.getenv("LOCAL_BASE_URL"),
                     "api_key": os.getenv("LOCAL_API_KEY", "local"),
                     "model": os.getenv("CODEXIFY_LOCAL_TTS_MODEL")

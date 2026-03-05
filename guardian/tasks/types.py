@@ -81,6 +81,49 @@ class ChatCompletionTask(BaseTask):
 
 
 @dataclass
+class VoiceTurnTask(BaseTask):
+    type: str = "voice_turn"
+    thread_id: int = 0
+    audio_b64: str = ""
+    audio_mime: str | None = None
+    stt_provider: str | None = None
+    tts_enabled: bool = True
+    tts_provider: str | None = None
+    voice: str | None = None
+    output_format: str | None = None
+    completion_provider: str | None = None
+    completion_model: str | None = None
+    max_context: int | None = 50
+    depth_mode: str | None = "normal"
+    system_override: str | None = None
+    turn_id: str | None = None
+    turn_lock_owner: str | None = None
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> VoiceTurnTask:
+        base = _base_kwargs(payload or {})
+        base.setdefault("type", cls.type)
+        return cls(
+            thread_id=int(payload.get("thread_id") or 0),
+            audio_b64=str(payload.get("audio_b64") or ""),
+            audio_mime=payload.get("audio_mime"),
+            stt_provider=payload.get("stt_provider"),
+            tts_enabled=bool(payload.get("tts_enabled", True)),
+            tts_provider=payload.get("tts_provider"),
+            voice=payload.get("voice"),
+            output_format=payload.get("output_format"),
+            completion_provider=payload.get("completion_provider"),
+            completion_model=payload.get("completion_model"),
+            max_context=payload.get("max_context"),
+            depth_mode=payload.get("depth_mode"),
+            system_override=payload.get("system_override"),
+            turn_id=payload.get("turn_id"),
+            turn_lock_owner=payload.get("turn_lock_owner"),
+            **base,
+        )
+
+
+@dataclass
 class CronExecutionTask(BaseTask):
     """Queue payload for executing a cron run."""
 
@@ -106,6 +149,7 @@ class CronExecutionTask(BaseTask):
 TASK_TYPE_REGISTRY: dict[str, type[BaseTask]] = {
     "warmup": WarmupTask,
     "chat_completion": ChatCompletionTask,
+    "voice_turn": VoiceTurnTask,
     "cron.execute": CronExecutionTask,
 }
 
