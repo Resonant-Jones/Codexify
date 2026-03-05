@@ -251,6 +251,35 @@ describe("ChatView loop guards", () => {
     vi.useRealTimers();
   });
 
+
+  it("finalizes completion when assistant event omits turn metadata", async () => {
+    vi.useFakeTimers();
+    const endCompletion = vi.fn();
+    const completion = {
+      isCompleting: true,
+      activeTaskId: "task-2",
+      activeThreadId: 2,
+      startedAt: Date.now(),
+    };
+
+    getInFlightCompletionTurnIdMock.mockReturnValue(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    );
+
+    render(
+      <ChatView threadId={2} completionState={completion} endCompletion={endCompletion} />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("message.created")).toBe(1);
+    });
+
+    emitLiveEvent("message.created", { thread_id: 2, role: "assistant", id: 5002 });
+    vi.advanceTimersByTime(200);
+
+    expect(endCompletion).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
   it("uses poll-key idempotency and restarts when depth/profile context changes", async () => {
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     mockMessages = [
