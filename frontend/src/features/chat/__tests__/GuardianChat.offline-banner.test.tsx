@@ -11,6 +11,7 @@ vi.mock("@/lib/api", () => ({
     patch: vi.fn(),
     delete: vi.fn(),
   },
+  clearInFlightCompletionTurnId: vi.fn(),
   getBackendOutageRemainingMs: vi.fn(() => 0),
 }));
 
