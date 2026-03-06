@@ -3,24 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import SessionRail from "@/components/SessionRail/SessionRail";
 
-vi.mock("@/components/ProviderSelect", () => ({
-  ProviderSelect: ({
-    value,
-    onChange,
-  }: {
-    value: string;
-    onChange?: (value: string) => void;
-  }) => (
-    <button
-      type="button"
-      data-testid="provider-select"
-      onClick={() => onChange?.("default")}
-    >
-      provider:{value}
-    </button>
-  ),
-}));
-
 const mkTab = (tabId: string, title: string) => ({
   tabId,
   title,
@@ -35,15 +17,12 @@ describe("SessionRail", () => {
       <SessionRail
         tabs={[mkTab("tab-1", "Solo")]}
         activeTabId="tab-1"
-        activeModelId="default"
         onActivateTab={vi.fn()}
         onCloseTab={vi.fn()}
         onOpenTab={vi.fn()}
-        onSetModel={vi.fn()}
       />
     );
 
-    expect(screen.getByTestId("provider-select")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "New tab" })
     ).toBeInTheDocument();
@@ -61,11 +40,9 @@ describe("SessionRail", () => {
       <SessionRail
         tabs={[mkTab("tab-1", "Alpha"), mkTab("tab-2", "Beta")]}
         activeTabId="tab-1"
-        activeModelId="default"
         onActivateTab={vi.fn()}
         onCloseTab={vi.fn()}
         onOpenTab={vi.fn()}
-        onSetModel={vi.fn()}
       />
     );
 
@@ -79,13 +56,11 @@ describe("SessionRail", () => {
       <SessionRail
         tabs={[mkTab("tab-1", "Alpha")]}
         activeTabId="tab-1"
-        activeModelId="default"
         isCloud
         showTabs
         onActivateTab={vi.fn()}
         onCloseTab={vi.fn()}
         onOpenTab={vi.fn()}
-        onSetModel={vi.fn()}
       />
     );
 

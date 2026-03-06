@@ -1596,16 +1596,11 @@ export function GuardianChat({
             <SessionRail
               tabs={sessionTabs}
               activeTabId={activeSessionTabId}
-              activeModelId={activeModelId || "default"}
-              providerMenuOpenSignal={providerMenuOpenSignal}
-              providerPickerOpenSignal={providerMenuOpenSignal}
-              cloudProvidersDisabled={cloudProvidersDisabled}
               isCloud={resolvedProfile.mode === "cloud" ? true : resolvedProfile.mode === "local" ? false : undefined}
               showTabs={sessionTabs.length > 1}
               onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
               onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
               onOpenTab={() => (onSessionTabOpen ? onSessionTabOpen() : onNewChat())}
-              onSetModel={(modelId) => onSessionModelChange?.(modelId)}
             />
           </div>
 
@@ -1793,6 +1788,7 @@ export function GuardianChat({
                 value={activeModelId || "default"}
                 onChange={(modelId) => onSessionModelChange?.(modelId)}
                 triggerClassName="composer__model-trigger"
+                openSignal={providerMenuOpenSignal}
                 displayMode="model"
                 label="Model"
                 preferredProviderId={resolvedProfile.providerOverride || undefined}
