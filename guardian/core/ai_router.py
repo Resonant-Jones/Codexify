@@ -45,6 +45,25 @@ class LocalRuntimePolicy:
         return payload
 
 
+@dataclass(frozen=True)
+class LocalReasoningDirective:
+    mode: str
+    source: str
+    instruction: str | None = None
+    profile_reason: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "mode": self.mode,
+            "source": self.source,
+        }
+        if self.instruction:
+            payload["instruction"] = self.instruction
+        if self.profile_reason:
+            payload["profile_reason"] = self.profile_reason
+        return payload
+
+
 def _normalize_provider(provider: Optional[str]) -> str:
     """
     Normalize provider identifiers coming from API/UI/config.
@@ -73,22 +92,162 @@ def _local_extended_thinking_patterns(settings: Settings) -> tuple[str, ...]:
         getattr(settings, "LOCAL_EXTENDED_THINKING_MODEL_PATTERNS", "") or ""
     ).strip()
     if not raw:
-        raw = "qwen3,qwen-3,qwen 3,qwq"
+        raw = "qwen3.5,qwen-3.5,qwen 3.5,qwen3,qwen-3,qwen 3,qwq"
     return tuple(
         part.strip().lower() for part in raw.split(",") if part and part.strip()
     )
 
 
+def _local_no_think_patterns(settings: Settings) -> tuple[str, ...]:
+    raw = str(
+        getattr(settings, "LOCAL_NO_THINK_MODEL_PATTERNS", "") or ""
+    ).strip()
+    if not raw:
+        raw = "qwen3.5,qwen-3.5,qwen 3.5,qwen3,qwen-3,qwen 3"
+    return tuple(
+        part.strip().lower() for part in raw.split(",") if part and part.strip()
+    )
+
+
+def _local_no_think_skip_patterns(settings: Settings) -> tuple[str, ...]:
+    raw = str(
+        getattr(settings, "LOCAL_NO_THINK_SKIP_MODEL_PATTERNS", "") or ""
+    ).strip()
+    if not raw:
+        raw = (
+            "thinking-2507,qwen3.5-thinking,qwen-3.5-thinking,"
+            "qwen 3.5 thinking,qwen3-thinking,qwen-3-thinking,"
+            "qwen 3 thinking,instruct-2507"
+        )
+    return tuple(
+        part.strip().lower() for part in raw.split(",") if part and part.strip()
+    )
+
+
+def _match_pattern(
+    value: str, patterns: tuple[str, ...]
+) -> tuple[bool, str | None]:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return False, None
+    for pattern in patterns:
+        if pattern in normalized:
+            return True, pattern
+    return False, None
+
+
 def _matches_local_extended_thinking_profile(
     model: str, settings: Settings
 ) -> tuple[bool, str | None]:
+    return _match_pattern(model, _local_extended_thinking_patterns(settings))
+
+
+def resolve_local_reasoning_directive(
+    model: str,
+    *,
+    settings: Optional[Settings] = None,
+) -> LocalReasoningDirective:
+    resolved = _resolve_settings(settings)
+    if not bool(getattr(resolved, "LOCAL_DEFAULT_NO_THINK_ENABLED", True)):
+        return LocalReasoningDirective(
+            mode="default",
+            source="config_disabled",
+            profile_reason="LOCAL_DEFAULT_NO_THINK_ENABLED=false",
+        )
+
     normalized_model = str(model or "").strip().lower()
     if not normalized_model:
-        return False, None
-    for pattern in _local_extended_thinking_patterns(settings):
-        if pattern in normalized_model:
-            return True, pattern
-    return False, None
+        return LocalReasoningDirective(mode="default", source="model_missing")
+
+    skip_match, skip_pattern = _match_pattern(
+        normalized_model, _local_no_think_skip_patterns(resolved)
+    )
+    if skip_match:
+        return LocalReasoningDirective(
+            mode="default",
+            source="model_skip_pattern",
+            profile_reason=(
+                "model matched LOCAL_NO_THINK_SKIP_MODEL_PATTERNS "
+                f"via '{skip_pattern}'"
+            ),
+        )
+
+    match, matched_pattern = _match_pattern(
+        normalized_model, _local_no_think_patterns(resolved)
+    )
+    if not match:
+        return LocalReasoningDirective(mode="default", source="default")
+
+    instruction = (
+        str(
+            getattr(resolved, "LOCAL_NO_THINK_INSTRUCTION", "/no_think") or ""
+        ).strip()
+        or "/no_think"
+    )
+    return LocalReasoningDirective(
+        mode="no_think",
+        source="profile",
+        instruction=instruction,
+        profile_reason=(
+            "model matched LOCAL_NO_THINK_MODEL_PATTERNS "
+            f"via '{matched_pattern}'"
+        ),
+    )
+
+
+def describe_local_reasoning(
+    model: str,
+    *,
+    settings: Optional[Settings] = None,
+) -> dict[str, Any]:
+    return resolve_local_reasoning_directive(model, settings=settings).as_dict()
+
+
+def _last_qwen_reasoning_instruction(
+    messages: list[dict[str, Any]],
+) -> str | None:
+    latest_instruction: str | None = None
+    latest_position = -1
+    for message in messages:
+        content = str(message.get("content") or "")
+        no_think_position = content.rfind("/no_think")
+        think_position = content.rfind("/think")
+        if no_think_position > latest_position:
+            latest_position = no_think_position
+            latest_instruction = "/no_think"
+        if think_position > latest_position:
+            latest_position = think_position
+            latest_instruction = "/think"
+    return latest_instruction
+
+
+def apply_local_reasoning_directive(
+    messages: list[dict[str, Any]],
+    model: str,
+    *,
+    settings: Optional[Settings] = None,
+) -> tuple[list[dict[str, Any]], LocalReasoningDirective]:
+    directive = resolve_local_reasoning_directive(model, settings=settings)
+    if directive.mode != "no_think" or not directive.instruction:
+        return messages, directive
+    if _last_qwen_reasoning_instruction(messages) == directive.instruction:
+        return messages, directive
+
+    adapted = [
+        dict(message)
+        for message in (messages or [])
+        if isinstance(message, dict)
+    ]
+    adapted.append(
+        {
+            "role": "system",
+            "content": (
+                "Runtime instruction for Qwen reasoning control. "
+                f"{directive.instruction}"
+            ),
+        }
+    )
+    return adapted, directive
 
 
 def resolve_local_runtime_policy(
@@ -154,9 +313,11 @@ def describe_local_runtime(
     settings: Optional[Settings] = None,
     timeout: Optional[float] = None,
 ) -> dict[str, Any]:
-    return resolve_local_runtime_policy(
+    payload = resolve_local_runtime_policy(
         model, settings=settings, timeout=timeout
     ).as_dict()
+    payload["reasoning"] = describe_local_reasoning(model, settings=settings)
+    return payload
 
 
 def _format_local_connect_error(
@@ -317,6 +478,9 @@ def call_local(
     runtime_policy = resolve_local_runtime_policy(
         model, settings=settings, timeout=timeout
     )
+    adapted_messages, _ = apply_local_reasoning_directive(
+        messages or [], model, settings=settings
+    )
     api_key = settings.LOCAL_API_KEY or "local"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -324,7 +488,7 @@ def call_local(
     }
     payload: Dict[str, Any] = {
         "model": model,
-        "messages": messages,
+        "messages": adapted_messages,
         "temperature": 0.7 if temperature is None else float(temperature),
     }
     if max_tokens is not None:
@@ -391,7 +555,7 @@ def call_local(
             elif kind == "ollama_chat":
                 payload_ollama: Dict[str, Any] = {
                     "model": model,
-                    "messages": messages,
+                    "messages": adapted_messages,
                     "stream": False,
                 }
                 resp = _post_json(url, payload_ollama)
@@ -399,7 +563,7 @@ def call_local(
                 # /api/generate expects a single prompt string. Keep it as a last resort.
                 prompt = "\n\n".join(
                     str(m.get("content") or "").strip()
-                    for m in (messages or [])
+                    for m in adapted_messages
                     if isinstance(m, dict)
                     and str(m.get("content") or "").strip()
                 ).strip()
@@ -489,6 +653,9 @@ def stream_local(
 ):
     settings = _resolve_settings(settings)
     runtime_policy = resolve_local_runtime_policy(model, settings=settings)
+    adapted_messages, _ = apply_local_reasoning_directive(
+        messages or [], model, settings=settings
+    )
     api_key = settings.LOCAL_API_KEY or "local"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -496,7 +663,7 @@ def stream_local(
     }
     payload: Dict[str, Any] = {
         "model": model,
-        "messages": messages,
+        "messages": adapted_messages,
         "temperature": 0.7 if temperature is None else float(temperature),
         "stream": True,
     }
@@ -552,7 +719,7 @@ def stream_local(
             else:
                 payload_ollama = {
                     "model": model,
-                    "messages": messages,
+                    "messages": adapted_messages,
                     "temperature": 0.7
                     if temperature is None
                     else float(temperature),

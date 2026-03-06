@@ -265,6 +265,26 @@ describe("ChatView loop guards", () => {
     const endCompletion = vi.fn();
     const completion = {
       isCompleting: true,
+      activeTaskId: "task-2",
+      activeThreadId: 2,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView threadId={2} completionState={completion} endCompletion={endCompletion} />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("message.created")).toBe(1);
+    });
+
+    emitLiveEvent("message.created", { thread_id: 2, role: "assistant", id: 5002 });
+    vi.advanceTimersByTime(200);
+
+    expect(endCompletion).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it("clears completion immediately when task.failed arrives for the active task", async () => {
     const endCompletion = vi.fn();
     const completion = {
@@ -305,25 +325,6 @@ describe("ChatView loop guards", () => {
       activeThreadId: 2,
       startedAt: Date.now(),
     };
-
-    getInFlightCompletionTurnIdMock.mockReturnValue(
-      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-    );
-
-    render(
-      <ChatView threadId={2} completionState={completion} endCompletion={endCompletion} />
-    );
-
-    await waitFor(() => {
-      expect(activeSubscriberCount("message.created")).toBe(1);
-    });
-
-    emitLiveEvent("message.created", { thread_id: 2, role: "assistant", id: 5002 });
-    vi.advanceTimersByTime(200);
-
-    expect(endCompletion).toHaveBeenCalledTimes(1);
-    vi.useRealTimers();
-  });
     const completionThread3 = {
       isCompleting: true,
       activeTaskId: "task-3",
@@ -846,6 +847,7 @@ describe("ChatView loop guards", () => {
       activeThreadId: 1,
       startedAt: Date.now(),
     };
+
     const { rerender } = render(
       <ChatView threadId={1} completionState={completion} endCompletion={vi.fn()} />
     );
@@ -857,6 +859,19 @@ describe("ChatView loop guards", () => {
         threadId={2}
         completionState={{ ...completion, isCompleting: false, activeThreadId: null }}
         endCompletion={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(clearInFlightCompletionTurnIdMock).toHaveBeenCalledWith(
+        1,
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      );
+    });
+    expect(trackedTurns.has(1)).toBe(false);
+    expect(trackedTurns.has(2)).toBe(false);
+  });
+
   it("treats task.completed without assistant message as completion failure", async () => {
     const endCompletion = vi.fn();
     const completionState = {
@@ -917,14 +932,6 @@ describe("ChatView loop guards", () => {
     );
 
     await waitFor(() => {
-      expect(clearInFlightCompletionTurnIdMock).toHaveBeenCalledWith(
-        1,
-        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-      );
-    });
-    expect(trackedTurns.has(1)).toBe(false);
-    expect(trackedTurns.has(2)).toBe(false);
-  });
       expect(activeSubscriberCount("message.created")).toBe(1);
     });
 
