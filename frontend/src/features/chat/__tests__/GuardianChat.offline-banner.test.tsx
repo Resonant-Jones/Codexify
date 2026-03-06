@@ -71,18 +71,16 @@ vi.mock("@/features/chat/components/PromptCostIndicator", () => ({
   default: () => <div data-testid="prompt-cost-indicator" />,
 }));
 
-vi.mock("@/components/SessionRail/SessionRail", () => ({
-  default: ({
-    providerMenuOpenSignal,
-    providerPickerOpenSignal,
-  }: {
-    providerMenuOpenSignal?: number;
-    providerPickerOpenSignal?: number;
-  }) => (
+vi.mock("@/components/ProviderSelect", () => ({
+  ProviderSelect: ({ openSignal }: { openSignal?: number }) => (
     <div data-testid="provider-open-signal">
-      {String(providerPickerOpenSignal ?? providerMenuOpenSignal ?? 0)}
+      {String(openSignal ?? 0)}
     </div>
   ),
+}));
+
+vi.mock("@/components/SessionRail/SessionRail", () => ({
+  default: () => <div data-testid="session-rail-stub" />,
 }));
 
 vi.mock("@/imprint/api", () => ({

@@ -1,25 +1,22 @@
 import { Bolt, Plus, X } from "lucide-react";
 import React from "react";
 
-import { ProviderSelect } from "@/components/ProviderSelect";
 import type { SessionTab, TabId } from "@/state/session/types";
 
 type SessionRailProps = {
   tabs: SessionTab[];
   activeTabId: TabId | null;
-  activeModelId: string;
   showTabs?: boolean;
   isCloud?: boolean;
-  providerMenuOpenSignal?: number;
-  providerPickerOpenSignal?: number;
-  cloudProvidersDisabled?: boolean;
   onActivateTab: (tabId: TabId) => void;
   onCloseTab: (tabId: TabId) => void;
   onOpenTab: () => void;
-  onSetModel: (modelId: string) => void;
 };
 
-const SESSION_RAIL_STYLES: Record<"container" | "tabsEdgeMask" | "modelTrigger", React.CSSProperties> = {
+const SESSION_RAIL_STYLES: Record<
+  "container" | "tabsEdgeMask",
+  React.CSSProperties
+> = {
   container: {
     border: "1px solid color-mix(in oklab, var(--panel-border) 76%, transparent)",
     borderRadius: "calc(var(--tile-radius) - 2px)",
@@ -36,11 +33,6 @@ const SESSION_RAIL_STYLES: Record<"container" | "tabsEdgeMask" | "modelTrigger",
     WebkitMaskImage:
       "linear-gradient(to right, transparent 0px, black 14px, black calc(100% - 14px), transparent 100%)",
   },
-  modelTrigger: {
-    borderColor: "color-mix(in oklab, var(--panel-border) 80%, transparent)",
-    background: "color-mix(in oklab, var(--panel-bg) 88%, transparent)",
-    color: "color-mix(in oklab, var(--text) 82%, transparent)",
-  },
 };
 
 function tabLabel(tab: SessionTab): string {
@@ -52,21 +44,14 @@ function tabLabel(tab: SessionTab): string {
 export function SessionRail({
   tabs,
   activeTabId,
-  activeModelId,
   showTabs,
   isCloud = false,
-  providerMenuOpenSignal,
-  providerPickerOpenSignal,
-  cloudProvidersDisabled = false,
   onActivateTab,
   onCloseTab,
   onOpenTab,
-  onSetModel,
 }: SessionRailProps) {
   const shouldShowTabs = showTabs ?? tabs.length > 1;
   const canCloseTabs = tabs.length > 1;
-  const effectiveProviderOpenSignal =
-    providerPickerOpenSignal ?? providerMenuOpenSignal;
   return (
     <div
       className="session-rail shrink-0 flex flex-nowrap items-center gap-2 px-3 py-2"
@@ -139,14 +124,6 @@ export function SessionRail({
         <div className="flex-1" />
       )}
       <div className="session-rail__tools shrink-0 flex items-center gap-1">
-        <ProviderSelect
-          value={activeModelId}
-          onChange={onSetModel}
-          triggerClassName="session-rail__model-trigger"
-          triggerStyle={SESSION_RAIL_STYLES.modelTrigger}
-          openSignal={effectiveProviderOpenSignal}
-          cloudProvidersDisabled={cloudProvidersDisabled}
-        />
         <button
           type="button"
           className="icon-inline session-rail__tool-btn"
