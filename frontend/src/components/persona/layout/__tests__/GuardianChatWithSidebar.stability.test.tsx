@@ -12,7 +12,9 @@ const sessionSpineInstances = vi.hoisted(() => [] as any[]);
 const sessionHooksState = vi.hoisted(() => ({
   railSlice: { tabs: [] as any[], activeTabId: null as string | null },
   activeTab: null as any,
+  activeProviderId: "local" as string | null,
   activeModelId: "default",
+  activeInferenceMode: "default",
 }));
 const authState = vi.hoisted(() => ({
   ready: true,
@@ -115,7 +117,9 @@ vi.mock("@/state/session/SessionSpine", () => ({
     tabSetThread = vi.fn();
     tabActivate = vi.fn();
     tabClose = vi.fn();
+    tabSetProvider = vi.fn();
     tabSetModel = vi.fn();
+    tabSetInferenceMode = vi.fn();
     tabSetDraft = vi.fn();
 
     constructor() {
@@ -127,7 +131,9 @@ vi.mock("@/state/session/SessionSpine", () => ({
 vi.mock("@/state/session/hooks", () => ({
   useSessionRailSlice: () => sessionHooksState.railSlice,
   useSessionActiveTab: () => sessionHooksState.activeTab,
+  useSessionActiveProviderId: () => sessionHooksState.activeProviderId,
   useSessionActiveModelId: () => sessionHooksState.activeModelId,
+  useSessionActiveInferenceMode: () => sessionHooksState.activeInferenceMode,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -195,7 +201,9 @@ describe("GuardianChatWithSidebar stability contract", () => {
     sessionSpineInstances.length = 0;
     sessionHooksState.railSlice = { tabs: [], activeTabId: null };
     sessionHooksState.activeTab = null;
+    sessionHooksState.activeProviderId = "local";
     sessionHooksState.activeModelId = "default";
+    sessionHooksState.activeInferenceMode = "default";
     localStorage.clear();
     window.history.pushState({}, "", "/chat");
     Object.defineProperty(window, "matchMedia", {

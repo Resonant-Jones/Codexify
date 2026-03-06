@@ -1,5 +1,7 @@
 import type { SessionStateStore } from "@/state/session/SessionStateStore";
 import {
+  DEFAULT_INFERENCE_MODE,
+  DEFAULT_PROVIDER_ID,
   DEFAULT_MODEL_ID,
   SESSION_DRAFTS_TTL_SECONDS,
   SESSION_SCHEMA_VERSION,
@@ -8,13 +10,19 @@ import {
   type SessionTab,
   type TabId,
 } from "@/state/session/types";
+import {
+  type ComposerInferenceMode,
+  isReasoningMode,
+} from "@/types/inference";
 
 type SessionListener = (state: SessionState) => void;
 
 type HydrateOptions = {
   threadId?: string;
   title?: string;
+  providerId?: string | null;
   modelId?: string;
+  inferenceMode?: ComposerInferenceMode;
 };
 
 type MutationOptions = {
@@ -25,7 +33,9 @@ type SessionSpineConfig = {
   userId: string;
   deviceId: string;
   store: SessionStateStore;
+  defaultProviderId?: string | null;
   defaultModelId?: string;
+  defaultInferenceMode?: ComposerInferenceMode;
   ttlSeconds?: number;
   draftsTtlSeconds?: number;
   canHydrate?: () => boolean;
@@ -56,7 +66,9 @@ function isSessionTabEqual(a: SessionTab, b: SessionTab): boolean {
     a.tabId === b.tabId &&
     a.threadId === b.threadId &&
     a.title === b.title &&
+    (a.providerId ?? null) === (b.providerId ?? null) &&
     a.modelId === b.modelId &&
+    a.inferenceMode === b.inferenceMode &&
     a.createdAt === b.createdAt &&
     a.updatedAt === b.updatedAt
   );
@@ -101,7 +113,9 @@ export class SessionSpine {
   private readonly userId: string;
   private readonly deviceId: string;
   private readonly store: SessionStateStore;
+  private readonly defaultProviderId: string | null;
   private readonly defaultModelId: string;
+  private readonly defaultInferenceMode: ComposerInferenceMode;
   private readonly ttlSeconds: number;
   private readonly draftsTtlSeconds: number;
   private readonly canHydrate: () => boolean;
@@ -117,7 +131,10 @@ export class SessionSpine {
     this.userId = config.userId;
     this.deviceId = config.deviceId;
     this.store = config.store;
+    this.defaultProviderId = config.defaultProviderId ?? DEFAULT_PROVIDER_ID;
     this.defaultModelId = (config.defaultModelId || DEFAULT_MODEL_ID).trim() || DEFAULT_MODEL_ID;
+    this.defaultInferenceMode =
+      config.defaultInferenceMode ?? DEFAULT_INFERENCE_MODE;
     this.ttlSeconds = config.ttlSeconds ?? SESSION_TTL_SECONDS;
     this.draftsTtlSeconds = config.draftsTtlSeconds ?? SESSION_DRAFTS_TTL_SECONDS;
     this.canHydrate = config.canHydrate ?? (() => true);
@@ -193,7 +210,9 @@ export class SessionSpine {
       const tab = this.createTab({
         threadId,
         title,
+        providerId: active?.providerId ?? this.defaultProviderId,
         modelId: active?.modelId || this.defaultModelId,
+        inferenceMode: active?.inferenceMode || this.defaultInferenceMode,
       });
       current.tabs.push(tab);
       current.activeTabId = tab.tabId;
@@ -219,7 +238,9 @@ export class SessionSpine {
 
       if (!current.tabs.length) {
         const replacement = this.createTab({
+          providerId: closed?.providerId ?? this.defaultProviderId,
           modelId: closed?.modelId || this.defaultModelId,
+          inferenceMode: closed?.inferenceMode || this.defaultInferenceMode,
         });
         current.tabs.push(replacement);
         current.activeTabId = replacement.tabId;
@@ -275,6 +296,33 @@ export class SessionSpine {
       const normalized = modelId.trim() || this.defaultModelId;
       if (tab.modelId === normalized) return;
       tab.modelId = normalized;
+      tab.updatedAt = nowIso();
+    });
+  }
+
+  tabSetProvider(tabId: TabId, providerId: string | null): void {
+    this.mutate((current) => {
+      const tab = current.tabs.find((candidate) => candidate.tabId === tabId);
+      if (!tab) return;
+      const normalized = providerId?.trim() || null;
+      if ((tab.providerId ?? null) === normalized) return;
+      tab.providerId = normalized;
+      tab.updatedAt = nowIso();
+    });
+  }
+
+  tabSetInferenceMode(
+    tabId: TabId,
+    inferenceMode: ComposerInferenceMode
+  ): void {
+    this.mutate((current) => {
+      const tab = current.tabs.find((candidate) => candidate.tabId === tabId);
+      if (!tab) return;
+      const normalized = isReasoningMode(inferenceMode)
+        ? inferenceMode
+        : this.defaultInferenceMode;
+      if (tab.inferenceMode === normalized) return;
+      tab.inferenceMode = normalized;
       tab.updatedAt = nowIso();
     });
   }
@@ -433,14 +481,18 @@ export class SessionSpine {
   private createTab(input: {
     threadId?: string;
     title?: string;
+    providerId?: string | null;
     modelId?: string;
+    inferenceMode?: ComposerInferenceMode;
   }): SessionTab {
     const timestamp = nowIso();
     return {
       tabId: generateTabId(),
       threadId: input.threadId?.trim() || undefined,
       title: input.title?.trim() || undefined,
+      providerId: input.providerId?.trim() || this.defaultProviderId,
       modelId: input.modelId?.trim() || this.defaultModelId,
+      inferenceMode: input.inferenceMode || this.defaultInferenceMode,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -450,7 +502,9 @@ export class SessionSpine {
     const tab = this.createTab({
       threadId: options.threadId,
       title: options.title,
+      providerId: options.providerId ?? this.defaultProviderId,
       modelId: options.modelId || this.defaultModelId,
+      inferenceMode: options.inferenceMode || this.defaultInferenceMode,
     });
     return {
       deviceId: this.deviceId,
@@ -470,11 +524,21 @@ export class SessionSpine {
           tabId: tab.tabId || generateTabId(),
           threadId: tab.threadId?.trim() || undefined,
           title: tab.title?.trim() || undefined,
+          providerId: tab.providerId?.trim() || this.defaultProviderId,
           modelId: tab.modelId?.trim() || this.defaultModelId,
+          inferenceMode: isReasoningMode(tab.inferenceMode)
+            ? tab.inferenceMode
+            : this.defaultInferenceMode,
           createdAt: tab.createdAt || nowIso(),
           updatedAt: tab.updatedAt || tab.createdAt || nowIso(),
         }))
-      : [this.createTab({ modelId: this.defaultModelId })];
+      : [
+          this.createTab({
+            providerId: this.defaultProviderId,
+            modelId: this.defaultModelId,
+            inferenceMode: this.defaultInferenceMode,
+          }),
+        ];
 
     const activeTabId = tabs.some((tab) => tab.tabId === state.activeTabId)
       ? state.activeTabId

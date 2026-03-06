@@ -1,10 +1,17 @@
+import {
+  DEFAULT_COMPOSER_INFERENCE_MODE,
+  type ComposerInferenceMode,
+} from "@/types/inference";
+
 export type TabId = string;
 
 export interface SessionTab {
   tabId: TabId;
   threadId?: string;
   title?: string;
+  providerId?: string | null;
   modelId: string;
+  inferenceMode: ComposerInferenceMode;
   createdAt: string;
   updatedAt: string;
 }
@@ -29,3 +36,5 @@ export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14; // 14 days
 export const SESSION_DRAFTS_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 export const DEFAULT_MODEL_ID = "default";
+export const DEFAULT_PROVIDER_ID: string | null = null;
+export const DEFAULT_INFERENCE_MODE = DEFAULT_COMPOSER_INFERENCE_MODE;

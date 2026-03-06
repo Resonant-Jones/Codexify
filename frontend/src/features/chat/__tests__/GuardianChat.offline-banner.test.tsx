@@ -35,7 +35,13 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 }));
 
 vi.mock("@/features/chat/components", () => ({
-  Composer: () => <div data-testid="composer-stub" />,
+  Composer: ({ providerOpenSignal }: { providerOpenSignal?: number }) => (
+    <div data-testid="composer-stub">
+      <div data-testid="provider-open-signal">
+        {String(providerOpenSignal ?? 0)}
+      </div>
+    </div>
+  ),
 }));
 
 vi.mock("@/features/chat/ChatView", () => ({
@@ -69,14 +75,6 @@ vi.mock("@/state/contextTrace", () => ({
 
 vi.mock("@/features/chat/components/PromptCostIndicator", () => ({
   default: () => <div data-testid="prompt-cost-indicator" />,
-}));
-
-vi.mock("@/components/ProviderSelect", () => ({
-  ProviderSelect: ({ openSignal }: { openSignal?: number }) => (
-    <div data-testid="provider-open-signal">
-      {String(openSignal ?? 0)}
-    </div>
-  ),
 }));
 
 vi.mock("@/components/SessionRail/SessionRail", () => ({
@@ -142,45 +140,4 @@ describe("GuardianChat offline provider reroute", () => {
     expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("1");
   });
 
-  it("opens provider controls from the lightning popover provider section", async () => {
-    render(
-      <GuardianChat
-        guardianName="Guardian"
-        userName="tester"
-        activeThread={{ id: "draft", title: "Draft" } as any}
-        onSendMessage={vi.fn().mockResolvedValue(undefined)}
-        onNewChat={vi.fn()}
-        sessionTabs={[
-          {
-            tabId: "tab-1",
-            title: "Tab 1",
-            modelId: "default",
-            createdAt: "2026-02-16T00:00:00.000Z",
-            updatedAt: "2026-02-16T00:00:00.000Z",
-          } as any,
-        ]}
-        activeSessionTabId={"tab-1" as any}
-      />
-    );
-
-    const promptCostTrigger = await screen.findByTestId(
-      "prompt-cost-trigger"
-    );
-    expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("0");
-
-    fireEvent.click(promptCostTrigger);
-    expect(screen.getByTestId("prompt-cost-popover")).toBeInTheDocument();
-
-    const providersTab = screen.getByRole("button", { name: "Providers" });
-    fireEvent.click(providersTab);
-    expect(
-      screen.getByTestId("prompt-cost-providers-panel")
-    ).toBeInTheDocument();
-
-    const openProvider = screen.getByRole("button", {
-      name: "Open provider picker",
-    });
-    fireEvent.click(openProvider);
-    expect(screen.getByTestId("provider-open-signal")).toHaveTextContent("1");
-  });
 });

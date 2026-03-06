@@ -79,6 +79,7 @@ from guardian.core.public_exposure import (
 )
 from guardian.core.storage import ensure_storage_base_path
 from guardian.queue import task_events
+from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
 from guardian.tasks.types import WarmupTask
 from guardian.utils.embed_paths import (
@@ -1021,6 +1022,21 @@ async def stream_task_events(
                     heartbeat_elapsed = 0.0
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/tasks/{task_id}/cancel", tags=["Tasks"])
+async def request_task_cancel(
+    task_id: str,
+    api_key: str = Depends(require_api_key),
+):
+    """Mark a queued or running task as cancelled."""
+    _ = api_key
+    cancel_task(task_id)
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "cancel_requested": True,
+    }
 
 
 @app.get("/graph", summary="Return graph data from Neo4j", tags=["Graph"])

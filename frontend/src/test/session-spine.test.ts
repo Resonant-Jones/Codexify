@@ -6,6 +6,7 @@ import {
   type SessionStateStore,
 } from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
+import { DEFAULT_INFERENCE_MODE } from "@/state/session/types";
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -26,7 +27,9 @@ const sampleState = {
       tabId: "tab-1",
       threadId: "101",
       title: "Alpha",
+      providerId: "local",
       modelId: "default",
+      inferenceMode: DEFAULT_INFERENCE_MODE,
       createdAt: "2026-02-14T00:00:00.000Z",
       updatedAt: "2026-02-14T00:00:00.000Z",
     },
@@ -114,6 +117,28 @@ describe("SessionSpine", () => {
     const persisted = await store.getSessionState("user-1", "device-1");
     expect(persisted?.tabs[0].modelId).toBe("gpt-oss");
     expect(persisted?.drafts?.[active.tabId]).toBe("hello draft");
+  });
+
+  it("persists provider and inference mode updates", async () => {
+    const store = new InMemorySessionStateStore();
+    const spine = new SessionSpine({
+      userId: "user-1",
+      deviceId: "device-1",
+      store,
+      defaultModelId: "default",
+    });
+    await spine.hydrate({ threadId: "101", title: "Alpha" });
+
+    const active = spine.getActiveTab();
+    if (!active) throw new Error("Expected active tab");
+
+    spine.tabSetProvider(active.tabId, "local");
+    spine.tabSetInferenceMode(active.tabId, "think");
+    await Promise.resolve();
+
+    const persisted = await store.getSessionState("user-1", "device-1");
+    expect(persisted?.tabs[0].providerId).toBe("local");
+    expect(persisted?.tabs[0].inferenceMode).toBe("think");
   });
 
   it("coalesces rapid draft persistence writes", async () => {
@@ -250,7 +275,9 @@ describe("SessionSpine", () => {
         tabs: [
           {
             tabId: "tab-a",
+            providerId: null,
             modelId: "default",
+            inferenceMode: DEFAULT_INFERENCE_MODE,
             createdAt: "2026-02-14T00:00:00.000Z",
             updatedAt: "2026-02-14T00:00:00.000Z",
           },

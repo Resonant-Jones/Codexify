@@ -1254,28 +1254,21 @@ export function ChatView({
 
         {completionState.isCompleting && (
           <div className="max-w-full" data-testid="chat-completing-indicator">
-            <div className="flex items-start gap-3 px-4 py-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-400 to-blue-500 flex-shrink-0 animate-pulse" />
-              <div className="flex-1 space-y-2 min-w-0">
-                <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
-                <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
-                <div className="flex items-center gap-2 mt-3">
-                  <div
-                    className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  />
-                  <div
-                    className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "150ms" }}
-                  />
-                  <div
-                    className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "300ms" }}
-                  />
-                  <span className="text-xs ml-2 opacity-60" style={{ color: "var(--muted)" }}>
-                    Guardian is thinking...
-                  </span>
-                </div>
+            <div
+              className="mx-4 mb-2 rounded-xl border px-3 py-2"
+              style={{
+                borderColor: "color-mix(in oklab, var(--panel-border) 82%, transparent)",
+                background:
+                  "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 88%, transparent)",
+                color: "var(--text)",
+              }}
+            >
+              <div className="flex items-center gap-2 text-xs">
+                <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 animate-pulse" />
+                <span>Guardian is working on the current turn.</span>
+              </div>
+              <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>
+                Status and controls stay in the composer while the reply is in flight.
               </div>
             </div>
           </div>

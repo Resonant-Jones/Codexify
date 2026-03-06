@@ -288,7 +288,11 @@ def run_chat_completion_task(
     assistant_text = ""
     if provider == "local":
         streamed_any = False
-        token_stream = stream_local(messages_for_llm, model)
+        token_stream = stream_local(
+            messages_for_llm,
+            model,
+            reasoning_mode=getattr(task, "reasoning_mode", None),
+        )
         try:
             for token in token_stream:
                 if cancel_check and cancel_check():
@@ -307,7 +311,12 @@ def run_chat_completion_task(
         # message to the UI when streaming already happened.
         if not assistant_text.strip():
             assistant_text = str(
-                chat_with_ai(messages_for_llm, model=model, provider=provider)
+                chat_with_ai(
+                    messages_for_llm,
+                    model=model,
+                    provider=provider,
+                    reasoning_mode=getattr(task, "reasoning_mode", None),
+                )
             )
             # Only emit via callback when nothing was streamed.
             if token_callback and (not streamed_any) and assistant_text:
@@ -316,7 +325,12 @@ def run_chat_completion_task(
         if cancel_check and cancel_check():
             raise ChatTaskCancelled("task_cancelled")
         assistant_text = str(
-            chat_with_ai(messages_for_llm, model=model, provider=provider)
+            chat_with_ai(
+                messages_for_llm,
+                model=model,
+                provider=provider,
+                reasoning_mode=getattr(task, "reasoning_mode", None),
+            )
         )
         if token_callback:
             token_callback(assistant_text)

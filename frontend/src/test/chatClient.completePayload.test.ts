@@ -36,4 +36,19 @@ describe("buildChatCompletionPayload", () => {
       model: "llama3.1:8b",
     });
   });
+
+  it("prefers explicit provider/model/mode selection when provided", () => {
+    expect(
+      buildChatCompletionPayload("normal", {
+        providerId: "local",
+        modelId: "qwen3.5:4b",
+        reasoningMode: "think",
+      })
+    ).toEqual({
+      depth_mode: "normal",
+      provider: "local",
+      model: "qwen3.5:4b",
+      reasoning_mode: "think",
+    });
+  });
 });

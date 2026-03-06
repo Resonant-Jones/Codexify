@@ -190,6 +190,7 @@ class ChatCompletionRequest(BaseModel):
     model: Optional[str] = None
     max_context: Optional[int] = 50
     provider: Optional[str] = None
+    reasoning_mode: Optional[str] = None
     system_override: Optional[str] = None
     turn_id: Optional[str] = None
     depth_mode: Optional[
@@ -1390,6 +1391,7 @@ async def chat_complete(
         thread_id=thread_id,
         provider=provider,
         model=body.model,
+        reasoning_mode=body.reasoning_mode,
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,

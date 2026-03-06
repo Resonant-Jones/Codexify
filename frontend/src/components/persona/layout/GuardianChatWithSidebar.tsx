@@ -21,14 +21,22 @@ import PromptCostIndicator from "@/features/chat/components/PromptCostIndicator"
 import { RedisSessionStateStore } from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import {
+  useSessionActiveInferenceMode,
+  useSessionActiveProviderId,
   useSessionActiveModelId,
   useSessionActiveTab,
   useSessionRailSlice,
 } from "@/state/session/hooks";
 import {
+  DEFAULT_INFERENCE_MODE,
   DEFAULT_MODEL_ID,
   type TabId,
 } from "@/state/session/types";
+import {
+  DEFAULT_COMPOSER_INFERENCE_MODE,
+  type ComposerInferenceMode,
+} from "@/types/inference";
+import { getPreferredProviderSelection } from "@/lib/providerPref";
 import {
   checkAuthGate,
   requireAuthReady,
@@ -191,11 +199,14 @@ export default function GuardianChatWithSidebar({
   React.useEffect(() => {
     if (typeof window === "undefined") return;
     const store = new RedisSessionStateStore();
+    const preferredSelection = getPreferredProviderSelection();
     const spine = new SessionSpine({
       userId: (userName || "default").trim() || "default",
       deviceId: getOrCreateDeviceId(),
       store,
+      defaultProviderId: preferredSelection?.provider ?? null,
       defaultModelId: DEFAULT_MODEL_ID,
+      defaultInferenceMode: DEFAULT_INFERENCE_MODE,
       canHydrate: () => requireAuthReady("session hydrate"),
       canPersist: () => requireAuthReady("session persist"),
     });
@@ -236,7 +247,9 @@ export default function GuardianChatWithSidebar({
     void sessionSpine
       .hydrate({
         threadId: resolveRouteThreadId() ?? undefined,
+        providerId: getPreferredProviderSelection()?.provider ?? null,
         modelId: DEFAULT_MODEL_ID,
+        inferenceMode: DEFAULT_INFERENCE_MODE,
       })
       .finally(() => {
         if (!cancelled) setSessionReady(true);
@@ -249,9 +262,14 @@ export default function GuardianChatWithSidebar({
   const sessionRail = useSessionRailSlice(sessionSpine);
   const activeSessionTab = useSessionActiveTab(sessionSpine);
   const activeSessionTabId = sessionRail.activeTabId;
+  const activeSessionProviderId = useSessionActiveProviderId(sessionSpine);
   const activeSessionModelId = useSessionActiveModelId(
     sessionSpine,
     DEFAULT_MODEL_ID
+  );
+  const activeSessionInferenceMode = useSessionActiveInferenceMode(
+    sessionSpine,
+    DEFAULT_COMPOSER_INFERENCE_MODE
   );
   const lastSessionSyncTabIdRef = React.useRef<TabId | null>(null);
   const [activeSessionDraftSeed, setActiveSessionDraftSeed] = React.useState("");
@@ -510,6 +528,19 @@ export default function GuardianChatWithSidebar({
     if (!sessionSpine || !activeSessionTabId) return;
     sessionSpine.tabSetModel(activeSessionTabId, modelId);
   }, [activeSessionTabId, sessionSpine]);
+
+  const handleSessionProviderChange = React.useCallback((providerId: string | null) => {
+    if (!sessionSpine || !activeSessionTabId) return;
+    sessionSpine.tabSetProvider(activeSessionTabId, providerId);
+  }, [activeSessionTabId, sessionSpine]);
+
+  const handleSessionInferenceModeChange = React.useCallback(
+    (mode: ComposerInferenceMode) => {
+      if (!sessionSpine || !activeSessionTabId) return;
+      sessionSpine.tabSetInferenceMode(activeSessionTabId, mode);
+    },
+    [activeSessionTabId, sessionSpine]
+  );
 
   const handleSessionDraftChange = React.useCallback((text: string) => {
     if (!sessionSpine || !activeSessionTabId) return;
@@ -1351,12 +1382,18 @@ export default function GuardianChatWithSidebar({
                   isSidebarVisible={isSidebarOpen}
                   sessionTabs={sessionRail.tabs}
                   activeSessionTabId={activeSessionTabId}
+                  activeProviderId={activeSessionProviderId}
                   activeModelId={activeSessionModelId}
+                  activeInferenceMode={activeSessionInferenceMode}
                   activeDraft={activeSessionDraftSeed}
                   onSessionTabActivate={handleSessionTabActivate}
                   onSessionTabClose={handleSessionTabClose}
                   onSessionTabOpen={handleSessionTabOpen}
+                  onSessionProviderChange={handleSessionProviderChange}
                   onSessionModelChange={handleSessionModelChange}
+                  onSessionInferenceModeChange={
+                    handleSessionInferenceModeChange
+                  }
                   onSessionDraftChange={handleSessionDraftChange}
                   onBack={() => {
                     setActiveId(null);
