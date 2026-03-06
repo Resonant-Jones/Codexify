@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Thread } from "@/types/ui";
 import { Composer } from "./components";
+import type { ComposerSendOptions } from "./components/Composer";
 import ChatView from "@/features/chat/ChatView";
 import useChat from "@/features/chat/useChat";
 import api, {
@@ -1024,6 +1025,45 @@ export function GuardianChat({
     }
   };
 
+  const ensureThreadIdForAttachments = useCallback(
+    async (bodyText: string) => {
+      if (effectiveThreadId != null) {
+        return effectiveThreadId;
+      }
+
+      const normalizedUserId = userName || "default";
+      const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
+      const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
+      const metadata = activeSessionTabId
+        ? { draft_tab_id: activeSessionTabId }
+        : undefined;
+
+      const resp = await api.post("/chat/threads", {
+        title: provisionalTitle,
+        user_id: normalizedUserId,
+        metadata,
+      });
+      const payload = (resp && resp.data) || {};
+      const newThreadId =
+        payload.id ?? payload.thread?.id ?? payload.thread_id ?? payload.id_str;
+      const numericThreadId = Number(newThreadId);
+      if (!Number.isFinite(numericThreadId)) {
+        throw new Error("Thread id missing from create thread response");
+      }
+
+      const derivedTitle = payload.thread?.title ?? provisionalTitle;
+      handleThreadCreated(numericThreadId, derivedTitle);
+      onThreadPersisted?.(numericThreadId, derivedTitle);
+      return numericThreadId;
+    },
+    [
+      activeSessionTabId,
+      effectiveThreadId,
+      onThreadPersisted,
+      userName,
+    ]
+  );
+
   const handleBranchThread = async () => {
     if (effectiveThreadId == null) {
       showToast("Thread is not persisted yet.");
@@ -1054,7 +1094,10 @@ export function GuardianChat({
   };
 
   // Enhanced send handler with auto-thread creation
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (
+    text: string,
+    options?: ComposerSendOptions
+  ) => {
     /**
      * Inject human consciousness into the thread's awareness stream.
      *
@@ -1063,9 +1106,10 @@ export function GuardianChat({
      * title becomes the thread's identity in the distributed awareness network.
      */
     const normalizedUserId = userName || "default";
+    const targetThreadId = options?.threadIdOverride ?? effectiveThreadId;
     const requestedProfileId = resolveProfileIdFromCommand(text);
     const isProfileCommand =
-      effectiveThreadId != null && Boolean(requestedProfileId);
+      targetThreadId != null && Boolean(requestedProfileId);
     if (llmBackendUnavailable && !isProfileCommand) {
       const title =
         llmHealth.status === "misconfigured"
@@ -1075,22 +1119,25 @@ export function GuardianChat({
       void refreshLlmHealth();
       return;
     }
-    if (isTurnLocked(effectiveThreadId)) {
+    if (targetThreadId != null && isTurnLocked(targetThreadId)) {
       notifyTurnLocked();
       return;
     }
-    if (effectiveThreadId != null && isCompletionInFlight(effectiveThreadId)) {
+    if (
+      targetThreadId != null &&
+      isCompletionInFlight(targetThreadId)
+    ) {
       notifyTurnLocked();
       return;
     }
-    if (effectiveThreadId != null && requestedProfileId) {
+    if (targetThreadId != null && requestedProfileId) {
       if (typeof window !== "undefined") {
-        sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${effectiveThreadId}`);
+        sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${targetThreadId}`);
       }
       try {
         await onSendMessage(text);
         const switched = await switchThreadProfile(
-          effectiveThreadId,
+          targetThreadId,
           requestedProfileId
         );
         if (switched) {
@@ -1102,7 +1149,7 @@ export function GuardianChat({
               (profile) => profile.id === requestedProfileId
             );
           const label = selected?.name || requestedProfileId;
-          await api.post(`/chat/${effectiveThreadId}/messages`, {
+          await api.post(`/chat/${targetThreadId}/messages`, {
             role: "assistant",
             content: `Profile switched to ${label}. Next completion will use this profile.`,
             user_id: normalizedUserId,
@@ -1116,7 +1163,7 @@ export function GuardianChat({
       }
       return;
     }
-    if (!effectiveThreadId) {
+    if (!targetThreadId) {
       const firstLine = text.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
       let createdThreadId: number | null = null;
@@ -1171,20 +1218,33 @@ export function GuardianChat({
       }
     } else {
       if (typeof window !== "undefined") {
-        sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${effectiveThreadId}`);
+        sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${targetThreadId}`);
       }
-      setTurnLockForThread(effectiveThreadId, true);
+      setTurnLockForThread(targetThreadId, true);
       // Thread exists, just send the message via parent callback
       try {
-        await onSendMessage(text);
+        if (targetThreadId !== effectiveThreadId) {
+          await api.post(`/chat/${targetThreadId}/messages`, {
+            role: "user",
+            content: text,
+            user_id: normalizedUserId,
+          });
+          emitThreadsRefresh("refresh", {
+            reason: "message",
+            id: String(targetThreadId),
+          });
+          setChatReloadVersion((v) => v + 1);
+        } else {
+          await onSendMessage(text);
+        }
 
         // Fire-and-forget completion a beat later so the just-sent message is persisted
             setTimeout(() => {
-              if (effectiveThreadId == null) return;
+              if (targetThreadId == null) return;
               void (async () => {
-                const completionOutcome = await completeThread(effectiveThreadId);
+                const completionOutcome = await completeThread(targetThreadId);
                 if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
-                  setTurnLockForThread(effectiveThreadId, false);
+                  setTurnLockForThread(targetThreadId, false);
                   if (completionOutcome === "failed") {
                     showToast("Assistant response failed.");
                   }
@@ -1192,7 +1252,7 @@ export function GuardianChat({
           })();
         }, 100);
       } catch (error) {
-        setTurnLockForThread(effectiveThreadId, false);
+        setTurnLockForThread(targetThreadId, false);
         throw error;
       }
     }
@@ -1653,6 +1713,7 @@ export function GuardianChat({
         <div className="flex flex-col p-4">
           <Composer
             onSend={handleSendMessage}
+            ensureThreadIdForAttachments={ensureThreadIdForAttachments}
             prefill={externalPrefill ?? prefill}
             onPrefillConsumed={() => {
               setExternalPrefill(undefined);

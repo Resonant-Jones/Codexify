@@ -2,10 +2,18 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@/features/chat/components/Composer";
+import api from "@/lib/api";
+
+vi.mock("@/lib/api", () => ({
+  default: {
+    post: vi.fn(),
+  },
+}));
 
 describe("Composer draft sync", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.clearAllMocks();
   });
 
   it("keeps typing local and commits draft only after debounce", async () => {
@@ -83,6 +91,64 @@ describe("Composer draft sync", () => {
     });
     expect(onDraftValueChange).toHaveBeenNthCalledWith(1, "hello world");
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("stages attachments locally and uploads them only after send", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const ensureThreadIdForAttachments = vi.fn().mockResolvedValue(123);
+    vi.mocked(api.post).mockResolvedValue({
+      data: {
+        id: "doc-1",
+        src_url: "/media/documents/notes.txt",
+        filename: "notes.txt",
+      },
+    } as any);
+
+    const { container } = render(
+      <Composer
+        onSend={onSend}
+        ensureThreadIdForAttachments={ensureThreadIdForAttachments}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "hello attachments" } });
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    const file = new File(["hello world"], "notes.txt", {
+      type: "text/plain",
+    });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(ensureThreadIdForAttachments).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledTimes(1);
+    });
+
+    expect(ensureThreadIdForAttachments).toHaveBeenCalledWith(
+      "hello attachments"
+    );
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenCalledWith(
+      "/api/media/upload/document",
+      expect.any(FormData),
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+      }
+    );
+    expect(onSend.mock.calls[0][0]).toContain("cfy-media:document:doc-1");
+    expect(onSend.mock.calls[0][0]).toContain("cfy-media-name:notes.txt");
+    expect(onSend.mock.calls[0][0]).toContain("hello attachments");
+    expect(onSend.mock.calls[0][1]).toEqual({ threadIdOverride: 123 });
   });
 
   it("flushes previous tab draft and loads next tab initial draft on scope switch", () => {

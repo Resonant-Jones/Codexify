@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Optional
 from guardian.context.broker import ContextBroker
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import chat_with_ai, stream_local
+from guardian.core.chat_attachments import render_content_for_inference
 from guardian.core.config import (
     LLMConfigError,
     get_settings,
@@ -65,6 +66,46 @@ def _embed_message(
             message_id,
             exc,
         )
+
+
+def _build_thread_document_context_message(
+    bundle: dict[str, Any] | None,
+) -> str | None:
+    if not isinstance(bundle, dict):
+        return None
+
+    docs = bundle.get("docs")
+    if not isinstance(docs, dict):
+        return None
+
+    thread_docs = docs.get("thread")
+    if not isinstance(thread_docs, list) or not thread_docs:
+        return None
+
+    lines: list[str] = []
+    for item in thread_docs:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("id") or "document").strip()
+        excerpt = str(item.get("excerpt") or "").strip()
+        provenance = item.get("provenance")
+        relation = ""
+        if isinstance(provenance, dict):
+            relation = str(provenance.get("relation") or "").strip().lower()
+        relation_prefix = f"[{relation}] " if relation else ""
+        if excerpt:
+            lines.append(f"- {relation_prefix}{title}: {excerpt}")
+        else:
+            lines.append(f"- {relation_prefix}{title}")
+
+    if not lines:
+        return None
+
+    return (
+        "Thread-linked document excerpts are available for this conversation. "
+        "Use them when they help answer the user's request.\n\n"
+        "Thread documents:\n" + "\n".join(lines)
+    )
 
 
 async def build_messages_for_llm(
@@ -121,12 +162,8 @@ async def build_messages_for_llm(
     context: list[dict[str, str]] = []
     for msg in items:
         role = str(msg.get("role") or "").strip()
-        content = msg.get("content")
-        if (
-            isinstance(content, str)
-            and content.strip()
-            and content.strip().lower() != "null"
-        ):
+        content = render_content_for_inference(msg.get("content"))
+        if content and content.strip() and content.strip().lower() != "null":
             context.append({"role": role, "content": content})
 
     if not context:
@@ -135,7 +172,7 @@ async def build_messages_for_llm(
     latest_message = ""
     for msg in reversed(items):
         if str(msg.get("role") or "").strip() == "user":
-            lm = str(msg.get("content") or "").strip()
+            lm = render_content_for_inference(msg.get("content"))
             if lm:
                 latest_message = lm
                 break
@@ -215,6 +252,11 @@ async def build_messages_for_llm(
         )
 
     messages_for_llm.append({"role": "system", "content": system_content})
+    thread_doc_context = _build_thread_document_context_message(bundle)
+    if thread_doc_context:
+        messages_for_llm.append(
+            {"role": "system", "content": thread_doc_context}
+        )
     messages_for_llm.extend(context)
 
     model = task.model
