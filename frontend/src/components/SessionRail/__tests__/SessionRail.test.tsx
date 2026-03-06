@@ -48,8 +48,8 @@ describe("SessionRail", () => {
       screen.getByRole("button", { name: "New tab" })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Tab overflow" })
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Tab overflow" })
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Solo" })
     ).not.toBeInTheDocument();
