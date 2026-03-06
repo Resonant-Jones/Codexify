@@ -255,10 +255,38 @@ class Settings(BaseSettings):
         ),
     )
     LOCAL_EXTENDED_THINKING_MODEL_PATTERNS: str = Field(
-        default="qwen3,qwen-3,qwen 3,qwq",
+        default="qwen3.5,qwen-3.5,qwen 3.5,qwen3,qwen-3,qwen 3,qwq",
         description=(
             "Comma-separated substrings used to classify local models that may spend "
             "multiple minutes reasoning before emitting tokens."
+        ),
+    )
+    LOCAL_DEFAULT_NO_THINK_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "When true, eligible local reasoning-capable Qwen 3 models receive a "
+            "runtime '/no_think' instruction so they respond in fast mode by default."
+        ),
+    )
+    LOCAL_NO_THINK_MODEL_PATTERNS: str = Field(
+        default="qwen3.5,qwen-3.5,qwen 3.5,qwen3,qwen-3,qwen 3",
+        description=(
+            "Comma-separated substrings used to identify local models that should "
+            "default to Qwen's non-thinking mode via prompt instruction."
+        ),
+    )
+    LOCAL_NO_THINK_SKIP_MODEL_PATTERNS: str = Field(
+        default="thinking-2507,qwen3.5-thinking,qwen-3.5-thinking,qwen 3.5 thinking,qwen3-thinking,qwen-3-thinking,qwen 3 thinking,instruct-2507",
+        description=(
+            "Comma-separated substrings that opt local models out of automatic "
+            "'/no_think' injection, such as fixed-mode Qwen releases."
+        ),
+    )
+    LOCAL_NO_THINK_INSTRUCTION: str = Field(
+        default="/no_think",
+        description=(
+            "Prompt instruction appended for local Qwen-style models when "
+            "LOCAL_DEFAULT_NO_THINK_ENABLED is true."
         ),
     )
     EMBEDDING_REQUEST_TIMEOUT_SECONDS: int = Field(

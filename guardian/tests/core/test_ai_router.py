@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi import HTTPException
 
@@ -10,6 +12,7 @@ class _FakeResponse:
         self._payload = payload
         self.status_code = 200
         self.text = ""
+        self.content = json.dumps(payload).encode("utf-8")
 
     def raise_for_status(self):
         return None
@@ -241,3 +244,126 @@ def test_stream_local_parses_ollama_chat_chunks(monkeypatch):
         )
     )
     assert "".join(tokens) == "Hello"
+
+
+def test_call_local_injects_qwen_no_think_instruction(monkeypatch):
+    calls = {}
+
+    def fake_post(url, json, headers, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        calls["headers"] = headers
+        calls["timeout"] = timeout
+        return _FakeResponse({"message": {"content": "ok"}})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("local")
+    settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+
+    reply = chat_with_ai(
+        [{"role": "user", "content": "hello"}],
+        provider="local",
+        model="qwen3:4b",
+        settings=settings,
+    )
+
+    assert reply == "ok"
+    assert calls["json"]["messages"][-1]["role"] == "system"
+    assert "/no_think" in calls["json"]["messages"][-1]["content"]
+
+
+def test_call_local_injects_qwen_3_5_no_think_instruction(monkeypatch):
+    calls = {}
+
+    def fake_post(url, json, headers, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        _ = (headers, timeout)
+        return _FakeResponse({"message": {"content": "ok"}})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("local")
+    settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+
+    reply = chat_with_ai(
+        [{"role": "user", "content": "hello"}],
+        provider="local",
+        model="qwen3.5:4b",
+        settings=settings,
+    )
+
+    assert reply == "ok"
+    assert calls["json"]["messages"][-1]["role"] == "system"
+    assert "/no_think" in calls["json"]["messages"][-1]["content"]
+
+
+def test_stream_local_skips_no_think_for_fixed_mode_qwen_release(monkeypatch):
+    calls = {}
+
+    def fake_post(url, json, headers, stream, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        _ = (headers, stream, timeout)
+        return _FakeStreamingResponse(
+            [
+                b'{"message":{"role":"assistant","content":"Hi"},"done":false}',
+                b'{"done":true}',
+            ]
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("local")
+    settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+
+    tokens = list(
+        stream_local(
+            [{"role": "user", "content": "hello"}],
+            "qwen3-thinking-2507:30b",
+            settings=settings,
+        )
+    )
+
+    assert "".join(tokens) == "Hi"
+    assert all(
+        "/no_think" not in str(message.get("content") or "")
+        for message in calls["json"]["messages"]
+    )
+
+
+def test_stream_local_skips_no_think_for_fixed_mode_qwen_3_5_release(
+    monkeypatch,
+):
+    calls = {}
+
+    def fake_post(url, json, headers, stream, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        _ = (headers, stream, timeout)
+        return _FakeStreamingResponse(
+            [
+                b'{"message":{"role":"assistant","content":"Hi"},"done":false}',
+                b'{"done":true}',
+            ]
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("local")
+    settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+
+    tokens = list(
+        stream_local(
+            [{"role": "user", "content": "hello"}],
+            "qwen3.5-thinking-2507:30b",
+            settings=settings,
+        )
+    )
+
+    assert "".join(tokens) == "Hi"
+    assert all(
+        "/no_think" not in str(message.get("content") or "")
+        for message in calls["json"]["messages"]
+    )

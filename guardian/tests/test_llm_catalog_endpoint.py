@@ -133,6 +133,53 @@ def test_llm_catalog_includes_authorized_provider(monkeypatch):
             setattr(settings, field, value)
 
 
+def test_llm_catalog_marks_qwen3_local_models_as_no_think_by_default(
+    monkeypatch,
+):
+    def _mock_qwen_catalog_request(url: str, *args, **kwargs) -> _MockResponse:
+        if url.endswith("/api/tags"):
+            return _MockResponse(
+                {"models": [{"name": "qwen3:4b"}, {"name": "qwen3.5:4b"}]}
+            )
+        return _MockResponse({"data": []}, status_code=404)
+
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_qwen_catalog_request,
+    )
+
+    settings = get_settings()
+    snapshot = {
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "LOCAL_DEFAULT_NO_THINK_ENABLED": settings.LOCAL_DEFAULT_NO_THINK_ENABLED,
+    }
+    try:
+        settings.LOCAL_BASE_URL = "http://127.0.0.1:11434/v1"
+        settings.LOCAL_DEFAULT_NO_THINK_ENABLED = True
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+
+        payload = response.json()
+        local = _provider_by_id(payload, "local")
+        qwen = next(
+            model for model in local["models"] if model.get("id") == "qwen3:4b"
+        )
+        assert qwen["runtime"]["reasoning"]["mode"] == "no_think"
+        assert qwen["runtime"]["reasoning"]["instruction"] == "/no_think"
+        qwen_3_5 = next(
+            model
+            for model in local["models"]
+            if model.get("id") == "qwen3.5:4b"
+        )
+        assert qwen_3_5["runtime"]["reasoning"]["mode"] == "no_think"
+        assert qwen_3_5["runtime"]["reasoning"]["instruction"] == "/no_think"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
 def test_llm_catalog_marks_cloud_disabled_when_allow_cloud_is_false(
     monkeypatch,
 ):
