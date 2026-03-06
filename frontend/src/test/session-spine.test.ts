@@ -141,6 +141,28 @@ describe("SessionSpine", () => {
     expect(persisted?.drafts?.[active.tabId]).toBe("hel");
   });
 
+  it("skips persistence for semantic no-op tab updates", async () => {
+    const store = new InMemorySessionStateStore();
+    const setSpy = vi.spyOn(store, "setSessionState");
+    const spine = new SessionSpine({
+      userId: "user-1",
+      deviceId: "device-1",
+      store,
+      defaultModelId: "default",
+    });
+    await spine.hydrate({ threadId: "101", title: "Alpha", modelId: "default" });
+    setSpy.mockClear();
+
+    const active = spine.getActiveTab();
+    if (!active) throw new Error("Expected active tab");
+
+    spine.tabSetThread(active.tabId, "101", "Alpha");
+    spine.tabActivate(active.tabId);
+    await Promise.resolve();
+
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
   it("closing the final tab always leaves one valid active tab", async () => {
     const store = new InMemorySessionStateStore();
     const spine = new SessionSpine({

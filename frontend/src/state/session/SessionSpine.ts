@@ -51,6 +51,52 @@ function copyState(state: SessionState): SessionState {
   };
 }
 
+function isSessionTabEqual(a: SessionTab, b: SessionTab): boolean {
+  return (
+    a.tabId === b.tabId &&
+    a.threadId === b.threadId &&
+    a.title === b.title &&
+    a.modelId === b.modelId &&
+    a.createdAt === b.createdAt &&
+    a.updatedAt === b.updatedAt
+  );
+}
+
+function areDraftsEqual(
+  a: SessionState["drafts"],
+  b: SessionState["drafts"]
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if ((a[key] ?? "") !== (b[key] ?? "")) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isStateSemanticallyEqual(a: SessionState, b: SessionState): boolean {
+  if (a.userId !== b.userId || a.deviceId !== b.deviceId) {
+    return false;
+  }
+  if (a.activeTabId !== b.activeTabId) {
+    return false;
+  }
+  if (a.tabs.length !== b.tabs.length) {
+    return false;
+  }
+  for (let index = 0; index < a.tabs.length; index += 1) {
+    if (!isSessionTabEqual(a.tabs[index], b.tabs[index])) {
+      return false;
+    }
+  }
+  return areDraftsEqual(a.drafts, b.drafts);
+}
+
 export class SessionSpine {
   private readonly userId: string;
   private readonly deviceId: string;
@@ -289,11 +335,15 @@ export class SessionSpine {
       this.state = this.createDefaultState({});
       this.hydrated = true;
     }
-    const working = copyState(this.state);
+    const current = this.state;
+    const working = copyState(current);
     const result = mutator(working);
+    if (isStateSemanticallyEqual(current, working)) {
+      return result;
+    }
     this.state = this.normalizeState({
       ...working,
-      version: Math.max(working.version, SESSION_SCHEMA_VERSION) + 1,
+      version: Math.max(current.version, SESSION_SCHEMA_VERSION) + 1,
       updatedAt: nowIso(),
     });
     this.syncActivationHistory(this.state);
