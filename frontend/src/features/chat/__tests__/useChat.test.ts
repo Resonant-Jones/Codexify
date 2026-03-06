@@ -221,8 +221,10 @@ describe("useChat - completion state management", () => {
     expect(result.current.completionState.startedAt).toBeNull();
   });
 
-  it("keeps completion active after slow-path hint and clears on hard timeout", async () => {
-    const { result } = renderHook(() => useChat());
+  it("keeps completion active after slow-path hint and clears on configured hard timeout", async () => {
+    const { result } = renderHook(() =>
+      useChat({ completionHardTimeoutMs: 30_000 })
+    );
 
     act(() => {
       result.current.startCompletion(123, "task-abc-123");
@@ -247,6 +249,26 @@ describe("useChat - completion state management", () => {
     });
 
     expect(result.current.completionState.activeTaskId).toBeNull();
+  });
+
+  it("defaults to the longer slow-model completion budget", () => {
+    const { result } = renderHook(() => useChat());
+
+    act(() => {
+      result.current.startCompletion(123, "task-abc-123");
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(30_000);
+    });
+
+    expect(result.current.completionState.isCompleting).toBe(true);
+
+    act(() => {
+      jest.advanceTimersByTime(270_000);
+    });
+
+    expect(result.current.completionState.isCompleting).toBe(false);
   });
 
   it("should guard against spam refresh", () => {

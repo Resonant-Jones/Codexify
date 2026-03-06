@@ -221,6 +221,26 @@ def _last_qwen_reasoning_instruction(
     return latest_instruction
 
 
+def _append_reasoning_instruction(content: Any, instruction: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return instruction
+    if instruction in text:
+        return text
+    return f"{text}\n\n{instruction}"
+
+
+def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
+    target_role = str(role or "").strip().lower()
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if not isinstance(message, dict):
+            continue
+        if str(message.get("role") or "").strip().lower() == target_role:
+            return index
+    return -1
+
+
 def apply_local_reasoning_directive(
     messages: list[dict[str, Any]],
     model: str,
@@ -230,7 +250,7 @@ def apply_local_reasoning_directive(
     directive = resolve_local_reasoning_directive(model, settings=settings)
     if directive.mode != "no_think" or not directive.instruction:
         return messages, directive
-    if _last_qwen_reasoning_instruction(messages) == directive.instruction:
+    if _last_qwen_reasoning_instruction(messages) is not None:
         return messages, directive
 
     adapted = [
@@ -238,15 +258,24 @@ def apply_local_reasoning_directive(
         for message in (messages or [])
         if isinstance(message, dict)
     ]
-    adapted.append(
-        {
-            "role": "system",
-            "content": (
-                "Runtime instruction for Qwen reasoning control. "
-                f"{directive.instruction}"
-            ),
-        }
-    )
+    target_index = _find_last_message_index(adapted, "user")
+    if target_index < 0:
+        target_index = _find_last_message_index(adapted, "system")
+
+    if target_index >= 0:
+        target_message = dict(adapted[target_index])
+        target_message["content"] = _append_reasoning_instruction(
+            target_message.get("content"),
+            directive.instruction,
+        )
+        adapted[target_index] = target_message
+    else:
+        adapted.append(
+            {
+                "role": "system",
+                "content": directive.instruction,
+            }
+        )
     return adapted, directive
 
 

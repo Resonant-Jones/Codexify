@@ -247,10 +247,32 @@ export type CompletionState = {
   startedAt: number | null;
 };
 
-const COMPLETION_SLOW_PATH_MS = 15_000;
-const COMPLETION_HARD_TIMEOUT_MS = 30_000;
+type UseChatOptions = {
+  completionSlowPathMs?: number;
+  completionHardTimeoutMs?: number;
+};
 
-export function useChat() {
+const DEFAULT_COMPLETION_SLOW_PATH_MS = 15_000;
+const DEFAULT_COMPLETION_HARD_TIMEOUT_MS = 300_000;
+
+function coercePositiveDurationMs(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+  return Math.round(numeric);
+}
+
+export function useChat(options: UseChatOptions = {}) {
+  const completionSlowPathMs = coercePositiveDurationMs(
+    options.completionSlowPathMs,
+    DEFAULT_COMPLETION_SLOW_PATH_MS
+  );
+  const completionHardTimeoutMs = Math.max(
+    completionSlowPathMs,
+    coercePositiveDurationMs(
+      options.completionHardTimeoutMs,
+      DEFAULT_COMPLETION_HARD_TIMEOUT_MS
+    )
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -450,19 +472,26 @@ export function useChat() {
     completionSlowTimeoutRef.current = window.setTimeout(() => {
       if (completionGenerationRef.current !== generation) return;
       console.warn(
-        `[useChat] Completion still in progress after ${COMPLETION_SLOW_PATH_MS}ms (slow-path)`
+        `[useChat] Completion still in progress after ${completionSlowPathMs}ms (slow-path)`
       );
       completionSlowTimeoutRef.current = null;
-    }, COMPLETION_SLOW_PATH_MS);
+    }, completionSlowPathMs);
 
-    // Hard timeout: release after extended wait
+    // Hard timeout: keep the UI in sync with the longer poll ceiling for slow local runs.
     completionHardTimeoutRef.current = window.setTimeout(() => {
       if (completionGenerationRef.current !== generation) return;
-      console.warn(`[useChat] Completion hard-timeout reached (${COMPLETION_HARD_TIMEOUT_MS}ms), clearing state`);
+      console.warn(
+        `[useChat] Completion hard-timeout reached (${completionHardTimeoutMs}ms), clearing state`
+      );
       completionHardTimeoutRef.current = null;
       clearCompletionState();
-    }, COMPLETION_HARD_TIMEOUT_MS);
-  }, [clearCompletionState, setCompletionInFlight]);
+    }, completionHardTimeoutMs);
+  }, [
+    clearCompletionState,
+    completionHardTimeoutMs,
+    completionSlowPathMs,
+    setCompletionInFlight,
+  ]);
 
   const endCompletion = useCallback(() => {
     completionGenerationRef.current += 1;
