@@ -270,7 +270,7 @@ function relativeLuminanceFromHex(color: string): number {
 
 function getReadableTextColor(base: string): string {
   const luminance = relativeLuminanceFromHex(base);
-  return luminance > 0.55 ? "#111827" : "#F9FAFB";
+  return luminance > 0.55 ? "var(--text-on-accent)" : "var(--icon)";
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -910,6 +910,28 @@ export default function AppShell({}: PropsWithChildren) {
   const panelSheetBorder = resolved === "dark" ? "rgba(255,255,255,0.18)" : "rgba(17,24,39,0.14)";
   const textColor = resolved === "dark" ? "#ffffff" : "#111827";
   const mutedColor = resolved === "dark" ? "rgba(255,255,255,0.88)" : "#374151";
+  const subtleTextColor =
+    resolved === "dark" ? "rgba(255,255,255,0.72)" : "#6b7280";
+  const iconMutedColor =
+    resolved === "dark" ? "rgba(255,255,255,0.76)" : "#4b5563";
+  const surfaceHover =
+    resolved === "dark" ? "rgba(255,255,255,0.08)" : "rgba(17,24,39,0.06)";
+  const surfaceSoft =
+    resolved === "dark" ? "rgba(255,255,255,0.04)" : "rgba(17,24,39,0.04)";
+  const chipBorder =
+    resolved === "dark" ? "rgba(255,255,255,0.16)" : "rgba(17,24,39,0.10)";
+  const textOnAccent = resolved === "dark" ? "#f9fafb" : "#111827";
+  const infoSurface =
+    resolved === "dark" ? "rgba(96,165,250,0.18)" : "#dbeafe";
+  const infoText = resolved === "dark" ? "#bfdbfe" : "#1d4ed8";
+  const tagSurface =
+    resolved === "dark" ? "rgba(192,132,252,0.18)" : "#f3e8ff";
+  const tagText = resolved === "dark" ? "#e9d5ff" : "#7e22ce";
+  const dangerSurface =
+    resolved === "dark" ? "rgba(248,113,113,0.16)" : "#fef2f2";
+  const dangerBorder =
+    resolved === "dark" ? "rgba(248,113,113,0.32)" : "#fecaca";
+  const dangerText = resolved === "dark" ? "#fecaca" : "#991b1b";
   // Local-only: translucent bezel for Dashboard cards
   const panelBezel = resolved === "dark" ? "rgba(255,255,255,0.14)" : "rgba(17,24,39,0.12)";
   const panelBorderStrong = resolved === "dark" ? "rgba(255,255,255,0.22)" : "rgba(17,24,39,0.16)";
@@ -959,10 +981,24 @@ export default function AppShell({}: PropsWithChildren) {
     "--panel-sheet-border": panelSheetBorder,
     "--panel-border-strong": panelBorderStrong,
     "--chip-bg": chipBg,
+    "--chip-border": chipBorder,
     "--panel-border": panelBorder,
     "--panel-bezel": panelBezel,
     "--text": textColor,
     "--muted": mutedColor,
+    "--text-subtle": subtleTextColor,
+    "--icon": textColor,
+    "--icon-muted": iconMutedColor,
+    "--surface-hover": surfaceHover,
+    "--surface-soft": surfaceSoft,
+    "--text-on-accent": textOnAccent,
+    "--info-surface": infoSurface,
+    "--info-text": infoText,
+    "--tag-surface": tagSurface,
+    "--tag-text": tagText,
+    "--danger-surface": dangerSurface,
+    "--danger-border": dangerBorder,
+    "--danger-text": dangerText,
     "--accent": accent,
     "--accent-weak": accentWeak,
     "--accent-strong": accentStrong,
@@ -1670,7 +1706,15 @@ export default function AppShell({}: PropsWithChildren) {
                           </div>
                         )}
                         {g.mock && (
-                          <span className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border" style={{ background: "rgba(255,255,255,0.2)", color: "#111", borderColor: "rgba(255,255,255,0.5)" }}>
+                          <span
+                            className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border"
+                            style={{
+                              background:
+                                "color-mix(in oklab, var(--chip-bg) 86%, transparent)",
+                              color: "var(--text)",
+                              borderColor: "var(--chip-border)",
+                            }}
+                          >
                             Mock
                           </span>
                         )}

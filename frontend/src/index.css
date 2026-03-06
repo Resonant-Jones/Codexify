@@ -7,6 +7,7 @@ html, body {
   height: 100%;
   margin: 0;
   background: #000;
+  color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
@@ -23,8 +24,22 @@ html, body {
   --panel-border: rgba(255, 255, 255, 0.08);
   --panel-bezel: rgba(255, 255, 255, 0.12);
   --chip-bg: rgba(255, 255, 255, 0.04);
+  --chip-border: rgba(255, 255, 255, 0.16);
   --text: #f9fafb;
   --muted: rgba(249, 250, 251, 0.72);
+  --text-subtle: rgba(249, 250, 251, 0.58);
+  --icon: var(--text);
+  --icon-muted: rgba(249, 250, 251, 0.76);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+  --surface-soft: rgba(255, 255, 255, 0.04);
+  --text-on-accent: #111827;
+  --info-surface: rgba(96, 165, 250, 0.18);
+  --info-text: #bfdbfe;
+  --tag-surface: rgba(192, 132, 252, 0.18);
+  --tag-text: #e9d5ff;
+  --danger-surface: rgba(248, 113, 113, 0.16);
+  --danger-border: rgba(248, 113, 113, 0.32);
+  --danger-text: #fecaca;
   --accent: rgba(56, 189, 248, 0.85);
   --accent-weak: rgba(56, 189, 248, 0.35);
   --accent-strong: rgba(14, 165, 233, 0.95);
@@ -65,7 +80,7 @@ html, body {
   /* Match or blend with header background */
   background: transparent;
   /* Ensure icons inherit contrast-aware color */
-  color: var(--text);
+  color: var(--icon);
   cursor: pointer;
   transition: background 120ms ease-out, transform 80ms ease-out, box-shadow 120ms ease-out;
 }
@@ -86,10 +101,6 @@ html, body {
 }
 
 /* Dark mode explicit override for icon contrast */
-.dark .icon-inline {
-  color: #f9fafb; /* Ensure high contrast on dark backgrounds */
-}
-
 .embedded-btn {
   display: inline-flex;
   align-items: center;
