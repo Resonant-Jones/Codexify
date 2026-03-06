@@ -1,5 +1,6 @@
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import requests
@@ -13,6 +14,35 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
+
+
+@dataclass(frozen=True)
+class LocalRuntimePolicy:
+    profile: str
+    connect_timeout_seconds: float
+    read_timeout_seconds: float
+    timeout_source: str
+    thinking_mode: bool
+    profile_reason: str | None = None
+
+    @property
+    def request_timeout(self) -> tuple[float, float]:
+        return (
+            self.connect_timeout_seconds,
+            self.read_timeout_seconds,
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "profile": self.profile,
+            "connect_timeout_seconds": self.connect_timeout_seconds,
+            "read_timeout_seconds": self.read_timeout_seconds,
+            "timeout_source": self.timeout_source,
+            "thinking_mode": self.thinking_mode,
+        }
+        if self.profile_reason:
+            payload["profile_reason"] = self.profile_reason
+        return payload
 
 
 def _normalize_provider(provider: Optional[str]) -> str:
@@ -30,7 +60,112 @@ def _normalize_provider(provider: Optional[str]) -> str:
     return normalized
 
 
-def _format_local_connect_error(url: str, err: Exception) -> str:
+def _coerce_positive_timeout(raw: Any, default: float) -> float:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = float(default)
+    return max(0.1, value)
+
+
+def _local_extended_thinking_patterns(settings: Settings) -> tuple[str, ...]:
+    raw = str(
+        getattr(settings, "LOCAL_EXTENDED_THINKING_MODEL_PATTERNS", "") or ""
+    ).strip()
+    if not raw:
+        raw = "qwen3,qwen-3,qwen 3,qwq"
+    return tuple(
+        part.strip().lower() for part in raw.split(",") if part and part.strip()
+    )
+
+
+def _matches_local_extended_thinking_profile(
+    model: str, settings: Settings
+) -> tuple[bool, str | None]:
+    normalized_model = str(model or "").strip().lower()
+    if not normalized_model:
+        return False, None
+    for pattern in _local_extended_thinking_patterns(settings):
+        if pattern in normalized_model:
+            return True, pattern
+    return False, None
+
+
+def resolve_local_runtime_policy(
+    model: str,
+    *,
+    settings: Optional[Settings] = None,
+    timeout: Optional[float] = None,
+) -> LocalRuntimePolicy:
+    resolved = _resolve_settings(settings)
+    connect_timeout = _coerce_positive_timeout(
+        getattr(resolved, "LOCAL_REQUEST_CONNECT_TIMEOUT_SECONDS", 10.0),
+        10.0,
+    )
+
+    default_read_timeout = _coerce_positive_timeout(
+        getattr(resolved, "LLM_REQUEST_TIMEOUT_SECONDS", 60),
+        60.0,
+    )
+    thinking_timeout = _coerce_positive_timeout(
+        getattr(resolved, "LOCAL_EXTENDED_THINKING_TIMEOUT_SECONDS", 300.0),
+        max(default_read_timeout, 300.0),
+    )
+
+    if timeout is not None:
+        read_timeout = _coerce_positive_timeout(timeout, default_read_timeout)
+        return LocalRuntimePolicy(
+            profile="explicit_override",
+            connect_timeout_seconds=connect_timeout,
+            read_timeout_seconds=read_timeout,
+            timeout_source="explicit",
+            thinking_mode=False,
+            profile_reason="explicit timeout override",
+        )
+
+    (
+        is_thinking_model,
+        matched_pattern,
+    ) = _matches_local_extended_thinking_profile(model, resolved)
+    if is_thinking_model:
+        return LocalRuntimePolicy(
+            profile="extended_thinking",
+            connect_timeout_seconds=connect_timeout,
+            read_timeout_seconds=max(default_read_timeout, thinking_timeout),
+            timeout_source="profile",
+            thinking_mode=True,
+            profile_reason=(
+                f"model matched LOCAL_EXTENDED_THINKING_MODEL_PATTERNS via '{matched_pattern}'"
+            ),
+        )
+
+    return LocalRuntimePolicy(
+        profile="default",
+        connect_timeout_seconds=connect_timeout,
+        read_timeout_seconds=default_read_timeout,
+        timeout_source="default",
+        thinking_mode=False,
+    )
+
+
+def describe_local_runtime(
+    model: str,
+    *,
+    settings: Optional[Settings] = None,
+    timeout: Optional[float] = None,
+) -> dict[str, Any]:
+    return resolve_local_runtime_policy(
+        model, settings=settings, timeout=timeout
+    ).as_dict()
+
+
+def _format_local_connect_error(
+    url: str,
+    err: Exception,
+    *,
+    model: str,
+    runtime_policy: LocalRuntimePolicy,
+) -> str:
     """Produce an actionable error message for local inference failures.
 
     Common pitfall: Docker containers often cannot resolve mDNS `.local` hostnames
@@ -62,14 +197,34 @@ def _format_local_connect_error(url: str, err: Exception) -> str:
             "Connection refused. Check the remote server is listening on that port "
             "and is reachable from the backend container/network."
         )
-    if "timed out" in lowered or "timeout" in lowered:
+    if (
+        isinstance(err, req_exc.Timeout)
+        or "timed out" in lowered
+        or "timeout" in lowered
+    ):
+        timeout_kind = (
+            "read timeout"
+            if isinstance(err, req_exc.ReadTimeout)
+            else "timeout"
+        )
+        profile_hint = (
+            " If this local model intentionally spends a long time reasoning before streaming, "
+            "increase LOCAL_EXTENDED_THINKING_TIMEOUT_SECONDS or extend "
+            "LOCAL_EXTENDED_THINKING_MODEL_PATTERNS."
+            if runtime_policy.thinking_mode
+            else " Increase LLM_REQUEST_TIMEOUT_SECONDS if this model legitimately needs more time."
+        )
         hints.append(
-            "Connection timed out. Check routing/firewalls and consider increasing "
-            "LLM_REQUEST_TIMEOUT_SECONDS."
+            f"{timeout_kind.title()} after connect={runtime_policy.connect_timeout_seconds:.1f}s "
+            f"read={runtime_policy.read_timeout_seconds:.1f}s for model '{model}' "
+            f"(profile={runtime_policy.profile}).{profile_hint}"
         )
 
     hint_text = " " + " ".join(hints) if hints else ""
-    return f"Local inference request failed for {url}: {message}.{hint_text}".strip()
+    return (
+        f"Local inference request failed for model '{model}' at {url}: "
+        f"{message}.{hint_text}"
+    ).strip()
 
 
 def _resolve_settings(settings: Optional[Settings]) -> Settings:
@@ -159,6 +314,9 @@ def call_local(
     log_exceptions: bool = True,
 ):
     settings = _resolve_settings(settings)
+    runtime_policy = resolve_local_runtime_policy(
+        model, settings=settings, timeout=timeout
+    )
     api_key = settings.LOCAL_API_KEY or "local"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -197,8 +355,7 @@ def call_local(
         getattr(settings, "LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK", False)
     )
 
-    default_timeout = getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 60)
-    request_timeout = default_timeout if timeout is None else float(timeout)
+    request_timeout = runtime_policy.request_timeout
 
     # If user explicitly configured /v1, do not silently try Ollama-native endpoints.
     is_gateway = base_url.endswith("/v1")
@@ -301,7 +458,12 @@ def call_local(
             if last_response is not None and getattr(last_response, "url", None)
             else (attempt_urls[0][1] if attempt_urls else url_openai)
         )
-        detail = _format_local_connect_error(failed_url, e)
+        detail = _format_local_connect_error(
+            failed_url,
+            e,
+            model=model,
+            runtime_policy=runtime_policy,
+        )
         if log_exceptions:
             logger.exception(detail)
         else:
@@ -326,6 +488,7 @@ def stream_local(
     temperature: Optional[float] = None,
 ):
     settings = _resolve_settings(settings)
+    runtime_policy = resolve_local_runtime_policy(model, settings=settings)
     api_key = settings.LOCAL_API_KEY or "local"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -347,7 +510,7 @@ def stream_local(
     base_url_ollama = base_url[:-3] if base_url.endswith("/v1") else base_url
     url_ollama_chat = f"{base_url_ollama}/api/chat"
 
-    timeout = getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 60)
+    timeout = runtime_policy.request_timeout
 
     compat_first = bool(getattr(settings, "LOCAL_COMPAT_FIRST", False))
     compat_first = compat_first or bool(
@@ -426,42 +589,52 @@ def stream_local(
                 status_code=502, detail="Local inference request failed"
             )
 
-        for raw_line in response.iter_lines(decode_unicode=False):
-            if not raw_line:
-                continue
-            line = raw_line.decode("utf-8", errors="replace")
-            if line.startswith("data:"):
-                data = line[5:].strip()
-            else:
-                data = line.strip()
-            if not data:
-                continue
-            if data == "[DONE]":
-                break
-            try:
-                chunk = json.loads(data)
-            except Exception:
-                continue
-            try:
-                # OpenAI-compatible SSE or Ollama /api/chat streaming
-                choice = chunk.get("choices", [{}])[0]
-                delta = choice.get("delta") or {}
-                token = (
-                    delta.get("content")
-                    or choice.get("message", {}).get("content")
-                    or choice.get("text")
-                )
-                if not token and isinstance(chunk.get("message"), dict):
-                    # Ollama /api/chat streaming shape:
-                    # {"message":{"role":"assistant","content":"..."}, ...}
-                    token = chunk["message"].get("content")
-                if not token and isinstance(chunk.get("response"), str):
-                    # Ollama /api/generate streaming shape.
-                    token = chunk.get("response")
-                if token:
-                    yield token
-            except Exception:
-                continue
+        try:
+            for raw_line in response.iter_lines(decode_unicode=False):
+                if not raw_line:
+                    continue
+                line = raw_line.decode("utf-8", errors="replace")
+                if line.startswith("data:"):
+                    data = line[5:].strip()
+                else:
+                    data = line.strip()
+                if not data:
+                    continue
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except Exception:
+                    continue
+                try:
+                    # OpenAI-compatible SSE or Ollama /api/chat streaming
+                    choice = chunk.get("choices", [{}])[0]
+                    delta = choice.get("delta") or {}
+                    token = (
+                        delta.get("content")
+                        or choice.get("message", {}).get("content")
+                        or choice.get("text")
+                    )
+                    if not token and isinstance(chunk.get("message"), dict):
+                        # Ollama /api/chat streaming shape:
+                        # {"message":{"role":"assistant","content":"..."}, ...}
+                        token = chunk["message"].get("content")
+                    if not token and isinstance(chunk.get("response"), str):
+                        # Ollama /api/generate streaming shape.
+                        token = chunk.get("response")
+                    if token:
+                        yield token
+                except Exception:
+                    continue
+        except req_exc.RequestException as exc:
+            detail = _format_local_connect_error(
+                current_url,
+                exc,
+                model=model,
+                runtime_policy=runtime_policy,
+            )
+            logger.warning(detail)
+            raise HTTPException(status_code=502, detail=detail) from exc
     finally:
         if response is not None:
             try:

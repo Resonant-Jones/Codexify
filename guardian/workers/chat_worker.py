@@ -15,6 +15,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from fastapi import HTTPException
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.core import dependencies, event_bus
@@ -158,7 +159,9 @@ def _find_assistant_message_id_by_turn_id(
         return None
 
 
-def _find_assistant_message_for_turn(*, thread_id: int, turn_id: str) -> int | None:
+def _find_assistant_message_for_turn(
+    *, thread_id: int, turn_id: str
+) -> int | None:
     """Return an existing assistant message id for the turn when present."""
     if not turn_id:
         return None
@@ -196,6 +199,7 @@ def _find_assistant_message_for_turn(*, thread_id: int, turn_id: str) -> int | N
             exc_info=True,
         )
         return None
+
 
 def _publish_worker_heartbeat(status: str = "idle") -> None:
     payload = {
@@ -251,6 +255,32 @@ def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
         mirror_payload = dict(payload)
         mirror_payload.setdefault("task_id", task_id)
         _safe_emit_live_event(event_type, mirror_payload)
+
+
+def _describe_task_error(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        detail = getattr(exc, "detail", "")
+        if isinstance(detail, (dict, list)):
+            try:
+                return json.dumps(detail)
+            except Exception:
+                return str(detail)
+        if detail:
+            return str(detail)
+    return str(exc) or exc.__class__.__name__
+
+
+def _classify_runtime_status(detail: str) -> str | None:
+    lowered = str(detail or "").strip().lower()
+    if not lowered:
+        return None
+    if "timed out" in lowered or "read timeout" in lowered:
+        return "timeout"
+    if "connection refused" in lowered:
+        return "connection_refused"
+    if "failed to resolve" in lowered or "name resolution" in lowered:
+        return "dns_error"
+    return None
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
@@ -396,16 +426,6 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             )
             raise RuntimeError("assistant_message_missing")
 
-        if turn_id and not _persist_turn_id_metadata(
-            thread_id=task.thread_id, message_id=message_id, turn_id=turn_id
-        ):
-            logger.warning(
-                "[chat-worker] completion_turn_metadata_missing thread_id=%s turn_id=%s task_id=%s message_id=%s",
-                task.thread_id,
-                turn_id,
-                task.task_id,
-                message_id,
-            )
         if turn_id:
             try:
                 persisted = _persist_turn_id_metadata(
@@ -414,6 +434,13 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     turn_id=turn_id,
                 )
                 if not persisted:
+                    logger.warning(
+                        "[chat-worker] completion_turn_metadata_missing thread_id=%s turn_id=%s task_id=%s message_id=%s",
+                        task.thread_id,
+                        turn_id,
+                        task.task_id,
+                        message_id,
+                    )
                     logger.warning(
                         "[chat-worker] turn_id_metadata_persist_failed reason=persist_returned_false thread_id=%s turn_id=%s task_id=%s message_id=%s",
                         task.thread_id,
@@ -503,15 +530,23 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         )
     except Exception as exc:
         duration_ms = int((time.monotonic() - started) * 1000)
+        error_detail = _describe_task_error(exc)
         failure_payload = {
             "run_id": run_id,
             "duration_ms": duration_ms,
-            "error": str(exc),
+            "error": error_detail,
             "error_type": exc.__class__.__name__,
             "thread_id": task.thread_id,
             "origin": task.origin,
             "turn_id": turn_id,
         }
+        runtime_status = _classify_runtime_status(error_detail)
+        if runtime_status:
+            failure_payload["runtime_status"] = runtime_status
+        if task.provider:
+            failure_payload["provider"] = task.provider
+        if task.model:
+            failure_payload["model"] = task.model
         _safe_publish(
             task.task_id,
             "task.failed",

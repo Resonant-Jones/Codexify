@@ -10,6 +10,7 @@ import requests
 from guardian.core.ai_router import (
     _default_model_for_provider,
     _resolve_local_base,
+    describe_local_runtime,
 )
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
@@ -258,7 +259,12 @@ def _fetch_local_models(settings: Settings) -> list[dict[str, Any]]:
             continue
         seen.add(key)
         deduped.append(key)
-    return [_base_model_entry(name) for name in deduped]
+    entries: list[dict[str, Any]] = []
+    for name in deduped:
+        entry = _base_model_entry(name)
+        entry["runtime"] = describe_local_runtime(name, settings=settings)
+        entries.append(entry)
+    return entries
 
 
 def _cloud_models(provider_id: str, settings: Settings) -> list[dict[str, Any]]:
