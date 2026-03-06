@@ -253,6 +253,7 @@ export default function GuardianChatWithSidebar({
     sessionSpine,
     DEFAULT_MODEL_ID
   );
+  const lastSessionSyncTabIdRef = React.useRef<TabId | null>(null);
   const [activeSessionDraftSeed, setActiveSessionDraftSeed] = React.useState("");
   const selectedProjectFilter = React.useMemo(() => {
     if (!selectedProjectId) return null;
@@ -324,14 +325,29 @@ export default function GuardianChatWithSidebar({
   // Sync sessionSpine with active thread - only depends on primitives needed to initiate side effect
   React.useEffect(() => {
     if (!sessionReady || !sessionSpine || !activeSessionTabId) return;
+    const sessionTabChanged = lastSessionSyncTabIdRef.current !== activeSessionTabId;
+    lastSessionSyncTabIdRef.current = activeSessionTabId;
     if (!activeId) return;
+    if (
+      sessionTabChanged &&
+      (activeSessionTab?.threadId ?? null) !== activeId
+    ) {
+      return;
+    }
     const activeThread = threads.find((thread) => thread.id === activeId);
     sessionSpine.tabSetThread(
       activeSessionTabId,
       activeId,
       activeThread?.title || undefined
     );
-  }, [activeId, activeSessionTabId, sessionReady, sessionSpine]);
+  }, [
+    activeId,
+    activeSessionTab?.threadId,
+    activeSessionTabId,
+    sessionReady,
+    sessionSpine,
+    threads,
+  ]);
   React.useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
     const mq = window.matchMedia("(min-width: 1024px)");
