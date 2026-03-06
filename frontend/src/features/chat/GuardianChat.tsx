@@ -15,11 +15,9 @@ import {
 import {
   ChevronRight,
   MoreVertical,
-  Sparkles,
   Layers,
   SquareStack,
   Zap,
-  Plus,
   Volume2,
 } from "lucide-react";
 import { Thread } from "@/types/ui";
@@ -36,7 +34,6 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
-import TraceButton from "./components/TraceButton";
 import SessionRail from "@/components/SessionRail/SessionRail";
 import { ProviderSelect } from "@/components/ProviderSelect";
 import type { SessionTab, TabId } from "@/state/session/types";
@@ -1380,7 +1377,6 @@ export function GuardianChat({
           </div>
         ) : null}
       </div>
-      <TraceButton threadId={effectiveThreadId} />
       <button
         type="button"
         className="icon-inline"
@@ -1409,16 +1405,6 @@ export function GuardianChat({
         }}
       >
         <Volume2 className="h-5 w-5" />
-      </button>
-
-      <button
-        type="button"
-        className="icon-inline"
-        aria-label="Prompt inspiration"
-        onClick={() => console.info("Guardian header settings click – TODO wire actions")}
-        style={{ borderRadius: "var(--radius-micro)" }}
-      >
-        <Sparkles className="h-5 w-5" />
       </button>
       <button
         type="button"
@@ -1812,19 +1798,6 @@ export function GuardianChat({
                 preferredProviderId={resolvedProfile.providerOverride || undefined}
                 cloudProvidersDisabled={cloudProvidersDisabled}
               />
-
-              <button
-                type="button"
-                className="icon-inline"
-                aria-label="Open tools and connectors"
-                title="Tools and connectors"
-                style={{ borderRadius: "var(--radius-micro)" }}
-                onClick={() => {
-                  console.debug("[guardian] tools/connectors launcher clicked");
-                }}
-              >
-                <Plus className="h-4 w-4" />
-              </button>
             </div>
 
             <div className="flex items-center gap-2">

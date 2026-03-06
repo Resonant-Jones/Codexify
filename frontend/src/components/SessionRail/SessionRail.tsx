@@ -1,4 +1,4 @@
-import { Bolt, MoreHorizontal, Plus, X } from "lucide-react";
+import { Bolt, Plus, X } from "lucide-react";
 import React from "react";
 
 import { ProviderSelect } from "@/components/ProviderSelect";
@@ -156,15 +156,6 @@ export function SessionRail({
           style={{ borderRadius: "var(--radius-micro)" }}
         >
           <Plus className="h-5 w-5" />
-        </button>
-        <button
-          type="button"
-          className="icon-inline session-rail__tool-btn"
-          aria-label="Tab overflow"
-          title="More tab actions"
-          style={{ borderRadius: "var(--radius-micro)" }}
-        >
-          <MoreHorizontal className="h-5 w-5" />
         </button>
       </div>
     </div>
