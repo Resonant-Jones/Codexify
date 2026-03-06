@@ -14,8 +14,28 @@ import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 
 const ACCEPTED_ATTACHMENTS =
-  "image/*,application/pdf,text/plain,text/markdown,.md,.txt";
+  [
+    "image/*",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+    "text/markdown",
+    ".docx",
+    ".md",
+    ".txt",
+  ].join(",");
 const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
+
+export type ComposerSendOptions = {
+  threadIdOverride?: number;
+};
+
+type DraftAttachment = {
+  id: string;
+  file: File;
+  kind: "image" | "document";
+  previewUrl?: string;
+};
 
 function inferProjectIdFromLocation(fallback = 1): number {
   if (typeof window === "undefined") return fallback;
@@ -48,6 +68,7 @@ function inferProjectIdFromStorage(): number | null {
 
 export function Composer({
   onSend,
+  ensureThreadIdForAttachments,
   prefill,
   onPrefillConsumed,
   threadId,
@@ -58,7 +79,10 @@ export function Composer({
   draftSyncDebounceMs,
   onDraftValueChange,
 }: {
-  onSend: (t: string) => Promise<void> | void;
+  onSend: (t: string, options?: ComposerSendOptions) => Promise<void> | void;
+  ensureThreadIdForAttachments?: (
+    bodyText: string
+  ) => Promise<number | null>;
   prefill?: string;
   onPrefillConsumed?: () => void;
   threadId?: number;
@@ -99,13 +123,6 @@ export function Composer({
   const effectiveSending = Boolean(isSending) || internalSending;
   const turnLocked = Boolean(isTurnInFlight);
   const actionsDisabled = turnLocked || effectiveSending || uploading;
-
-  type DraftAttachment = {
-    id: string;
-    file: File;
-    kind: "image" | "document";
-    previewUrl?: string;
-  };
 
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -278,19 +295,18 @@ export function Composer({
     });
   }
 
-  async function uploadOneAttachment(att: DraftAttachment): Promise<UploadedAttachment | null> {
+  async function uploadOneAttachment(
+    att: DraftAttachment,
+    uploadThreadId: number
+  ): Promise<UploadedAttachment | null> {
     const file = att.file;
     if (!file) return null;
-    if (typeof threadId !== "number") {
-      showToast("Attachments need an active thread before they can upload.");
-      return null;
-    }
 
     const endpoint =
       att.kind === "image" ? "/api/media/upload/image" : "/api/media/upload/document";
     const form = new FormData();
     form.append("project_id", String(resolveProjectId()));
-    form.append("thread_id", String(threadId));
+    form.append("thread_id", String(uploadThreadId));
     form.append("file", file);
     form.append("tag", "uploaded");
 
@@ -352,9 +368,21 @@ export function Composer({
 
     try {
       let uploaded: UploadedAttachment[] = [];
+      let uploadThreadId = typeof threadId === "number" ? threadId : null;
+
+      if (hasAttachments && uploadThreadId == null) {
+        uploadThreadId = ensureThreadIdForAttachments
+          ? await ensureThreadIdForAttachments(bodyText)
+          : null;
+        if (uploadThreadId == null) {
+          showToast("Attachments need an active thread before they can send.");
+          return;
+        }
+      }
+
       if (hasAttachments) {
         for (const att of draftAttachments) {
-          const result = await uploadOneAttachment(att);
+          const result = await uploadOneAttachment(att, uploadThreadId as number);
           if (result) uploaded.push(result);
         }
       }
@@ -369,7 +397,12 @@ export function Composer({
       }
 
       commitDraftNow(valueRef.current);
-      await onSend(message);
+      await onSend(message, {
+        threadIdOverride:
+          uploadThreadId != null && uploadThreadId !== threadId
+            ? uploadThreadId
+            : undefined,
+      });
 
       // Clear the draft after a successful send.
       setValue("");

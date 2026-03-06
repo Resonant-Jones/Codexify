@@ -285,6 +285,8 @@ def _load_message(message_id: int) -> ChatMessage | None:
     with db.get_session() as session:
         row = session.query(ChatMessage).filter_by(id=message_id).first()
         return row
+
+
 @router.get("/capabilities")
 def voice_capabilities(
     response: Response,
@@ -401,7 +403,6 @@ async def voice_turn(
     completion_model: str | None = Form(None),
     depth_mode: str | None = Form(None),
     system_override: str | None = Form(None),
-    turn_id: str | None = Form(None),
     max_context: int | None = Form(None),
     api_key: str = Depends(require_api_key),
 ):
@@ -459,8 +460,6 @@ async def voice_turn(
     )
     if dedupe_hit:
         return dedupe_hit
-
-    normalized_turn_id = _normalize_turn_id(turn_id)
 
     task = voice_turn_task_cls(
         thread_id=thread_id,
@@ -522,8 +521,6 @@ async def voice_turn(
                 "origin": task.origin,
                 "turn_id": normalized_turn_id,
                 "lock": turn_lock_key(thread_id),
-                "duration_seconds": duration,
-                "turn_id": normalized_turn_id,
                 "duration_seconds": audio_meta.get("duration_seconds"),
                 "sample_rate_hz": audio_meta.get("sample_rate_hz"),
                 "channels": audio_meta.get("channels"),

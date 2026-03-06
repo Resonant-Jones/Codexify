@@ -459,11 +459,32 @@ async def get_thread_documents(
                             ),
                         }
                     )
-                else:
-                    # Document not found - log warning but continue
-                    logger.warning(
-                        f"Document {link.document_id} linked to thread {thread_id} not found"
+                    continue
+
+                uploaded_doc = (
+                    session.query(models.UploadedDocument)
+                    .filter_by(id=link.document_id)
+                    .first()
+                )
+                if uploaded_doc:
+                    documents.append(
+                        {
+                            "id": uploaded_doc.id,
+                            "title": uploaded_doc.filename or uploaded_doc.id,
+                            "relation": link.relation,
+                            "created_at": (
+                                link.created_at.isoformat()
+                                if link.created_at
+                                else None
+                            ),
+                        }
                     )
+                    continue
+
+                # Document not found - log warning but continue
+                logger.warning(
+                    f"Document {link.document_id} linked to thread {thread_id} not found"
+                )
 
             return {"ok": True, "documents": documents}
 

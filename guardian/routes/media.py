@@ -40,6 +40,7 @@ from guardian.db.models import (
     GeneratedDocument,
     GeneratedImage,
     MediaAsset,
+    ThreadDocument,
     TTSOutput,
     UploadedDocument,
     UploadedImage,
@@ -364,6 +365,80 @@ def _find_uploaded_document_for_asset(
         )
         .order_by(UploadedDocument.created_at.desc())
         .first()
+    )
+
+
+def _ensure_thread_document_link(
+    session,
+    *,
+    thread_id: int | None,
+    document_id: str,
+    relation: str = "attached",
+) -> bool:
+    normalized_thread_id = _coerce_optional_positive_int(thread_id)
+    normalized_document_id = str(document_id or "").strip()
+    if normalized_thread_id is None or not normalized_document_id:
+        return False
+
+    existing_link = (
+        session.query(ThreadDocument)
+        .filter_by(
+            thread_id=normalized_thread_id,
+            document_id=normalized_document_id,
+            relation=relation,
+        )
+        .first()
+    )
+    if existing_link is not None:
+        return False
+
+    session.add(
+        ThreadDocument(
+            thread_id=normalized_thread_id,
+            document_id=normalized_document_id,
+            relation=relation,
+        )
+    )
+    return True
+
+
+def _document_upload_response_from_row(
+    document: UploadedDocument,
+    *,
+    fallback_project_id: int,
+    requested_thread_id: int | None,
+) -> DocumentUploadResponse:
+    return DocumentUploadResponse(
+        id=document.id,
+        project_id=int(document.project_id or fallback_project_id),
+        thread_id=(
+            requested_thread_id
+            if requested_thread_id is not None
+            else document.thread_id
+        ),
+        src_url=_signed_src_url(document.src_url),
+        filename=document.filename,
+        filesize=document.filesize,
+        mime_type=document.mime_type,
+        source_tag=document.source_tag,
+        parsed_text=document.parsed_text,
+        embedding_status=document.embedding_status,
+        embedding_error=document.embedding_error,
+        embedding_started_at=(
+            document.embedding_started_at.isoformat()
+            if document.embedding_started_at
+            else None
+        ),
+        embedding_completed_at=(
+            document.embedding_completed_at.isoformat()
+            if document.embedding_completed_at
+            else None
+        ),
+        created_at=(
+            document.created_at.isoformat()
+            if document.created_at
+            else datetime.now(timezone.utc).isoformat()
+        ),
     )
 
 
@@ -820,36 +895,17 @@ async def upload_document(
                 if existing:
                     if not existing.source_tag:
                         existing.source_tag = effective_tag
+                    _ensure_thread_document_link(
+                        session,
+                        thread_id=resolved_thread_id,
+                        document_id=existing.id,
+                        relation="attached",
+                    )
                     session.commit()
-                    return DocumentUploadResponse(
-                        id=existing.id,
-                        project_id=int(
-                            existing.project_id or resolved_project_id
-                        ),
-                        thread_id=existing.thread_id,
-                        src_url=_signed_src_url(existing.src_url),
-                        filename=existing.filename,
-                        filesize=existing.filesize,
-                        mime_type=existing.mime_type,
-                        source_tag=existing.source_tag,
-                        parsed_text=existing.parsed_text,
-                        embedding_status=existing.embedding_status,
-                        embedding_error=existing.embedding_error,
-                        embedding_started_at=(
-                            existing.embedding_started_at.isoformat()
-                            if existing.embedding_started_at
-                            else None
-                        ),
-                        embedding_completed_at=(
-                            existing.embedding_completed_at.isoformat()
-                            if existing.embedding_completed_at
-                            else None
-                        ),
-                        created_at=(
-                            existing.created_at.isoformat()
-                            if existing.created_at
-                            else datetime.now(timezone.utc).isoformat()
-                        ),
+                    return _document_upload_response_from_row(
+                        existing,
+                        fallback_project_id=resolved_project_id,
+                        requested_thread_id=resolved_thread_id,
                     )
 
         canonical_path = f"{identity.storage_prefix}{identity.system_name}"
@@ -936,36 +992,17 @@ async def upload_document(
                     if existing:
                         if not existing.source_tag:
                             existing.source_tag = effective_tag
+                        _ensure_thread_document_link(
+                            session,
+                            thread_id=resolved_thread_id,
+                            document_id=existing.id,
+                            relation="attached",
+                        )
                         session.commit()
-                        return DocumentUploadResponse(
-                            id=existing.id,
-                            project_id=int(
-                                existing.project_id or resolved_project_id
-                            ),
-                            thread_id=existing.thread_id,
-                            src_url=_signed_src_url(existing.src_url),
-                            filename=existing.filename,
-                            filesize=existing.filesize,
-                            mime_type=existing.mime_type,
-                            source_tag=existing.source_tag,
-                            parsed_text=existing.parsed_text,
-                            embedding_status=existing.embedding_status,
-                            embedding_error=existing.embedding_error,
-                            embedding_started_at=(
-                                existing.embedding_started_at.isoformat()
-                                if existing.embedding_started_at
-                                else None
-                            ),
-                            embedding_completed_at=(
-                                existing.embedding_completed_at.isoformat()
-                                if existing.embedding_completed_at
-                                else None
-                            ),
-                            created_at=(
-                                existing.created_at.isoformat()
-                                if existing.created_at
-                                else datetime.now(timezone.utc).isoformat()
-                            ),
+                        return _document_upload_response_from_row(
+                            existing,
+                            fallback_project_id=resolved_project_id,
+                            requested_thread_id=resolved_thread_id,
                         )
                     linked_doc = UploadedDocument(
                         id=doc_id,
@@ -987,6 +1024,12 @@ async def upload_document(
                         embedding_completed_at=embedding_completed_at,
                     )
                     session.add(linked_doc)
+                    _ensure_thread_document_link(
+                        session,
+                        thread_id=resolved_thread_id,
+                        document_id=linked_doc.id,
+                        relation="attached",
+                    )
                     session.commit()
                     src_url = linked_doc.src_url
                     asset_metadata = {
@@ -1038,6 +1081,12 @@ async def upload_document(
                         embedding_completed_at=embedding_completed_at,
                     )
                     session.add(uploaded_doc)
+                    _ensure_thread_document_link(
+                        session,
+                        thread_id=resolved_thread_id,
+                        document_id=uploaded_doc.id,
+                        relation="attached",
+                    )
                     session.commit()
                     asset_metadata = {
                         "asset_id": asset.id,
@@ -1075,36 +1124,17 @@ async def upload_document(
                         session, existing_asset.id
                     )
                     if existing:
+                        _ensure_thread_document_link(
+                            session,
+                            thread_id=resolved_thread_id,
+                            document_id=existing.id,
+                            relation="attached",
+                        )
                         session.commit()
-                        return DocumentUploadResponse(
-                            id=existing.id,
-                            project_id=int(
-                                existing.project_id or resolved_project_id
-                            ),
-                            thread_id=existing.thread_id,
-                            src_url=_signed_src_url(existing.src_url),
-                            filename=existing.filename,
-                            filesize=existing.filesize,
-                            mime_type=existing.mime_type,
-                            source_tag=existing.source_tag,
-                            parsed_text=existing.parsed_text,
-                            embedding_status=existing.embedding_status,
-                            embedding_error=existing.embedding_error,
-                            embedding_started_at=(
-                                existing.embedding_started_at.isoformat()
-                                if existing.embedding_started_at
-                                else None
-                            ),
-                            embedding_completed_at=(
-                                existing.embedding_completed_at.isoformat()
-                                if existing.embedding_completed_at
-                                else None
-                            ),
-                            created_at=(
-                                existing.created_at.isoformat()
-                                if existing.created_at
-                                else datetime.now(timezone.utc).isoformat()
-                            ),
+                        return _document_upload_response_from_row(
+                            existing,
+                            fallback_project_id=resolved_project_id,
+                            requested_thread_id=resolved_thread_id,
                         )
                     linked_doc = UploadedDocument(
                         id=doc_id,
@@ -1126,6 +1156,12 @@ async def upload_document(
                         embedding_completed_at=embedding_completed_at,
                     )
                     session.add(linked_doc)
+                    _ensure_thread_document_link(
+                        session,
+                        thread_id=resolved_thread_id,
+                        document_id=linked_doc.id,
+                        relation="attached",
+                    )
                     session.commit()
                     src_url = linked_doc.src_url
                     asset_metadata = {

@@ -328,6 +328,7 @@ class TestUploadDedupeAndResolve:
 
     @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media.enqueue_document_embed")
+    @patch("guardian.routes.media._ensure_thread_document_link")
     @patch("guardian.routes.media._get_db")
     @patch("guardian.routes.media._create_media_asset")
     @patch("guardian.routes.media._find_uploaded_document_for_asset")
@@ -340,6 +341,7 @@ class TestUploadDedupeAndResolve:
         mock_find_uploaded_doc,
         mock_create_asset,
         mock_get_db,
+        mock_ensure_thread_document_link,
         mock_enqueue_embed,
         mock_storage,
         client,
@@ -394,6 +396,70 @@ class TestUploadDedupeAndResolve:
         assert metadata["provenance"] == "uploaded"
         assert metadata["source_tag"] == "uploaded"
         assert metadata["content_hash"] == "deadbeefcafebabe"
+        _, link_kwargs = mock_ensure_thread_document_link.call_args
+        assert link_kwargs["thread_id"] == 2
+        assert link_kwargs["document_id"] == response.json()["id"]
+        assert link_kwargs["relation"] == "attached"
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media._ensure_thread_document_link")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._find_uploaded_document_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_document_dedupe_links_existing_document_to_requested_thread(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded_doc,
+        mock_get_db,
+        mock_ensure_thread_document_link,
+        mock_storage,
+        client,
+    ):
+        existing_asset = SimpleNamespace(id="asset-doc-existing")
+        identity = SimpleNamespace(
+            storage_prefix="documents/",
+            system_name="20260213-deduped--project-plan.txt",
+        )
+        mock_compute_identity.return_value = (identity, existing_asset)
+
+        existing = MagicMock()
+        existing.id = "doc-existing"
+        existing.project_id = 1
+        existing.thread_id = None
+        existing.src_url = "/media/documents/project-plan.txt"
+        existing.filename = "project-plan.txt"
+        existing.filesize = 11
+        existing.mime_type = "text/plain"
+        existing.source_tag = "uploaded"
+        existing.parsed_text = "hello world"
+        existing.embedding_status = "ready"
+        existing.embedding_error = None
+        existing.embedding_started_at = None
+        existing.embedding_completed_at = None
+        existing.created_at = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        mock_find_uploaded_doc.return_value = existing
+
+        mock_db, _mock_session = _mock_db_with_session()
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/document",
+            data={"project_id": 1, "thread_id": 99, "user_id": "u-1"},
+            files={"file": ("project-plan.txt", b"hello world", "text/plain")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["id"] == "doc-existing"
+        assert payload["thread_id"] == 99
+        mock_storage.upload_file.assert_not_called()
+        _, link_kwargs = mock_ensure_thread_document_link.call_args
+        assert link_kwargs["thread_id"] == 99
+        assert link_kwargs["document_id"] == "doc-existing"
+        assert link_kwargs["relation"] == "attached"
+        mock_ensure_alias.assert_called_once()
 
     @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media.enqueue_document_embed")

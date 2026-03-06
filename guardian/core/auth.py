@@ -34,17 +34,27 @@ def _session_secret() -> bytes:
     """
     Resolve the signing secret for session tokens.
 
-    Preference order:
-    - GUARDIAN_SESSION_SECRET
-    - GUARDIAN_API_KEY
-    - static "dev-secret" fallback (local dev only)
+    In production (DEV_MODE != true), this REQUIRES explicit configuration.
+    In dev mode, falls back to "dev-secret" for local development convenience.
+
+    Set DEV_MODE=true in your local .env for development only.
     """
-    secret = (
-        os.getenv("GUARDIAN_SESSION_SECRET")
-        or os.getenv("GUARDIAN_API_KEY")
-        or "dev-secret"
+    # Check if we're in dev mode
+    dev_mode = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+
+    secret = os.getenv("GUARDIAN_SESSION_SECRET")
+    if secret:
+        return secret.encode("utf-8")
+
+    # Only allow fallback in dev mode
+    if dev_mode:
+        return b"dev-secret"
+
+    # Production: fail fast with clear message
+    raise ValueError(
+        "GUARDIAN_SESSION_SECRET must be set in production. "
+        "Set DEV_MODE=true for local development only."
     )
-    return secret.encode("utf-8")
 
 
 def issue_session_token(

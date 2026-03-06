@@ -69,6 +69,7 @@ class TestGetThreadDocuments:
         mock_models.ChatThread = MagicMock()
         mock_models.ThreadDocument = MagicMock()
         mock_models.GeneratedDocument = MagicMock()
+        mock_models.UploadedDocument = MagicMock()
 
         # Setup query mocking
         doc_index = [0]
@@ -99,6 +100,10 @@ class TestGetThreadDocuments:
 
                 filter_result.first.side_effect = first_side_effect
                 q.filter_by.return_value = filter_result
+                return q
+            elif model == mock_models.UploadedDocument:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = None
                 return q
             return MagicMock()
 
@@ -188,6 +193,72 @@ class TestGetThreadDocuments:
         assert exc_info.value.status_code == 404
         assert "Thread 999 not found" in exc_info.value.detail
 
+    @patch("guardian.routes.documents.models")
+    def test_get_documents_resolves_uploaded_documents(
+        self, mock_models, mock_db
+    ):
+        mock_session = MagicMock()
+        mock_db.get_session.return_value.__enter__.return_value = mock_session
+
+        mock_thread = MagicMock()
+        mock_thread.id = 1
+
+        now = datetime.now()
+        mock_link = MagicMock()
+        mock_link.document_id = "upload-1"
+        mock_link.relation = "attached"
+        mock_link.created_at = now
+
+        mock_uploaded_doc = MagicMock()
+        mock_uploaded_doc.id = "upload-1"
+        mock_uploaded_doc.filename = "requirements.pdf"
+
+        mock_models.ChatThread = MagicMock()
+        mock_models.ThreadDocument = MagicMock()
+        mock_models.GeneratedDocument = MagicMock()
+        mock_models.UploadedDocument = MagicMock()
+
+        def query_side_effect(model):
+            if model == mock_models.ChatThread:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = mock_thread
+                return q
+            if model == mock_models.ThreadDocument:
+                q = MagicMock()
+                filtered = MagicMock()
+                filtered.order_by.return_value.all.return_value = [mock_link]
+                q.filter_by.return_value = filtered
+                return q
+            if model == mock_models.GeneratedDocument:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = None
+                return q
+            if model == mock_models.UploadedDocument:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = mock_uploaded_doc
+                return q
+            return MagicMock()
+
+        mock_session.query.side_effect = query_side_effect
+
+        documents.configure_db(mock_db)
+
+        import asyncio
+
+        from guardian.routes.documents import get_thread_documents
+
+        result = asyncio.run(get_thread_documents(1))
+
+        assert result["ok"] is True
+        assert result["documents"] == [
+            {
+                "id": "upload-1",
+                "title": "requirements.pdf",
+                "relation": "attached",
+                "created_at": now.isoformat(),
+            }
+        ]
+
 
 class TestMultipleDocumentsPerThread:
     """Tests for threads with multiple linked documents."""
@@ -252,6 +323,10 @@ class TestMultipleDocumentsPerThread:
 
                 filter_result.first.side_effect = first_side_effect
                 q.filter_by.return_value = filter_result
+                return q
+            elif model == mock_models.UploadedDocument:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = None
                 return q
             return MagicMock()
 
@@ -350,6 +425,10 @@ class TestDocumentOrdering:
                 filter_result.first.side_effect = first_side_effect
                 q.filter_by.return_value = filter_result
                 return q
+            elif model == mock_models.UploadedDocument:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = None
+                return q
             return MagicMock()
 
         mock_session.query.side_effect = query_side_effect
@@ -412,6 +491,7 @@ class TestGracefulDegradation:
         mock_models.ChatThread = MagicMock()
         mock_models.ThreadDocument = MagicMock()
         mock_models.GeneratedDocument = MagicMock()
+        mock_models.UploadedDocument = MagicMock()
 
         def query_side_effect(model):
             if model == mock_models.ChatThread:
@@ -441,6 +521,10 @@ class TestGracefulDegradation:
 
                 filter_result.first.side_effect = first_side_effect
                 q.filter_by.return_value = filter_result
+                return q
+            elif model == mock_models.UploadedDocument:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = None
                 return q
             return MagicMock()
 
