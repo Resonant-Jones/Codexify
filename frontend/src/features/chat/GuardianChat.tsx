@@ -30,10 +30,12 @@ import api, {
   clearInFlightCompletionTurnId,
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
+import { isRagTraceUIEnabled } from "@/lib/devFlags";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
+import RAGTracePanel from "./panels/RAGTracePanel";
 import SessionRail from "@/components/SessionRail/SessionRail";
 import { ProviderSelect } from "@/components/ProviderSelect";
 import type { SessionTab, TabId } from "@/state/session/types";
@@ -296,6 +298,7 @@ export function GuardianChat({
 }) {
   // RAG depth selector: User's control of perceptual awareness
   const [depth, setDepth] = useState<DepthMode>("normal");
+  const [ragTraceOpen, setRagTraceOpen] = useState(false);
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
   // Chat state management including completion tracking
@@ -1276,6 +1279,7 @@ export function GuardianChat({
     promptCostSummary?.threshold?.status ?? "unknown";
   const showPromptCostDot =
     promptCostStatus === "warn" || promptCostStatus === "hard";
+  const ragTraceUiEnabled = isRagTraceUIEnabled();
 
   const headerActions = (
     <div className="flex items-center gap-1">
@@ -1562,6 +1566,19 @@ export function GuardianChat({
           >
             Switch profile…
           </DropdownMenuItem>
+          {ragTraceUiEnabled ? (
+            <DropdownMenuItem
+              onClick={() => {
+                if (effectiveThreadId == null) {
+                  alert("Thread is not persisted yet");
+                  return;
+                }
+                setRagTraceOpen(true);
+              }}
+            >
+              View RAG Trace
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -1891,19 +1908,31 @@ export function GuardianChat({
         <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
           {body}
         </div>
+        <RAGTracePanel
+          open={ragTraceOpen}
+          onOpenChange={setRagTraceOpen}
+          threadId={effectiveThreadId}
+        />
       </>
     );
   }
 
   return (
-    <FrameCard
-      className="flex-1 min-h-0 min-w-0 flex flex-col h-full"
-      hoverPop
-    >
-      <div className="relative flex flex-col w-full h-full">
-        {body}
-      </div>
-    </FrameCard>
+    <>
+      <FrameCard
+        className="flex-1 min-h-0 min-w-0 flex flex-col h-full"
+        hoverPop
+      >
+        <div className="relative flex flex-col w-full h-full">
+          {body}
+        </div>
+      </FrameCard>
+      <RAGTracePanel
+        open={ragTraceOpen}
+        onOpenChange={setRagTraceOpen}
+        threadId={effectiveThreadId}
+      />
+    </>
   );
 }
 
