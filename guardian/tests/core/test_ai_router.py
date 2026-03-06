@@ -269,8 +269,8 @@ def test_call_local_injects_qwen_no_think_instruction(monkeypatch):
     )
 
     assert reply == "ok"
-    assert calls["json"]["messages"][-1]["role"] == "system"
-    assert "/no_think" in calls["json"]["messages"][-1]["content"]
+    assert calls["json"]["messages"][-1]["role"] == "user"
+    assert calls["json"]["messages"][-1]["content"].endswith("/no_think")
 
 
 def test_call_local_injects_qwen_3_5_no_think_instruction(monkeypatch):
@@ -295,8 +295,35 @@ def test_call_local_injects_qwen_3_5_no_think_instruction(monkeypatch):
     )
 
     assert reply == "ok"
-    assert calls["json"]["messages"][-1]["role"] == "system"
-    assert "/no_think" in calls["json"]["messages"][-1]["content"]
+    assert calls["json"]["messages"][-1]["role"] == "user"
+    assert calls["json"]["messages"][-1]["content"].endswith("/no_think")
+
+
+def test_call_local_respects_explicit_qwen_think_instruction(monkeypatch):
+    calls = {}
+
+    def fake_post(url, json, headers, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        _ = (headers, timeout)
+        return _FakeResponse({"message": {"content": "ok"}})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("local")
+    settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+
+    reply = chat_with_ai(
+        [{"role": "user", "content": "hello\n\n/think"}],
+        provider="local",
+        model="qwen3.5:4b",
+        settings=settings,
+    )
+
+    assert reply == "ok"
+    assert calls["json"]["messages"] == [
+        {"role": "user", "content": "hello\n\n/think"}
+    ]
 
 
 def test_stream_local_skips_no_think_for_fixed_mode_qwen_release(monkeypatch):
