@@ -9,9 +9,11 @@ import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message } from "@/types/ui";
+import { DocumentLike } from "@/types/documents";
 import api from "@/lib/api";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
+import WorkspacePane from "@/features/workspace/WorkspacePane";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import useImprintZero from "@/imprint/useImprintZero";
 import ImprintZeroToast from "@/imprint/ImprintZeroToast";
@@ -114,8 +116,29 @@ function getOrCreateDeviceId(): string {
   return generated;
 }
 
+type GuardianChatWithSidebarProps = {
+  guardianName: string;
+  userName: string;
+  prefill?: string;
+  onPrefillConsumed?: () => void;
+  onWorkspaceToggle?: () => void;
+  workspaceOpen?: boolean;
+  activeWorkspaceDoc?: DocumentLike | null;
+  onWorkspaceClose?: () => void;
+  onWorkspaceOpenInThread?: (doc: DocumentLike | null) => void;
+};
 
-export default function GuardianChatWithSidebar({ guardianName, userName, prefill, onPrefillConsumed, onWorkspaceToggle }) {
+export default function GuardianChatWithSidebar({
+  guardianName,
+  userName,
+  prefill,
+  onPrefillConsumed,
+  onWorkspaceToggle,
+  workspaceOpen = false,
+  activeWorkspaceDoc = null,
+  onWorkspaceClose,
+  onWorkspaceOpenInThread,
+}: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
     if (typeof window === "undefined") return true;
@@ -136,7 +159,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       localStorage.setItem("cfy.sidebarVisible", String(isSidebarVisible));
     } catch { /* ignore */ }
   }, [isSidebarVisible]);
-  const [showWorkspacePanel, setShowWorkspacePanel] = React.useState(false);
   const [isDesktopLayout, setIsDesktopLayout] = React.useState(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
     return window.matchMedia("(min-width: 1024px)").matches;
@@ -310,15 +332,6 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
       activeThread?.title || undefined
     );
   }, [activeId, activeSessionTabId, sessionReady, sessionSpine]);
-  // Workspace panel toggle event listener
-  React.useEffect(() => {
-    const onToggleWorkspace = () => {
-      setShowWorkspacePanel(prev => !prev);
-    };
-    window.addEventListener('cfy:workspace:toggleWorkspacePanel', onToggleWorkspace);
-    return () => window.removeEventListener('cfy:workspace:toggleWorkspacePanel', onToggleWorkspace);
-  }, []);
-
   React.useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
     const mq = window.matchMedia("(min-width: 1024px)");
@@ -1283,16 +1296,23 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   Authentication required. Please sign in or set a dev key.
                 </div>
               )}
-              {showWorkspacePanel && (
+              {workspaceOpen && (
                 <div className="absolute inset-0 z-[110] pointer-events-auto">
                   <div className="absolute right-0 top-0 h-full w-[min(420px,90vw)] bg-black/50 backdrop-blur-md border-l border-white/10 shadow-2xl overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
                       <div className="text-sm font-semibold text-white">Workspace</div>
-                      <button onClick={() => setShowWorkspacePanel(false)} className="text-white/70 hover:text-white">×</button>
+                      <button
+                        onClick={onWorkspaceClose}
+                        className="text-white/70 hover:text-white"
+                      >
+                        ×
+                      </button>
                     </div>
-                    <div className="p-4 text-white text-xs overflow-auto h-[calc(100%-42px)]">
-                      <p>Workspace tools coming soon…</p>
-                      <p>Prompt Library, Notes, File Viewer, Context Inspector, etc.</p>
+                    <div className="h-[calc(100%-42px)] overflow-auto">
+                      <WorkspacePane
+                        activeDoc={activeWorkspaceDoc}
+                        onOpenInThread={onWorkspaceOpenInThread}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1304,6 +1324,7 @@ export default function GuardianChatWithSidebar({ guardianName, userName, prefil
                   prefill={prefill}
                   onPrefillConsumed={onPrefillConsumed}
                   onWorkspaceToggle={onWorkspaceToggle}
+                  workspaceOpen={workspaceOpen}
                   activeThread={activeThread}
                   onSendMessage={handleSendMessage}
                   onThreadPersisted={handleDraftThreadPersisted}

@@ -248,6 +248,7 @@ export function GuardianChat({
   prefill,
   onPrefillConsumed,
   onWorkspaceToggle,
+  workspaceOpen = false,
   activeThread,
   onSendMessage,
   onThreadPersisted,
@@ -272,6 +273,7 @@ export function GuardianChat({
   prefill?: string;
   onPrefillConsumed?: () => void;
   onWorkspaceToggle?: () => void;
+  workspaceOpen?: boolean;
   activeThread: Thread;
   onSendMessage: (text: string) => Promise<void>;
   onThreadPersisted?: (threadId: number, title?: string) => void;
@@ -1410,8 +1412,15 @@ export function GuardianChat({
         type="button"
         className="icon-inline"
         aria-label="Toggle workspace"
+        aria-pressed={workspaceOpen}
         onClick={onWorkspaceToggle}
-        style={{ borderRadius: "var(--radius-micro)" }}
+        style={{
+          borderRadius: "var(--radius-micro)",
+          opacity: workspaceOpen ? 1 : 0.72,
+          background: workspaceOpen
+            ? "color-mix(in oklab, var(--panel-bg), var(--accent) 18%)"
+            : "transparent",
+        }}
       >
         <SquareStack className="h-5 w-5" />
       </button>
