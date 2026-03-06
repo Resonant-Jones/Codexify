@@ -41,7 +41,7 @@ export default function RAGTracePanel({
             <button
               onClick={() => fetchTrace()}
               disabled={loading}
-              className="p-1 rounded hover:bg-black/10 disabled:opacity-50 transition"
+              className="icon-inline h-8 w-8 p-0 disabled:opacity-50"
               title="Refresh trace"
             >
               <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
@@ -53,29 +53,52 @@ export default function RAGTracePanel({
           {/* Loading State */}
           {loading && (
             <div className="space-y-3">
-              <div className="h-4 bg-gray-300 rounded animate-pulse w-32" />
+              <div
+                className="h-4 w-32 animate-pulse rounded"
+                style={{ background: "var(--surface-hover)" }}
+              />
               <div className="space-y-2">
-                <div className="h-3 bg-gray-300 rounded animate-pulse" />
-                <div className="h-3 bg-gray-300 rounded animate-pulse w-5/6" />
+                <div
+                  className="h-3 animate-pulse rounded"
+                  style={{ background: "var(--surface-hover)" }}
+                />
+                <div
+                  className="h-3 w-5/6 animate-pulse rounded"
+                  style={{ background: "var(--surface-hover)" }}
+                />
               </div>
             </div>
           )}
 
           {/* Error State */}
           {error && !loading && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex gap-2">
-              <AlertCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-red-700">{error}</div>
+            <div
+              className="flex gap-2 rounded-lg border p-3"
+              style={{
+                background: "var(--danger-surface)",
+                borderColor: "var(--danger-border)",
+                color: "var(--danger-text)",
+              }}
+            >
+              <AlertCircle
+                size={16}
+                className="mt-0.5 shrink-0"
+                style={{ color: "var(--danger-text)" }}
+              />
+              <div className="text-sm">{error}</div>
             </div>
           )}
 
           {/* No Trace State */}
           {!trace && !error && !loading && (
             <div className="text-center py-8">
-              <p className="text-sm text-gray-500">
+              <p className="text-sm" style={{ color: "var(--muted)" }}>
                 No RAG trace yet for this thread.
               </p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p
+                className="mt-1 text-xs"
+                style={{ color: "var(--text-subtle)" }}
+              >
                 Run a completion to generate a trace.
               </p>
             </div>
@@ -112,7 +135,9 @@ export default function RAGTracePanel({
             trace.graph &&
             trace.graph.length === 0 && (
               <div className="text-center py-8">
-                <p className="text-sm text-gray-500">No documents or graph nodes retrieved.</p>
+                <p className="text-sm" style={{ color: "var(--muted)" }}>
+                  No documents or graph nodes retrieved.
+                </p>
               </div>
             )}
         </div>
@@ -124,26 +149,33 @@ export default function RAGTracePanel({
 function DocumentCard({ doc }: { doc: RagDocument }) {
   return (
     <div
-      className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
+      className="rounded-lg border p-3 transition"
       style={{
-        borderColor: "var(--panel-border, #e5e7eb)",
-        backgroundColor: "var(--panel-bg, #f9fafb)",
+        borderColor: "var(--panel-border)",
+        backgroundColor: "var(--panel-sheet, var(--panel-bg))",
+        color: "var(--text)",
       }}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-medium truncate text-gray-900">
-            {doc.title}
-          </h4>
+          <h4 className="truncate text-sm font-medium">{doc.title}</h4>
         </div>
         {doc.score !== undefined && (
-          <div className="text-xs font-semibold px-2 py-1 rounded-full bg-blue-100 text-blue-700 flex-shrink-0">
+          <div
+            className="shrink-0 rounded-full px-2 py-1 text-xs font-semibold"
+            style={{
+              background: "var(--info-surface)",
+              color: "var(--info-text)",
+            }}
+          >
             {(doc.score * 100).toFixed(0)}%
           </div>
         )}
       </div>
       {doc.snippet && (
-        <p className="text-xs text-gray-600 line-clamp-2">{doc.snippet}</p>
+        <p className="line-clamp-2 text-xs" style={{ color: "var(--muted)" }}>
+          {doc.snippet}
+        </p>
       )}
     </div>
   );
@@ -152,19 +184,28 @@ function DocumentCard({ doc }: { doc: RagDocument }) {
 function GraphNodeCard({ node }: { node: RagGraphNode }) {
   return (
     <div
-      className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
+      className="rounded-lg border p-3 transition"
       style={{
-        borderColor: "var(--panel-border, #e5e7eb)",
-        backgroundColor: "var(--panel-bg, #f9fafb)",
+        borderColor: "var(--panel-border)",
+        backgroundColor: "var(--panel-sheet, var(--panel-bg))",
+        color: "var(--text)",
       }}
     >
       <div className="flex items-start gap-2 mb-2">
-        <div className="text-xs font-semibold px-2 py-1 rounded-full bg-purple-100 text-purple-700 flex-shrink-0">
+        <div
+          className="shrink-0 rounded-full px-2 py-1 text-xs font-semibold"
+          style={{
+            background: "var(--tag-surface)",
+            color: "var(--tag-text)",
+          }}
+        >
           {node.kind}
         </div>
       </div>
       {node.text && (
-        <p className="text-xs text-gray-600 line-clamp-3">{node.text}</p>
+        <p className="line-clamp-3 text-xs" style={{ color: "var(--muted)" }}>
+          {node.text}
+        </p>
       )}
     </div>
   );

@@ -24,7 +24,7 @@ export default function TraceButton({ threadId }: TraceButtonProps) {
       <button
         onClick={() => setShowPanel(true)}
         title="Open RAG Trace debug panel"
-        className="p-2 rounded hover:bg-black/10 transition text-gray-600 hover:text-gray-900"
+        className="icon-inline opacity-80 transition hover:opacity-100"
       >
         <Zap size={18} />
       </button>
