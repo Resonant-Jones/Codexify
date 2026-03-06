@@ -144,6 +144,7 @@ def health_llm():
     from guardian.core.ai_router import (
         _default_model_for_provider,
         _resolve_local_base,
+        describe_local_runtime,
     )
     from guardian.core.config import (
         LLMConfigError,
@@ -155,7 +156,12 @@ def health_llm():
     provider = _normalize_health_provider(settings.LLM_PROVIDER or "local")
     model = _default_model_for_provider(provider, settings)
 
-    payload = {"provider": provider, "model": model}
+    payload = {
+        "provider": provider,
+        "model": model,
+    }
+    if provider == "local" and model:
+        payload["runtime"] = describe_local_runtime(model, settings=settings)
 
     try:
         validate_llm_config(settings, provider_override=provider)

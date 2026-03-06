@@ -241,6 +241,26 @@ class Settings(BaseSettings):
         default=60,
         description="Timeout for individual LLM completion requests (seconds).",
     )
+    LOCAL_REQUEST_CONNECT_TIMEOUT_SECONDS: float = Field(
+        default=10.0,
+        description=(
+            "Connect timeout for local model requests in seconds. Kept short so "
+            "unreachable local runtimes fail quickly even when read timeouts are extended."
+        ),
+    )
+    LOCAL_EXTENDED_THINKING_TIMEOUT_SECONDS: float = Field(
+        default=300.0,
+        description=(
+            "Read timeout for local long-thinking models such as Qwen 3.x/QwQ, in seconds."
+        ),
+    )
+    LOCAL_EXTENDED_THINKING_MODEL_PATTERNS: str = Field(
+        default="qwen3,qwen-3,qwen 3,qwq",
+        description=(
+            "Comma-separated substrings used to classify local models that may spend "
+            "multiple minutes reasoning before emitting tokens."
+        ),
+    )
     EMBEDDING_REQUEST_TIMEOUT_SECONDS: int = Field(
         default=30,
         description="Timeout for individual embedding requests (seconds).",
