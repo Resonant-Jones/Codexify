@@ -1297,6 +1297,12 @@ export default function AppShell({}: PropsWithChildren) {
     const displayName = doc.ext ? `${doc.title}.${doc.ext}` : doc.title;
     setPrefill(`Let's review "${displayName}".`);
   };
+  const toggleWorkspace = useCallback(() => {
+    setWorkspaceOpen((prev) => !prev);
+  }, []);
+  const closeWorkspace = useCallback(() => {
+    setWorkspaceOpen(false);
+  }, []);
   const openDocFromWorkspace = (doc: DocumentLike | null) => {
     if (!doc) return;
     openDocInThread(doc);
@@ -1654,7 +1660,7 @@ export default function AppShell({}: PropsWithChildren) {
                   >
                     <div className="relative h-full w-full min-h-0 overflow-hidden">
                       <button
-                        onClick={() => setWorkspaceOpen(false)}
+                        onClick={closeWorkspace}
                         className="absolute top-2 right-2 z-10 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
                         style={{
                           borderColor: "var(--panel-border)",
@@ -1756,7 +1762,11 @@ export default function AppShell({}: PropsWithChildren) {
                   userName={userName}
                   prefill={prefill}
                   onPrefillConsumed={() => setPrefill(undefined)}
-                  onWorkspaceToggle={() => setWorkspaceOpen(!workspaceOpen)}
+                  onWorkspaceToggle={toggleWorkspace}
+                  workspaceOpen={workspaceOpen}
+                  activeWorkspaceDoc={activeDoc}
+                  onWorkspaceClose={closeWorkspace}
+                  onWorkspaceOpenInThread={openDocFromWorkspace}
                 />
               </ErrorBoundary>
             </div>
@@ -1828,7 +1838,7 @@ export default function AppShell({}: PropsWithChildren) {
                             className="relative h-full w-full min-h-0 overflow-hidden"
                           >
                             <button
-                              onClick={() => setWorkspaceOpen(false)}
+                              onClick={closeWorkspace}
                               className="absolute top-2 right-2 z-10 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
                               style={{
                                 borderColor: "var(--panel-border)",
