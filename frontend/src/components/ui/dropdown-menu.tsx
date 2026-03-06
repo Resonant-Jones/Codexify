@@ -65,6 +65,8 @@ export const DropdownMenuTrigger = ({
 
     return React.cloneElement(child, {
       ...props,
+      "aria-expanded": ctx.open,
+      "aria-haspopup": "menu",
       onClick: (event: React.MouseEvent<HTMLElement>) => {
         childOnClick?.(event);
         onClick?.(event as unknown as React.MouseEvent<HTMLButtonElement>);
@@ -78,6 +80,8 @@ export const DropdownMenuTrigger = ({
   return (
     <button
       type="button"
+      aria-expanded={ctx.open}
+      aria-haspopup="menu"
       onClick={(event) => {
         onClick?.(event);
         if (event.defaultPrevented) return;
@@ -127,8 +131,17 @@ export const DropdownMenuContent = ({
         ctx.setOpen(false);
       }
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        ctx.setOpen(false);
+      }
+    };
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [ctx]);
 
   if (!ctx.open) return null;
@@ -153,6 +166,7 @@ export const DropdownMenuContent = ({
   return (
     <div
       data-ddm-root
+      role="menu"
       className={
         "absolute z-50 min-w-40 rounded-md border bg-[var(--panel-bg)] p-1 shadow-lg " +
         (className ? " " + className : "")
@@ -170,6 +184,7 @@ export const DropdownMenuItem = ({
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
   <button
+    role="menuitem"
     className={
       "w-full rounded-md px-3 py-2 text-left text-sm hover:bg-[color-mix(in_oklab,var(--panel-bg),black_10%)] " +
       (className || "")

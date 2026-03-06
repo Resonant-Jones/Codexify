@@ -2,6 +2,7 @@ import {
   getPreferredProviderSelection,
   type ProviderModelSelection,
 } from "@/lib/providerPref";
+import type { ComposerInferenceMode } from "@/types/inference";
 
 const KNOWN_PROVIDER_IDS = new Set([
   "local",
@@ -20,6 +21,13 @@ function normalizeValue(value: unknown): string | undefined {
 type ProviderModelPayload = {
   provider?: string;
   model?: string;
+};
+
+type ChatCompletionSelection = {
+  providerId?: string | null;
+  modelId?: string | null;
+  reasoningMode?: ComposerInferenceMode;
+  preferredSelection?: ProviderModelSelection | null;
 };
 
 function resolveProviderModelPayload(
@@ -45,15 +53,47 @@ function resolveProviderModelPayload(
 
 export function buildChatCompletionPayload(
   depthMode: string,
-  activeModelId: string,
+  selectionOrModelId: string | ChatCompletionSelection,
   preferredSelection?: ProviderModelSelection | null
-): { depth_mode: string; provider?: string; model?: string } {
+): {
+  depth_mode: string;
+  provider?: string;
+  model?: string;
+  reasoning_mode?: ComposerInferenceMode;
+} {
+  const selection =
+    typeof selectionOrModelId === "string"
+      ? null
+      : selectionOrModelId;
   const persistedSelection =
-    preferredSelection !== undefined
-      ? preferredSelection
-      : getPreferredProviderSelection();
+    selection?.preferredSelection !== undefined
+      ? selection.preferredSelection
+      : preferredSelection !== undefined
+        ? preferredSelection
+        : getPreferredProviderSelection();
+  const explicitProvider = normalizeValue(selection?.providerId);
+  const explicitModel = normalizeValue(selection?.modelId);
+  const providerModelPayload =
+    explicitProvider || explicitModel
+      ? {
+          ...(explicitProvider ? { provider: explicitProvider } : {}),
+          ...(explicitModel && explicitModel !== "default"
+            ? { model: explicitModel }
+            : {}),
+        }
+      : resolveProviderModelPayload(
+          typeof selectionOrModelId === "string"
+            ? selectionOrModelId
+            : selection?.modelId || "default",
+          persistedSelection
+        );
+
+  const reasoningMode = selection?.reasoningMode;
   return {
     depth_mode: depthMode,
-    ...resolveProviderModelPayload(activeModelId, persistedSelection),
+    ...providerModelPayload,
+    ...(reasoningMode && reasoningMode !== "default"
+      ? { reasoning_mode: reasoningMode }
+      : {}),
   };
 }

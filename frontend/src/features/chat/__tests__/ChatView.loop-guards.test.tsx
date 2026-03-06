@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatView from "@/features/chat/ChatView";
@@ -749,7 +750,8 @@ describe("ChatView loop guards", () => {
     await waitFor(() => {
       expect(apiPostMock).toHaveBeenCalledTimes(1);
     });
-    expect(await screen.findByRole("button", { name: "Audio unavailable" })).toBeDisabled();
+    const audioUnavailableButton = await screen.findByRole("button", { name: "Audio unavailable" });
+    expect(audioUnavailableButton).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Audio unavailable" }));
     expect(apiPostMock).toHaveBeenCalledTimes(1);

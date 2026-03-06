@@ -15,7 +15,6 @@ import {
 import {
   ChevronRight,
   MoreVertical,
-  Layers,
   SquareStack,
   Zap,
   Volume2,
@@ -37,12 +36,19 @@ import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import RAGTracePanel from "./panels/RAGTracePanel";
 import SessionRail from "@/components/SessionRail/SessionRail";
-import { ProviderSelect } from "@/components/ProviderSelect";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
 import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
+import { useLlmCatalog } from "@/features/chat/hooks/useLlmCatalog";
+import { useInferenceRequestState } from "@/features/chat/hooks/useInferenceRequestState";
+import {
+  createIdleInferenceRequestState,
+  DEFAULT_COMPOSER_INFERENCE_MODE,
+  type ComposerInferenceMode,
+} from "@/types/inference";
+import { setPreferredProviderSelection } from "@/lib/providerPref";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -59,7 +65,6 @@ const NEW_THREAD_TITLE = "New Thread";
  * - diagnostic: System introspection, sensors, trace-level visibility
  */
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
-type PromptCostPopoverSection = "cost" | "providers";
 
 type LlmHealthStatus = "unknown" | "online" | "offline" | "misconfigured";
 
@@ -262,12 +267,16 @@ export function GuardianChat({
   bare = false,
   sessionTabs = [],
   activeSessionTabId = null,
+  activeProviderId = null,
   activeModelId = "default",
+  activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   activeDraft = "",
   onSessionTabActivate,
   onSessionTabClose,
   onSessionTabOpen,
+  onSessionProviderChange,
   onSessionModelChange,
+  onSessionInferenceModeChange,
   onSessionDraftChange,
 }: {
   guardianName: string;
@@ -288,12 +297,16 @@ export function GuardianChat({
   bare?: boolean;
   sessionTabs?: SessionTab[];
   activeSessionTabId?: TabId | null;
+  activeProviderId?: string | null;
   activeModelId?: string;
+  activeInferenceMode?: ComposerInferenceMode;
   activeDraft?: string;
   onSessionTabActivate?: (tabId: TabId) => void;
   onSessionTabClose?: (tabId: TabId) => void;
   onSessionTabOpen?: () => void;
+  onSessionProviderChange?: (providerId: string | null) => void;
   onSessionModelChange?: (modelId: string) => void;
+  onSessionInferenceModeChange?: (mode: ComposerInferenceMode) => void;
   onSessionDraftChange?: (text: string) => void;
 }) {
   // RAG depth selector: User's control of perceptual awareness
@@ -310,6 +323,13 @@ export function GuardianChat({
     isCompletionInFlight,
     setCompletionInFlight,
   } = useChat();
+  const inferenceRequest = useInferenceRequestState();
+  const {
+    providers: catalogProviders,
+    getProviderById,
+    getModelById,
+    findProviderForModel,
+  } = useLlmCatalog();
   const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
   const [pendingTurnLock, setPendingTurnLock] = useState(false);
   const lastCompletionThreadRef = useRef<number | null>(null);
@@ -317,6 +337,11 @@ export function GuardianChat({
   const traceEndpointRef = useRef<Record<number, string>>({});
   const traceFetchInflightRef = useRef<Record<number, boolean>>({});
   const activeThreadRef = useRef<Thread>(activeThread);
+  const pendingFastRetryRef = useRef<{
+    threadId: number;
+    providerId: string | null;
+    modelId: string | null;
+  } | null>(null);
 
   useEffect(() => {
     activeThreadRef.current = activeThread;
@@ -372,8 +397,6 @@ export function GuardianChat({
   const [profileSwitching, setProfileSwitching] = useState(false);
   const [promptCostSummary, setPromptCostSummary] = useState<SystemPromptSummary | null>(null);
   const [promptCostPopoverOpen, setPromptCostPopoverOpen] = useState(false);
-  const [promptCostPopoverSection, setPromptCostPopoverSection] =
-    useState<PromptCostPopoverSection>("cost");
   const [providerMenuOpenSignal, setProviderMenuOpenSignal] = useState(0);
   const promptCostPopoverRef = useRef<HTMLDivElement | null>(null);
   const showToast = useCallback((message: string) => {
@@ -392,6 +415,129 @@ export function GuardianChat({
     [supportedVoiceInputMime]
   );
   const voiceUploadLimitBytes = voiceCapabilities.limits?.max_upload_bytes ?? null;
+
+  const selectedProvider = useMemo(() => {
+    const explicitProvider = getProviderById(activeProviderId);
+    if (explicitProvider) return explicitProvider;
+    const providerFromModel = findProviderForModel(activeModelId);
+    if (providerFromModel) return providerFromModel;
+    return catalogProviders[0] ?? null;
+  }, [
+    activeModelId,
+    activeProviderId,
+    catalogProviders,
+    findProviderForModel,
+    getProviderById,
+  ]);
+
+  const selectedModel = useMemo(() => {
+    if (selectedProvider?.models?.length) {
+      return (
+        selectedProvider.models.find((model) => model.id === activeModelId) ??
+        selectedProvider.models[0] ??
+        null
+      );
+    }
+    return getModelById(activeModelId);
+  }, [activeModelId, getModelById, selectedProvider]);
+
+  const providerOptions = useMemo(
+    () =>
+      catalogProviders.map((provider) => ({
+        value: provider.id,
+        label: provider.displayName,
+        description: provider.available
+          ? `${provider.models.length} models`
+          : provider.disabledReason || "Unavailable",
+        disabled: !provider.available,
+      })),
+    [catalogProviders]
+  );
+
+  const modelOptions = useMemo(
+    () =>
+      (selectedProvider?.models ?? []).map((model) => ({
+        value: model.id,
+        label: model.displayName,
+        description:
+          model.runtime?.reasoning?.profileReason ??
+          (selectedProvider?.displayName
+            ? `${selectedProvider.displayName} model`
+            : undefined),
+        meta:
+          typeof model.contextWindow === "number"
+            ? `${Math.round(model.contextWindow / 1000)}k`
+            : null,
+      })),
+    [selectedProvider]
+  );
+
+  const supportsManualInferenceMode = useMemo(() => {
+    if (!selectedProvider || !selectedModel) return false;
+    if (selectedProvider.id !== "local") return false;
+    return Boolean(selectedModel.runtime?.reasoning?.mode) || /qwen|qwq/i.test(selectedModel.id);
+  }, [selectedModel, selectedProvider]);
+
+  const effectiveInferenceMode = supportsManualInferenceMode
+    ? activeInferenceMode
+    : DEFAULT_COMPOSER_INFERENCE_MODE;
+
+  const inferenceModeOptions = useMemo(() => {
+    const base = [
+      {
+        value: "default",
+        label: "Auto",
+        description: "Use the model's default runtime behavior.",
+      },
+    ];
+    if (!supportsManualInferenceMode) return base;
+    return [
+      ...base,
+      {
+        value: "no_think",
+        label: "Fast",
+        description: "Prefer immediate responses without extended reasoning.",
+      },
+      {
+        value: "think",
+        label: "Think",
+        description: "Allow a longer reasoning pass before output begins.",
+      },
+    ];
+  }, [supportsManualInferenceMode]);
+
+  useEffect(() => {
+    if (selectedProvider && activeProviderId !== selectedProvider.id) {
+      onSessionProviderChange?.(selectedProvider.id);
+    }
+  }, [activeProviderId, onSessionProviderChange, selectedProvider]);
+
+  useEffect(() => {
+    if (selectedModel && activeModelId !== selectedModel.id) {
+      onSessionModelChange?.(selectedModel.id);
+    }
+  }, [activeModelId, onSessionModelChange, selectedModel]);
+
+  useEffect(() => {
+    if (
+      !supportsManualInferenceMode &&
+      activeInferenceMode !== DEFAULT_COMPOSER_INFERENCE_MODE
+    ) {
+      onSessionInferenceModeChange?.(DEFAULT_COMPOSER_INFERENCE_MODE);
+    }
+  }, [
+    activeInferenceMode,
+    onSessionInferenceModeChange,
+    supportsManualInferenceMode,
+  ]);
+
+  useEffect(() => {
+    if (!selectedProvider && !selectedModel) return;
+    setPreferredProviderSelection({
+      provider: selectedProvider?.id ?? null,
+      model: selectedModel?.id ?? null,
+    });
+  }, [selectedModel?.id, selectedProvider?.id]);
 
   const refreshVoiceCapabilities = useCallback(async () => {
     try {
@@ -501,11 +647,11 @@ export function GuardianChat({
   const llmStatusMessage =
     llmHealth.error
     || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
-  const focusComposer = () => {
+  const focusComposer = useCallback(() => {
     if (typeof document === "undefined") return;
     const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
     composer?.focus();
-  };
+  }, []);
   const setTurnLockForThread = useCallback((threadId: number, locked: boolean) => {
     setTurnLocks((prev) => {
       const current = Boolean(prev[threadId]);
@@ -529,14 +675,12 @@ export function GuardianChat({
     showToast(TURN_LOCK_TOAST);
   };
   const requestProviderSwitch = useCallback(
-    (options?: { openPopover?: boolean }) => {
-      if (options?.openPopover) {
-        setPromptCostPopoverSection("providers");
-        setPromptCostPopoverOpen(true);
-      }
+    () => {
+      setPromptCostPopoverOpen(false);
       setProviderMenuOpenSignal((prev) => prev + 1);
+      window.setTimeout(() => focusComposer(), 0);
     },
-    []
+    [focusComposer]
   );
   const getDepthForThread = useCallback(
     (threadId: number): DepthMode =>
@@ -609,9 +753,52 @@ export function GuardianChat({
     [getDepthForThread]
   );
   type CompletionOutcome = "ok" | "service_unavailable" | "failed" | "inflight";
+  type CompletionRequestOptions = {
+    providerId?: string | null;
+    modelId?: string | null;
+    reasoningMode?: ComposerInferenceMode;
+  };
+
+  const resolveCompletionSelection = useCallback(
+    (options: CompletionRequestOptions = {}) => ({
+      providerId: options.providerId ?? selectedProvider?.id ?? activeProviderId ?? null,
+      modelId: options.modelId ?? selectedModel?.id ?? activeModelId ?? "default",
+      reasoningMode: options.reasoningMode ?? effectiveInferenceMode,
+    }),
+    [
+      activeModelId,
+      activeProviderId,
+      effectiveInferenceMode,
+      selectedModel?.id,
+      selectedProvider?.id,
+    ]
+  );
+
+  const startInferenceForThread = useCallback(
+    (threadId: number, options: CompletionRequestOptions = {}) => {
+      const selection = resolveCompletionSelection(options);
+      inferenceRequest.startRequest({
+        threadId,
+        providerId: selection.providerId,
+        modelId: selection.modelId,
+        mode: selection.reasoningMode,
+      });
+      return selection;
+    },
+    [inferenceRequest, resolveCompletionSelection]
+  );
+
   // Helper: ask backend to complete the thread and then refresh
-  const completeThread = async (tid: number): Promise<CompletionOutcome> => {
-    const payload = buildChatCompletionPayload(depth, activeModelId || "default");
+  const completeThread = async (
+    tid: number,
+    options: CompletionRequestOptions = {}
+  ): Promise<CompletionOutcome> => {
+    const selection = resolveCompletionSelection(options);
+    const payload = buildChatCompletionPayload(depth, {
+      providerId: selection.providerId,
+      modelId: selection.modelId,
+      reasoningMode: selection.reasoningMode,
+    });
     const provisionalTaskId = `pending-${Date.now()}`;
     setCompletionInFlight(tid, true);
     startCompletion(tid, provisionalTaskId);
@@ -627,6 +814,7 @@ export function GuardianChat({
       if (taskId) {
         console.debug(`[guardian] Starting completion tracking: task=${taskId}`);
         updateCompletionTaskId(taskId);
+        inferenceRequest.attachTask(taskId);
       }
 
       const traceUrlRaw = response?.data?.trace_url;
@@ -662,16 +850,64 @@ export function GuardianChat({
       ) {
         showToast("Completion service unavailable — check Docker/Redis.");
         endCompletion();
+        inferenceRequest.markFailed(
+          "Completion service unavailable",
+          {
+            detailText: "Guardian could not enqueue the response worker.",
+          }
+        );
         return "service_unavailable";
       }
       console.warn("[guardian] completion failed", err);
       endCompletion();
+      inferenceRequest.markFailed(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Guardian could not start the response.",
+        {
+          detailText: "Try again or switch to a faster mode.",
+        }
+      );
       return "failed";
     } finally {
       // always nudge the view to reconcile with server state
       triggerReload();
     }
   };
+
+  const retryWithoutThinkingAfterCancel = useCallback(
+    (threadId: number, attempt = 0) => {
+      const delayMs = 180 + attempt * 180;
+      window.setTimeout(() => {
+        const pending = pendingFastRetryRef.current;
+        if (!pending || pending.threadId !== threadId) {
+          return;
+        }
+        void (async () => {
+          startInferenceForThread(threadId, {
+            providerId: pending.providerId,
+            modelId: pending.modelId,
+            reasoningMode: "no_think",
+          });
+          const outcome = await completeThread(threadId, {
+            providerId: pending.providerId,
+            modelId: pending.modelId,
+            reasoningMode: "no_think",
+          });
+          if (outcome === "inflight" && attempt < 3) {
+            retryWithoutThinkingAfterCancel(threadId, attempt + 1);
+            return;
+          }
+          pendingFastRetryRef.current = null;
+          if (outcome !== "ok" && outcome !== "inflight") {
+            setTurnLockForThread(threadId, false);
+            showToast("Guardian could not continue in fast mode.");
+          }
+        })();
+      }, delayMs);
+    },
+    [completeThread, setTurnLockForThread, showToast, startInferenceForThread]
+  );
 
   const numericThreadId = useMemo(() => {
     let urlId: number | null = null;
@@ -844,7 +1080,6 @@ export function GuardianChat({
 
   useEffect(() => {
     setPromptCostPopoverOpen(false);
-    setPromptCostPopoverSection("cost");
   }, [effectiveThreadId]);
 
   useEffect(() => {
@@ -869,7 +1104,6 @@ export function GuardianChat({
   }, [promptCostPopoverOpen]);
 
   const handlePromptCostToggle = useCallback(() => {
-    setPromptCostPopoverSection("cost");
     setPromptCostPopoverOpen((previous) => {
       const next = !previous;
       if (next) {
@@ -955,6 +1189,14 @@ export function GuardianChat({
       ) {
         endCompletion();
       }
+      if (
+        inferenceRequest.state.threadId === tid &&
+        (inferenceRequest.state.phase === "sending" ||
+          inferenceRequest.state.phase === "thinking" ||
+          inferenceRequest.state.phase === "streaming")
+      ) {
+        inferenceRequest.markCompleted();
+      }
     });
     const finalizeCompletionFromTaskEvent = (event: any) => {
       const payload = (event.data as any)?.data ?? event.data;
@@ -973,6 +1215,27 @@ export function GuardianChat({
           eventTaskId === completionState.activeTaskId)
       ) {
         endCompletion();
+      }
+      if (event.type === "task.failed" || event.type === "completion.error") {
+        inferenceRequest.markFailed(
+          String(payload?.error || "Guardian could not finish the response."),
+          {
+            detailText: "Try again or switch to a faster mode.",
+          }
+        );
+        pendingFastRetryRef.current = null;
+        return;
+      }
+      if (event.type === "task.cancelled") {
+        inferenceRequest.markCancelled();
+        if (pendingFastRetryRef.current?.threadId === tid) {
+          retryWithoutThinkingAfterCancel(tid);
+        }
+        return;
+      }
+      if (event.type === "task.completed") {
+        pendingFastRetryRef.current = null;
+        inferenceRequest.markCompleted();
       }
     };
     const offTaskCompleted = subscribe("task.completed", finalizeCompletionFromTaskEvent);
@@ -996,7 +1259,11 @@ export function GuardianChat({
     completionState.isCompleting,
     endCompletion,
     fetchTraceForThread,
+    inferenceRequest,
+    inferenceRequest.state.phase,
+    inferenceRequest.state.threadId,
     setTurnLockForThread,
+    retryWithoutThinkingAfterCancel,
     subscribe,
   ]);
   useEffect(() => {
@@ -1202,6 +1469,7 @@ export function GuardianChat({
         }
 
         // Complete the thread and refresh.
+        startInferenceForThread(numericNewId);
         const completionOutcome = await completeThread(numericNewId);
         if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
           setTurnLockForThread(numericNewId, false);
@@ -1241,16 +1509,17 @@ export function GuardianChat({
         }
 
         // Fire-and-forget completion a beat later so the just-sent message is persisted
-            setTimeout(() => {
-              if (targetThreadId == null) return;
-              void (async () => {
-                const completionOutcome = await completeThread(targetThreadId);
-                if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
-                  setTurnLockForThread(targetThreadId, false);
-                  if (completionOutcome === "failed") {
-                    showToast("Assistant response failed.");
-                  }
-                }
+        startInferenceForThread(targetThreadId);
+        setTimeout(() => {
+          if (targetThreadId == null) return;
+          void (async () => {
+            const completionOutcome = await completeThread(targetThreadId);
+            if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
+              setTurnLockForThread(targetThreadId, false);
+              if (completionOutcome === "failed") {
+                showToast("Assistant response failed.");
+              }
+            }
           })();
         }, 100);
       } catch (error) {
@@ -1280,6 +1549,16 @@ export function GuardianChat({
   const showPromptCostDot =
     promptCostStatus === "warn" || promptCostStatus === "hard";
   const ragTraceUiEnabled = isRagTraceUIEnabled();
+  const depthOptions = (Object.keys(depthLabels) as DepthMode[]).map((mode) => ({
+    value: mode,
+    label: depthLabels[mode],
+    description: depthDescriptions[mode],
+  }));
+  const composerInferenceState =
+    effectiveThreadId != null &&
+    inferenceRequest.state.threadId === effectiveThreadId
+      ? inferenceRequest.state
+      : createIdleInferenceRequestState();
 
   const headerActions = (
     <div className="flex items-center gap-1">
@@ -1321,65 +1600,7 @@ export function GuardianChat({
               color: "var(--text)",
             }}
           >
-            <div
-              className="mb-2 inline-flex items-center gap-1 rounded-full border p-1 text-[11px]"
-              style={{ borderColor: "var(--panel-border)" }}
-            >
-              <button
-                type="button"
-                className="rounded-full px-2 py-0.5 transition"
-                data-state={promptCostPopoverSection === "cost" ? "active" : "inactive"}
-                style={{
-                  background:
-                    promptCostPopoverSection === "cost"
-                      ? "color-mix(in oklab, var(--panel-bg), var(--accent) 22%)"
-                      : "transparent",
-                }}
-                onClick={() => setPromptCostPopoverSection("cost")}
-              >
-                Cost
-              </button>
-              <button
-                type="button"
-                className="rounded-full px-2 py-0.5 transition"
-                data-state={
-                  promptCostPopoverSection === "providers" ? "active" : "inactive"
-                }
-                style={{
-                  background:
-                    promptCostPopoverSection === "providers"
-                      ? "color-mix(in oklab, var(--panel-bg), var(--accent) 22%)"
-                      : "transparent",
-                }}
-                onClick={() => setPromptCostPopoverSection("providers")}
-              >
-                Providers
-              </button>
-            </div>
-            {promptCostPopoverSection === "providers" ? (
-              <div
-                className="space-y-2 text-xs"
-                data-testid="prompt-cost-providers-panel"
-              >
-                <div className="font-medium">Providers</div>
-                <div className="opacity-85">
-                  Open the provider picker from the session rail.
-                </div>
-                <button
-                  type="button"
-                  className="underline underline-offset-2"
-                  onClick={() => requestProviderSwitch()}
-                  data-testid="prompt-cost-open-provider"
-                >
-                  Open provider picker
-                </button>
-                {cloudProvidersDisabled ? (
-                  <div className="opacity-80">Cloud providers disabled by config.</div>
-                ) : null}
-              </div>
-            ) : (
-              <PromptCostIndicator summary={promptCostSummary} variant="popover" />
-            )}
+            <PromptCostIndicator summary={promptCostSummary} variant="popover" />
           </div>
         ) : null}
       </div>
@@ -1731,171 +1952,124 @@ export function GuardianChat({
             draftValue={activeDraft}
             draftScopeKey={activeSessionTabId ?? "global"}
             onDraftValueChange={onSessionDraftChange}
+            activeProviderId={selectedProvider?.id ?? activeProviderId}
+            providerOptions={providerOptions}
+            providerOpenSignal={providerMenuOpenSignal}
+            onProviderChange={(providerId) => {
+              const nextProvider =
+                catalogProviders.find((provider) => provider.id === providerId) ?? null;
+              onSessionProviderChange?.(providerId);
+              const nextModelId = nextProvider?.models?.[0]?.id ?? null;
+              if (
+                nextProvider &&
+                (!selectedModel ||
+                  !nextProvider.models.some((model) => model.id === selectedModel.id)) &&
+                nextModelId
+              ) {
+                onSessionModelChange?.(nextModelId);
+              }
+            }}
+            activeModelId={selectedModel?.id ?? activeModelId}
+            modelOptions={modelOptions}
+            onModelChange={(modelId) => onSessionModelChange?.(modelId)}
+            activeInferenceMode={effectiveInferenceMode}
+            inferenceModeOptions={inferenceModeOptions}
+            onInferenceModeChange={(mode) =>
+              onSessionInferenceModeChange?.(mode)
+            }
+            depthMode={depth}
+            depthOptions={depthOptions}
+            onDepthModeChange={setDepth}
+            inferenceState={composerInferenceState}
+            onCancelInference={() => {
+              pendingFastRetryRef.current = null;
+              void inferenceRequest.requestCancel();
+            }}
+            onSwitchToFast={() => {
+              if (effectiveThreadId == null) return;
+              onSessionInferenceModeChange?.("no_think");
+              const selection = resolveCompletionSelection({
+                reasoningMode: "no_think",
+              });
+              pendingFastRetryRef.current = {
+                threadId: effectiveThreadId,
+                providerId: selection.providerId,
+                modelId: selection.modelId,
+              };
+              void inferenceRequest.requestCancel().then((ok) => {
+                if (!ok) {
+                  pendingFastRetryRef.current = null;
+                }
+              });
+            }}
+            onVoiceTurn={
+              voiceTurnBasedEnabled
+                ? () => {
+                    if (effectiveThreadId == null) {
+                      alert(
+                        "Create or open a thread before starting a voice turn."
+                      );
+                      return;
+                    }
+                    voiceFileInputRef.current?.click();
+                  }
+                : undefined
+            }
+            voiceTurnLabel={voiceUploading ? "Processing voice…" : "Upload voice turn"}
           />
-          {/* Bottom controls bar (aligned to bottom edge) */}
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              {voiceTurnBasedEnabled ? (
-                <button
-                  type="button"
-                  className="icon-inline"
-                  aria-label="Turn-based voice"
-                  title="Turn-based voice"
-                  style={{ borderRadius: "var(--radius-micro)", opacity: 0.8 }}
-                  onClick={() => {
-                    console.debug("[guardian] turn-based voice affordance clicked");
-                  }}
-                >
-                  <Volume2 className="h-4 w-4" />
-                </button>
-              ) : null}
-
-              {/* RAG Depth Selector (icon-only) */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="icon-inline"
-                    aria-label="RAG depth selector"
-                    title={`RAG Depth: ${depthLabels[depth]} — ${depthDescriptions[depth]}`}
-                    style={{ borderRadius: "var(--radius-micro)" }}
-                  >
-                    <Layers className="h-4 w-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  side="top"
-                  align="start"
-                  sideOffset={10}
-                  collisionPadding={12}
-                  className="z-[9999] min-w-[16rem] rounded-lg border p-1 shadow-xl"
-                  style={{
-                    borderColor: "var(--panel-border)",
-                    background: "var(--panel-sheet)",
-                    color: "var(--text)",
-                  }}
-                >
-                  <div
-                    className="px-2 py-1.5 text-xs font-semibold"
-                    style={{ color: "var(--muted)", opacity: 0.85 }}
-                  >
-                    RAG Depth
-                  </div>
-                  {["shallow", "normal", "deep", "diagnostic"].map((d) => (
-                    <DropdownMenuItem
-                      key={d}
-                      onClick={() => {
-                        setDepth(d as DepthMode);
-                        console.log(`[guardian] Depth changed to: ${d}`);
-                      }}
-                      className={
-                        "cursor-pointer rounded-md px-2 py-2 focus:outline-none" +
-                        (depth === d ? " bg-accent" : "")
-                      }
-                      style={{
-                        background:
-                          depth === d
-                            ? "color-mix(in oklab, var(--panel-bg), var(--accent) 22%)"
-                            : "transparent",
-                      }}
-                    >
-                      <div className="flex flex-col flex-1 min-h-0">
-                        <div className="font-medium">{depthLabels[d as DepthMode]}</div>
-                        <div className="text-xs" style={{ color: "var(--muted)", opacity: 0.9 }}>
-                          {depthDescriptions[d as DepthMode]}
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <ProviderSelect
-                value={activeModelId || "default"}
-                onChange={(modelId) => onSessionModelChange?.(modelId)}
-                triggerClassName="composer__model-trigger"
-                openSignal={providerMenuOpenSignal}
-                displayMode="model"
-                label="Model"
-                preferredProviderId={resolvedProfile.providerOverride || undefined}
-                cloudProvidersDisabled={cloudProvidersDisabled}
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              {voiceTurnBasedEnabled ? (
-                <>
-                  <button
-                    type="button"
-                    className="rounded-md border px-2 py-1 text-xs hover:opacity-90 disabled:opacity-50"
-                    style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
-                    disabled={voiceUploading}
-                    onClick={() => {
-                      if (effectiveThreadId == null) {
-                        alert("Create or open a thread before starting a voice turn.");
-                        return;
-                      }
-                      voiceFileInputRef.current?.click();
-                    }}
-                  >
-                    {voiceUploading ? "Processing…" : "Upload Voice Turn"}
-                  </button>
-
-                  <input
-                    ref={voiceFileInputRef}
-                    type="file"
-                    accept={voiceUploadAccept}
-                    className="hidden"
-                    onChange={async (event) => {
-                      const file = event.target.files?.[0];
-                      event.currentTarget.value = "";
-                      if (!file) return;
-                      if (effectiveThreadId == null) {
-                        alert("Create or open a thread before starting a voice turn.");
-                        return;
-                      }
-                      const normalizedMime = String(file.type || "")
-                        .trim()
-                        .toLowerCase();
-                      if (
-                        normalizedMime &&
-                        supportedVoiceInputMime.length > 0 &&
-                        !supportedVoiceInputMime.includes(normalizedMime)
-                      ) {
-                        alert(`Unsupported audio type: ${normalizedMime}`);
-                        return;
-                      }
-                      if (
-                        voiceUploadLimitBytes != null &&
-                        file.size > voiceUploadLimitBytes
-                      ) {
-                        const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
-                        alert(`Audio file too large. Max ${limitMb} MB.`);
-                        return;
-                      }
-                      setVoiceUploading(true);
-                      try {
-                        const form = new FormData();
-                        form.append("thread_id", String(effectiveThreadId));
-                        form.append("audio_file", file);
-                        form.append("tts_enabled", "true");
-                        await api.post("/voice/turn", form, {
-                          headers: { "Content-Type": "multipart/form-data" },
-                          timeout: 180000,
-                        });
-                        triggerReload();
-                      } catch (error) {
-                        console.warn("[guardian] voice turn failed", error);
-                        alert("Voice turn failed. Check backend voice configuration.");
-                      } finally {
-                        setVoiceUploading(false);
-                      }
-                    }}
-                  />
-                </>
-              ) : null}
-            </div>
-          </div>
+          {voiceTurnBasedEnabled ? (
+            <input
+              ref={voiceFileInputRef}
+              type="file"
+              accept={voiceUploadAccept}
+              className="hidden"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = "";
+                if (!file) return;
+                if (effectiveThreadId == null) {
+                  alert("Create or open a thread before starting a voice turn.");
+                  return;
+                }
+                const normalizedMime = String(file.type || "")
+                  .trim()
+                  .toLowerCase();
+                if (
+                  normalizedMime &&
+                  supportedVoiceInputMime.length > 0 &&
+                  !supportedVoiceInputMime.includes(normalizedMime)
+                ) {
+                  alert(`Unsupported audio type: ${normalizedMime}`);
+                  return;
+                }
+                if (
+                  voiceUploadLimitBytes != null &&
+                  file.size > voiceUploadLimitBytes
+                ) {
+                  const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
+                  alert(`Audio file too large. Max ${limitMb} MB.`);
+                  return;
+                }
+                setVoiceUploading(true);
+                try {
+                  const form = new FormData();
+                  form.append("thread_id", String(effectiveThreadId));
+                  form.append("audio_file", file);
+                  form.append("tts_enabled", "true");
+                  await api.post("/voice/turn", form, {
+                    headers: { "Content-Type": "multipart/form-data" },
+                    timeout: 180000,
+                  });
+                  triggerReload();
+                } catch (error) {
+                  console.warn("[guardian] voice turn failed", error);
+                  alert("Voice turn failed. Check backend voice configuration.");
+                } finally {
+                  setVoiceUploading(false);
+                }
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </div>

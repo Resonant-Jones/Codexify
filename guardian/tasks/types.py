@@ -61,6 +61,7 @@ class ChatCompletionTask(BaseTask):
     thread_id: int = 0
     model: str | None = None
     provider: str | None = None
+    reasoning_mode: str | None = None
     max_context: int | None = 50
     depth_mode: str | None = "normal"
     system_override: str | None = None
@@ -73,6 +74,7 @@ class ChatCompletionTask(BaseTask):
             thread_id=int(payload.get("thread_id") or 0),
             model=payload.get("model"),
             provider=payload.get("provider"),
+            reasoning_mode=payload.get("reasoning_mode"),
             max_context=payload.get("max_context"),
             depth_mode=payload.get("depth_mode"),
             system_override=payload.get("system_override"),

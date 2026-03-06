@@ -203,6 +203,37 @@ def describe_local_reasoning(
     return resolve_local_reasoning_directive(model, settings=settings).as_dict()
 
 
+def _resolve_reasoning_override_instruction(
+    reasoning_mode: Optional[str],
+    settings: Settings,
+) -> LocalReasoningDirective | None:
+    normalized = str(reasoning_mode or "").strip().lower()
+    if not normalized or normalized == "default":
+        return None
+    if normalized in {"no_think", "fast", "/no_think"}:
+        instruction = (
+            str(
+                getattr(settings, "LOCAL_NO_THINK_INSTRUCTION", "/no_think")
+                or ""
+            ).strip()
+            or "/no_think"
+        )
+        return LocalReasoningDirective(
+            mode="no_think",
+            source="request_override",
+            instruction=instruction,
+            profile_reason="reasoning_mode override requested fast mode",
+        )
+    if normalized in {"think", "/think"}:
+        return LocalReasoningDirective(
+            mode="think",
+            source="request_override",
+            instruction="/think",
+            profile_reason="reasoning_mode override requested think mode",
+        )
+    return None
+
+
 def _last_qwen_reasoning_instruction(
     messages: list[dict[str, Any]],
 ) -> str | None:
@@ -245,10 +276,14 @@ def apply_local_reasoning_directive(
     messages: list[dict[str, Any]],
     model: str,
     *,
+    reasoning_mode: Optional[str] = None,
     settings: Optional[Settings] = None,
 ) -> tuple[list[dict[str, Any]], LocalReasoningDirective]:
-    directive = resolve_local_reasoning_directive(model, settings=settings)
-    if directive.mode != "no_think" or not directive.instruction:
+    resolved = _resolve_settings(settings)
+    directive = _resolve_reasoning_override_instruction(
+        reasoning_mode, resolved
+    ) or resolve_local_reasoning_directive(model, settings=resolved)
+    if directive.mode == "default" or not directive.instruction:
         return messages, directive
     if _last_qwen_reasoning_instruction(messages) is not None:
         return messages, directive
@@ -450,6 +485,7 @@ def chat_with_ai(
     messages,
     model: Optional[str] = None,
     provider: Optional[str] = None,
+    reasoning_mode: Optional[str] = None,
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
@@ -466,7 +502,12 @@ def chat_with_ai(
         )
 
     if provider_name == "local":
-        return call_local(messages, target_model, settings=settings)
+        return call_local(
+            messages,
+            target_model,
+            reasoning_mode=reasoning_mode,
+            settings=settings,
+        )
     if provider_name == "groq":
         return call_groq(messages, target_model, settings=settings)
     if provider_name == "openai":
@@ -497,6 +538,7 @@ def call_local(
     messages,
     model: str,
     *,
+    reasoning_mode: Optional[str] = None,
     settings: Optional[Settings] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
@@ -508,7 +550,10 @@ def call_local(
         model, settings=settings, timeout=timeout
     )
     adapted_messages, _ = apply_local_reasoning_directive(
-        messages or [], model, settings=settings
+        messages or [],
+        model,
+        reasoning_mode=reasoning_mode,
+        settings=settings,
     )
     api_key = settings.LOCAL_API_KEY or "local"
     headers = {
@@ -676,6 +721,7 @@ def stream_local(
     messages,
     model: str,
     *,
+    reasoning_mode: Optional[str] = None,
     settings: Optional[Settings] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
@@ -683,7 +729,10 @@ def stream_local(
     settings = _resolve_settings(settings)
     runtime_policy = resolve_local_runtime_policy(model, settings=settings)
     adapted_messages, _ = apply_local_reasoning_directive(
-        messages or [], model, settings=settings
+        messages or [],
+        model,
+        reasoning_mode=reasoning_mode,
+        settings=settings,
     )
     api_key = settings.LOCAL_API_KEY or "local"
     headers = {

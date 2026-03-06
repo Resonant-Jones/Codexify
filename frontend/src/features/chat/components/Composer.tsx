@@ -7,11 +7,22 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Paperclip, ImagePlus, X, FileText } from "lucide-react";
+import { Send, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
+import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
+import ComposerSelectMenu, {
+  type ComposerSelectOption,
+} from "@/features/chat/components/ComposerSelectMenu";
+import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
+import {
+  createIdleInferenceRequestState,
+  DEFAULT_COMPOSER_INFERENCE_MODE,
+  type ComposerInferenceMode,
+  type InferenceRequestState,
+} from "@/types/inference";
 
 const ACCEPTED_ATTACHMENTS =
   [
@@ -29,6 +40,8 @@ const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
 export type ComposerSendOptions = {
   threadIdOverride?: number;
 };
+
+type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
 
 type DraftAttachment = {
   id: string;
@@ -78,6 +91,24 @@ export function Composer({
   draftScopeKey,
   draftSyncDebounceMs,
   onDraftValueChange,
+  activeProviderId,
+  providerOptions = [],
+  providerOpenSignal,
+  onProviderChange,
+  activeModelId = "default",
+  modelOptions = [],
+  onModelChange,
+  activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
+  inferenceModeOptions = [],
+  onInferenceModeChange,
+  depthMode = "normal",
+  depthOptions = [],
+  onDepthModeChange,
+  inferenceState = createIdleInferenceRequestState(),
+  onCancelInference,
+  onSwitchToFast,
+  onVoiceTurn,
+  voiceTurnLabel = "Upload voice turn",
 }: {
   onSend: (t: string, options?: ComposerSendOptions) => Promise<void> | void;
   ensureThreadIdForAttachments?: (
@@ -92,6 +123,28 @@ export function Composer({
   draftScopeKey?: string;
   draftSyncDebounceMs?: number;
   onDraftValueChange?: (value: string) => void;
+  activeProviderId?: string | null;
+  providerOptions?: ComposerSelectOption[];
+  providerOpenSignal?: number;
+  onProviderChange?: (providerId: string) => void;
+  activeModelId?: string;
+  modelOptions?: ComposerSelectOption[];
+  onModelChange?: (modelId: string) => void;
+  activeInferenceMode?: ComposerInferenceMode;
+  inferenceModeOptions?: ComposerSelectOption[];
+  onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
+  depthMode?: DepthMode;
+  depthOptions?: Array<{
+    value: DepthMode;
+    label: string;
+    description: string;
+  }>;
+  onDepthModeChange?: (mode: DepthMode) => void;
+  inferenceState?: InferenceRequestState;
+  onCancelInference?: () => void;
+  onSwitchToFast?: () => void;
+  onVoiceTurn?: () => void;
+  voiceTurnLabel?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const syncDebounceMs = Math.max(
@@ -488,6 +541,20 @@ export function Composer({
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
   };
+
+  const providerLabel =
+    providerOptions.find((option) => option.value === activeProviderId)?.label ??
+    providerOptions[0]?.label ??
+    "Provider";
+  const modelLabel =
+    modelOptions.find((option) => option.value === activeModelId)?.label ??
+    modelOptions[0]?.label ??
+    "Model";
+  const inferenceModeLabel =
+    inferenceModeOptions.find((option) => option.value === activeInferenceMode)
+      ?.label ??
+    "Auto";
+
   return (
     <>
       <div className="flex flex-col flex-1 w-full p-[4px]" onDrop={handleDrop} onDragOver={handleDragOver}>
@@ -555,103 +622,108 @@ export function Composer({
             </div>
           )}
 
-          {/* Toolbar Row - Bottom controls */}
-          <div className="flex items-center justify-between px-[8px] pb-[6px]">
-            <div className="flex items-center gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={ACCEPTED_ATTACHMENTS}
-                multiple
-                style={{ display: "none" }}
-                onChange={(e) => {
-                  const files = e.target.files;
-                  e.currentTarget.value = "";
-                  if (files && files.length) stageFiles(files);
-                }}
-              />
-              <button
-                type="button"
-                aria-label="Attach files"
-                title="Attach files"
-                aria-disabled={actionsDisabled}
-                onClick={() => {
+          <div className="px-[8px] pb-[6px]">
+            <InferenceStatusBanner
+              state={inferenceState}
+              onCancel={onCancelInference}
+              onSwitchToFast={onSwitchToFast}
+            />
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_ATTACHMENTS}
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const files = e.target.files;
+              e.currentTarget.value = "";
+              if (files && files.length) stageFiles(files);
+            }}
+          />
+
+          <div className="flex flex-wrap items-center justify-between gap-3 px-[8px] pb-[6px]">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <ComposerActionMenu
+                disabled={actionsDisabled}
+                depthMode={depthMode}
+                depthOptions={depthOptions}
+                onAttach={() => {
                   if (actionsDisabled) {
                     notifyTurnLocked();
                     return;
                   }
                   fileInputRef.current?.click();
                 }}
-                tabIndex={actionsDisabled ? -1 : 0}
-                className={cn(
-                  "inline-flex items-center justify-center h-9 w-9 transition-opacity",
-                  actionsDisabled ? "opacity-40 cursor-not-allowed" : "opacity-70 hover:opacity-100"
-                )}
-                style={{
-                  background: "none",
-                  border: "none",
-                  boxShadow: "none",
-                  outline: "none",
-                }}
-              >
-                <Paperclip className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                aria-label="Generate image"
-                title="Generate image"
-                aria-disabled={actionsDisabled}
-                onClick={() => {
+                onGenerateImage={() => {
                   if (actionsDisabled) {
                     notifyTurnLocked();
                     return;
                   }
                   setShowImgGen(true);
                 }}
-                tabIndex={actionsDisabled ? -1 : 0}
-                className={cn(
-                  "inline-flex items-center justify-center h-9 w-9 transition-opacity",
-                  actionsDisabled ? "opacity-40 cursor-not-allowed" : "opacity-70 hover:opacity-100"
-                )}
-                style={{
-                  background: "none",
-                  border: "none",
-                  boxShadow: "none",
-                  outline: "none",
+                onDepthChange={(nextDepth) => {
+                  onDepthModeChange?.(nextDepth);
                 }}
-              >
-                <ImagePlus className="h-5 w-5" />
-              </button>
+                onVoiceTurn={onVoiceTurn}
+                voiceTurnLabel={voiceTurnLabel}
+              />
+              <ComposerSelectMenu
+                ariaLabel="Select provider"
+                menuLabel="Provider"
+                valueLabel={providerLabel}
+                options={providerOptions}
+                selectedValue={activeProviderId}
+                openSignal={providerOpenSignal}
+                disabled={actionsDisabled || providerOptions.length === 0}
+                onSelect={onProviderChange ?? (() => {})}
+              />
+              <ComposerSelectMenu
+                ariaLabel="Select model"
+                menuLabel="Model"
+                valueLabel={modelLabel}
+                options={modelOptions}
+                selectedValue={activeModelId}
+                disabled={actionsDisabled || modelOptions.length === 0}
+                onSelect={onModelChange ?? (() => {})}
+              />
+              <ComposerSelectMenu
+                ariaLabel="Select inference mode"
+                menuLabel="Mode"
+                valueLabel={inferenceModeLabel}
+                options={inferenceModeOptions}
+                selectedValue={activeInferenceMode}
+                disabled={actionsDisabled || inferenceModeOptions.length === 0}
+                onSelect={(value) =>
+                  onInferenceModeChange?.(value as ComposerInferenceMode)
+                }
+              />
             </div>
 
-              <Button
-                type="button"
-                onClick={send}
-                disabled={actionsDisabled || (!value.trim() && draftAttachments.length === 0)}
-                aria-disabled={actionsDisabled || (!value.trim() && draftAttachments.length === 0)}
-                tabIndex={actionsDisabled || (!value.trim() && draftAttachments.length === 0) ? -1 : 0}
-                size="sm"
-                className={cn(
-                  "h-9 px-5 mr-[8px] rounded-full font-medium text-sm transition-opacity",
-                  (actionsDisabled || (!value.trim() && draftAttachments.length === 0)) ? "opacity-50 cursor-not-allowed" : ""
-                )}
+            <Button
+              type="button"
+              onClick={send}
+              disabled={actionsDisabled || (!value.trim() && draftAttachments.length === 0)}
+              aria-disabled={actionsDisabled || (!value.trim() && draftAttachments.length === 0)}
+              tabIndex={actionsDisabled || (!value.trim() && draftAttachments.length === 0) ? -1 : 0}
+              size="sm"
+              className={cn(
+                "h-8 rounded-md px-4 text-[12px] font-medium transition-opacity",
+                (actionsDisabled || (!value.trim() && draftAttachments.length === 0))
+                  ? "cursor-not-allowed opacity-50"
+                  : ""
+              )}
               style={{
-                background: "var(--accent-strong)",
-                color: "#fff",
+                background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+                color: "var(--text-on-accent, #111827)",
                 boxShadow: "none",
               }}
             >
+              <Send className="mr-1.5 h-3.5 w-3.5" />
               Send
             </Button>
           </div>
-          {turnLocked && (
-            <div className="flex items-center gap-2 px-[8px] pb-[6px]" aria-live="polite">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs opacity-70" style={{ color: "var(--muted)" }}>
-                Assistant is responding…
-              </span>
-            </div>
-          )}
         </div>
       </div>
       <ImageGenModal

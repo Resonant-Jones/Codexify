@@ -1,5 +1,6 @@
 import React from "react";
 
+import type { ComposerInferenceMode } from "@/types/inference";
 import type { SessionSpine } from "@/state/session/SessionSpine";
 import { DEFAULT_MODEL_ID } from "@/state/session/types";
 import type { SessionState, SessionTab, TabId } from "@/state/session/types";
@@ -20,7 +21,9 @@ function isSessionTabEqual(a: SessionTab | null, b: SessionTab | null): boolean 
     a.tabId === b.tabId &&
     a.threadId === b.threadId &&
     a.title === b.title &&
+    (a.providerId ?? null) === (b.providerId ?? null) &&
     a.modelId === b.modelId &&
+    a.inferenceMode === b.inferenceMode &&
     a.createdAt === b.createdAt &&
     a.updatedAt === b.updatedAt
   );
@@ -62,6 +65,17 @@ function selectActiveModelId(
   fallback = DEFAULT_MODEL_ID
 ): string {
   return selectActiveTab(state)?.modelId || fallback;
+}
+
+function selectActiveProviderId(state: SessionState | null): string | null {
+  return selectActiveTab(state)?.providerId ?? null;
+}
+
+function selectActiveInferenceMode(
+  state: SessionState | null,
+  fallback: ComposerInferenceMode
+): ComposerInferenceMode {
+  return selectActiveTab(state)?.inferenceMode ?? fallback;
 }
 
 function selectActiveThreadId(state: SessionState | null): string | null {
@@ -145,5 +159,26 @@ export function useSessionActiveThreadId(
 ): string | null {
   return useSessionSpineSelector(spine, selectActiveThreadId, {
     fallback: null,
+  });
+}
+
+export function useSessionActiveProviderId(
+  spine: SessionSpine | null
+): string | null {
+  return useSessionSpineSelector(spine, selectActiveProviderId, {
+    fallback: null,
+  });
+}
+
+export function useSessionActiveInferenceMode(
+  spine: SessionSpine | null,
+  fallback: ComposerInferenceMode
+): ComposerInferenceMode {
+  const selector = React.useCallback(
+    (state: SessionState | null) => selectActiveInferenceMode(state, fallback),
+    [fallback]
+  );
+  return useSessionSpineSelector(spine, selector, {
+    fallback,
   });
 }
