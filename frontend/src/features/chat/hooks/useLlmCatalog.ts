@@ -13,8 +13,13 @@ type CatalogReasoningRuntime = {
 
 export type LlmCatalogModel = {
   id: string;
+  canonicalId: string;
   providerId: string;
   displayName: string;
+  displayLabel: string;
+  alias?: string;
+  namespace?: string;
+  source?: string;
   contextWindow?: number;
   capabilities?: {
     vision?: boolean;
@@ -65,13 +70,17 @@ function normalizeModel(
 ): LlmCatalogModel | null {
   if (!raw || typeof raw !== "object") return null;
   const model = raw as Record<string, unknown>;
-  const id = normalizeString(model.id);
-  if (!id) return null;
+  const canonicalId =
+    normalizeString(model.canonical_id) ?? normalizeString(model.id);
+  if (!canonicalId) return null;
 
-  const displayName =
+  const displayLabel =
+    normalizeString(model.display_label) ??
     normalizeString(model.displayName) ??
     normalizeString(model.label) ??
-    id;
+    canonicalId;
+  const alias = normalizeString(model.alias) ?? undefined;
+  const displayName = alias ?? displayLabel;
   const runtime = model.runtime;
   const reasoning =
     runtime && typeof runtime === "object"
@@ -79,9 +88,14 @@ function normalizeModel(
       : null;
 
   return {
-    id,
+    id: canonicalId,
+    canonicalId,
     providerId,
     displayName,
+    displayLabel,
+    alias,
+    namespace: normalizeString(model.namespace) ?? undefined,
+    source: normalizeString(model.source) ?? undefined,
     contextWindow:
       typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
         ? model.contextWindow

@@ -486,7 +486,9 @@ export function GuardianChat({
         value: model.id,
         label: model.displayName,
         description:
-          model.runtime?.reasoning?.profileReason ??
+          (selectedProvider?.id === "local" ? model.canonicalId : null) ??
+          (model.namespace ? `Namespace ${model.namespace}` : null) ??
+          (model.source ? `Source ${model.source}` : null) ??
           (selectedProvider?.source
             ? `Source ${describeProviderSource(selectedProvider.source)}`
             : null) ??
