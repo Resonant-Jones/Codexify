@@ -3,51 +3,43 @@
 /* Responsive grid with centering */
 .codexifyMediaGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
-  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns:
+    repeat(
+      var(--image-grid-cols, auto-fit),
+      minmax(min(100%, var(--image-tile-size, 180px)), 1fr)
+    );
+  gap: var(--image-grid-gap, 16px);
   align-items: start;
-  justify-items: center; /* Key: center tiles in their grid cell */
-}
-
-/* Tablet and below: smaller tiles */
-@media (max-width: 768px) {
-  .codexifyMediaGrid {
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 12px;
-  }
-}
-
-/* Mobile: even smaller tiles */
-@media (max-width: 640px) {
-  .codexifyMediaGrid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 10px;
-  }
-}
-
-/* Small split view: minimum viable tiles */
-@media (max-width: 480px) {
-  .codexifyMediaGrid {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 8px;
-  }
+  align-content: start;
+  justify-items: stretch;
 }
 
 /* Small tile variant for Dashboard (documents/smaller previews) */
 .codexifyMediaGrid--small {
-  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+  grid-template-columns:
+    repeat(
+      auto-fit,
+      minmax(min(100%, calc(var(--image-tile-size, 180px) - 48px)), 1fr)
+    );
 }
 
 @media (max-width: 640px) {
   .codexifyMediaGrid--small {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    grid-template-columns:
+      repeat(
+        auto-fit,
+        minmax(min(100%, calc(var(--image-tile-size, 180px) - 72px)), 1fr)
+      );
   }
 }
 
 /* Tile wrapper */
 .codexifyMediaTile {
   width: 100%;
-  max-width: 420px;
+  min-width: 0;
+  max-width: none;
   border-radius: 18px;
   overflow: hidden;
   padding: 0;

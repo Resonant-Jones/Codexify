@@ -198,7 +198,7 @@ export default function DashboardView({
 
   const hasRealGallery = gallery && gallery.length > 0;
   const galleryToRender = React.useMemo(
-    () => (hasRealGallery ? gallery.slice(0, 12) : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
+    () => (hasRealGallery ? gallery : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
     [gallery, hasRealGallery, showDemoGallery]
   );
 
@@ -355,7 +355,7 @@ export default function DashboardView({
                   </button>
                 </div>
               )}
-              <div className="flex-1 min-h-0 overflow-hidden">
+              <div className="flex-1 min-h-0 overflow-auto pr-1">
                 {galleryToRender.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm opacity-70">
                     No gallery images yet. Generate or upload to get started.
