@@ -3,14 +3,26 @@
 /* Responsive grid with centering */
 .codexifyMediaGrid {
   --tile-size: 256px;
+  --tile-chrome: 3px;
+  --tile-gutter: 6px;
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns: repeat(auto-fit, minmax(var(--tile-size), var(--tile-size)));
-  gap: var(--image-grid-gap, 16px);
+  box-sizing: border-box;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(
+      min(
+        100%,
+        calc(var(--tile-size) + (var(--tile-chrome) * 2))
+      ),
+      calc(var(--tile-size) + (var(--tile-chrome) * 2))
+    )
+  );
+  gap: var(--tile-gutter);
   align-items: start;
   align-content: start;
-  justify-content: flex-start;
+  justify-content: space-between;
 }
 
 .codexifyMediaGrid--dashboard-image {
@@ -20,7 +32,7 @@
 }
 
 .codexifyMediaGrid--gallery {
-  --tile-size: 256px;
+  --tile-size: 168px;
 }
 
 /* Tile wrapper */
