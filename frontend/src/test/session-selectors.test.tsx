@@ -5,33 +5,51 @@ import { describe, expect, it } from "vitest";
 import { InMemorySessionStateStore } from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import {
+  useSessionActiveDraft,
   useSessionActiveModelId,
   useSessionRailSlice,
 } from "@/state/session/hooks";
 
-function SelectorHarness({
+function RailHarness({
   spine,
-  counts,
+  countRef,
 }: {
   spine: SessionSpine;
-  counts: {
-    rail: number;
-    model: number;
-  };
+  countRef: { current: number };
 }) {
   const rail = useSessionRailSlice(spine);
-  const activeModel = useSessionActiveModelId(spine, "default");
-
-  counts.rail += 1;
-  counts.model += 1;
+  countRef.current += 1;
 
   return (
-    <div>
+    <div data-testid="rail-harness">
       <span>{rail.tabs.length}</span>
       <span>{rail.activeTabId}</span>
-      <span>{activeModel}</span>
     </div>
   );
+}
+
+function ModelHarness({
+  spine,
+  countRef,
+}: {
+  spine: SessionSpine;
+  countRef: { current: number };
+}) {
+  const activeModel = useSessionActiveModelId(spine, "default");
+  countRef.current += 1;
+  return <div data-testid="model-harness">{activeModel}</div>;
+}
+
+function DraftHarness({
+  spine,
+  countRef,
+}: {
+  spine: SessionSpine;
+  countRef: { current: number };
+}) {
+  const activeDraft = useSessionActiveDraft(spine);
+  countRef.current += 1;
+  return <div data-testid="draft-harness">{activeDraft}</div>;
 }
 
 describe("session selectors", () => {
@@ -48,11 +66,20 @@ describe("session selectors", () => {
     const active = spine.getActiveTab();
     if (!active) throw new Error("Expected active tab");
 
-    const counts = { rail: 0, model: 0 };
-    render(<SelectorHarness spine={spine} counts={counts} />);
+    const railRenders = { current: 0 };
+    const modelRenders = { current: 0 };
+    const draftRenders = { current: 0 };
+    render(
+      <>
+        <RailHarness spine={spine} countRef={railRenders} />
+        <ModelHarness spine={spine} countRef={modelRenders} />
+        <DraftHarness spine={spine} countRef={draftRenders} />
+      </>
+    );
 
-    const initialRailRenders = counts.rail;
-    const initialModelRenders = counts.model;
+    const initialRailRenders = railRenders.current;
+    const initialModelRenders = modelRenders.current;
+    const initialDraftRenders = draftRenders.current;
 
     act(() => {
       spine.tabSetDraft(active.tabId, "h");
@@ -60,14 +87,15 @@ describe("session selectors", () => {
       spine.tabSetDraft(active.tabId, "hel");
     });
 
-    expect(counts.rail).toBe(initialRailRenders);
-    expect(counts.model).toBe(initialModelRenders);
+    expect(railRenders.current).toBe(initialRailRenders);
+    expect(modelRenders.current).toBe(initialModelRenders);
+    expect(draftRenders.current).toBeGreaterThan(initialDraftRenders);
 
     act(() => {
       spine.tabSetModel(active.tabId, "gpt-oss");
     });
 
-    expect(counts.rail).toBeGreaterThan(initialRailRenders);
-    expect(counts.model).toBeGreaterThan(initialModelRenders);
+    expect(railRenders.current).toBeGreaterThan(initialRailRenders);
+    expect(modelRenders.current).toBeGreaterThan(initialModelRenders);
   });
 });

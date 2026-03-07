@@ -26,6 +26,7 @@ const sampleState = {
     {
       tabId: "tab-1",
       threadId: "101",
+      pendingThread: false,
       title: "Alpha",
       providerId: "local",
       modelId: "default",
@@ -57,6 +58,7 @@ describe("SessionSpine", () => {
     await spine.hydrate({ threadId: "101", title: "Alpha", modelId: "default" });
     const first = spine.getActiveTab();
     expect(first?.threadId).toBe("101");
+    expect(first?.pendingThread).toBe(false);
 
     const second = spine.tabOpen("202", "Beta");
     const third = spine.tabOpen("303", "Gamma");
@@ -188,6 +190,43 @@ describe("SessionSpine", () => {
     expect(setSpy).not.toHaveBeenCalled();
   });
 
+  it("keeps new tabs as draft contexts until a real thread is bound", async () => {
+    const store = new InMemorySessionStateStore();
+    const spine = new SessionSpine({
+      userId: "user-1",
+      deviceId: "device-1",
+      store,
+      defaultModelId: "default",
+    });
+    await spine.hydrate({ threadId: "101", title: "Alpha", modelId: "default" });
+
+    const first = spine.getActiveTab();
+    if (!first) throw new Error("Expected initial tab");
+    spine.tabSetDraft(first.tabId, "draft-a");
+
+    const draftTab = spine.tabOpen(undefined, "New Thread");
+    expect(spine.getActiveTabId()).toBe(draftTab.tabId);
+    expect(draftTab.pendingThread).toBe(true);
+    expect(draftTab.threadId).toBeUndefined();
+
+    spine.tabSetDraft(draftTab.tabId, "draft-b");
+    spine.tabActivate(first.tabId);
+
+    expect(spine.getActiveTab()?.threadId).toBe("101");
+    expect(spine.getDraft(first.tabId)).toBe("draft-a");
+
+    spine.tabActivate(draftTab.tabId);
+    expect(spine.getDraft(draftTab.tabId)).toBe("draft-b");
+
+    spine.tabSetThread(draftTab.tabId, "202", "Beta");
+    expect(spine.getActiveTab()).toMatchObject({
+      tabId: draftTab.tabId,
+      threadId: "202",
+      pendingThread: false,
+      title: "Beta",
+    });
+  });
+
   it("closing the final tab always leaves one valid active tab", async () => {
     const store = new InMemorySessionStateStore();
     const spine = new SessionSpine({
@@ -275,6 +314,7 @@ describe("SessionSpine", () => {
         tabs: [
           {
             tabId: "tab-a",
+            pendingThread: true,
             providerId: null,
             modelId: "default",
             inferenceMode: DEFAULT_INFERENCE_MODE,
@@ -307,6 +347,7 @@ describe("SessionSpine", () => {
         tabs: [
           {
             tabId: "tab-b",
+            pendingThread: true,
             modelId: "default",
             createdAt: "2026-02-14T00:00:00.000Z",
             updatedAt: "2026-02-14T00:00:00.000Z",

@@ -20,6 +20,7 @@ function isSessionTabEqual(a: SessionTab | null, b: SessionTab | null): boolean 
   return (
     a.tabId === b.tabId &&
     a.threadId === b.threadId &&
+    a.pendingThread === b.pendingThread &&
     a.title === b.title &&
     (a.providerId ?? null) === (b.providerId ?? null) &&
     a.modelId === b.modelId &&
@@ -80,6 +81,12 @@ function selectActiveInferenceMode(
 
 function selectActiveThreadId(state: SessionState | null): string | null {
   return selectActiveTab(state)?.threadId ?? null;
+}
+
+function selectActiveDraft(state: SessionState | null): string {
+  const activeTabId = state?.activeTabId;
+  if (!activeTabId) return "";
+  return state?.drafts?.[activeTabId] ?? "";
 }
 
 export function useSessionSpineSelector<T>(
@@ -159,6 +166,14 @@ export function useSessionActiveThreadId(
 ): string | null {
   return useSessionSpineSelector(spine, selectActiveThreadId, {
     fallback: null,
+  });
+}
+
+export function useSessionActiveDraft(
+  spine: SessionSpine | null
+): string {
+  return useSessionSpineSelector(spine, selectActiveDraft, {
+    fallback: "",
   });
 }
 

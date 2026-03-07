@@ -21,6 +21,7 @@ import PromptCostIndicator from "@/features/chat/components/PromptCostIndicator"
 import { RedisSessionStateStore } from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import {
+  useSessionActiveDraft,
   useSessionActiveInferenceMode,
   useSessionActiveProviderId,
   useSessionActiveModelId,
@@ -272,19 +273,12 @@ export default function GuardianChatWithSidebar({
     DEFAULT_COMPOSER_INFERENCE_MODE
   );
   const lastSessionSyncTabIdRef = React.useRef<TabId | null>(null);
-  const [activeSessionDraftSeed, setActiveSessionDraftSeed] = React.useState("");
+  const activeSessionDraftSeed = useSessionActiveDraft(sessionSpine);
   const selectedProjectFilter = React.useMemo(() => {
     if (!selectedProjectId) return null;
     const parsed = Number(selectedProjectId);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }, [selectedProjectId]);
-  React.useEffect(() => {
-    if (!sessionSpine || !activeSessionTabId) {
-      setActiveSessionDraftSeed("");
-      return;
-    }
-    setActiveSessionDraftSeed(sessionSpine.getDraft(activeSessionTabId));
-  }, [activeSessionTabId, sessionSpine]);
 
   // Sync URL with session tab - only push when route differs to avoid loop.
   // Guard against stale session thread ids that no longer exist in the loaded list.
@@ -513,12 +507,23 @@ export default function GuardianChatWithSidebar({
       void handleNewChat();
       return;
     }
+    setActiveId(null);
+    if (typeof window !== "undefined") {
+      window.history.replaceState({}, "", "/chat");
+    }
     sessionSpine.tabOpen(undefined, NEW_THREAD_TITLE);
   }, [handleNewChat, sessionSpine]);
 
   const handleSessionTabActivate = React.useCallback((tabId: TabId) => {
+    const nextTab = sessionRail.tabs.find((tab) => tab.tabId === tabId) ?? null;
+    const nextThreadId = nextTab?.threadId ?? null;
+    setActiveId(nextThreadId);
+    if (typeof window !== "undefined") {
+      const nextPath = nextThreadId ? `/chat/${nextThreadId}` : "/chat";
+      window.history.replaceState({}, "", nextPath);
+    }
     sessionSpine?.tabActivate(tabId);
-  }, [sessionSpine]);
+  }, [sessionRail.tabs, sessionSpine]);
 
   const handleSessionTabClose = React.useCallback((tabId: TabId) => {
     sessionSpine?.tabClose(tabId);
@@ -972,10 +977,19 @@ export default function GuardianChatWithSidebar({
   };
 
   const handleDraftThreadPersisted = React.useCallback(
-    (threadId: number, title?: string) => {
+    (
+      threadId: number,
+      title?: string,
+      options?: { tabId?: TabId | null }
+    ) => {
       const idStr = String(threadId);
       const nextTitle = (title || "").trim() || NEW_THREAD_TITLE;
-      setActiveId(idStr);
+      const targetTabId = options?.tabId ?? activeSessionTabId;
+      const shouldPromoteVisibleTab =
+        !targetTabId || targetTabId === activeSessionTabId;
+      if (shouldPromoteVisibleTab) {
+        setActiveId(idStr);
+      }
       setThreads((prev) => {
         const existing = prev.find((thread) => thread.id === idStr);
         if (existing) {
@@ -996,17 +1010,19 @@ export default function GuardianChatWithSidebar({
         };
         return [synthetic, ...prev];
       });
-      if (sessionSpine && activeSessionTabId) {
-        sessionSpine.tabSetThread(activeSessionTabId, idStr, nextTitle);
+      if (sessionSpine && targetTabId) {
+        sessionSpine.tabSetThread(targetTabId, idStr, nextTitle);
+      }
+      if (shouldPromoteVisibleTab && typeof window !== "undefined") {
+        window.history.replaceState({}, "", `/chat/${idStr}`);
+        window.dispatchEvent(new PopStateEvent("popstate"));
       }
       if (typeof window !== "undefined") {
-        window.history.replaceState({}, "", `/chat/${idStr}`);
         window.dispatchEvent(
           new CustomEvent("cfy:threads:refresh", {
             detail: { kind: "create", id: idStr },
           })
         );
-        window.dispatchEvent(new PopStateEvent("popstate"));
       }
     },
     [activeSessionTabId, guardianName, sessionSpine, userName]

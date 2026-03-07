@@ -65,6 +65,7 @@ function isSessionTabEqual(a: SessionTab, b: SessionTab): boolean {
   return (
     a.tabId === b.tabId &&
     a.threadId === b.threadId &&
+    a.pendingThread === b.pendingThread &&
     a.title === b.title &&
     (a.providerId ?? null) === (b.providerId ?? null) &&
     a.modelId === b.modelId &&
@@ -338,8 +339,16 @@ export class SessionSpine {
       const nextThreadId = threadId?.trim() || undefined;
       const providedTitle = title?.trim() || undefined;
       const nextTitle = providedTitle ?? (nextThreadId ? tab.title : undefined);
-      if (tab.threadId === nextThreadId && tab.title === nextTitle) return;
+      const nextPendingThread = !nextThreadId;
+      if (
+        tab.threadId === nextThreadId &&
+        tab.pendingThread === nextPendingThread &&
+        tab.title === nextTitle
+      ) {
+        return;
+      }
       tab.threadId = nextThreadId;
+      tab.pendingThread = nextPendingThread;
       tab.title = nextTitle;
       tab.updatedAt = nowIso();
     });
@@ -489,6 +498,7 @@ export class SessionSpine {
     return {
       tabId: generateTabId(),
       threadId: input.threadId?.trim() || undefined,
+      pendingThread: !(input.threadId?.trim() || undefined),
       title: input.title?.trim() || undefined,
       providerId: input.providerId?.trim() || this.defaultProviderId,
       modelId: input.modelId?.trim() || this.defaultModelId,
@@ -520,18 +530,27 @@ export class SessionSpine {
   private normalizeState(state: SessionState): SessionState {
     const safeTabs = Array.isArray(state.tabs) ? state.tabs : [];
     const tabs = safeTabs.length
-      ? safeTabs.map((tab) => ({
-          tabId: tab.tabId || generateTabId(),
-          threadId: tab.threadId?.trim() || undefined,
-          title: tab.title?.trim() || undefined,
-          providerId: tab.providerId?.trim() || this.defaultProviderId,
-          modelId: tab.modelId?.trim() || this.defaultModelId,
-          inferenceMode: isReasoningMode(tab.inferenceMode)
-            ? tab.inferenceMode
-            : this.defaultInferenceMode,
-          createdAt: tab.createdAt || nowIso(),
-          updatedAt: tab.updatedAt || tab.createdAt || nowIso(),
-        }))
+      ? safeTabs.map((tab) => {
+          const normalizedThreadId = tab.threadId?.trim() || undefined;
+          return {
+            tabId: tab.tabId || generateTabId(),
+            threadId: normalizedThreadId,
+            pendingThread:
+              normalizedThreadId == null
+                ? typeof tab.pendingThread === "boolean"
+                  ? tab.pendingThread
+                  : true
+                : false,
+            title: tab.title?.trim() || undefined,
+            providerId: tab.providerId?.trim() || this.defaultProviderId,
+            modelId: tab.modelId?.trim() || this.defaultModelId,
+            inferenceMode: isReasoningMode(tab.inferenceMode)
+              ? tab.inferenceMode
+              : this.defaultInferenceMode,
+            createdAt: tab.createdAt || nowIso(),
+            updatedAt: tab.updatedAt || tab.createdAt || nowIso(),
+          };
+        })
       : [
           this.createTab({
             providerId: this.defaultProviderId,

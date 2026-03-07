@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -12,6 +12,7 @@ const sessionSpineInstances = vi.hoisted(() => [] as any[]);
 const sessionHooksState = vi.hoisted(() => ({
   railSlice: { tabs: [] as any[], activeTabId: null as string | null },
   activeTab: null as any,
+  activeDraft: "",
   activeProviderId: "local" as string | null,
   activeModelId: "default",
   activeInferenceMode: "default",
@@ -131,6 +132,7 @@ vi.mock("@/state/session/SessionSpine", () => ({
 vi.mock("@/state/session/hooks", () => ({
   useSessionRailSlice: () => sessionHooksState.railSlice,
   useSessionActiveTab: () => sessionHooksState.activeTab,
+  useSessionActiveDraft: () => sessionHooksState.activeDraft,
   useSessionActiveProviderId: () => sessionHooksState.activeProviderId,
   useSessionActiveModelId: () => sessionHooksState.activeModelId,
   useSessionActiveInferenceMode: () => sessionHooksState.activeInferenceMode,
@@ -201,6 +203,7 @@ describe("GuardianChatWithSidebar stability contract", () => {
     sessionSpineInstances.length = 0;
     sessionHooksState.railSlice = { tabs: [], activeTabId: null };
     sessionHooksState.activeTab = null;
+    sessionHooksState.activeDraft = "";
     sessionHooksState.activeProviderId = "local";
     sessionHooksState.activeModelId = "default";
     sessionHooksState.activeInferenceMode = "default";
@@ -322,6 +325,7 @@ describe("GuardianChatWithSidebar stability contract", () => {
         {
           tabId: "tab-1",
           threadId: "1",
+          pendingThread: false,
           title: "Stale Thread",
           modelId: "default",
           createdAt: "2026-01-01T00:00:00.000Z",
@@ -364,6 +368,7 @@ describe("GuardianChatWithSidebar stability contract", () => {
     const tabOne = {
       tabId: "tab-1",
       threadId: "1",
+      pendingThread: false,
       title: "Thread 1",
       modelId: "default",
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -372,6 +377,7 @@ describe("GuardianChatWithSidebar stability contract", () => {
     const tabTwo = {
       tabId: "tab-2",
       threadId: "2",
+      pendingThread: false,
       title: "Thread 2",
       modelId: "default",
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -417,5 +423,115 @@ describe("GuardianChatWithSidebar stability contract", () => {
         (args: unknown[]) => args[0] === "tab-2" && args[1] === "1"
       )
     ).toBe(false);
+  });
+
+  it("binds sidebar selection to the active tab only", async () => {
+    setupThreadApi({
+      all: {
+        0: { threads: [t(1, "Thread 1"), t(2, "Thread 2")], has_more: false },
+      },
+    });
+
+    const tabOne = {
+      tabId: "tab-1",
+      threadId: "1",
+      pendingThread: false,
+      title: "Thread 1",
+      modelId: "default",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const tabTwo = {
+      tabId: "tab-2",
+      pendingThread: true,
+      title: "New Thread",
+      modelId: "default",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    sessionHooksState.railSlice = {
+      tabs: [tabOne, tabTwo],
+      activeTabId: "tab-2",
+    };
+    sessionHooksState.activeTab = tabTwo;
+
+    const user = userEvent.setup();
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("thread-1");
+    const spine = sessionSpineInstances[0];
+    expect(spine).toBeDefined();
+
+    await user.click(screen.getByTestId("thread-1"));
+
+    expect(
+      spine.tabSetThread.mock.calls.some(
+        (args: unknown[]) =>
+          args[0] === "tab-2" && args[1] === "1" && args[2] === "Thread 1"
+      )
+    ).toBe(true);
+    expect(
+      spine.tabSetThread.mock.calls.some(
+        (args: unknown[]) => args[0] === "tab-1" && args[1] === "1"
+      )
+    ).toBe(false);
+  });
+
+  it("persists a created thread back to its originating tab only", async () => {
+    setupThreadApi({
+      all: {
+        0: { threads: [t(1, "Thread 1"), t(2, "Thread 2")], has_more: false },
+      },
+    });
+
+    const tabOne = {
+      tabId: "tab-1",
+      pendingThread: true,
+      title: "New Thread",
+      modelId: "default",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const tabTwo = {
+      tabId: "tab-2",
+      threadId: "2",
+      pendingThread: false,
+      title: "Thread 2",
+      modelId: "default",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    sessionHooksState.railSlice = {
+      tabs: [tabOne, tabTwo],
+      activeTabId: "tab-2",
+    };
+    sessionHooksState.activeTab = tabTwo;
+
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("thread-1");
+    const spine = sessionSpineInstances[0];
+    expect(spine).toBeDefined();
+    const guardianProps = guardianPropsSpy.mock.calls.at(-1)?.[0];
+    expect(guardianProps).toBeDefined();
+
+    act(() => {
+      guardianProps.onThreadPersisted(77, "Draft Bound", { tabId: "tab-1" });
+    });
+
+    expect(
+      spine.tabSetThread.mock.calls.some(
+        (args: unknown[]) =>
+          args[0] === "tab-1" && args[1] === "77" && args[2] === "Draft Bound"
+      )
+    ).toBe(true);
+    expect(
+      spine.tabSetThread.mock.calls.some(
+        (args: unknown[]) => args[0] === "tab-2" && args[1] === "77"
+      )
+    ).toBe(false);
+    expect(screen.getByTestId("active-thread-id").textContent).toBe("2");
   });
 });

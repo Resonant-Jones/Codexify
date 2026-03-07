@@ -8,6 +8,7 @@ export type TabId = string;
 export interface SessionTab {
   tabId: TabId;
   threadId?: string;
+  pendingThread: boolean;
   title?: string;
   providerId?: string | null;
   modelId: string;
@@ -27,7 +28,7 @@ export interface SessionState {
 }
 
 // `version` is persisted in Redis payloads to support future schema upgrades.
-export const SESSION_SCHEMA_VERSION = 1;
+export const SESSION_SCHEMA_VERSION = 2;
 
 // Open tab/session state can be reconstructed and is safe to expire.
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14; // 14 days
