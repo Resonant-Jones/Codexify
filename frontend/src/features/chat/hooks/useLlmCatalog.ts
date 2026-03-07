@@ -33,6 +33,13 @@ export type LlmCatalogProvider = {
   authorized: boolean;
   available: boolean;
   disabledReason?: string;
+  source?: {
+    kind?: string;
+    baseUrl?: string;
+    host?: string;
+    port?: number;
+    label?: string;
+  };
   models: LlmCatalogModel[];
 };
 
@@ -127,6 +134,28 @@ function normalizeProvider(raw: unknown): LlmCatalogProvider | null {
     authorized: Boolean(provider.authorized),
     available: Boolean(provider.available),
     disabledReason: normalizeString(provider.disabled_reason) ?? undefined,
+    source:
+      provider.source && typeof provider.source === "object"
+        ? {
+            kind:
+              normalizeString((provider.source as Record<string, unknown>).kind) ??
+              undefined,
+            baseUrl:
+              normalizeString(
+                (provider.source as Record<string, unknown>).baseUrl
+              ) ?? undefined,
+            host:
+              normalizeString((provider.source as Record<string, unknown>).host) ??
+              undefined,
+            port:
+              typeof (provider.source as Record<string, unknown>).port === "number"
+                ? Number((provider.source as Record<string, unknown>).port)
+                : undefined,
+            label:
+              normalizeString((provider.source as Record<string, unknown>).label) ??
+              undefined,
+          }
+        : undefined,
     models,
   };
 }

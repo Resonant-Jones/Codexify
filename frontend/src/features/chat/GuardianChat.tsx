@@ -163,6 +163,23 @@ function normalizeLlmHealthRawError(value: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function describeProviderSource(source: {
+  kind?: string;
+  label?: string;
+  baseUrl?: string;
+} | null | undefined): string | null {
+  if (!source) return null;
+  const label = String(source.label ?? "").trim();
+  if (label) return label;
+  const baseUrl = String(source.baseUrl ?? "").trim();
+  if (!baseUrl) return null;
+  try {
+    return new URL(baseUrl).host || baseUrl;
+  } catch {
+    return baseUrl;
+  }
+}
+
 function normalizeVoiceCapabilities(raw: any): VoiceCapabilities {
   const limitsRaw = raw?.limits;
   const maxUploadBytes = Number(limitsRaw?.max_upload_bytes);
@@ -447,7 +464,14 @@ export function GuardianChat({
         value: provider.id,
         label: provider.displayName,
         description: provider.available
-          ? `${provider.models.length} models`
+          ? [
+              `${provider.models.length} models`,
+              describeProviderSource(provider.source)
+                ? `Source ${describeProviderSource(provider.source)}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")
           : provider.disabledReason || "Unavailable",
         disabled: !provider.available,
       })),
@@ -461,6 +485,9 @@ export function GuardianChat({
         label: model.displayName,
         description:
           model.runtime?.reasoning?.profileReason ??
+          (selectedProvider?.source
+            ? `Source ${describeProviderSource(selectedProvider.source)}`
+            : null) ??
           (selectedProvider?.displayName
             ? `${selectedProvider.displayName} model`
             : undefined),

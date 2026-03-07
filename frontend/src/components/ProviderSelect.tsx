@@ -44,8 +44,28 @@ type CatalogProvider = {
   authorized: boolean;
   available: boolean;
   disabled_reason?: string;
+  source?: {
+    kind?: string;
+    baseUrl?: string;
+    host?: string;
+    port?: number;
+    label?: string;
+  };
   models: CatalogModel[];
 };
+
+function describeProviderSource(source?: CatalogProvider["source"]): string | null {
+  if (!source) return null;
+  const label = String(source.label ?? "").trim();
+  if (label) return label;
+  const baseUrl = String(source.baseUrl ?? "").trim();
+  if (!baseUrl) return null;
+  try {
+    return new URL(baseUrl).host || baseUrl;
+  } catch {
+    return baseUrl;
+  }
+}
 
 export function ProviderSelect({
   value,
@@ -88,6 +108,31 @@ export function ProviderSelect({
           disabled_reason:
             typeof entry.disabled_reason === "string"
               ? entry.disabled_reason
+              : undefined,
+          source:
+            entry.source && typeof entry.source === "object"
+              ? {
+                  kind:
+                    typeof entry.source.kind === "string"
+                      ? entry.source.kind
+                      : undefined,
+                  baseUrl:
+                    typeof entry.source.baseUrl === "string"
+                      ? entry.source.baseUrl
+                      : undefined,
+                  host:
+                    typeof entry.source.host === "string"
+                      ? entry.source.host
+                      : undefined,
+                  port:
+                    typeof entry.source.port === "number"
+                      ? entry.source.port
+                      : undefined,
+                  label:
+                    typeof entry.source.label === "string"
+                      ? entry.source.label
+                      : undefined,
+                }
               : undefined,
           models: Array.isArray(entry.models)
             ? entry.models
@@ -332,6 +377,14 @@ export function ProviderSelect({
           <div className="px-3 py-2 text-xs opacity-80">{loadError}</div>
         ) : activeProvider ? (
           <div className="transition-all duration-150 ease-out">
+            {describeProviderSource(activeProvider.source) ? (
+              <div
+                className="px-3 py-2 text-[10px] opacity-70 border-b"
+                style={{ borderColor: "var(--panel-border)" }}
+              >
+                Source: {describeProviderSource(activeProvider.source)}
+              </div>
+            ) : null}
             {activeProvider.models.map((model) => (
               <DropdownMenuItem
                 key={model.id}
@@ -390,7 +443,14 @@ export function ProviderSelect({
                 style={{ color: "var(--text)" }}
               >
                 <span className="flex items-center justify-between w-full gap-2">
-                  <span className="truncate">{entry.displayName}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate">{entry.displayName}</span>
+                    {describeProviderSource(entry.source) ? (
+                      <span className="block truncate text-[10px] opacity-65">
+                        {describeProviderSource(entry.source)}
+                      </span>
+                    ) : null}
+                  </span>
                   {!entry.available ? (
                     <span className="text-[10px] opacity-70">Unavailable</span>
                   ) : null}

@@ -31,6 +31,7 @@ import {
   setRuntimeApiKey,
 } from "@/lib/api";
 import { GuardianEventSource } from "@/lib/guardianEventSource";
+import type { RuntimeConfig } from "@/lib/runtimeConfig";
 
 type ImportRuntimeStatus =
   | "idle"
@@ -264,6 +265,8 @@ export function SettingsView({
   const [desktopBackendBaseUrl, setDesktopBackendBaseUrl] = useState("");
   const [desktopShareBaseUrl, setDesktopShareBaseUrl] = useState("");
   const [desktopApiKeyInput, setDesktopApiKeyInput] = useState("");
+  const [runtimeConfigSnapshot, setRuntimeConfigSnapshot] =
+    useState<RuntimeConfig | null>(null);
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -314,6 +317,9 @@ export function SettingsView({
     setDesktopBackendBaseUrl(settings.backendBaseUrl);
     setDesktopShareBaseUrl(settings.sharePublicBaseUrl);
     setDesktopApiKeyInput(readRuntimeApiKey() ?? "");
+    void initRuntimeConfig({ force: true }).then((config) => {
+      setRuntimeConfigSnapshot(config);
+    });
   }, [desktopMode]);
 
   useEffect(() => {
@@ -649,7 +655,9 @@ export function SettingsView({
         backendBaseUrl: desktopBackendBaseUrl,
         sharePublicBaseUrl: desktopShareBaseUrl,
       });
+      const config = await initRuntimeConfig({ force: true });
       refreshApiBaseUrl();
+      setRuntimeConfigSnapshot(config);
       setConnectionMessage("Connection settings saved.");
     } catch (error) {
       setConnectionError(
@@ -713,6 +721,7 @@ export function SettingsView({
     try {
       const config = await initRuntimeConfig({ force: true });
       refreshApiBaseUrl();
+      setRuntimeConfigSnapshot(config);
       const response = await fetch(resolveBackendUrl("/ping", config));
       if (!response.ok) {
         throw new Error(`Backend ping failed (${response.status})`);
@@ -1145,6 +1154,20 @@ export function SettingsView({
                   placeholder="http://127.0.0.1:5173"
                 />
               </div>
+              {runtimeConfigSnapshot ? (
+                <div
+                  className="rounded-[14px] border px-3 py-2 text-[11px] opacity-80"
+                  style={{
+                    borderColor: "var(--panel-border)",
+                    background:
+                      "color-mix(in oklab, var(--panel-sheet) 92%, transparent)",
+                  }}
+                >
+                  <div>Active backend: {runtimeConfigSnapshot.backendBaseUrl || "(not set)"}</div>
+                  <div>Active API base: {runtimeConfigSnapshot.apiBaseUrl || "(not set)"}</div>
+                  <div>Active events endpoint: {runtimeConfigSnapshot.sseUrl || "(not set)"}</div>
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
