@@ -415,8 +415,10 @@ export function ChatView({
           if (String(msg.role ?? "").trim().toLowerCase() !== "assistant") return false;
           return readMessageTurnId(msg) === incomingTurnId;
         });
+        const lastUserMessageId = getLastUserMessageId(messagesRef.current);
         if (
           existingForTurn &&
+          Number(existingForTurn.id) > lastUserMessageId &&
           Number(existingForTurn.id) !== incomingMessageId
         ) {
           debugLog(
@@ -482,7 +484,10 @@ export function ChatView({
           (() => {
             const messageTurnId = readMessageTurnId(msg);
             if (messageTurnId) {
-              return messageTurnId === expectedTurnId;
+              return (
+                messageTurnId === expectedTurnId &&
+                id > Math.max(session.initialAssistantId, session.lastUserMessageId)
+              );
             }
             return id > session.lastUserMessageId;
           })() &&
@@ -574,7 +579,9 @@ export function ChatView({
     if (!completionState.isCompleting) {
       const completingThreadId = lastCompletingThreadIdRef.current;
       if (completingThreadId != null) {
-        clearTrackedTurnId(completingThreadId, activeTurnIdRef.current);
+        const trackedTurnId =
+          activeTurnIdRef.current ?? getTrackedTurnId(completingThreadId);
+        clearTrackedTurnId(completingThreadId, trackedTurnId);
       }
       lastCompletingThreadIdRef.current = null;
       setActiveTurnId(null);
@@ -586,73 +593,6 @@ export function ChatView({
   useEffect(() => {
     endCompletionRef.current = endCompletion;
   }, [endCompletion]);
-
-  useEffect(() => {
-    const clearCompletionOnFailure = (eventType: string, event: any) => {
-      const payload = (event?.data as any)?.data ?? event?.data ?? {};
-      const tid = Number(payload?.thread_id ?? payload?.threadId ?? payload?.thread?.id);
-      if (!Number.isFinite(tid) || tid !== activeThreadRef.current) return;
-
-      const snapshot = completionStateRef.current;
-      if (!snapshot.isCompleting || snapshot.activeThreadId !== tid) return;
-
-      const eventTaskIdRaw = payload?.task_id ?? payload?.taskId;
-      const eventTaskId =
-        typeof eventTaskIdRaw === "string" && eventTaskIdRaw.trim().length > 0
-          ? eventTaskIdRaw.trim()
-          : null;
-      if (
-        snapshot.activeTaskId &&
-        eventTaskId &&
-        snapshot.activeTaskId !== eventTaskId
-      ) {
-        return;
-      }
-
-      if (completionFinalizeTimerRef.current !== null) {
-        window.clearTimeout(completionFinalizeTimerRef.current);
-        completionFinalizeTimerRef.current = null;
-      }
-      completionFinalizePendingRef.current.delete(tid);
-      inFlightCompletionByThreadRef.current.delete(tid);
-      const completionTurnId = activeTurnIdRef.current ?? getTrackedTurnId(tid);
-      if (completionTurnId) {
-        clearTrackedTurnId(tid, completionTurnId);
-        setActiveTurnId((prev) =>
-          prev === completionTurnId ? null : prev
-        );
-      }
-      const activeKey = activePollKeyRef.current;
-      if (activeKey && activeKey.startsWith(`${tid}:`)) {
-        stopPollingWithReason(`worker-${eventType}`, activeKey);
-      }
-      endCompletionRef.current();
-    };
-
-    const offTaskFailed = subscribe("task.failed", (event) => {
-      clearCompletionOnFailure("task.failed", event);
-    });
-    const offTaskCancelled = subscribe("task.cancelled", (event) => {
-      clearCompletionOnFailure("task.cancelled", event);
-    });
-    const offCompletionError = subscribe("completion.error", (event) => {
-      clearCompletionOnFailure("completion.error", event);
-    });
-    const offTaskCompleted = subscribe("task.completed", (event) => {
-      const payload = (event?.data as any)?.data ?? event?.data ?? {};
-      const messageId = parseMessageId(payload);
-      if (messageId > 0) return;
-      clearCompletionOnFailure("task.completed_missing_message", event);
-    });
-
-    return () => {
-      offTaskFailed();
-      offTaskCancelled();
-      offCompletionError();
-      offTaskCompleted();
-    };
-  }, [stopPollingWithReason, subscribe]);
-
 
   useEffect(() => {
     loadMessagesRef.current = loadMessages;
