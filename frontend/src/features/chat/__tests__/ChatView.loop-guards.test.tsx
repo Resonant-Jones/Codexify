@@ -318,6 +318,37 @@ describe("ChatView loop guards", () => {
     });
   });
 
+  it("clears completion immediately when task.cancelled arrives for the active task", async () => {
+    const endCompletion = vi.fn();
+    const completion = {
+      isCompleting: true,
+      activeTaskId: "task-12",
+      activeThreadId: 12,
+      startedAt: Date.now(),
+    };
+
+    render(
+      <ChatView
+        threadId={12}
+        completionState={completion}
+        endCompletion={endCompletion}
+      />
+    );
+
+    await waitFor(() => {
+      expect(activeSubscriberCount("task.cancelled")).toBe(1);
+    });
+
+    emitLiveEvent("task.cancelled", {
+      thread_id: 12,
+      task_id: "task-12",
+    });
+
+    await waitFor(() => {
+      expect(endCompletion).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("ignores stale task.failed and only finalizes for the active thread/task", async () => {
     const endCompletion = vi.fn();
     const completionThread2 = {
