@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     # catalog in config.
     # --- Local (Ollama OpenAI-compatible) routing ---
     LOCAL_BASE_URL: str = Field(
-        default="http://192.168.4.225:11434/v1",
+        default="http://127.0.0.1:11434/v1",
         description="Base URL for the local OpenAI-compatible API (e.g., Ollama ).",
     )
     LOCAL_API_KEY: str = Field(

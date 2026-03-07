@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 
 type Ctx = {
   open: boolean;
@@ -25,13 +26,16 @@ export const DropdownMenu = ({
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : uncontrolledOpen;
 
-  const setOpen = (value: boolean) => {
-    if (isControlled) {
-      onOpenChange?.(value);
-      return;
-    }
-    setUncontrolledOpen(value);
-  };
+  const setOpen = React.useCallback(
+    (value: boolean) => {
+      if (isControlled) {
+        onOpenChange?.(value);
+        return;
+      }
+      setUncontrolledOpen(value);
+    },
+    [isControlled, onOpenChange]
+  );
 
   return (
     <DropdownCtx.Provider value={{ open, setOpen, rootRef }}>
@@ -109,6 +113,62 @@ type DropdownMenuContentProps = React.HTMLAttributes<HTMLDivElement> & {
   collisionPadding?: number;
 };
 
+type Placement = {
+  left: number;
+  top: number;
+  visibility: React.CSSProperties["visibility"];
+};
+
+function resolvePlacement(
+  rootRect: DOMRect,
+  contentRect: DOMRect,
+  options: {
+    side: "top" | "bottom";
+    align?: "start" | "end";
+    sideOffset: number;
+    collisionPadding: number;
+  }
+): Placement {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const { side, align, sideOffset, collisionPadding } = options;
+
+  const fitsBelow =
+    rootRect.bottom + sideOffset + contentRect.height <=
+    viewportHeight - collisionPadding;
+  const fitsAbove =
+    rootRect.top - sideOffset - contentRect.height >= collisionPadding;
+
+  const resolvedSide =
+    side === "top"
+      ? fitsAbove || !fitsBelow
+        ? "top"
+        : "bottom"
+      : fitsBelow || !fitsAbove
+        ? "bottom"
+        : "top";
+
+  let left =
+    align === "end"
+      ? rootRect.right - contentRect.width
+      : rootRect.left;
+  let top =
+    resolvedSide === "top"
+      ? rootRect.top - sideOffset - contentRect.height
+      : rootRect.bottom + sideOffset;
+
+  left = Math.min(
+    Math.max(collisionPadding, left),
+    Math.max(collisionPadding, viewportWidth - contentRect.width - collisionPadding)
+  );
+  top = Math.min(
+    Math.max(collisionPadding, top),
+    Math.max(collisionPadding, viewportHeight - contentRect.height - collisionPadding)
+  );
+
+  return { left, top, visibility: "visible" };
+}
+
 export const DropdownMenuContent = ({
   children,
   side = "bottom",
@@ -120,31 +180,12 @@ export const DropdownMenuContent = ({
   ...props
 }: DropdownMenuContentProps) => {
   const ctx = React.useContext(DropdownCtx)!;
-
-  React.useEffect(() => {
-    const onDoc = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      const root = ctx.rootRef.current;
-      if (!root) return;
-      if (!root.contains(target)) {
-        ctx.setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        ctx.setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [ctx]);
-
-  if (!ctx.open) return null;
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const [placement, setPlacement] = React.useState<Placement>({
+    left: 0,
+    top: 0,
+    visibility: "hidden",
+  });
 
   const resolvedOffset = Number.isFinite(Number(sideOffset))
     ? Math.max(0, Number(sideOffset))
@@ -153,29 +194,91 @@ export const DropdownMenuContent = ({
     ? Math.max(0, Number(collisionPadding))
     : 0;
 
-  const placementStyle: React.CSSProperties = {
-    ...(side === "top"
-      ? { bottom: `calc(100% + ${resolvedOffset}px)` }
-      : { top: `calc(100% + ${resolvedOffset}px)` }),
-    ...(align === "end"
-      ? { right: `${resolvedCollisionPadding}px` }
-      : { left: `${resolvedCollisionPadding}px` }),
-    ...style,
-  };
+  const updatePlacement = React.useCallback(() => {
+    const root = ctx.rootRef.current;
+    const content = contentRef.current;
+    if (!root || !content) return;
+    const rootRect = root.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
+    setPlacement(
+      resolvePlacement(rootRect, contentRect, {
+        side,
+        align,
+        sideOffset: resolvedOffset,
+        collisionPadding: resolvedCollisionPadding,
+      })
+    );
+  }, [align, ctx.rootRef, resolvedCollisionPadding, resolvedOffset, side]);
 
-  return (
+  React.useLayoutEffect(() => {
+    if (!ctx.open) return undefined;
+    updatePlacement();
+
+    const handleResize = () => updatePlacement();
+    const handleScroll = () => updatePlacement();
+
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("scroll", handleScroll, true);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [ctx.open, updatePlacement]);
+
+  React.useEffect(() => {
+    if (!ctx.open) return undefined;
+
+    const onDoc = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      const root = ctx.rootRef.current;
+      const content = contentRef.current;
+      if (!target || !root) return;
+      if (root.contains(target) || content?.contains(target)) {
+        return;
+      }
+      ctx.setOpen(false);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        ctx.setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [ctx]);
+
+  if (!ctx.open || typeof document === "undefined") return null;
+
+  return createPortal(
     <div
+      ref={contentRef}
       data-ddm-root
       role="menu"
       className={
-        "absolute z-50 min-w-40 rounded-md border bg-[var(--panel-bg)] p-1 shadow-lg " +
+        "inline-flex min-w-40 max-w-[min(32rem,calc(100vw-24px))] flex-col rounded-md border bg-[var(--panel-bg)] p-1 shadow-lg " +
         (className ? " " + className : "")
       }
-      style={placementStyle}
+      style={{
+        position: "fixed",
+        zIndex: 1000,
+        left: placement.left,
+        top: placement.top,
+        width: "max-content",
+        visibility: placement.visibility,
+        ...style,
+      }}
       {...props}
     >
       {children}
-    </div>
+    </div>,
+    document.body
   );
 };
 

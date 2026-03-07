@@ -82,6 +82,9 @@ def test_llm_catalog_hides_unauthorized_cloud_providers_by_default(monkeypatch):
         local = _provider_by_id(payload, "local")
         assert local["displayName"] == "Local"
         assert local["enabled"] is True
+        assert local["source"]["kind"] == "local"
+        assert local["source"]["baseUrl"] == "http://127.0.0.1:11434/v1"
+        assert local["source"]["label"] == "127.0.0.1:11434"
         assert [m["id"] for m in local["models"]] == [
             "llama3.1:8b",
             "qwen2.5:7b",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -328,6 +329,38 @@ def _provider_models(
     return _cloud_models(provider_id, settings)
 
 
+def _source_label(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    if parsed.netloc:
+        return parsed.netloc
+    if parsed.path:
+        return parsed.path.rstrip("/")
+    return base_url.rstrip("/")
+
+
+def _provider_source(
+    provider_id: str, settings: Settings
+) -> dict[str, Any] | None:
+    if provider_id != "local":
+        return None
+    try:
+        base_url = _resolve_local_base(settings)
+    except Exception:
+        return None
+
+    parsed = urlparse(base_url)
+    source: dict[str, Any] = {
+        "kind": "local",
+        "baseUrl": base_url,
+        "label": _source_label(base_url),
+    }
+    if parsed.hostname:
+        source["host"] = parsed.hostname
+    if parsed.port:
+        source["port"] = parsed.port
+    return source
+
+
 def _provider_availability(
     provider_id: str,
     settings: Settings,
@@ -379,6 +412,9 @@ def _provider_entry(
         "available": available,
         "models": _provider_models(provider_id, settings),
     }
+    source = _provider_source(provider_id, settings)
+    if source is not None:
+        entry["source"] = source
     if not available and disabled_reason:
         entry["disabled_reason"] = disabled_reason
     return entry

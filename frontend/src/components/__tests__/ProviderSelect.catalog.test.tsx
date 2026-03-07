@@ -68,6 +68,11 @@ describe("ProviderSelect catalog routing", () => {
             enabled: true,
             authorized: true,
             available: true,
+            source: {
+              kind: "local",
+              baseUrl: "http://tailscale-server:11434/v1",
+              label: "tailscale-server:11434",
+            },
             models: [{ id: "llama3.1:8b", displayName: "Llama 3.1 8B" }],
           },
           {
@@ -95,6 +100,7 @@ describe("ProviderSelect catalog routing", () => {
       expect(api.get).toHaveBeenCalledWith("/llm/catalog")
     );
     expect(screen.getByText("Select Provider")).toBeInTheDocument();
+    expect(screen.getByText("tailscale-server:11434")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Groq" })).toBeInTheDocument();
 
     fireEvent.click(providerButton("Groq"));
