@@ -16,6 +16,7 @@ export type LlmCatalogModel = {
   canonicalId: string;
   providerId: string;
   displayName: string;
+  pickerLabel: string;
   displayLabel: string;
   alias?: string;
   namespace?: string;
@@ -80,7 +81,8 @@ function normalizeModel(
     normalizeString(model.label) ??
     canonicalId;
   const alias = normalizeString(model.alias) ?? undefined;
-  const displayName = alias ?? displayLabel;
+  const pickerLabel = alias ?? displayLabel ?? canonicalId;
+  const displayName = pickerLabel;
   const runtime = model.runtime;
   const reasoning =
     runtime && typeof runtime === "object"
@@ -92,6 +94,7 @@ function normalizeModel(
     canonicalId,
     providerId,
     displayName,
+    pickerLabel,
     displayLabel,
     alias,
     namespace: normalizeString(model.namespace) ?? undefined,
