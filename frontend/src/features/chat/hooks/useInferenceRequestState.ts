@@ -4,6 +4,7 @@ import { GuardianEventSource } from "@/lib/guardianEventSource";
 import api, { getAuthToken, getDevApiKey, readRuntimeApiKey } from "@/lib/api";
 import {
   createIdleInferenceRequestState,
+  isActiveInferencePhase,
   type ComposerInferenceMode,
   type InferenceRequestState,
 } from "@/types/inference";
@@ -50,10 +51,7 @@ function buildStatePatch(
     ...patch,
     updatedAt: Date.now(),
   };
-  const isActivePhase =
-    next.phase === "sending" ||
-    next.phase === "thinking" ||
-    next.phase === "streaming";
+  const isActivePhase = isActiveInferencePhase(next.phase);
   const canInterrupt = isActivePhase && Boolean(next.taskId);
   return {
     ...next,

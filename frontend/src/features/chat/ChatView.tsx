@@ -11,6 +11,7 @@ import React, {
 } from "react";
 import { useChat, parseMessagesResponse, CompletionState } from "@/features/chat/useChat";
 import ChatBubble from "@/features/chat/components/ChatBubble";
+import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
 import ContextMenu from "@/components/ui/ContextMenu";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,11 @@ import api from "@/lib/api";
 import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
+import {
+  createIdleInferenceRequestState,
+  isActiveInferencePhase,
+  type InferenceRequestState,
+} from "@/types/inference";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
 type BubblePlayState = "idle" | "playing" | "unavailable" | "disabled";
@@ -147,6 +153,9 @@ export function ChatView({
   voiceCapabilitiesFailed = false,
   depthMode = "normal",
   profileId = null,
+  inferenceState = createIdleInferenceRequestState(),
+  onCancelInference,
+  onSwitchToFast,
 }: {
   threadId: number;
   guardianName?: string;
@@ -160,6 +169,9 @@ export function ChatView({
   voiceCapabilitiesFailed?: boolean;
   depthMode?: DepthMode;
   profileId?: string | null;
+  inferenceState?: InferenceRequestState;
+  onCancelInference?: () => void;
+  onSwitchToFast?: () => void;
 }) {
   const {
     messages,
@@ -214,6 +226,24 @@ export function ChatView({
   const resolvedDepthMode: DepthMode = depthMode ?? "normal";
   const isCompletingForThread =
     completionState.isCompleting && completionState.activeThreadId === threadId;
+  const activeInferenceState = useMemo(() => {
+    if (inferenceState.threadId === threadId) {
+      return inferenceState;
+    }
+    if (!isCompletingForThread) {
+      return createIdleInferenceRequestState();
+    }
+    const timestamp = Date.now();
+    return {
+      ...createIdleInferenceRequestState(),
+      phase: "thinking" as const,
+      threadId,
+      startedAt: timestamp,
+      updatedAt: timestamp,
+    };
+  }, [inferenceState, isCompletingForThread, threadId]);
+  const showCompletionIndicator =
+    isCompletingForThread || isActiveInferencePhase(activeInferenceState.phase);
 
   const debugLog = useCallback((key: string, message: string, ttlMs = 1000) => {
     const now = Date.now();
@@ -1252,24 +1282,21 @@ export function ChatView({
           );
         })}
 
-        {completionState.isCompleting && (
-          <div className="max-w-full" data-testid="chat-completing-indicator">
+        {showCompletionIndicator && (
+          <div className="mx-4 mb-2 flex max-w-full justify-start" data-testid="chat-completing-indicator">
             <div
-              className="mx-4 mb-2 rounded-xl border px-3 py-2"
+              className="max-w-[min(34rem,calc(100%-1rem))] rounded-[22px] px-4 py-3 shadow-sm"
               style={{
-                borderColor: "color-mix(in oklab, var(--panel-border) 82%, transparent)",
                 background:
-                  "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 88%, transparent)",
+                  "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 82%, transparent)",
                 color: "var(--text)",
               }}
             >
-              <div className="flex items-center gap-2 text-xs">
-                <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 animate-pulse" />
-                <span>Guardian is working on the current turn.</span>
-              </div>
-              <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>
-                Status and controls stay in the composer while the reply is in flight.
-              </div>
+              <InferenceStatusBanner
+                state={activeInferenceState}
+                onCancel={onCancelInference}
+                onSwitchToFast={onSwitchToFast}
+              />
             </div>
           </div>
         )}

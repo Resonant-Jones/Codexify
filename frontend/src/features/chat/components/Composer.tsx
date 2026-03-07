@@ -16,12 +16,9 @@ import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMen
 import ComposerSelectMenu, {
   type ComposerSelectOption,
 } from "@/features/chat/components/ComposerSelectMenu";
-import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
 import {
-  createIdleInferenceRequestState,
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
-  type InferenceRequestState,
 } from "@/types/inference";
 
 const ACCEPTED_ATTACHMENTS =
@@ -104,9 +101,6 @@ export function Composer({
   depthMode = "normal",
   depthOptions = [],
   onDepthModeChange,
-  inferenceState = createIdleInferenceRequestState(),
-  onCancelInference,
-  onSwitchToFast,
   onVoiceTurn,
   voiceTurnLabel = "Upload voice turn",
 }: {
@@ -140,9 +134,6 @@ export function Composer({
     description: string;
   }>;
   onDepthModeChange?: (mode: DepthMode) => void;
-  inferenceState?: InferenceRequestState;
-  onCancelInference?: () => void;
-  onSwitchToFast?: () => void;
   onVoiceTurn?: () => void;
   voiceTurnLabel?: string;
 }) {
@@ -175,9 +166,14 @@ export function Composer({
   const [showImgGen, setShowImgGen] = useState(false);
   const effectiveSending = Boolean(isSending) || internalSending;
   const turnLocked = Boolean(isTurnInFlight);
-  const actionsDisabled = turnLocked || effectiveSending || uploading;
+  const transportBusy = effectiveSending || uploading;
+  const draftControlsDisabled = transportBusy;
+  const voiceTurnDisabled = turnLocked || transportBusy;
 
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
+  const hasDraftContent = Boolean(value.trim()) || draftAttachments.length > 0;
+  const sendTransportDisabled = transportBusy || !hasDraftContent;
+  const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const showToast = (message: string) => {
     try {
@@ -185,7 +181,10 @@ export function Composer({
     } catch {}
   };
   const notifyTurnLocked = () => {
-    showToast("One moment—finish the current reply first.");
+    showToast("Keep typing. Send unlocks when the current reply finishes.");
+  };
+  const notifyTransportBusy = () => {
+    showToast("Finishing the current send…");
   };
 
   const clearDraftCommitTimer = () => {
@@ -308,8 +307,8 @@ export function Composer({
   function stageFiles(files: FileList | File[]) {
     const arr = Array.from(files || []);
     if (!arr.length) return;
-    if (actionsDisabled) {
-      notifyTurnLocked();
+    if (draftControlsDisabled) {
+      notifyTransportBusy();
       return;
     }
 
@@ -406,7 +405,7 @@ export function Composer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onPrefillConsumed, prefill, value]);
   async function send() {
-    if (effectiveSending || uploading) return;
+    if (transportBusy) return;
     if (turnLocked) {
       notifyTurnLocked();
       return;
@@ -530,8 +529,8 @@ export function Composer({
   }
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (actionsDisabled) {
-      notifyTurnLocked();
+    if (draftControlsDisabled) {
+      notifyTransportBusy();
       return;
     }
     if (e.dataTransfer?.files?.length) {
@@ -554,6 +553,13 @@ export function Composer({
     inferenceModeOptions.find((option) => option.value === activeInferenceMode)
       ?.label ??
     "Auto";
+  const handleAttemptSend = () => {
+    if (turnLocked) {
+      notifyTurnLocked();
+      return;
+    }
+    void send();
+  };
 
   return (
     <>
@@ -576,11 +582,7 @@ export function Composer({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (turnLocked) {
-                    notifyTurnLocked();
-                    return;
-                  }
-                  void send();
+                  handleAttemptSend();
                 }
               }}
               className="w-full min-h-[96px] resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
@@ -622,14 +624,6 @@ export function Composer({
             </div>
           )}
 
-          <div className="px-[8px] pb-[6px]">
-            <InferenceStatusBanner
-              state={inferenceState}
-              onCancel={onCancelInference}
-              onSwitchToFast={onSwitchToFast}
-            />
-          </div>
-
           <input
             ref={fileInputRef}
             type="file"
@@ -646,19 +640,19 @@ export function Composer({
           <div className="flex flex-wrap items-center justify-between gap-3 px-[8px] pb-[6px]">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <ComposerActionMenu
-                disabled={actionsDisabled}
+                disabled={draftControlsDisabled}
                 depthMode={depthMode}
                 depthOptions={depthOptions}
                 onAttach={() => {
-                  if (actionsDisabled) {
-                    notifyTurnLocked();
+                  if (draftControlsDisabled) {
+                    notifyTransportBusy();
                     return;
                   }
                   fileInputRef.current?.click();
                 }}
                 onGenerateImage={() => {
-                  if (actionsDisabled) {
-                    notifyTurnLocked();
+                  if (draftControlsDisabled) {
+                    notifyTransportBusy();
                     return;
                   }
                   setShowImgGen(true);
@@ -667,6 +661,7 @@ export function Composer({
                   onDepthModeChange?.(nextDepth);
                 }}
                 onVoiceTurn={onVoiceTurn}
+                voiceTurnDisabled={voiceTurnDisabled}
                 voiceTurnLabel={voiceTurnLabel}
               />
               <ComposerSelectMenu
@@ -676,7 +671,7 @@ export function Composer({
                 options={providerOptions}
                 selectedValue={activeProviderId}
                 openSignal={providerOpenSignal}
-                disabled={actionsDisabled || providerOptions.length === 0}
+                disabled={draftControlsDisabled || providerOptions.length === 0}
                 onSelect={onProviderChange ?? (() => {})}
               />
               <ComposerSelectMenu
@@ -685,7 +680,7 @@ export function Composer({
                 valueLabel={modelLabel}
                 options={modelOptions}
                 selectedValue={activeModelId}
-                disabled={actionsDisabled || modelOptions.length === 0}
+                disabled={draftControlsDisabled || modelOptions.length === 0}
                 onSelect={onModelChange ?? (() => {})}
               />
               <ComposerSelectMenu
@@ -694,7 +689,7 @@ export function Composer({
                 valueLabel={inferenceModeLabel}
                 options={inferenceModeOptions}
                 selectedValue={activeInferenceMode}
-                disabled={actionsDisabled || inferenceModeOptions.length === 0}
+                disabled={draftControlsDisabled || inferenceModeOptions.length === 0}
                 onSelect={(value) =>
                   onInferenceModeChange?.(value as ComposerInferenceMode)
                 }
@@ -703,16 +698,23 @@ export function Composer({
 
             <Button
               type="button"
-              onClick={send}
-              disabled={actionsDisabled || (!value.trim() && draftAttachments.length === 0)}
-              aria-disabled={actionsDisabled || (!value.trim() && draftAttachments.length === 0)}
-              tabIndex={actionsDisabled || (!value.trim() && draftAttachments.length === 0) ? -1 : 0}
+              onClick={handleAttemptSend}
+              disabled={sendTransportDisabled}
+              aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
+              tabIndex={sendTransportDisabled ? -1 : 0}
+              title={
+                sendBlockedByTurnLock
+                  ? "Finish the current reply before sending."
+                  : undefined
+              }
               size="sm"
               className={cn(
                 "h-8 rounded-md px-4 text-[12px] font-medium transition-opacity",
-                (actionsDisabled || (!value.trim() && draftAttachments.length === 0))
+                sendTransportDisabled
                   ? "cursor-not-allowed opacity-50"
-                  : ""
+                  : sendBlockedByTurnLock
+                    ? "opacity-75"
+                    : ""
               )}
               style={{
                 background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",

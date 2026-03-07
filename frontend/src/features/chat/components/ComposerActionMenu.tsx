@@ -25,6 +25,7 @@ type ComposerActionMenuProps = {
   onGenerateImage: () => void;
   onDepthChange: (mode: DepthMode) => void;
   onVoiceTurn?: () => void;
+  voiceTurnDisabled?: boolean;
   voiceTurnLabel?: string;
 };
 
@@ -36,6 +37,7 @@ export function ComposerActionMenu({
   onGenerateImage,
   onDepthChange,
   onVoiceTurn,
+  voiceTurnDisabled = false,
   voiceTurnLabel = "Upload voice turn",
 }: ComposerActionMenuProps) {
   const [open, setOpen] = useState(false);
@@ -106,8 +108,12 @@ export function ComposerActionMenu({
         </DropdownMenuItem>
         {onVoiceTurn ? (
           <DropdownMenuItem
-            onClick={() => closeAndRun(onVoiceTurn)}
-            className="cursor-pointer px-2 py-2"
+            onClick={() => {
+              if (voiceTurnDisabled) return;
+              closeAndRun(onVoiceTurn);
+            }}
+            disabled={voiceTurnDisabled}
+            className="cursor-pointer px-2 py-2 disabled:cursor-not-allowed disabled:opacity-45"
             style={{ borderRadius: "0.8rem" }}
           >
             <span className="flex items-center gap-2">

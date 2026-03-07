@@ -48,6 +48,10 @@ export function createIdleInferenceRequestState(): InferenceRequestState {
   };
 }
 
+export function isActiveInferencePhase(phase: InferencePhase): boolean {
+  return phase === "sending" || phase === "thinking" || phase === "streaming";
+}
+
 export function isReasoningMode(
   value: unknown
 ): value is ComposerInferenceMode {
