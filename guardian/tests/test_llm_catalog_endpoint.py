@@ -28,11 +28,48 @@ def _mock_local_catalog_request(url: str, *args, **kwargs) -> _MockResponse:
     return _MockResponse({"data": []}, status_code=404)
 
 
+def _mock_normalized_catalog_request(
+    url: str, *args, **kwargs
+) -> _MockResponse:
+    if url.endswith("/api/tags"):
+        return _MockResponse(
+            {
+                "models": [
+                    {"name": "qwen3.5:2b"},
+                    {"name": "library2/qwen3:4b"},
+                    {"name": "goekdenizguelmez/JOSIE:4b-instruct-f16"},
+                    {"name": "lfm2:24b-q4_K_M"},
+                    {"name": "library2/ministral-3:8b"},
+                ]
+            }
+        )
+    return _MockResponse({"data": []}, status_code=404)
+
+
+def _mock_collision_catalog_request(url: str, *args, **kwargs) -> _MockResponse:
+    if url.endswith("/api/tags"):
+        return _MockResponse(
+            {
+                "models": [
+                    {"name": "library2/qwen3:4b"},
+                    {"name": "qwen3:4b-q4_K_M"},
+                ]
+            }
+        )
+    return _MockResponse({"data": []}, status_code=404)
+
+
 def _provider_by_id(payload: dict, provider_id: str) -> dict:
     return next(
         provider
         for provider in payload["providers"]
         if provider.get("id") == provider_id
+    )
+
+
+def _model_by_id(provider: dict, model_id: str) -> dict:
+    return next(
+        model for model in provider["models"] if model.get("id") == model_id
     )
 
 
@@ -89,6 +126,9 @@ def test_llm_catalog_hides_unauthorized_cloud_providers_by_default(monkeypatch):
             "llama3.1:8b",
             "qwen2.5:7b",
         ]
+        assert local["models"][0]["canonical_id"] == "llama3.1:8b"
+        assert local["models"][0]["display_label"] == "Llama 3.1 8B"
+        assert local["models"][0]["alias"] is None
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -178,6 +218,78 @@ def test_llm_catalog_marks_qwen3_local_models_as_no_think_by_default(
         )
         assert qwen_3_5["runtime"]["reasoning"]["mode"] == "no_think"
         assert qwen_3_5["runtime"]["reasoning"]["instruction"] == "/no_think"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_normalizes_local_model_identity_labels(monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_normalized_catalog_request,
+    )
+
+    settings = get_settings()
+    snapshot = {"LOCAL_BASE_URL": settings.LOCAL_BASE_URL}
+    try:
+        settings.LOCAL_BASE_URL = "http://127.0.0.1:11434/v1"
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+
+        payload = response.json()
+        local = _provider_by_id(payload, "local")
+
+        qwen = _model_by_id(local, "qwen3.5:2b")
+        assert qwen["canonical_id"] == "qwen3.5:2b"
+        assert qwen["display_label"] == "Qwen 3.5 2B"
+        assert qwen["displayName"] == "Qwen 3.5 2B"
+        assert qwen["alias"] is None
+        assert "namespace" not in qwen
+
+        library_qwen = _model_by_id(local, "library2/qwen3:4b")
+        assert library_qwen["display_label"] == "Qwen 3 4B"
+        assert library_qwen["namespace"] == "library2"
+        assert library_qwen["source"] == "library2"
+
+        josie = _model_by_id(local, "goekdenizguelmez/JOSIE:4b-instruct-f16")
+        assert josie["display_label"] == "JOSIE 4B Instruct"
+        assert josie["namespace"] == "goekdenizguelmez"
+
+        lfm = _model_by_id(local, "lfm2:24b-q4_K_M")
+        assert lfm["display_label"] == "LFM 2 24B"
+        assert lfm["source"] == "127.0.0.1:11434"
+
+        ministral = _model_by_id(local, "library2/ministral-3:8b")
+        assert ministral["display_label"] == "Ministral 3 8B"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_disambiguates_duplicate_normalized_labels(monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_collision_catalog_request,
+    )
+
+    settings = get_settings()
+    snapshot = {"LOCAL_BASE_URL": settings.LOCAL_BASE_URL}
+    try:
+        settings.LOCAL_BASE_URL = "http://127.0.0.1:11434/v1"
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+
+        payload = response.json()
+        local = _provider_by_id(payload, "local")
+        labels = {
+            model["id"]: model["display_label"] for model in local["models"]
+        }
+        assert labels["library2/qwen3:4b"] == "Qwen 3 4B · library2"
+        assert labels["qwen3:4b-q4_K_M"] == "Qwen 3 4B · q4_K_M"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
