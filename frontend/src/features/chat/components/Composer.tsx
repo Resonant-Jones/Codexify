@@ -724,7 +724,7 @@ export function Composer({
                   boxShadow: "none",
                 }}
               >
-                <Send className="h-3.5 w-3.5" />
+                <Send className="h-3.5 w-3.5 shrink-0" />
               </Button>
             </div>
           </div>
