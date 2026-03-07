@@ -701,6 +701,7 @@ export function Composer({
                 type="button"
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
+                aria-label="Send"
                 aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
                 tabIndex={sendTransportDisabled ? -1 : 0}
                 title={
@@ -710,7 +711,7 @@ export function Composer({
                 }
                 size="sm"
                 className={cn(
-                  "h-8 rounded-md px-4 text-[12px] font-medium transition-opacity",
+                  "h-8 w-8 rounded-md px-0 transition-opacity",
                   sendTransportDisabled
                     ? "cursor-not-allowed opacity-50"
                     : sendBlockedByTurnLock
@@ -723,8 +724,7 @@ export function Composer({
                   boxShadow: "none",
                 }}
               >
-                <Send className="mr-1.5 h-3.5 w-3.5" />
-                Send
+                <Send className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
