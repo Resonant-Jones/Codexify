@@ -480,7 +480,6 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 task.task_id,
                 message_id,
             )
-
         if turn_id:
             try:
                 persisted = _persist_turn_id_metadata(

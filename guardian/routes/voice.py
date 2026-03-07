@@ -137,10 +137,20 @@ def _get_dedupe_hit(
     task_id = str(payload.get("task_id") or "").strip()
     if not task_id:
         return None
+    status = _task_terminal_status(task_id)
+    if status == "failed":
+        try:
+            client.delete(key)
+        except Exception:
+            logger.debug(
+                "[voice.turn] failed deleting stale dedupe record",
+                exc_info=True,
+            )
+        return None
     return {
         "deduped": True,
         "task_id": task_id,
-        "status": _task_terminal_status(task_id),
+        "status": status,
     }
 
 
