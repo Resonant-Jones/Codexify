@@ -36,6 +36,7 @@ import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import RAGTracePanel from "./panels/RAGTracePanel";
 import SessionRail from "@/components/SessionRail/SessionRail";
+import { getWrappedSessionTabId } from "@/state/session/hooks";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
@@ -240,6 +241,19 @@ function getModelDifferentiator(
   }
 
   return model.canonicalId;
+}
+
+function isApplePlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const platform = String(
+    (navigator as any).userAgentData?.platform ?? navigator.platform ?? ""
+  ).toLowerCase();
+  return (
+    platform.includes("mac") ||
+    platform.includes("iphone") ||
+    platform.includes("ipad") ||
+    platform.includes("ipod")
+  );
 }
 
 function normalizeVoiceCapabilities(raw: any): VoiceCapabilities {
@@ -753,11 +767,58 @@ export function GuardianChat({
   const llmStatusMessage =
     llmHealth.error
     || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
+  const applePlatform = useMemo(() => isApplePlatform(), []);
   const focusComposer = useCallback(() => {
     if (typeof document === "undefined") return;
     const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
     composer?.focus();
   }, []);
+  const handleSessionTabOpenRequest = useCallback(() => {
+    if (onSessionTabOpen) {
+      onSessionTabOpen();
+      return true;
+    }
+    onNewChat();
+    return true;
+  }, [onNewChat, onSessionTabOpen]);
+  const handleSessionTabActivateRequest = useCallback(
+    (tabId: TabId) => {
+      if (!onSessionTabActivate) return false;
+      onSessionTabActivate(tabId);
+      return true;
+    },
+    [onSessionTabActivate]
+  );
+  const activateNextSessionTab = useCallback(() => {
+    if (!onSessionTabActivate || !sessionTabs.length) return false;
+    const nextTabId = getWrappedSessionTabId(
+      sessionTabs,
+      activeSessionTabId,
+      1
+    );
+    if (!nextTabId || nextTabId === activeSessionTabId) return true;
+    return handleSessionTabActivateRequest(nextTabId);
+  }, [
+    activeSessionTabId,
+    handleSessionTabActivateRequest,
+    onSessionTabActivate,
+    sessionTabs,
+  ]);
+  const activatePreviousSessionTab = useCallback(() => {
+    if (!onSessionTabActivate || !sessionTabs.length) return false;
+    const previousTabId = getWrappedSessionTabId(
+      sessionTabs,
+      activeSessionTabId,
+      -1
+    );
+    if (!previousTabId || previousTabId === activeSessionTabId) return true;
+    return handleSessionTabActivateRequest(previousTabId);
+  }, [
+    activeSessionTabId,
+    handleSessionTabActivateRequest,
+    onSessionTabActivate,
+    sessionTabs,
+  ]);
   const setTurnLockForThread = useCallback((threadId: number, locked: boolean) => {
     setTurnLocks((prev) => {
       const current = Boolean(prev[threadId]);
@@ -1208,6 +1269,96 @@ export function GuardianChat({
       document.removeEventListener("keydown", onDocumentKeyDown);
     };
   }, [promptCostPopoverOpen]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+
+      const lowerKey = event.key.toLowerCase();
+      const usesPrimaryCreateModifier = applePlatform
+        ? event.metaKey && !event.ctrlKey
+        : event.ctrlKey && !event.metaKey;
+      if (
+        usesPrimaryCreateModifier &&
+        !event.altKey &&
+        !event.shiftKey &&
+        lowerKey === "t"
+      ) {
+        if (handleSessionTabOpenRequest()) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      const wantsNextByCtrlTab =
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key === "Tab";
+      const wantsNextByPageDown =
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key === "PageDown";
+      const wantsNextByAppleArrow =
+        applePlatform &&
+        event.metaKey &&
+        !event.ctrlKey &&
+        event.altKey &&
+        !event.shiftKey &&
+        event.key === "ArrowRight";
+
+      if (wantsNextByCtrlTab || wantsNextByPageDown || wantsNextByAppleArrow) {
+        if (activateNextSessionTab()) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      const wantsPreviousByCtrlShiftTab =
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        event.shiftKey &&
+        event.key === "Tab";
+      const wantsPreviousByPageUp =
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key === "PageUp";
+      const wantsPreviousByAppleArrow =
+        applePlatform &&
+        event.metaKey &&
+        !event.ctrlKey &&
+        event.altKey &&
+        !event.shiftKey &&
+        event.key === "ArrowLeft";
+
+      if (
+        wantsPreviousByCtrlShiftTab ||
+        wantsPreviousByPageUp ||
+        wantsPreviousByAppleArrow
+      ) {
+        if (activatePreviousSessionTab()) {
+          event.preventDefault();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onDocumentKeyDown);
+    };
+  }, [
+    activateNextSessionTab,
+    activatePreviousSessionTab,
+    applePlatform,
+    handleSessionTabOpenRequest,
+  ]);
 
   const handlePromptCostToggle = useCallback(() => {
     setPromptCostPopoverOpen((previous) => {
@@ -1973,9 +2124,9 @@ export function GuardianChat({
               activeTabId={activeSessionTabId}
               isCloud={resolvedProfile.mode === "cloud" ? true : resolvedProfile.mode === "local" ? false : undefined}
               showTabs={sessionTabs.length > 1}
-              onActivateTab={(tabId) => onSessionTabActivate?.(tabId)}
+              onActivateTab={handleSessionTabActivateRequest}
               onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
-              onOpenTab={() => (onSessionTabOpen ? onSessionTabOpen() : onNewChat())}
+              onOpenTab={handleSessionTabOpenRequest}
             />
           </div>
 
