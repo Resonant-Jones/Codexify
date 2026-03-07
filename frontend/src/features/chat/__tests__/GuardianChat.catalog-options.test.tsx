@@ -168,7 +168,7 @@ describe("GuardianChat catalog-backed model options", () => {
     );
 
     expect(await screen.findByText("Qwen 3 4B · library2")).toBeInTheDocument();
-    expect(screen.getByText("library2/qwen3:4b")).toBeInTheDocument();
+    expect(screen.queryByText("library2/qwen3:4b")).not.toBeInTheDocument();
     expect(
       screen.queryByText("pattern-matched local qwen profile")
     ).not.toBeInTheDocument();

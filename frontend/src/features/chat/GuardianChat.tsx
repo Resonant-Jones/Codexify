@@ -484,17 +484,8 @@ export function GuardianChat({
     () =>
       (selectedProvider?.models ?? []).map((model) => ({
         value: model.id,
-        label: model.displayName,
-        description:
-          (selectedProvider?.id === "local" ? model.canonicalId : null) ??
-          (model.namespace ? `Namespace ${model.namespace}` : null) ??
-          (model.source ? `Source ${model.source}` : null) ??
-          (selectedProvider?.source
-            ? `Source ${describeProviderSource(selectedProvider.source)}`
-            : null) ??
-          (selectedProvider?.displayName
-            ? `${selectedProvider.displayName} model`
-            : undefined),
+        label: model.pickerLabel,
+        description: undefined,
         meta:
           typeof model.contextWindow === "number"
             ? `${Math.round(model.contextWindow / 1000)}k`
