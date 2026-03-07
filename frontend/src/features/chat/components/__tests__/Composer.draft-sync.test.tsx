@@ -188,4 +188,85 @@ describe("Composer draft sync", () => {
         .value
     ).toBe("seed-b");
   });
+
+  it("keeps the draft workspace interactive during an in-flight turn but blocks send", () => {
+    const onSend = vi.fn();
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    const { container } = render(
+      <Composer
+        onSend={onSend}
+        draftScopeKey="tab-1"
+        draftValue=""
+        isTurnInFlight
+        activeProviderId="local"
+        providerOptions={[{ value: "local", label: "Local" }]}
+        activeModelId="model-a"
+        modelOptions={[{ value: "model-a", label: "Model A" }]}
+        activeInferenceMode="think"
+        inferenceModeOptions={[
+          { value: "default", label: "Auto" },
+          { value: "think", label: "Think" },
+        ]}
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText(
+      "Write a message…"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "next thought" } });
+    expect(textarea.value).toBe("next thought");
+
+    expect(
+      screen.getByRole("button", { name: "Select provider" })
+    ).not.toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Select model" })
+    ).not.toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Select inference mode" })
+    ).not.toBeDisabled();
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    const file = new File(["hello world"], "notes.txt", {
+      type: "text/plain",
+    });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    expect(screen.getByLabelText("Remove attachment")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "cfy:toast",
+      })
+    );
+  });
+
+  it("keeps voice-turn submission unavailable while a turn is in flight", () => {
+    const onVoiceTurn = vi.fn();
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="tab-1"
+        draftValue=""
+        isTurnInFlight
+        onVoiceTurn={onVoiceTurn}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open composer actions" }));
+
+    const voiceTurnButton = screen
+      .getByText("Upload voice turn")
+      .closest("button") as HTMLButtonElement;
+    expect(voiceTurnButton).toBeDisabled();
+
+    fireEvent.click(voiceTurnButton);
+    expect(onVoiceTurn).not.toHaveBeenCalled();
+  });
 });

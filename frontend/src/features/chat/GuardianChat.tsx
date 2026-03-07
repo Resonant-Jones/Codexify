@@ -46,13 +46,15 @@ import { useInferenceRequestState } from "@/features/chat/hooks/useInferenceRequ
 import {
   createIdleInferenceRequestState,
   DEFAULT_COMPOSER_INFERENCE_MODE,
+  isActiveInferencePhase,
   type ComposerInferenceMode,
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
-const TURN_LOCK_TOAST = "One moment—finish the current reply first.";
+const TURN_LOCK_TOAST =
+  "Keep typing. Send unlocks when the current reply finishes.";
 const LLM_HEALTH_POLL_MS = 15000;
 const THREAD_PROFILE_POLL_MS = 15000;
 const NEW_THREAD_TITLE = "New Thread";
@@ -1218,9 +1220,7 @@ export function GuardianChat({
       }
       if (
         inferenceRequest.state.threadId === tid &&
-        (inferenceRequest.state.phase === "sending" ||
-          inferenceRequest.state.phase === "thinking" ||
-          inferenceRequest.state.phase === "streaming")
+        isActiveInferencePhase(inferenceRequest.state.phase)
       ) {
         inferenceRequest.markCompleted();
       }
@@ -1586,6 +1586,27 @@ export function GuardianChat({
     inferenceRequest.state.threadId === effectiveThreadId
       ? inferenceRequest.state
       : createIdleInferenceRequestState();
+  const handleCancelInference = () => {
+    pendingFastRetryRef.current = null;
+    void inferenceRequest.requestCancel();
+  };
+  const handleSwitchToNoThink = () => {
+    if (effectiveThreadId == null) return;
+    onSessionInferenceModeChange?.("no_think");
+    const selection = resolveCompletionSelection({
+      reasoningMode: "no_think",
+    });
+    pendingFastRetryRef.current = {
+      threadId: effectiveThreadId,
+      providerId: selection.providerId,
+      modelId: selection.modelId,
+    };
+    void inferenceRequest.requestCancel().then((ok) => {
+      if (!ok) {
+        pendingFastRetryRef.current = null;
+      }
+    });
+  };
 
   const headerActions = (
     <div className="flex items-center gap-1">
@@ -1942,6 +1963,9 @@ export function GuardianChat({
             profileId={resolvedProfile.id}
             voiceReadAloudEnabled={voiceReadAloudEnabled}
             voiceCapabilitiesFailed={voiceCapabilitiesFailed}
+            inferenceState={composerInferenceState}
+            onCancelInference={handleCancelInference}
+            onSwitchToFast={handleSwitchToNoThink}
           />
         ) : (
           <div
@@ -2007,28 +2031,6 @@ export function GuardianChat({
             depthMode={depth}
             depthOptions={depthOptions}
             onDepthModeChange={setDepth}
-            inferenceState={composerInferenceState}
-            onCancelInference={() => {
-              pendingFastRetryRef.current = null;
-              void inferenceRequest.requestCancel();
-            }}
-            onSwitchToFast={() => {
-              if (effectiveThreadId == null) return;
-              onSessionInferenceModeChange?.("no_think");
-              const selection = resolveCompletionSelection({
-                reasoningMode: "no_think",
-              });
-              pendingFastRetryRef.current = {
-                threadId: effectiveThreadId,
-                providerId: selection.providerId,
-                modelId: selection.modelId,
-              };
-              void inferenceRequest.requestCancel().then((ok) => {
-                if (!ok) {
-                  pendingFastRetryRef.current = null;
-                }
-              });
-            }}
             onVoiceTurn={
               voiceTurnBasedEnabled
                 ? () => {
