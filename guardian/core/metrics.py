@@ -103,6 +103,12 @@ MEMORYOS_EMBEDDING_CANDIDATES_TOTAL = Counter(
     ["module"],
     registry=registry,
 )
+CHAT_TURN_METADATA_PERSIST_FAILURES_TOTAL = Counter(
+    "codexify_chat_turn_metadata_persist_failures_total",
+    "Total chat turn metadata persistence failures after assistant reply persistence",
+    ["reason"],
+    registry=registry,
+)
 
 
 def set_db_backend(backend: str) -> None:
@@ -133,6 +139,7 @@ __all__ = [
     "DB_BACKEND_GAUGE",
     "MEMORYOS_EMBEDDING_DIMENSION_SKIPS_TOTAL",
     "MEMORYOS_EMBEDDING_CANDIDATES_TOTAL",
+    "CHAT_TURN_METADATA_PERSIST_FAILURES_TOTAL",
     "set_db_backend",
     "generate_latest",
     "CONTENT_TYPE_LATEST",

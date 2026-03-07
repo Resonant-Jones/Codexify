@@ -24,6 +24,7 @@ from guardian.core.chat_completion_service import (
     run_chat_completion_task,
 )
 from guardian.core.db import GuardianDB
+from guardian.core.metrics import CHAT_TURN_METADATA_PERSIST_FAILURES_TOTAL
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     clear_cancelled,
@@ -52,6 +53,10 @@ _MEDIA_MARKER_RE = re.compile(
 _TURN_ID_ORIGIN_RE = re.compile(
     r"(?:^|\|)turn_id=(?P<turn_id>[a-f0-9-]{36})(?:\||$)",
     flags=re.IGNORECASE,
+)
+_TURN_COMPLETION_ANCHOR_PREFIX = "codexify:chat:turn-anchor"
+_TURN_COMPLETION_ANCHOR_TTL_SECONDS = int(
+    os.getenv("CHAT_TURN_COMPLETION_ANCHOR_TTL_SECONDS", "86400")
 )
 _MIRRORED_LIVE_EVENT_TYPES = {
     "task.running",
@@ -110,6 +115,66 @@ def _persist_turn_id_metadata(
         return bool(row)
 
 
+def _turn_completion_anchor_key(thread_id: int, turn_id: str) -> str:
+    return ":".join((_TURN_COMPLETION_ANCHOR_PREFIX, str(thread_id), turn_id))
+
+
+def _cache_turn_completion_anchor(
+    *, thread_id: int, message_id: int, turn_id: str
+) -> bool:
+    if not turn_id:
+        return True
+    try:
+        client = get_redis_client()
+        client.setex(
+            _turn_completion_anchor_key(thread_id, turn_id),
+            max(60, _TURN_COMPLETION_ANCHOR_TTL_SECONDS),
+            str(message_id),
+        )
+        return True
+    except Exception:
+        logger.debug(
+            "[chat-worker] failed to cache turn completion anchor thread_id=%s turn_id=%s message_id=%s",
+            thread_id,
+            turn_id,
+            message_id,
+            exc_info=True,
+        )
+        return False
+
+
+def _cached_turn_completion_anchor(
+    *, thread_id: int, turn_id: str
+) -> int | None:
+    if not turn_id:
+        return None
+    try:
+        client = get_redis_client()
+        cached = client.get(_turn_completion_anchor_key(thread_id, turn_id))
+    except Exception:
+        logger.debug(
+            "[chat-worker] failed to read cached turn completion anchor thread_id=%s turn_id=%s",
+            thread_id,
+            turn_id,
+            exc_info=True,
+        )
+        return None
+    return _coerce_message_id(cached)
+
+
+def _record_turn_metadata_persist_failure(reason: str) -> None:
+    try:
+        CHAT_TURN_METADATA_PERSIST_FAILURES_TOTAL.labels(
+            reason=str(reason or "unknown")
+        ).inc()
+    except Exception:
+        logger.debug(
+            "[chat-worker] failed to record metadata persist metric reason=%s",
+            reason,
+            exc_info=True,
+        )
+
+
 def _coerce_row_message_id(row: Any) -> int | None:
     if row is None:
         return None
@@ -130,10 +195,16 @@ def _find_assistant_message_id_by_turn_id(
         return None
     chatlog_db = getattr(dependencies, "chatlog_db", None)
     if chatlog_db is None:
-        return None
+        return _cached_turn_completion_anchor(
+            thread_id=thread_id,
+            turn_id=turn_id,
+        )
     connect = getattr(chatlog_db, "_connect", None)
     if not callable(connect):
-        return None
+        return _cached_turn_completion_anchor(
+            thread_id=thread_id,
+            turn_id=turn_id,
+        )
     try:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(
@@ -148,7 +219,9 @@ def _find_assistant_message_id_by_turn_id(
                 """,
                 (thread_id, turn_id),
             )
-            return _coerce_row_message_id(cur.fetchone())
+            message_id = _coerce_row_message_id(cur.fetchone())
+            if message_id is not None:
+                return message_id
     except Exception:
         logger.debug(
             "[chat-worker] failed turn_id lookup thread_id=%s turn_id=%s",
@@ -156,49 +229,17 @@ def _find_assistant_message_id_by_turn_id(
             turn_id,
             exc_info=True,
         )
-        return None
+    return _cached_turn_completion_anchor(thread_id=thread_id, turn_id=turn_id)
 
 
 def _find_assistant_message_for_turn(
     *, thread_id: int, turn_id: str
 ) -> int | None:
     """Return an existing assistant message id for the turn when present."""
-    if not turn_id:
-        return None
-    chatlog_db = getattr(dependencies, "chatlog_db", None)
-    if chatlog_db is None:
-        return None
-
-    connect = getattr(chatlog_db, "_connect", None)
-    if not callable(connect):
-        return None
-
-    try:
-        with connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id
-                FROM chat_messages
-                WHERE thread_id = %s
-                  AND role = 'assistant'
-                  AND COALESCE(extra_meta, '{}'::jsonb)->>'turn_id' = %s
-                ORDER BY id ASC
-                LIMIT 1
-                """,
-                (thread_id, turn_id),
-            )
-            row = cur.fetchone()
-            if not row:
-                return None
-            return _coerce_message_id(row[0])
-    except Exception:
-        logger.debug(
-            "[chat-worker] failed to check existing turn_id message thread_id=%s turn_id=%s",
-            thread_id,
-            turn_id,
-            exc_info=True,
-        )
-        return None
+    return _find_assistant_message_id_by_turn_id(
+        thread_id=thread_id,
+        turn_id=turn_id,
+    )
 
 
 def _publish_worker_heartbeat(status: str = "idle") -> None:
@@ -426,6 +467,20 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             )
             raise RuntimeError("assistant_message_missing")
 
+        cached_anchor = _cache_turn_completion_anchor(
+            thread_id=task.thread_id,
+            message_id=message_id,
+            turn_id=turn_id,
+        )
+        if turn_id and not cached_anchor:
+            logger.warning(
+                "[chat-worker] turn_completion_anchor_cache_failed thread_id=%s turn_id=%s task_id=%s message_id=%s",
+                task.thread_id,
+                turn_id,
+                task.task_id,
+                message_id,
+            )
+
         if turn_id:
             try:
                 persisted = _persist_turn_id_metadata(
@@ -448,6 +503,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                         task.task_id,
                         message_id,
                     )
+                    _record_turn_metadata_persist_failure(
+                        "persist_returned_false"
+                    )
             except Exception as exc:
                 logger.warning(
                     "[chat-worker] turn_id_metadata_persist_failed reason=exception thread_id=%s turn_id=%s task_id=%s message_id=%s err=%s",
@@ -458,6 +516,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     exc,
                     exc_info=True,
                 )
+                _record_turn_metadata_persist_failure("exception")
         if turn_id:
             canonical_message_id = _find_assistant_message_id_by_turn_id(
                 thread_id=task.thread_id,
