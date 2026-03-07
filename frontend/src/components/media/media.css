@@ -75,3 +75,22 @@
   display: block;
   max-height: 420px;
 }
+
+.codexifyMediaTileFallback {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 420px;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background:
+    radial-gradient(circle at top, color-mix(in oklab, var(--accent-strong, #3b82f6) 18%, transparent), transparent 58%),
+    color-mix(in oklab, var(--panel-bg, rgba(15, 23, 42, 0.85)) 92%, black 8%);
+  color: color-mix(in oklab, var(--text, #f8fafc) 72%, transparent);
+}
+
+.codexifyMediaTileFallbackLabel {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

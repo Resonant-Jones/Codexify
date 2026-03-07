@@ -7,6 +7,7 @@
 import React from "react";
 import MediaGrid from "@/components/media/MediaGrid";
 import MediaTile from "@/components/media/MediaTile";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import { GalleryItem } from "./GalleryView";
 
 type GalleryGridProps = {
@@ -21,7 +22,7 @@ export default function GalleryGrid({ items, onOpen }: GalleryGridProps) {
         <MediaTile
           key={`${item.src}-${i}`}
           id={item.id ?? `gallery-${i}`}
-          src={item.src}
+          src={normalizeMediaUrl(item.src)}
           alt={item.prompt}
           onOpen={() => onOpen(item)}
         />
