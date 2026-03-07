@@ -55,8 +55,11 @@ export function ComposerActionMenu({
           aria-label="Open composer actions"
           disabled={disabled}
           className={cn(
-            "inline-flex items-center justify-center px-1 py-1 text-[11px] leading-none transition-colors",
-            disabled ? "cursor-not-allowed opacity-35" : "opacity-82 hover:opacity-100"
+            "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-[11px] leading-none transition-colors",
+            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
+            disabled
+              ? "cursor-not-allowed opacity-35"
+              : "opacity-82 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] hover:opacity-100"
           )}
           style={{
             color: "var(--text)",
