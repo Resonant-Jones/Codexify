@@ -638,7 +638,7 @@ export function Composer({
           />
 
           <div className="flex flex-wrap items-center justify-between gap-3 px-[8px] pb-[6px]">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
                 depthMode={depthMode}
@@ -696,35 +696,37 @@ export function Composer({
               />
             </div>
 
-            <Button
-              type="button"
-              onClick={handleAttemptSend}
-              disabled={sendTransportDisabled}
-              aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
-              tabIndex={sendTransportDisabled ? -1 : 0}
-              title={
-                sendBlockedByTurnLock
-                  ? "Finish the current reply before sending."
-                  : undefined
-              }
-              size="sm"
-              className={cn(
-                "h-8 rounded-md px-4 text-[12px] font-medium transition-opacity",
-                sendTransportDisabled
-                  ? "cursor-not-allowed opacity-50"
-                  : sendBlockedByTurnLock
-                    ? "opacity-75"
-                    : ""
-              )}
-              style={{
-                background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
-                color: "var(--text-on-accent, #111827)",
-                boxShadow: "none",
-              }}
-            >
-              <Send className="mr-1.5 h-3.5 w-3.5" />
-              Send
-            </Button>
+            <div className="shrink-0 pr-1">
+              <Button
+                type="button"
+                onClick={handleAttemptSend}
+                disabled={sendTransportDisabled}
+                aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
+                tabIndex={sendTransportDisabled ? -1 : 0}
+                title={
+                  sendBlockedByTurnLock
+                    ? "Finish the current reply before sending."
+                    : undefined
+                }
+                size="sm"
+                className={cn(
+                  "h-8 rounded-md px-4 text-[12px] font-medium transition-opacity",
+                  sendTransportDisabled
+                    ? "cursor-not-allowed opacity-50"
+                    : sendBlockedByTurnLock
+                      ? "opacity-75"
+                      : ""
+                )}
+                style={{
+                  background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+                  color: "var(--text-on-accent, #111827)",
+                  boxShadow: "none",
+                }}
+              >
+                <Send className="mr-1.5 h-3.5 w-3.5" />
+                Send
+              </Button>
+            </div>
           </div>
         </div>
       </div>
