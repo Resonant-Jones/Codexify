@@ -217,6 +217,7 @@ export function ChatView({
   const lastAssistantIdRef = useRef(0);
   const lastPolledUserIdRef = useRef(0);
   const lastReloadVersionRef = useRef(reloadVersion);
+  const reloadVersionRef = useRef(reloadVersion);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const activeThreadRef = useRef(threadId);
   const completionStateRef = useRef(completionState);
@@ -615,12 +616,17 @@ export function ChatView({
   }, [activeTurnId]);
 
   useEffect(() => {
+    reloadVersionRef.current = reloadVersion;
+  }, [reloadVersion]);
+
+  useEffect(() => {
     pollSessionRef.current = pollSession;
   }, [pollSession]);
 
   useEffect(() => {
     stopPolling();
     initialScrollRef.current = true;
+    lastReloadVersionRef.current = reloadVersionRef.current;
     autoReadPrimedRef.current = false;
     lastAutoReadMessageIdRef.current = null;
     lastPolledUserIdRef.current = 0;

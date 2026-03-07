@@ -5,6 +5,7 @@ import SessionRail from "@/components/SessionRail/SessionRail";
 
 const mkTab = (tabId: string, title: string) => ({
   tabId,
+  pendingThread: false,
   title,
   modelId: "default",
   createdAt: "2026-02-14T00:00:00.000Z",

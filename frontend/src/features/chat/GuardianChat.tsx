@@ -366,7 +366,11 @@ export function GuardianChat({
   workspaceOpen?: boolean;
   activeThread: Thread;
   onSendMessage: (text: string) => Promise<void>;
-  onThreadPersisted?: (threadId: number, title?: string) => void;
+  onThreadPersisted?: (
+    threadId: number,
+    title?: string,
+    options?: { tabId?: TabId | null }
+  ) => void;
   onNewChat: () => void;
   onBranchThread?: (threadId: number, options?: { title?: string }) => Promise<void> | void;
   onArchiveThread?: (threadId: number) => Promise<void> | void;
@@ -416,6 +420,7 @@ export function GuardianChat({
   const traceEndpointRef = useRef<Record<number, string>>({});
   const traceFetchInflightRef = useRef<Record<number, boolean>>({});
   const activeThreadRef = useRef<Thread>(activeThread);
+  const activeSessionTabIdRef = useRef<TabId | null>(activeSessionTabId);
   const pendingFastRetryRef = useRef<{
     threadId: number;
     providerId: string | null;
@@ -425,6 +430,10 @@ export function GuardianChat({
   useEffect(() => {
     activeThreadRef.current = activeThread;
   }, [activeThread]);
+
+  useEffect(() => {
+    activeSessionTabIdRef.current = activeSessionTabId;
+  }, [activeSessionTabId]);
 
   // Listen for external prefill requests (e.g., Prompt Library selection)
   useEffect(() => {
@@ -1016,15 +1025,6 @@ export function GuardianChat({
   );
 
   const numericThreadId = useMemo(() => {
-    let urlId: number | null = null;
-    if (typeof window !== "undefined") {
-      const m = window.location.pathname.match(/\/chat\/(\d+)/);
-      if (m && m[1]) {
-        const v = Number(m[1]);
-        if (Number.isFinite(v)) urlId = v;
-      }
-    }
-    if (urlId != null) return urlId;
     const n = Number((activeThread as any)?.id);
     return Number.isFinite(n) ? (n as number) : null;
   }, [activeThread?.id]);
@@ -1383,17 +1383,26 @@ export function GuardianChat({
   }, [completionState.activeThreadId, completionState.isCompleting, setTurnLockForThread]);
 
   // Auto-thread creation handler
-  const handleThreadCreated = (threadId: number, title?: string) => {
-    setCurrentThreadId(threadId);
-
+  const handleThreadCreated = (
+    threadId: number,
+    title?: string,
+    options?: { tabId?: TabId | null }
+  ) => {
     const nextTitle = (title && title.trim().length > 0) ? title.trim() : NEW_THREAD_TITLE;
-    setThreadTitle(nextTitle);
+    const targetTabId = options?.tabId ?? null;
+    const shouldPromoteVisibleThread =
+      targetTabId == null || targetTabId === activeSessionTabIdRef.current;
+
+    if (shouldPromoteVisibleThread) {
+      setCurrentThreadId(threadId);
+      setThreadTitle(nextTitle);
+    }
 
     // Notify other panes that a new thread exists so sidebars can update immediately
     emitThreadsRefresh("create", { id: String(threadId), title: nextTitle });
 
     // Update URL to reflect the new thread
-    if (typeof window !== "undefined") {
+    if (shouldPromoteVisibleThread && typeof window !== "undefined") {
       window.history.replaceState({}, "", `/chat/${threadId}`);
     }
   };
@@ -1405,10 +1414,11 @@ export function GuardianChat({
       }
 
       const normalizedUserId = userName || "default";
+      const originTabId = activeSessionTabIdRef.current;
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
-      const metadata = activeSessionTabId
-        ? { draft_tab_id: activeSessionTabId }
+      const metadata = originTabId
+        ? { draft_tab_id: originTabId }
         : undefined;
 
       const resp = await api.post("/chat/threads", {
@@ -1425,16 +1435,15 @@ export function GuardianChat({
       }
 
       const derivedTitle = payload.thread?.title ?? provisionalTitle;
-      handleThreadCreated(numericThreadId, derivedTitle);
-      onThreadPersisted?.(numericThreadId, derivedTitle);
+      handleThreadCreated(numericThreadId, derivedTitle, {
+        tabId: originTabId,
+      });
+      onThreadPersisted?.(numericThreadId, derivedTitle, {
+        tabId: originTabId,
+      });
       return numericThreadId;
     },
-    [
-      activeSessionTabId,
-      effectiveThreadId,
-      onThreadPersisted,
-      userName,
-    ]
+    [effectiveThreadId, onThreadPersisted, userName]
   );
 
   const handleBranchThread = async () => {
@@ -1479,6 +1488,7 @@ export function GuardianChat({
      * title becomes the thread's identity in the distributed awareness network.
      */
     const normalizedUserId = userName || "default";
+    const originTabId = activeSessionTabIdRef.current;
     const targetThreadId = options?.threadIdOverride ?? effectiveThreadId;
     const requestedProfileId = resolveProfileIdFromCommand(text);
     const isProfileCommand =
@@ -1544,7 +1554,7 @@ export function GuardianChat({
       try {
         const resp = await api.post("/chat/messages", {
           thread_id: null,
-          draft_tab_id: activeSessionTabId ?? undefined,
+          draft_tab_id: originTabId ?? undefined,
           role: "user",
           content: text,
           user_id: normalizedUserId,
@@ -1560,8 +1570,12 @@ export function GuardianChat({
         }
         createdThreadId = numericNewId;
         const derivedTitle = th.thread?.title ?? provisionalTitle;
-        handleThreadCreated(numericNewId, derivedTitle);
-        onThreadPersisted?.(numericNewId, derivedTitle);
+        handleThreadCreated(numericNewId, derivedTitle, {
+          tabId: originTabId,
+        });
+        onThreadPersisted?.(numericNewId, derivedTitle, {
+          tabId: originTabId,
+        });
 
         // Lock the new thread before requesting assistant completion.
         setTurnLockForThread(numericNewId, true);
@@ -2031,6 +2045,7 @@ export function GuardianChat({
       <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
         {effectiveThreadId != null ? (
           <ChatView
+            key={effectiveThreadId}
             threadId={effectiveThreadId}
             guardianName={guardianName}
             reloadVersion={chatReloadVersion}
@@ -2052,7 +2067,7 @@ export function GuardianChat({
             className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
             style={{ color: "var(--muted)" }}
           >
-            No thread selected.
+            New thread ready. Start typing below.
           </div>
         )}
       </div>
