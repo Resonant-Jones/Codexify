@@ -17,7 +17,7 @@ type GalleryGridProps = {
 
 export default function GalleryGrid({ items, onOpen }: GalleryGridProps) {
   return (
-    <MediaGrid data-gallery-grid>
+    <MediaGrid className="codexifyMediaGrid--gallery">
       {items.map((item, i) => (
         <MediaTile
           key={`${item.src}-${i}`}

@@ -37,7 +37,7 @@ describe("media rendering", () => {
   });
 
   it("renders gallery images through the shared normalized media path", () => {
-    render(
+    const { container } = render(
       <GalleryGrid
         items={[
           {
@@ -54,6 +54,7 @@ describe("media rendering", () => {
       "src",
       "http://backend.test/media/images/gallery.png"
     );
+    expect(container.querySelector(".codexifyMediaGrid--gallery")).toBeTruthy();
   });
 
   it("renders dashboard images through the shared normalized media path", () => {
@@ -88,6 +89,36 @@ describe("media rendering", () => {
     expect(
       screen.getByRole("img", { name: "Dashboard image" })
     ).toHaveAttribute("src", "http://backend.test/media/images/dashboard.png");
+  });
+
+  it("renders every dashboard image without truncating the list", () => {
+    render(
+      <DashboardView
+        extColors={{
+          pdf: "#000",
+          doc: "#000",
+          md: "#000",
+          png: "#000",
+          sketch: "#000",
+          txt: "#000",
+          docx: "#000",
+          jpeg: "#000",
+          codex: "#000",
+        }}
+        gallery={Array.from({ length: 14 }, (_, index) => ({
+          src: `/media/images/dashboard-${index}.png`,
+          prompt: `Dashboard image ${index}`,
+        }))}
+        onImagePrompt={vi.fn()}
+        onRequestNewProject={vi.fn()}
+        onRequestNewThread={vi.fn()}
+        onNavigateDocuments={vi.fn()}
+        onNavigateGallery={vi.fn()}
+        threadGridRows={2}
+      />
+    );
+
+    expect(screen.getAllByRole("img")).toHaveLength(14);
   });
 
   it("falls back cleanly when an image asset fails to load", () => {
