@@ -24,6 +24,7 @@ export default function GalleryGrid({ items, onOpen }: GalleryGridProps) {
           id={item.id ?? `gallery-${i}`}
           src={normalizeMediaUrl(item.src)}
           alt={item.prompt}
+          sizeVariant="gallery-image"
           onOpen={() => onOpen(item)}
         />
       ))}
