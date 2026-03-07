@@ -2,60 +2,49 @@
 
 /* Responsive grid with centering */
 .codexifyMediaGrid {
+  --tile-size: 256px;
+  --tile-chrome: 3px;
+  --tile-gutter: 6px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
-  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(
+      min(
+        100%,
+        calc(var(--tile-size) + (var(--tile-chrome) * 2))
+      ),
+      calc(var(--tile-size) + (var(--tile-chrome) * 2))
+    )
+  );
+  gap: var(--tile-gutter);
   align-items: start;
-  justify-items: center; /* Key: center tiles in their grid cell */
+  align-content: start;
+  justify-content: space-between;
 }
 
-/* Tablet and below: smaller tiles */
-@media (max-width: 768px) {
-  .codexifyMediaGrid {
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 12px;
-  }
+.codexifyMediaGrid--dashboard-image {
+  --tile-size: 192px;
+  grid-template-columns: repeat(4, minmax(0, var(--tile-size)));
+  justify-content: flex-start;
 }
 
-/* Mobile: even smaller tiles */
-@media (max-width: 640px) {
-  .codexifyMediaGrid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 10px;
-  }
-}
-
-/* Small split view: minimum viable tiles */
-@media (max-width: 480px) {
-  .codexifyMediaGrid {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 8px;
-  }
-}
-
-/* Small tile variant for Dashboard (documents/smaller previews) */
-.codexifyMediaGrid--small {
-  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
-}
-
-@media (max-width: 640px) {
-  .codexifyMediaGrid--small {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  }
+.codexifyMediaGrid--gallery {
+  --tile-size: 168px;
 }
 
 /* Tile wrapper */
 .codexifyMediaTile {
-  width: 100%;
-  max-width: 420px;
-  border-radius: 18px;
-  overflow: hidden;
-  padding: 0;
   border: none;
   background: transparent;
   cursor: pointer;
-  display: block;
   transition: transform 150ms ease-out;
+}
+
+.codexifyMediaTile > * {
+  pointer-events: none;
 }
 
 .codexifyMediaTile:hover {
@@ -70,8 +59,25 @@
 /* Media content */
 .codexifyMediaTileMedia {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: 100%;
   object-fit: cover;
   display: block;
-  max-height: 420px;
+}
+
+.codexifyMediaTileFallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background:
+    radial-gradient(circle at top, color-mix(in oklab, var(--accent-strong, #3b82f6) 18%, transparent), transparent 58%),
+    color-mix(in oklab, var(--panel-bg, rgba(15, 23, 42, 0.85)) 92%, black 8%);
+  color: color-mix(in oklab, var(--text, #f8fafc) 72%, transparent);
+}
+
+.codexifyMediaTileFallbackLabel {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }

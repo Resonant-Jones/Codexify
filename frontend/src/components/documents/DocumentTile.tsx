@@ -2,12 +2,24 @@ import * as React from "react";
 import clsx from "clsx";
 import { BookOpen, FileText } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
+import {
+  deleteAsset,
+  downloadAsset,
+  notifyAssetActionError,
+  resolveAssetDownloadUrl,
+} from "@/lib/assetActions";
 import { ExtColors } from "@/types/ui";
 
 export type DocumentFile = {
+  id?: string;
   name: string;
   ext?: string;
   thumb?: string;
+  src_url?: string;
+  srcUrl?: string;
+  src?: string;
+  url?: string;
+  type?: "file" | "codex_entry";
   embeddingStatus?: string;
   embeddingError?: string;
 };
@@ -15,6 +27,7 @@ export type DocumentFile = {
 type Props = {
   file: DocumentFile;
   onClick?: () => void;
+  onDeleted?: (file: DocumentFile) => void;
   className?: string;
 };
 
@@ -131,10 +144,11 @@ function readExtColors(): Record<string, string> {
   }
 }
 
-export default function DocumentTile({ file, onClick, className }: Props) {
+export default function DocumentTile({ file, onClick, onDeleted, className }: Props) {
   const extColors = React.useMemo(readExtColors, []);
   const fileName = file?.name || "Untitled";
   const ext = (file?.ext || getExt(fileName) || "").toLowerCase();
+  const fileType = file?.type === "codex_entry" ? "codex_entry" : "file";
   const bannerColor = extColors[ext] || "#6B7280"; // fallback gray
   const onColor = contrastRatio(bannerColor, "#ffffff") >= 4.5 ? "#ffffff" : "#111827";
   const Icon = ext === "codex" ? BookOpen : FileText;
@@ -144,9 +158,84 @@ export default function DocumentTile({ file, onClick, className }: Props) {
   const statusLabel = status
     ? `${status.label}${errorHint ? ` - ${errorHint}` : ""}`
     : null;
+  const [isDeleted, setIsDeleted] = React.useState(false);
+  const downloadUrl = React.useMemo(
+    () =>
+      resolveAssetDownloadUrl(
+        file?.src_url || file?.srcUrl || file?.src || file?.url
+      ),
+    [file]
+  );
+  const canDownload = fileType !== "codex_entry" && !!downloadUrl;
+  const canDelete =
+    fileType !== "codex_entry" &&
+    typeof file?.id === "string" &&
+    file.id.trim().length > 0;
+
+  const emitDeletedEvent = React.useCallback(() => {
+    if (typeof window === "undefined") return;
+    const title = fileName.replace(/\.[^./\\]+$/, "") || fileName;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("cfy:documents:delete", {
+          detail: {
+            doc: {
+              id: file.id,
+              name: fileName,
+              title,
+              ext: ext || getExt(fileName),
+              type: "file",
+              src_url: file?.src_url || file?.srcUrl || file?.src || file?.url,
+            },
+          },
+        })
+      );
+    } catch {
+      // Ignore event transport failures.
+    }
+  }, [ext, file.id, file?.src, file?.srcUrl, file?.src_url, file?.url, fileName]);
+
+  const handleDownload = React.useCallback(async () => {
+    if (!canDownload) return;
+    try {
+      await downloadAsset({ url: downloadUrl, filename: fileName });
+    } catch {
+      notifyAssetActionError("download", "document");
+    }
+  }, [canDownload, downloadUrl, fileName]);
+
+  const handleDelete = React.useCallback(async () => {
+    if (!canDelete) return;
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(`Delete "${fileName}"? This removes it from your asset views.`);
+      if (!confirmed) return;
+    }
+    try {
+      await deleteAsset({ kind: "document", id: file.id! });
+      setIsDeleted(true);
+      emitDeletedEvent();
+      onDeleted?.(file);
+    } catch {
+      notifyAssetActionError("delete", "document");
+    }
+  }, [canDelete, emitDeletedEvent, file, file.id, fileName, onDeleted]);
+
+  const contextMenuItems = React.useMemo(
+    () => [
+      ...(canDownload
+        ? [{ label: "Download", onSelect: handleDownload }]
+        : []),
+      ...(canDelete
+        ? [{ label: "Delete", onSelect: handleDelete, destructive: true }]
+        : []),
+    ],
+    [canDelete, canDownload, handleDelete, handleDownload]
+  );
+
+  if (isDeleted) return null;
 
   const content = (
-    <div className="relative flex aspect-[3/4] w-full flex-col">
+    <div className="relative flex h-full w-full flex-col">
       {file?.thumb ? (
         <img src={file.thumb} alt={fileName} className="absolute inset-0 h-full w-full object-cover" />
       ) : (
@@ -177,17 +266,20 @@ export default function DocumentTile({ file, onClick, className }: Props) {
     </div>
   );
 
-  const baseClasses = clsx("aspect-square w-[125px]", className);
+  const baseClasses = clsx("shrink-0", className);
 
   if (onClick) {
     return (
       <TileShell
         as="button"
         type="button"
+        sizeVariant="document"
         className={clsx(
           baseClasses,
           "cursor-pointer text-left transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
         )}
+        contextMenuItems={contextMenuItems}
+        contextMenuLabel={`${fileName} actions`}
         style={{ padding: 0 }}
         onClick={onClick}
         aria-label={fileName}
@@ -198,7 +290,14 @@ export default function DocumentTile({ file, onClick, className }: Props) {
   }
 
   return (
-    <TileShell className={baseClasses} style={{ padding: 0 }} aria-label={fileName}>
+      <TileShell
+      sizeVariant="document"
+      className={baseClasses}
+      contextMenuItems={contextMenuItems}
+      contextMenuLabel={`${fileName} actions`}
+      style={{ padding: 0 }}
+      aria-label={fileName}
+    >
       {content}
     </TileShell>
   );

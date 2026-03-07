@@ -8,8 +8,10 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ImagePlus, X } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import MediaGrid from "@/components/media/MediaGrid";
 import MediaTile from "@/components/media/MediaTile";
+import type { DocumentFile } from "@/components/documents/DocumentTile";
 
 // Debug signature: helps confirm which DashboardView module the browser is actually running.
 const DASHBOARDVIEW_SIGNATURE = "DashboardView.tsx (components/dashboard) signature: 2026-02-01";
@@ -20,6 +22,11 @@ const DEMO_RECENT_DOCS: string[] = [
   "UI Architecture Guide.md",
   "Integration Roadmap.doc",
 ];
+
+function inferDocumentExtension(filename: string): string {
+  const match = filename.toLowerCase().match(/\.([a-z0-9]+)$/i);
+  return match?.[1] || "";
+}
 
 const DEMO_GALLERY_ITEMS: GalleryItem[] = [
   {
@@ -66,7 +73,7 @@ export default function DashboardView({
     { id: string; title: string; lastMessage?: string; archivedAt?: string | null }[]
   >([]);
   const [showImgGen, setShowImgGen] = React.useState(false);
-  const [recentDocs, setRecentDocs] = React.useState<string[]>([]);
+  const [recentDocs, setRecentDocs] = React.useState<DocumentFile[]>([]);
   const [showDemoDocs, setShowDemoDocs] = React.useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem("cfy.hideMockDocs") !== "1";
@@ -158,11 +165,32 @@ export default function DashboardView({
           }
         }
 
-        const names = docs
-          .map((d: any) => d?.filename || d?.name || d?.title || "Untitled")
-          .filter((v: any) => typeof v === "string" && v.trim().length > 0);
+        const normalizedDocs = docs
+          .map((d: any) => {
+            const name = d?.filename || d?.name || d?.title || "Untitled";
+            if (typeof name !== "string" || !name.trim()) return null;
+            return {
+              id: typeof d?.id === "string" ? d.id : undefined,
+              name,
+              ext: d?.ext || d?.extension || inferDocumentExtension(name),
+              src_url:
+                typeof d?.src_url === "string"
+                  ? d.src_url
+                  : typeof d?.srcUrl === "string"
+                    ? d.srcUrl
+                    : typeof d?.src === "string"
+                      ? d.src
+                      : typeof d?.url === "string"
+                        ? d.url
+                        : undefined,
+              type: "file" as const,
+              embeddingStatus: d?.embedding_status || d?.embeddingStatus,
+              embeddingError: d?.embedding_error || d?.embeddingError,
+            };
+          })
+          .filter((doc: DocumentFile | null): doc is DocumentFile => !!doc);
 
-        if (!cancelled) setRecentDocs(Array.isArray(names) ? names : []);
+        if (!cancelled) setRecentDocs(normalizedDocs);
       } catch (e) {
         console.warn("[dashboard] failed to load documents", e);
         // Fall back to empty array (dashboard will show demo docs if enabled)
@@ -190,15 +218,35 @@ export default function DashboardView({
   const threadColumns = 2;
   const threadLimit = threadColumns * rows;
   const threadList = pinnedThreads.slice(0, threadLimit);
+  const [deletedGalleryKeys, setDeletedGalleryKeys] = React.useState<string[]>([]);
 
   // Compute which docs and gallery items to show
   const hasRealDocs = recentDocs && recentDocs.length > 0;
-  const docsToRender = hasRealDocs ? recentDocs : showDemoDocs ? DEMO_RECENT_DOCS : [];
+  const docsToRender = hasRealDocs
+    ? recentDocs
+    : showDemoDocs
+      ? DEMO_RECENT_DOCS.map((name) => ({
+          name,
+          ext: inferDocumentExtension(name),
+          type: "file" as const,
+        }))
+      : [];
 
   const hasRealGallery = gallery && gallery.length > 0;
   const galleryToRender = React.useMemo(
-    () => (hasRealGallery ? gallery.slice(0, 12) : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
+    () => (hasRealGallery ? gallery : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
     [gallery, hasRealGallery, showDemoGallery]
+  );
+  const visibleGallery = React.useMemo(
+    () =>
+      galleryToRender.filter((item: any) => {
+        const key =
+          typeof item?.id === "string" && item.id.trim()
+            ? `id:${item.id}`
+            : `src:${item.src}`;
+        return !deletedGalleryKeys.includes(key);
+      }),
+    [deletedGalleryKeys, galleryToRender]
   );
 
   return (
@@ -305,11 +353,20 @@ export default function DashboardView({
                       No documents yet. Create or upload to get started.
                     </div>
                   ) : (
-                    <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)] justify-items-center">
+                    <div
+                      className="grid h-full content-start justify-start gap-[var(--gutter)]"
+                      style={{ gridTemplateColumns: "repeat(auto-fit, 127px)" }}
+                    >
                       {docsToRender.map((d) => (
                         <DocumentTile
-                          key={d}
-                          file={{ name: d }}
+                          key={d.id ?? d.name}
+                          file={d}
+                          onDeleted={(deletedDoc) => {
+                            if (!deletedDoc.id) return;
+                            setRecentDocs((prev) =>
+                              prev.filter((doc) => doc.id !== deletedDoc.id)
+                            );
+                          }}
                           className="dashboard-doc-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
                         />
                       ))}
@@ -354,20 +411,31 @@ export default function DashboardView({
                   </button>
                 </div>
               )}
-              <div className="flex-1 min-h-0 overflow-hidden">
-                {galleryToRender.length === 0 ? (
+              <div className="flex-1 min-h-0 overflow-auto pr-1">
+                {visibleGallery.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm opacity-70">
                     No gallery images yet. Generate or upload to get started.
                   </div>
                 ) : (
-                  <MediaGrid className="codexifyMediaGrid--small">
-                    {galleryToRender.map((item, index) => (
+                  <MediaGrid className="codexifyMediaGrid--dashboard-image">
+                    {visibleGallery.map((item: any, index) => (
                       <MediaTile
                         key={`${item.src}-${index}`}
                         id={item.id ?? `dashboard-gallery-${index}`}
-                        src={item.src}
+                        assetId={typeof item?.id === "string" ? item.id : undefined}
+                        src={normalizeMediaUrl(item.src)}
                         alt={item.prompt || "Gallery image"}
+                        sizeVariant="dashboard-image"
                         onOpen={() => onImagePrompt(item.prompt)}
+                        onDeleted={() => {
+                          const key =
+                            typeof item?.id === "string" && item.id.trim()
+                              ? `id:${item.id}`
+                              : `src:${item.src}`;
+                          setDeletedGalleryKeys((prev) =>
+                            prev.includes(key) ? prev : [...prev, key]
+                          );
+                        }}
                       />
                     ))}
                   </MediaGrid>

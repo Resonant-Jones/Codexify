@@ -269,6 +269,14 @@ export class SessionSpine {
     });
   }
 
+  tabActivateNext(): void {
+    this.tabActivateByOffset(1);
+  }
+
+  tabActivatePrevious(): void {
+    this.tabActivateByOffset(-1);
+  }
+
   tabReorder(tabOrder: TabId[]): void {
     this.mutate((current) => {
       if (!tabOrder.length || current.tabs.length < 2) return;
@@ -414,6 +422,22 @@ export class SessionSpine {
       (candidate) => candidate !== tabId
     );
     this.activationHistory.push(tabId);
+  }
+
+  private tabActivateByOffset(direction: 1 | -1): void {
+    this.mutate((current) => {
+      if (current.tabs.length <= 1 || !current.activeTabId) return;
+      const activeIndex = current.tabs.findIndex(
+        (tab) => tab.tabId === current.activeTabId
+      );
+      if (activeIndex < 0) return;
+      const nextIndex =
+        (activeIndex + direction + current.tabs.length) % current.tabs.length;
+      const nextTab = current.tabs[nextIndex];
+      if (!nextTab || nextTab.tabId === current.activeTabId) return;
+      current.activeTabId = nextTab.tabId;
+      this.markTabActive(nextTab.tabId);
+    });
   }
 
   private getMostRecentRemainingTabId(tabs: SessionTab[]): TabId | null {

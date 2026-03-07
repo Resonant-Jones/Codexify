@@ -1,32 +1,4 @@
-/* Gallery responsive styles */
-
-[data-gallery-grid] {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
-  gap: 20px;
-  align-items: start;
-}
-
-/* Tablet and below: smaller tiles */
-@media (max-width: 768px) {
-  [data-gallery-grid] {
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 16px;
-  }
-}
-
-/* Mobile: even smaller tiles */
-@media (max-width: 640px) {
-  [data-gallery-grid] {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 12px;
-  }
-}
-
-/* Small split view: minimum viable tiles */
-@media (max-width: 480px) {
-  [data-gallery-grid] {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 10px;
-  }
+.codexifyMediaGrid--gallery {
+  align-content: start;
+  padding-right: 1px;
 }

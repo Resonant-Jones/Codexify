@@ -10,6 +10,7 @@ import FrameCard from "@/components/surface/FrameCard";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import useUploader from "@/hooks/useUploader";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
+import { resolveMediaAssetSrc } from "@/lib/mediaUrl";
 import { X } from "lucide-react";
 import "@/components/gallery/gallery.css";
 
@@ -56,6 +57,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   });
 
   const [backendImages, setBackendImages] = useState<GalleryItem[]>([]);
+  const [deletedKeys, setDeletedKeys] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showImageGen, setShowImageGen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<"uploaded" | "generated">("uploaded");
@@ -90,11 +92,12 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
         const images = Array.isArray(data.images)
           ? data.images.map((img: any) => ({
               id: img.id,
-              src: img.src_url || img.url,
+              src: resolveMediaAssetSrc(img),
               prompt: img.filename || "Untitled",
               project: img.project_id,
               tag: img.source_tag || img.tag || sourceFilter,
             }))
+              .filter((img: GalleryItem) => !!img.src)
           : [];
         setBackendImages(images);
       })
@@ -114,7 +117,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
       if (!Array.isArray(items) || items.length === 0) return;
       const additions = items
         .map((item: any) => ({
-          src: item?.src || item?.src_url || item?.url,
+          src: resolveMediaAssetSrc(item),
           prompt: item?.prompt || item?.filename || "Generated image",
           project: item?.project || item?.project_id,
           tag: item?.tag || item?.source_tag || "uploaded",
@@ -143,10 +146,14 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
     const tagFiltered = allItems.filter(
       (item) => (item.tag || "uploaded") === sourceFilter
     );
-    return projectId
+    const projectFiltered = projectId
       ? tagFiltered.filter((item) => item.project === projectId)
       : tagFiltered;
-  }, [allItems, projectId, sourceFilter]);
+    return projectFiltered.filter((item) => {
+      const key = item.id ? `id:${item.id}` : `src:${item.src}`;
+      return !deletedKeys.includes(key);
+    });
+  }, [allItems, deletedKeys, projectId, sourceFilter]);
 
   // Setup uploader for image uploads
   const uploader = useUploader({
@@ -159,12 +166,12 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
         ...prev,
         ...newImages.map((img: any) => ({
           id: img?.id,
-          src: img?.src || img?.src_url,
+          src: resolveMediaAssetSrc(img),
           prompt: img?.prompt || img?.filename || "Uploaded image",
           project: img?.project || img?.project_id,
           tag: "uploaded",
         })),
-      ]);
+      ].filter((img) => !!img.src));
     },
     onDocuments: () => {},
     onAnyUpload: () => {
@@ -182,10 +189,12 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   }, [visible, hasRealGallery, showDemoGallery, sourceFilter]);
 
   const handleDelete = async (item: GalleryItem) => {
-    // Try to delete from backend (if it's from backend)
-    // For now, just remove from local state
+    const key = item.id ? `id:${item.id}` : `src:${item.src}`;
+    setDeletedKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
     setBackendImages((prev) =>
-      prev.filter((img) => img.src !== item.src)
+      prev.filter((img) =>
+        item.id ? img.id !== item.id : img.src !== item.src
+      )
     );
   };
 
@@ -269,6 +278,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
             <GalleryGrid
               items={galleryToRender}
               onOpen={(item) => onSelect(item.prompt)}
+              onDelete={handleDelete}
             />
           )}
         </div>
