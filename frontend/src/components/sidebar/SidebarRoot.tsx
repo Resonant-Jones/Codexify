@@ -300,7 +300,7 @@ export default function SidebarRoot({
         className="flex flex-col min-h-0 flex-1 gap-3 rounded-[var(--card-radius)]"
         style={{
           background: "var(--panel-sheet, #1f1f1f)",
-          border: "1px solid var(--panel-border, rgba(255,255,255,0.08))",
+          border: "1px solid transparent",
           color: "inherit",
           overflow: "hidden",
         }}
