@@ -8,6 +8,24 @@ from guardian.workers import chat_worker
 TURN_ID = "11111111-1111-4111-8111-111111111111"
 
 
+class _FakeRedis:
+    def __init__(self) -> None:
+        self._values: dict[str, bytes] = {}
+
+    def setex(self, name: str, _ttl: int, value: str) -> bool:
+        self._values[name] = str(value).encode("utf-8")
+        return True
+
+    def get(self, name: str) -> bytes | None:
+        return self._values.get(name)
+
+
+def _isolate_turn_anchor(monkeypatch) -> _FakeRedis:
+    fake_redis = _FakeRedis()
+    monkeypatch.setattr(chat_worker, "get_redis_client", lambda: fake_redis)
+    return fake_redis
+
+
 def _build_task(
     *, thread_id: int = 11, turn_id: str = TURN_ID
 ) -> ChatCompletionTask:
@@ -23,6 +41,7 @@ def _build_task(
 
 def _stubbed_success_setup(monkeypatch):
     published: list[tuple[str, dict]] = []
+    _isolate_turn_anchor(monkeypatch)
 
     monkeypatch.setattr(
         chat_worker,
@@ -100,6 +119,73 @@ def test_metadata_persistence_exception_is_non_fatal(monkeypatch, caplog):
     )
 
 
+def test_retry_after_metadata_failure_reuses_cached_turn_anchor(monkeypatch):
+    published: list[tuple[str, dict]] = []
+    fake_redis = _isolate_turn_anchor(monkeypatch)
+    completion_calls = {"count": 0}
+
+    monkeypatch.setattr(
+        chat_worker,
+        "_safe_publish",
+        lambda _task_id, event_type, data: published.append(
+            (event_type, dict(data or {}))
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker, "_safe_emit_live_event", lambda *a, **k: None
+    )
+    monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        chat_worker, "release_turn_lock", lambda *_a, **_k: True
+    )
+    monkeypatch.setattr(
+        chat_worker.dependencies,
+        "chatlog_db",
+        None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_turn_id_metadata",
+        lambda **_kwargs: False,
+    )
+
+    def _run_completion(*_args, **_kwargs):
+        completion_calls["count"] += 1
+        return {
+            "message_id": 501,
+            "provider": "groq",
+            "model": "moonshotai-kimi-k2-instruct-9050",
+        }
+
+    monkeypatch.setattr(
+        chat_worker, "run_chat_completion_task", _run_completion
+    )
+
+    chat_worker._run_chat_task(_build_task(thread_id=29, turn_id=TURN_ID))
+    retry_task = ChatCompletionTask(
+        task_id="task-retry",
+        thread_id=29,
+        provider="groq",
+        model="moonshotai-kimi-k2-instruct-9050",
+        origin=f"api:chat.complete|turn_id={TURN_ID}",
+    )
+    retry_task.turn_id = TURN_ID
+    retry_task.turn_lock_owner = "lock-retry"
+    chat_worker._run_chat_task(retry_task)
+
+    assert completion_calls["count"] == 1
+    completed_payloads = [
+        payload
+        for event_type, payload in published
+        if event_type == "task.completed"
+    ]
+    assert len(completed_payloads) == 2
+    assert completed_payloads[-1].get("message_id") == 501
+    assert completed_payloads[-1].get("selection_source") == "turn_id_dedupe"
+    assert all(event_type != "task.failed" for event_type, _ in published)
+
+
 def test_worker_failure_before_assistant_emit_marks_failed_and_emits_completion_error(
     monkeypatch,
 ):
@@ -171,7 +257,7 @@ def test_duplicate_turn_is_prevented_before_new_completion(monkeypatch):
     )
     monkeypatch.setattr(
         chat_worker,
-        "_find_assistant_message_id_by_turn_id",
+        "_find_assistant_message_for_turn",
         lambda **_kwargs: 90210,
     )
 
@@ -195,4 +281,4 @@ def test_duplicate_turn_is_prevented_before_new_completion(monkeypatch):
         if event_type == "task.completed"
     )
     assert completed_payload.get("message_id") == 90210
-    assert completed_payload.get("deduplicated") is True
+    assert completed_payload.get("selection_source") == "turn_id_dedupe"
