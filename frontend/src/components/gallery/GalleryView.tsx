@@ -57,6 +57,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   });
 
   const [backendImages, setBackendImages] = useState<GalleryItem[]>([]);
+  const [deletedKeys, setDeletedKeys] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showImageGen, setShowImageGen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<"uploaded" | "generated">("uploaded");
@@ -145,10 +146,14 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
     const tagFiltered = allItems.filter(
       (item) => (item.tag || "uploaded") === sourceFilter
     );
-    return projectId
+    const projectFiltered = projectId
       ? tagFiltered.filter((item) => item.project === projectId)
       : tagFiltered;
-  }, [allItems, projectId, sourceFilter]);
+    return projectFiltered.filter((item) => {
+      const key = item.id ? `id:${item.id}` : `src:${item.src}`;
+      return !deletedKeys.includes(key);
+    });
+  }, [allItems, deletedKeys, projectId, sourceFilter]);
 
   // Setup uploader for image uploads
   const uploader = useUploader({
@@ -184,10 +189,12 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   }, [visible, hasRealGallery, showDemoGallery, sourceFilter]);
 
   const handleDelete = async (item: GalleryItem) => {
-    // Try to delete from backend (if it's from backend)
-    // For now, just remove from local state
+    const key = item.id ? `id:${item.id}` : `src:${item.src}`;
+    setDeletedKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
     setBackendImages((prev) =>
-      prev.filter((img) => img.src !== item.src)
+      prev.filter((img) =>
+        item.id ? img.id !== item.id : img.src !== item.src
+      )
     );
   };
 
@@ -271,6 +278,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
             <GalleryGrid
               items={galleryToRender}
               onOpen={(item) => onSelect(item.prompt)}
+              onDelete={handleDelete}
             />
           )}
         </div>
