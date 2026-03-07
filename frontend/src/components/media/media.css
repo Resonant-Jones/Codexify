@@ -2,52 +2,35 @@
 
 /* Responsive grid with centering */
 .codexifyMediaGrid {
+  --tile-size: 256px;
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns:
-    repeat(
-      var(--image-grid-cols, auto-fit),
-      minmax(min(100%, var(--image-tile-size, 180px)), 1fr)
-    );
+  grid-template-columns: repeat(auto-fit, minmax(var(--tile-size), var(--tile-size)));
   gap: var(--image-grid-gap, 16px);
   align-items: start;
   align-content: start;
-  justify-items: stretch;
+  justify-content: flex-start;
 }
 
-/* Small tile variant for Dashboard (documents/smaller previews) */
-.codexifyMediaGrid--small {
-  grid-template-columns:
-    repeat(
-      auto-fit,
-      minmax(min(100%, calc(var(--image-tile-size, 180px) - 48px)), 1fr)
-    );
+.codexifyMediaGrid--dashboard-image {
+  --tile-size: 192px;
 }
 
-@media (max-width: 640px) {
-  .codexifyMediaGrid--small {
-    grid-template-columns:
-      repeat(
-        auto-fit,
-        minmax(min(100%, calc(var(--image-tile-size, 180px) - 72px)), 1fr)
-      );
-  }
+.codexifyMediaGrid--gallery {
+  --tile-size: 256px;
 }
 
 /* Tile wrapper */
 .codexifyMediaTile {
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  border-radius: 18px;
-  overflow: hidden;
-  padding: 0;
   border: none;
   background: transparent;
   cursor: pointer;
-  display: block;
   transition: transform 150ms ease-out;
+}
+
+.codexifyMediaTile > * {
+  pointer-events: none;
 }
 
 .codexifyMediaTile:hover {
@@ -62,16 +45,14 @@
 /* Media content */
 .codexifyMediaTileMedia {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: 100%;
   object-fit: cover;
   display: block;
-  max-height: 420px;
 }
 
 .codexifyMediaTileFallback {
   width: 100%;
-  aspect-ratio: 1 / 1;
-  max-height: 420px;
+  height: 100%;
   display: grid;
   place-items: center;
   padding: 1rem;

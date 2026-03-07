@@ -1,10 +1,4 @@
 .codexifyMediaGrid--gallery {
-  width: 100%;
-  min-width: 0;
   align-content: start;
   padding-right: 1px;
-}
-
-.codexifyMediaGrid--gallery > .codexifyMediaTile {
-  width: 100%;
 }

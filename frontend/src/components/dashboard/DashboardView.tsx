@@ -306,7 +306,10 @@ export default function DashboardView({
                       No documents yet. Create or upload to get started.
                     </div>
                   ) : (
-                    <div className="grid h-full grid-cols-[repeat(auto-fill,minmax(125px,1fr))] gap-[var(--gutter)] justify-items-center">
+                    <div
+                      className="grid h-full content-start justify-start gap-[var(--gutter)]"
+                      style={{ gridTemplateColumns: "repeat(auto-fit, 127px)" }}
+                    >
                       {docsToRender.map((d) => (
                         <DocumentTile
                           key={d}
@@ -361,13 +364,14 @@ export default function DashboardView({
                     No gallery images yet. Generate or upload to get started.
                   </div>
                 ) : (
-                  <MediaGrid className="codexifyMediaGrid--small">
+                  <MediaGrid className="codexifyMediaGrid--dashboard-image">
                     {galleryToRender.map((item, index) => (
                       <MediaTile
                         key={`${item.src}-${index}`}
                         id={item.id ?? `dashboard-gallery-${index}`}
                         src={normalizeMediaUrl(item.src)}
                         alt={item.prompt || "Gallery image"}
+                        sizeVariant="dashboard-image"
                         onOpen={() => onImagePrompt(item.prompt)}
                       />
                     ))}

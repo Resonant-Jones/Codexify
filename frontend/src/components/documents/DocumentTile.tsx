@@ -146,7 +146,7 @@ export default function DocumentTile({ file, onClick, className }: Props) {
     : null;
 
   const content = (
-    <div className="relative flex aspect-[3/4] w-full flex-col">
+    <div className="relative flex h-full w-full flex-col">
       {file?.thumb ? (
         <img src={file.thumb} alt={fileName} className="absolute inset-0 h-full w-full object-cover" />
       ) : (
@@ -177,13 +177,14 @@ export default function DocumentTile({ file, onClick, className }: Props) {
     </div>
   );
 
-  const baseClasses = clsx("aspect-square w-[125px]", className);
+  const baseClasses = clsx("shrink-0", className);
 
   if (onClick) {
     return (
       <TileShell
         as="button"
         type="button"
+        sizeVariant="document"
         className={clsx(
           baseClasses,
           "cursor-pointer text-left transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
@@ -198,7 +199,12 @@ export default function DocumentTile({ file, onClick, className }: Props) {
   }
 
   return (
-    <TileShell className={baseClasses} style={{ padding: 0 }} aria-label={fileName}>
+    <TileShell
+      sizeVariant="document"
+      className={baseClasses}
+      style={{ padding: 0 }}
+      aria-label={fileName}
+    >
       {content}
     </TileShell>
   );
