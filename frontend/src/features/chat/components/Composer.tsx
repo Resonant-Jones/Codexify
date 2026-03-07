@@ -637,7 +637,7 @@ export function Composer({
             }}
           />
 
-          <div className="flex flex-wrap items-center justify-between gap-3 px-[8px] pb-[6px]">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-[8px] pb-[4px]">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
