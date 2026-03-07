@@ -116,6 +116,7 @@ type DropdownMenuContentProps = React.HTMLAttributes<HTMLDivElement> & {
 type Placement = {
   left: number;
   top: number;
+  triggerWidth: number;
   visibility: React.CSSProperties["visibility"];
 };
 
@@ -128,7 +129,7 @@ function resolvePlacement(
     sideOffset: number;
     collisionPadding: number;
   }
-): Placement {
+): Omit<Placement, "triggerWidth"> {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const { side, align, sideOffset, collisionPadding } = options;
@@ -184,6 +185,7 @@ export const DropdownMenuContent = ({
   const [placement, setPlacement] = React.useState<Placement>({
     left: 0,
     top: 0,
+    triggerWidth: 0,
     visibility: "hidden",
   });
 
@@ -201,12 +203,15 @@ export const DropdownMenuContent = ({
     const rootRect = root.getBoundingClientRect();
     const contentRect = content.getBoundingClientRect();
     setPlacement(
-      resolvePlacement(rootRect, contentRect, {
-        side,
-        align,
-        sideOffset: resolvedOffset,
-        collisionPadding: resolvedCollisionPadding,
-      })
+      {
+        ...resolvePlacement(rootRect, contentRect, {
+          side,
+          align,
+          sideOffset: resolvedOffset,
+          collisionPadding: resolvedCollisionPadding,
+        }),
+        triggerWidth: rootRect.width,
+      }
     );
   }, [align, ctx.rootRef, resolvedCollisionPadding, resolvedOffset, side]);
 
@@ -271,6 +276,7 @@ export const DropdownMenuContent = ({
         left: placement.left,
         top: placement.top,
         width: "max-content",
+        ["--dropdown-menu-trigger-width" as string]: `${placement.triggerWidth}px`,
         visibility: placement.visibility,
         ...style,
       }}
@@ -282,11 +288,12 @@ export const DropdownMenuContent = ({
   );
 };
 
-export const DropdownMenuItem = ({
-  className,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+export const DropdownMenuItem = React.forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement>
+>(({ className, ...props }, ref) => (
   <button
+    ref={ref}
     role="menuitem"
     className={
       "w-full rounded-md px-3 py-2 text-left text-sm hover:bg-[color-mix(in_oklab,var(--panel-bg),black_10%)] " +
@@ -294,4 +301,6 @@ export const DropdownMenuItem = ({
     }
     {...props}
   />
-);
+));
+
+DropdownMenuItem.displayName = "DropdownMenuItem";

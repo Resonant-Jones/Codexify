@@ -182,6 +182,66 @@ function describeProviderSource(source: {
   }
 }
 
+function getModelMenuLabel(model: {
+  alias?: string;
+  displayLabel?: string;
+  pickerLabel?: string;
+  canonicalId: string;
+}): string {
+  return (
+    String(
+      model.alias ??
+        model.displayLabel ??
+        model.pickerLabel ??
+        model.canonicalId
+    ).trim() || model.canonicalId
+  );
+}
+
+function getModelLabelKey(model: {
+  alias?: string;
+  displayLabel?: string;
+  pickerLabel?: string;
+  canonicalId: string;
+}): string {
+  return getModelMenuLabel(model).trim().toLowerCase();
+}
+
+function getModelDifferentiator(
+  model: {
+    canonicalId: string;
+    namespace?: string;
+    source?: string;
+  },
+  siblingModels: Array<{
+    canonicalId: string;
+    namespace?: string;
+    source?: string;
+  }>,
+  providerSourceLabel: string | null
+): string {
+  const namespaces = new Set(
+    siblingModels
+      .map((entry) => String(entry.namespace ?? "").trim())
+      .filter(Boolean)
+  );
+  if (namespaces.size > 1 && model.namespace) {
+    return `Namespace ${model.namespace}`;
+  }
+
+  const sources = new Set(
+    siblingModels
+      .map((entry) => String(entry.source ?? providerSourceLabel ?? "").trim())
+      .filter(Boolean)
+  );
+  const sourceLabel = String(model.source ?? providerSourceLabel ?? "").trim();
+  if (sources.size > 1 && sourceLabel) {
+    return `Source ${sourceLabel}`;
+  }
+
+  return model.canonicalId;
+}
+
 function normalizeVoiceCapabilities(raw: any): VoiceCapabilities {
   const limitsRaw = raw?.limits;
   const maxUploadBytes = Number(limitsRaw?.max_upload_bytes);
@@ -481,16 +541,40 @@ export function GuardianChat({
   );
 
   const modelOptions = useMemo(
-    () =>
-      (selectedProvider?.models ?? []).map((model) => ({
-        value: model.id,
-        label: model.pickerLabel,
-        description: undefined,
-        meta:
-          typeof model.contextWindow === "number"
-            ? `${Math.round(model.contextWindow / 1000)}k`
-            : null,
-      })),
+    () => {
+      const models = selectedProvider?.models ?? [];
+      const providerSourceLabel = describeProviderSource(selectedProvider?.source);
+      const modelsByLabel = new Map<string, typeof models>();
+
+      for (const model of models) {
+        const labelKey = getModelLabelKey(model);
+        const siblings = modelsByLabel.get(labelKey);
+        if (siblings) {
+          siblings.push(model);
+          continue;
+        }
+        modelsByLabel.set(labelKey, [model]);
+      }
+
+      return models.map((model) => {
+        const label = getModelMenuLabel(model);
+        const siblingModels = modelsByLabel.get(getModelLabelKey(model)) ?? [model];
+        const description =
+          siblingModels.length > 1
+            ? getModelDifferentiator(model, siblingModels, providerSourceLabel)
+            : undefined;
+
+        return {
+          value: model.id,
+          label,
+          description,
+          meta:
+            typeof model.contextWindow === "number"
+              ? `${Math.round(model.contextWindow / 1000)}k`
+              : null,
+        };
+      });
+    },
     [selectedProvider]
   );
 
