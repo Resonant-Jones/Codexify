@@ -10,6 +10,7 @@ import FrameCard from "@/components/surface/FrameCard";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import useUploader from "@/hooks/useUploader";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
+import { resolveMediaAssetSrc } from "@/lib/mediaUrl";
 import { X } from "lucide-react";
 import "@/components/gallery/gallery.css";
 
@@ -90,11 +91,12 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
         const images = Array.isArray(data.images)
           ? data.images.map((img: any) => ({
               id: img.id,
-              src: img.src_url || img.url,
+              src: resolveMediaAssetSrc(img),
               prompt: img.filename || "Untitled",
               project: img.project_id,
               tag: img.source_tag || img.tag || sourceFilter,
             }))
+              .filter((img: GalleryItem) => !!img.src)
           : [];
         setBackendImages(images);
       })
@@ -114,7 +116,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
       if (!Array.isArray(items) || items.length === 0) return;
       const additions = items
         .map((item: any) => ({
-          src: item?.src || item?.src_url || item?.url,
+          src: resolveMediaAssetSrc(item),
           prompt: item?.prompt || item?.filename || "Generated image",
           project: item?.project || item?.project_id,
           tag: item?.tag || item?.source_tag || "uploaded",
@@ -159,12 +161,12 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
         ...prev,
         ...newImages.map((img: any) => ({
           id: img?.id,
-          src: img?.src || img?.src_url,
+          src: resolveMediaAssetSrc(img),
           prompt: img?.prompt || img?.filename || "Uploaded image",
           project: img?.project || img?.project_id,
           tag: "uploaded",
         })),
-      ]);
+      ].filter((img) => !!img.src));
     },
     onDocuments: () => {},
     onAnyUpload: () => {

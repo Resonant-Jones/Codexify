@@ -8,6 +8,7 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ImagePlus, X } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import MediaGrid from "@/components/media/MediaGrid";
 import MediaTile from "@/components/media/MediaTile";
 
@@ -365,7 +366,7 @@ export default function DashboardView({
                       <MediaTile
                         key={`${item.src}-${index}`}
                         id={item.id ?? `dashboard-gallery-${index}`}
-                        src={item.src}
+                        src={normalizeMediaUrl(item.src)}
                         alt={item.prompt || "Gallery image"}
                         onOpen={() => onImagePrompt(item.prompt)}
                       />
