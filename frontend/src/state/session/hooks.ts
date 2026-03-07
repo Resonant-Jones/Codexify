@@ -44,6 +44,18 @@ export type SessionRailSlice = {
   activeTabId: TabId | null;
 };
 
+export function getWrappedSessionTabId(
+  tabs: SessionTab[],
+  activeTabId: TabId | null,
+  direction: 1 | -1
+): TabId | null {
+  if (tabs.length <= 1) return activeTabId;
+  const activeIndex = tabs.findIndex((tab) => tab.tabId === activeTabId);
+  if (activeIndex < 0) return tabs[0]?.tabId ?? null;
+  const nextIndex = (activeIndex + direction + tabs.length) % tabs.length;
+  return tabs[nextIndex]?.tabId ?? null;
+}
+
 function isRailSliceEqual(a: SessionRailSlice, b: SessionRailSlice): boolean {
   return a.activeTabId === b.activeTabId && areTabsEqual(a.tabs, b.tabs);
 }

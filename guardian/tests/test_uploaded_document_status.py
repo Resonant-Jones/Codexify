@@ -34,6 +34,9 @@ class _FakeQuery:
     def all(self):
         return self._items
 
+    def first(self):
+        return self._items[0] if self._items else None
+
 
 class _SessionContext:
     def __init__(self, session):
@@ -136,3 +139,25 @@ def test_documents_list_filters_by_project_and_thread():
         subset = project_and_thread.json()
         assert subset["count"] == 1
         assert subset["documents"][0]["id"] == "doc-a"
+
+
+def test_delete_document_soft_deletes_uploaded_document():
+    doc = _FakeDoc()
+    session = MagicMock()
+    session.query.side_effect = lambda *_args, **_kwargs: _FakeQuery([doc])
+    db = MagicMock()
+    db.get_session.return_value = _SessionContext(session)
+
+    from guardian.routes import media as media_routes
+
+    app = FastAPI()
+    app.include_router(media_routes.router, prefix="/api/media")
+
+    with patch("guardian.routes.media._get_db", return_value=db):
+        client = TestClient(app)
+        response = client.delete("/api/media/documents/doc-1")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert doc.deleted_at is not None
+    session.commit.assert_called_once()
