@@ -1807,3 +1807,23 @@ async def list_documents(
             ],
             "count": len(documents),
         }
+
+
+@router.delete("/documents/{document_id}", tags=["media"])
+async def delete_document(document_id: str):
+    """Soft delete an uploaded document."""
+    db = _get_db()
+
+    with db.get_session() as session:
+        document = (
+            session.query(UploadedDocument).filter_by(id=document_id).first()
+        )
+
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        document.deleted_at = datetime.now(timezone.utc)
+        session.commit()
+
+        logger.info("Document %s soft-deleted", document_id)
+        return {"ok": True, "message": "Document deleted"}
