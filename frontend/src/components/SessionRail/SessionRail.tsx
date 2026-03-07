@@ -13,20 +13,7 @@ type SessionRailProps = {
   onOpenTab: () => void;
 };
 
-const SESSION_RAIL_STYLES: Record<
-  "container" | "tabsEdgeMask",
-  React.CSSProperties
-> = {
-  container: {
-    border: "1px solid color-mix(in oklab, var(--panel-border) 76%, transparent)",
-    borderRadius: "calc(var(--tile-radius) - 2px)",
-    background:
-      "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02)), color-mix(in oklab, var(--panel-bg) 66%, transparent)",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(0,0,0,0.16)",
-    backdropFilter: "blur(12px) saturate(122%)",
-    WebkitBackdropFilter: "blur(12px) saturate(122%)",
-    isolation: "isolate",
-  },
+const SESSION_RAIL_STYLES: Record<"tabsEdgeMask", React.CSSProperties> = {
   tabsEdgeMask: {
     maskImage:
       "linear-gradient(to right, transparent 0px, black 14px, black calc(100% - 14px), transparent 100%)",
@@ -53,17 +40,14 @@ export function SessionRail({
   const shouldShowTabs = showTabs ?? tabs.length > 1;
   const canCloseTabs = tabs.length > 1;
   return (
-    <div
-      className="session-rail shrink-0 flex flex-nowrap items-center gap-2 px-3 py-2"
-      style={SESSION_RAIL_STYLES.container}
-    >
+    <div className="session-rail shrink-0 flex flex-nowrap items-center gap-1.5 px-3 py-2">
       {shouldShowTabs ? (
         <div className="min-w-0 flex-1 overflow-hidden">
           <div
-            className="session-rail__tabs-scroll overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
+            className="session-rail__tabs-scroll min-w-0 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
             style={tabs.length > 2 ? SESSION_RAIL_STYLES.tabsEdgeMask : undefined}
           >
-            <div className="inline-flex min-w-full items-center gap-2">
+            <div className="inline-flex min-w-full items-center gap-1.5">
               {tabs.map((tab) => {
                 const isActive = tab.tabId === activeTabId;
                 const basis = isActive
@@ -72,7 +56,7 @@ export function SessionRail({
                 return (
                   <div
                     key={tab.tabId}
-                    className="session-rail__tab-shell inline-flex items-center gap-1 rounded-[var(--tile-radius)] pr-1"
+                    className="session-rail__tab-shell inline-flex items-center gap-1 pr-0.5"
                     data-state={isActive ? "active" : "inactive"}
                     style={{
                       flex: "0 0 auto",
@@ -123,14 +107,13 @@ export function SessionRail({
       ) : (
         <div className="flex-1" />
       )}
-      <div className="session-rail__tools shrink-0 flex items-center gap-1">
+      <div className="session-rail__tools shrink-0 flex items-center gap-0.5">
         <button
           type="button"
           className="icon-inline session-rail__tool-btn"
           aria-label="New tab"
           title="New tab"
           onClick={onOpenTab}
-          style={{ borderRadius: "var(--radius-micro)" }}
         >
           <Plus className="h-5 w-5" />
         </button>
