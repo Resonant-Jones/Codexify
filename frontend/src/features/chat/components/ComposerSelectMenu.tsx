@@ -224,7 +224,7 @@ export function ComposerSelectMenu({
         }}
       >
         <div
-          className="px-2.5 py-2 text-[10px] font-medium uppercase tracking-[0.14em]"
+          className="w-full px-3 py-2 text-center text-[10px] font-medium uppercase tracking-[0.12em] leading-none"
           style={{ color: "var(--muted)" }}
         >
           {menuLabel}
