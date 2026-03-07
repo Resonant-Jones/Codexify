@@ -80,9 +80,13 @@ function normalizeModel(
     normalizeString(model.displayName) ??
     normalizeString(model.label) ??
     canonicalId;
+  const pickerLabel =
+    normalizeString(model.picker_label) ??
+    normalizeString(model.pickerLabel) ??
+    displayLabel ??
+    canonicalId;
   const alias = normalizeString(model.alias) ?? undefined;
-  const pickerLabel = alias ?? displayLabel ?? canonicalId;
-  const displayName = pickerLabel;
+  const displayName = alias ?? displayLabel ?? pickerLabel ?? canonicalId;
   const runtime = model.runtime;
   const reasoning =
     runtime && typeof runtime === "object"

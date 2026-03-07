@@ -38,8 +38,8 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 vi.mock("@/features/chat/components", () => ({
   Composer: ({ modelOptions }: { modelOptions?: Array<{ label: string; description?: string }> }) => (
     <div data-testid="composer-stub">
-      {(modelOptions ?? []).map((option) => (
-        <div key={option.label}>
+      {(modelOptions ?? []).map((option, index) => (
+        <div key={`${option.label}-${option.description ?? "none"}-${index}`}>
           <span>{option.label}</span>
           {option.description ? <span>{option.description}</span> : null}
         </div>
@@ -172,5 +172,85 @@ describe("GuardianChat catalog-backed model options", () => {
     expect(
       screen.queryByText("pattern-matched local qwen profile")
     ).not.toBeInTheDocument();
+  });
+
+  it("adds muted differentiators only when normalized model labels collide", async () => {
+    (api.get as any).mockImplementation(async (url: string) => {
+      if (url === "/llm/catalog") {
+        return {
+          data: {
+            providers: [
+              {
+                id: "local",
+                displayName: "Local",
+                enabled: true,
+                authorized: true,
+                available: true,
+                source: {
+                  kind: "local",
+                  baseUrl: "http://127.0.0.1:11434/v1",
+                  label: "127.0.0.1:11434",
+                },
+                models: [
+                  {
+                    id: "library2/qwen3:4b",
+                    canonical_id: "library2/qwen3:4b",
+                    display_label: "Qwen 3 4B",
+                    namespace: "library2",
+                    source: "library2",
+                  },
+                  {
+                    id: "archive/qwen3:4b",
+                    canonical_id: "archive/qwen3:4b",
+                    display_label: "Qwen 3 4B",
+                    namespace: "archive",
+                    source: "archive",
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      }
+      if (url === "/health/llm") {
+        return {
+          data: {
+            ok: true,
+            status: "online",
+            provider: "local",
+            model: "library2/qwen3:4b",
+            error: null,
+          },
+        };
+      }
+      return { data: {} };
+    });
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "draft", title: "Draft" } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            title: "Tab 1",
+            providerId: "local",
+            modelId: "library2/qwen3:4b",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    expect((await screen.findAllByText("Qwen 3 4B")).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Namespace library2")).toBeInTheDocument();
+    expect(screen.getByText("Namespace archive")).toBeInTheDocument();
+    expect(screen.queryByText("library2/qwen3:4b")).not.toBeInTheDocument();
+    expect(screen.queryByText("archive/qwen3:4b")).not.toBeInTheDocument();
   });
 });
