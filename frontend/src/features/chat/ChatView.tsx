@@ -102,6 +102,19 @@ function getLastUserMessageId(messages: Array<{ id: unknown; role?: string }>): 
   return 0;
 }
 
+function normalizeMessageTimestamp(raw: unknown): number | null {
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) ? raw : null;
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function classifyVoice404Error(err: unknown): Voice404Classification {
   const status = Number((err as any)?.response?.status ?? 0);
   if (status !== 404) {
@@ -1256,12 +1269,7 @@ export function ChatView({
                   authorId: m.role === "user" ? "me" : "bot",
                   authorName: m.role === "user" ? "You" : guardianName || "Guardian",
                   content: m.content ?? "",
-                  createdAt:
-                    typeof m.created_at === "number"
-                      ? m.created_at
-                      : typeof m.created_at === "string"
-                        ? Date.parse(m.created_at)
-                        : Date.now(),
+                  createdAt: normalizeMessageTimestamp(m.created_at),
                   attachments: m.attachments?.map((att) => ({
                     id: att.id,
                     kind: att.kind,

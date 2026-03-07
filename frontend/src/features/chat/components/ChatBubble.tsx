@@ -205,14 +205,19 @@ export function ChatBubble({
   playState?: "idle" | "playing" | "unavailable" | "disabled";
   onPlay?: () => void;
 }) {
-  const fmtTime = (ts: number) =>
-    new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const fmtTime = (ts: number | null | undefined) => {
+    if (!Number.isFinite(ts)) return null;
+    const date = new Date(ts);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
 
   const { attachments: contentAttachments, text } = parseAttachments(message.content || "");
   const attachments = mergeAttachments(message.attachments, contentAttachments);
   const cleanedContent = text;
   const hasAttachments = attachments.length > 0;
   const hasText = Boolean(cleanedContent.trim());
+  const formattedTime = fmtTime(message.createdAt);
   const resolvedPlayState =
     playState ?? (playing ? "playing" : "idle");
   const playButtonTitle =
@@ -314,9 +319,11 @@ export function ChatBubble({
           </div>
         ) : null}
         <div className="mt-1.5 flex items-center gap-2">
-          <div className="text-[10px] opacity-50" style={{ color: "var(--muted)" }}>
-            {fmtTime(message.createdAt)}
-          </div>
+          {formattedTime ? (
+            <div className="text-[10px] opacity-50" style={{ color: "var(--muted)" }}>
+              {formattedTime}
+            </div>
+          ) : null}
           {showPlay && (
             <button
               type="button"
@@ -360,12 +367,14 @@ export function ChatBubble({
           <div className="text-sm leading-relaxed prose prose-sm max-w-none break-words dark:prose-invert">
             {renderedMarkdown}
           </div>
-          <div className="mt-1.5 flex items-center justify-end gap-2">
-            <span className="text-[10px] opacity-70">{fmtTime(message.createdAt)}</span>
-          </div>
+          {formattedTime ? (
+            <div className="mt-1.5 flex items-center justify-end gap-2">
+              <span className="text-[10px] opacity-70">{formattedTime}</span>
+            </div>
+          ) : null}
         </div>
       ) : (
-        <div className="text-[10px] opacity-70">{fmtTime(message.createdAt)}</div>
+        formattedTime ? <div className="text-[10px] opacity-70">{formattedTime}</div> : null
       )}
     </motion.div>
   );

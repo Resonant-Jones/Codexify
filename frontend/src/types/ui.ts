@@ -12,7 +12,7 @@ export type Message = {
   authorId: string;
   authorName: string;
   content: string;
-  createdAt: number;
+  createdAt: number | null;
   status?: "sending" | "sent" | "delivered" | "read";
   attachments?: MessageAttachment[];
 };
