@@ -263,29 +263,34 @@ html, body {
     inset 0 1px 0 rgba(255,255,255,0.22);
 }
 
-/* Session rail hierarchy: quiet substrate + focused active tab signal */
+/* Session rail hierarchy: one layout rail, split visible islands */
 .session-rail {
-  border-color: color-mix(in oklab, var(--panel-border) 80%, transparent);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.02)),
-    color-mix(in oklab, var(--panel-bg) 66%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  isolation: isolate;
 }
 
 .dark .session-rail {
-  border-color: color-mix(in oklab, var(--panel-border) 88%, transparent);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.01)),
-    color-mix(in oklab, var(--panel-bg) 82%, black 18%);
+  border-color: transparent;
+  background: transparent;
+}
+
+.session-rail__tabs-scroll {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 .session-rail__tab-shell {
-  border: 1px solid color-mix(in oklab, var(--panel-border) 78%, transparent);
-  border-radius: var(--tile-radius, 20px);
-  backdrop-filter: blur(10px) saturate(128%);
-  -webkit-backdrop-filter: blur(10px) saturate(128%);
+  border: 1px solid transparent;
+  border-radius: calc(var(--tile-radius, 20px) - 2px);
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   transition:
     background .18s ease,
     border-color .18s ease,
@@ -296,24 +301,31 @@ html, body {
 }
 
 .session-rail__tab-shell[data-state="inactive"] {
-  background: color-mix(in oklab, var(--panel-bg) 56%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  background: transparent;
 }
 
 .session-rail__tab-shell[data-state="inactive"]:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in oklab, var(--panel-border) 92%, transparent);
-  background: color-mix(in oklab, var(--panel-bg) 64%, transparent);
+  background: color-mix(in oklab, var(--panel-bg) 30%, transparent);
 }
 
 .session-rail__tab-shell[data-state="active"] {
   transform: translateY(-1px);
-  border-color: color-mix(in oklab, var(--accent-strong) 40%, var(--panel-border) 60%);
-  background: color-mix(in oklab, var(--panel-bg) 86%, var(--accent-strong) 14%);
+  border-color: color-mix(in oklab, var(--panel-border) 76%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03)),
+    color-mix(in oklab, var(--panel-bg) 84%, var(--accent-strong) 16%);
   box-shadow:
-    0 8px 16px color-mix(in oklab, var(--accent-strong) 12%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 -2px 0 color-mix(in oklab, var(--accent-strong) 70%, transparent);
+    0 10px 22px color-mix(in oklab, var(--accent-strong) 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px) saturate(136%);
+  -webkit-backdrop-filter: blur(10px) saturate(136%);
+}
+
+.dark .session-rail__tab-shell[data-state="active"] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.01)),
+    color-mix(in oklab, var(--panel-bg) 78%, var(--accent-strong) 22%);
 }
 
 .session-rail .session-rail__tab {
@@ -325,10 +337,11 @@ html, body {
 }
 
 .session-rail .session-rail__tab[data-state="inactive"] {
-  opacity: 0.84;
+  opacity: 0.8;
 }
 
 .session-rail .session-rail__tab[data-state="inactive"]:hover {
+  background: color-mix(in oklab, var(--panel-bg) 22%, transparent);
   color: color-mix(in oklab, var(--text) 88%, var(--muted) 12%);
 }
 
@@ -341,27 +354,39 @@ html, body {
 }
 
 .session-rail__close {
-  color: color-mix(in oklab, var(--text) 64%, transparent);
-  opacity: 0.68;
+  color: color-mix(in oklab, var(--text) 58%, transparent);
+  opacity: 0.64;
   transition: background .16s ease, color .16s ease, opacity .16s ease;
 }
 
 .session-rail__tab-shell[data-state="inactive"] .session-rail__close {
-  opacity: 0.56;
+  opacity: 0.5;
 }
 
 .session-rail__close:hover {
-  opacity: 0.95;
+  opacity: 0.92;
   color: var(--text);
-  background: color-mix(in oklab, var(--panel-bg) 90%, var(--text) 10%);
+  background: color-mix(in oklab, var(--panel-bg) 72%, transparent);
 }
 
 .session-rail__tools {
   border: 1px solid color-mix(in oklab, var(--panel-border) 76%, transparent);
   border-radius: 999px;
-  padding: 0.15rem;
-  background: color-mix(in oklab, var(--panel-bg) 62%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  padding: 0.2rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.02)),
+    color-mix(in oklab, var(--panel-bg) 68%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 10px 18px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(10px) saturate(132%);
+  -webkit-backdrop-filter: blur(10px) saturate(132%);
+}
+
+.dark .session-rail__tools {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.01)),
+    color-mix(in oklab, var(--panel-bg) 78%, black 22%);
 }
 
 .session-rail__model-trigger {
@@ -374,6 +399,7 @@ html, body {
 
 .session-rail__tool-btn {
   color: color-mix(in oklab, var(--text) 78%, transparent);
+  border-radius: 999px;
 }
 
 .session-rail__tool-btn:hover {

@@ -1935,14 +1935,9 @@ export function GuardianChat({
       {/* Single header rail */}
       <header className="shrink-0 z-20 px-4 py-2">
         <div
-          className="relative flex items-center gap-2 rounded-full border px-3 py-2 flex-nowrap"
+          className="relative flex items-center gap-2 px-1 py-2 flex-nowrap"
           style={{
-            borderColor: "var(--panel-border)",
-            background:
-              "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 88%, transparent)",
             color: "var(--text)",
-            boxShadow:
-              "inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 18px rgba(0,0,0,0.10)",
           }}
         >
           <div className="flex items-center gap-2 shrink-0">
@@ -1953,7 +1948,15 @@ export function GuardianChat({
                 aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
                 onClick={onSidebarToggle}
                 disabled={!onSidebarToggle}
-                style={{ borderRadius: "var(--radius-micro)" }}
+                style={{
+                  borderRadius: "999px",
+                  border: "1px solid color-mix(in oklab, var(--panel-border) 78%, transparent)",
+                  background:
+                    "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.03)), color-mix(in oklab, var(--panel-bg) 70%, transparent)",
+                  boxShadow:
+                    "inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 18px rgba(0,0,0,0.08)",
+                  padding: "0.5rem",
+                }}
               >
                 <ChevronRight
                   className={`h-5 w-5 transition-transform duration-200 ${
