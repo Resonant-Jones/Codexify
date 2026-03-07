@@ -43,6 +43,14 @@ export function ComposerSelectMenu({
   const [open, setOpen] = useState(false);
   const scrollRegionRef = useRef<HTMLDivElement | null>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const triggerSurface =
+    "color-mix(in oklab, var(--panel-bg) 94%, var(--text) 6%)";
+  const menuSurface =
+    "color-mix(in oklab, var(--panel-bg) 88%, var(--text) 12%)";
+  const menuHoverSurface =
+    "color-mix(in oklab, var(--panel-bg) 78%, var(--text) 22%)";
+  const menuSelectedSurface =
+    "color-mix(in oklab, var(--accent) 14%, var(--panel-bg) 86%)";
 
   const enabledOptionIndexes = useMemo(
     () =>
@@ -189,8 +197,7 @@ export function ComposerSelectMenu({
           )}
           style={{
             borderColor: "color-mix(in oklab, var(--panel-border) 88%, transparent)",
-            background:
-              "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 92%, transparent)",
+            background: triggerSurface,
             color: "var(--text)",
           }}
         >
@@ -204,16 +211,15 @@ export function ComposerSelectMenu({
         sideOffset={10}
         collisionPadding={12}
         aria-label={menuLabel}
-        className="overflow-hidden rounded-xl border p-0 shadow-xl"
+        className="overflow-hidden rounded-[var(--card-radius,19px)] border p-0 shadow-xl"
         onKeyDown={handleMenuKeyDown}
         style={{
           minWidth: "max(var(--dropdown-menu-trigger-width, 0px), 11.5rem)",
           maxWidth: "min(20rem, calc(100vw - 24px))",
-          borderColor: "color-mix(in oklab, var(--panel-border) 92%, transparent)",
-          background:
-            "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 98%, transparent)",
+          borderColor: "color-mix(in oklab, var(--panel-border) 84%, var(--text) 16%)",
+          background: menuSurface,
           boxShadow:
-            "0 14px 32px color-mix(in srgb, var(--panel-border) 16%, rgba(0, 0, 0, 0.24))",
+            "0 14px 32px color-mix(in srgb, rgba(0, 0, 0, 0.24) 78%, var(--panel-border) 22%)",
           color: "var(--text)",
         }}
       >
@@ -256,13 +262,15 @@ export function ComposerSelectMenu({
                   }}
                   onClick={() => activateOption(index)}
                   className={cn(
-                    "cursor-pointer rounded-none border-0 px-2.5 py-1.5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45",
-                    selected
-                      ? "bg-[color-mix(in_oklab,var(--accent)_14%,var(--panel-sheet,_var(--panel-bg))_86%)]"
-                      : focused
-                        ? "bg-[color-mix(in_oklab,var(--panel-border)_26%,transparent)]"
-                        : "bg-transparent hover:bg-[color-mix(in_oklab,var(--panel-border)_18%,transparent)]"
+                    "cursor-pointer rounded-none border-0 px-2.5 py-1.5 focus:outline-none hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] disabled:cursor-not-allowed disabled:opacity-45"
                   )}
+                  style={{
+                    background: selected
+                      ? menuSelectedSurface
+                      : focused
+                        ? menuHoverSurface
+                        : undefined,
+                  }}
                 >
                   <span className="flex w-full min-w-0 items-center justify-between gap-3">
                     <span className="min-w-0">

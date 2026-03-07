@@ -9,6 +9,16 @@ type Ctx = {
 
 const DropdownCtx = React.createContext<Ctx | null>(null);
 
+function getDropdownPortalTarget(): HTMLElement {
+  return (
+    document.getElementById("cfy-portal-root") ??
+    document.getElementById("app") ??
+    document.getElementById("root") ??
+    document.body ??
+    document.documentElement
+  );
+}
+
 type DropdownMenuProps = {
   children: React.ReactNode;
   open?: boolean;
@@ -284,7 +294,7 @@ export const DropdownMenuContent = ({
     >
       {children}
     </div>,
-    document.body
+    getDropdownPortalTarget()
   );
 };
 
