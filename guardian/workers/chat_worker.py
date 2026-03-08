@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import HTTPException
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from guardian.audio import tts_trigger
 from guardian.core import dependencies, event_bus
 from guardian.core.chat_completion_service import (
     ChatTaskCancelled,
@@ -34,6 +35,13 @@ from guardian.queue.redis_queue import (
 )
 from guardian.queue.turn_lock import release_turn_lock
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
+from guardian.voice.audio_assets import (
+    compute_text_hash,
+    find_cached_asset,
+    save_message_audio_asset,
+    upsert_message_audio_asset_status,
+)
+from guardian.voice.runtime import assistant_message_audio_autogenerate_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +72,12 @@ _MIRRORED_LIVE_EVENT_TYPES = {
     "task.failed",
     "task.cancelled",
 }
+_ASSISTANT_AUDIO_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(
+        1,
+        int(os.getenv("CHAT_WORKER_AUDIO_AUTOGENERATE_CONCURRENCY", "1")),
+    )
+)
 
 
 def _coerce_message_id(raw: Any) -> int | None:
@@ -324,6 +338,281 @@ def _classify_runtime_status(detail: str) -> str | None:
     return None
 
 
+def _assistant_message_audio_voice() -> str:
+    value = (os.getenv("CODEXIFY_DEFAULT_VOICE") or "assistant").strip()
+    return value or "assistant"
+
+
+def _assistant_message_audio_provider_key() -> tuple[str, str | None]:
+    target = tts_trigger.get_selected_tts_plugin_target()
+    plugin_id = str(target.get("plugin_id") or "").strip()
+    base_url = str(target.get("base_url") or "").strip() or None
+    return plugin_id or "tts_plugin", base_url
+
+
+def _assistant_message_audio_variants(
+    *,
+    thread_id: int,
+    message_id: int,
+    task_id: str,
+    turn_id: str,
+    status: str,
+    plugin_id: str,
+    plugin_base_url: str | None,
+    generation_provider: str | None = None,
+    error: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "status": status,
+        "source": "assistant_message_autogenerate",
+        "thread_id": thread_id,
+        "message_id": message_id,
+        "message_role": "assistant",
+        "task_id": task_id,
+        "turn_id": turn_id or None,
+        "plugin_id": plugin_id,
+        "plugin_base_url": plugin_base_url,
+    }
+    if generation_provider:
+        payload["generation_provider"] = generation_provider
+    if error:
+        payload["error"] = {
+            str(key): value
+            for key, value in error.items()
+            if value not in (None, "", [], {})
+        }
+    return payload
+
+
+def _generate_assistant_message_audio_artifact(
+    *,
+    thread_id: int,
+    message_id: int,
+    assistant_text: str,
+    task_id: str,
+    turn_id: str,
+    provider_key: str,
+    voice: str,
+    plugin_base_url: str | None,
+) -> None:
+    request_id = f"assistant-message-{message_id}"
+    result = tts_trigger.generate_tts_artifact_with_result(
+        assistant_text,
+        metadata={
+            "request_id": request_id,
+            "thread_id": str(thread_id),
+            "message_id": str(message_id),
+            "task_id": task_id,
+            "turn_id": turn_id,
+            "source": "assistant_message_autogenerate",
+        },
+    )
+
+    if result.ok and result.audio_bytes:
+        save_message_audio_asset(
+            message_id=message_id,
+            text=assistant_text,
+            provider=provider_key,
+            voice=voice,
+            audio_bytes=result.audio_bytes,
+            audio_format=result.audio_format or "wav",
+            delivery_variants_json=_assistant_message_audio_variants(
+                thread_id=thread_id,
+                message_id=message_id,
+                task_id=task_id,
+                turn_id=turn_id,
+                status="ready",
+                plugin_id=result.plugin_id or provider_key,
+                plugin_base_url=result.base_url or plugin_base_url,
+                generation_provider=result.provider,
+            ),
+        )
+        logger.info(
+            "[chat-worker] assistant_message_audio_ready thread_id=%s message_id=%s task_id=%s plugin_id=%s provider=%s bytes=%s",
+            thread_id,
+            message_id,
+            task_id,
+            result.plugin_id or provider_key,
+            result.provider or "none",
+            result.artifact_bytes,
+        )
+        return
+
+    upsert_message_audio_asset_status(
+        message_id=message_id,
+        text=assistant_text,
+        provider=provider_key,
+        voice=voice,
+        status="failed",
+        audio_format=result.audio_format or "wav",
+        delivery_variants_json=_assistant_message_audio_variants(
+            thread_id=thread_id,
+            message_id=message_id,
+            task_id=task_id,
+            turn_id=turn_id,
+            status="failed",
+            plugin_id=result.plugin_id or provider_key,
+            plugin_base_url=result.base_url or plugin_base_url,
+            generation_provider=result.provider,
+            error={
+                "code": result.error_code or "tts_generation_failed",
+                "message": result.error_message
+                or "Assistant message audio generation failed",
+                "failure_kind": result.failure_kind,
+            },
+        ),
+        error={
+            "code": result.error_code or "tts_generation_failed",
+            "message": result.error_message
+            or "Assistant message audio generation failed",
+            "failure_kind": result.failure_kind,
+        },
+    )
+    logger.warning(
+        "[chat-worker] assistant_message_audio_failed thread_id=%s message_id=%s task_id=%s plugin_id=%s error_code=%s failure_kind=%s",
+        thread_id,
+        message_id,
+        task_id,
+        result.plugin_id or provider_key,
+        result.error_code or "none",
+        result.failure_kind or "none",
+    )
+
+
+def _schedule_assistant_message_audio_generation(
+    *,
+    thread_id: int,
+    message_id: int,
+    assistant_text: str,
+    task_id: str,
+    turn_id: str,
+) -> bool:
+    if not assistant_message_audio_autogenerate_enabled():
+        return False
+    if not assistant_text.strip():
+        return False
+
+    provider_key, plugin_base_url = _assistant_message_audio_provider_key()
+    voice = _assistant_message_audio_voice()
+    text_hash = compute_text_hash(assistant_text)
+
+    try:
+        cached_asset = find_cached_asset(
+            message_id=message_id,
+            provider=provider_key,
+            voice=voice,
+            text_hash=text_hash,
+        )
+    except Exception:
+        logger.warning(
+            "[chat-worker] assistant_message_audio_cache_probe_failed thread_id=%s message_id=%s task_id=%s",
+            thread_id,
+            message_id,
+            task_id,
+            exc_info=True,
+        )
+        cached_asset = None
+    if cached_asset:
+        logger.info(
+            "[chat-worker] assistant_message_audio_cached thread_id=%s message_id=%s task_id=%s provider=%s",
+            thread_id,
+            message_id,
+            task_id,
+            provider_key,
+        )
+        return False
+
+    try:
+        upsert_message_audio_asset_status(
+            message_id=message_id,
+            text=assistant_text,
+            provider=provider_key,
+            voice=voice,
+            status="pending",
+            delivery_variants_json=_assistant_message_audio_variants(
+                thread_id=thread_id,
+                message_id=message_id,
+                task_id=task_id,
+                turn_id=turn_id,
+                status="pending",
+                plugin_id=provider_key,
+                plugin_base_url=plugin_base_url,
+            ),
+        )
+    except Exception:
+        logger.warning(
+            "[chat-worker] assistant_message_audio_pending_write_failed thread_id=%s message_id=%s task_id=%s",
+            thread_id,
+            message_id,
+            task_id,
+            exc_info=True,
+        )
+
+    try:
+        _ASSISTANT_AUDIO_EXECUTOR.submit(
+            _generate_assistant_message_audio_artifact,
+            thread_id=thread_id,
+            message_id=message_id,
+            assistant_text=assistant_text,
+            task_id=task_id,
+            turn_id=turn_id,
+            provider_key=provider_key,
+            voice=voice,
+            plugin_base_url=plugin_base_url,
+        )
+    except Exception:
+        logger.warning(
+            "[chat-worker] assistant_message_audio_schedule_failed thread_id=%s message_id=%s task_id=%s",
+            thread_id,
+            message_id,
+            task_id,
+            exc_info=True,
+        )
+        try:
+            upsert_message_audio_asset_status(
+                message_id=message_id,
+                text=assistant_text,
+                provider=provider_key,
+                voice=voice,
+                status="failed",
+                delivery_variants_json=_assistant_message_audio_variants(
+                    thread_id=thread_id,
+                    message_id=message_id,
+                    task_id=task_id,
+                    turn_id=turn_id,
+                    status="failed",
+                    plugin_id=provider_key,
+                    plugin_base_url=plugin_base_url,
+                    error={
+                        "code": "schedule_failed",
+                        "message": "Assistant message audio generation could not be scheduled",
+                    },
+                ),
+                error={
+                    "code": "schedule_failed",
+                    "message": "Assistant message audio generation could not be scheduled",
+                },
+            )
+        except Exception:
+            logger.warning(
+                "[chat-worker] assistant_message_audio_schedule_failure_persist_failed thread_id=%s message_id=%s task_id=%s",
+                thread_id,
+                message_id,
+                task_id,
+                exc_info=True,
+            )
+        return False
+
+    logger.info(
+        "[chat-worker] assistant_message_audio_pending thread_id=%s message_id=%s task_id=%s provider=%s",
+        thread_id,
+        message_id,
+        task_id,
+        provider_key,
+    )
+    return True
+
+
 def _run_chat_task(task: ChatCompletionTask) -> None:
     run_id = uuid.uuid4().hex
     started = time.monotonic()
@@ -542,6 +831,26 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             task.task_id,
             message_id,
         )
+        assistant_text = str(result.get("assistant_text") or "")
+        audio_autogenerate_scheduled = False
+        try:
+            audio_autogenerate_scheduled = (
+                _schedule_assistant_message_audio_generation(
+                    thread_id=task.thread_id,
+                    message_id=message_id,
+                    assistant_text=assistant_text,
+                    task_id=task.task_id,
+                    turn_id=turn_id,
+                )
+            )
+        except Exception:
+            logger.warning(
+                "[chat-worker] assistant_message_audio_schedule_unexpected_failure thread_id=%s message_id=%s task_id=%s",
+                task.thread_id,
+                message_id,
+                task.task_id,
+                exc_info=True,
+            )
         duration_ms = int((time.monotonic() - started) * 1000)
         _safe_publish(
             task.task_id,
@@ -556,6 +865,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "model": result.get("model"),
                 "selection_source": result.get("selection_source"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
+                "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
             },
         )
         logger.info(

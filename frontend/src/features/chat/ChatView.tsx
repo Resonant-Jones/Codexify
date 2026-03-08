@@ -26,7 +26,12 @@ import {
 } from "@/types/inference";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
-type BubblePlayState = "idle" | "playing" | "unavailable" | "disabled";
+type BubblePlayState =
+  | "idle"
+  | "playing"
+  | "pending"
+  | "unavailable"
+  | "disabled";
 
 type PollSession = {
   token: number;
@@ -39,8 +44,6 @@ type PollSession = {
   initialAssistantId: number;
   initialLatestMessageId: number;
 };
-
-type Voice404Classification = "message_not_found" | "route_missing" | "unknown";
 
 const PAGE_SIZE = 100;
 // Keep poll cadence moderate to avoid backend global rate-limit pressure.
@@ -115,44 +118,6 @@ function normalizeMessageTimestamp(raw: unknown): number | null {
   return null;
 }
 
-function classifyVoice404Error(err: unknown): Voice404Classification {
-  const status = Number((err as any)?.response?.status ?? 0);
-  if (status !== 404) {
-    return "unknown";
-  }
-
-  const detail = (err as any)?.response?.data?.detail;
-  const normalized = (() => {
-    if (typeof detail === "string") return detail.toLowerCase();
-    if (detail && typeof detail === "object") {
-      const bits = [
-        (detail as any).error,
-        (detail as any).reason,
-        (detail as any).code,
-        (detail as any).type,
-        (detail as any).message,
-      ]
-        .filter(Boolean)
-        .map((value) => String(value).toLowerCase());
-      return bits.join(" ");
-    }
-    return "";
-  })();
-
-  if (
-    normalized.includes("message_not_found") ||
-    normalized.includes("message not found")
-  ) {
-    return "message_not_found";
-  }
-  if (normalized.includes("route_not_found")) {
-    return "route_missing";
-  }
-
-  // Generic 404 from speak endpoint is treated as route-missing for this session.
-  return "route_missing";
-}
-
 export function ChatView({
   threadId,
   guardianName,
@@ -163,7 +128,7 @@ export function ChatView({
   bottomPadding = 0,
   autoReadEnabled = false,
   voiceReadAloudEnabled = false,
-  voiceCapabilitiesFailed = false,
+  voiceCapabilitiesFailed: _voiceCapabilitiesFailed = false,
   depthMode = "normal",
   profileId = null,
   inferenceState = createIdleInferenceRequestState(),
@@ -972,7 +937,11 @@ export function ChatView({
   );
 
   const playMessageAudio = useCallback(
-    async (messageId: number, options?: { manual?: boolean }) => {
+    async (
+      messageId: number,
+      audioUrl: string | null | undefined,
+      options?: { manual?: boolean; unavailableMessage?: string }
+    ) => {
       const manual = Boolean(options?.manual);
       if (!voiceReadAloudEnabled) {
         if (manual) {
@@ -986,26 +955,20 @@ export function ChatView({
         }
         return;
       }
-      if (isVoiceUnavailable(messageId)) {
+      if (isVoiceUnavailable(messageId) || !audioUrl) {
         if (manual) {
-          showToast("Audio unavailable");
+          showToast(options?.unavailableMessage || "Audio unavailable");
         }
         return;
       }
 
       try {
-        const res = await api.post(`/voice/messages/${messageId}/speak`, {
-          force_regenerate: false,
-        });
-        const src = res?.data?.audio_asset?.src_url;
-        if (!src) return;
-
         const resolvedSrc =
-          typeof src === "string" && src.startsWith("http")
-            ? src
-            : String(src || "").startsWith("/")
-              ? String(src)
-              : `/${String(src || "")}`;
+          typeof audioUrl === "string" && audioUrl.startsWith("http")
+            ? audioUrl
+            : String(audioUrl || "").startsWith("/")
+              ? String(audioUrl)
+              : `/${String(audioUrl || "")}`;
 
         if (audioRef.current) {
           audioRef.current.pause();
@@ -1020,35 +983,25 @@ export function ChatView({
           setPlayingMessageId((prev) => (prev === messageId ? null : prev));
         await audio.play();
       } catch (err) {
-        const classification = classifyVoice404Error(err);
-        if (classification === "message_not_found") {
-          markVoiceUnavailable(messageId);
-          if (manual) {
-            showToast("Audio unavailable");
-          }
-        } else if (classification === "route_missing" && voiceCapabilitiesFailed) {
-          disableVoiceRoute();
-          if (manual) {
-            showToast("Voice disabled");
-          }
-        } else {
-          console.warn("[chat] playMessageAudio failed", err);
+        console.warn("[chat] playMessageAudio failed", err);
+        markVoiceUnavailable(messageId);
+        if (manual) {
+          showToast(options?.unavailableMessage || "Audio unavailable");
         }
         setPlayingMessageId((prev) => (prev === messageId ? null : prev));
       }
     },
     [
-      disableVoiceRoute,
       isVoiceUnavailable,
       markVoiceUnavailable,
       showToast,
-      voiceCapabilitiesFailed,
       voiceReadAloudEnabled,
     ]
   );
 
   const handlePlayClick = useCallback(
-    (messageId: number) => {
+    (message: (typeof messages)[number]) => {
+      const messageId = Number(message.id);
       if (!voiceReadAloudEnabled) {
         showToast("Voice disabled");
         return;
@@ -1057,49 +1010,61 @@ export function ChatView({
         showToast("Voice disabled");
         return;
       }
-      if (isVoiceUnavailable(messageId)) {
+      if (!Number.isFinite(messageId)) {
+        return;
+      }
+      if (message.audio_status === "pending") {
+        showToast("Audio is still generating");
+        return;
+      }
+      if (message.audio_status === "failed") {
+        showToast(message.audio_error || "Audio unavailable");
+        return;
+      }
+      if (isVoiceUnavailable(messageId) || message.audio_status !== "ready") {
         showToast("Audio unavailable");
         return;
       }
-      void playMessageAudio(messageId, { manual: true });
+      void playMessageAudio(messageId, message.audio_url, {
+        manual: true,
+        unavailableMessage: message.audio_error || "Audio unavailable",
+      });
     },
     [isVoiceUnavailable, playMessageAudio, showToast, voiceReadAloudEnabled]
   );
 
   useEffect(() => {
-    if (!voiceReadAloudEnabled) return;
-    if (!autoReadEnabled) return;
-    if (voiceRouteMissingRef.current) return;
-
+    if (!voiceReadAloudEnabled || !autoReadEnabled) return;
+    autoReadPrimedRef.current = true;
     const assistants = messages.filter(
       (msg) => msg.role !== "user" && Number.isFinite(Number(msg.id))
     );
     const latest = assistants.length > 0 ? assistants[assistants.length - 1] : null;
     if (!latest) return;
-
-    if (!autoReadPrimedRef.current) {
-      autoReadPrimedRef.current = true;
-      lastAutoReadMessageIdRef.current = Number(latest.id);
-      return;
-    }
-
     const latestId = Number(latest.id);
     if (!Number.isFinite(latestId)) return;
-    if (lastAutoReadMessageIdRef.current === latestId) return;
-
     lastAutoReadMessageIdRef.current = latestId;
-    if (isVoiceUnavailable(latestId)) {
-      return;
-    }
-    void playMessageAudio(latestId);
   }, [
     autoReadEnabled,
-    isVoiceUnavailable,
     messages,
-    playMessageAudio,
     voiceReadAloudEnabled,
-    voiceRouteMissing,
   ]);
+
+  useEffect(() => {
+    const hasPendingAudio = messages.some(
+      (message) =>
+        message.role !== "user" && message.audio_status === "pending"
+    );
+    if (!hasPendingAudio || loading) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void loadMessages(threadId, PAGE_SIZE, 0, false);
+    }, MESSAGE_POLL_MIN_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [loadMessages, loading, messages, threadId]);
 
   const onScroll = async () => {
     const el = containerRef.current;
@@ -1184,13 +1149,23 @@ export function ChatView({
         {messages.map((m, index) => {
           const messageId = Number(m.id);
           const canPlay = m.role !== "user" && Number.isFinite(messageId);
+          const messageAudioStatus = m.audio_status ?? "unavailable";
           const showPlay =
-            canPlay && voiceReadAloudEnabled && !voiceRouteMissing;
+            canPlay &&
+            voiceReadAloudEnabled &&
+            !voiceRouteMissing &&
+            (messageAudioStatus === "ready" ||
+              messageAudioStatus === "pending" ||
+              messageAudioStatus === "failed");
           const messageVoiceUnavailable = Boolean(
             Number.isFinite(messageId) && voiceUnavailableMessageIds[messageId]
           );
           const playState: BubblePlayState = !showPlay
             ? "idle"
+            : messageAudioStatus === "pending"
+                ? "pending"
+            : messageAudioStatus === "failed"
+                ? "unavailable"
             : messageVoiceUnavailable
                 ? "unavailable"
                 : playingMessageId === messageId
@@ -1229,7 +1204,7 @@ export function ChatView({
                 playState={playState}
                 onPlay={() => {
                   if (!Number.isFinite(messageId)) return;
-                  handlePlayClick(messageId);
+                  handlePlayClick(m);
                 }}
               />
             </div>

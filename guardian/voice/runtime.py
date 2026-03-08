@@ -67,3 +67,7 @@ def voice_turns_enabled() -> bool:
     # Legacy fallback: only explicit turn-like modes imply enabled.
     mode = (os.getenv("CODEXIFY_VOICE_MODE") or "").strip().lower()
     return mode in {"turns", "turn", "turn_based", "turn-based"}
+
+
+def assistant_message_audio_autogenerate_enabled() -> bool:
+    return _env_bool("CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE", False)

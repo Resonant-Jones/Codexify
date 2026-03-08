@@ -202,7 +202,7 @@ export function ChatBubble({
   isGuardian: boolean;
   showPlay?: boolean;
   playing?: boolean;
-  playState?: "idle" | "playing" | "unavailable" | "disabled";
+  playState?: "idle" | "playing" | "pending" | "unavailable" | "disabled";
   onPlay?: () => void;
 }) {
   const fmtTime = (ts: number | null | undefined) => {
@@ -223,15 +223,23 @@ export function ChatBubble({
   const playButtonTitle =
     resolvedPlayState === "playing"
       ? "Playing..."
+      : resolvedPlayState === "pending"
+        ? "Generating audio"
       : resolvedPlayState === "unavailable"
         ? "Audio unavailable"
         : resolvedPlayState === "disabled"
           ? "Voice disabled"
           : "Read Aloud";
   const playButtonAriaLabel =
-    resolvedPlayState === "playing" ? "Playing audio" : "Read message aloud";
+    resolvedPlayState === "playing"
+      ? "Playing audio"
+      : resolvedPlayState === "pending"
+        ? "Generating audio"
+        : "Read message aloud";
   const playDisabled =
-    resolvedPlayState === "unavailable" || resolvedPlayState === "disabled";
+    resolvedPlayState === "pending" ||
+    resolvedPlayState === "unavailable" ||
+    resolvedPlayState === "disabled";
 
   const markdownComponents = {
     code({ node, inline, className, children, ...props }: any) {

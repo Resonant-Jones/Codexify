@@ -171,6 +171,43 @@ def test_tts_uses_canonical_invoke_envelope(monkeypatch):
     }
 
 
+def test_tts_can_generate_artifact_without_attempting_local_playback(
+    monkeypatch,
+):
+    manifest = _tts_manifest(base_url="http://tts:8000")
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+    _patch_host_runtime(monkeypatch)
+    monkeypatch.setattr(
+        tts_trigger,
+        "_invoke_tts_plugin",
+        lambda *args, **kwargs: _success_payload(),
+    )
+    playback_calls: list[tuple] = []
+    monkeypatch.setattr(
+        tts_trigger.subprocess,
+        "run",
+        lambda *args, **kwargs: playback_calls.append(args)
+        or subprocess.CompletedProcess(args[0], 0, stdout="", stderr=""),
+    )
+
+    result = tts_trigger.generate_tts_artifact_with_result(
+        "artifact only",
+        metadata={"thread_id": "thread-1", "message_id": "501"},
+    )
+
+    assert result.ok is True
+    assert result.plugin_id == "tts_service"
+    assert result.base_url == "http://tts:8000"
+    assert result.audio_source == "audio_base64"
+    assert result.audio_bytes == b"RIFF....WAVE"
+    assert result.audio_format == "wav"
+    assert result.audio_mime_type == "audio/wav"
+    assert result.playback_attempted is False
+    assert playback_calls == []
+
+
 def test_tts_handles_runtime_plugin_failures(monkeypatch):
     manifest = _tts_manifest()
     monkeypatch.setattr(
