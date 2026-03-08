@@ -291,6 +291,8 @@ services:
         condition: service_completed_successfully
       graph-init:
         condition: service_completed_successfully
+      tts:
+        condition: service_healthy
     command:
       - -c
       - |
@@ -773,10 +775,27 @@ services:
       # Allow online downloads by default; set to 1 after running hf-prefetch for air-gapped use.
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
+      CODEXIFY_TTS_SERVICE_PROVIDER: "${CODEXIFY_TTS_SERVICE_PROVIDER:-qwen3_0.6b}"
+      CODEXIFY_TTS_PRELOAD_ON_STARTUP: "${CODEXIFY_TTS_PRELOAD_ON_STARTUP:-1}"
     volumes:
       - ./backend:/app/backend
       - hf_cache:/root/.cache/huggingface
     ports: ["8000:8000"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json
+          import urllib.request
+          with urllib.request.urlopen("http://localhost:8000/health", timeout=2) as response:
+              payload = json.load(response)
+          raise SystemExit(0 if payload.get("ready") else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 15s
     restart: unless-stopped
     command: ["/app/backend/scripts/docker/run_tts.py"]
   frontend:

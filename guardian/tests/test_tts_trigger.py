@@ -427,6 +427,43 @@ def test_tts_reports_origin_mismatch_or_unreachable_service(monkeypatch):
     assert result.base_url == "http://localhost:8000"
 
 
+def test_tts_distinguishes_service_reachable_but_not_ready(monkeypatch):
+    manifest = _tts_manifest(
+        plugin_id="chatterbox",
+        base_url="http://tts:8000",
+    )
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+    _patch_host_runtime(monkeypatch)
+
+    def _raise_not_ready(*args, **kwargs):
+        raise core_plugins.PluginFacadeError(
+            code=core_plugins.ERROR_REMOTE_ERROR,
+            message="Plugin returned an application error",
+            plugin_id="chatterbox",
+            capability="tts",
+            action="speak",
+            details={
+                "error": {
+                    "code": "service_not_ready",
+                    "message": "TTS provider 'qwen3_1.7b' is still model_loading",
+                    "retryable": True,
+                }
+            },
+        )
+
+    monkeypatch.setattr(tts_trigger, "_invoke_tts_plugin", _raise_not_ready)
+
+    result = tts_trigger.trigger_tts_with_result("hello")
+
+    assert result.ok is False
+    assert result.failure_kind == "plugin_not_ready"
+    assert result.error_code == "service_not_ready"
+    assert "model_loading" in (result.error_message or "")
+    assert result.base_url == "http://tts:8000"
+
+
 def test_tts_malformed_success_output_fails_clearly(monkeypatch):
     manifest = _tts_manifest(base_url="http://tts:8000")
     monkeypatch.setattr(
@@ -462,6 +499,8 @@ def test_tts_runtime_self_check_reports_expected_dependency_state(monkeypatch):
         "get_plugin_health",
         lambda plugin_id: {
             "status": "healthy",
+            "ready": True,
+            "startup_phase": "model_ready",
             "default_provider": "qwen3_1.7b",
         },
     )
@@ -481,6 +520,8 @@ def test_tts_runtime_self_check_reports_expected_dependency_state(monkeypatch):
     assert report["runtime"]["containerization_reason"] == "/.dockerenv"
     assert report["plugin_health"]["reachable"] is True
     assert report["plugin_health"]["url"] == "http://tts:8000/health"
+    assert report["plugin_health"]["ready"] is True
+    assert report["plugin_health"]["startup_phase"] == "model_ready"
     assert report["playback"]["binary_path"] == "/usr/bin/ffplay"
     assert report["playback"]["command"] == "ffplay"
     assert report["playback"]["host_audible_playback_plausible"] is False

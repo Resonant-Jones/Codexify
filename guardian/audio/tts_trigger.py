@@ -144,15 +144,46 @@ def _build_tts_context(metadata: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _failure_kind_for_plugin_error(code: str) -> str:
+def _failure_kind_for_plugin_error(
+    code: str, details: Any | None = None
+) -> str:
+    remote_error = None
+    if isinstance(details, dict):
+        candidate = details.get("error")
+        if isinstance(candidate, dict):
+            remote_error = candidate.get("code")
     return {
         "not_found": "plugin_manifest_not_found",
         "ambiguous": "plugin_selection_ambiguous",
         "timeout": "plugin_timeout",
         "transport_failure": "plugin_unreachable",
+        "service_not_ready": "plugin_not_ready",
+        "service_startup_failed": "plugin_startup_failed",
         "invalid_response": "invalid_payload",
         "remote_error": "plugin_remote_error",
-    }.get(code, "plugin_invocation_failed")
+    }.get(remote_error or code, "plugin_invocation_failed")
+
+
+def _effective_plugin_error_code(code: str, details: Any | None = None) -> str:
+    if isinstance(details, dict):
+        candidate = details.get("error")
+        if isinstance(candidate, dict):
+            remote_code = candidate.get("code")
+            if isinstance(remote_code, str) and remote_code.strip():
+                return remote_code
+    return code
+
+
+def _effective_plugin_error_message(
+    default_message: str, details: Any | None = None
+) -> str:
+    if isinstance(details, dict):
+        candidate = details.get("error")
+        if isinstance(candidate, dict):
+            remote_message = candidate.get("message")
+            if isinstance(remote_message, str) and remote_message.strip():
+                return remote_message
+    return default_message
 
 
 def _summarize_text(value: str | None, limit: int = 200) -> str | None:
@@ -605,12 +636,15 @@ def trigger_tts_with_result(
         response = _invoke_tts_plugin(manifest, input_payload, context)
         result.record("plugin_invoke_success", "ok")
     except core_plugins.PluginFacadeError as exc:
-        result.record("plugin_invoke_failure", "failed", exc.code)
+        effective_code = _effective_plugin_error_code(exc.code, exc.details)
+        result.record("plugin_invoke_failure", "failed", effective_code)
         result.fail(
-            failure_kind=_failure_kind_for_plugin_error(exc.code),
+            failure_kind=_failure_kind_for_plugin_error(exc.code, exc.details),
             failure_stage="plugin_invoke_failure",
-            error_code=exc.code,
-            error_message=exc.message,
+            error_code=effective_code,
+            error_message=_effective_plugin_error_message(
+                exc.message, exc.details
+            ),
         )
         _emit_attempt_log(result)
         return result
@@ -840,6 +874,8 @@ def get_tts_runtime_self_check() -> dict[str, Any]:
             "reachable": False,
             "url": None,
             "status": None,
+            "ready": None,
+            "startup_phase": None,
             "error_code": None,
             "failure_kind": None,
             "default_provider": None,
@@ -874,6 +910,8 @@ def get_tts_runtime_self_check() -> dict[str, Any]:
 
     report["plugin_health"]["reachable"] = True
     report["plugin_health"]["status"] = payload.get("status")
+    report["plugin_health"]["ready"] = payload.get("ready")
+    report["plugin_health"]["startup_phase"] = payload.get("startup_phase")
     report["plugin_health"]["default_provider"] = payload.get(
         "default_provider"
     )
