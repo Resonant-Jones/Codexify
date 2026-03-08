@@ -13,8 +13,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+import requests
 
 # Configure logging
 logging.basicConfig(
@@ -40,6 +44,13 @@ class TTSAttemptResult:
     plugin_id: str | None = None
     base_url: str | None = None
     audio_source: str | None = None
+    output_keys: list[str] = field(default_factory=list)
+    artifact_path: str | None = None
+    artifact_bytes: int | None = None
+    containerized: bool | None = None
+    containerization_reason: str | None = None
+    host_audible_playback_plausible: bool | None = None
+    playback_attempted: bool = False
     playback_command: str = "none"
     playback_command_path: str | None = None
     playback_return_code: int | None = None
@@ -78,6 +89,13 @@ class TTSAttemptResult:
             "plugin_id": self.plugin_id,
             "base_url": self.base_url,
             "audio_source": self.audio_source,
+            "output_keys": self.output_keys,
+            "artifact_path": self.artifact_path,
+            "artifact_bytes": self.artifact_bytes,
+            "containerized": self.containerized,
+            "containerization_reason": self.containerization_reason,
+            "host_audible_playback_plausible": self.host_audible_playback_plausible,
+            "playback_attempted": self.playback_attempted,
             "playback_command": self.playback_command,
             "playback_command_path": self.playback_command_path,
             "playback_return_code": self.playback_return_code,
@@ -103,6 +121,7 @@ class MaterializedAudio:
     path: str | None
     source: str | None
     temporary: bool
+    size_bytes: int | None = None
     error_code: str | None = None
     error_message: str | None = None
 
@@ -147,14 +166,104 @@ def _summarize_text(value: str | None, limit: int = 200) -> str | None:
     return compact[: limit - 3] + "..."
 
 
+def _tts_invoke_timeout_seconds() -> float:
+    raw = (os.getenv("CODEXIFY_TTS_INVOKE_TIMEOUT_SECONDS") or "").strip()
+    if not raw:
+        return 120.0
+    try:
+        return max(float(raw), 1.0)
+    except ValueError:
+        return 120.0
+
+
+def _detect_containerized_runtime() -> tuple[bool, str | None]:
+    if os.path.exists("/.dockerenv"):
+        return True, "/.dockerenv"
+
+    cgroup_path = Path("/proc/1/cgroup")
+    try:
+        contents = cgroup_path.read_text(encoding="utf-8")
+    except OSError:
+        contents = ""
+
+    if any(
+        token in contents
+        for token in ("docker", "containerd", "kubepods", "podman")
+    ):
+        return True, str(cgroup_path)
+    return False, None
+
+
+def _host_inspectable_artifact_dir(containerized: bool) -> Path | None:
+    if not containerized:
+        return None
+
+    for candidate in (
+        Path("/app/guardian/tts_output/runtime"),
+        Path("/app/codexify/tts_output/runtime"),
+    ):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        return candidate
+    return None
+
+
+def _artifact_filename(request_id: str | None, suffix: str) -> str:
+    label = (request_id or "adhoc").strip().replace("/", "_").replace(" ", "_")
+    label = "".join(ch for ch in label if ch.isalnum() or ch in {"-", "_"})
+    label = label or "adhoc"
+    return f"tts-{label}-{int(time.time())}{suffix}"
+
+
+def _preserve_artifact_for_inspection(
+    materialized: MaterializedAudio, request_id: str | None, containerized: bool
+) -> str | None:
+    if not materialized.path:
+        return None
+
+    target_dir = _host_inspectable_artifact_dir(containerized)
+    if target_dir is None:
+        return materialized.path
+
+    source = Path(materialized.path)
+    try:
+        if target_dir in source.parents:
+            return str(source)
+    except ValueError:
+        pass
+
+    suffix = source.suffix or ".wav"
+    target = target_dir / _artifact_filename(request_id, suffix)
+    try:
+        shutil.copyfile(source, target)
+    except OSError:
+        return materialized.path
+    return str(target)
+
+
 def _materialize_audio_output(output: dict[str, Any]) -> MaterializedAudio:
     audio_path = output.get("audio_path")
     if isinstance(audio_path, str) and audio_path.strip():
         if os.path.exists(audio_path):
+            try:
+                size_bytes = os.path.getsize(audio_path)
+            except OSError:
+                size_bytes = None
+            if size_bytes is not None and size_bytes <= 0:
+                return MaterializedAudio(
+                    path=None,
+                    source="audio_path",
+                    temporary=False,
+                    error_code="empty_audio_file",
+                    error_message="audio_path exists but the file is empty",
+                )
             return MaterializedAudio(
                 path=audio_path,
                 source="audio_path",
                 temporary=False,
+                size_bytes=size_bytes,
             )
         return MaterializedAudio(
             path=None,
@@ -191,6 +300,7 @@ def _materialize_audio_output(output: dict[str, Any]) -> MaterializedAudio:
             path=None,
             source="audio_base64",
             temporary=False,
+            size_bytes=0,
             error_code="empty_audio_payload",
             error_message="audio_base64 decoded to zero bytes",
         )
@@ -206,6 +316,7 @@ def _materialize_audio_output(output: dict[str, Any]) -> MaterializedAudio:
             path=handle.name,
             source="audio_base64",
             temporary=True,
+            size_bytes=len(audio_bytes),
         )
 
 
@@ -318,13 +429,95 @@ def _invoke_tts_plugin(
     input_payload: dict[str, Any],
     context: dict[str, Any],
 ) -> dict[str, Any]:
-    return core_plugins.invoke_plugin(
-        manifest.id,
+    envelope = core_plugins._build_invoke_envelope(
+        plugin_id=manifest.id,
         capability="tts",
         action="speak",
         input=input_payload,
         context=context,
     )
+    url = f"{manifest.base_url}/invoke"
+
+    try:
+        response = requests.post(
+            url,
+            json=envelope,
+            headers=core_plugins._INVOKE_HEADERS,
+            timeout=_tts_invoke_timeout_seconds(),
+        )
+    except requests.RequestException as exc:
+        core_plugins._handle_transport_error(
+            exc,
+            plugin_id=manifest.id,
+            capability="tts",
+            action="speak",
+        )
+
+    payload = core_plugins._parse_response_payload(
+        response,
+        plugin_id=manifest.id,
+        capability="tts",
+        action="speak",
+    )
+
+    if response.status_code >= 400:
+        raise core_plugins.PluginFacadeError(
+            code=core_plugins.ERROR_REMOTE_ERROR,
+            message="Plugin returned an error response",
+            plugin_id=manifest.id,
+            capability="tts",
+            action="speak",
+            details={
+                "status_code": response.status_code,
+                "error": payload.get("error"),
+            },
+        )
+    if payload.get("error") not in (None, ""):
+        raise core_plugins.PluginFacadeError(
+            code=core_plugins.ERROR_REMOTE_ERROR,
+            message="Plugin returned an application error",
+            plugin_id=manifest.id,
+            capability="tts",
+            action="speak",
+            details=payload.get("error"),
+        )
+    if "ok" in payload and not isinstance(payload["ok"], bool):
+        raise core_plugins.PluginFacadeError(
+            code=core_plugins.ERROR_INVALID_RESPONSE,
+            message="Plugin response field 'ok' must be boolean when present",
+            plugin_id=manifest.id,
+            capability="tts",
+            action="speak",
+            details={"status_code": response.status_code},
+        )
+    if payload.get("ok") is False and payload.get("error") in (None, ""):
+        raise core_plugins.PluginFacadeError(
+            code=core_plugins.ERROR_INVALID_RESPONSE,
+            message="Plugin response marked failure without canonical error payload",
+            plugin_id=manifest.id,
+            capability="tts",
+            action="speak",
+            details={"status_code": response.status_code},
+        )
+    if "output" not in payload:
+        raise core_plugins.PluginFacadeError(
+            code=core_plugins.ERROR_INVALID_RESPONSE,
+            message="Plugin response missing required 'output' field",
+            plugin_id=manifest.id,
+            capability="tts",
+            action="speak",
+            details={"status_code": response.status_code},
+        )
+    if not isinstance(payload["output"], dict):
+        raise core_plugins.PluginFacadeError(
+            code=core_plugins.ERROR_INVALID_RESPONSE,
+            message="Plugin response field 'output' must be an object",
+            plugin_id=manifest.id,
+            capability="tts",
+            action="speak",
+            details={"status_code": response.status_code},
+        )
+    return payload
 
 
 def _emit_attempt_log(result: TTSAttemptResult) -> None:
@@ -335,17 +528,28 @@ def _emit_attempt_log(result: TTSAttemptResult) -> None:
     )
     log_fn = logger.info if result.ok else logger.warning
     log_fn(
-        "[TTS] attempt status=%s plugin_id=%s base_url=%s audio_source=%s "
-        "playback_command=%s failure_kind=%s error_code=%s "
-        "playback_return_code=%s stderr_summary=%s trail=%s",
+        "[TTS] attempt status=%s plugin_id=%s base_url=%s output_keys=%s "
+        "audio_source=%s artifact_path=%s artifact_bytes=%s "
+        "playback_command=%s playback_binary=%s containerized=%s "
+        "host_audible_playback_plausible=%s playback_attempted=%s "
+        "failure_kind=%s error_code=%s playback_return_code=%s "
+        "stdout_summary=%s stderr_summary=%s trail=%s",
         "ok" if result.ok else "failed",
         result.plugin_id or "none",
         result.base_url or "none",
+        ",".join(result.output_keys) if result.output_keys else "none",
         result.audio_source or "none",
+        result.artifact_path or "none",
+        result.artifact_bytes,
         result.playback_command,
+        result.playback_command_path or "none",
+        result.containerized,
+        result.host_audible_playback_plausible,
+        result.playback_attempted,
         result.failure_kind or "none",
         result.error_code or "none",
         result.playback_return_code,
+        result.stdout_summary or "none",
         result.stderr_summary or "none",
         trail or "none",
     )
@@ -367,10 +571,30 @@ def trigger_tts_with_result(
     input_payload = {"text": text, "metadata": metadata}
     context = _build_tts_context(metadata)
     result = TTSAttemptResult()
+    containerized, containerization_reason = _detect_containerized_runtime()
+    result.containerized = containerized
+    result.containerization_reason = containerization_reason
+    selection_probe = _select_playback_command("/tmp/codexify-tts-probe.wav")
+    result.playback_command = selection_probe.command_id
+    result.playback_command_path = selection_probe.binary_path
+    result.host_audible_playback_plausible = (
+        bool(selection_probe.argv) and not containerized
+    )
     manifest = _resolve_tts_plugin(result)
     if manifest is None:
         _emit_attempt_log(result)
         return result
+
+    result.record(
+        "runtime_environment",
+        "containerized" if containerized else "host",
+        containerization_reason or "none",
+    )
+    result.record(
+        "playback_command_selection",
+        "ok" if selection_probe.argv else "failed",
+        f"command={selection_probe.command_id} binary={selection_probe.binary_path or 'none'}",
+    )
 
     result.record(
         "plugin_invoke_start",
@@ -413,13 +637,14 @@ def trigger_tts_with_result(
         _emit_attempt_log(result)
         return result
 
+    result.output_keys = sorted(output.keys())
     materialized = _materialize_audio_output(output)
     result.audio_source = materialized.source
     if materialized.error_code:
         result.record(
             "output_parsing",
             "ok",
-            f"source={materialized.source or 'none'}",
+            f"keys={','.join(result.output_keys) or 'none'} source={materialized.source or 'none'}",
         )
         result.record(
             "audio_materialization",
@@ -438,21 +663,36 @@ def trigger_tts_with_result(
     result.record(
         "output_parsing",
         "ok",
-        f"source={materialized.source or 'none'}",
+        f"keys={','.join(result.output_keys) or 'none'} source={materialized.source or 'none'}",
     )
+
+    request_id = context.get("request_id")
+    result.artifact_path = _preserve_artifact_for_inspection(
+        materialized,
+        request_id,
+        containerized,
+    )
+    result.artifact_bytes = materialized.size_bytes
     result.record(
         "audio_materialization",
         "ok",
-        f"source={materialized.source or 'none'}",
+        "source=%s path=%s bytes=%s"
+        % (
+            materialized.source or "none",
+            result.artifact_path or materialized.path or "none",
+            materialized.size_bytes,
+        ),
     )
-
     selection = _select_playback_command(materialized.path or "")
     result.playback_command = selection.command_id
     result.playback_command_path = selection.binary_path
+    result.host_audible_playback_plausible = (
+        bool(selection.argv) and not containerized
+    )
     result.record(
         "playback_command_selection",
         "ok" if selection.argv else "failed",
-        f"command={selection.command_id}",
+        f"command={selection.command_id} binary={selection.binary_path or 'none'}",
     )
 
     if selection.argv is None:
@@ -466,6 +706,26 @@ def trigger_tts_with_result(
         _cleanup_materialized_audio(materialized)
         return result
 
+    if containerized:
+        result.record(
+            "playback_host_audibility",
+            "failed",
+            "container_local_playback",
+        )
+        result.fail(
+            failure_kind="container_local_playback_not_host_audible",
+            failure_stage="playback_host_audibility",
+            error_code="container_local_playback",
+            error_message=(
+                "Synthesis produced audio, but backend-local playback is running "
+                "inside a container and is not host-audible"
+            ),
+        )
+        _emit_attempt_log(result)
+        _cleanup_materialized_audio(materialized)
+        return result
+
+    result.playback_attempted = True
     result.record(
         "playback_subprocess_launch",
         "started",
@@ -558,6 +818,7 @@ def trigger_tts_with_result(
 
 def get_tts_runtime_self_check() -> dict[str, Any]:
     manifests = core_plugins.list_plugin_manifests()
+    containerized, containerization_reason = _detect_containerized_runtime()
     selection = _select_playback_command("/tmp/codexify-tts-self-check.wav")
     matches = [
         manifest
@@ -571,6 +832,10 @@ def get_tts_runtime_self_check() -> dict[str, Any]:
         "selected_plugin_base_url": None,
         "selected_provider": None,
         "selection_error": None,
+        "runtime": {
+            "containerized": containerized,
+            "containerization_reason": containerization_reason,
+        },
         "plugin_health": {
             "reachable": False,
             "url": None,
@@ -582,6 +847,8 @@ def get_tts_runtime_self_check() -> dict[str, Any]:
         "playback": {
             "command": selection.command_id,
             "binary_path": selection.binary_path,
+            "host_audible_playback_plausible": bool(selection.argv)
+            and not containerized,
         },
     }
     if not matches:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import subprocess
+from pathlib import Path
 
 import requests
 
@@ -66,11 +67,20 @@ def _patch_successful_playback(monkeypatch, command_id: str = "ffplay"):
     )
 
 
+def _patch_host_runtime(monkeypatch):
+    monkeypatch.setattr(
+        tts_trigger,
+        "_detect_containerized_runtime",
+        lambda: (False, None),
+    )
+
+
 def test_tts_routes_through_invoke_plugin(monkeypatch):
     manifest = _tts_manifest(plugin_id="chatterbox", base_url="http://tts:8000")
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: [manifest]
     )
+    _patch_host_runtime(monkeypatch)
     captured: dict[str, object] = {}
 
     def _fake_invoke(manifest, input_payload, context):
@@ -107,6 +117,7 @@ def test_tts_uses_canonical_invoke_envelope(monkeypatch):
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: [manifest]
     )
+    _patch_host_runtime(monkeypatch)
     captured: dict[str, object] = {}
 
     def _fake_post(url, json, headers, timeout):
@@ -116,7 +127,7 @@ def test_tts_uses_canonical_invoke_envelope(monkeypatch):
         captured["timeout"] = timeout
         return FakeResponse(payload=_success_payload())
 
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
+    monkeypatch.setattr(tts_trigger.requests, "post", _fake_post)
     _patch_successful_playback(monkeypatch)
 
     result = tts_trigger.trigger_tts_with_result(
@@ -132,8 +143,9 @@ def test_tts_uses_canonical_invoke_envelope(monkeypatch):
     assert result.plugin_id == "tts_service"
     assert result.base_url == "https://voice.example"
     assert result.playback_command == "ffplay"
+    assert result.output_keys == ["audio_base64", "format", "mime_type"]
     assert captured["url"] == "https://voice.example/invoke"
-    assert captured["timeout"] == core_plugins.INVOKE_TIMEOUT_SECONDS
+    assert captured["timeout"] == tts_trigger._tts_invoke_timeout_seconds()
     assert captured["headers"] == {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -164,6 +176,7 @@ def test_tts_handles_runtime_plugin_failures(monkeypatch):
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: [manifest]
     )
+    _patch_host_runtime(monkeypatch)
     outcomes = [
         (
             "plugin_timeout",
@@ -193,7 +206,7 @@ def test_tts_handles_runtime_plugin_failures(monkeypatch):
 
     for expected_failure, factory in outcomes:
         monkeypatch.setattr(
-            core_plugins.requests,
+            tts_trigger.requests,
             "post",
             lambda url, json, headers, timeout, factory=factory: factory(),
         )
@@ -242,6 +255,7 @@ def test_tts_fails_clearly_when_no_playback_binary_is_available(monkeypatch):
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: [manifest]
     )
+    _patch_host_runtime(monkeypatch)
     monkeypatch.setattr(
         tts_trigger,
         "_invoke_tts_plugin",
@@ -271,6 +285,7 @@ def test_tts_reports_playback_subprocess_nonzero_exit(monkeypatch):
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: [manifest]
     )
+    _patch_host_runtime(monkeypatch)
     monkeypatch.setattr(
         tts_trigger,
         "_invoke_tts_plugin",
@@ -296,8 +311,10 @@ def test_tts_reports_playback_subprocess_nonzero_exit(monkeypatch):
 
     assert result.ok is False
     assert result.failure_kind == "playback_subprocess_failed"
+    assert result.playback_attempted is True
     assert result.playback_command == "ffplay"
     assert result.playback_return_code == 2
+    assert result.stdout_summary == "decoder stalled"
     assert result.stderr_summary == "generic playback error"
 
 
@@ -306,6 +323,7 @@ def test_tts_distinguishes_local_audio_device_failures(monkeypatch):
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: [manifest]
     )
+    _patch_host_runtime(monkeypatch)
     monkeypatch.setattr(
         tts_trigger,
         "_invoke_tts_plugin",
@@ -331,6 +349,55 @@ def test_tts_distinguishes_local_audio_device_failures(monkeypatch):
 
     assert result.ok is False
     assert result.failure_kind == "local_audio_device_output_failure"
+
+
+def test_tts_preserves_audio_artifact_and_warns_for_container_local_playback(
+    monkeypatch, tmp_path
+):
+    manifest = _tts_manifest(base_url="http://tts:8000")
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+    monkeypatch.setattr(
+        tts_trigger,
+        "_invoke_tts_plugin",
+        lambda *args, **kwargs: _success_payload(),
+    )
+    monkeypatch.setattr(
+        tts_trigger,
+        "_detect_containerized_runtime",
+        lambda: (True, "/.dockerenv"),
+    )
+    monkeypatch.setattr(
+        tts_trigger,
+        "_host_inspectable_artifact_dir",
+        lambda containerized: Path(tmp_path),
+    )
+    monkeypatch.setattr(
+        tts_trigger.shutil,
+        "which",
+        lambda name: "/usr/bin/ffplay" if name == "ffplay" else None,
+    )
+
+    result = tts_trigger.trigger_tts_with_result(
+        "hello",
+        metadata={"request_id": "containerized-1"},
+    )
+
+    assert result.ok is False
+    assert result.failure_kind == "container_local_playback_not_host_audible"
+    assert result.audio_source == "audio_base64"
+    assert result.output_keys == ["audio_base64", "format", "mime_type"]
+    assert result.containerized is True
+    assert result.containerization_reason == "/.dockerenv"
+    assert result.host_audible_playback_plausible is False
+    assert result.playback_attempted is False
+    assert result.playback_command == "ffplay"
+    assert result.playback_command_path == "/usr/bin/ffplay"
+    assert result.artifact_path is not None
+    assert result.artifact_bytes == len(b"RIFF....WAVE")
+    assert Path(result.artifact_path).exists()
+    assert Path(result.artifact_path).stat().st_size == len(b"RIFF....WAVE")
 
 
 def test_tts_reports_origin_mismatch_or_unreachable_service(monkeypatch):
@@ -365,6 +432,7 @@ def test_tts_malformed_success_output_fails_clearly(monkeypatch):
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: [manifest]
     )
+    _patch_host_runtime(monkeypatch)
     monkeypatch.setattr(
         tts_trigger,
         "_invoke_tts_plugin",
@@ -383,6 +451,11 @@ def test_tts_runtime_self_check_reports_expected_dependency_state(monkeypatch):
     manifest = _tts_manifest(plugin_id="chatterbox", base_url="http://tts:8000")
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+    monkeypatch.setattr(
+        tts_trigger,
+        "_detect_containerized_runtime",
+        lambda: (True, "/.dockerenv"),
     )
     monkeypatch.setattr(
         core_plugins,
@@ -404,6 +477,10 @@ def test_tts_runtime_self_check_reports_expected_dependency_state(monkeypatch):
     assert report["selected_plugin_id"] == "chatterbox"
     assert report["selected_plugin_base_url"] == "http://tts:8000"
     assert report["selected_provider"] == "qwen3_1.7b"
+    assert report["runtime"]["containerized"] is True
+    assert report["runtime"]["containerization_reason"] == "/.dockerenv"
     assert report["plugin_health"]["reachable"] is True
     assert report["plugin_health"]["url"] == "http://tts:8000/health"
+    assert report["playback"]["binary_path"] == "/usr/bin/ffplay"
     assert report["playback"]["command"] == "ffplay"
+    assert report["playback"]["host_audible_playback_plausible"] is False
