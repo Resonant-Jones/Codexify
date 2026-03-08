@@ -434,6 +434,44 @@ class TestChatMessagesGet:
         assert payload["messages"][0]["audio_mime_type"] == "audio/wav"
         assert payload["messages"][0]["audio_duration_ms"] == 1250
 
+    def test_get_messages_downgrades_ready_audio_without_url(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {
+                "id": 56,
+                "thread_id": 1,
+                "role": "assistant",
+                "content": "Hello with broken audio",
+                "created_at": "2026-03-07T12:05:00.000Z",
+            }
+        ]
+        mock_db.count_messages.return_value = 1
+        monkeypatch.setattr(
+            "guardian.routes.chat.list_message_audio_assets",
+            lambda **_kwargs: {
+                56: {
+                    "id": 100,
+                    "status": "ready",
+                    "stream_url": None,
+                    "src_url": None,
+                    "mime_type": "audio/wav",
+                    "duration_seconds": 0.5,
+                    "delivery_variants_json": {
+                        "source": "assistant_message_autogenerate"
+                    },
+                }
+            },
+        )
+
+        response = test_client.get("/chat/1/messages")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["messages"][0]["audio_status"] == "unavailable"
+        assert payload["messages"][0]["audio_url"] is None
+        assert payload["messages"][0]["audio_mime_type"] == "audio/wav"
+
 
 class TestChatCompletePost:
     """Tests for POST /chat/{thread_id}/complete endpoint."""
