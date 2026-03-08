@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import subprocess
 
 import requests
 
@@ -36,34 +37,60 @@ def _tts_manifest(
     )
 
 
-def test_tts_routes_through_invoke_capability(monkeypatch):
+def _success_payload() -> dict[str, dict[str, str]]:
+    return {
+        "output": {
+            "format": "wav",
+            "mime_type": "audio/wav",
+            "audio_base64": base64.b64encode(b"RIFF....WAVE").decode("ascii"),
+        }
+    }
+
+
+def _patch_successful_playback(monkeypatch, command_id: str = "ffplay"):
+    monkeypatch.setattr(
+        tts_trigger,
+        "_select_playback_command",
+        lambda audio_path: tts_trigger.PlaybackCommandSelection(
+            command_id=command_id,
+            argv=[f"/usr/bin/{command_id}", audio_path],
+            binary_path=f"/usr/bin/{command_id}",
+        ),
+    )
+    monkeypatch.setattr(
+        tts_trigger.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, stdout="", stderr=""
+        ),
+    )
+
+
+def test_tts_routes_through_invoke_plugin(monkeypatch):
+    manifest = _tts_manifest(plugin_id="chatterbox", base_url="http://tts:8000")
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
     captured: dict[str, object] = {}
 
-    def _fake_invoke(capability, action, input, context=None):
-        captured["capability"] = capability
-        captured["action"] = action
-        captured["input"] = input
+    def _fake_invoke(manifest, input_payload, context):
+        captured["plugin_id"] = manifest.id
+        captured["base_url"] = manifest.base_url
+        captured["input"] = input_payload
         captured["context"] = context
-        return {
-            "output": {
-                "format": "wav",
-                "audio_base64": base64.b64encode(b"RIFF....WAVE").decode(
-                    "ascii"
-                ),
-            }
-        }
+        return _success_payload()
 
-    monkeypatch.setattr(tts_trigger, "invoke_capability", _fake_invoke)
-    monkeypatch.setattr(tts_trigger, "_dispatch_playback", lambda _: True)
+    monkeypatch.setattr(tts_trigger, "_invoke_tts_plugin", _fake_invoke)
+    _patch_successful_playback(monkeypatch)
 
-    result = tts_trigger.trigger_tts_if_available(
+    result = tts_trigger.trigger_tts_with_result(
         "hello",
         metadata={"thread_id": "thread-1", "user_id": "user-1"},
     )
 
-    assert result is True
-    assert captured["capability"] == "tts"
-    assert captured["action"] == "speak"
+    assert result.ok is True
+    assert captured["plugin_id"] == "chatterbox"
+    assert captured["base_url"] == "http://tts:8000"
     assert captured["input"] == {
         "text": "hello",
         "metadata": {"thread_id": "thread-1", "user_id": "user-1"},
@@ -87,22 +114,12 @@ def test_tts_uses_canonical_invoke_envelope(monkeypatch):
         captured["json"] = json
         captured["headers"] = headers
         captured["timeout"] = timeout
-        return FakeResponse(
-            payload={
-                "output": {
-                    "format": "wav",
-                    "mime_type": "audio/wav",
-                    "audio_base64": base64.b64encode(b"RIFF....WAVE").decode(
-                        "ascii"
-                    ),
-                }
-            }
-        )
+        return FakeResponse(payload=_success_payload())
 
     monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
-    monkeypatch.setattr(tts_trigger, "_dispatch_playback", lambda _: True)
+    _patch_successful_playback(monkeypatch)
 
-    result = tts_trigger.trigger_tts_if_available(
+    result = tts_trigger.trigger_tts_with_result(
         "speak this",
         metadata={
             "request_id": "req-1",
@@ -111,7 +128,10 @@ def test_tts_uses_canonical_invoke_envelope(monkeypatch):
         },
     )
 
-    assert result is True
+    assert result.ok is True
+    assert result.plugin_id == "tts_service"
+    assert result.base_url == "https://voice.example"
+    assert result.playback_command == "ffplay"
     assert captured["url"] == "https://voice.example/invoke"
     assert captured["timeout"] == core_plugins.INVOKE_TIMEOUT_SECONDS
     assert captured["headers"] == {
@@ -139,22 +159,24 @@ def test_tts_uses_canonical_invoke_envelope(monkeypatch):
     }
 
 
-def test_tts_handles_canonical_facade_failures(monkeypatch):
+def test_tts_handles_runtime_plugin_failures(monkeypatch):
     manifest = _tts_manifest()
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: [manifest]
     )
-
     outcomes = [
-        ("timeout", lambda: (_ for _ in ()).throw(requests.Timeout("boom"))),
         (
-            "transport_failure",
+            "plugin_timeout",
+            lambda: (_ for _ in ()).throw(requests.Timeout("boom")),
+        ),
+        (
+            "plugin_unreachable",
             lambda: (_ for _ in ()).throw(requests.ConnectionError("boom")),
         ),
-        ("invalid_response", lambda: FakeResponse(json_exc=ValueError("bad"))),
-        ("invalid_response", lambda: FakeResponse(payload={"result": "bad"})),
+        ("invalid_payload", lambda: FakeResponse(json_exc=ValueError("bad"))),
+        ("invalid_payload", lambda: FakeResponse(payload={"result": "bad"})),
         (
-            "remote_error",
+            "plugin_remote_error",
             lambda: FakeResponse(
                 payload={
                     "ok": False,
@@ -167,20 +189,14 @@ def test_tts_handles_canonical_facade_failures(monkeypatch):
                 }
             ),
         ),
-        (
-            "remote_error",
-            lambda: FakeResponse(status_code=500, payload={"error": "x"}),
-        ),
     ]
 
-    for expected_code, factory in outcomes:
-        calls = {"count": 0}
-
-        def _fake_post(url, json, headers, timeout):
-            calls["count"] += 1
-            return factory()
-
-        monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
+    for expected_failure, factory in outcomes:
+        monkeypatch.setattr(
+            core_plugins.requests,
+            "post",
+            lambda url, json, headers, timeout, factory=factory: factory(),
+        )
         warnings: list[str] = []
         monkeypatch.setattr(
             tts_trigger.logger,
@@ -188,70 +204,50 @@ def test_tts_handles_canonical_facade_failures(monkeypatch):
             lambda msg, *args: warnings.append(msg % args if args else msg),
         )
 
-        result = tts_trigger.trigger_tts_if_available("hello")
+        result = tts_trigger.trigger_tts_with_result("hello")
 
-        assert result is False
-        assert calls["count"] == 1
-        assert any(f"code={expected_code}" in line for line in warnings)
+        assert result.ok is False
+        assert result.failure_kind == expected_failure
+        assert result.plugin_id == "tts_service"
+        assert result.base_url == "https://tts.example"
+        assert any("plugin_id=tts_service" in line for line in warnings)
+        assert any("base_url=https://tts.example" in line for line in warnings)
+        assert any(
+            f"failure_kind={expected_failure}" in line for line in warnings
+        )
 
 
 def test_tts_fails_deterministically_on_absence_and_ambiguity(monkeypatch):
     manifests_by_mode = {
-        "not_found": [],
-        "ambiguous": [_tts_manifest("a"), _tts_manifest("b")],
+        "plugin_manifest_not_found": [],
+        "plugin_selection_ambiguous": [_tts_manifest("a"), _tts_manifest("b")],
     }
 
-    for expected_code, manifests in manifests_by_mode.items():
+    for expected_failure, manifests in manifests_by_mode.items():
         monkeypatch.setattr(
             core_plugins,
             "list_plugin_manifests",
             lambda manifests=manifests: manifests,
         )
-        post_calls = {"count": 0}
 
-        def _fake_post(url, json, headers, timeout):
-            post_calls["count"] += 1
-            return FakeResponse(
-                payload={
-                    "output": {
-                        "format": "wav",
-                        "audio_base64": base64.b64encode(
-                            b"RIFF....WAVE"
-                        ).decode("ascii"),
-                    }
-                }
-            )
+        result = tts_trigger.trigger_tts_with_result("hello")
 
-        monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
-        warnings: list[str] = []
-        monkeypatch.setattr(
-            tts_trigger.logger,
-            "warning",
-            lambda msg, *args: warnings.append(msg % args if args else msg),
-        )
-
-        result = tts_trigger.trigger_tts_if_available("hello")
-
-        assert result is False
-        assert post_calls["count"] == 0
-        assert any(f"code={expected_code}" in line for line in warnings)
+        assert result.ok is False
+        assert result.failure_kind == expected_failure
+        assert result.error_code in {"not_found", "ambiguous"}
 
 
-def test_tts_success_requires_usable_downstream_output(monkeypatch):
+def test_tts_fails_clearly_when_no_playback_binary_is_available(monkeypatch):
+    manifest = _tts_manifest(base_url="http://tts:8000")
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
     monkeypatch.setattr(
         tts_trigger,
-        "invoke_capability",
-        lambda *args, **kwargs: {
-            "output": {
-                "format": "wav",
-                "audio_base64": base64.b64encode(b"RIFF....WAVE").decode(
-                    "ascii"
-                ),
-            }
-        },
+        "_invoke_tts_plugin",
+        lambda *args, **kwargs: _success_payload(),
     )
-    monkeypatch.setattr(tts_trigger, "_dispatch_playback", lambda _: False)
-
+    monkeypatch.setattr(tts_trigger.shutil, "which", lambda name: None)
     warnings: list[str] = []
     monkeypatch.setattr(
         tts_trigger.logger,
@@ -259,29 +255,155 @@ def test_tts_success_requires_usable_downstream_output(monkeypatch):
         lambda msg, *args: warnings.append(msg % args if args else msg),
     )
 
-    result = tts_trigger.trigger_tts_if_available("hello")
+    result = tts_trigger.trigger_tts_with_result("hello")
 
-    assert result is False
-    assert any(
-        "layer=local_audio_device_output" in line for line in warnings
-    ) or any("layer=playback_dispatch" in line for line in warnings)
+    assert result.ok is False
+    assert result.failure_kind == "no_playback_binary_available"
+    assert result.playback_command == "none"
+    assert result.audio_source == "audio_base64"
+    assert any("playback_command=none" in line for line in warnings)
+    assert any("audio_source=audio_base64" in line for line in warnings)
+    assert any("trail=manifest_discovery:ok" in line for line in warnings)
+
+
+def test_tts_reports_playback_subprocess_nonzero_exit(monkeypatch):
+    manifest = _tts_manifest(base_url="http://tts:8000")
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+    monkeypatch.setattr(
+        tts_trigger,
+        "_invoke_tts_plugin",
+        lambda *args, **kwargs: _success_payload(),
+    )
+    monkeypatch.setattr(
+        tts_trigger.shutil,
+        "which",
+        lambda name: "/usr/bin/ffplay" if name == "ffplay" else None,
+    )
+    monkeypatch.setattr(
+        tts_trigger.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0],
+            2,
+            stdout="decoder stalled",
+            stderr="generic playback error",
+        ),
+    )
+
+    result = tts_trigger.trigger_tts_with_result("hello")
+
+    assert result.ok is False
+    assert result.failure_kind == "playback_subprocess_failed"
+    assert result.playback_command == "ffplay"
+    assert result.playback_return_code == 2
+    assert result.stderr_summary == "generic playback error"
+
+
+def test_tts_distinguishes_local_audio_device_failures(monkeypatch):
+    manifest = _tts_manifest(base_url="http://tts:8000")
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+    monkeypatch.setattr(
+        tts_trigger,
+        "_invoke_tts_plugin",
+        lambda *args, **kwargs: _success_payload(),
+    )
+    monkeypatch.setattr(
+        tts_trigger.shutil,
+        "which",
+        lambda name: "/usr/bin/ffplay" if name == "ffplay" else None,
+    )
+    monkeypatch.setattr(
+        tts_trigger.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0],
+            1,
+            stdout="",
+            stderr="ALSA lib pcm.c:2666 cannot open audio device",
+        ),
+    )
+
+    result = tts_trigger.trigger_tts_with_result("hello")
+
+    assert result.ok is False
+    assert result.failure_kind == "local_audio_device_output_failure"
+
+
+def test_tts_reports_origin_mismatch_or_unreachable_service(monkeypatch):
+    manifest = _tts_manifest(
+        plugin_id="chatterbox",
+        base_url="http://localhost:8000",
+    )
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+
+    def _raise_transport(*args, **kwargs):
+        raise core_plugins.PluginFacadeError(
+            code=core_plugins.ERROR_TRANSPORT_FAILURE,
+            message="Plugin transport failure",
+            plugin_id="chatterbox",
+            capability="tts",
+            action="speak",
+        )
+
+    monkeypatch.setattr(tts_trigger, "_invoke_tts_plugin", _raise_transport)
+
+    result = tts_trigger.trigger_tts_with_result("hello")
+
+    assert result.ok is False
+    assert result.failure_kind == "plugin_unreachable"
+    assert result.base_url == "http://localhost:8000"
 
 
 def test_tts_malformed_success_output_fails_clearly(monkeypatch):
+    manifest = _tts_manifest(base_url="http://tts:8000")
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
     monkeypatch.setattr(
         tts_trigger,
-        "invoke_capability",
+        "_invoke_tts_plugin",
         lambda *args, **kwargs: {"output": {"format": "wav"}},
     )
 
-    warnings: list[str] = []
+    result = tts_trigger.trigger_tts_with_result("hello")
+
+    assert result.ok is False
+    assert result.failure_kind == "invalid_payload"
+    assert result.failure_stage == "audio_materialization"
+    assert result.error_code == "missing_audio_payload"
+
+
+def test_tts_runtime_self_check_reports_expected_dependency_state(monkeypatch):
+    manifest = _tts_manifest(plugin_id="chatterbox", base_url="http://tts:8000")
     monkeypatch.setattr(
-        tts_trigger.logger,
-        "warning",
-        lambda msg, *args: warnings.append(msg % args if args else msg),
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+    monkeypatch.setattr(
+        core_plugins,
+        "get_plugin_health",
+        lambda plugin_id: {
+            "status": "healthy",
+            "default_provider": "qwen3_1.7b",
+        },
+    )
+    monkeypatch.setattr(
+        tts_trigger.shutil,
+        "which",
+        lambda name: "/usr/bin/ffplay" if name == "ffplay" else None,
     )
 
-    result = tts_trigger.trigger_tts_if_available("hello")
+    report = tts_trigger.get_tts_runtime_self_check()
 
-    assert result is False
-    assert any("layer=output_materialization" in line for line in warnings)
+    assert report["manifest_discoverable"] is True
+    assert report["selected_plugin_id"] == "chatterbox"
+    assert report["selected_plugin_base_url"] == "http://tts:8000"
+    assert report["selected_provider"] == "qwen3_1.7b"
+    assert report["plugin_health"]["reachable"] is True
+    assert report["plugin_health"]["url"] == "http://tts:8000/health"
+    assert report["playback"]["command"] == "ffplay"

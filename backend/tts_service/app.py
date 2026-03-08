@@ -177,7 +177,13 @@ def synthesize_speech(request: TTSRequest):
 @app.get("/health")
 def health_check():
     """Kubernetes-style health check."""
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "service": "Codexify Local TTS Service",
+        "version": "0.1.0",
+        "default_provider": DEFAULT_PROVIDER,
+        "providers": list(TTS_PROVIDERS.keys()),
+    }
 
 
 @app.post("/invoke", response_model=PluginInvokeResponse)

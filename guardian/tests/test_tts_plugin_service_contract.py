@@ -43,7 +43,11 @@ def test_health_route_works():
     client = TestClient(tts_app.app)
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "healthy"
+    payload = response.json()
+    assert payload["status"] == "healthy"
+    assert payload["service"] == "Codexify Local TTS Service"
+    assert payload["default_provider"] == tts_app.DEFAULT_PROVIDER
+    assert payload["providers"] == list(tts_app.TTS_PROVIDERS.keys())
 
 
 def test_invoke_accepts_canonical_envelope_and_returns_canonical_success(

@@ -213,6 +213,7 @@ services:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
+      - ./plugins/chatterbox:/app/plugins/chatterbox:ro
       - ./tests:/app/tests:ro
       - ./pytest.ini:/app/pytest.ini:ro
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
