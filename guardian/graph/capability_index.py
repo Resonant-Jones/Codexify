@@ -226,40 +226,72 @@ def _augment_plugins(
     removed: dict[str, set[str]],
     plugin_loader: Any = None,
 ) -> None:
-    """Merge active plugins from loader into the capability state."""
-    loader = plugin_loader
-    if loader is None:
+    """Merge active plugins from canonical service manifests into state."""
+
+    def _get_value(obj: Any, key: str, default: Any = None) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    def _manifest_capability_fields(
+        manifest: Any,
+    ) -> tuple[list[str], list[str]]:
+        capabilities: set[str] = set()
+        help_triggers: set[str] = set()
+        for capability in _get_value(manifest, "capabilities", []) or []:
+            if isinstance(capability, str):
+                capability_id = capability
+                actions: list[Any] = []
+            elif isinstance(capability, dict):
+                capability_id = capability.get("id")
+                actions = capability.get("actions", []) or []
+            else:
+                capability_id = getattr(capability, "id", None)
+                actions = getattr(capability, "actions", []) or []
+            if not capability_id:
+                continue
+            help_triggers.add(str(capability_id))
+            for action in actions:
+                if action:
+                    capabilities.add(f"{capability_id}.{action}")
+            if not actions:
+                capabilities.add(str(capability_id))
+        return sorted(capabilities), sorted(help_triggers)
+
+    manifests: list[Any] = []
+    source = plugin_loader
+    if source is None:
         try:
-            from guardian.core.plugins import get_runtime_plugin_loader
+            from guardian.core.plugins import list_plugin_manifests
 
-            loader = get_runtime_plugin_loader()
+            manifests = list_plugin_manifests()
         except Exception:
-            return
+            manifests = []
+    elif hasattr(source, "list_plugin_manifests"):
+        manifests = list(source.list_plugin_manifests())
+    elif isinstance(source, (list, tuple, set)):
+        manifests = list(source)
+    else:
+        manifests = []
 
-    plugins = getattr(loader, "plugins", {}) or {}
-    for plugin in plugins.values():
-        name = getattr(plugin, "name", None)
-        if not name or name in removed["plugins"]:
-            continue
-        if not getattr(plugin, "enabled", False):
-            state["plugins"].pop(name, None)
+    for manifest in manifests:
+        plugin_id = _get_value(manifest, "id")
+        if not plugin_id or plugin_id in removed["plugins"]:
             continue
 
-        metadata = getattr(plugin, "metadata", {}) or {}
-        entry = state["plugins"].get(name, {"id": name})
-        entry.setdefault(
-            "display_name",
-            metadata.get("display_name")
-            or metadata.get("description")
-            or metadata.get("name")
-            or name,
+        manifest_capabilities, help_triggers = _manifest_capability_fields(
+            manifest
         )
-        entry.setdefault("version", metadata.get("version"))
-        entry.setdefault("capabilities", metadata.get("capabilities", []))
-        entry.setdefault("help_triggers", metadata.get("help_triggers", []))
-        entry.setdefault("help_text_ref", metadata.get("help_text_ref"))
+        entry = state["plugins"].get(plugin_id, {"id": plugin_id})
+        entry["display_name"] = (
+            _get_value(manifest, "name", plugin_id) or plugin_id
+        )
+        entry["version"] = _get_value(manifest, "version")
+        entry["capabilities"] = manifest_capabilities
+        entry["help_triggers"] = help_triggers
+        entry.setdefault("help_text_ref", None)
         entry.setdefault("installed_at", _to_iso8601())
-        state["plugins"][name] = entry
+        state["plugins"][plugin_id] = entry
 
 
 def _coerce_connector_configs(source: Any) -> list[dict[str, Any]]:
