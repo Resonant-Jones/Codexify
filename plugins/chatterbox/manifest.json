@@ -4,7 +4,7 @@
   "name": "Chatterbox TTS",
   "version": "1.0.0",
   "description": "Local TTS plugin service",
-  "base_url": "http://localhost:8000",
+  "base_url": "http://tts:8000",
   "capabilities": [
     {
       "id": "tts",
