@@ -395,6 +395,33 @@ class TestChatMessagesGet:
         assert data["messages"] == []
         assert data["total"] == 0
 
+    def test_get_messages_returns_unavailable_audio_state_when_no_asset_exists(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {
+                "id": 54,
+                "thread_id": 1,
+                "role": "assistant",
+                "content": "Hello without audio",
+                "created_at": "2026-03-07T11:55:00.000Z",
+            }
+        ]
+        mock_db.count_messages.return_value = 1
+        monkeypatch.setattr(
+            "guardian.routes.chat.list_message_audio_assets",
+            lambda **_kwargs: {},
+        )
+
+        response = test_client.get("/chat/1/messages")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["messages"][0]["audio_status"] == "unavailable"
+        assert payload["messages"][0]["audio_url"] is None
+        assert payload["messages"][0]["audio_mime_type"] is None
+        assert payload["messages"][0]["audio_duration_ms"] is None
+
     def test_get_messages_includes_message_audio_metadata(
         self, test_client, mock_db, monkeypatch
     ):
@@ -433,6 +460,87 @@ class TestChatMessagesGet:
         assert payload["messages"][0]["audio_url"] == "/api/voice/audio/99"
         assert payload["messages"][0]["audio_mime_type"] == "audio/wav"
         assert payload["messages"][0]["audio_duration_ms"] == 1250
+
+    def test_get_messages_includes_pending_message_audio_metadata(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {
+                "id": 57,
+                "thread_id": 1,
+                "role": "assistant",
+                "content": "Hello with pending audio",
+                "created_at": "2026-03-07T12:02:00.000Z",
+            }
+        ]
+        mock_db.count_messages.return_value = 1
+        monkeypatch.setattr(
+            "guardian.routes.chat.list_message_audio_assets",
+            lambda **_kwargs: {
+                57: {
+                    "id": 101,
+                    "status": "pending",
+                    "stream_url": None,
+                    "src_url": None,
+                    "mime_type": "audio/wav",
+                    "duration_seconds": None,
+                    "delivery_variants_json": {
+                        "source": "assistant_message_autogenerate"
+                    },
+                }
+            },
+        )
+
+        response = test_client.get("/chat/1/messages")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["messages"][0]["audio_status"] == "pending"
+        assert payload["messages"][0]["audio_url"] is None
+        assert payload["messages"][0]["audio_mime_type"] == "audio/wav"
+
+    def test_get_messages_includes_failed_message_audio_metadata(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {
+                "id": 58,
+                "thread_id": 1,
+                "role": "assistant",
+                "content": "Hello with failed audio",
+                "created_at": "2026-03-07T12:03:00.000Z",
+            }
+        ]
+        mock_db.count_messages.return_value = 1
+        monkeypatch.setattr(
+            "guardian.routes.chat.list_message_audio_assets",
+            lambda **_kwargs: {
+                58: {
+                    "id": 102,
+                    "status": "failed",
+                    "stream_url": None,
+                    "src_url": None,
+                    "mime_type": "audio/wav",
+                    "duration_seconds": None,
+                    "error": {
+                        "message": "TTS generation failed",
+                    },
+                    "delivery_variants_json": {
+                        "source": "assistant_message_autogenerate",
+                        "error": {"message": "TTS generation failed"},
+                    },
+                }
+            },
+        )
+
+        response = test_client.get("/chat/1/messages")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["messages"][0]["audio_status"] == "failed"
+        assert payload["messages"][0]["audio_url"] is None
+        assert payload["messages"][0]["audio_mime_type"] == "audio/wav"
+        assert payload["messages"][0]["audio_error"] == "TTS generation failed"
 
     def test_get_messages_downgrades_ready_audio_without_url(
         self, test_client, mock_db, monkeypatch
