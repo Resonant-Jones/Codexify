@@ -359,30 +359,34 @@ def list_message_audio_assets(
             .all()
         )
 
-    selected: dict[int, tuple[int, MessageAudioAsset]] = {}
-    for row in rows:
-        variants = (
-            row.delivery_variants_json
-            if isinstance(row.delivery_variants_json, dict)
-            else {}
+        selected: dict[int, tuple[int, dict[str, Any]]] = {}
+        preferred_source_key = (
+            preferred_source.strip().lower() if preferred_source else None
         )
-        source = str(variants.get("source") or "").strip().lower()
-        status = _asset_status(row)
-        priority = 0
-        if preferred_source and source == preferred_source.strip().lower():
-            priority += 100
-        if status == "ready":
-            priority += 10
-        elif status == "pending":
-            priority += 5
-        current = selected.get(int(row.message_id))
-        if current is None or priority > current[0]:
-            selected[int(row.message_id)] = (priority, row)
+        for row in rows:
+            variants = (
+                row.delivery_variants_json
+                if isinstance(row.delivery_variants_json, dict)
+                else {}
+            )
+            source = str(variants.get("source") or "").strip().lower()
+            status = _asset_status(row)
+            priority = 0
+            if preferred_source_key and source == preferred_source_key:
+                priority += 100
+            if status == "ready":
+                priority += 10
+            elif status == "pending":
+                priority += 5
+            message_id = int(row.message_id)
+            current = selected.get(message_id)
+            if current is None or priority > current[0]:
+                selected[message_id] = (priority, _serialize_asset(row))
 
-    return {
-        message_id: _serialize_asset(row)
-        for message_id, (_priority, row) in selected.items()
-    }
+        return {
+            message_id: asset
+            for message_id, (_priority, asset) in selected.items()
+        }
 
 
 def _looks_like_remote_url(url: str) -> bool:
