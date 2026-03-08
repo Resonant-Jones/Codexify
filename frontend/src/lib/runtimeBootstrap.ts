@@ -9,12 +9,14 @@ export type RuntimePreflight = {
   dockerComposeAvailable: boolean;
   dockerDaemonReachable: boolean;
   ready: boolean;
+  failureKind?: string;
   detail?: string;
 };
 
 export type RuntimeBootstrapStatus =
   | "checking"
   | "docker-missing"
+  | "compose-missing"
   | "docker-not-running"
   | "ready"
   | "error";
@@ -40,6 +42,11 @@ function normalizeDetail(value: unknown): string | undefined {
   return normalized ? normalized : undefined;
 }
 
+function normalizeFailureKind(value: unknown): string | undefined {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized || undefined;
+}
+
 function formatPreflightDetail(preflight: RuntimePreflight): string | undefined {
   const lines = [
     `dockerCliInstalled=${preflight.dockerCliInstalled}`,
@@ -47,6 +54,9 @@ function formatPreflightDetail(preflight: RuntimePreflight): string | undefined 
     `dockerDaemonReachable=${preflight.dockerDaemonReachable}`,
     `ready=${preflight.ready}`,
   ];
+  if (preflight.failureKind) {
+    lines.push(`failureKind=${preflight.failureKind}`);
+  }
   if (preflight.detail) {
     lines.push("", preflight.detail);
   }
@@ -79,6 +89,7 @@ export function normalizeRuntimePreflight(payload: unknown): RuntimePreflight {
     dockerComposeAvailable: asBoolean(source.dockerComposeAvailable),
     dockerDaemonReachable: asBoolean(source.dockerDaemonReachable),
     ready: asBoolean(source.ready),
+    failureKind: normalizeFailureKind(source.failureKind),
     detail: normalizeDetail(source.detail),
   };
 
@@ -110,13 +121,71 @@ export function mapRuntimePreflightToState(
     };
   }
 
-  if (!preflight.dockerCliInstalled || !preflight.dockerComposeAvailable) {
+  if (preflight.failureKind === "docker-binary-not-found") {
     return {
       status: "docker-missing",
       title: "Docker Desktop is required",
-      message: preflight.dockerCliInstalled
-        ? "Docker was found, but Docker Compose is unavailable. Install or update Docker Desktop before continuing."
-        : "Install Docker Desktop to give Codexify a local runtime with Docker CLI and Docker Compose support.",
+      message:
+        "Codexify beta requires Docker Desktop, and the native preflight could not find a usable Docker installation on this machine.",
+      detail,
+      preflight,
+    };
+  }
+
+  if (preflight.failureKind === "docker-compose-unavailable") {
+    return {
+      status: "compose-missing",
+      title: "Docker Compose is unavailable",
+      message:
+        "Codexify found the Docker CLI, but the Compose capability is unavailable or not discoverable from the native shell.",
+      detail,
+      preflight,
+    };
+  }
+
+  if (preflight.failureKind === "docker-daemon-unreachable") {
+    return {
+      status: "docker-not-running",
+      title: "Docker Desktop is installed, but not responding yet",
+      message:
+        "Codexify found Docker on this machine, but it cannot talk to the local daemon yet. Start Docker Desktop, wait for it to finish initializing, then retry.",
+      detail,
+      preflight,
+    };
+  }
+
+  if (
+    preflight.failureKind === "docker-cli-invocation-failed" ||
+    preflight.failureKind === "unexpected-command-execution-error" ||
+    preflight.failureKind
+  ) {
+    return {
+      status: "error",
+      title: "Native runtime diagnostics hit an unexpected error",
+      message:
+        "Codexify could not complete the Docker preflight cleanly. Retry the check and review the native diagnostics below.",
+      detail,
+      preflight,
+    };
+  }
+
+  if (!preflight.dockerCliInstalled) {
+    return {
+      status: "docker-missing",
+      title: "Docker Desktop is required",
+      message:
+        "Codexify beta requires Docker Desktop, and the native preflight could not find a usable Docker installation on this machine.",
+      detail,
+      preflight,
+    };
+  }
+
+  if (!preflight.dockerComposeAvailable) {
+    return {
+      status: "compose-missing",
+      title: "Docker Compose is unavailable",
+      message:
+        "Codexify found the Docker CLI, but the Compose capability is unavailable or not discoverable from the native shell.",
       detail,
       preflight,
     };
@@ -125,9 +194,9 @@ export function mapRuntimePreflightToState(
   if (!preflight.dockerDaemonReachable) {
     return {
       status: "docker-not-running",
-      title: "Start Docker Desktop to continue",
+      title: "Docker Desktop is installed, but not responding yet",
       message:
-        "Docker is installed, but the local daemon is not reachable yet. Launch Docker Desktop and retry the preflight check.",
+        "Codexify found Docker on this machine, but it cannot talk to the local daemon yet. Start Docker Desktop, wait for it to finish initializing, then retry.",
       detail,
       preflight,
     };
@@ -135,9 +204,9 @@ export function mapRuntimePreflightToState(
 
   return {
     status: "error",
-    title: "Runtime preflight failed",
+    title: "Native runtime diagnostics hit an unexpected error",
     message:
-      "Codexify could not determine the local Docker runtime state. Retry the check to capture a fresh diagnostic snapshot.",
+      "Codexify could not classify the Docker preflight result cleanly. Retry the check and review the native diagnostics below.",
     detail,
     preflight,
   };
@@ -165,9 +234,9 @@ export async function runRuntimeBootstrapPreflight(): Promise<RuntimeBootstrapSt
       error instanceof Error ? error.message : String(error ?? "Unknown error");
     return {
       status: "error",
-      title: "Runtime preflight failed",
+      title: "Native runtime diagnostics hit an unexpected error",
       message:
-        "Codexify could not complete the Docker preflight command. Retry the check to gather a fresh status.",
+        "Codexify could not complete the native Docker preflight command. Retry the check and review the diagnostics below.",
       detail,
       preflight: null,
     };

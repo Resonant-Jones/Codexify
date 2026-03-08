@@ -60,9 +60,12 @@ export default function BootstrapGate({
   const showInstallAction = state.status === "docker-missing";
   const showRetryAction =
     state.status === "docker-missing" ||
+    state.status === "compose-missing" ||
     state.status === "docker-not-running" ||
     state.status === "error";
   const showContinueAction = state.status === "ready";
+  const openDetailsByDefault =
+    Boolean(state.detail) && !isChecking && state.status !== "ready";
 
   const handleInstallDocker = React.useCallback(async () => {
     setOpeningInstallPage(true);
@@ -188,6 +191,7 @@ export default function BootstrapGate({
 
           {state.detail && (
             <details
+              open={openDetailsByDefault}
               className="rounded-[20px] border px-4 py-3"
               style={{
                 borderColor: "var(--panel-border)",
@@ -198,7 +202,7 @@ export default function BootstrapGate({
                 className="cursor-pointer list-none text-sm font-medium"
                 style={{ color: "var(--text)" }}
               >
-                Technical details
+                Technical details from native preflight
               </summary>
               <pre
                 className="mt-3 overflow-auto whitespace-pre-wrap break-words text-xs leading-5"
