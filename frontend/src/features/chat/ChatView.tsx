@@ -1149,14 +1149,9 @@ export function ChatView({
         {messages.map((m, index) => {
           const messageId = Number(m.id);
           const canPlay = m.role !== "user" && Number.isFinite(messageId);
-          const messageAudioStatus = m.audio_status ?? "unavailable";
+          const messageAudioStatus = m.audio_status;
           const showPlay =
-            canPlay &&
-            voiceReadAloudEnabled &&
-            !voiceRouteMissing &&
-            (messageAudioStatus === "ready" ||
-              messageAudioStatus === "pending" ||
-              messageAudioStatus === "failed");
+            canPlay && voiceReadAloudEnabled && !voiceRouteMissing;
           const messageVoiceUnavailable = Boolean(
             Number.isFinite(messageId) && voiceUnavailableMessageIds[messageId]
           );
@@ -1164,11 +1159,12 @@ export function ChatView({
             ? "idle"
             : messageAudioStatus === "pending"
                 ? "pending"
-            : messageAudioStatus === "failed"
+            : messageAudioStatus === "failed" ||
+                messageAudioStatus === "unavailable" ||
+                messageVoiceUnavailable
                 ? "unavailable"
-            : messageVoiceUnavailable
-                ? "unavailable"
-                : playingMessageId === messageId
+            : playingMessageId === messageId &&
+                messageAudioStatus === "ready"
                   ? "playing"
                   : "idle";
 
