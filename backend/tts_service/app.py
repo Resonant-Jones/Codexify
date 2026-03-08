@@ -250,6 +250,7 @@ def invoke_plugin(request: PluginInvokeRequest):
     output = {
         "provider": provider,
         "format": "wav",
+        "mime_type": "audio/wav",
         "sampling_rate": sampling_rate,
         "audio_base64": base64.b64encode(wav_bytes).decode("ascii"),
     }

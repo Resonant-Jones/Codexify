@@ -61,6 +61,7 @@ def test_invoke_accepts_canonical_envelope_and_returns_canonical_success(
     assert payload["ok"] is True
     assert payload["error"] is None
     assert payload["output"]["format"] == "wav"
+    assert payload["output"]["mime_type"] == "audio/wav"
     assert payload["output"]["provider"] == "qwen3_1.7b"
     assert payload["output"]["sampling_rate"] == 24000
     assert isinstance(payload["output"]["audio_base64"], str)

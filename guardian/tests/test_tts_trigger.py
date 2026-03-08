@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+
 import requests
 
 from guardian.audio import tts_trigger
@@ -42,9 +44,17 @@ def test_tts_routes_through_invoke_capability(monkeypatch):
         captured["action"] = action
         captured["input"] = input
         captured["context"] = context
-        return {"output": {"status": "ok"}}
+        return {
+            "output": {
+                "format": "wav",
+                "audio_base64": base64.b64encode(b"RIFF....WAVE").decode(
+                    "ascii"
+                ),
+            }
+        }
 
     monkeypatch.setattr(tts_trigger, "invoke_capability", _fake_invoke)
+    monkeypatch.setattr(tts_trigger, "_dispatch_playback", lambda _: True)
 
     result = tts_trigger.trigger_tts_if_available(
         "hello",
@@ -77,9 +87,20 @@ def test_tts_uses_canonical_invoke_envelope(monkeypatch):
         captured["json"] = json
         captured["headers"] = headers
         captured["timeout"] = timeout
-        return FakeResponse(payload={"output": {"spoken": True}})
+        return FakeResponse(
+            payload={
+                "output": {
+                    "format": "wav",
+                    "mime_type": "audio/wav",
+                    "audio_base64": base64.b64encode(b"RIFF....WAVE").decode(
+                        "ascii"
+                    ),
+                }
+            }
+        )
 
     monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
+    monkeypatch.setattr(tts_trigger, "_dispatch_playback", lambda _: True)
 
     result = tts_trigger.trigger_tts_if_available(
         "speak this",
@@ -190,7 +211,16 @@ def test_tts_fails_deterministically_on_absence_and_ambiguity(monkeypatch):
 
         def _fake_post(url, json, headers, timeout):
             post_calls["count"] += 1
-            return FakeResponse(payload={"output": {"spoken": True}})
+            return FakeResponse(
+                payload={
+                    "output": {
+                        "format": "wav",
+                        "audio_base64": base64.b64encode(
+                            b"RIFF....WAVE"
+                        ).decode("ascii"),
+                    }
+                }
+            )
 
         monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
         warnings: list[str] = []
@@ -205,3 +235,53 @@ def test_tts_fails_deterministically_on_absence_and_ambiguity(monkeypatch):
         assert result is False
         assert post_calls["count"] == 0
         assert any(f"code={expected_code}" in line for line in warnings)
+
+
+def test_tts_success_requires_usable_downstream_output(monkeypatch):
+    monkeypatch.setattr(
+        tts_trigger,
+        "invoke_capability",
+        lambda *args, **kwargs: {
+            "output": {
+                "format": "wav",
+                "audio_base64": base64.b64encode(b"RIFF....WAVE").decode(
+                    "ascii"
+                ),
+            }
+        },
+    )
+    monkeypatch.setattr(tts_trigger, "_dispatch_playback", lambda _: False)
+
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        tts_trigger.logger,
+        "warning",
+        lambda msg, *args: warnings.append(msg % args if args else msg),
+    )
+
+    result = tts_trigger.trigger_tts_if_available("hello")
+
+    assert result is False
+    assert any(
+        "layer=local_audio_device_output" in line for line in warnings
+    ) or any("layer=playback_dispatch" in line for line in warnings)
+
+
+def test_tts_malformed_success_output_fails_clearly(monkeypatch):
+    monkeypatch.setattr(
+        tts_trigger,
+        "invoke_capability",
+        lambda *args, **kwargs: {"output": {"format": "wav"}},
+    )
+
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        tts_trigger.logger,
+        "warning",
+        lambda msg, *args: warnings.append(msg % args if args else msg),
+    )
+
+    result = tts_trigger.trigger_tts_if_available("hello")
+
+    assert result is False
+    assert any("layer=output_materialization" in line for line in warnings)

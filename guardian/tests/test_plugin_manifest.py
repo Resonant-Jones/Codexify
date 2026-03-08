@@ -157,3 +157,20 @@ def test_active_tts_manifest_is_valid_and_discoverable():
 
     discovered_ids = {item.id for item in plugin_loader.load_all_manifests()}
     assert "chatterbox" in discovered_ids
+
+
+def test_active_tts_manifest_origin_matches_runtime_compose_mapping():
+    repo_root = Path(__file__).resolve().parents[2]
+    manifest_payload = json.loads(
+        (repo_root / "plugins" / "chatterbox" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest = PluginManifest(**manifest_payload)
+    compose_text = (repo_root / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "tts:" in compose_text
+    assert 'ports: ["8000:8000"]' in compose_text
+    assert manifest.base_url == "http://localhost:8000"
