@@ -696,7 +696,7 @@ export function Composer({
               />
             </div>
 
-            <div className="shrink-0 pr-2">
+            <div className="shrink-0 pr-[14px]">
               <Button
                 type="button"
                 onClick={handleAttemptSend}
