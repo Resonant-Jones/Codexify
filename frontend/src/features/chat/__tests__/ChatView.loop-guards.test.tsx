@@ -807,6 +807,40 @@ describe("ChatView loop guards", () => {
     expect(apiPostMock).not.toHaveBeenCalled();
   });
 
+  it("renders the listen button for assistant messages without audio metadata", async () => {
+    const completion = {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    };
+
+    mockMessages = [
+      {
+        id: 704,
+        thread_id: 1,
+        role: "assistant",
+        content: "assistant message without audio metadata",
+        created_at: "2026-03-02T00:00:30.000Z",
+      },
+    ];
+
+    render(
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={vi.fn()}
+        voiceReadAloudEnabled
+      />
+    );
+
+    const listenButton = await screen.findByRole("button", {
+      name: "Read message aloud",
+    });
+    expect(listenButton).toBeEnabled();
+    expect(audioPlayMock).not.toHaveBeenCalled();
+  });
+
   it("shows loading state while assistant audio is pending", async () => {
     const completion = {
       isCompleting: false,
