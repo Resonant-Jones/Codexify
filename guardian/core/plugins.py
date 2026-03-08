@@ -290,10 +290,41 @@ def invoke_plugin(
             details=payload.get("error"),
         )
 
+    if "ok" in payload and not isinstance(payload["ok"], bool):
+        raise PluginFacadeError(
+            code=ERROR_INVALID_RESPONSE,
+            message="Plugin response field 'ok' must be boolean when present",
+            plugin_id=plugin_id,
+            capability=capability,
+            action=action,
+            details={"status_code": response.status_code},
+        )
+
+    if payload.get("ok") is False and payload.get("error") in (None, ""):
+        raise PluginFacadeError(
+            code=ERROR_INVALID_RESPONSE,
+            message=(
+                "Plugin response marked failure without canonical error payload"
+            ),
+            plugin_id=plugin_id,
+            capability=capability,
+            action=action,
+            details={"status_code": response.status_code},
+        )
+
     if "output" not in payload:
         raise PluginFacadeError(
             code=ERROR_INVALID_RESPONSE,
             message="Plugin response missing required 'output' field",
+            plugin_id=plugin_id,
+            capability=capability,
+            action=action,
+            details={"status_code": response.status_code},
+        )
+    if not isinstance(payload["output"], dict):
+        raise PluginFacadeError(
+            code=ERROR_INVALID_RESPONSE,
+            message="Plugin response field 'output' must be an object",
             plugin_id=plugin_id,
             capability=capability,
             action=action,

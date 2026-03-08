@@ -307,6 +307,50 @@ def test_invoke_plugin_normalizes_nonconforming_response(monkeypatch):
         assert exc.code == core_plugins.ERROR_INVALID_RESPONSE
 
 
+def test_invoke_plugin_rejects_non_object_output(monkeypatch):
+    manifest = _manifest("voice", base_url="https://voice.example")
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+
+    def _fake_post(url, json, headers, timeout):
+        return FakeResponse(
+            status_code=200, payload={"output": "not-an-object"}
+        )
+
+    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
+
+    try:
+        core_plugins.invoke_plugin(
+            "voice", "tts", "speak", input={"text": "hello"}
+        )
+        raise AssertionError("expected PluginFacadeError")
+    except core_plugins.PluginFacadeError as exc:
+        assert exc.code == core_plugins.ERROR_INVALID_RESPONSE
+
+
+def test_invoke_plugin_rejects_failed_ok_without_error_payload(monkeypatch):
+    manifest = _manifest("voice", base_url="https://voice.example")
+    monkeypatch.setattr(
+        core_plugins, "list_plugin_manifests", lambda: [manifest]
+    )
+
+    def _fake_post(url, json, headers, timeout):
+        return FakeResponse(
+            status_code=200, payload={"ok": False, "output": {}}
+        )
+
+    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
+
+    try:
+        core_plugins.invoke_plugin(
+            "voice", "tts", "speak", input={"text": "hello"}
+        )
+        raise AssertionError("expected PluginFacadeError")
+    except core_plugins.PluginFacadeError as exc:
+        assert exc.code == core_plugins.ERROR_INVALID_RESPONSE
+
+
 def test_invoke_plugin_normalizes_remote_error_response(monkeypatch):
     manifest = _manifest("voice", base_url="https://voice.example")
     monkeypatch.setattr(

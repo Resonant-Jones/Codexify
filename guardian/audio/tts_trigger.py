@@ -29,6 +29,17 @@ def _build_tts_context(metadata: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _diagnostic_layer_for_error(code: str) -> str:
+    return {
+        "not_found": "manifest_or_capability_resolution",
+        "ambiguous": "capability_resolution",
+        "timeout": "timeout",
+        "transport_failure": "transport_connectivity",
+        "invalid_response": "plugin_response_validation",
+        "remote_error": "remote_plugin_error",
+    }.get(code, "plugin_invocation")
+
+
 def trigger_tts_if_available(
     text: str, metadata: dict[str, Any] | None = None
 ) -> bool:
@@ -37,16 +48,24 @@ def trigger_tts_if_available(
     context = _build_tts_context(metadata)
 
     try:
-        invoke_capability(
+        response = invoke_capability(
             "tts",
             "speak",
             input_payload,
             context=context,
         )
+        output = response.get("output") if isinstance(response, dict) else None
+        if not isinstance(output, dict):
+            logger.warning(
+                "[TTS] failed layer=downstream_output_handling reason=missing_output_object"
+            )
+            return False
         return True
     except PluginFacadeError as e:
+        layer = _diagnostic_layer_for_error(e.code)
         logger.warning(
-            "[TTS] canonical plugin invocation failed code=%s message=%s",
+            "[TTS] failed layer=%s code=%s message=%s",
+            layer,
             e.code,
             e.message,
         )
