@@ -18,6 +18,9 @@ const getInFlightCompletionTurnIdMock = vi.fn();
 const clearInFlightCompletionTurnIdMock = vi.fn();
 const pollOptionsHistory: any[] = [];
 let pollFnRef: (() => Promise<void>) | null = null;
+const audioPlayMock = vi.fn();
+const audioPauseMock = vi.fn();
+const createdAudioSources: string[] = [];
 
 const liveSubscribersByType = new Map<string, Set<Subscriber>>();
 let unsubscribeCount = 0;
@@ -93,24 +96,29 @@ vi.mock("@/features/chat/components/ChatBubble", () => ({
     onPlay,
     playState,
     playing,
-  }: {
-    message: { id: string; content: string };
-    showPlay?: boolean;
-    onPlay?: () => void;
-    playState?: "idle" | "playing" | "unavailable" | "disabled";
-    playing?: boolean;
-  }) => {
-    const resolved =
+    }: {
+      message: { id: string; content: string };
+      showPlay?: boolean;
+      onPlay?: () => void;
+      playState?: "idle" | "playing" | "pending" | "unavailable" | "disabled";
+      playing?: boolean;
+    }) => {
+      const resolved =
       playState ?? (playing ? "playing" : "idle");
     const label =
       resolved === "playing"
         ? "Playing..."
+        : resolved === "pending"
+          ? "Generating audio"
         : resolved === "unavailable"
           ? "Audio unavailable"
         : resolved === "disabled"
             ? "Voice disabled"
             : "Read Aloud";
-    const disabled = resolved === "unavailable" || resolved === "disabled";
+    const disabled =
+      resolved === "pending" ||
+      resolved === "unavailable" ||
+      resolved === "disabled";
     const ariaLabel = label === "Read Aloud" ? "Read message aloud" : label;
     return (
       <div data-testid={`bubble-${message.id}`}>
@@ -159,6 +167,22 @@ describe("ChatView loop guards", () => {
     pollFnRef = null;
     pollOptionsHistory.length = 0;
     resetLiveSubscribers();
+    createdAudioSources.length = 0;
+    audioPlayMock.mockReset();
+    audioPlayMock.mockResolvedValue(undefined);
+    audioPauseMock.mockReset();
+    function MockAudio(this: any, src?: string) {
+      createdAudioSources.push(String(src ?? ""));
+      this.play = audioPlayMock;
+      this.pause = audioPauseMock;
+      this.onended = null;
+      this.onerror = null;
+    }
+    Object.defineProperty(globalThis, "Audio", {
+      configurable: true,
+      writable: true,
+      value: MockAudio,
+    });
 
     subscribeMock.mockImplementation((eventType: string, handler: Subscriber) => {
       const bucket = liveSubscribersByType.get(eventType) ?? new Set<Subscriber>();
@@ -740,7 +764,7 @@ describe("ChatView loop guards", () => {
     expect(endCompletion).toHaveBeenCalledTimes(1);
   });
 
-  it("classifies voice 404s: message-level unavailable and route-level disable", async () => {
+  it("plays stored ready assistant audio on listen press", async () => {
     const completion = {
       isCompleting: false,
       activeTaskId: null,
@@ -756,73 +780,143 @@ describe("ChatView loop guards", () => {
         role: "assistant",
         content: "assistant message",
         created_at: "2026-03-02T00:00:00.000Z",
+        audio_status: "ready",
+        audio_url: "/api/voice/audio/700",
+        audio_mime_type: "audio/wav",
       },
     ];
 
-    apiPostMock.mockRejectedValueOnce({
-      response: { status: 404, data: { detail: "message_not_found" } },
-    });
-
-    const { rerender } = render(
+    render(
       <ChatView
         threadId={1}
         completionState={completion}
         endCompletion={endCompletion}
         voiceReadAloudEnabled
-        voiceCapabilitiesFailed
       />
     );
 
-    const firstPlay = await screen.findByRole("button", {
+    const playButton = await screen.findByRole("button", {
       name: "Read message aloud",
     });
-    fireEvent.click(firstPlay);
+    fireEvent.click(playButton);
 
     await waitFor(() => {
-      expect(apiPostMock).toHaveBeenCalledTimes(1);
+      expect(audioPlayMock).toHaveBeenCalledTimes(1);
     });
-    const audioUnavailableButton = await screen.findByRole("button", { name: "Audio unavailable" });
-    expect(audioUnavailableButton).toBeDisabled();
+    expect(createdAudioSources).toEqual(["/api/voice/audio/700"]);
+    expect(apiPostMock).not.toHaveBeenCalled();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Audio unavailable" }));
-    expect(apiPostMock).toHaveBeenCalledTimes(1);
+  it("shows loading state while assistant audio is pending", async () => {
+    const completion = {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    };
+    const endCompletion = vi.fn();
 
     mockMessages = [
       {
-        id: 800,
-        thread_id: 2,
+        id: 701,
+        thread_id: 1,
         role: "assistant",
-        content: "assistant message 2",
+        content: "assistant message pending",
         created_at: "2026-03-02T00:01:00.000Z",
+        audio_status: "pending",
       },
     ];
-    apiPostMock.mockRejectedValueOnce({
-      response: { status: 404, data: { detail: "route_not_found" } },
-    });
 
-    rerender(
+    render(
       <ChatView
-        threadId={2}
+        threadId={1}
         completionState={completion}
         endCompletion={endCompletion}
         voiceReadAloudEnabled
-        voiceCapabilitiesFailed
       />
     );
 
-    const secondPlay = await screen.findByRole("button", {
-      name: "Read message aloud",
+    const pendingButton = await screen.findByRole("button", {
+      name: "Generating audio",
     });
-    fireEvent.click(secondPlay);
+    expect(pendingButton).toBeDisabled();
+    expect(audioPlayMock).not.toHaveBeenCalled();
+    expect(apiPostMock).not.toHaveBeenCalled();
+  });
+
+  it("shows assistant audio failure state without breaking the message UI", async () => {
+    const completion = {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    };
+
+    mockMessages = [
+      {
+        id: 702,
+        thread_id: 1,
+        role: "assistant",
+        content: "assistant message failed",
+        created_at: "2026-03-02T00:02:00.000Z",
+        audio_status: "failed",
+        audio_error: "TTS generation failed",
+      },
+    ];
+
+    render(
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={vi.fn()}
+        voiceReadAloudEnabled
+      />
+    );
+
+    expect(await screen.findByText("assistant message failed")).toBeInTheDocument();
+    const failedButton = await screen.findByRole("button", {
+      name: "Audio unavailable",
+    });
+    expect(failedButton).toBeDisabled();
+    expect(audioPlayMock).not.toHaveBeenCalled();
+  });
+
+  it("does not autoplay stored assistant audio", async () => {
+    const completion = {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    };
+
+    mockMessages = [
+      {
+        id: 703,
+        thread_id: 1,
+        role: "assistant",
+        content: "assistant message ready",
+        created_at: "2026-03-02T00:03:00.000Z",
+        audio_status: "ready",
+        audio_url: "/api/voice/audio/703",
+      },
+    ];
+
+    render(
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={vi.fn()}
+        voiceReadAloudEnabled
+        autoReadEnabled
+      />
+    );
 
     await waitFor(() => {
-      expect(apiPostMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText("assistant message ready")).toBeInTheDocument();
     });
-    await waitFor(() => {
-      expect(
-        screen.queryByRole("button", { name: "Read message aloud" })
-      ).not.toBeInTheDocument();
-    });
+    expect(audioPlayMock).not.toHaveBeenCalled();
+    expect(createdAudioSources).toEqual([]);
+    expect(apiPostMock).not.toHaveBeenCalled();
   });
 
   it("clears active completion immediately on task.failed events", async () => {

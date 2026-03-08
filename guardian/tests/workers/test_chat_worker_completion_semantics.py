@@ -282,3 +282,183 @@ def test_duplicate_turn_is_prevented_before_new_completion(monkeypatch):
     )
     assert completed_payload.get("message_id") == 90210
     assert completed_payload.get("selection_source") == "turn_id_dedupe"
+
+
+def test_completion_schedules_background_audio_generation_without_blocking(
+    monkeypatch,
+):
+    published = _stubbed_success_setup(monkeypatch)
+    scheduled: list[dict[str, object]] = []
+    task = _build_task(thread_id=31)
+    monkeypatch.setattr(
+        chat_worker,
+        "_schedule_assistant_message_audio_generation",
+        lambda **kwargs: scheduled.append(dict(kwargs)) or True,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_a, **_k: {
+            "message_id": 777,
+            "assistant_text": "hello from the assistant",
+            "provider": "groq",
+            "model": "moonshotai-kimi-k2-instruct-9050",
+        },
+    )
+
+    chat_worker._run_chat_task(task)
+
+    assert scheduled == [
+        {
+            "thread_id": 31,
+            "message_id": 777,
+            "assistant_text": "hello from the assistant",
+            "task_id": task.task_id,
+            "turn_id": TURN_ID,
+        }
+    ]
+    completed_payload = next(
+        payload
+        for event_type, payload in published
+        if event_type == "task.completed"
+    )
+    assert completed_payload.get("assistant_message_audio_autogenerate") is True
+    assert all(event_type != "task.failed" for event_type, _ in published)
+
+
+def test_audio_generation_schedule_failure_does_not_fail_text_reply(
+    monkeypatch,
+):
+    published = _stubbed_success_setup(monkeypatch)
+
+    def _raise_schedule(**_kwargs):
+        raise RuntimeError("tts scheduling unavailable")
+
+    monkeypatch.setattr(
+        chat_worker,
+        "_schedule_assistant_message_audio_generation",
+        _raise_schedule,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_a, **_k: {
+            "message_id": 778,
+            "assistant_text": "still persist the reply",
+            "provider": "groq",
+            "model": "moonshotai-kimi-k2-instruct-9050",
+        },
+    )
+
+    chat_worker._run_chat_task(_build_task(thread_id=32))
+
+    completed_payload = next(
+        payload
+        for event_type, payload in published
+        if event_type == "task.completed"
+    )
+    assert completed_payload.get("message_id") == 778
+    assert (
+        completed_payload.get("assistant_message_audio_autogenerate") is False
+    )
+    assert all(event_type != "task.failed" for event_type, _ in published)
+
+
+def test_background_audio_generation_persists_ready_asset_with_message_linkage(
+    monkeypatch,
+):
+    saved: list[dict[str, object]] = []
+    failed: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        chat_worker.tts_trigger,
+        "generate_tts_artifact_with_result",
+        lambda *_a, **_k: chat_worker.tts_trigger.TTSAttemptResult(
+            ok=True,
+            plugin_id="chatterbox",
+            base_url="http://tts:8000",
+            provider="qwen3_0.6b",
+            audio_bytes=b"RIFF....WAVE",
+            audio_format="wav",
+            artifact_bytes=len(b"RIFF....WAVE"),
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "save_message_audio_asset",
+        lambda **kwargs: saved.append(dict(kwargs)) or {"id": 1},
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "upsert_message_audio_asset_status",
+        lambda **kwargs: failed.append(dict(kwargs)) or {"id": 1},
+    )
+
+    chat_worker._generate_assistant_message_audio_artifact(
+        thread_id=41,
+        message_id=901,
+        assistant_text="persist me",
+        task_id="task-audio",
+        turn_id=TURN_ID,
+        provider_key="chatterbox",
+        voice="assistant",
+        plugin_base_url="http://tts:8000",
+    )
+
+    assert len(saved) == 1
+    assert saved[0]["message_id"] == 901
+    assert saved[0]["provider"] == "chatterbox"
+    assert saved[0]["voice"] == "assistant"
+    assert saved[0]["audio_bytes"] == b"RIFF....WAVE"
+    assert saved[0]["delivery_variants_json"]["source"] == (
+        "assistant_message_autogenerate"
+    )
+    assert saved[0]["delivery_variants_json"]["thread_id"] == 41
+    assert saved[0]["delivery_variants_json"]["message_id"] == 901
+    assert failed == []
+
+
+def test_background_audio_generation_marks_failed_without_breaking_reply(
+    monkeypatch,
+):
+    failed: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        chat_worker.tts_trigger,
+        "generate_tts_artifact_with_result",
+        lambda *_a, **_k: chat_worker.tts_trigger.TTSAttemptResult(
+            ok=False,
+            plugin_id="chatterbox",
+            base_url="http://tts:8000",
+            failure_kind="plugin_unreachable",
+            error_code="transport_failure",
+            error_message="connection refused",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "save_message_audio_asset",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("ready asset should not be written")
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "upsert_message_audio_asset_status",
+        lambda **kwargs: failed.append(dict(kwargs)) or {"id": 1},
+    )
+
+    chat_worker._generate_assistant_message_audio_artifact(
+        thread_id=42,
+        message_id=902,
+        assistant_text="mark failure",
+        task_id="task-audio-failed",
+        turn_id=TURN_ID,
+        provider_key="chatterbox",
+        voice="assistant",
+        plugin_base_url="http://tts:8000",
+    )
+
+    assert len(failed) == 1
+    assert failed[0]["status"] == "failed"
+    assert failed[0]["delivery_variants_json"]["error"]["code"] == (
+        "transport_failure"
+    )

@@ -43,7 +43,10 @@ class TTSAttemptResult:
     ok: bool = False
     plugin_id: str | None = None
     base_url: str | None = None
+    provider: str | None = None
     audio_source: str | None = None
+    audio_format: str | None = None
+    audio_mime_type: str | None = None
     output_keys: list[str] = field(default_factory=list)
     artifact_path: str | None = None
     artifact_bytes: int | None = None
@@ -61,6 +64,7 @@ class TTSAttemptResult:
     error_code: str | None = None
     error_message: str | None = None
     trail: list[TTSDiagnosticEvent] = field(default_factory=list)
+    audio_bytes: bytes | None = field(default=None, repr=False)
 
     def record(
         self, stage: str, status: str, detail: str | None = None
@@ -88,7 +92,10 @@ class TTSAttemptResult:
             "ok": self.ok,
             "plugin_id": self.plugin_id,
             "base_url": self.base_url,
+            "provider": self.provider,
             "audio_source": self.audio_source,
+            "audio_format": self.audio_format,
+            "audio_mime_type": self.audio_mime_type,
             "output_keys": self.output_keys,
             "artifact_path": self.artifact_path,
             "artifact_bytes": self.artifact_bytes,
@@ -122,6 +129,9 @@ class MaterializedAudio:
     source: str | None
     temporary: bool
     size_bytes: int | None = None
+    audio_bytes: bytes | None = field(default=None, repr=False)
+    audio_format: str = "wav"
+    mime_type: str | None = None
     error_code: str | None = None
     error_message: str | None = None
 
@@ -251,30 +261,42 @@ def _artifact_filename(request_id: str | None, suffix: str) -> str:
 def _preserve_artifact_for_inspection(
     materialized: MaterializedAudio, request_id: str | None, containerized: bool
 ) -> str | None:
-    if not materialized.path:
-        return None
-
     target_dir = _host_inspectable_artifact_dir(containerized)
     if target_dir is None:
         return materialized.path
 
-    source = Path(materialized.path)
-    try:
-        if target_dir in source.parents:
-            return str(source)
-    except ValueError:
-        pass
+    if not materialized.path and not materialized.audio_bytes:
+        return materialized.path
 
-    suffix = source.suffix or ".wav"
+    source = Path(materialized.path) if materialized.path else None
+    if source is not None:
+        try:
+            if target_dir in source.parents:
+                return str(source)
+        except ValueError:
+            pass
+
+    suffix = (source.suffix if source else "") or (
+        ".wav"
+        if materialized.audio_format == "wav"
+        else f".{materialized.audio_format}"
+    )
     target = target_dir / _artifact_filename(request_id, suffix)
     try:
-        shutil.copyfile(source, target)
+        if source is not None:
+            shutil.copyfile(source, target)
+        elif materialized.audio_bytes is not None:
+            target.write_bytes(materialized.audio_bytes)
+        else:
+            return materialized.path
     except OSError:
         return materialized.path
     return str(target)
 
 
 def _materialize_audio_output(output: dict[str, Any]) -> MaterializedAudio:
+    fmt = str(output.get("format") or "wav").lower()
+    mime_type = str(output.get("mime_type") or "").strip() or None
     audio_path = output.get("audio_path")
     if isinstance(audio_path, str) and audio_path.strip():
         if os.path.exists(audio_path):
@@ -287,19 +309,39 @@ def _materialize_audio_output(output: dict[str, Any]) -> MaterializedAudio:
                     path=None,
                     source="audio_path",
                     temporary=False,
+                    audio_format=fmt,
+                    mime_type=mime_type,
                     error_code="empty_audio_file",
                     error_message="audio_path exists but the file is empty",
+                )
+            try:
+                audio_bytes = Path(audio_path).read_bytes()
+            except OSError as exc:
+                return MaterializedAudio(
+                    path=None,
+                    source="audio_path",
+                    temporary=False,
+                    size_bytes=size_bytes,
+                    audio_format=fmt,
+                    mime_type=mime_type,
+                    error_code="audio_path_read_failed",
+                    error_message=str(exc),
                 )
             return MaterializedAudio(
                 path=audio_path,
                 source="audio_path",
                 temporary=False,
                 size_bytes=size_bytes,
+                audio_bytes=audio_bytes,
+                audio_format=fmt,
+                mime_type=mime_type,
             )
         return MaterializedAudio(
             path=None,
             source="audio_path",
             temporary=False,
+            audio_format=fmt,
+            mime_type=mime_type,
             error_code="audio_path_not_found",
             error_message="audio_path does not exist on disk",
         )
@@ -310,12 +352,12 @@ def _materialize_audio_output(output: dict[str, Any]) -> MaterializedAudio:
             path=None,
             source=None,
             temporary=False,
+            audio_format=fmt,
+            mime_type=mime_type,
             error_code="missing_audio_payload",
             error_message="plugin output did not contain audio_path or audio_base64",
         )
 
-    fmt = str(output.get("format") or "wav").lower()
-    suffix = ".wav" if fmt == "wav" else f".{fmt}"
     try:
         audio_bytes = base64.b64decode(audio_base64, validate=True)
     except (ValueError, binascii.Error):
@@ -323,6 +365,8 @@ def _materialize_audio_output(output: dict[str, Any]) -> MaterializedAudio:
             path=None,
             source="audio_base64",
             temporary=False,
+            audio_format=fmt,
+            mime_type=mime_type,
             error_code="invalid_audio_base64",
             error_message="audio_base64 was not valid base64",
         )
@@ -332,22 +376,61 @@ def _materialize_audio_output(output: dict[str, Any]) -> MaterializedAudio:
             source="audio_base64",
             temporary=False,
             size_bytes=0,
+            audio_format=fmt,
+            mime_type=mime_type,
             error_code="empty_audio_payload",
             error_message="audio_base64 decoded to zero bytes",
         )
 
+    return MaterializedAudio(
+        path=None,
+        source="audio_base64",
+        temporary=False,
+        size_bytes=len(audio_bytes),
+        audio_bytes=audio_bytes,
+        audio_format=fmt,
+        mime_type=mime_type,
+    )
+
+
+def _ensure_local_audio_path(
+    materialized: MaterializedAudio,
+) -> MaterializedAudio:
+    if materialized.path and os.path.exists(materialized.path):
+        return materialized
+    if not materialized.audio_bytes:
+        return MaterializedAudio(
+            path=None,
+            source=materialized.source,
+            temporary=False,
+            size_bytes=materialized.size_bytes,
+            audio_bytes=materialized.audio_bytes,
+            audio_format=materialized.audio_format,
+            mime_type=materialized.mime_type,
+            error_code="missing_audio_payload",
+            error_message="No audio bytes were available for local playback",
+        )
+
+    suffix = (
+        ".wav"
+        if materialized.audio_format == "wav"
+        else f".{materialized.audio_format}"
+    )
     with tempfile.NamedTemporaryFile(
         mode="wb",
         suffix=suffix,
         prefix="codexify-tts-",
         delete=False,
     ) as handle:
-        handle.write(audio_bytes)
+        handle.write(materialized.audio_bytes)
         return MaterializedAudio(
             path=handle.name,
-            source="audio_base64",
+            source=materialized.source,
             temporary=True,
-            size_bytes=len(audio_bytes),
+            size_bytes=materialized.size_bytes,
+            audio_bytes=materialized.audio_bytes,
+            audio_format=materialized.audio_format,
+            mime_type=materialized.mime_type,
         )
 
 
@@ -453,6 +536,24 @@ def _resolve_tts_plugin(result: TTSAttemptResult) -> PluginManifest | None:
         f"plugin_id={manifest.id}",
     )
     return manifest
+
+
+def get_selected_tts_plugin_target() -> dict[str, str | None]:
+    result = TTSAttemptResult()
+    manifest = _resolve_tts_plugin(result)
+    if manifest is None:
+        return {
+            "plugin_id": result.plugin_id,
+            "base_url": result.base_url,
+            "error_code": result.error_code,
+            "error_message": result.error_message,
+        }
+    return {
+        "plugin_id": manifest.id,
+        "base_url": manifest.base_url,
+        "error_code": None,
+        "error_message": None,
+    }
 
 
 def _invoke_tts_plugin(
@@ -595,8 +696,11 @@ def _cleanup_materialized_audio(materialized: MaterializedAudio) -> None:
         pass
 
 
-def trigger_tts_with_result(
-    text: str, metadata: dict[str, Any] | None = None
+def generate_tts_artifact_with_result(
+    text: str,
+    metadata: dict[str, Any] | None = None,
+    *,
+    emit_log: bool = True,
 ) -> TTSAttemptResult:
     metadata = metadata or {}
     input_payload = {"text": text, "metadata": metadata}
@@ -613,7 +717,8 @@ def trigger_tts_with_result(
     )
     manifest = _resolve_tts_plugin(result)
     if manifest is None:
-        _emit_attempt_log(result)
+        if emit_log:
+            _emit_attempt_log(result)
         return result
 
     result.record(
@@ -646,7 +751,8 @@ def trigger_tts_with_result(
                 exc.message, exc.details
             ),
         )
-        _emit_attempt_log(result)
+        if emit_log:
+            _emit_attempt_log(result)
         return result
     except Exception as exc:
         result.record("plugin_invoke_failure", "failed", "unexpected_exception")
@@ -656,7 +762,8 @@ def trigger_tts_with_result(
             error_code="unexpected_exception",
             error_message=str(exc),
         )
-        _emit_attempt_log(result)
+        if emit_log:
+            _emit_attempt_log(result)
         return result
 
     output = response.get("output") if isinstance(response, dict) else None
@@ -668,12 +775,19 @@ def trigger_tts_with_result(
             error_code="missing_output_object",
             error_message="Plugin response did not contain an output object",
         )
-        _emit_attempt_log(result)
+        if emit_log:
+            _emit_attempt_log(result)
         return result
 
     result.output_keys = sorted(output.keys())
     materialized = _materialize_audio_output(output)
     result.audio_source = materialized.source
+    result.audio_bytes = materialized.audio_bytes
+    result.audio_format = materialized.audio_format
+    result.audio_mime_type = materialized.mime_type
+    provider = output.get("provider")
+    if isinstance(provider, str) and provider.strip():
+        result.provider = provider.strip()
     if materialized.error_code:
         result.record(
             "output_parsing",
@@ -691,7 +805,8 @@ def trigger_tts_with_result(
             error_code=materialized.error_code,
             error_message=materialized.error_message,
         )
-        _emit_attempt_log(result)
+        if emit_log:
+            _emit_attempt_log(result)
         return result
 
     result.record(
@@ -717,11 +832,53 @@ def trigger_tts_with_result(
             materialized.size_bytes,
         ),
     )
-    selection = _select_playback_command(materialized.path or "")
+    result.ok = True
+    if emit_log:
+        _emit_attempt_log(result)
+    return result
+
+
+def trigger_tts_with_result(
+    text: str, metadata: dict[str, Any] | None = None
+) -> TTSAttemptResult:
+    result = generate_tts_artifact_with_result(
+        text,
+        metadata=metadata,
+        emit_log=False,
+    )
+    if not result.ok:
+        _emit_attempt_log(result)
+        return result
+
+    playback_materialized = _ensure_local_audio_path(
+        MaterializedAudio(
+            path=result.artifact_path,
+            source=result.audio_source,
+            temporary=False,
+            size_bytes=result.artifact_bytes,
+            audio_bytes=result.audio_bytes,
+            audio_format=result.audio_format or "wav",
+            mime_type=result.audio_mime_type,
+        )
+    )
+    if playback_materialized.error_code:
+        result.fail(
+            failure_kind="invalid_payload",
+            failure_stage="audio_materialization",
+            error_code=playback_materialized.error_code,
+            error_message=playback_materialized.error_message,
+        )
+        result.ok = False
+        _emit_attempt_log(result)
+        return result
+
+    if playback_materialized.temporary and playback_materialized.path:
+        result.artifact_path = playback_materialized.path
+    selection = _select_playback_command(playback_materialized.path or "")
     result.playback_command = selection.command_id
     result.playback_command_path = selection.binary_path
-    result.host_audible_playback_plausible = (
-        bool(selection.argv) and not containerized
+    result.host_audible_playback_plausible = bool(selection.argv) and not bool(
+        result.containerized
     )
     result.record(
         "playback_command_selection",
@@ -730,6 +887,7 @@ def trigger_tts_with_result(
     )
 
     if selection.argv is None:
+        result.ok = False
         result.fail(
             failure_kind="no_playback_binary_available",
             failure_stage="playback_command_selection",
@@ -737,15 +895,16 @@ def trigger_tts_with_result(
             error_message="No local playback binary was available",
         )
         _emit_attempt_log(result)
-        _cleanup_materialized_audio(materialized)
+        _cleanup_materialized_audio(playback_materialized)
         return result
 
-    if containerized:
+    if result.containerized:
         result.record(
             "playback_host_audibility",
             "failed",
             "container_local_playback",
         )
+        result.ok = False
         result.fail(
             failure_kind="container_local_playback_not_host_audible",
             failure_stage="playback_host_audibility",
@@ -756,7 +915,7 @@ def trigger_tts_with_result(
             ),
         )
         _emit_attempt_log(result)
-        _cleanup_materialized_audio(materialized)
+        _cleanup_materialized_audio(playback_materialized)
         return result
 
     result.playback_attempted = True
@@ -784,7 +943,7 @@ def trigger_tts_with_result(
             error_message="Playback subprocess timed out",
         )
         _emit_attempt_log(result)
-        _cleanup_materialized_audio(materialized)
+        _cleanup_materialized_audio(playback_materialized)
         return result
     except FileNotFoundError as exc:
         result.record(
@@ -792,6 +951,7 @@ def trigger_tts_with_result(
             "failed",
             "binary_not_found",
         )
+        result.ok = False
         result.fail(
             failure_kind="no_playback_binary_available",
             failure_stage="playback_subprocess_exit_status",
@@ -799,7 +959,7 @@ def trigger_tts_with_result(
             error_message=str(exc),
         )
         _emit_attempt_log(result)
-        _cleanup_materialized_audio(materialized)
+        _cleanup_materialized_audio(playback_materialized)
         return result
     except OSError as exc:
         result.record(
@@ -807,6 +967,7 @@ def trigger_tts_with_result(
             "failed",
             "launch_error",
         )
+        result.ok = False
         result.fail(
             failure_kind="local_audio_device_output_failure",
             failure_stage="playback_subprocess_exit_status",
@@ -814,7 +975,7 @@ def trigger_tts_with_result(
             error_message=str(exc),
         )
         _emit_attempt_log(result)
-        _cleanup_materialized_audio(materialized)
+        _cleanup_materialized_audio(playback_materialized)
         return result
 
     result.playback_return_code = completed.returncode
@@ -826,6 +987,7 @@ def trigger_tts_with_result(
             "failed",
             f"returncode={completed.returncode}",
         )
+        result.ok = False
         result.fail(
             failure_kind=_classify_playback_failure(
                 result.stderr_summary,
@@ -836,7 +998,7 @@ def trigger_tts_with_result(
             error_message="Playback subprocess exited non-zero",
         )
         _emit_attempt_log(result)
-        _cleanup_materialized_audio(materialized)
+        _cleanup_materialized_audio(playback_materialized)
         return result
 
     result.record(
@@ -846,7 +1008,7 @@ def trigger_tts_with_result(
     )
     result.ok = True
     _emit_attempt_log(result)
-    _cleanup_materialized_audio(materialized)
+    _cleanup_materialized_audio(playback_materialized)
     return result
 
 
