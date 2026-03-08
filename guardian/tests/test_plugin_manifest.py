@@ -142,3 +142,18 @@ def test_discovery_uses_canonical_path_only(tmp_path, monkeypatch):
 
     manifests = plugin_loader.load_all_manifests()
     assert [manifest.id for manifest in manifests] == ["voice"]
+
+
+def test_active_tts_manifest_is_valid_and_discoverable():
+    manifest_path = (
+        Path(__file__).resolve().parents[2]
+        / "plugins"
+        / "chatterbox"
+        / "manifest.json"
+    )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = PluginManifest(**payload)
+    assert manifest.supports_operation("tts", "speak")
+
+    discovered_ids = {item.id for item in plugin_loader.load_all_manifests()}
+    assert "chatterbox" in discovered_ids

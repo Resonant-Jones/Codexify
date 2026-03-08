@@ -134,6 +134,20 @@ def test_tts_handles_canonical_facade_failures(monkeypatch):
         ("invalid_response", lambda: FakeResponse(payload={"result": "bad"})),
         (
             "remote_error",
+            lambda: FakeResponse(
+                payload={
+                    "ok": False,
+                    "output": None,
+                    "error": {
+                        "code": "synthesis_failed",
+                        "message": "failed",
+                        "retryable": False,
+                    },
+                }
+            ),
+        ),
+        (
+            "remote_error",
             lambda: FakeResponse(status_code=500, payload={"error": "x"}),
         ),
     ]

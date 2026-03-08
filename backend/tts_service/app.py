@@ -1,15 +1,16 @@
 """Codexify Local TTS Service - Standalone FastAPI application."""
 
+import base64
 import logging
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .backends.base import TTSBackend
 from .backends.huggingface_tts import HuggingFaceTTSBackend
-from .config import TTS_PROVIDERS
+from .config import DEFAULT_PROVIDER, TTS_PROVIDERS
 
 # Configure logging
 logging.basicConfig(
@@ -35,6 +36,33 @@ class TTSRequest(BaseModel):
     speed: Optional[float] = None
     ref_audio: Optional[str] = None
     ref_text: Optional[str] = None
+
+
+class PluginInvokeError(BaseModel):
+    code: str
+    message: str
+    retryable: bool = False
+
+
+class PluginInvokeResponse(BaseModel):
+    ok: bool
+    output: dict | None = None
+    error: PluginInvokeError | None = None
+
+
+class PluginInvokeContext(BaseModel):
+    request_id: str | None = None
+    thread_id: str | None = None
+    user_id: str | None = None
+
+
+class PluginInvokeRequest(BaseModel):
+    protocol_version: str
+    plugin_id: str
+    capability: str
+    action: str
+    input: dict = Field(default_factory=dict)
+    context: PluginInvokeContext | None = None
 
 
 def _resolve_backend(provider: str) -> TTSBackend:
@@ -70,6 +98,23 @@ def _resolve_backend(provider: str) -> TTSBackend:
         return HuggingFaceTTSBackend(model_id=model_id, mode=mode)
     else:
         raise ValueError(f"Unsupported backend type: {backend_type}")
+
+
+def _invoke_error(
+    code: str,
+    message: str,
+    *,
+    retryable: bool = False,
+) -> PluginInvokeResponse:
+    return PluginInvokeResponse(
+        ok=False,
+        output=None,
+        error=PluginInvokeError(
+            code=code,
+            message=message,
+            retryable=retryable,
+        ),
+    )
 
 
 @app.get("/")
@@ -133,3 +178,79 @@ def synthesize_speech(request: TTSRequest):
 def health_check():
     """Kubernetes-style health check."""
     return {"status": "healthy"}
+
+
+@app.post("/invoke", response_model=PluginInvokeResponse)
+def invoke_plugin(request: PluginInvokeRequest):
+    """
+    Canonical service-plugin invocation endpoint.
+    """
+    if request.protocol_version != "1.0":
+        return _invoke_error(
+            "unsupported_protocol_version",
+            f"Unsupported protocol_version: {request.protocol_version}",
+            retryable=False,
+        )
+    if request.capability != "tts" or request.action != "speak":
+        return _invoke_error(
+            "unsupported_operation",
+            f"Unsupported operation: {request.capability}.{request.action}",
+            retryable=False,
+        )
+
+    text = request.input.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return _invoke_error(
+            "invalid_input",
+            "input.text must be a non-empty string",
+            retryable=False,
+        )
+
+    provider = request.input.get("provider") or DEFAULT_PROVIDER
+    voice = request.input.get("voice")
+    speed = request.input.get("speed")
+    ref_audio = request.input.get("ref_audio")
+    ref_text = request.input.get("ref_text")
+
+    logger.info(
+        "Plugin invoke: capability=%s action=%s provider=%s text_len=%d request_id=%s",
+        request.capability,
+        request.action,
+        provider,
+        len(text),
+        request.context.request_id if request.context else None,
+    )
+
+    try:
+        backend = _resolve_backend(provider)
+    except ValueError as exc:
+        logger.error("Plugin invoke backend resolution failed: %s", exc)
+        return _invoke_error(
+            "invalid_provider",
+            str(exc),
+            retryable=False,
+        )
+
+    try:
+        wav_bytes, sampling_rate = backend.synthesize(
+            text=text,
+            voice=voice,
+            speed=speed,
+            ref_audio=ref_audio,
+            ref_text=ref_text,
+        )
+    except Exception as exc:
+        logger.error("Plugin invoke synthesis failed: %s", exc, exc_info=True)
+        return _invoke_error(
+            "synthesis_failed",
+            f"Synthesis failed: {exc}",
+            retryable=False,
+        )
+
+    output = {
+        "provider": provider,
+        "format": "wav",
+        "sampling_rate": sampling_rate,
+        "audio_base64": base64.b64encode(wav_bytes).decode("ascii"),
+    }
+    return PluginInvokeResponse(ok=True, output=output, error=None)
