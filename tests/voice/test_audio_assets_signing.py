@@ -168,3 +168,70 @@ def test_find_cached_asset_ignores_pending_placeholder_rows(monkeypatch):
     )
 
     assert payload is None
+
+
+def test_list_message_audio_assets_supports_postgres_chatlog_db_sessions(
+    monkeypatch,
+):
+    ready_row = SimpleNamespace(
+        id=12,
+        message_id=77,
+        provider="chatterbox",
+        voice="assistant",
+        text_hash="abc123",
+        src_url="/media/audio/messages/77.wav",
+        internal_format="wav",
+        delivery_variants_json={
+            "status": "ready",
+            "source": "assistant_message_autogenerate",
+            "mime_type": "audio/wav",
+        },
+        duration_seconds=1.5,
+        filesize_bytes=256,
+        created_at=datetime(2026, 3, 8, 13, 0, tzinfo=timezone.utc),
+    )
+
+    class _FakeQuery:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def filter(self, *_args, **_kwargs):
+            return self
+
+        def order_by(self, *_args, **_kwargs):
+            return self
+
+        def all(self):
+            return list(self._rows)
+
+    class _FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def query(self, _model):
+            return _FakeQuery([ready_row])
+
+    class _FakePostgresChatLogDB:
+        def _sa_session(self):
+            return _FakeSession()
+
+    monkeypatch.setenv("GUARDIAN_MEDIA_URL_SECRET", "voice-test-secret")
+    monkeypatch.setattr(
+        audio_assets,
+        "_db",
+        lambda: _FakePostgresChatLogDB(),
+    )
+
+    payload = audio_assets.list_message_audio_assets(
+        message_ids=[77],
+        preferred_source="assistant_message_autogenerate",
+    )
+
+    assert 77 in payload
+    assert payload[77]["id"] == 12
+    assert payload[77]["status"] == "ready"
+    assert payload[77]["stream_url"] == "/api/voice/audio/12"
+    assert payload[77]["mime_type"] == "audio/wav"
