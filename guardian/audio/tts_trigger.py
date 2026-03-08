@@ -6,7 +6,7 @@ Discovery-aware trigger for local TTS plugins (if available).
 """
 
 import logging
-from typing import Optional
+from typing import Any
 
 # Configure logging
 logging.basicConfig(
@@ -15,33 +15,42 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-import requests
-
-from guardian.core.plugins import get_plugin_manifest_by_capability
+from guardian.core.plugins import PluginFacadeError, invoke_capability
 
 
-def get_tts_plugin_endpoint() -> Optional[str]:
-    plugin = get_plugin_manifest_by_capability("tts")
-    if plugin:
-        return plugin.entrypoint.rstrip("/") + "/speak"
-    return None
+def _build_tts_context(metadata: dict[str, Any]) -> dict[str, Any]:
+    """
+    Provide canonical plugin context fields when available.
+    """
+    return {
+        "request_id": metadata.get("request_id"),
+        "thread_id": metadata.get("thread_id"),
+        "user_id": metadata.get("user_id"),
+    }
 
 
 def trigger_tts_if_available(
-    text: str, metadata: Optional[dict] = None
+    text: str, metadata: dict[str, Any] | None = None
 ) -> bool:
     metadata = metadata or {}
-    endpoint = get_tts_plugin_endpoint()
-
-    if not endpoint:
-        logger.warning("[TTS] No TTS plugin discovered in manifest.")
-        return False
+    input_payload = {"text": text, "metadata": metadata}
+    context = _build_tts_context(metadata)
 
     try:
-        response = requests.post(
-            endpoint, json={"text": text, "metadata": metadata}, timeout=8
+        invoke_capability(
+            "tts",
+            "speak",
+            input_payload,
+            context=context,
         )
-        return response.status_code == 200
+        return True
+    except PluginFacadeError as e:
+        logger.warning(
+            "[TTS] canonical plugin invocation failed code=%s message=%s",
+            e.code,
+            e.message,
+        )
+        return False
     except Exception as e:
         logger.error("[TTS] Error calling TTS plugin: %s", e)
         return False
