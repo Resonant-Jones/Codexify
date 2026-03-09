@@ -213,7 +213,7 @@ services:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
-      - ./plugins/chatterbox:/app/plugins/chatterbox:ro
+      - ./plugins:/app/plugins:ro
       - ./tests:/app/tests:ro
       - ./pytest.ini:/app/pytest.ini:ro
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
@@ -426,6 +426,7 @@ services:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
+      - ./plugins:/app/plugins:ro
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
       - ./models:/models

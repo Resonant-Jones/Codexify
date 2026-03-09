@@ -26,11 +26,25 @@ def _database_url() -> str:
     )
 
 
-def _db() -> GuardianDB:
+def _db() -> Any:
     shared = chatlog_db or load_guardian_db_from_env()
     if shared is not None:
         return shared
     return GuardianDB(_database_url())
+
+
+def _open_audio_asset_session(db: Any):
+    get_session = getattr(db, "get_session", None)
+    if callable(get_session):
+        return get_session()
+
+    sa_session = getattr(db, "_sa_session", None)
+    if callable(sa_session):
+        return sa_session()
+
+    raise AttributeError(
+        f"{type(db).__name__} does not expose get_session() or _sa_session()"
+    )
 
 
 def compute_text_hash(text: str) -> str:
@@ -161,7 +175,7 @@ def find_cached_asset(
     text_hash: str,
 ) -> dict[str, Any] | None:
     db = _db()
-    with db.get_session() as session:
+    with _open_audio_asset_session(db) as session:
         row = (
             _base_asset_query(
                 session,
@@ -191,7 +205,7 @@ def upsert_message_audio_asset_status(
     normalized_status = _normalize_audio_status(status, src_url=None)
     text_hash = compute_text_hash(text)
     db = _db()
-    with db.get_session() as session:
+    with _open_audio_asset_session(db) as session:
         row = _latest_asset_row(
             session,
             message_id=message_id,
@@ -257,7 +271,7 @@ def save_message_audio_asset(
     )
 
     db = _db()
-    with db.get_session() as session:
+    with _open_audio_asset_session(db) as session:
         row = _latest_asset_row(
             session,
             message_id=message_id,
@@ -333,7 +347,7 @@ def list_message_audio_assets(
         return {}
 
     db = _db()
-    with db.get_session() as session:
+    with _open_audio_asset_session(db) as session:
         rows = (
             session.query(MessageAudioAsset)
             .filter(MessageAudioAsset.message_id.in_(normalized_ids))
@@ -345,30 +359,34 @@ def list_message_audio_assets(
             .all()
         )
 
-    selected: dict[int, tuple[int, MessageAudioAsset]] = {}
-    for row in rows:
-        variants = (
-            row.delivery_variants_json
-            if isinstance(row.delivery_variants_json, dict)
-            else {}
+        selected: dict[int, tuple[int, dict[str, Any]]] = {}
+        preferred_source_key = (
+            preferred_source.strip().lower() if preferred_source else None
         )
-        source = str(variants.get("source") or "").strip().lower()
-        status = _asset_status(row)
-        priority = 0
-        if preferred_source and source == preferred_source.strip().lower():
-            priority += 100
-        if status == "ready":
-            priority += 10
-        elif status == "pending":
-            priority += 5
-        current = selected.get(int(row.message_id))
-        if current is None or priority > current[0]:
-            selected[int(row.message_id)] = (priority, row)
+        for row in rows:
+            variants = (
+                row.delivery_variants_json
+                if isinstance(row.delivery_variants_json, dict)
+                else {}
+            )
+            source = str(variants.get("source") or "").strip().lower()
+            status = _asset_status(row)
+            priority = 0
+            if preferred_source_key and source == preferred_source_key:
+                priority += 100
+            if status == "ready":
+                priority += 10
+            elif status == "pending":
+                priority += 5
+            message_id = int(row.message_id)
+            current = selected.get(message_id)
+            if current is None or priority > current[0]:
+                selected[message_id] = (priority, _serialize_asset(row))
 
-    return {
-        message_id: _serialize_asset(row)
-        for message_id, (_priority, row) in selected.items()
-    }
+        return {
+            message_id: asset
+            for message_id, (_priority, asset) in selected.items()
+        }
 
 
 def _looks_like_remote_url(url: str) -> bool:
