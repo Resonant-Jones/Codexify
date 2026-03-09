@@ -36,6 +36,7 @@ import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import RAGTracePanel from "./panels/RAGTracePanel";
 import SessionRail from "@/components/SessionRail/SessionRail";
+import GuardianThreadApprovalRail from "@/features/chat/components/GuardianThreadApprovalRail";
 import { getWrappedSessionTabId } from "@/state/session/hooks";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
@@ -782,6 +783,21 @@ export function GuardianChat({
     const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
     composer?.focus();
   }, []);
+  const handleTellGuardianWhatToDoInstead = useCallback(
+    ({ suggestedPrompt }: { suggestedPrompt: string }) => {
+      const normalizedPrompt = suggestedPrompt.trim() || "Guardian, do this instead: ";
+      setExternalPrefill((current) => {
+        const existing = (current ?? "").trim();
+        if (!existing) return normalizedPrompt;
+        if (existing.includes(normalizedPrompt)) {
+          return current ?? existing;
+        }
+        return `${existing}\n${normalizedPrompt}`;
+      });
+      focusComposer();
+    },
+    [focusComposer]
+  );
   const handleSessionTabOpenRequest = useCallback(() => {
     if (onSessionTabOpen) {
       onSessionTabOpen();
@@ -2236,6 +2252,12 @@ export function GuardianChat({
         }}
       >
         <div className="flex flex-col p-4">
+          <GuardianThreadApprovalRail
+            className="mb-3"
+            onTellGuardianWhatToDoInstead={handleTellGuardianWhatToDoInstead}
+            reloadSignal={chatReloadVersion}
+            threadId={effectiveThreadId ?? undefined}
+          />
           <Composer
             onSend={handleSendMessage}
             ensureThreadIdForAttachments={ensureThreadIdForAttachments}
