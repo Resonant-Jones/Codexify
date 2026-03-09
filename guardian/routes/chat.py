@@ -302,10 +302,33 @@ def _attach_message_audio_metadata(
             if isinstance(candidate, dict):
                 error = candidate
 
-        item["audio_status"] = asset.get("status") or "unavailable"
-        item["audio_url"] = asset.get("stream_url") or asset.get("src_url")
+        audio_status = (
+            str(asset.get("status") or "unavailable").strip() or "unavailable"
+        )
+        audio_url = (
+            str(asset.get("stream_url") or asset.get("src_url") or "").strip()
+            or None
+        )
+        if audio_status == "ready" and not audio_url:
+            logger.warning(
+                "[chat.messages] assistant_audio_inconsistent thread_id=%s message_id=%s status=ready audio_url_present=false",
+                item.get("thread_id"),
+                message_id,
+            )
+            audio_status = "unavailable"
+
+        item["audio_status"] = audio_status
+        item["audio_url"] = audio_url
         item["audio_mime_type"] = asset.get("mime_type")
         item["audio_duration_ms"] = audio_duration_ms
+        logger.debug(
+            "[chat.messages] assistant_audio thread_id=%s message_id=%s status=%s audio_url_present=%s mime_type=%s",
+            item.get("thread_id"),
+            message_id,
+            item["audio_status"],
+            bool(item["audio_url"]),
+            item["audio_mime_type"],
+        )
         if item["audio_status"] == "failed" and error:
             if isinstance(error, dict):
                 item["audio_error"] = str(

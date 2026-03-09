@@ -1,5 +1,7 @@
 import React from "react";
 
+import BootstrapGate from "./components/bootstrap/BootstrapGate";
+import WelcomeScreen from "./components/bootstrap/WelcomeScreen";
 import DocumentGenModal, {
   DocumentGenInput,
 } from "./components/DocumentGenModal";
@@ -7,6 +9,14 @@ import AppShell from "./components/persona/layout/AppShell";
 import { TopBar } from "./components/TopBar";
 import { Button } from "./components/ui/button";
 import api from "./lib/api";
+import {
+  createCheckingRuntimeBootstrapState,
+  hasDismissedWelcomeScreen,
+  openDockerDesktopDownloadPage,
+  runRuntimeBootstrapPreflight,
+  setWelcomeScreenDismissed,
+  shouldRunRuntimeBootstrap,
+} from "./lib/runtimeBootstrap";
 import EventsConsole from "./pages/EventsConsole";
 import { SharePage } from "./pages/SharePage";
 
@@ -56,6 +66,8 @@ function getShareToken() {
   const match = window.location.pathname.match(/^\/share\/(.+)$/);
   return match ? match[1] : null;
 }
+
+type BootstrapPhase = "bootstrap" | "welcome" | "unlocked";
 
 function DevTuneGate() {
   const [Mod, setMod] = React.useState<React.ComponentType | null>(null);
@@ -108,10 +120,26 @@ function DevTuneGate() {
 }
 
 export default function App() {
+  const tuneRoute = TUNE_ENABLED && isTuneRoute();
+  const eventsRoute = isEventsRoute();
+  const shareRoute = isShareRoute();
+  const shareToken = shareRoute ? getShareToken() : null;
+  const bootstrapEnabled =
+    shouldRunRuntimeBootstrap() &&
+    !tuneRoute &&
+    !eventsRoute &&
+    !(shareRoute && !!shareToken);
   const [docGenOpen, setDocGenOpen] = React.useState(false);
   const [docGenDraft, setDocGenDraft] = React.useState<DocumentGenInput | null>(
     null
   );
+  const [bootstrapState, setBootstrapState] = React.useState(
+    createCheckingRuntimeBootstrapState
+  );
+  const [bootstrapPhase, setBootstrapPhase] = React.useState<BootstrapPhase>(
+    () => (bootstrapEnabled ? "bootstrap" : "unlocked")
+  );
+  const bootstrapRunRef = React.useRef(0);
 
   const handleDocGenSubmit = React.useCallback(
     async (input: DocumentGenInput) => {
@@ -223,10 +251,79 @@ export default function App() {
       );
   }, []);
 
-  if (TUNE_ENABLED && isTuneRoute()) {
+  const runBootstrapPreflight = React.useCallback(async () => {
+    if (!bootstrapEnabled) {
+      setBootstrapPhase("unlocked");
+      return;
+    }
+
+    const runId = ++bootstrapRunRef.current;
+    setBootstrapPhase("bootstrap");
+    setBootstrapState(createCheckingRuntimeBootstrapState());
+    const nextState = await runRuntimeBootstrapPreflight();
+
+    if (runId !== bootstrapRunRef.current) return;
+
+    setBootstrapState(nextState);
+    if (nextState.status === "ready" && hasDismissedWelcomeScreen()) {
+      setBootstrapPhase("unlocked");
+    }
+  }, [bootstrapEnabled]);
+
+  React.useEffect(() => {
+    if (!bootstrapEnabled) return;
+    void runBootstrapPreflight();
+  }, [bootstrapEnabled, runBootstrapPreflight]);
+
+  const handleBootstrapContinue = React.useCallback(() => {
+    if (hasDismissedWelcomeScreen()) {
+      setBootstrapPhase("unlocked");
+      return;
+    }
+    setBootstrapPhase("welcome");
+  }, []);
+
+  const handleWelcomeEnter = React.useCallback(() => {
+    setWelcomeScreenDismissed(true);
+    setBootstrapPhase("unlocked");
+  }, []);
+
+  const handleInstallDocker = React.useCallback(async () => {
+    const opened = await openDockerDesktopDownloadPage();
+    if (opened) return;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("cfy:toast", {
+          detail: {
+            kind: "error",
+            message: "Unable to open the Docker Desktop download page.",
+          },
+        })
+      );
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
+  const startupOverlay =
+    !startupLocked ? null : bootstrapPhase === "welcome" ? (
+      <WelcomeScreen onEnter={handleWelcomeEnter} />
+    ) : (
+      <BootstrapGate
+        state={bootstrapState}
+        onRetry={() => {
+          void runBootstrapPreflight();
+        }}
+        onInstallDocker={handleInstallDocker}
+        onContinue={handleBootstrapContinue}
+      />
+    );
+
+  if (tuneRoute) {
     return <DevTuneGate />;
   }
-  if (isEventsRoute()) {
+  if (eventsRoute) {
     return (
       <div style={{ minHeight: "100svh", display: "flex", flexDirection: "column" }}>
         <TopBar />
@@ -236,33 +333,36 @@ export default function App() {
       </div>
     );
   }
-  if (isShareRoute()) {
-    const token = getShareToken();
-    if (token) {
-      return <SharePage token={token} />;
+  if (shareRoute) {
+    if (shareToken) {
+      return <SharePage token={shareToken} />;
     }
   }
   return (
     <>
-      <AppShell />
-      <div className="fixed bottom-6 right-6 z-[1200]">
-        <Button
-          type="button"
-          variant="ghost"
-          className="rounded-full px-4 shadow"
-          onClick={() => setDocGenOpen(true)}
-          aria-haspopup="dialog"
-          aria-expanded={docGenOpen}
-        >
-          Generate Doc
-        </Button>
-      </div>
-      <DocumentGenModal
-        open={docGenOpen}
-        onOpenChange={setDocGenOpen}
-        onSubmit={handleDocGenSubmit}
-        initialValues={docGenDraft ?? undefined}
-      />
+      <AppShell startupLocked={startupLocked} startupOverlay={startupOverlay} />
+      {!startupLocked && (
+        <>
+          <div className="fixed bottom-6 right-6 z-[1200]">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-full px-4 shadow"
+              onClick={() => setDocGenOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={docGenOpen}
+            >
+              Generate Doc
+            </Button>
+          </div>
+          <DocumentGenModal
+            open={docGenOpen}
+            onOpenChange={setDocGenOpen}
+            onSubmit={handleDocGenSubmit}
+            initialValues={docGenDraft ?? undefined}
+          />
+        </>
+      )}
     </>
   );
 }

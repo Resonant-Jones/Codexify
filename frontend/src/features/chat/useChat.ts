@@ -80,6 +80,12 @@ const normalizeSrcUrl = (src: any): string => {
   return src.trim();
 };
 
+const normalizeAudioUrl = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
+
 const normalizeAttachments = (raw: any): ChatAttachment[] => {
   const base = raw?.message && typeof raw.message === "object" ? raw.message : raw;
 
@@ -184,7 +190,7 @@ const normalizeMessage = (raw: any, fallbackThreadId?: number): ChatMessage | nu
     attachments: attachments.length ? attachments : undefined,
     turn_id: turnId,
     audio_status: audioStatus,
-    audio_url: typeof audioUrlRaw === "string" ? audioUrlRaw : null,
+    audio_url: normalizeAudioUrl(audioUrlRaw),
     audio_mime_type:
       typeof audioMimeTypeRaw === "string" ? audioMimeTypeRaw : null,
     audio_duration_ms: Number.isFinite(Number(audioDurationRaw))
@@ -377,12 +383,17 @@ export function useChat(options: UseChatOptions = {}) {
       const parsed = parseMessagesResponse(res?.data);
       if (parsed) {
         const [page, tot] = parsed;
+        const normalizedPage = page
+          .map((message) => normalizeMessage(message, threadId))
+          .filter((message): message is ChatMessage => Boolean(message));
         console.debug(`[useChat] Loaded ${page.length} messages for thread ${threadId} (total: ${tot})`);
         setTotal((prev) => (prev === tot ? prev : tot));
         const nextHasMore = offset + page.length < tot;
         setHasMore((prev) => (prev === nextHasMore ? prev : nextHasMore));
         setMessages((prev) => {
-          const merged = append ? mergeMessagePages(prev, page) : page;
+          const merged = append
+            ? mergeMessagePages(prev, normalizedPage)
+            : normalizedPage;
           const next = collapseAssistantTurnDuplicates(merged);
           return equalMessageLists(prev, next) ? prev : next;
         });
