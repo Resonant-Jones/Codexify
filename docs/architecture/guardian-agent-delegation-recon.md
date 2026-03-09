@@ -16,9 +16,11 @@ Requested-source gaps found during recon:
 
 `Verified:` Codexify already has several seams that matter for a future delegation loop: a queue-coupled chat completion path, a direct tools compatibility layer, a cron scheduler/executor path, Postgres-backed thread/message/project storage, Redis-backed task events, and documented SSE/websocket/event-feed surfaces that sit alongside the core chat loop rather than replacing it. (`docs/architecture/system-overview.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/modules-and-ownership.md`, `docs/architecture/data-and-storage.md`, `README.md`)
 
-`Verified (code anchor):` The repo also contains adjacent delegation-specific scaffolding: codex lineage enforcement, agent deployment/run persistence, agent event fanout onto task-event streams, CLI adapters for Codex and Claude Code, confidence scoring helpers, and mutating-step worker primitives. (`guardian/routes/codex.py`, `guardian/codex/lineage.py`, `guardian/routes/agent_orchestration.py`, `guardian/agents/store.py`, `guardian/agents/events.py`, `guardian/agents/adapters/codex.py`, `guardian/agents/adapters/claudecode.py`, `guardian/agents/confidence.py`, `guardian/workers/agent_worker.py`) `Inference:` These seams are enough to design a grounded delegation architecture. `Unverified:` They do not yet establish a complete Guardian-driven runtime loop that plans in-thread, delegates to an external coding agent, handles clarifications, enforces user escalation gates, and returns results as a finished shipped path.
+`Verified (code anchor):` The repo also contains adjacent delegation-specific scaffolding: codex lineage enforcement, agent deployment/run persistence, agent event fanout onto task-event streams, CLI adapters for Codex and Claude Code, confidence scoring helpers, and mutating-step worker primitives. (`guardian/routes/codex.py`, `guardian/codex/lineage.py`, `guardian/routes/agent_orchestration.py`, `guardian/agents/store.py`, `guardian/agents/events.py`, `guardian/agents/adapters/codex.py`, `guardian/agents/adapters/claudecode.py`, `guardian/agents/confidence.py`, `guardian/workers/agent_worker.py`)
 
-## 2. Current Runtime Reality (Verified)
+`Inference:` These seams are sufficient to plan a grounded delegation architecture, but they do not yet prove a complete Guardian-driven runtime loop that plans in-thread, delegates to an external coding agent, handles clarifications, enforces user escalation gates, and returns results as a finished shipped path.
+
+## 2. Current Runtime Reality (Doc-Verified + Code-Verified)
 
 ### Chat Completion Loop
 
@@ -44,7 +46,8 @@ Requested-source gaps found during recon:
 
 - `Verified:` Codexify exposes multiple transport surfaces: durable outbox SSE at `/api/events`, Redis task-event SSE at `/api/tasks/{task_id}/events`, sync SSE, and websocket RPC. The requested docs present these as separate subsystems rather than a single universal communication mechanism. (`README.md`, `docs/architecture/system-overview.md`, `docs/architecture/modules-and-ownership.md`, `docs/architecture/data-and-storage.md`)
 - `Verified (code anchor):` `/api/events` polls the outbox, `/api/tasks/{task_id}/events` streams Redis task events until terminal state, `/api/sync/subscribe` streams the in-process sync bus, and `/api/ws/rpc` provides authenticated RPC with audit logging. (`guardian/guardian_api.py`, `guardian/sync/api.py`, `guardian/routes/websocket.py`)
-- `Verified (code anchor):` Agent run events are already fanned out onto the existing task-event stream keyed by `run_id`, which creates a direct compatibility seam between future delegation runs and the existing `/api/tasks/{task_id}/events` subscriber model. (`guardian/agents/events.py`, `guardian/routes/agent_orchestration.py`)
+- `Verified (code anchor):` Agent run events are already fanned out onto the existing task-event stream keyed by `run_id`. (`guardian/agents/events.py`, `guardian/routes/agent_orchestration.py`)
+- `Inference:` That event fanout creates a compatibility seam between future delegation runs and the existing `/api/tasks/{task_id}/events` subscriber model, but it does not by itself prove a complete canonical runtime contract.
 
 ### Identity, Persona, and IDDB Boundaries Relevant to Delegation
 
@@ -57,8 +60,8 @@ Requested-source gaps found during recon:
 
 - `Inference:` "Codexify uses SSE and queued tasks" is too broad. The completion path is queue-coupled, but the backend also exposes a durable outbox SSE feed, Redis task-event SSE, sync SSE, websocket RPC, direct tool execution, cron job execution, and command-bus invocation as distinct mechanisms. (`docs/architecture/system-overview.md`, `docs/architecture/modules-and-ownership.md`, `README.md`, `guardian/guardian_api.py`, `guardian/routes/websocket.py`, `guardian/sync/api.py`)
 - `Unverified:` "Guardian can already delegate to Codex/Claude Code and receive results through the same mechanism" is not an established runtime fact. `Verified (code anchor):` the repo has agent deployment/run routes, CLI adapters, confidence helpers, event publishers, and worker primitives. `Inference:` that is scaffolding, not proof of a finished in-thread delegation loop. (`guardian/routes/agent_orchestration.py`, `guardian/agents/adapters/codex.py`, `guardian/agents/adapters/claudecode.py`, `guardian/agents/events.py`, `guardian/workers/agent_worker.py`, `docs/guardian/agent-orchestration.md`, `docs/guardian/agent-runtime-onboarding.md`, `docker-compose.yml`)
-- `Verified (code anchor):` There is a delegated-agent confidence helper with `0.85`, `0.70`, and `0.55` cutoffs in `guardian/agents/confidence.py`. `Inference:` that is agent-specific scaffolding, not a canonical project-wide user-escalation policy, because none of the requested docs establish a repo-wide threshold. (`guardian/agents/confidence.py`)
-- `Verified (code anchor):` Flow routes exist and currently keep flows and run indexes in process memory. `Inference:` that is not enough evidence to treat flow builder as the current durable delegation backbone. `Unverified:` canonical production use of flow builder for Guardian delegation. (`guardian/routes/flows.py`)
+ - `Verified (code anchor):` There is a delegated-agent confidence helper with `0.85`, `0.70`, and `0.55` cutoffs in `guardian/agents/confidence.py`. `Inference:` These values should be treated as implementation-local scaffolding defaults for delegated-agent handling, not as canonical project-wide user-escalation governance, because none of the requested docs establish a repo-wide threshold. (`guardian/agents/confidence.py`)
+ - `Verified (code anchor):` Flow routes exist and currently keep flows and run indexes in process memory. `Inference:` That is not durable enough to serve as the canonical delegation backbone; at most it is an experimental orchestration surface unless persistence, approval state, and recovery semantics are added. `Unverified:` canonical production use of flow builder for Guardian delegation. (`guardian/routes/flows.py`)
 - `Inference:` Agent-orchestration APIs and CLI adapters should be treated as adjacent seams, not proof of a completed chat-driven delegation system, because current docs describe plans/deployments/runs and event streaming but also explicitly note that real delegated execution may still be scaffolded rather than fully wired. (`docs/guardian/agent-orchestration.md`, `docs/guardian/agent-runtime-onboarding.md`, `guardian/routes/agent_orchestration.py`)
 - `Unverified:` Claims that depend on `dev-mode-extended-spec.md` or `Thread-Artifact-Lineage.md` cannot be treated as established in this recon because those requested files were absent from the workspace.
 
@@ -105,7 +108,7 @@ Requested-source gaps found during recon:
 - `Inference:` Add explicit clarification event types such as `clarification.requested`, `clarification.answered`, and `clarification.timeout`.
 - `Inference:` Add a Guardian-side policy that can answer low-risk clarification questions automatically only when the answer is already grounded in the stored thread snapshot and approved context pack.
 - `Open design choices`
-- `Inference:` Decide whether unresolved clarifications become regular thread messages, a separate approval queue, or both.
+- `Inference:` Decide whether unresolved clarifications become regular thread messages, a separate approval queue, or both, and keep that decision distinct from broader persona/profile scope expansion.
 
 ### Escalation-to-User Gate
 
@@ -260,7 +263,9 @@ DelegationResultEnvelope {
 
 ## 6. Confidence and Escalation Policy Recommendation
 
-`Verified (code anchor):` The repo already contains delegated-agent confidence bands at `0.85`, `0.70`, and `0.55`. (`guardian/agents/confidence.py`) `Inference:` Reuse those bands as a starting point for delegation policy, but elevate them into explicit user-facing governance instead of treating them as hidden implementation detail.
+`Verified (code anchor):` The repo already contains delegated-agent confidence bands at `0.85`, `0.70`, and `0.55`. (`guardian/agents/confidence.py`)
+
+`Inference:` Reuse those bands as an initial policy starting point for delegation, but treat them as implementation scaffolding defaults rather than canonical governance until Codexify explicitly ratifies a user-facing escalation policy.
 
 ### Recommended Confidence Bands
 
@@ -389,6 +394,7 @@ DelegationResultEnvelope {
 - `[Must decide before implementation]` What is the minimal allowed-action set for Phase 1, and which actions are explicitly out of scope until later phases?
 - `[Must decide before implementation]` What user interaction model should approvals use: one-shot approval, per-run approval, per-deployment unlock, or per-action approval?
 - `[Must decide before implementation]` Should delegated clarifications appear as regular thread messages, a separate approval queue, or both?
+- `[Must decide before implementation]` Should delegated runs inherit only the active persona/profile already in scope for the thread, or be allowed to request broader project identity context through an explicit approval path?
 - `[Can defer until later]` Should successful delegated results become codex entries, generated documents, or agent-run artifacts first?
 - `[Can defer until later]` Should continuation summaries be delivered through `/api/events`, `/api/tasks/{task_id}/events`, `/api/agents/runs/{run_id}/events`, or a canonical mirror strategy?
 - `[Can defer until later]` Should flow builder eventually orchestrate multi-step delegation, or remain a separate experimental surface?
