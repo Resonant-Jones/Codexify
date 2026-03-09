@@ -61,6 +61,10 @@ def _get_pipeline(model_id: str):
     """
     device = _detect_device()
     logger.info(f"Loading TTS model {model_id} on device: {device}")
+    offline = (
+        os.environ.get("HF_HUB_OFFLINE") == "1"
+        or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+    )
 
     # Qwen3-TTS models ship a custom architecture (`qwen3_tts`).
     # In practice, `transformers.pipeline(..., trust_remote_code=True)` can still fail to
@@ -74,22 +78,35 @@ def _get_pipeline(model_id: str):
         logger.info(
             f"Using qwen-tts runtime for {model_id} (device_map={device_map}, dtype={dtype})"
         )
-        return Qwen3TTSModel.from_pretrained(
-            model_id,
-            device_map=device_map,
-            dtype=dtype,
-        )
+        load_kwargs = {
+            "device_map": device_map,
+            "dtype": dtype,
+            "low_cpu_mem_usage": True,
+            "local_files_only": offline,
+        }
+        try:
+            return Qwen3TTSModel.from_pretrained(
+                model_id,
+                **load_kwargs,
+            )
+        except TypeError as exc:
+            logger.warning(
+                "qwen-tts runtime rejected low-memory preload kwargs for %s; retrying with compatibility fallback: %s",
+                model_id,
+                exc,
+            )
+            load_kwargs.pop("low_cpu_mem_usage", None)
+            load_kwargs.pop("local_files_only", None)
+            return Qwen3TTSModel.from_pretrained(
+                model_id,
+                **load_kwargs,
+            )
 
     # Non-Qwen models: use transformers pipeline.
     if hf_pipeline is None:
         raise RuntimeError(
             "transformers.pipeline is unavailable in this runtime."
         ) from _PIPELINE_IMPORT_ERROR
-
-    offline = (
-        os.environ.get("HF_HUB_OFFLINE") == "1"
-        or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
-    )
 
     try:
         pipe = hf_pipeline(

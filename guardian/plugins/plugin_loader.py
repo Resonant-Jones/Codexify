@@ -29,19 +29,34 @@ def load_all_manifests() -> List[PluginManifest]:
     Returns:
         List of validated PluginManifest objects
     """
-    manifests: List[PluginManifest] = []
+    manifests: List[PluginManifest | None] = []
+    manifest_indexes_by_id: dict[str, int] = {}
+    duplicate_ids: set[str] = set()
 
     if not PLUGIN_DIR.exists():
         logger.warning(
             "[plugin_loader] Plugin directory not found: %s", PLUGIN_DIR
         )
-        return manifests
+        return []
 
-    for manifest_file in PLUGIN_DIR.glob("*/manifest.json"):
+    # Canonical discovery path only: <repo_root>/plugins/<plugin_id>/manifest.json
+    for manifest_file in sorted(PLUGIN_DIR.glob("*/manifest.json")):
         try:
             with manifest_file.open() as f:
                 data = json.load(f)
                 manifest = PluginManifest(**data)
+                existing_index = manifest_indexes_by_id.get(manifest.id)
+                if existing_index is not None:
+                    duplicate_ids.add(manifest.id)
+                    manifests[existing_index] = None
+                    logger.error(
+                        "[plugin_loader] Duplicate plugin id rejected: %s "
+                        "(conflict includes %s)",
+                        manifest.id,
+                        manifest_file,
+                    )
+                    continue
+                manifest_indexes_by_id[manifest.id] = len(manifests)
                 manifests.append(manifest)
                 logger.debug(
                     "[plugin_loader] Loaded plugin: %s (%s)",
@@ -59,8 +74,17 @@ def load_all_manifests() -> List[PluginManifest]:
                 e,
             )
 
-    logger.info("[plugin_loader] Loaded %d plugin(s)", len(manifests))
-    return manifests
+    if duplicate_ids:
+        logger.error(
+            "[plugin_loader] Rejected duplicate plugin id(s): %s",
+            ", ".join(sorted(duplicate_ids)),
+        )
+
+    loaded_manifests = [
+        manifest for manifest in manifests if manifest is not None
+    ]
+    logger.info("[plugin_loader] Loaded %d plugin(s)", len(loaded_manifests))
+    return loaded_manifests
 
 
 def get_plugin_by_id(plugin_id: str) -> PluginManifest | None:
