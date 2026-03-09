@@ -36,6 +36,7 @@ import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import RAGTracePanel from "./panels/RAGTracePanel";
 import SessionRail from "@/components/SessionRail/SessionRail";
+import GuardianApprovalInbox from "@/features/chat/components/GuardianApprovalInbox";
 import { getWrappedSessionTabId } from "@/state/session/hooks";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
@@ -2221,6 +2222,13 @@ export function GuardianChat({
             New thread ready. Start typing below.
           </div>
         )}
+      </div>
+
+      <div className="mx-4 mt-2 shrink-0">
+        <GuardianApprovalInbox
+          className="max-h-[22rem] overflow-y-auto"
+          threadId={effectiveThreadId ?? undefined}
+        />
       </div>
 
       {/* Composer rail - Footer workspace island */}
