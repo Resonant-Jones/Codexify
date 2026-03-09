@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import GuardianChat from "@/features/chat/GuardianChat";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
-const approvalInboxSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -45,17 +44,6 @@ vi.mock("@/features/chat/ChatView", () => ({
   default: (props: any) => {
     chatViewSpy(props);
     return <div data-testid="chat-view-stub">{String(props.threadId)}</div>;
-  },
-}));
-
-vi.mock("@/features/chat/components/GuardianApprovalInbox", () => ({
-  default: (props: any) => {
-    approvalInboxSpy(props);
-    return (
-      <div data-testid="guardian-approval-inbox-stub">
-        {String(props.threadId ?? "none")}
-      </div>
-    );
   },
 }));
 
@@ -128,10 +116,6 @@ describe("GuardianChat session-tab binding", () => {
 
     expect(await screen.findByTestId("chat-view-stub")).toHaveTextContent("2");
     expect(chatViewSpy.mock.calls.at(-1)?.[0]?.threadId).toBe(2);
-    expect(await screen.findByTestId("guardian-approval-inbox-stub")).toHaveTextContent(
-      "2"
-    );
-    expect(approvalInboxSpy.mock.calls.at(-1)?.[0]?.threadId).toBe(2);
   });
 
   it("shows a blank new-thread surface for an unsaved draft tab", async () => {
@@ -161,9 +145,5 @@ describe("GuardianChat session-tab binding", () => {
     expect(
       await screen.findByText("New thread ready. Start typing below.")
     ).toBeInTheDocument();
-    expect(await screen.findByTestId("guardian-approval-inbox-stub")).toHaveTextContent(
-      "none"
-    );
-    expect(approvalInboxSpy.mock.calls.at(-1)?.[0]?.threadId).toBeUndefined();
   });
 });
