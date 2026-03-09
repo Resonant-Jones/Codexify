@@ -173,5 +173,7 @@ def test_active_tts_manifest_origin_matches_runtime_compose_mapping():
 
     assert "tts:" in compose_text
     assert 'ports: ["8000:8000"]' in compose_text
-    assert "./plugins/chatterbox:/app/plugins/chatterbox:ro" in compose_text
+    assert compose_text.count("./plugins:/app/plugins:ro") >= 2
+    assert "./plugins/chatterbox:/app/plugins/chatterbox:ro" not in compose_text
+    assert "worker-chat:" in compose_text
     assert manifest.base_url == "http://tts:8000"
