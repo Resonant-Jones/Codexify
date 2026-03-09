@@ -39,6 +39,7 @@ from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue, enqueue_chat_embed
 from guardian.queue.turn_lock import acquire_turn_lock, release_turn_lock
 from guardian.tasks.types import ChatCompletionTask
+from guardian.voice.audio_assets import list_message_audio_assets
 
 logger = logging.getLogger(__name__)
 COMPLETION_SERVICE_UNAVAILABLE_MESSAGE = (
@@ -239,6 +240,84 @@ def _estimate_tokens(text: Optional[str]) -> int:
     except Exception:
         return 0
     return max(1, length // 4)
+
+
+def _attach_message_audio_metadata(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    assistant_message_ids = [
+        _coerce_message_id(item.get("id"))
+        for item in items
+        if str(item.get("role") or "").strip().lower() == "assistant"
+    ]
+    normalized_ids = [
+        message_id for message_id in assistant_message_ids if message_id
+    ]
+    if not normalized_ids:
+        return items
+
+    try:
+        audio_assets = list_message_audio_assets(
+            message_ids=normalized_ids,
+            preferred_source="assistant_message_autogenerate",
+        )
+    except Exception:
+        logger.warning(
+            "[chat.messages] failed to load message audio assets",
+            exc_info=True,
+        )
+        audio_assets = {}
+
+    for item in items:
+        if str(item.get("role") or "").strip().lower() != "assistant":
+            continue
+        message_id = _coerce_message_id(item.get("id"))
+        if message_id is None:
+            continue
+        asset = audio_assets.get(message_id)
+        if not asset:
+            item["audio_status"] = "unavailable"
+            item["audio_url"] = None
+            item["audio_mime_type"] = None
+            item["audio_duration_ms"] = None
+            continue
+
+        duration_seconds = asset.get("duration_seconds")
+        try:
+            audio_duration_ms = (
+                int(float(duration_seconds) * 1000)
+                if duration_seconds is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            audio_duration_ms = None
+        delivery_variants = (
+            asset.get("delivery_variants_json")
+            if isinstance(asset.get("delivery_variants_json"), dict)
+            else {}
+        )
+        error = asset.get("error")
+        if not error and isinstance(delivery_variants, dict):
+            candidate = delivery_variants.get("error")
+            if isinstance(candidate, dict):
+                error = candidate
+
+        item["audio_status"] = asset.get("status") or "unavailable"
+        item["audio_url"] = asset.get("stream_url") or asset.get("src_url")
+        item["audio_mime_type"] = asset.get("mime_type")
+        item["audio_duration_ms"] = audio_duration_ms
+        if item["audio_status"] == "failed" and error:
+            if isinstance(error, dict):
+                item["audio_error"] = str(
+                    error.get("message")
+                    or error.get("code")
+                    or "Audio unavailable"
+                )
+            else:
+                item["audio_error"] = str(error)
+        elif "audio_error" in item:
+            item.pop("audio_error", None)
+    return items
 
 
 def _emit_thread_update_event(
@@ -1225,6 +1304,7 @@ def chat_list_messages(
                 if isinstance(turn_id_raw, str) and turn_id_raw.strip():
                     item["turn_id"] = turn_id_raw.strip()
 
+    normalized_items = _attach_message_audio_metadata(normalized_items)
     total = chatlog_db.count_messages(thread_id)
     return {"ok": True, "total": total, "messages": normalized_items}
 

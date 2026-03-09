@@ -395,6 +395,45 @@ class TestChatMessagesGet:
         assert data["messages"] == []
         assert data["total"] == 0
 
+    def test_get_messages_includes_message_audio_metadata(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {
+                "id": 55,
+                "thread_id": 1,
+                "role": "assistant",
+                "content": "Hello with audio",
+                "created_at": "2026-03-07T12:00:00.000Z",
+            }
+        ]
+        mock_db.count_messages.return_value = 1
+        monkeypatch.setattr(
+            "guardian.routes.chat.list_message_audio_assets",
+            lambda **_kwargs: {
+                55: {
+                    "id": 99,
+                    "status": "ready",
+                    "stream_url": "/api/voice/audio/99",
+                    "src_url": "/media/audio/messages/55.wav",
+                    "mime_type": "audio/wav",
+                    "duration_seconds": 1.25,
+                    "delivery_variants_json": {
+                        "source": "assistant_message_autogenerate"
+                    },
+                }
+            },
+        )
+
+        response = test_client.get("/chat/1/messages")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["messages"][0]["audio_status"] == "ready"
+        assert payload["messages"][0]["audio_url"] == "/api/voice/audio/99"
+        assert payload["messages"][0]["audio_mime_type"] == "audio/wav"
+        assert payload["messages"][0]["audio_duration_ms"] == 1250
+
 
 class TestChatCompletePost:
     """Tests for POST /chat/{thread_id}/complete endpoint."""

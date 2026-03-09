@@ -1,8 +1,17 @@
 {
+  "schema_version": "1.0",
   "id": "chatterbox",
   "name": "Chatterbox TTS",
-  "entrypoint": "http://localhost:7101",
-  "permissions": [],
-  "capabilities": ["tts"],
-  "ui_panel": false
+  "version": "1.0.0",
+  "description": "Local TTS plugin service",
+  "base_url": "http://tts:8000",
+  "capabilities": [
+    {
+      "id": "tts",
+      "actions": ["speak"]
+    }
+  ],
+  "extensions": {
+    "service": "backend.tts_service.app"
+  }
 }

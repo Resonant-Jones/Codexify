@@ -1,5 +1,7 @@
 """TTS service configuration."""
 
+import os
+
 # Provider registry
 # Each provider specifies a backend type and model configuration.
 # "mode" controls the synthesis path:
@@ -36,4 +38,4 @@ TTS_PROVIDERS = {
     },
 }
 
-DEFAULT_PROVIDER = "qwen3_1.7b"
+DEFAULT_PROVIDER = os.getenv("CODEXIFY_TTS_SERVICE_PROVIDER", "qwen3_0.6b")

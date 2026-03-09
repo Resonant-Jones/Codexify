@@ -23,6 +23,11 @@ export type ChatMessage = {
   created_at: string;
   attachments?: ChatAttachment[];
   turn_id?: string | null;
+  audio_status?: "unavailable" | "pending" | "ready" | "failed";
+  audio_url?: string | null;
+  audio_mime_type?: string | null;
+  audio_duration_ms?: number | null;
+  audio_error?: string | null;
 };
 
 function isInternalPollBackpressureError(error: any): boolean {
@@ -153,6 +158,18 @@ const normalizeMessage = (raw: any, fallbackThreadId?: number): ChatMessage | nu
   const createdAt = createdAtRaw ? String(createdAtRaw) : "";
   const attachments = normalizeAttachments(raw);
   const turnId = readTurnId(raw);
+  const audioStatusRaw = base.audio_status ?? base.audioStatus;
+  const audioStatus =
+    audioStatusRaw === "pending" ||
+    audioStatusRaw === "ready" ||
+    audioStatusRaw === "failed" ||
+    audioStatusRaw === "unavailable"
+      ? audioStatusRaw
+      : undefined;
+  const audioUrlRaw = base.audio_url ?? base.audioUrl;
+  const audioMimeTypeRaw = base.audio_mime_type ?? base.audioMimeType;
+  const audioDurationRaw = base.audio_duration_ms ?? base.audioDurationMs;
+  const audioErrorRaw = base.audio_error ?? base.audioError;
   if (!Number.isFinite(threadId) || !Number.isFinite(id)) return null;
   // Drop true no-op messages, but allow attachment-only messages (uploads).
   const hasText = !!content.trim();
@@ -166,6 +183,14 @@ const normalizeMessage = (raw: any, fallbackThreadId?: number): ChatMessage | nu
     created_at: createdAt,
     attachments: attachments.length ? attachments : undefined,
     turn_id: turnId,
+    audio_status: audioStatus,
+    audio_url: typeof audioUrlRaw === "string" ? audioUrlRaw : null,
+    audio_mime_type:
+      typeof audioMimeTypeRaw === "string" ? audioMimeTypeRaw : null,
+    audio_duration_ms: Number.isFinite(Number(audioDurationRaw))
+      ? Number(audioDurationRaw)
+      : null,
+    audio_error: typeof audioErrorRaw === "string" ? audioErrorRaw : null,
   };
 };
 
@@ -193,7 +218,12 @@ const sameMessage = (a: ChatMessage, b: ChatMessage): boolean => {
     && a.role === b.role
     && a.content === b.content
     && (a.created_at || "") === (b.created_at || "")
-    && (a.turn_id || null) === (b.turn_id || null);
+    && (a.turn_id || null) === (b.turn_id || null)
+    && (a.audio_status || null) === (b.audio_status || null)
+    && (a.audio_url || null) === (b.audio_url || null)
+    && (a.audio_mime_type || null) === (b.audio_mime_type || null)
+    && (a.audio_duration_ms ?? null) === (b.audio_duration_ms ?? null)
+    && (a.audio_error || null) === (b.audio_error || null);
 };
 
 const equalMessageLists = (a: ChatMessage[], b: ChatMessage[]): boolean => {

@@ -43,8 +43,6 @@ export function ComposerSelectMenu({
   const [open, setOpen] = useState(false);
   const scrollRegionRef = useRef<HTMLDivElement | null>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const triggerSurface =
-    "color-mix(in oklab, var(--panel-bg) 94%, var(--text) 6%)";
   const menuSurface =
     "color-mix(in oklab, var(--panel-bg) 88%, var(--text) 12%)";
   const menuHoverSurface =
@@ -192,13 +190,16 @@ export function ComposerSelectMenu({
           aria-label={ariaLabel}
           disabled={disabled}
           className={cn(
-            "inline-flex min-w-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] transition-colors",
-            disabled ? "cursor-not-allowed opacity-45" : "hover:opacity-95"
+            "inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors",
+            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
+            disabled
+              ? "cursor-not-allowed opacity-45"
+              : "hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]"
           )}
           style={{
-            borderColor: "color-mix(in oklab, var(--panel-border) 88%, transparent)",
-            background: triggerSurface,
-            color: "var(--text)",
+            borderColor: "transparent",
+            background: "transparent",
+            color: "color-mix(in oklab, var(--text) 86%, var(--muted) 14%)",
           }}
         >
           <span className="truncate">{valueLabel}</span>
