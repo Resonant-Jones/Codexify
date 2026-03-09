@@ -1505,6 +1505,20 @@ export default function AppShell({}: PropsWithChildren) {
             Codexify
           </button>
 
+          {/* beta release indicator — persistent across navigation */}
+          <span
+            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase"
+            style={{
+              background: "var(--accent)",
+              color: "var(--text-on-accent)",
+              opacity: 0.85,
+              letterSpacing: "0.05em",
+            }}
+            title="Beta release — feedback welcome"
+          >
+            Beta
+          </span>
+
           {/* nav tabs */}
           <button
             className="pill-tab"
