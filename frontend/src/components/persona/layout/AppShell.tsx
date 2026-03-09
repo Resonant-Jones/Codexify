@@ -76,6 +76,10 @@ injectCssVars();
 type Resolved = "light" | "dark";
 type LayoutMode = "focus" | "zen";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
+type AppShellProps = PropsWithChildren<{
+  startupLocked?: boolean;
+  startupOverlay?: React.ReactNode;
+}>;
 
 function normalizeDoc(raw: any, idx = 0): DocItem {
   const filename =
@@ -326,8 +330,22 @@ function writeSessionOverride(v: Resolved | null) {
    This is the root shell for the app, handling theme, persistent state,
    background visuals, modular design tokens, and view routing.
    ───────────────────────────────────────────────────────────────────────────── */
-export default function AppShell({}: PropsWithChildren) {
+export default function AppShell({
+  startupLocked = false,
+  startupOverlay = null,
+}: AppShellProps) {
   const auth = useAuthState();
+  const shellContentRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    const node = shellContentRef.current as (HTMLDivElement & { inert?: boolean }) | null;
+    if (!node) return;
+    if (startupLocked) {
+      node.setAttribute("inert", "");
+      return;
+    }
+    node.removeAttribute("inert");
+  }, [startupLocked]);
   // Surface continuation summaries as toasts (PCX_CONTINUE_002)
   React.useEffect(() => {
     const handler = (e: Event) => {
@@ -631,6 +649,11 @@ export default function AppShell({}: PropsWithChildren) {
 
   useEffect(() => {
     let cancelled = false;
+    if (startupLocked) {
+      return () => {
+        cancelled = true;
+      };
+    }
     if (!checkAuthGate(auth, "projects list load")) {
       return () => {
         cancelled = true;
@@ -658,9 +681,15 @@ export default function AppShell({}: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [auth]);
+  }, [auth, startupLocked]);
   useEffect(() => {
     let cancelled = false;
+    if (startupLocked) {
+      setActiveThreadProjectId(null);
+      return () => {
+        cancelled = true;
+      };
+    }
     if (!activeRouteThreadId) {
       setActiveThreadProjectId(null);
       return () => {
@@ -698,13 +727,18 @@ export default function AppShell({}: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [activeRouteThreadId, auth]);
+  }, [activeRouteThreadId, auth, startupLocked]);
   const effectiveDocumentsProjectId = useMemo<number | null>(
     () => activeThreadProjectId ?? generalProjectId,
     [activeThreadProjectId, generalProjectId]
   );
   useEffect(() => {
     let cancelled = false;
+    if (startupLocked) {
+      return () => {
+        cancelled = true;
+      };
+    }
     if (!checkAuthGate(auth, "documents list load")) {
       return () => {
         cancelled = true;
@@ -732,10 +766,15 @@ export default function AppShell({}: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [auth, effectiveDocumentsProjectId]);
+  }, [auth, effectiveDocumentsProjectId, startupLocked]);
   const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
   useEffect(() => {
     let cancelled = false;
+    if (startupLocked) {
+      return () => {
+        cancelled = true;
+      };
+    }
     (async () => {
       try {
         const entries = await listCodexEntries();
@@ -747,7 +786,7 @@ export default function AppShell({}: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [startupLocked]);
   const codexDocs = useMemo<DocItem[]>(() => {
     if (!Array.isArray(codexEntries)) return [];
     return codexEntries.map((e, idx) => ({
@@ -1410,36 +1449,41 @@ export default function AppShell({}: PropsWithChildren) {
      switches between views like Guardian, Dashboard, Gallery, Documents, and Settings.
      ───────────────────────────────────────────────────────────────────────────── */
   return (
-    <>
+    <div
+      className="flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
+      style={{
+        /* baseline viewport guardrails */
+        minWidth: "608px",
+        minHeight: "548px",
+        padding: "6px",
+        alignItems: "center",
+
+        /* ✨ glossy‑glass overrides */
+        "--tile-blur": "22px",                       // stronger backdrop blur
+        "--bezel": "6px",                            // bezel (glass margin) can be tuned here
+        "--lip-w": "6px",                            // deeper inner lip
+        "--depth-scale": "1.35",                     // bolder drop‑shadow scale
+        "--panel-bezel": "rgba(255,255,255,0.28)",   // brighter edge sparkle
+        "--panel-bg": "rgba(17,24,39,0.72)",         // translucent dark fill
+
+        /* merge global scene tokens & gradient/wallpaper */
+        ...backgroundStyle,
+        ...styleVars,
+
+        // Apple system font at root layout level
+        fontFamily:
+          'SF Pro Display, SF Pro Icons, Apple System, BlinkMacSystemFont, ".SFNSDisplay-Regular", "Helvetica Neue", Helvetica, Arial, sans-serif',
+      } as React.CSSProperties}
+      aria-busy={startupLocked}
+    >
       {/*
         --bezel: Visual margin between the refractive glass and the opaque content surface.
         Changing --bezel allows live tuning of the glass thickness throughout the UI without code edits.
       */}
       <div
-        className="flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
-        style={{
-          /* baseline viewport guardrails */
-          minWidth: "608px",
-          minHeight: "548px",
-          padding: "6px",
-          alignItems: "center",
-
-          /* ✨ glossy‑glass overrides */
-          "--tile-blur": "22px",                       // stronger backdrop blur
-          "--bezel": "6px",                            // bezel (glass margin) can be tuned here
-          "--lip-w": "6px",                            // deeper inner lip
-          "--depth-scale": "1.35",                     // bolder drop‑shadow scale
-          "--panel-bezel": "rgba(255,255,255,0.28)",   // brighter edge sparkle
-          "--panel-bg": "rgba(17,24,39,0.72)",         // translucent dark fill
-
-          /* merge global scene tokens & gradient/wallpaper */
-          ...backgroundStyle,
-          ...styleVars,
-
-          // Apple system font at root layout level
-          fontFamily:
-            'SF Pro Display, SF Pro Icons, Apple System, BlinkMacSystemFont, ".SFNSDisplay-Regular", "Helvetica Neue", Helvetica, Arial, sans-serif',
-        } as React.CSSProperties}
+        ref={shellContentRef}
+        className="relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden"
+        aria-hidden={startupLocked}
       >
       {/* Global outer glass skin */}
       <div className="absolute inset-0 -z-10 pointer-events-none rounded-[var(--viewport-radius)] overflow-hidden">
@@ -1585,7 +1629,25 @@ export default function AppShell({}: PropsWithChildren) {
             paddingLeft: "var(--page-pad)",         // mode-dependent
           }}
         >
-          {view === "documents" && (
+          {startupLocked && (
+            <FrameCard
+              fill
+              refractiveFallback
+              shimmerMode="subtle"
+              className="flex h-full w-full min-h-0 overflow-hidden"
+            >
+              <div
+                className="h-full w-full rounded-[var(--card-radius)] border"
+                aria-hidden="true"
+                style={{
+                  borderColor: "var(--panel-border)",
+                  background:
+                    "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))",
+                }}
+              />
+            </FrameCard>
+          )}
+          {!startupLocked && view === "documents" && (
             <div
               className="isolate"
               style={{
@@ -1679,7 +1741,7 @@ export default function AppShell({}: PropsWithChildren) {
               </div>
             </div>
           )}
-          {view === "gallery" && (
+          {!startupLocked && view === "gallery" && (
             <>
               <FrameCard
                 fill
@@ -1743,7 +1805,7 @@ export default function AppShell({}: PropsWithChildren) {
               <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
             </>
           )}
-          {view === "guardian" && (
+          {!startupLocked && view === "guardian" && (
             <div
               className="flex-1 h-full w-full min-h-0 isolate flex flex-col"
               style={{
@@ -1771,7 +1833,7 @@ export default function AppShell({}: PropsWithChildren) {
               </ErrorBoundary>
             </div>
           )}
-          {view === "dashboard" && (
+          {!startupLocked && view === "dashboard" && (
             <div
               className="h-full w-full isolate"
               style={{ "--gutter": "16px" } as React.CSSProperties}
@@ -1860,7 +1922,7 @@ export default function AppShell({}: PropsWithChildren) {
               </div>
             </div>
           )}
-          {view === "settings" && (
+          {!startupLocked && view === "settings" && (
             <FrameCard
               refractiveFallback
               shimmerMode="subtle"
@@ -1905,6 +1967,8 @@ export default function AppShell({}: PropsWithChildren) {
         </div>
       </div>
       </div>
+      </div>
+      {startupOverlay && <div className="absolute inset-0 z-[1400]">{startupOverlay}</div>}
       {projectModalOpen && (
         <div className="fixed inset-0 z-[1200] flex items-center justify-center px-4">
           <div
@@ -2003,7 +2067,6 @@ export default function AppShell({}: PropsWithChildren) {
           ]}
         />
       )}
-      </div>
-    </>
+    </div>
   );
 }

@@ -841,6 +841,42 @@ describe("ChatView loop guards", () => {
     expect(audioPlayMock).not.toHaveBeenCalled();
   });
 
+  it("shows unavailable state when assistant audio is marked ready without a usable url", async () => {
+    const completion = {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    };
+
+    mockMessages = [
+      {
+        id: 705,
+        thread_id: 1,
+        role: "assistant",
+        content: "assistant message with broken ready audio",
+        created_at: "2026-03-02T00:00:45.000Z",
+        audio_status: "ready",
+        audio_url: "   ",
+      },
+    ];
+
+    render(
+      <ChatView
+        threadId={1}
+        completionState={completion}
+        endCompletion={vi.fn()}
+        voiceReadAloudEnabled
+      />
+    );
+
+    const unavailableButton = await screen.findByRole("button", {
+      name: "Audio unavailable",
+    });
+    expect(unavailableButton).toBeDisabled();
+    expect(audioPlayMock).not.toHaveBeenCalled();
+  });
+
   it("shows loading state while assistant audio is pending", async () => {
     const completion = {
       isCompleting: false,

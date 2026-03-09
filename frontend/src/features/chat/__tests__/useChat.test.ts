@@ -395,6 +395,39 @@ describe("useChat - loadMessages error hygiene", () => {
     vi.restoreAllMocks();
   });
 
+  it("normalizes fetched message audio urls before storing message state", async () => {
+    vi.spyOn(api, "get").mockResolvedValueOnce({
+      data: {
+        ok: true,
+        total: 1,
+        messages: [
+          {
+            id: 11,
+            thread_id: 32,
+            role: "assistant",
+            content: "Hello with audio",
+            created_at: "2026-03-08T12:00:00Z",
+            audio_status: "ready",
+            audio_url: "   ",
+            audio_mime_type: "audio/wav",
+          },
+        ],
+      },
+    });
+
+    const { result } = renderHook(() => useChat());
+    await act(async () => {
+      await result.current.loadMessages(32);
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(1);
+    });
+    expect(result.current.messages[0]?.audio_status).toBe("ready");
+    expect(result.current.messages[0]?.audio_url).toBeNull();
+    expect(result.current.messages[0]?.audio_mime_type).toBe("audio/wav");
+  });
+
   it("suppresses internal request guard metadata from UI error state", async () => {
     vi.spyOn(api, "get").mockRejectedValueOnce(
       Object.assign(new Error("request guard active (1200ms)"), {
