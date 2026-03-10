@@ -73,6 +73,10 @@ def _post_export(test_client, path: str):
     )
 
 
+def _post_retry(test_client, path: str):
+    return test_client.post(path, headers={"X-User-Id": "spoofed_user"})
+
+
 def test_migration_endpoint_registered(test_client):
     with patch(
         "guardian.routes.migration.ingest_chatgpt_export"
@@ -98,6 +102,183 @@ def test_migration_endpoint_registered(test_client):
     assert len(mock_ingest.call_args_list) == 2
     for call in mock_ingest.call_args_list:
         assert call.kwargs["user_id"] == SERVER_USER_ID
+
+
+def test_retry_route_recovers_previous_missing_embeddings(
+    test_client,
+    monkeypatch,
+):
+    vector_store = StubVectorStore()
+    retry_items = [
+        {
+            "message_id": 301,
+            "text": "Recovered import chunk A",
+            "meta": {"message_id": 301, "thread_id": 21},
+        },
+        {
+            "message_id": 302,
+            "text": "Recovered import chunk B",
+            "meta": {"message_id": 302, "thread_id": 21},
+        },
+    ]
+
+    captured = {}
+    dummy_db = object()
+
+    monkeypatch.setattr(dependencies, "chatlog_db", dummy_db)
+    monkeypatch.setattr(dependencies, "init_database", lambda: dummy_db)
+    monkeypatch.setattr(dependencies, "_vector_store", vector_store)
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_fetch_retryable_chatgpt_embedding_items",
+        lambda _db, *, user_id, limit=5000: retry_items
+        if user_id == SERVER_USER_ID
+        else [],
+    )
+
+    def _capture_outcome(
+        _db,
+        *,
+        message_ids,
+        persisted_count,
+        failure_reason=None,
+    ):
+        captured["message_ids"] = list(message_ids)
+        captured["persisted_count"] = persisted_count
+        captured["failure_reason"] = failure_reason
+
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_chatgpt_embedding_attempt_outcome",
+        _capture_outcome,
+    )
+
+    response = _post_retry(test_client, "/api/retry-chatgpt-import-embeddings")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["embedding_candidates"] == 2
+    assert data["embeddings_persisted"] == 2
+    assert data["embeddings_failed"] == 0
+    assert data["embedding_coverage_degraded"] is False
+    assert len(vector_store.items) == 2
+    assert captured["message_ids"] == [301, 302]
+    assert captured["persisted_count"] == 2
+    assert captured["failure_reason"] is None
+
+
+def test_retry_route_reports_degraded_success_on_subprocess_failure(
+    test_client,
+    monkeypatch,
+):
+    retry_items = [
+        {
+            "message_id": 401,
+            "text": "Retry candidate 1",
+            "meta": {"message_id": 401, "thread_id": 31},
+        },
+        {
+            "message_id": 402,
+            "text": "Retry candidate 2",
+            "meta": {"message_id": 402, "thread_id": 31},
+        },
+    ]
+    captured = {}
+    dummy_db = object()
+
+    class _FakeProcess:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.exitcode = 139
+            self._alive = False
+
+        def start(self) -> None:
+            return None
+
+        def join(self, timeout: float | None = None) -> None:
+            _ = timeout
+
+        def is_alive(self) -> bool:
+            return self._alive
+
+        def terminate(self) -> None:
+            self._alive = False
+
+    class _FakeContext:
+        def Process(self, *args, **kwargs):  # noqa: N802
+            _ = args, kwargs
+            return _FakeProcess()
+
+    monkeypatch.setattr(dependencies, "chatlog_db", dummy_db)
+    monkeypatch.setattr(dependencies, "init_database", lambda: dummy_db)
+    monkeypatch.setattr(dependencies, "_vector_store", object())
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", True)
+    monkeypatch.setattr(
+        chatgpt_migration.mp, "get_context", lambda *_: _FakeContext()
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_fetch_retryable_chatgpt_embedding_items",
+        lambda *_args, **_kwargs: retry_items,
+    )
+
+    def _capture_outcome(
+        _db,
+        *,
+        message_ids,
+        persisted_count,
+        failure_reason=None,
+    ):
+        captured["message_ids"] = list(message_ids)
+        captured["persisted_count"] = persisted_count
+        captured["failure_reason"] = failure_reason
+
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_chatgpt_embedding_attempt_outcome",
+        _capture_outcome,
+    )
+
+    response = _post_retry(test_client, "/api/retry-chatgpt-import-embeddings")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["embedding_candidates"] == 2
+    assert data["embeddings_persisted"] == 0
+    assert data["embeddings_failed"] == 2
+    assert data["embedding_coverage_degraded"] is True
+    assert captured["message_ids"] == [401, 402]
+    assert captured["persisted_count"] == 0
+    assert captured["failure_reason"] == "embedding_retry_degraded"
+
+
+def test_retry_route_returns_noop_when_nothing_retryable(
+    test_client,
+    monkeypatch,
+):
+    dummy_db = object()
+    monkeypatch.setattr(dependencies, "chatlog_db", dummy_db)
+    monkeypatch.setattr(dependencies, "init_database", lambda: dummy_db)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_fetch_retryable_chatgpt_embedding_items",
+        lambda *_args, **_kwargs: [],
+    )
+
+    def _unexpected_embed(*_args, **_kwargs):
+        raise AssertionError("embed path should not run for no-op retry")
+
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_embed_items_best_effort",
+        _unexpected_embed,
+    )
+
+    response = _post_retry(test_client, "/api/retry-chatgpt-import-embeddings")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["embedding_candidates"] == 0
+    assert data["embeddings_persisted"] == 0
+    assert data["embeddings_failed"] == 0
+    assert data["embedding_coverage_degraded"] is False
 
 
 def test_migration_accepts_valid_content_even_with_non_json_filename(
