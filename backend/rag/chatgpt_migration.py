@@ -826,13 +826,17 @@ def ingest_chatgpt_export(
     """
     Ingest a ChatGPT export (JSON bytes) into the database and vector store.
     """
+    # Defense-in-depth: enforce size limit at service entry
+    MAX_IMPORT_SIZE = 50 * 1024 * 1024  # 50MB
+    if len(content) > MAX_IMPORT_SIZE:
+        raise ValueError("Export file exceeds 50MB limit")
+
     if not user_id:
         raise ValueError(
             "ingest_chatgpt_export requires a valid user_id (got None or empty)"
         )
 
     chatlog_db = dependencies.chatlog_db
-    _vector_store = dependencies._vector_store
 
     if not chatlog_db:
         # Try to init if not ready (e.g. in tests)
@@ -841,13 +845,9 @@ def ingest_chatgpt_export(
     if not chatlog_db:
         raise RuntimeError("Database not available")
 
-    # Initialize vector store if not already done
-    if not _vector_store:
-        from guardian.vector.store import VectorStore
-
-        _vector_store = VectorStore()
-        dependencies._vector_store = _vector_store
-        logger.info("Initialized VectorStore for migration")
+    # Use existing vector store if already initialized; do NOT eagerly initialize
+    # This allows import to succeed (with DB records) even if vector store is unavailable
+    _vector_store = getattr(dependencies, "_vector_store", None) or None
 
     hint = _detect_non_json_hint(content)
     if hint:
