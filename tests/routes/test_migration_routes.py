@@ -91,6 +91,10 @@ def test_migration_endpoint_registered(test_client):
         data = res.json()
         assert data["threads_imported"] == 1
         assert data["messages_imported"] == 2
+        assert data["embedding_candidates"] == 0
+        assert data["embeddings_persisted"] == 0
+        assert data["embeddings_failed"] == 0
+        assert data["embedding_coverage_degraded"] is False
     assert len(mock_ingest.call_args_list) == 2
     for call in mock_ingest.call_args_list:
         assert call.kwargs["user_id"] == SERVER_USER_ID
@@ -186,6 +190,10 @@ def test_migration_route_executes_real_ingest_and_embeds(
     data = response.json()
     assert data["threads_imported"] == 1
     assert data["messages_imported"] == 2
+    assert data["embedding_candidates"] == 2
+    assert data["embeddings_persisted"] == 2
+    assert data["embeddings_failed"] == 0
+    assert data["embedding_coverage_degraded"] is False
     assert len(vector_store.items) == 2
     assert "ORBIT-ROUTE-314" in str(vector_store.items[0].get("text", ""))
     assert mock_db.ensure_project.call_count == 1
@@ -238,11 +246,103 @@ def test_embed_items_best_effort_handles_subprocess_segfault(monkeypatch):
         chatgpt_migration.mp, "get_context", lambda *_: _FakeContext()
     )
 
-    # Should swallow subprocess failure and continue without raising.
-    chatgpt_migration._embed_items_best_effort(
+    # Should swallow subprocess failure and return explicit degradation diagnostics.
+    diagnostics = chatgpt_migration._embed_items_best_effort(
         items=[{"text": "hello", "meta": {"thread_id": 1}}],
         vector_store=object(),
     )
+    assert diagnostics["embedding_candidates"] == 1
+    assert diagnostics["embeddings_persisted"] == 0
+    assert diagnostics["embeddings_failed"] == 1
+    assert diagnostics["embedding_coverage_degraded"] is True
+
+
+def test_migration_route_reports_embedding_degradation_on_exit_139(
+    test_client,
+    mock_db,
+    monkeypatch,
+):
+    message_ids = iter([121, 122])
+
+    def fake_create_message(
+        thread_id: int,
+        role: str,
+        content: str,
+        created_at: str | None = None,
+    ) -> int:
+        _ = thread_id, role, content, created_at
+        return next(message_ids)
+
+    class _FakeProcess:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.exitcode = 139
+            self._alive = False
+
+        def start(self) -> None:
+            return None
+
+        def join(self, timeout: float | None = None) -> None:
+            _ = timeout
+
+        def is_alive(self) -> bool:
+            return self._alive
+
+        def terminate(self) -> None:
+            self._alive = False
+
+    class _FakeContext:
+        def Process(self, *args, **kwargs):  # noqa: N802
+            _ = args, kwargs
+            return _FakeProcess()
+
+    mock_db.create_chat_thread.return_value = {"id": 44}
+    mock_db.create_message.side_effect = fake_create_message
+    mock_db.ensure_project.return_value = 1
+
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", True)
+    monkeypatch.setattr(
+        chatgpt_migration.mp, "get_context", lambda *_: _FakeContext()
+    )
+    monkeypatch.setattr(dependencies, "_vector_store", object())
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_thread_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_message_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+
+    files = {
+        "file": (
+            "conversations.json",
+            _build_mainline_export(),
+            "application/json",
+        )
+    }
+    response = test_client.post(
+        "/api/upload-chatgpt-export",
+        files=files,
+        headers={"X-User-Id": "spoofed_user"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["threads_imported"] == 1
+    assert data["messages_imported"] == 2
+    assert data["embedding_candidates"] == 2
+    assert data["embeddings_persisted"] == 0
+    assert data["embeddings_failed"] == 2
+    assert data["embedding_coverage_degraded"] is True
 
 
 def test_migration_rejects_oversized_file(test_client):
@@ -348,6 +448,10 @@ def test_migration_succeeds_without_vector_store(
     data = response.json()
     assert data["threads_imported"] == 1
     assert data["messages_imported"] == 2
+    assert data["embedding_candidates"] == 2
+    assert data["embeddings_persisted"] == 0
+    assert data["embeddings_failed"] == 2
+    assert data["embedding_coverage_degraded"] is True
     # DB records were created
     assert mock_db.create_chat_thread.call_count == 1
     assert mock_db.create_message.call_count == 2
