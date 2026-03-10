@@ -8,8 +8,10 @@
 import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import api, {
+  normalizeChatGptImportStats,
   normalizeImportRuntimeError,
   preflightBackendAvailability,
+  type ChatGptImportStats,
 } from "@/lib/api";
 
 interface ChatGPTImportModalProps {
@@ -20,11 +22,15 @@ interface ChatGPTImportModalProps {
 }
 
 export interface MigrationStats {
-  threads_imported: number;
-  messages_imported: number;
-  projects_created?: number;
-  projects_reused?: number;
-  messages_filtered?: number;
+  threads_imported: ChatGptImportStats["threads_imported"];
+  messages_imported: ChatGptImportStats["messages_imported"];
+  projects_created?: ChatGptImportStats["projects_created"];
+  projects_reused?: ChatGptImportStats["projects_reused"];
+  messages_filtered?: ChatGptImportStats["messages_filtered"];
+  embedding_candidates: ChatGptImportStats["embedding_candidates"];
+  embeddings_persisted: ChatGptImportStats["embeddings_persisted"];
+  embeddings_failed: ChatGptImportStats["embeddings_failed"];
+  embedding_coverage_degraded: ChatGptImportStats["embedding_coverage_degraded"];
 }
 
 export function ChatGPTImportModal({
@@ -105,13 +111,8 @@ export function ChatGPTImportModal({
         }
       );
 
-      const nextStats: MigrationStats = {
-        threads_imported: Number(response.data?.threads_imported ?? 0),
-        messages_imported: Number(response.data?.messages_imported ?? 0),
-        projects_created: Number(response.data?.projects_created ?? 0),
-        projects_reused: Number(response.data?.projects_reused ?? 0),
-        messages_filtered: Number(response.data?.messages_filtered ?? 0),
-      };
+      const nextStats: MigrationStats =
+        normalizeChatGptImportStats(response.data);
       setStats(nextStats);
       onImported?.(nextStats);
       setStatus("success");
@@ -233,18 +234,44 @@ export function ChatGPTImportModal({
             <div
               className="text-sm font-medium p-3 rounded-lg border"
               style={{
-                background: "rgba(34, 197, 94, 0.1)",
-                borderColor: "rgba(34, 197, 94, 0.3)",
-                color: "rgb(134, 239, 172)",
+                background: stats.embedding_coverage_degraded
+                  ? "rgba(245, 158, 11, 0.12)"
+                  : "rgba(34, 197, 94, 0.1)",
+                borderColor: stats.embedding_coverage_degraded
+                  ? "rgba(245, 158, 11, 0.35)"
+                  : "rgba(34, 197, 94, 0.3)",
+                color: stats.embedding_coverage_degraded
+                  ? "rgb(253, 186, 116)"
+                  : "rgb(134, 239, 172)",
               }}
             >
-              <div className="font-semibold mb-1">Migration Successful ✓</div>
+              <div className="font-semibold mb-1">
+                {stats.embedding_coverage_degraded
+                  ? "Migration Completed with Partial Embeddings ⚠"
+                  : "Migration Successful ✓"}
+              </div>
               <div className="text-xs opacity-80">
                 Imported {stats.threads_imported} thread
                 {stats.threads_imported !== 1 ? "s" : ""} and{" "}
                 {stats.messages_imported} message
                 {stats.messages_imported !== 1 ? "s" : ""}.
               </div>
+              {stats.embedding_coverage_degraded && (
+                <div className="mt-2 text-xs opacity-80 space-y-1">
+                  <div>
+                    Embeddings persisted: {stats.embeddings_persisted} of{" "}
+                    {stats.embedding_candidates} candidate
+                    {stats.embedding_candidates !== 1 ? "s" : ""}.
+                  </div>
+                  <div>
+                    Embeddings skipped/failed: {stats.embeddings_failed}.
+                  </div>
+                  <div>
+                    Import completed, but retrieval quality may be reduced
+                    until embeddings are rebuilt.
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
