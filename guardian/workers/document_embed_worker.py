@@ -74,6 +74,8 @@ def _build_chunk_metadata(
     doc: dict[str, Any],
     chunks: list,
 ) -> list[dict[str, Any]]:
+    # Build base metadata with original values, then filter out None keys
+    # ChromaDB doesn't accept null values in metadata
     base = {
         "source": "document",
         "filename": doc.get("filename"),
@@ -83,6 +85,15 @@ def _build_chunk_metadata(
         "thread_id": doc.get("thread_id"),
         "timestamp": _utc_now().isoformat(),
     }
+    # Filter out None-valued keys - ChromaDB requires non-null primitives
+    base = {k: v for k, v in base.items() if v is not None}
+
+    # Ensure numeric fields are proper types when present
+    if "project_id" in base and base["project_id"] is not None:
+        base["project_id"] = int(base["project_id"])
+    if "thread_id" in base and base["thread_id"] is not None:
+        base["thread_id"] = int(base["thread_id"])
+
     return [
         {
             **base,

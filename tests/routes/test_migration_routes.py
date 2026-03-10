@@ -207,3 +207,111 @@ def test_migration_route_executes_real_ingest_and_embeds(
     assert (
         mock_db.create_chat_thread.call_args.kwargs["user_id"] == SERVER_USER_ID
     )
+
+
+def test_migration_rejects_oversized_file(test_client):
+    """Oversized file should return 413 instead of loading into memory."""
+    # Create payload larger than 50MB limit
+    oversized_content = b"x" * (51 * 1024 * 1024)
+    files = {
+        "file": (
+            "huge_export.json",
+            oversized_content,
+            "application/json",
+        )
+    }
+
+    response = test_client.post(
+        "/api/upload-chatgpt-export",
+        files=files,
+        headers={"X-User-Id": "spoofed_user"},
+    )
+
+    assert response.status_code == 413
+    assert "50MB" in response.json()["detail"]
+
+
+def test_migration_rejects_malformed_json(test_client):
+    """Malformed JSON should return 400, not crash the backend."""
+    files = {
+        "file": (
+            "invalid.json",
+            b"this is not valid json {{{",
+            "application/json",
+        )
+    }
+
+    response = test_client.post(
+        "/api/upload-chatgpt-export",
+        files=files,
+        headers={"X-User-Id": "spoofed_user"},
+    )
+
+    assert response.status_code == 400
+    assert "Invalid JSON" in response.json()["detail"]
+
+
+def test_migration_succeeds_without_vector_store(
+    test_client,
+    mock_db,
+    monkeypatch,
+):
+    """Import should succeed (DB records created) even when vector store is unavailable."""
+    message_ids = iter([101, 102])
+
+    def fake_create_message(
+        thread_id: int,
+        role: str,
+        content: str,
+        created_at: str | None = None,
+    ) -> int:
+        _ = thread_id, role, content, created_at
+        return next(message_ids)
+
+    mock_db.create_chat_thread.return_value = {"id": 99}
+    mock_db.create_message.side_effect = fake_create_message
+    mock_db.ensure_project.return_value = 1
+
+    # Explicitly set vector store to None - do NOT initialize
+    monkeypatch.setattr(dependencies, "_vector_store", None)
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_thread_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_message_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+
+    files = {
+        "file": (
+            "conversations.json",
+            _build_mainline_export(),
+            "application/json",
+        )
+    }
+
+    response = test_client.post(
+        "/api/upload-chatgpt-export",
+        files=files,
+        headers={"X-User-Id": "spoofed_user"},
+    )
+
+    # Import should succeed - we got DB records
+    assert response.status_code == 200
+    data = response.json()
+    assert data["threads_imported"] == 1
+    assert data["messages_imported"] == 2
+    # DB records were created
+    assert mock_db.create_chat_thread.call_count == 1
+    assert mock_db.create_message.call_count == 2
