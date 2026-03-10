@@ -84,13 +84,46 @@ def _embed_items_subprocess(items: List[Dict[str, Any]]) -> None:
 def _embed_items_best_effort(
     items: List[Dict[str, Any]],
     vector_store: Any,
-) -> None:
-    if not items or vector_store is None:
-        return
+) -> Dict[str, Any]:
+    candidates = len(items)
+    diagnostics: Dict[str, Any] = {
+        "embedding_candidates": candidates,
+        "embeddings_persisted": 0,
+        "embeddings_failed": candidates,
+        "embedding_coverage_degraded": candidates > 0,
+    }
+    if not items:
+        diagnostics["embedding_coverage_degraded"] = False
+        return diagnostics
+
+    if vector_store is None:
+        logger.warning(
+            "ChatGPT import embedding unavailable; skipped candidate batch size=%d",
+            candidates,
+        )
+        return diagnostics
 
     if not _IMPORT_EMBED_ISOLATED:
-        vector_store.add_texts(items)
-        return
+        try:
+            persisted = vector_store.add_texts(items)
+            if persisted is None:
+                persisted_count = candidates
+            else:
+                persisted_count = max(
+                    0,
+                    min(candidates, int(persisted)),
+                )
+            diagnostics["embeddings_persisted"] = persisted_count
+            diagnostics["embeddings_failed"] = candidates - persisted_count
+            diagnostics["embedding_coverage_degraded"] = (
+                diagnostics["embeddings_failed"] > 0
+            )
+        except Exception as exc:
+            logger.warning(
+                "ChatGPT import embedding write failed in-process: %s",
+                exc,
+            )
+        return diagnostics
 
     try:
         ctx = mp.get_context("spawn")
@@ -103,21 +136,26 @@ def _embed_items_best_effort(
             logger.warning(
                 "ChatGPT import embedding timed out after %.1fs; skipped batch size=%d",
                 _EMBED_SUBPROCESS_TIMEOUT_S,
-                len(items),
+                candidates,
             )
-            return
+            return diagnostics
         if proc.exitcode != 0:
             logger.warning(
                 "ChatGPT import embedding subprocess failed with exit code=%s for batch size=%d",
                 proc.exitcode,
-                len(items),
+                candidates,
             )
-            return
+            return diagnostics
+        diagnostics["embeddings_persisted"] = candidates
+        diagnostics["embeddings_failed"] = 0
+        diagnostics["embedding_coverage_degraded"] = False
+        return diagnostics
     except Exception as exc:
         logger.warning(
             "ChatGPT import embedding subprocess launch failed: %s",
             exc,
         )
+        return diagnostics
 
 
 def _validate_chatgpt_export_payload(data: Any) -> List[Dict[str, Any]]:
@@ -1120,7 +1158,7 @@ def ingest_chatgpt_export(
                 )
 
                 # Queue embedding payload for post-import processing.
-                if _vector_store and not existing:
+                if not existing:
                     try:
                         embed_text = _sanitize_embed_text(msg["content"])
                         if not embed_text:
@@ -1159,14 +1197,13 @@ def ingest_chatgpt_export(
             continue
 
     if _vector_store and pending_embed_items:
-        try:
-            _embed_items_best_effort(pending_embed_items, _vector_store)
-        except Exception as e:
-            logger.warning(
-                "Failed to embed imported message batch size=%d: %s",
-                len(pending_embed_items),
-                e,
-            )
+        embedding_diagnostics = _embed_items_best_effort(
+            pending_embed_items, _vector_store
+        )
+    else:
+        embedding_diagnostics = _embed_items_best_effort(
+            pending_embed_items, None
+        )
 
     return {
         "threads_imported": threads_count,
@@ -1174,4 +1211,10 @@ def ingest_chatgpt_export(
         "projects_created": 0,
         "projects_reused": 0,
         "messages_filtered": messages_filtered,
+        "embedding_candidates": embedding_diagnostics["embedding_candidates"],
+        "embeddings_persisted": embedding_diagnostics["embeddings_persisted"],
+        "embeddings_failed": embedding_diagnostics["embeddings_failed"],
+        "embedding_coverage_degraded": embedding_diagnostics[
+            "embedding_coverage_degraded"
+        ],
     }

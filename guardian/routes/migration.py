@@ -22,6 +22,10 @@ class MigrationStats(BaseModel):
     projects_created: Optional[int] = None
     projects_reused: Optional[int] = None
     messages_filtered: Optional[int] = None
+    embedding_candidates: int = 0
+    embeddings_persisted: int = 0
+    embeddings_failed: int = 0
+    embedding_coverage_degraded: bool = False
 
 
 from backend.rag.chatgpt_migration import ingest_chatgpt_export
@@ -74,6 +78,12 @@ async def upload_chatgpt_export(
             projects_created=stats.get("projects_created"),
             projects_reused=stats.get("projects_reused"),
             messages_filtered=stats.get("messages_filtered"),
+            embedding_candidates=int(stats.get("embedding_candidates", 0)),
+            embeddings_persisted=int(stats.get("embeddings_persisted", 0)),
+            embeddings_failed=int(stats.get("embeddings_failed", 0)),
+            embedding_coverage_degraded=bool(
+                stats.get("embedding_coverage_degraded", False)
+            ),
         )
     except HTTPException:
         # Re-raise HTTPExceptions (e.g., 413 from size limit) without catching them
