@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -16,6 +17,11 @@ _FILTERED_CONTENT_TYPES = {
     "thoughts",
     "reasoning_recap",
 }
+_TRUTHY = {"1", "true", "yes", "on"}
+_IMPORT_EMBEDDINGS_ENABLED = (
+    os.getenv("CODEXIFY_CHATGPT_IMPORT_EMBEDDINGS", "1").strip().lower()
+    in _TRUTHY
+)
 
 
 def _detect_non_json_hint(content: bytes) -> Optional[str]:
@@ -845,9 +851,14 @@ def ingest_chatgpt_export(
     if not chatlog_db:
         raise RuntimeError("Database not available")
 
-    # Use existing vector store if already initialized; do NOT eagerly initialize
-    # This allows import to succeed (with DB records) even if vector store is unavailable
-    _vector_store = getattr(dependencies, "_vector_store", None) or None
+    # Import safety default: skip synchronous embedding writes during ChatGPT import.
+    # This avoids backend process crashes/unavailability in local runtime paths while
+    # preserving thread/message ingestion semantics.
+    _vector_store = None
+    if _IMPORT_EMBEDDINGS_ENABLED:
+        # Use existing vector store if already initialized; do NOT eagerly initialize.
+        # This allows import to succeed (with DB records) even if vector store is unavailable.
+        _vector_store = getattr(dependencies, "_vector_store", None) or None
 
     hint = _detect_non_json_hint(content)
     if hint:
