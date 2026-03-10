@@ -7,7 +7,10 @@
 
 import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import api from "@/lib/api";
+import api, {
+  normalizeImportRuntimeError,
+  preflightBackendAvailability,
+} from "@/lib/api";
 
 interface ChatGPTImportModalProps {
   open: boolean;
@@ -37,12 +40,14 @@ export function ChatGPTImportModal({
   >("idle");
   const [stats, setStats] = useState<MigrationStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const setSelectedFile = (nextFile: File | null) => {
     setFile(nextFile);
     setStatus("idle");
     setError(null);
+    setErrorDetail(null);
     setStats(null);
   };
 
@@ -68,8 +73,21 @@ export function ChatGPTImportModal({
   const handleMigrate = async () => {
     if (!file) return;
 
-    setStatus("uploading");
     setError(null);
+    setErrorDetail(null);
+
+    const availability = await preflightBackendAvailability();
+    if (!availability.ok) {
+      setStatus("error");
+      setError(
+        availability.message ||
+          "ChatGPT import cannot start because the local backend runtime is unavailable. Restore the local stack and retry."
+      );
+      setErrorDetail(availability.technicalDetail || null);
+      return;
+    }
+
+    setStatus("uploading");
 
     const formData = new FormData();
     formData.append("file", file);
@@ -111,11 +129,11 @@ export function ChatGPTImportModal({
     } catch (err: any) {
       console.error("Migration error:", err);
       setStatus("error");
-      const detail =
-        err?.response?.data?.detail ??
-        err?.response?.data?.error ??
-        err?.message;
-      setError(detail || "Failed to migrate data");
+      const normalized = normalizeImportRuntimeError(err, {
+        phase: "upload",
+      });
+      setError(normalized.message);
+      setErrorDetail(normalized.technicalDetail || null);
     }
   };
 
@@ -241,6 +259,12 @@ export function ChatGPTImportModal({
             >
               <div className="font-semibold mb-1">Migration Failed</div>
               <div className="text-xs opacity-80">{error}</div>
+              {errorDetail && (
+                <details className="mt-2 text-[11px] opacity-70">
+                  <summary className="cursor-pointer">Technical detail</summary>
+                  <div className="mt-1 break-words">{errorDetail}</div>
+                </details>
+              )}
             </div>
           )}
         </div>
