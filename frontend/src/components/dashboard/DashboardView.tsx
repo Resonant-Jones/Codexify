@@ -203,8 +203,10 @@ export default function DashboardView({
   }, [auth]);
 
   const openThread = (id: string) => {
+    const normalizedId = String(id ?? "").trim();
+    if (!normalizedId) return;
     if (typeof window !== "undefined") {
-      const url = `/chat/${id}`;
+      const url = `/chat/${encodeURIComponent(normalizedId)}`;
       try {
         window.history.pushState({}, "", url);
         window.dispatchEvent(new PopStateEvent("popstate"));
@@ -297,13 +299,20 @@ export default function DashboardView({
                           key={t.id}
                           as="button"
                           type="button"
-                          className="flex h-full w-full flex-col justify-between gap-3 px-4 py-4 text-left transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+                          className="flex h-full w-full cursor-pointer flex-col justify-between gap-3 px-4 py-4 text-left transition-all duration-150 ease-out hover:-translate-y-0.5 hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
                           style={{
                             background:
                               "color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 96%,transparent)",
                             borderColor: "color-mix(in oklab,var(--panel-border) 85%,transparent)",
                           }}
                           onClick={() => openThread(t.id)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openThread(t.id);
+                          }}
+                          aria-label={`Open thread ${t.title}`}
                         >
                           <span className="text-base font-semibold truncate">{t.title}</span>
                           {t.lastMessage ? (
