@@ -28,7 +28,17 @@ class MigrationStats(BaseModel):
     embedding_coverage_degraded: bool = False
 
 
+class EmbeddingRetryStats(BaseModel):
+    embedding_candidates: int = 0
+    embeddings_persisted: int = 0
+    embeddings_failed: int = 0
+    embedding_coverage_degraded: bool = False
+
+
 from backend.rag.chatgpt_migration import ingest_chatgpt_export
+from backend.rag.chatgpt_migration import (
+    retry_chatgpt_import_embeddings as retry_chatgpt_import_embeddings_service,
+)
 
 
 @router.post("/api/upload-chatgpt-export", response_model=MigrationStats)
@@ -94,4 +104,40 @@ async def upload_chatgpt_export(
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.exception("Migration failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/api/retry-chatgpt-import-embeddings", response_model=EmbeddingRetryStats
+)
+@router.post(
+    "/retry-chatgpt-import-embeddings", response_model=EmbeddingRetryStats
+)
+async def retry_chatgpt_import_embeddings(
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    Retry embedding persistence for ChatGPT-imported messages that are pending
+    or previously failed embedding writes.
+
+    Canonical path: /api/retry-chatgpt-import-embeddings
+    Legacy alias: /retry-chatgpt-import-embeddings
+    """
+    try:
+        stats = retry_chatgpt_import_embeddings_service(user_id=user_id)
+        return EmbeddingRetryStats(
+            embedding_candidates=int(stats.get("embedding_candidates", 0)),
+            embeddings_persisted=int(stats.get("embeddings_persisted", 0)),
+            embeddings_failed=int(stats.get("embeddings_failed", 0)),
+            embedding_coverage_degraded=bool(
+                stats.get("embedding_coverage_degraded", False)
+            ),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception:
+        logger.exception("ChatGPT embedding retry failed")
         raise HTTPException(status_code=500, detail="Internal server error")

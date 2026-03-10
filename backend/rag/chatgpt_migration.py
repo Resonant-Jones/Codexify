@@ -158,6 +158,173 @@ def _embed_items_best_effort(
         return diagnostics
 
 
+def _fetch_retryable_chatgpt_embedding_items(
+    chatlog_db,
+    *,
+    user_id: str,
+    limit: int = 5000,
+) -> List[Dict[str, Any]]:
+    if not hasattr(chatlog_db, "_connect"):
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    try:
+        with chatlog_db._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    m.id AS message_id,
+                    m.thread_id,
+                    m.role,
+                    m.content,
+                    m.event_at,
+                    COALESCE(m.extra_meta, '{}'::jsonb) AS extra_meta
+                FROM chat_messages AS m
+                JOIN chat_threads AS t
+                  ON t.id = m.thread_id
+                WHERE t.user_id = %s
+                  AND COALESCE(t.metadata->>'import_source', '') = 'chatgpt'
+                  AND (
+                    COALESCE(m.extra_meta, '{}'::jsonb) ? 'source_message_id'
+                    OR COALESCE(m.extra_meta, '{}'::jsonb) ? 'source_thread_id'
+                  )
+                  AND (
+                    COALESCE(m.extra_meta->>'embedding_status', '') = ''
+                    OR COALESCE(m.extra_meta->>'embedding_status', '') IN ('pending', 'failed')
+                  )
+                ORDER BY m.id ASC
+                LIMIT %s
+                """,
+                (user_id, int(limit)),
+            )
+            rows = list(cur.fetchall() or [])
+    except Exception as exc:
+        logger.warning(
+            "Unable to fetch retryable ChatGPT embedding items for user=%s: %s",
+            user_id,
+            exc,
+        )
+        return []
+
+    retry_items: List[Dict[str, Any]] = []
+    for row in rows:
+        try:
+            message_id = int(row.get("message_id"))
+        except Exception:
+            continue
+
+        raw_meta = row.get("extra_meta")
+        existing_meta = raw_meta if isinstance(raw_meta, dict) else {}
+
+        text = _sanitize_embed_text(row.get("content"))
+        if not text:
+            continue
+
+        event_at = row.get("event_at")
+        timestamp = (
+            event_at.isoformat()
+            if hasattr(event_at, "isoformat")
+            else str(existing_meta.get("source_created_at") or "")
+        )
+        if not timestamp:
+            timestamp = datetime.now(timezone.utc).isoformat()
+
+        retry_items.append(
+            {
+                "message_id": message_id,
+                "text": text,
+                "meta": _sanitize_embed_meta(
+                    {
+                        "thread_id": row.get("thread_id"),
+                        "role": row.get("role"),
+                        "message_id": message_id,
+                        "timestamp": timestamp,
+                        "source_thread_id": existing_meta.get(
+                            "source_thread_id"
+                        ),
+                        "source_message_id": existing_meta.get(
+                            "source_message_id"
+                        ),
+                        "turn_index": existing_meta.get("turn_index"),
+                        "source_created_at_inferred": existing_meta.get(
+                            "source_created_at_inferred"
+                        ),
+                        "origin": "chatgpt_import",
+                        "era": "pre_codexify",
+                        "source": "chatgpt_import",
+                        "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
+                    }
+                ),
+            }
+        )
+    return retry_items
+
+
+def _persist_chatgpt_embedding_attempt_outcome(
+    chatlog_db,
+    *,
+    message_ids: List[int],
+    persisted_count: int,
+    failure_reason: Optional[str] = None,
+) -> None:
+    if not message_ids or not hasattr(chatlog_db, "_connect"):
+        return
+
+    persisted_count = max(0, min(int(persisted_count), len(message_ids)))
+    persisted_ids = set(message_ids[:persisted_count])
+    attempted_at = datetime.now(timezone.utc).isoformat()
+
+    try:
+        with chatlog_db._connect() as conn, conn.cursor() as cur:
+            for message_id in message_ids:
+                cur.execute(
+                    """
+                    SELECT COALESCE(extra_meta, '{}'::jsonb) AS extra_meta
+                    FROM chat_messages
+                    WHERE id = %s
+                    """,
+                    (message_id,),
+                )
+                row = cur.fetchone()
+                row_meta = (
+                    row.get("extra_meta") if isinstance(row, dict) else {}
+                )
+                extra_meta = dict(row_meta or {})
+
+                attempts = extra_meta.get("embedding_attempts")
+                try:
+                    attempts_value = int(attempts)
+                except (TypeError, ValueError):
+                    attempts_value = 0
+
+                if message_id in persisted_ids:
+                    extra_meta["embedding_status"] = "persisted"
+                    extra_meta["embedding_last_error"] = None
+                else:
+                    extra_meta["embedding_status"] = "failed"
+                    extra_meta["embedding_last_error"] = str(
+                        failure_reason or "embedding_write_failed"
+                    )
+
+                extra_meta["embedding_attempts"] = attempts_value + 1
+                extra_meta["embedding_last_attempt_at"] = attempted_at
+
+                cur.execute(
+                    """
+                    UPDATE chat_messages
+                    SET extra_meta = %s::jsonb
+                    WHERE id = %s
+                    """,
+                    (json.dumps(extra_meta), message_id),
+                )
+    except Exception as exc:
+        logger.warning(
+            "Unable to persist ChatGPT embedding retry outcome for %d messages: %s",
+            len(message_ids),
+            exc,
+        )
+
+
 def _validate_chatgpt_export_payload(data: Any) -> List[Dict[str, Any]]:
     if not isinstance(data, list):
         raise ValueError(
@@ -990,6 +1157,7 @@ def ingest_chatgpt_export(
     messages_filtered = 0
     imports_project_id = int(_resolve_imports_project_id(chatlog_db))
     pending_embed_items: List[Dict[str, Any]] = []
+    pending_embed_message_ids: List[int] = []
 
     for conv in data:
         try:
@@ -1185,6 +1353,7 @@ def ingest_chatgpt_export(
                                 "meta": _sanitize_embed_meta(meta),
                             }
                         )
+                        pending_embed_message_ids.append(mid)
                     except Exception as e:
                         logger.warning(
                             "Failed to queue embedded payload for imported message %s: %s",
@@ -1205,6 +1374,19 @@ def ingest_chatgpt_export(
             pending_embed_items, None
         )
 
+    _persist_chatgpt_embedding_attempt_outcome(
+        chatlog_db,
+        message_ids=pending_embed_message_ids,
+        persisted_count=int(
+            embedding_diagnostics.get("embeddings_persisted", 0)
+        ),
+        failure_reason=(
+            "embedding_coverage_degraded"
+            if embedding_diagnostics.get("embedding_coverage_degraded")
+            else None
+        ),
+    )
+
     return {
         "threads_imported": threads_count,
         "messages_imported": messages_count,
@@ -1217,4 +1399,63 @@ def ingest_chatgpt_export(
         "embedding_coverage_degraded": embedding_diagnostics[
             "embedding_coverage_degraded"
         ],
+    }
+
+
+def retry_chatgpt_import_embeddings(
+    *, user_id: Optional[str] = None
+) -> Dict[str, Any]:
+    if not user_id:
+        raise ValueError(
+            "retry_chatgpt_import_embeddings requires a valid user_id (got None or empty)"
+        )
+
+    chatlog_db = dependencies.chatlog_db
+    if not chatlog_db:
+        chatlog_db = dependencies.init_database()
+    if not chatlog_db:
+        raise RuntimeError("Database not available")
+
+    retryable_items = _fetch_retryable_chatgpt_embedding_items(
+        chatlog_db, user_id=user_id
+    )
+    if not retryable_items:
+        return {
+            "embedding_candidates": 0,
+            "embeddings_persisted": 0,
+            "embeddings_failed": 0,
+            "embedding_coverage_degraded": False,
+        }
+
+    payload_items = [
+        {"text": item["text"], "meta": item["meta"]} for item in retryable_items
+    ]
+    message_ids = [
+        int(item["message_id"])
+        for item in retryable_items
+        if item.get("message_id") is not None
+    ]
+
+    vector_store = None
+    if _IMPORT_EMBEDDINGS_ENABLED:
+        vector_store = getattr(dependencies, "_vector_store", None) or None
+
+    diagnostics = _embed_items_best_effort(payload_items, vector_store)
+    _persist_chatgpt_embedding_attempt_outcome(
+        chatlog_db,
+        message_ids=message_ids,
+        persisted_count=int(diagnostics.get("embeddings_persisted", 0)),
+        failure_reason=(
+            "embedding_retry_degraded"
+            if diagnostics.get("embedding_coverage_degraded")
+            else None
+        ),
+    )
+    return {
+        "embedding_candidates": int(diagnostics.get("embedding_candidates", 0)),
+        "embeddings_persisted": int(diagnostics.get("embeddings_persisted", 0)),
+        "embeddings_failed": int(diagnostics.get("embeddings_failed", 0)),
+        "embedding_coverage_degraded": bool(
+            diagnostics.get("embedding_coverage_degraded", False)
+        ),
     }
