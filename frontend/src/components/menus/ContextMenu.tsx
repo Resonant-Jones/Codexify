@@ -25,6 +25,37 @@ export function ContextMenu({
   onClose,
   ariaLabel = "Context menu",
 }: ContextMenuProps) {
+  const VIEWPORT_MARGIN_PX = 8;
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+  const [position, setPosition] = React.useState({ x, y });
+
+  React.useEffect(() => {
+    if (!open) return;
+    setPosition({ x, y });
+  }, [open, x, y]);
+
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    const menuEl = menuRef.current;
+    if (!menuEl || typeof window === "undefined") return;
+
+    const rect = menuEl.getBoundingClientRect();
+    const maxX = Math.max(
+      VIEWPORT_MARGIN_PX,
+      window.innerWidth - rect.width - VIEWPORT_MARGIN_PX
+    );
+    const maxY = Math.max(
+      VIEWPORT_MARGIN_PX,
+      window.innerHeight - rect.height - VIEWPORT_MARGIN_PX
+    );
+    const clampedX = Math.min(Math.max(x, VIEWPORT_MARGIN_PX), maxX);
+    const clampedY = Math.min(Math.max(y, VIEWPORT_MARGIN_PX), maxY);
+
+    if (clampedX !== position.x || clampedY !== position.y) {
+      setPosition({ x: clampedX, y: clampedY });
+    }
+  }, [open, x, y, items.length, position.x, position.y]);
+
   React.useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -49,12 +80,13 @@ export function ContextMenu({
 
   return createPortal(
     <div
+      ref={menuRef}
       role="menu"
       aria-label={ariaLabel}
       className="fixed z-[2000] min-w-[180px] overflow-hidden border py-1"
       style={{
-        left: x,
-        top: y,
+        left: position.x,
+        top: position.y,
         background: "color-mix(in oklab, var(--panel-bg) 94%, transparent)",
         borderColor: "var(--panel-border)",
         borderRadius: "calc(var(--tile-radius) - 6px)",
