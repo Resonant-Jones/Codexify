@@ -45,13 +45,6 @@ export default function DocumentsView({
   const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [menu, setMenu] = useState<{x:number;y:number;doc?:DocumentLike}|null>(null);
 
-  const handleGenerateDocument = () => {
-    if (typeof window === "undefined") return;
-    try {
-      window.dispatchEvent(new CustomEvent("cfy:documents:generate"));
-    } catch {}
-  };
-
   const uploader = useUploader({
     tag: "upload",
     projectId: defaultProjectId ?? undefined,
@@ -127,13 +120,6 @@ export default function DocumentsView({
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              className="text-xs underline hover:opacity-80"
-              onClick={handleGenerateDocument}
-            >
-              Generate Document
-            </button>
           </div>
         </div>
 
