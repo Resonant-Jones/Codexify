@@ -292,6 +292,134 @@ function isBackendProxyOutageResponse(error: any): boolean {
   );
 }
 
+function extractTransportErrorSignal(error: any): string {
+  const haystack = [
+    error?.code,
+    error?.message,
+    error?.response?.statusText,
+    errorBlob(error?.response?.data?.detail ?? error?.response?.data),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const match = haystack.match(
+    /(socket hang up|getaddrinfo enotfound|enotfound|econnrefused|network error|failed to fetch|proxy|upstream|connection refused|backend unavailable|backend outage fuse active)/i
+  );
+  return match?.[0] ?? "";
+}
+
+export function isBackendRuntimeUnavailableError(error: any): boolean {
+  if (!error) return false;
+  if (isBackendTransportError(error)) return true;
+  if (isBackendProxyOutageResponse(error)) return true;
+  return Boolean(extractTransportErrorSignal(error));
+}
+
+export function normalizeImportRuntimeError(
+  error: any,
+  options: { phase?: "preflight" | "upload" } = {}
+): {
+  isRuntimeUnavailable: boolean;
+  message: string;
+  technicalDetail?: string;
+} {
+  const phase = options.phase ?? "upload";
+  const signal = extractTransportErrorSignal(error);
+
+  if (isBackendRuntimeUnavailableError(error)) {
+    const message =
+      phase === "preflight"
+        ? "ChatGPT import cannot start because the local backend runtime is unavailable. Restore the local stack and retry."
+        : "ChatGPT import failed because the local backend runtime became unavailable during upload. Restore the local stack and retry.";
+    return {
+      isRuntimeUnavailable: true,
+      message,
+      technicalDetail: signal || undefined,
+    };
+  }
+
+  const detail =
+    error?.response?.data?.detail ??
+    error?.response?.data?.error ??
+    error?.message ??
+    "Failed to migrate data";
+  return {
+    isRuntimeUnavailable: false,
+    message: String(detail),
+    technicalDetail: signal || undefined,
+  };
+}
+
+function parseNonNegativeCount(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.trunc(parsed));
+}
+
+export interface ChatGptImportStats {
+  threads_imported: number;
+  messages_imported: number;
+  projects_created?: number;
+  projects_reused?: number;
+  messages_filtered?: number;
+  embedding_candidates: number;
+  embeddings_persisted: number;
+  embeddings_failed: number;
+  embedding_coverage_degraded: boolean;
+}
+
+export function normalizeChatGptImportStats(
+  payload: any
+): ChatGptImportStats {
+  return {
+    threads_imported: parseNonNegativeCount(payload?.threads_imported),
+    messages_imported: parseNonNegativeCount(payload?.messages_imported),
+    projects_created: parseNonNegativeCount(payload?.projects_created),
+    projects_reused: parseNonNegativeCount(payload?.projects_reused),
+    messages_filtered: parseNonNegativeCount(payload?.messages_filtered),
+    embedding_candidates: parseNonNegativeCount(
+      payload?.embedding_candidates
+    ),
+    embeddings_persisted: parseNonNegativeCount(
+      payload?.embeddings_persisted
+    ),
+    embeddings_failed: parseNonNegativeCount(payload?.embeddings_failed),
+    embedding_coverage_degraded: Boolean(
+      payload?.embedding_coverage_degraded
+    ),
+  };
+}
+
+export async function preflightBackendAvailability(
+  timeoutMs = 4000
+): Promise<{
+  ok: boolean;
+  message?: string;
+  technicalDetail?: string;
+}> {
+  try {
+    // /api/health/llm is an existing lightweight route that still
+    // exercises frontend->backend transport and proxy resolution.
+    await api.get("/api/health/llm", { timeout: timeoutMs });
+    return { ok: true };
+  } catch (error: any) {
+    if (error?.response) {
+      // Non-transport HTTP failures still prove backend reachability.
+      return { ok: true };
+    }
+
+    const normalized = normalizeImportRuntimeError(error, {
+      phase: "preflight",
+    });
+    return {
+      ok: false,
+      message: normalized.message,
+      technicalDetail: normalized.technicalDetail,
+    };
+  }
+}
+
 function computeBackendOutageDelayMs(failures: number): number {
   const exp = Math.max(0, failures - 1);
   return Math.min(

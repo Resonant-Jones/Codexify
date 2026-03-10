@@ -9,8 +9,8 @@ import { ImagePlus, X } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
-import MediaGrid from "@/components/media/MediaGrid";
-import MediaTile from "@/components/media/MediaTile";
+import ImagePreviewModal from "@/components/modals/ImagePreviewModal";
+import DashboardGallery from "@/features/dashboard/components/DashboardGallery";
 import type { DocumentFile } from "@/components/documents/DocumentTile";
 
 // Debug signature: helps confirm which DashboardView module the browser is actually running.
@@ -61,7 +61,7 @@ type DashboardViewProps = {
 export default function DashboardView({
   extColors: _extColors,
   gallery,
-  onImagePrompt,
+  onImagePrompt: _onImagePrompt,
   onRequestNewProject,
   onRequestNewThread,
   onNavigateDocuments,
@@ -82,6 +82,10 @@ export default function DashboardView({
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem("cfy.hideMockGallery") !== "1";
   });
+  const [previewImage, setPreviewImage] = React.useState<{
+    src: string;
+    alt: string;
+  } | null>(null);
 
   React.useEffect(() => {
     try {
@@ -203,8 +207,10 @@ export default function DashboardView({
   }, [auth]);
 
   const openThread = (id: string) => {
+    const normalizedId = String(id ?? "").trim();
+    if (!normalizedId) return;
     if (typeof window !== "undefined") {
-      const url = `/chat/${id}`;
+      const url = `/chat/${encodeURIComponent(normalizedId)}`;
       try {
         window.history.pushState({}, "", url);
         window.dispatchEvent(new PopStateEvent("popstate"));
@@ -218,7 +224,6 @@ export default function DashboardView({
   const threadColumns = 2;
   const threadLimit = threadColumns * rows;
   const threadList = pinnedThreads.slice(0, threadLimit);
-  const [deletedGalleryKeys, setDeletedGalleryKeys] = React.useState<string[]>([]);
 
   // Compute which docs and gallery items to show
   const hasRealDocs = recentDocs && recentDocs.length > 0;
@@ -236,17 +241,6 @@ export default function DashboardView({
   const galleryToRender = React.useMemo(
     () => (hasRealGallery ? gallery : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
     [gallery, hasRealGallery, showDemoGallery]
-  );
-  const visibleGallery = React.useMemo(
-    () =>
-      galleryToRender.filter((item: any) => {
-        const key =
-          typeof item?.id === "string" && item.id.trim()
-            ? `id:${item.id}`
-            : `src:${item.src}`;
-        return !deletedGalleryKeys.includes(key);
-      }),
-    [deletedGalleryKeys, galleryToRender]
   );
 
   return (
@@ -297,13 +291,20 @@ export default function DashboardView({
                           key={t.id}
                           as="button"
                           type="button"
-                          className="flex h-full w-full flex-col justify-between gap-3 px-4 py-4 text-left transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+                          className="flex h-full w-full cursor-pointer flex-col justify-between gap-3 px-4 py-4 text-left transition-all duration-150 ease-out hover:-translate-y-0.5 hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
                           style={{
                             background:
                               "color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 96%,transparent)",
                             borderColor: "color-mix(in oklab,var(--panel-border) 85%,transparent)",
                           }}
                           onClick={() => openThread(t.id)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openThread(t.id);
+                          }}
+                          aria-label={`Open thread ${t.title}`}
                         >
                           <span className="text-base font-semibold truncate">{t.title}</span>
                           {t.lastMessage ? (
@@ -412,33 +413,23 @@ export default function DashboardView({
                 </div>
               )}
               <div className="flex-1 min-h-0 overflow-auto pr-1">
-                {visibleGallery.length === 0 ? (
+                {galleryToRender.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm opacity-70">
                     No gallery images yet. Generate or upload to get started.
                   </div>
                 ) : (
-                  <MediaGrid className="codexifyMediaGrid--dashboard-image">
-                    {visibleGallery.map((item: any, index) => (
-                      <MediaTile
-                        key={`${item.src}-${index}`}
-                        id={item.id ?? `dashboard-gallery-${index}`}
-                        assetId={typeof item?.id === "string" ? item.id : undefined}
-                        src={normalizeMediaUrl(item.src)}
-                        alt={item.prompt || "Gallery image"}
-                        sizeVariant="dashboard-image"
-                        onOpen={() => onImagePrompt(item.prompt)}
-                        onDeleted={() => {
-                          const key =
-                            typeof item?.id === "string" && item.id.trim()
-                              ? `id:${item.id}`
-                              : `src:${item.src}`;
-                          setDeletedGalleryKeys((prev) =>
-                            prev.includes(key) ? prev : [...prev, key]
-                          );
-                        }}
-                      />
-                    ))}
-                  </MediaGrid>
+                  <DashboardGallery
+                    items={galleryToRender}
+                    onOpenPreview={(item) =>
+                      setPreviewImage({
+                        src: normalizeMediaUrl(item.src),
+                        alt: item.prompt || "Gallery image",
+                      })
+                    }
+                    onAddToThread={(item) =>
+                      _onImagePrompt(item.prompt || normalizeMediaUrl(item.src))
+                    }
+                  />
                 )}
               </div>
             </div>
@@ -446,6 +437,14 @@ export default function DashboardView({
         </div>
       </div>
       <ImageGenModal open={showImgGen} onOpenChange={setShowImgGen} />
+      <ImagePreviewModal
+        open={!!previewImage}
+        src={previewImage?.src}
+        alt={previewImage?.alt}
+        onOpenChange={(next) => {
+          if (!next) setPreviewImage(null);
+        }}
+      />
     </section>
   );
 }

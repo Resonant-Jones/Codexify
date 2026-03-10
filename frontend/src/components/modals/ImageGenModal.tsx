@@ -6,7 +6,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { BetaGate } from "@/components/ui/BetaGate";
 import api from "@/lib/api";
 
 const PROJECT_ID_STORAGE_KEYS = [
@@ -334,83 +334,13 @@ export function ImageGenModal({
           color: "var(--text)",
         }}
       >
-        <div>
-          <h2 className="text-lg font-semibold">Generate Image</h2>
-          <p className="text-sm mt-1 opacity-70" style={{ color: "var(--muted)" }}>
-            Choose a provider and model, then describe the image you want.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="imageProvider">
-              Provider
-            </label>
-            <select
-              id="imageProvider"
-              value={provider}
-              onChange={(e) => handleProviderChange(e.target.value as ImageGenProvider)}
-              className="w-full rounded-[var(--tile-radius)] border px-3 py-2 text-sm"
-              style={{
-                background: "transparent",
-                borderColor: "var(--panel-border)",
-                color: "var(--text)",
-              }}
-              disabled={generating}
-            >
-              <option value="nano_banana">Nano Banana</option>
-              <option value="dalle">DALL·E</option>
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="imageModel">
-              Model
-            </label>
-            <select
-              id="imageModel"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full rounded-[var(--tile-radius)] border px-3 py-2 text-sm"
-              style={{
-                background: "transparent",
-                borderColor: "var(--panel-border)",
-                color: "var(--text)",
-              }}
-              disabled={generating}
-            >
-              {modelOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <label className="text-sm font-medium" htmlFor="imagePrompt">
-            Prompt
-          </label>
-          <Textarea
-            id="imagePrompt"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g., A cinematic sunset over neon-lit mountains"
-            rows={4}
-            className="w-full rounded-xl"
-            style={{
-              background: "transparent",
-              borderColor: "var(--panel-border)",
-              color: "var(--text)",
-            }}
-            disabled={generating}
-            autoFocus
-          />
-          <div className="text-xs opacity-60">
-            Using endpoint: <code>{IMAGEGEN_ENDPOINTS[provider]}</code>
-          </div>
-        </div>
+        {/* Beta gate - image generation is deferred for MVP */}
+        <BetaGate
+          title="Image Generation"
+          description="Generate images from text prompts using AI models."
+          statusNote="Coming soon"
+          className="mb-4"
+        />
 
         {error && (
           <div className="text-sm font-medium text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</div>
