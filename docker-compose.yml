@@ -282,6 +282,8 @@ services:
       # Set GEMINI_API_KEY in your .env when you want to use Gemini.
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GEMINI_CHAT_MODEL: "${GEMINI_CHAT_MODEL:-gemini-1.5-flash}"
+    # TTS is an optional plugin surface, not a core boot dependency.
+    # Do not block backend startup on TTS health; voice routes must degrade independently.
     depends_on:
       db:
         condition: service_healthy
@@ -291,8 +293,6 @@ services:
         condition: service_completed_successfully
       graph-init:
         condition: service_completed_successfully
-      tts:
-        condition: service_healthy
     command:
       - -c
       - |
@@ -810,6 +810,11 @@ services:
       - /app/node_modules
       - /app/src/node_modules
     env_file: .env
+    # Do not start the dev UI until the core API is actually reachable.
+    # This avoids proxy storms against the in-network hostname `backend` during boot.
+    depends_on:
+      backend:
+        condition: service_healthy
     environment:
       VITE_PROXY_TARGET: http://backend:8888
       # Dev-only: frontend receives API key for local development.
