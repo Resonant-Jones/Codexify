@@ -11,6 +11,7 @@ import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import MediaGrid from "@/components/media/MediaGrid";
 import MediaTile from "@/components/media/MediaTile";
+import ImagePreviewModal from "@/components/modals/ImagePreviewModal";
 import type { DocumentFile } from "@/components/documents/DocumentTile";
 
 // Debug signature: helps confirm which DashboardView module the browser is actually running.
@@ -61,7 +62,7 @@ type DashboardViewProps = {
 export default function DashboardView({
   extColors: _extColors,
   gallery,
-  onImagePrompt,
+  onImagePrompt: _onImagePrompt,
   onRequestNewProject,
   onRequestNewThread,
   onNavigateDocuments,
@@ -82,6 +83,10 @@ export default function DashboardView({
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem("cfy.hideMockGallery") !== "1";
   });
+  const [previewImage, setPreviewImage] = React.useState<{
+    src: string;
+    alt: string;
+  } | null>(null);
 
   React.useEffect(() => {
     try {
@@ -435,7 +440,12 @@ export default function DashboardView({
                         src={normalizeMediaUrl(item.src)}
                         alt={item.prompt || "Gallery image"}
                         sizeVariant="dashboard-image"
-                        onOpen={() => onImagePrompt(item.prompt)}
+                        onOpen={() =>
+                          setPreviewImage({
+                            src: normalizeMediaUrl(item.src),
+                            alt: item.prompt || "Gallery image",
+                          })
+                        }
                         onDeleted={() => {
                           const key =
                             typeof item?.id === "string" && item.id.trim()
@@ -455,6 +465,14 @@ export default function DashboardView({
         </div>
       </div>
       <ImageGenModal open={showImgGen} onOpenChange={setShowImgGen} />
+      <ImagePreviewModal
+        open={!!previewImage}
+        src={previewImage?.src}
+        alt={previewImage?.alt}
+        onOpenChange={(next) => {
+          if (!next) setPreviewImage(null);
+        }}
+      />
     </section>
   );
 }
