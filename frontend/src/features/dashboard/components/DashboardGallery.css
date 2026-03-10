@@ -1,0 +1,60 @@
+.dashboardGalleryRoot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dashboardGalleryTile {
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboardGalleryBadge {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--panel-border) 85%, transparent);
+  padding: 0.15rem 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  backdrop-filter: blur(8px);
+}
+
+.dashboardGalleryBadge--uploaded {
+  background: color-mix(in oklab, var(--panel-bg) 75%, transparent);
+  color: color-mix(in oklab, var(--text) 88%, transparent);
+}
+
+.dashboardGalleryBadge--generated {
+  background: color-mix(in oklab, var(--accent-strong, #3b82f6) 25%, transparent);
+  border-color: color-mix(in oklab, var(--accent-strong, #3b82f6) 45%, var(--panel-border));
+  color: color-mix(in oklab, var(--text, #f8fafc) 92%, transparent);
+}
+
+.dashboardGalleryShowMore {
+  align-self: flex-start;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--panel-border) 85%, transparent);
+  background: color-mix(in oklab, var(--panel-sheet, rgba(12, 19, 32, 0.78)) 95%, transparent);
+  color: color-mix(in oklab, var(--text) 90%, transparent);
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out;
+}
+
+.dashboardGalleryShowMore:hover {
+  background: color-mix(in oklab, var(--panel-sheet, rgba(12, 19, 32, 0.78)) 80%, transparent);
+  border-color: color-mix(in oklab, var(--accent-strong, #3b82f6) 45%, var(--panel-border));
+}
+
+.dashboardGalleryShowMore:focus-visible {
+  outline: 2px solid var(--accent-strong, #3b82f6);
+  outline-offset: 2px;
+}

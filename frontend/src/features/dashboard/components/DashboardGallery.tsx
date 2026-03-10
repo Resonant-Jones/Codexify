@@ -4,11 +4,16 @@ import MediaGrid from "@/components/media/MediaGrid";
 import TileShell from "@/components/surface/TileShell";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import "@/components/media/media.css";
+import "./DashboardGallery.css";
 
 export type DashboardGalleryItem = {
   id?: string;
   src: string;
   prompt?: string;
+  tag?: string;
+  source_tag?: string;
+  source?: string;
+  mock?: boolean;
 };
 
 type DashboardGalleryProps = {
@@ -60,6 +65,7 @@ export default function DashboardGallery({
   onOpenPreview,
   onAddToThread,
 }: DashboardGalleryProps) {
+  const INITIAL_VISIBLE = 4;
   const [menu, setMenu] = React.useState<{
     x: number;
     y: number;
@@ -67,6 +73,31 @@ export default function DashboardGallery({
     resolvedSrc: string;
     alt: string;
   } | null>(null);
+  const [showAll, setShowAll] = React.useState(false);
+
+  const hasOverflow = items.length > INITIAL_VISIBLE;
+  const visibleItems = showAll ? items : items.slice(0, INITIAL_VISIBLE);
+
+  React.useEffect(() => {
+    if (items.length <= INITIAL_VISIBLE) {
+      setShowAll(false);
+    }
+  }, [items.length]);
+
+  const provenanceLabel = React.useCallback(
+    (item: DashboardGalleryItem): "Uploaded" | "Generated" => {
+      const source = String(
+        item?.source_tag ?? item?.tag ?? item?.source ?? ""
+      )
+        .trim()
+        .toLowerCase();
+      if (source.includes("gen")) return "Generated";
+      if (source.includes("upload")) return "Uploaded";
+      // In current data flow generated images are explicitly tagged; untagged defaults to uploaded.
+      return "Uploaded";
+    },
+    []
+  );
 
   const handleCopyLink = React.useCallback(async (url: string) => {
     if (typeof navigator?.clipboard?.writeText === "function") {
@@ -136,19 +167,24 @@ export default function DashboardGallery({
   );
 
   return (
-    <>
+    <div className="dashboardGalleryRoot">
       <MediaGrid className="codexifyMediaGrid--dashboard-image">
-        {items.map((item, index) => {
+        {visibleItems.map((item, index) => {
           const resolvedSrc = normalizeMediaUrl(item.src);
           const alt = item.prompt || "Gallery image";
           const key = `${item.id ?? "dashboard"}:${item.src}:${index}`;
+          const provenance = provenanceLabel(item);
+          const provenanceClass =
+            provenance === "Generated"
+              ? "dashboardGalleryBadge--generated"
+              : "dashboardGalleryBadge--uploaded";
           return (
             <TileShell
               key={key}
               as="button"
               type="button"
               sizeVariant="dashboard-image"
-              className="codexifyMediaTile cursor-pointer"
+              className="codexifyMediaTile dashboardGalleryTile cursor-pointer"
               style={{ padding: 0 }}
               onClick={() => onOpenPreview(item)}
               onContextMenu={(event) => {
@@ -170,10 +206,29 @@ export default function DashboardGallery({
                 alt={alt}
                 loading="lazy"
               />
+              <span
+                className={`dashboardGalleryBadge ${provenanceClass}`}
+                aria-hidden="true"
+              >
+                {provenance}
+              </span>
             </TileShell>
           );
         })}
       </MediaGrid>
+      {hasOverflow && (
+        <button
+          type="button"
+          className="dashboardGalleryShowMore"
+          onClick={() => setShowAll((prev) => !prev)}
+        >
+          {showAll
+            ? "Show fewer images"
+            : `Show ${items.length - INITIAL_VISIBLE} more image${
+                items.length - INITIAL_VISIBLE === 1 ? "" : "s"
+              }`}
+        </button>
+      )}
       <ContextMenu
         open={!!menu}
         x={menu?.x ?? 0}
@@ -182,6 +237,6 @@ export default function DashboardGallery({
         onClose={() => setMenu(null)}
         ariaLabel="Dashboard image actions"
       />
-    </>
+    </div>
   );
 }
