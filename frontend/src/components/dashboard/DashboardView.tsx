@@ -9,9 +9,8 @@ import { ImagePlus, X } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
-import MediaGrid from "@/components/media/MediaGrid";
-import MediaTile from "@/components/media/MediaTile";
 import ImagePreviewModal from "@/components/modals/ImagePreviewModal";
+import DashboardGallery from "@/features/dashboard/components/DashboardGallery";
 import type { DocumentFile } from "@/components/documents/DocumentTile";
 
 // Debug signature: helps confirm which DashboardView module the browser is actually running.
@@ -225,7 +224,6 @@ export default function DashboardView({
   const threadColumns = 2;
   const threadLimit = threadColumns * rows;
   const threadList = pinnedThreads.slice(0, threadLimit);
-  const [deletedGalleryKeys, setDeletedGalleryKeys] = React.useState<string[]>([]);
 
   // Compute which docs and gallery items to show
   const hasRealDocs = recentDocs && recentDocs.length > 0;
@@ -243,17 +241,6 @@ export default function DashboardView({
   const galleryToRender = React.useMemo(
     () => (hasRealGallery ? gallery : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
     [gallery, hasRealGallery, showDemoGallery]
-  );
-  const visibleGallery = React.useMemo(
-    () =>
-      galleryToRender.filter((item: any) => {
-        const key =
-          typeof item?.id === "string" && item.id.trim()
-            ? `id:${item.id}`
-            : `src:${item.src}`;
-        return !deletedGalleryKeys.includes(key);
-      }),
-    [deletedGalleryKeys, galleryToRender]
   );
 
   return (
@@ -426,38 +413,23 @@ export default function DashboardView({
                 </div>
               )}
               <div className="flex-1 min-h-0 overflow-auto pr-1">
-                {visibleGallery.length === 0 ? (
+                {galleryToRender.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm opacity-70">
                     No gallery images yet. Generate or upload to get started.
                   </div>
                 ) : (
-                  <MediaGrid className="codexifyMediaGrid--dashboard-image">
-                    {visibleGallery.map((item: any, index) => (
-                      <MediaTile
-                        key={`${item.src}-${index}`}
-                        id={item.id ?? `dashboard-gallery-${index}`}
-                        assetId={typeof item?.id === "string" ? item.id : undefined}
-                        src={normalizeMediaUrl(item.src)}
-                        alt={item.prompt || "Gallery image"}
-                        sizeVariant="dashboard-image"
-                        onOpen={() =>
-                          setPreviewImage({
-                            src: normalizeMediaUrl(item.src),
-                            alt: item.prompt || "Gallery image",
-                          })
-                        }
-                        onDeleted={() => {
-                          const key =
-                            typeof item?.id === "string" && item.id.trim()
-                              ? `id:${item.id}`
-                              : `src:${item.src}`;
-                          setDeletedGalleryKeys((prev) =>
-                            prev.includes(key) ? prev : [...prev, key]
-                          );
-                        }}
-                      />
-                    ))}
-                  </MediaGrid>
+                  <DashboardGallery
+                    items={galleryToRender}
+                    onOpenPreview={(item) =>
+                      setPreviewImage({
+                        src: normalizeMediaUrl(item.src),
+                        alt: item.prompt || "Gallery image",
+                      })
+                    }
+                    onAddToThread={(item) =>
+                      _onImagePrompt(item.prompt || normalizeMediaUrl(item.src))
+                    }
+                  />
                 )}
               </div>
             </div>
