@@ -351,6 +351,46 @@ export function normalizeImportRuntimeError(
   };
 }
 
+function parseNonNegativeCount(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.trunc(parsed));
+}
+
+export interface ChatGptImportStats {
+  threads_imported: number;
+  messages_imported: number;
+  projects_created?: number;
+  projects_reused?: number;
+  messages_filtered?: number;
+  embedding_candidates: number;
+  embeddings_persisted: number;
+  embeddings_failed: number;
+  embedding_coverage_degraded: boolean;
+}
+
+export function normalizeChatGptImportStats(
+  payload: any
+): ChatGptImportStats {
+  return {
+    threads_imported: parseNonNegativeCount(payload?.threads_imported),
+    messages_imported: parseNonNegativeCount(payload?.messages_imported),
+    projects_created: parseNonNegativeCount(payload?.projects_created),
+    projects_reused: parseNonNegativeCount(payload?.projects_reused),
+    messages_filtered: parseNonNegativeCount(payload?.messages_filtered),
+    embedding_candidates: parseNonNegativeCount(
+      payload?.embedding_candidates
+    ),
+    embeddings_persisted: parseNonNegativeCount(
+      payload?.embeddings_persisted
+    ),
+    embeddings_failed: parseNonNegativeCount(payload?.embeddings_failed),
+    embedding_coverage_degraded: Boolean(
+      payload?.embedding_coverage_degraded
+    ),
+  };
+}
+
 export async function preflightBackendAvailability(
   timeoutMs = 4000
 ): Promise<{
