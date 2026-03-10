@@ -2,6 +2,7 @@
 
 import json
 import logging
+import multiprocessing as mp
 import os
 import re
 from datetime import datetime, timezone
@@ -22,6 +23,16 @@ _IMPORT_EMBEDDINGS_ENABLED = (
     os.getenv("CODEXIFY_CHATGPT_IMPORT_EMBEDDINGS", "1").strip().lower()
     in _TRUTHY
 )
+_IMPORT_EMBED_ISOLATED = (
+    os.getenv("CODEXIFY_CHATGPT_IMPORT_EMBED_ISOLATED", "1").strip().lower()
+    in _TRUTHY
+)
+_MAX_EMBED_TEXT_CHARS = int(
+    os.getenv("CODEXIFY_CHATGPT_IMPORT_MAX_EMBED_TEXT_CHARS", "24000")
+)
+_EMBED_SUBPROCESS_TIMEOUT_S = float(
+    os.getenv("CODEXIFY_CHATGPT_IMPORT_EMBED_TIMEOUT_SECONDS", "180")
+)
 
 
 def _detect_non_json_hint(content: bytes) -> Optional[str]:
@@ -39,6 +50,74 @@ def _detect_non_json_hint(content: bytes) -> Optional[str]:
             "This importer only supports ChatGPT JSON exports."
         )
     return None
+
+
+def _sanitize_embed_text(text: Any) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    if len(normalized) > _MAX_EMBED_TEXT_CHARS:
+        return normalized[:_MAX_EMBED_TEXT_CHARS]
+    return normalized
+
+
+def _sanitize_embed_meta(meta: Dict[str, Any]) -> Dict[str, Any]:
+    safe: Dict[str, Any] = {}
+    for key, value in meta.items():
+        if value is None:
+            continue
+        if isinstance(value, (str, int, float, bool)):
+            safe[str(key)] = value
+            continue
+        safe[str(key)] = str(value)
+    return safe
+
+
+def _embed_items_subprocess(items: List[Dict[str, Any]]) -> None:
+    # Child process entrypoint: isolate native embedding/indexing libs from API.
+    from guardian.vector.store import VectorStore
+
+    store = VectorStore()
+    store.add_texts(items)
+
+
+def _embed_items_best_effort(
+    items: List[Dict[str, Any]],
+    vector_store: Any,
+) -> None:
+    if not items or vector_store is None:
+        return
+
+    if not _IMPORT_EMBED_ISOLATED:
+        vector_store.add_texts(items)
+        return
+
+    try:
+        ctx = mp.get_context("spawn")
+        proc = ctx.Process(target=_embed_items_subprocess, args=(items,))
+        proc.start()
+        proc.join(_EMBED_SUBPROCESS_TIMEOUT_S)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=5.0)
+            logger.warning(
+                "ChatGPT import embedding timed out after %.1fs; skipped batch size=%d",
+                _EMBED_SUBPROCESS_TIMEOUT_S,
+                len(items),
+            )
+            return
+        if proc.exitcode != 0:
+            logger.warning(
+                "ChatGPT import embedding subprocess failed with exit code=%s for batch size=%d",
+                proc.exitcode,
+                len(items),
+            )
+            return
+    except Exception as exc:
+        logger.warning(
+            "ChatGPT import embedding subprocess launch failed: %s",
+            exc,
+        )
 
 
 def _validate_chatgpt_export_payload(data: Any) -> List[Dict[str, Any]]:
@@ -851,13 +930,10 @@ def ingest_chatgpt_export(
     if not chatlog_db:
         raise RuntimeError("Database not available")
 
-    # Import safety default: skip synchronous embedding writes during ChatGPT import.
-    # This avoids backend process crashes/unavailability in local runtime paths while
-    # preserving thread/message ingestion semantics.
+    # Use existing vector store if already initialized; do NOT eagerly initialize.
+    # This allows import to succeed (with DB records) even if vector store is unavailable.
     _vector_store = None
     if _IMPORT_EMBEDDINGS_ENABLED:
-        # Use existing vector store if already initialized; do NOT eagerly initialize.
-        # This allows import to succeed (with DB records) even if vector store is unavailable.
         _vector_store = getattr(dependencies, "_vector_store", None) or None
 
     hint = _detect_non_json_hint(content)
@@ -875,6 +951,7 @@ def ingest_chatgpt_export(
     messages_count = 0
     messages_filtered = 0
     imports_project_id = int(_resolve_imports_project_id(chatlog_db))
+    pending_embed_items: List[Dict[str, Any]] = []
 
     for conv in data:
         try:
@@ -1042,9 +1119,12 @@ def ingest_chatgpt_export(
                     source_created_at=msg["source_created_at"],
                 )
 
-                # Embed message
+                # Queue embedding payload for post-import processing.
                 if _vector_store and not existing:
                     try:
+                        embed_text = _sanitize_embed_text(msg["content"])
+                        if not embed_text:
+                            continue
                         meta = {
                             "thread_id": thread_id,
                             "role": msg["role"],
@@ -1061,12 +1141,15 @@ def ingest_chatgpt_export(
                             "source": "chatgpt_import",
                             "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
                         }
-                        _vector_store.add_texts(
-                            [{"text": msg["content"], "meta": meta}]
+                        pending_embed_items.append(
+                            {
+                                "text": embed_text,
+                                "meta": _sanitize_embed_meta(meta),
+                            }
                         )
                     except Exception as e:
                         logger.warning(
-                            "Failed to embed imported message %s: %s",
+                            "Failed to queue embedded payload for imported message %s: %s",
                             mid,
                             e,
                         )
@@ -1074,6 +1157,16 @@ def ingest_chatgpt_export(
         except Exception as e:
             logger.error("Failed to import conversation: %s", e)
             continue
+
+    if _vector_store and pending_embed_items:
+        try:
+            _embed_items_best_effort(pending_embed_items, _vector_store)
+        except Exception as e:
+            logger.warning(
+                "Failed to embed imported message batch size=%d: %s",
+                len(pending_embed_items),
+                e,
+            )
 
     return {
         "threads_imported": threads_count,

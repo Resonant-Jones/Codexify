@@ -147,6 +147,7 @@ def test_migration_route_executes_real_ingest_and_embeds(
     mock_db.create_message.side_effect = fake_create_message
     mock_db.ensure_project.return_value = 1
 
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
     monkeypatch.setattr(dependencies, "_vector_store", vector_store)
     monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
     monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
@@ -206,6 +207,41 @@ def test_migration_route_executes_real_ingest_and_embeds(
     assert "ORBIT-ROUTE-314" in created_messages[0]["content"]
     assert (
         mock_db.create_chat_thread.call_args.kwargs["user_id"] == SERVER_USER_ID
+    )
+
+
+def test_embed_items_best_effort_handles_subprocess_segfault(monkeypatch):
+    class _FakeProcess:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.exitcode = 139
+            self._alive = False
+
+        def start(self) -> None:
+            return None
+
+        def join(self, timeout: float | None = None) -> None:
+            _ = timeout
+
+        def is_alive(self) -> bool:
+            return self._alive
+
+        def terminate(self) -> None:
+            self._alive = False
+
+    class _FakeContext:
+        def Process(self, *args, **kwargs):  # noqa: N802
+            _ = args, kwargs
+            return _FakeProcess()
+
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", True)
+    monkeypatch.setattr(
+        chatgpt_migration.mp, "get_context", lambda *_: _FakeContext()
+    )
+
+    # Should swallow subprocess failure and continue without raising.
+    chatgpt_migration._embed_items_best_effort(
+        items=[{"text": "hello", "meta": {"thread_id": 1}}],
+        vector_store=object(),
     )
 
 

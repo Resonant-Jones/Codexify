@@ -260,9 +260,6 @@ services:
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       LOCAL_EMBEDDINGS_REQUIRED: "${LOCAL_EMBEDDINGS_REQUIRED:-0}"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
-      # Keep ChatGPT import on the DB-only path in Docker until import-time embedding
-      # writes are stabilized for this runtime.
-      CODEXIFY_CHATGPT_IMPORT_EMBEDDINGS: "${CODEXIFY_CHATGPT_IMPORT_EMBEDDINGS:-0}"
       CODEXIFY_VOICE_ROUTES_ENABLED: "${CODEXIFY_VOICE_ROUTES_ENABLED:-true}"
       CODEXIFY_VOICE_TURNS_ENABLED: "${CODEXIFY_VOICE_TURNS_ENABLED:-false}"
       CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
