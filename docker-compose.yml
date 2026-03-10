@@ -282,6 +282,8 @@ services:
       # Set GEMINI_API_KEY in your .env when you want to use Gemini.
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GEMINI_CHAT_MODEL: "${GEMINI_CHAT_MODEL:-gemini-1.5-flash}"
+    # TTS is an optional plugin surface, not a core boot dependency.
+    # Do not block backend startup on TTS health; voice routes must degrade independently.
     depends_on:
       db:
         condition: service_healthy
@@ -291,8 +293,6 @@ services:
         condition: service_completed_successfully
       graph-init:
         condition: service_completed_successfully
-      tts:
-        condition: service_healthy
     command:
       - -c
       - |
@@ -810,7 +810,14 @@ services:
       - ./frontend:/app
       - /app/node_modules
       - /app/src/node_modules
+      - corepack_cache:/root/.cache/node/corepack
+      - frontend_pnpm_store:/pnpm/store
     env_file: .env
+    # Do not start the dev UI until the core API is actually reachable.
+    # This avoids proxy storms against the in-network hostname `backend` during boot.
+    depends_on:
+      backend:
+        condition: service_healthy
     environment:
       VITE_PROXY_TARGET: http://backend:8888
       # Dev-only: frontend receives API key for local development.
@@ -821,13 +828,21 @@ services:
       PNPM_CONFIG_IGNORE_SCRIPTS: "true"
       CI: "true"
       CHOKIDAR_USEPOLLING: "true"
+      PNPM_HOME: /pnpm
+      PNPM_STORE_DIR: /pnpm/store
     entrypoint: ["sh", "-lc"]
     command:
       - |
         set -e
         echo "[Frontend] Enabling pnpm via corepack..."
         corepack enable
-        corepack prepare pnpm@9.12.1 --activate
+        if [ ! -x /root/.cache/node/corepack/v1/pnpm/9.12.1/bin/pnpm.cjs ]; then
+          echo "[Frontend] Downloading pnpm@9.12.1 into persistent Corepack cache..."
+          corepack prepare pnpm@9.12.1 --activate
+        else
+          echo "[Frontend] Reusing cached pnpm@9.12.1 from Corepack cache..."
+          corepack prepare pnpm@9.12.1 --activate
+        fi
 
         echo "[Frontend] Installing root deps..."
         pnpm install --frozen-lockfile=false --ignore-scripts || pnpm install --ignore-scripts
@@ -878,3 +893,5 @@ volumes:
     driver: local
   e2e_frontend_src_node_modules:
   e2e_pnpm_store:
+  corepack_cache:
+  frontend_pnpm_store:
