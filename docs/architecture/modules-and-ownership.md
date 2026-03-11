@@ -1,64 +1,114 @@
-# Modules and Ownership
-
-Purpose: Provide a PM/Senior-dev subsystem map with dependency edges and blast-radius guidance so change planning can target the right seams first.
-Last updated: 2026-02-17
+Purpose: Provide a subsystem-level map of Codexify so planning can follow real dependency edges, ownership conversations can start from actual seams, and blast radius is visible before code changes land.
+Last updated: 2026-03-11
 Source anchors:
 - guardian/guardian_api.py
 - guardian/routes/
 - guardian/core/
 - guardian/context/broker.py
+- guardian/cognition/
 - guardian/workers/
 - guardian/queue/
+- guardian/command_bus/
 - guardian/db/models.py
 - guardian/cron/
+- guardian/realtime/
 - guardian/routes/federation.py
 - guardian/sync/
-- frontend/src/App.tsx
-- frontend/src/components/persona/layout/AppShell.tsx
-- frontend/src/lib/api.ts
+- frontend/src/
 - docker-compose.yml
+
+# Modules and Ownership
 
 ## Subsystem Matrix
 
-| Subsystem | Type | Responsibilities | Key anchors | Depends on | Depended on by | Blast radius |
+| Subsystem | Class | Responsibilities | Key anchors | Depends on | Depended on by | Blast radius |
 |---|---|---|---|---|---|---|
-| API bootstrap and middleware | supporting | App creation, router inclusion, request-id, CORS, SSE endpoints, startup orchestration | `guardian/guardian_api.py` | `guardian/core/*`, all routers | All HTTP clients, workers via startup contracts | high |
-| Auth boundary and exposure policy | supporting | Local API key vs remote session/JWT auth, public allowlist mode | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` | env + settings | Nearly all protected routes | high |
-| Chat routes and turn gating | core loop | Thread/message APIs, completion enqueue, turn lock semantics | `guardian/routes/chat.py`, `guardian/queue/redis_queue.py` | chat DB, Redis queue | Frontend chat UX, chat worker | high |
-| Chat completion worker | core loop | Dequeue chat tasks, provider call, persistence, task event lifecycle | `guardian/workers/chat_worker.py` | context broker, ai_router, DB, Redis | Completion UX and assistant output quality | high |
-| Context broker | core loop | Depth-based message/semantic/memory/graph/federated retrieval | `guardian/context/broker.py` | vector store, memory retriever, optional graph/federation | chat worker prompt assembly | high |
-| Prompt/profile layer | core loop | System prompt composition and per-thread profile overrides | `guardian/cognition/system_prompt_builder.py`, `guardian/cognition/system_profiles/resolver.py` | DB-backed persona/system-doc stores | chat worker and profile switch tools | medium |
-| Provider routing and catalog | core loop | Resolve provider/model, call backend APIs, expose provider catalog | `guardian/core/ai_router.py`, `guardian/core/llm_catalog.py`, `guardian/core/egress.py` | settings + network | chat worker, docs generation, health/catalog routes | high |
-| Vector + embedding stack | core loop | Embed/index/search text chunks and message embeddings | `guardian/vector/store.py`, `backend/rag/embedder.py`, `guardian/runtime/embed/embedder.py` | local model files or cloud keys | context broker, ingestion workers, health/vector | high |
-| Media ingestion pipeline | core loop | Upload/dedupe assets, parse documents, enqueue embed tasks | `guardian/routes/media.py`, `guardian/services/document_parsers/` | storage backend, DB, queues | docs/images UX, RAG source material | high |
-| Document generation + linkage | supporting | Autosave docs and LLM-driven document generation to thread links | `guardian/routes/documents.py` | chat provider calls, DB | frontend document modal/workspace | medium |
-| Task/event transport | supporting | Redis queue operations, task streams, cancellation, lock TTL | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py` | Redis | chat/document/cron workers, SSE task stream | high |
-| Durable event outbox | supporting | Domain event persistence + replay over `/api/events` | `guardian/core/event_bus.py`, `guardian/core/outbox.py`, `guardian/guardian_api.py` | Postgres | frontend live updates/consumers | medium |
-| Cron scheduler/executor | supporting | Scheduled job definitions, due-job queueing, run execution and status | `guardian/routes/cron.py`, `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py` | DB, Redis, egress policy | automation paths and future background orchestration | medium |
-| Tools execution endpoint | experimental | Direct tool dispatch with in-memory job registry | `guardian/routes/tools.py` | profile resolver | frontend/admin tool calls | medium |
-| Federation + peer sync | experimental | Manifest/session trust flow, relay channel, peer diff/context endpoints | `guardian/routes/federation.py`, `guardian/routes/federation_context.py` | signed policy + network | cross-node collaboration features | high |
-| Sync bus API | experimental | Idempotent event ingest + in-process SSE publish | `guardian/sync/api.py`, `guardian/sync/bus.py` | in-memory bus, sync models | consumers of `/api/sync/subscribe` | medium |
-| WebSocket RPC and audit | supporting | Authenticated RPC endpoint, rate limits, idle timeout, audit rows | `guardian/routes/websocket.py`, `guardian/ws/*` | auth, DB, rate limiter | real-time clients, admin tooling | medium |
-| Connectors worker | supporting | Connector config CRUD, github sync, ingest into memory/events | `guardian/routes/connectors.py` | DB, optional external APIs | connector status UI and ingestion | medium |
-| Frontend app shell and state spine | supporting | View routing, thread/doc state, event listeners, workflow orchestration | `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx` | backend APIs, browser storage | end-user experience | high |
-| Frontend API/auth client | supporting | Auth header injection, 401 handling, token persistence | `frontend/src/lib/api.ts`, `frontend/src/lib/authState.ts` | browser storage + runtime env | all frontend API requests | high |
+| API bootstrap and middleware | supporting | app creation, startup order, middleware, router inclusion, SSE endpoints, metrics | `guardian/guardian_api.py` | config, dependencies, all routers | every HTTP and SSE client | high |
+| Auth and exposure boundary | supporting | API key/session auth, current-user derivation, public exposure controls, CORS | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` | env, settings, crypto/session helpers | almost every protected route | high |
+| Chat routes and thread lifecycle | core loop | thread creation, message persistence, completion enqueue, depth gating, debug traces | `guardian/routes/chat.py`, `guardian/routes/threads.py` | DB, Redis, depth rules | frontend chat UX, chat worker | high |
+| Completion assembly and execution | core loop | prompt assembly, provider selection, output persistence, embeddings handoff | `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py` | context broker, provider router, DB, Redis | core assistant behavior | high |
+| Context and retrieval broker | core loop | message history, semantic retrieval, doc scope, memory, graph, federated context | `guardian/context/broker.py`, `guardian/memoryos/retriever.py` | vector store, memory store, optional graph/federation | completion service | high |
+| Prompt and profile system | core loop | system prompt layering, persona/profile resolution, system doc attachment | `guardian/cognition/system_prompt_builder.py`, `guardian/cognition/system_profiles/` | DB-backed docs/personas, thread/profile metadata | completion service, profile-switch flows | medium |
+| Provider routing and catalog | core loop | provider health, request formatting, timeouts, model catalog, runtime provider sync | `guardian/core/ai_router.py`, `guardian/core/llm_catalog.py`, `guardian/core/provider_state.py` | settings, network, provider credentials | completion service, docs generation, frontend provider selection | high |
+| Media and document ingestion | core loop | upload validation, asset dedupe, parsing, storage, document/thread/project links | `guardian/routes/media.py`, `guardian/routes/documents.py`, `guardian/services/document_parsers/` | storage, DB, queues | RAG corpus, document UI | high |
+| Embedding and vector indexing | core loop | document/chat embedding, chunking, vector writes, semantic search | `guardian/workers/document_embed_worker.py`, `guardian/workers/chat_embedding_worker.py`, `guardian/vector/store.py` | embed models, vector backend, queues | context broker, ingestion UX | high |
+| Queue and task transport | supporting | Redis queue access, cancellation, turn locks, task event streams, worker heartbeats | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py` | Redis | chat, ingestion, cron, health endpoints | high |
+| Durable events and audit | supporting | domain outbox, audit rows, event streaming, event graph lineage | `guardian/core/event_bus.py`, `guardian/core/outbox.py`, `guardian/db/models.py` | Postgres | live UI updates, debugging, downstream consumers | medium |
+| Command bus | supporting | manifest derivation, invoke validation, idempotency, policy, loopback execution, run/event persistence | `guardian/routes/command_bus.py`, `guardian/command_bus/` | auth, OpenAPI, DB, HTTP loopback | tools shim, future agent/tool callers | high |
+| Legacy tools shim | experimental | compatibility wrapper over command bus plus a few local helper behaviors | `guardian/routes/tools.py` | command bus, profile resolver | existing `/tools` clients | medium |
+| Cron and scheduled automation | supporting | job CRUD, due-job scanning, queued execution, run history | `guardian/routes/cron.py`, `guardian/cron/`, `guardian/workers/cron_worker.py` | DB, Redis, egress policy | automation features and ops tasks | medium |
+| Collaboration and WebSocket RPC | supporting | doc collaboration permissions, websocket sessions, RPC rate limiting, audit logging | `guardian/realtime/collaboration.py`, `guardian/ws/`, `guardian/routes/websocket.py` | auth, DB | realtime clients, shared-doc flows | medium |
+| Federation and peer context | experimental | node trust, relay sessions, diff sync, peer context search, graph updates | `guardian/routes/federation.py`, `guardian/routes/federation_context.py` | trust policy, egress, optional graph | cross-node features | high |
+| Sync API | experimental | idempotent event ingest plus process-local SSE subscription bus | `guardian/sync/api.py`, `guardian/sync/bus.py` | in-memory bus, sync models | light sync consumers | medium |
+| Persistence layer | supporting | SQLAlchemy models, DB adapter methods, migrations, provider/runtime tables | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` | Postgres | almost every backend subsystem | high |
+| Frontend shell and session spine | supporting | view routing, chat/doc/gallery/settings shell, persisted session state, local orchestration events | `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/state/session/SessionSpine.ts` | browser storage, backend APIs | end-user workflows | high |
+| Frontend transport and auth client | supporting | backend URL resolution, auth header injection, live event transport, outage gating | `frontend/src/lib/runtimeConfig.ts`, `frontend/src/lib/api.ts`, `frontend/src/hooks/useLiveEvents.ts` | browser storage, backend endpoints | every frontend request path | high |
 
-## Coupling and Blast-Radius Notes
+## Dependency Edges That Matter Most
 
-- Highest coupling hotspots (change carefully):
-  - `guardian/workers/chat_worker.py` (touches profile resolution, prompt, context, provider, persistence, events).
-  - `guardian/routes/media.py` (identity, storage, parsing, embedding queue, API response contract).
-  - `guardian/guardian_api.py` (startup order and router wiring).
-- Experimental surfaces with unclear production guarantees:
-  - `guardian/routes/tools.py` (in-memory job registry).
-  - `guardian/sync/*` in-process event bus.
-  - Portions of federation runtime where external peer policy and deployment assumptions are environment-driven.
+- `guardian/guardian_api.py` is the top-level composition root.
+  - Changing startup order or router inclusion can break unrelated subsystems at once.
+- `guardian/core/chat_completion_service.py` sits at the center of the core assistant loop.
+  - It depends on retrieval, prompting, provider routing, DB access, and task/event plumbing.
+- `guardian/routes/media.py` is both a user-facing API and an ingestion orchestrator.
+  - It couples storage, parsing, dedupe, DB writes, and queueing.
+- `guardian/routes/tools.py` depends on the command bus manifest but still carries its own compatibility behavior.
+  - That makes tool changes a two-surface problem.
+- Frontend shell code in `AppShell.tsx` depends on several backend contracts directly and also coordinates local browser state.
 
-## Ownership Model (Suggested)
+## High-Coupling Hotspots
 
-Recommendations (not current declared team ownership):
-- Treat `chat routes + worker + context broker + provider routing` as one ownership cluster for core-loop stability.
-- Treat `media ingestion + embedding workers + vector layer` as a second ownership cluster for retrieval quality and ingestion reliability.
-- Treat `auth boundary + API bootstrap + websocket + cron` as platform/ops cluster.
-- Keep federation/sync behind explicit feature-owner review due high blast radius and policy/security coupling.
+- `guardian/guardian_api.py`
+- `guardian/routes/chat.py`
+- `guardian/core/chat_completion_service.py`
+- `guardian/routes/media.py`
+- `guardian/routes/tools.py`
+- `frontend/src/components/persona/layout/AppShell.tsx`
 
+These files are the fastest way to change system behavior and the fastest way to create multi-subsystem regressions.
+
+## Ownership Guidance
+
+This repo does not declare formal team ownership in code, so the grouping below is a recommendation derived from coupling:
+
+- Core loop cluster:
+  - chat routes
+  - completion service and chat worker
+  - context broker
+  - prompt/profile system
+  - provider routing
+- Retrieval and ingestion cluster:
+  - media/doc routes
+  - embedding workers
+  - vector/memory layers
+- Platform and control-plane cluster:
+  - API bootstrap
+  - auth boundary
+  - queues/events
+  - persistence
+  - command bus
+  - cron
+  - websocket/realtime
+- Experimental boundary cluster:
+  - federation
+  - sync API
+  - legacy tools shim
+
+## Change Planning Heuristics
+
+- If a change touches the chat API contract, inspect:
+  - `guardian/routes/chat.py`
+  - `guardian/core/chat_completion_service.py`
+  - `frontend/src/features/chat/`
+  - `tests/routes/test_chat_routes.py`
+- If a change touches document ingestion, inspect:
+  - `guardian/routes/media.py`
+  - `guardian/workers/document_embed_worker.py`
+  - `guardian/context/broker.py`
+  - `tests/routes/test_media_routes.py`
+- If a change touches tools or automation, inspect:
+  - `guardian/routes/command_bus.py`
+  - `guardian/command_bus/invoke.py`
+  - `guardian/routes/tools.py`
+  - `guardian/routes/cron.py`
+  - `tests/routes/test_command_bus_*`
