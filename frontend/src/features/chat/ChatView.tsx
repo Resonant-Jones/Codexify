@@ -1002,6 +1002,10 @@ export function ChatView({
   const handlePlayClick = useCallback(
     (message: (typeof messages)[number]) => {
       const messageId = Number(message.id);
+      const messageAudioUrl =
+        typeof message.audio_url === "string" && message.audio_url.trim()
+          ? message.audio_url
+          : null;
       if (!voiceReadAloudEnabled) {
         showToast("Voice disabled");
         return;
@@ -1021,11 +1025,15 @@ export function ChatView({
         showToast(message.audio_error || "Audio unavailable");
         return;
       }
-      if (isVoiceUnavailable(messageId) || message.audio_status !== "ready") {
+      if (
+        isVoiceUnavailable(messageId) ||
+        message.audio_status !== "ready" ||
+        !messageAudioUrl
+      ) {
         showToast("Audio unavailable");
         return;
       }
-      void playMessageAudio(messageId, message.audio_url, {
+      void playMessageAudio(messageId, messageAudioUrl, {
         manual: true,
         unavailableMessage: message.audio_error || "Audio unavailable",
       });
@@ -1150,6 +1158,10 @@ export function ChatView({
           const messageId = Number(m.id);
           const canPlay = m.role !== "user" && Number.isFinite(messageId);
           const messageAudioStatus = m.audio_status;
+          const messageAudioUrl =
+            typeof m.audio_url === "string" && m.audio_url.trim()
+              ? m.audio_url
+              : null;
           const showPlay =
             canPlay && voiceReadAloudEnabled && !voiceRouteMissing;
           const messageVoiceUnavailable = Boolean(
@@ -1161,10 +1173,12 @@ export function ChatView({
                 ? "pending"
             : messageAudioStatus === "failed" ||
                 messageAudioStatus === "unavailable" ||
+                (messageAudioStatus === "ready" && !messageAudioUrl) ||
                 messageVoiceUnavailable
                 ? "unavailable"
             : playingMessageId === messageId &&
-                messageAudioStatus === "ready"
+                messageAudioStatus === "ready" &&
+                Boolean(messageAudioUrl)
                   ? "playing"
                   : "idle";
 

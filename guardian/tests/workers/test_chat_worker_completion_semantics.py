@@ -364,6 +364,80 @@ def test_audio_generation_schedule_failure_does_not_fail_text_reply(
     assert all(event_type != "task.failed" for event_type, _ in published)
 
 
+def test_schedule_audio_generation_defaults_enabled_when_flag_absent(
+    monkeypatch,
+):
+    submitted: list[dict[str, object]] = []
+    pending: list[dict[str, object]] = []
+
+    monkeypatch.delenv(
+        "CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE", raising=False
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "find_cached_asset",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "upsert_message_audio_asset_status",
+        lambda **kwargs: pending.append(dict(kwargs))
+        or {"id": 1, "status": "pending"},
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_assistant_message_audio_provider_key",
+        lambda: ("chatterbox", "http://tts:8000"),
+    )
+
+    class _FakeExecutor:
+        def submit(self, fn, **kwargs):
+            submitted.append({"fn": fn, **kwargs})
+            return object()
+
+    monkeypatch.setattr(
+        chat_worker, "_ASSISTANT_AUDIO_EXECUTOR", _FakeExecutor()
+    )
+
+    scheduled = chat_worker._schedule_assistant_message_audio_generation(
+        thread_id=61,
+        message_id=991,
+        assistant_text="generate this",
+        task_id="task-audio-default-on",
+        turn_id=TURN_ID,
+    )
+
+    assert scheduled is True
+    assert len(pending) == 1
+    assert pending[0]["status"] == "pending"
+    assert len(submitted) == 1
+    assert submitted[0]["thread_id"] == 61
+    assert submitted[0]["message_id"] == 991
+
+
+def test_schedule_audio_generation_respects_explicit_disable_flag(
+    monkeypatch,
+):
+    monkeypatch.setenv("CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE", "0")
+    monkeypatch.setattr(
+        chat_worker,
+        "find_cached_asset",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("cache lookup should be skipped when disabled")
+        ),
+    )
+
+    scheduled = chat_worker._schedule_assistant_message_audio_generation(
+        thread_id=62,
+        message_id=992,
+        assistant_text="skip this",
+        task_id="task-audio-disabled",
+        turn_id=TURN_ID,
+    )
+
+    assert scheduled is False
+
+
 def test_background_audio_generation_persists_ready_asset_with_message_linkage(
     monkeypatch,
 ):
