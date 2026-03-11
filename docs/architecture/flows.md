@@ -1,266 +1,286 @@
-# Critical Flows
-
-Purpose: Describe the high-value runtime flows in trigger/sequence/output/failure form with code anchors, so planning and debugging can start from exact control paths.
-Last updated: 2026-02-17
+Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
+Last updated: 2026-03-11
 Source anchors:
-- guardian/routes/chat.py
-- guardian/workers/chat_worker.py
-- guardian/context/broker.py
-- guardian/cognition/system_prompt_builder.py
-- guardian/routes/media.py
-- guardian/workers/document_embed_worker.py
-- guardian/queue/document_embed_queue.py
-- guardian/routes/tools.py
-- guardian/routes/cron.py
-- guardian/cron/scheduler.py
-- guardian/workers/cron_worker.py
-- guardian/routes/federation.py
-- guardian/sync/api.py
+- guardian/routes/
+- guardian/core/
+- guardian/context/
+- guardian/cognition/
+- guardian/memoryos/
+- guardian/services/
+- guardian/queue/
+- guardian/workers/
+- guardian/command_bus/
+- guardian/cron/
+- guardian/sync/
+- guardian/realtime/
+
+# Critical Flows
 
 ## 1) Chat Completion Flow
 
 Trigger:
-- Frontend calls `POST /api/chat/{thread_id}/complete` after user message creation.
+- Frontend posts `POST /api/chat/{thread_id}/complete` after a user message exists in the thread.
 
 Sequence:
-1. Route validates thread/context and tries to acquire per-thread Redis turn lock.
-2. Route enqueues `ChatCompletionTask` to `codexify:queue:chat`.
-3. `worker-chat` dequeues task.
-4. Worker resolves effective profile/provider/model.
-5. Worker assembles context bundle + system prompt.
-6. Worker calls provider (`stream_local` or `chat_with_ai`).
-7. Worker guards blank output and persists assistant message.
-8. Worker emits `task.completed` and releases thread lock in `finally`.
+1. `guardian/routes/chat.py` validates the thread, turn state, and effective identity depth.
+2. The route acquires a Redis turn lock and enqueues a `ChatCompletionTask` on `codexify:queue:chat`.
+3. `guardian/workers/chat_worker.py` dequeues the task and marks it running in the task event stream.
+4. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, and resolves provider/model/profile settings.
+5. The provider call executes through `guardian/core/ai_router.py`.
+6. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
+7. The worker publishes terminal task events and releases the turn lock in `finally`.
 
 Outputs:
-- API immediate response with `task_id`.
-- Task event stream (`task.created`, `task.running`, `task.progress`, terminal event).
-- New assistant row in `chat_messages`.
+- Immediate HTTP response with `task_id`, `turn_id`, `messages_url`, and `trace_url`
+- Task event stream via `/api/tasks/{task_id}/events`
+- Assistant `chat_messages` row plus related audit/domain events
 
 Failure modes:
-- `turn_in_flight` (429) when thread lock already held.
-- `queue_unavailable` (503) if Redis enqueue fails.
-- `thread_has_no_usable_context` or thread missing.
-- Provider/network/timeouts causing `task.failed`.
-- Blank assistant output replaced by fallback text.
+- `429 turn_in_flight` when the thread lock already exists
+- `503 queue_unavailable` when Redis enqueue fails
+- Provider connectivity or timeout failures that become `task.failed`
+- Blank or malformed provider output forcing fallback assistant text
+- Worker downtime causing tasks to queue without completion
 
-Code anchors:
+Concrete anchors:
 - `guardian/routes/chat.py`
-- `guardian/queue/redis_queue.py`
+- `guardian/core/chat_completion_service.py`
 - `guardian/workers/chat_worker.py`
+- `guardian/queue/redis_queue.py`
 - `guardian/queue/task_events.py`
 
 ```mermaid
 sequenceDiagram
-    participant UI as Frontend UI
+    participant UI as Frontend
     participant ChatAPI as chat route
-    participant Redis as Redis queue
-    participant Worker as chat_worker
-    participant Broker as ContextBroker
-    participant LLM as Provider API
+    participant Redis as Redis
+    participant Worker as chat worker
+    participant Service as completion service
+    participant LLM as provider
     participant PG as Postgres
 
     UI->>ChatAPI: POST /api/chat/{thread_id}/complete
-    ChatAPI->>Redis: acquire_turn_lock(thread_id)
-    ChatAPI->>Redis: enqueue(ChatCompletionTask)
-    ChatAPI-->>UI: { task_id, messages_url, trace_url }
-
-    Worker->>Redis: dequeue(codexify:queue:chat)
-    Worker->>Broker: assemble(thread_id, latest_user_msg, depth)
-    Broker-->>Worker: context bundle + rag_trace
-    Worker->>LLM: completion request
-    LLM-->>Worker: tokens/text
-    Worker->>PG: create_message(thread_id, assistant, content)
-    Worker->>Redis: publish task.completed
-    Worker->>Redis: release_turn_lock(thread_id)
+    ChatAPI->>Redis: acquire turn lock
+    ChatAPI->>Redis: enqueue ChatCompletionTask
+    ChatAPI-->>UI: task_id and URLs
+    Worker->>Redis: dequeue chat task
+    Worker->>Service: build messages and context
+    Service->>LLM: completion request
+    LLM-->>Service: assistant output
+    Service->>PG: persist assistant message
+    Worker->>Redis: publish task events
+    Worker->>Redis: release turn lock
 ```
 
 ## 2) RAG / Context Assembly Flow
 
 Trigger:
-- Chat worker enters `_build_messages_for_llm` for an active completion task.
+- Completion service builds the provider-ready message list for a chat turn.
 
 Sequence:
-1. Worker loads recent thread messages.
-2. Worker determines latest user utterance as retrieval query.
-3. `ContextBroker.assemble` runs retrieval by depth mode:
-   - `shallow`: messages only
-   - `normal`: + semantic
-   - `deep`: + semantic + memory
-   - `diagnostic`: + semantic + memory + sensors
-4. Optional graph context added if `GUARDIAN_ENABLE_GRAPH_CONTEXT=true`.
-5. Optional federated context added only when `federated=True` call path is used.
-6. Worker builds system prompt (`build_guardian_system_prompt`) and context system message.
-7. Worker prepends system message to conversation before provider call.
+1. Load recent thread messages from chat storage.
+2. Use the latest user utterance as the semantic retrieval query.
+3. `ContextBroker.assemble()` gathers:
+   - recent messages
+   - semantic vector matches unless depth is `shallow`
+   - linked project/thread documents
+   - memory retrieval for `deep` and `diagnostic`
+   - graph context when `GUARDIAN_ENABLE_GRAPH_CONTEXT=true`
+   - sensor diagnostics and optional federated context when requested
+4. `build_guardian_system_prompt()` and context rendering functions produce the system-side prompt block.
+5. The final LLM input is the system/context block plus conversation messages.
 
 Outputs:
-- Enriched message list for provider.
-- `rag_trace` containing semantic/graph summaries.
+- Provider-ready message array
+- `rag_trace` payload for debugging and UI inspection
+- Effective retrieval depth and document context metadata
 
 Failure modes:
-- Vector store unavailable -> semantic list empty.
-- Memory retriever errors -> memory list empty.
-- Graph modules unavailable/Neo4j errors -> graph list empty.
-- Prompt build failure -> worker falls back to default safety system prompt.
+- Vector store unavailable, producing empty semantic results
+- Memory or graph adapters failing soft and reducing context depth
+- No usable thread context, causing route-level rejection before worker execution
+- Prompt builder errors, causing fallback safety/system prompt behavior
 
-Code anchors:
-- `guardian/workers/chat_worker.py`
+Concrete anchors:
+- `guardian/core/chat_completion_service.py`
 - `guardian/context/broker.py`
+- `guardian/memoryos/retriever.py`
 - `guardian/cognition/system_prompt_builder.py`
 - `guardian/cognition/prompts.py`
 
 ```mermaid
 sequenceDiagram
-    participant Worker as chat_worker
-    participant ChatDB as chatlog_db
-    participant Vector as VectorStore
-    participant Memory as MemoryOSRetriever
-    participant Graph as Neo4j graph
-    participant Prompt as system_prompt_builder
+    participant Service as completion service
+    participant ChatDB as chat storage
+    participant Broker as ContextBroker
+    participant Vector as vector store
+    participant Memory as memory retriever
+    participant Graph as graph context
+    participant Prompt as system prompt builder
 
-    Worker->>ChatDB: list_messages(thread_id)
-    Worker->>Vector: search(query, namespace=thread:{id})
-    alt depth in deep/diagnostic
-        Worker->>Memory: retrieve(query, namespace)
+    Service->>ChatDB: load recent messages
+    Service->>Broker: assemble context
+    Broker->>Vector: semantic search
+    alt deep or diagnostic
+        Broker->>Memory: retrieve memory context
     end
-    alt GUARDIAN_ENABLE_GRAPH_CONTEXT=true
-        Worker->>Graph: _get_graph_context(user_id, thread_id)
+    alt graph enabled
+        Broker->>Graph: fetch graph context
     end
-    Worker->>Prompt: build_guardian_system_prompt(bundle)
-    Prompt-->>Worker: system_content + metadata
+    Broker-->>Service: context bundle and rag_trace
+    Service->>Prompt: build system prompt
+    Prompt-->>Service: system content
 ```
 
-## 3) Ingestion Flow (Documents and Images)
+## 3) Ingestion Flow
 
 Trigger:
-- Frontend uploads image/document to `/api/media/upload/image` or `/api/media/upload/document`.
+- Client uploads a document or image through `/api/media/upload/*`, or creates a generated document via `/api/documents/generate`.
 
 Sequence:
-1. Route validates file type + reads bytes.
-2. Route computes canonical media identity and checks for dedupe hit.
-3. If no hit, file stored via `storage.upload_file` and media rows inserted.
-4. For documents, parser extracts text (`txt/md/pdf/docx`).
-5. If parsed text exists, route enqueues `document_embed` task.
-6. `worker-document-embed` dequeues, chunks text, embeds/indexes chunks, updates status.
+1. `guardian/routes/media.py` validates file type and reads the upload bytes.
+2. The route computes canonical media identity and checks for dedupe hits.
+3. New assets are written through the configured storage backend and corresponding DB rows are inserted.
+4. For supported documents, text extraction happens inline in the API process.
+5. When text is available, `enqueue_document_embed()` pushes a job to `codexify:queue:document-embed`.
+6. `guardian/workers/document_embed_worker.py` chunks text, embeds it, indexes the vectors, and updates `embedding_status`.
+7. Optional thread/project link rows are created so the RAG path can see the document later.
 
 Outputs:
-- Upload response with IDs and metadata.
-- `uploaded_documents.embedding_status` lifecycle updates (`pending` -> `processing` -> `ready` or `failed`).
+- Upload response containing asset/document metadata
+- Updated `uploaded_documents` row with parse and embedding lifecycle fields
+- Vector index entries for searchable document content
 
 Failure modes:
-- Unsupported MIME type returns 400.
-- Parser extraction failure leaves `parsed_text` empty and marks status failed.
-- Embed enqueue failure sets `embedding_status=failed`.
-- Embed worker/indexing failure writes `embedding_error`.
+- Unsupported MIME/type returns `400`
+- Parser failures leave `parsed_text` empty or mark embedding failed
+- Queue or embedding backend failures leave documents in `failed`
+- Storage backend misconfiguration breaks upload even before parsing
 
-Code anchors:
+Concrete anchors:
 - `guardian/routes/media.py`
 - `guardian/services/document_parsers/`
 - `guardian/services/document_chunking.py`
 - `guardian/queue/document_embed_queue.py`
 - `guardian/workers/document_embed_worker.py`
+- `guardian/routes/documents.py`
 
 ```mermaid
 sequenceDiagram
-    participant UI as Frontend UI
+    participant UI as Client
     participant MediaAPI as media route
     participant Store as storage backend
     participant PG as Postgres
-    participant Redis as Redis queue
-    participant EmbedW as document_embed_worker
-    participant Vector as Embedding store
+    participant Redis as Redis
+    participant EmbedW as document embed worker
+    participant Vector as vector index
 
-    UI->>MediaAPI: POST /api/media/upload/document
-    MediaAPI->>MediaAPI: compute identity + dedupe
-    alt new asset
-        MediaAPI->>Store: upload_file(bytes)
-        MediaAPI->>PG: insert media_assets + uploaded_documents
-    else dedupe hit
-        MediaAPI->>PG: reuse existing rows/aliases
-    end
-    MediaAPI->>MediaAPI: parse text (txt/pdf/docx/md)
-    MediaAPI->>Redis: enqueue document_embed (if parsed_text)
-    MediaAPI-->>UI: upload response
-
-    EmbedW->>Redis: dequeue document_embed
-    EmbedW->>PG: set embedding_status=processing
-    EmbedW->>Vector: chunk + embed_and_index
-    EmbedW->>PG: set embedding_status=ready|failed
+    UI->>MediaAPI: upload document
+    MediaAPI->>MediaAPI: validate and dedupe
+    MediaAPI->>Store: store bytes
+    MediaAPI->>PG: insert media and document rows
+    MediaAPI->>MediaAPI: extract text
+    MediaAPI->>Redis: enqueue embed job
+    EmbedW->>Redis: dequeue embed job
+    EmbedW->>PG: mark processing
+    EmbedW->>Vector: chunk and index
+    EmbedW->>PG: mark ready or failed
 ```
 
-## 4) Tool Execution / Job Flow
+## 4) Tool Execution and Job Flow
 
 Trigger:
-- Direct tools call: `POST /api/tools/execute`.
-- Scheduled job call: create/enable cron job via `/api/cron/jobs`.
+- A caller invokes `/api/guardian/commands/invoke`, `/api/tools/call`, `/api/tools/execute`, or creates a cron job that later queues work.
 
 Sequence:
-1. Direct tools path executes synchronously and stores result in in-memory `JOBS` map.
-2. Cron path persists `cron_jobs`; scheduler tick creates `cron_runs` + enqueues `cron.execute`.
-3. Cron worker dequeues, marks run `running`, calls `execute_cron_job`, writes `succeeded/failed`.
+1. The command bus derives a manifest from the app's OpenAPI surface.
+2. `execute_invoke()` validates invoke version, actor claim, payload size, and idempotency.
+3. Tool policy is evaluated and the run is persisted through `CommandBusStore`.
+4. Allowed commands execute via loopback HTTP back into the same backend, guarded against recursion.
+5. Run events are appended and can be streamed from `/api/guardian/commands/runs/{run_id}/events`.
+6. The legacy `/tools` layer derives tool specs from the command manifest but still keeps some process-local job state.
+7. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
 
 Outputs:
-- Direct tools: immediate JSON result + retrievable by `/api/tools/jobs/{job_id}`.
-- Cron: durable run history in `cron_runs` and event bus emissions.
+- Command bus run record plus event stream
+- HTTP side effects for invoked read or allowed write commands
+- Cron run history in Postgres
+- Legacy shim responses for `/api/tools/*`
 
 Failure modes:
-- Direct tools state is process-local; restart loses job results.
-- Unsupported cron `job_type` raises failure and stores error in run row.
-- Webhook cron jobs can be blocked by egress policy or allowlist checks.
+- Policy block or missing confirmation leaves runs in `blocked`
+- Idempotency conflicts return the existing run instead of re-executing
+- Loopback base URL misconfiguration prevents execution
+- Legacy tool job snapshots are not durable across process restarts
 
-Code anchors:
+Concrete anchors:
+- `guardian/routes/command_bus.py`
+- `guardian/command_bus/invoke.py`
+- `guardian/command_bus/store.py`
+- `guardian/command_bus/loopback_http_adapter.py`
 - `guardian/routes/tools.py`
 - `guardian/routes/cron.py`
 - `guardian/cron/scheduler.py`
-- `guardian/cron/executor.py`
 - `guardian/workers/cron_worker.py`
 
 ```mermaid
 sequenceDiagram
-    participant UI as Frontend/Admin client
-    participant ToolsAPI as tools route
-    participant CronAPI as cron route
-    participant PG as Postgres
-    participant Scheduler as cron scheduler
-    participant Redis as Redis queue
-    participant CronW as cron worker
+    participant Client as Caller
+    participant CmdAPI as command bus route
+    participant Store as CommandBusStore
+    participant Policy as tool policy
+    participant Loopback as loopback adapter
+    participant Backend as backend route
+    participant Stream as event stream
 
-    alt direct tool
-        UI->>ToolsAPI: POST /api/tools/execute
-        ToolsAPI->>ToolsAPI: run tool + store in JOBS map
-        ToolsAPI-->>UI: {job_id, status, result}
-    else scheduled job
-        UI->>CronAPI: POST /api/cron/jobs
-        CronAPI->>PG: insert cron_jobs
-        Scheduler->>PG: find due enabled jobs
-        Scheduler->>PG: insert cron_runs(status=queued)
-        Scheduler->>Redis: enqueue cron.execute payload
-        CronW->>Redis: dequeue cron.execute
-        CronW->>PG: cron_runs -> running -> succeeded/failed
+    Client->>CmdAPI: POST /api/guardian/commands/invoke
+    CmdAPI->>Policy: evaluate command policy
+    CmdAPI->>Store: create run and run.created event
+    alt allowed to execute
+        CmdAPI->>Loopback: execute HTTP request
+        Loopback->>Backend: call target route
+        Backend-->>Loopback: response
+        CmdAPI->>Store: append run.started and terminal event
+    else blocked
+        CmdAPI->>Store: mark blocked
     end
+    Client-->>Stream: GET /runs/{run_id}/events
 ```
 
 ## 5) Sync / Federation Flow
 
 Trigger:
-- Federation session request (`/api/federation/session/request`) or sync event POST (`/api/sync/event`).
+- A node calls federation endpoints, or a client posts a sync event to `/api/sync/event`.
 
 Sequence:
-- Federation: validate signed trust policy, check target allowlist/egress, fetch+verify peer manifest, mint relay session token, run relay/diff endpoints.
-- Sync API: accept idempotent event payload, apply side-effect upserts by event type, publish SSE message via in-memory bus.
+1. Federation routes check feature flags and trust-policy requirements.
+2. Session, manifest, relay, diff, or context requests validate target node and signature/policy state.
+3. Context requests can search local graph context and active peers.
+4. The separate sync API accepts an event, applies idempotent side effects, and publishes to an in-process SSE bus.
 
 Outputs:
-- Federation: relay metadata/token and peer communication channel.
-- Sync API: idempotent acknowledgement + subscriber events.
+- Federation session metadata, peer responses, or context/diff payloads
+- Sync event acknowledgement and live subscriber updates
 
 Failure modes:
-- Federation disabled or policy signature invalid => 403/503.
-- Target origin/node not allowed by policy => 403.
-- Sync bus is in-process only; events do not survive process restart.
+- Federation disabled or unsigned policy rejected
+- Egress or target allowlist denial
+- Sync bus subscribers losing continuity on process restart because the bus is process-local
 
-Code anchors:
+Concrete anchors:
 - `guardian/routes/federation.py`
 - `guardian/routes/federation_context.py`
 - `guardian/sync/api.py`
 - `guardian/sync/bus.py`
 
+## Latency and Coupling Notes
+
+- Highest synchronous latency tends to accumulate in:
+  - provider API calls
+  - document parsing during upload
+  - vector retrieval and memory retrieval in deep modes
+  - loopback tool execution when a command triggers heavier backend routes
+- Highest cascade risk lives in:
+  - Redis availability for chat, cron, and task streams
+  - config/startup mismatch before the backend fully boots
+  - the shared completion service and chat worker path
