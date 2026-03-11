@@ -1,61 +1,180 @@
 import json
-import shutil
-import unittest
-from pathlib import Path
 
-from guardian.plugin_loader import PluginLoader
+import pytest
+from pydantic import ValidationError
+
+from guardian.plugins import plugin_loader
+from guardian.plugins.plugin_loader import DuplicatePluginIdError
+from guardian.plugins.plugin_manifest import PluginManifest
 
 
-class TestPluginLoader(unittest.TestCase):
-    def setUp(self):
-        self.plugin_dir = Path(
-            "tests/test_plugins"
-        )  # Use a dedicated test directory
-        self.plugin_loader = PluginLoader()
-        self.plugin_loader.plugin_dir = self.plugin_dir
-        self.manifest_path = self.plugin_dir / "plugin_manifest.json"
-        # Create test plugin directory and manifest
-        self.plugin_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.manifest_path, "w") as f:
-            json.dump({}, f)
+def _write_manifest(base, plugin_dir, payload):
+    path = base / plugin_dir
+    path.mkdir(parents=True)
+    with (path / "manifest.json").open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
 
-    def tearDown(self):
-        # Clean up test plugin directory
-        if self.plugin_dir.exists():
-            shutil.rmtree(self.plugin_dir)
 
-    def test_update_manifest(self):
-        # Create a dummy plugin directory and metadata
-        dummy_plugin_path = self.plugin_dir / "dummy_plugin"
-        dummy_plugin_path.mkdir()
-        metadata = {
-            "name": "dummy_plugin",
-            "version": "0.1.0",
-            "description": "Dummy plugin for testing",
-            "author": "Test Author",
-            "dependencies": [],
-            "capabilities": [],
+def test_accepts_valid_v1_manifest_and_normalizes_base_url():
+    manifest = PluginManifest.model_validate(
+        {
+            "schema_version": "1.0",
+            "id": "alpha",
+            "name": "Alpha",
+            "version": "1.2.3",
+            "description": "desc",
+            "base_url": "https://example.com/",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+            "extensions": {"x": True},
         }
-        with open(dummy_plugin_path / "plugin.json", "w") as f:
-            json.dump(metadata, f)
+    )
 
-        # Load the dummy plugin
-        plugin = self.plugin_loader.load_plugin(dummy_plugin_path)
-        self.assertIsNotNone(plugin)
-        if plugin:
-            self.plugin_loader.plugins[plugin.name] = plugin
-
-        # Update the manifest
-        self.plugin_loader.update_manifest()
-
-        # Check manifest content
-        with open(self.manifest_path) as f:
-            manifest = json.load(f)
-
-        self.assertIn("active_plugins", manifest)
-        self.assertIn("disabled_plugins", manifest)
-        self.assertIn("dummy_plugin", manifest["active_plugins"])
+    assert manifest.base_url == "https://example.com"
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.parametrize(
+    "base_url",
+    ["ftp://example.com", "file:///tmp/nope", "wss://example.com"],
+)
+def test_rejects_non_http_base_url(base_url):
+    with pytest.raises(ValidationError):
+        PluginManifest.model_validate(
+            {
+                "schema_version": "1.0",
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.2.3",
+                "base_url": base_url,
+                "capabilities": [{"id": "chat", "actions": ["reply"]}],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://example.com/path",
+        "https://example.com?x=1",
+        "https://example.com#frag",
+    ],
+)
+def test_rejects_base_url_with_path_query_or_fragment(base_url):
+    with pytest.raises(ValidationError):
+        PluginManifest.model_validate(
+            {
+                "schema_version": "1.0",
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.2.3",
+                "base_url": base_url,
+                "capabilities": [{"id": "chat", "actions": ["reply"]}],
+            }
+        )
+
+
+def test_rejects_duplicate_capability_action_pairs_within_manifest():
+    with pytest.raises(ValidationError):
+        PluginManifest.model_validate(
+            {
+                "schema_version": "1.0",
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.2.3",
+                "base_url": "https://example.com",
+                "capabilities": [
+                    {"id": "chat", "actions": ["reply", "reply"]}
+                ],
+            }
+        )
+
+
+def test_only_validated_manifests_are_listed_as_installed(tmp_path):
+    _write_manifest(
+        tmp_path,
+        "good",
+        {
+            "schema_version": "1.0",
+            "id": "good",
+            "name": "Good",
+            "version": "1.0.0",
+            "base_url": "https://good.example",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+        },
+    )
+    _write_manifest(
+        tmp_path,
+        "bad",
+        {
+            "schema_version": "1.0",
+            "id": "bad",
+            "name": "Bad",
+            "version": "1.0.0",
+            "base_url": "ftp://bad.example",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+        },
+    )
+
+    manifests = plugin_loader.load_all_manifests(plugin_dir=tmp_path)
+
+    assert [manifest.id for manifest in manifests] == ["good"]
+
+
+def test_unhealthy_plugins_remain_installed_if_manifest_is_valid(tmp_path):
+    _write_manifest(
+        tmp_path,
+        "good",
+        {
+            "schema_version": "1.0",
+            "id": "good",
+            "name": "Good",
+            "version": "1.0.0",
+            "base_url": "https://good.example",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+        },
+    )
+
+    manifests = plugin_loader.load_all_manifests(plugin_dir=tmp_path)
+
+    assert len(manifests) == 1
+    assert manifests[0].id == "good"
+
+
+def test_canonical_discovery_uses_plugins_manifest_json_only(tmp_path):
+    (tmp_path / "one").mkdir(parents=True)
+    with (tmp_path / "one" / "plugin.json").open("w", encoding="utf-8") as handle:
+        json.dump({}, handle)
+    with (tmp_path / "one" / "manifest.yaml").open("w", encoding="utf-8") as handle:
+        handle.write("id: no")
+
+    _write_manifest(
+        tmp_path,
+        "two",
+        {
+            "schema_version": "1.0",
+            "id": "two",
+            "name": "Two",
+            "version": "1.0.0",
+            "base_url": "https://two.example",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+        },
+    )
+
+    manifests = plugin_loader.load_all_manifests(plugin_dir=tmp_path)
+
+    assert [manifest.id for manifest in manifests] == ["two"]
+
+
+def test_rejects_duplicate_plugin_ids_across_discovery(tmp_path):
+    payload = {
+        "schema_version": "1.0",
+        "id": "dup",
+        "name": "Dup",
+        "version": "1.0.0",
+        "base_url": "https://dup.example",
+        "capabilities": [{"id": "chat", "actions": ["reply"]}],
+    }
+    _write_manifest(tmp_path, "one", payload)
+    _write_manifest(tmp_path, "two", payload)
+
+    with pytest.raises(DuplicatePluginIdError):
+        plugin_loader.load_all_manifests(plugin_dir=tmp_path)
