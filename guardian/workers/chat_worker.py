@@ -338,6 +338,13 @@ def _classify_runtime_status(detail: str) -> str | None:
     return None
 
 
+def _assistant_message_audio_autogenerate_effective_enabled() -> bool:
+    raw = os.getenv("CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE")
+    if raw is None:
+        return True
+    return assistant_message_audio_autogenerate_enabled()
+
+
 def _assistant_message_audio_voice() -> str:
     value = (os.getenv("CODEXIFY_DEFAULT_VOICE") or "assistant").strip()
     return value or "assistant"
@@ -409,7 +416,7 @@ def _generate_assistant_message_audio_artifact(
     )
 
     if result.ok and result.audio_bytes:
-        save_message_audio_asset(
+        asset = save_message_audio_asset(
             message_id=message_id,
             text=assistant_text,
             provider=provider_key,
@@ -427,18 +434,24 @@ def _generate_assistant_message_audio_artifact(
                 generation_provider=result.provider,
             ),
         )
+        audio_url = str(
+            asset.get("stream_url") or asset.get("src_url") or ""
+        ).strip()
         logger.info(
-            "[chat-worker] assistant_message_audio_ready thread_id=%s message_id=%s task_id=%s plugin_id=%s provider=%s bytes=%s",
+            "[chat-worker] assistant_message_audio_ready thread_id=%s message_id=%s task_id=%s plugin_id=%s provider=%s asset_id=%s final_status=%s audio_url_present=%s bytes=%s",
             thread_id,
             message_id,
             task_id,
             result.plugin_id or provider_key,
             result.provider or "none",
+            asset.get("id"),
+            asset.get("status") or "ready",
+            bool(audio_url),
             result.artifact_bytes,
         )
         return
 
-    upsert_message_audio_asset_status(
+    failed_asset = upsert_message_audio_asset_status(
         message_id=message_id,
         text=assistant_text,
         provider=provider_key,
@@ -469,11 +482,19 @@ def _generate_assistant_message_audio_artifact(
         },
     )
     logger.warning(
-        "[chat-worker] assistant_message_audio_failed thread_id=%s message_id=%s task_id=%s plugin_id=%s error_code=%s failure_kind=%s",
+        "[chat-worker] assistant_message_audio_failed thread_id=%s message_id=%s task_id=%s plugin_id=%s final_status=%s audio_url_present=%s error_code=%s failure_kind=%s",
         thread_id,
         message_id,
         task_id,
         result.plugin_id or provider_key,
+        failed_asset.get("status") or "failed",
+        bool(
+            str(
+                failed_asset.get("stream_url")
+                or failed_asset.get("src_url")
+                or ""
+            ).strip()
+        ),
         result.error_code or "none",
         result.failure_kind or "none",
     )
@@ -487,9 +508,21 @@ def _schedule_assistant_message_audio_generation(
     task_id: str,
     turn_id: str,
 ) -> bool:
-    if not assistant_message_audio_autogenerate_enabled():
+    if not _assistant_message_audio_autogenerate_effective_enabled():
+        logger.info(
+            "[chat-worker] assistant_message_audio_skipped thread_id=%s message_id=%s task_id=%s reason=feature_disabled",
+            thread_id,
+            message_id,
+            task_id,
+        )
         return False
     if not assistant_text.strip():
+        logger.info(
+            "[chat-worker] assistant_message_audio_skipped thread_id=%s message_id=%s task_id=%s reason=empty_text",
+            thread_id,
+            message_id,
+            task_id,
+        )
         return False
 
     provider_key, plugin_base_url = _assistant_message_audio_provider_key()
@@ -513,12 +546,17 @@ def _schedule_assistant_message_audio_generation(
         )
         cached_asset = None
     if cached_asset:
+        cached_url = str(
+            cached_asset.get("stream_url") or cached_asset.get("src_url") or ""
+        ).strip()
         logger.info(
-            "[chat-worker] assistant_message_audio_cached thread_id=%s message_id=%s task_id=%s provider=%s",
+            "[chat-worker] assistant_message_audio_cached thread_id=%s message_id=%s task_id=%s provider=%s final_status=%s audio_url_present=%s",
             thread_id,
             message_id,
             task_id,
             provider_key,
+            cached_asset.get("status") or "ready",
+            bool(cached_url),
         )
         return False
 
