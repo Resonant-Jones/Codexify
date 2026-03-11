@@ -1,62 +1,70 @@
-# Codexify Architecture KB
-
-Purpose: Provide a fast, implementation-accurate map of Codexify so contributors can onboard quickly, reason correctly about current behavior, and plan safe changes.
-Last updated: 2026-02-17
+Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
+Last updated: 2026-03-11
 Source anchors:
-- README.md
-- docker-compose.yml
+- docs/architecture/
 - guardian/guardian_api.py
 - guardian/routes/
 - guardian/workers/
 - guardian/db/models.py
 - guardian/core/config.py
+- guardian/core/dependencies.py
 - frontend/src/App.tsx
 - frontend/src/components/persona/layout/AppShell.tsx
+- docker-compose.yml
+
+# Codexify Architecture KB
 
 ## What Codexify Is
 
-Codexify is a local-first chat and knowledge workspace with a FastAPI backend (`guardian/guardian_api.py`), a React frontend (`frontend/src`), Postgres-backed state, Redis-backed task queues/event streams, and optional graph/federation subsystems. The primary runtime path is thread-based chat where completion work is queued to workers, context is assembled from messages + retrieval layers, and results are persisted and streamed back via SSE/websocket surfaces.
+Codexify is a local-first chat and knowledge workspace built around a FastAPI backend, a React frontend, Postgres-backed state, Redis-backed background work, optional Neo4j graph features, and a growing command bus/tooling layer. The core loop today is thread-based chat: the frontend writes messages, the backend enqueues completion work, workers assemble context from messages plus retrieval layers, and results stream back through task events and durable domain events.
 
-## Architecture Doc Map
+## Start Here
 
-- [System Overview](./system-overview.md)
-- [Critical Flows](./flows.md)
-- [Data and Storage](./data-and-storage.md)
-- [Config and Ops](./config-and-ops.md)
-- [Modules and Ownership](./modules-and-ownership.md)
-- [Roadmap Signals (Derived)](./roadmap-signals.md)
-- [Tech Debt and Risks](./tech-debt-and-risks.md)
-- [Solo Operator Runtime Bootcamp](./solo-operator-runtime-bootcamp.md)
-- [Solo Operator System Map](../Ops/SOLO_OPERATOR_SYSTEM_MAP.md)
-- [Solo Operator Automation Runbook](../Ops/SOLO_OPERATOR_AUTOMATION_RUNBOOK.md)
-- [Solo Operator Failure Signatures](../Ops/SOLO_OPERATOR_FAILURE_SIGNATURES.md)
-- [Inference Providers (Legacy Notes)](./providers.md)
-- [Completion Pipeline (Legacy Deep Dive)](./completion_pipeline.md)
+When you need current-state interpretation instead of structural architecture, begin with [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
-## Where To Change X
+## Doc Map
 
-- Chat completion enqueue API: `guardian/routes/chat.py`
-- Completion worker behavior and streaming: `guardian/workers/chat_worker.py`
-- RAG/context assembly depth behavior: `guardian/context/broker.py`
-- Provider/model routing and timeouts: `guardian/core/ai_router.py`
-- Provider catalog and model selection UX payload: `guardian/core/llm_catalog.py`
-- System prompt layering/profile selection: `guardian/cognition/system_prompt_builder.py`, `guardian/cognition/system_profiles/resolver.py`
-- Document/image ingestion and media identity: `guardian/routes/media.py`, `guardian/services/document_parsers/`, `guardian/services/document_chunking.py`
-- Document embedding queue worker: `guardian/workers/document_embed_worker.py`, `guardian/queue/document_embed_queue.py`
-- Thread/document autosave + generation: `guardian/routes/documents.py`
-- API bootstrap, middleware, SSE, router wiring: `guardian/guardian_api.py`
-- Auth boundary (local vs remote/session JWT): `guardian/core/dependencies.py`, `guardian/core/public_exposure.py`
-- DB schema entities and invariants: `guardian/db/models.py`, `guardian/db/migrations/versions/`
-- Frontend shell routing/state: `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`
-- Frontend API auth header behavior: `frontend/src/lib/api.ts`, `frontend/src/lib/authState.ts`
-- Cron/task execution system: `guardian/routes/cron.py`, `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py`
-- Federation and peer trust policy: `guardian/routes/federation.py`, `guardian/core/auth.py`, `guardian/core/config.py`
+- [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
+- [System Overview](./system-overview.md): runtime components, topology, and critical paths.
+- [Critical Flows](./flows.md): step-by-step operational flows with Mermaid diagrams and failure modes.
+- [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
+- [Config and Ops](./config-and-ops.md): env vars, config resolution, run commands, health checks, logging, and debugging cues.
+- [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
+- [Roadmap Signals](./roadmap-signals.md): derived planning constraints, refactor leverage points, and sequencing suggestions.
+- [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed risk register.
+- [Completion Pipeline](./completion_pipeline.md): older deep dive on completion internals; treat as supplementary and verify against current routes/workers.
+- [Inference Providers](./providers.md): provider notes; verify against current catalog/router behavior before relying on it.
+- [Guardian Agent Delegation Recon](./guardian-agent-delegation-recon.md): focused notes on delegation and agent runtime work.
+- [Solo Operator Runtime Bootcamp](./solo-operator-runtime-bootcamp.md): operational bootstrapping guide for solo runtime work.
+
+## Where Do I Change X?
+
+- Chat thread/message API contract: `guardian/routes/chat.py`
+- Completion assembly and provider execution: `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py`
+- RAG depth behavior and retrieval composition: `guardian/context/broker.py`, `guardian/memoryos/retriever.py`
+- Provider catalog, model selection, and runtime support: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py`
+- Startup order, router wiring, middleware, SSE: `guardian/guardian_api.py`
+- Auth mode, API key/session behavior, and exposure policy: `guardian/core/dependencies.py`, `guardian/core/public_exposure.py`
+- Document/image upload, parsing, dedupe, and embedding enqueue: `guardian/routes/media.py`, `guardian/services/document_parsers/`, `guardian/queue/document_embed_queue.py`
+- Generated docs and thread document links: `guardian/routes/documents.py`
+- DB schema and invariants: `guardian/db/models.py`, `guardian/db/migrations/`
+- Redis queues, cancellation, task streams, and turn locks: `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`
+- Durable event outbox and `/api/events`: `guardian/core/event_bus.py`, `guardian/core/outbox.py`, `guardian/guardian_api.py`
+- Command bus and tool execution policy: `guardian/routes/command_bus.py`, `guardian/command_bus/`, `guardian/routes/tools.py`
+- Cron jobs and background automation: `guardian/routes/cron.py`, `guardian/cron/`, `guardian/workers/cron_worker.py`
+- Federation and peer context/search: `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/`
+- Frontend routing, shell state, and live event consumption: `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/state/session/SessionSpine.ts`
+- Frontend auth and API request behavior: `frontend/src/lib/api.ts`, `frontend/src/lib/authState.ts`, `frontend/src/lib/runtimeConfig.ts`
+- Testing reality for backend, realtime, federation, and frontend harnesses: `tests/`, `frontend/src/vitest.config.ts`, `frontend/src/playwright.config.ts`, `frontend/src/cypress.config.ts`
 
 ## Keep This KB Current
 
-- After touching runtime flows, update at least one of: `system-overview.md`, `flows.md`, `modules-and-ownership.md`.
-- Add/refresh source anchors whenever a new critical file becomes part of a path.
-- If behavior is uncertain, mark it `Unverified` and point to the exact verification file/endpoint.
-- Keep “current state” docs descriptive; put recommendations only in `roadmap-signals.md`.
-- When schema or queue contracts change, update both `data-and-storage.md` and `tech-debt-and-risks.md` in the same PR.
-- Re-run docs validation (`make docs`) and fix broken links/formatting before merge.
+- Update the matching doc whenever a critical path changes:
+  - chat/RAG/ingestion/tool flow changes belong in `flows.md`
+  - schema/storage changes belong in `data-and-storage.md`
+  - config/startup/health changes belong in `config-and-ops.md`
+- Refresh `Last updated` and `Source anchors` when a new file becomes part of the path.
+- Mark anything uncertain as `Unverified` and point to the verification file or endpoint.
+- Keep present-state descriptions out of `roadmap-signals.md`; keep recommendations there instead.
+- When a change increases coupling or risk, add it to `tech-debt-and-risks.md` in the same PR.
+- Re-run the repo's docs check after edits and record the result, even if the docs command is currently broken.
