@@ -6,6 +6,7 @@ This worker is intentionally thin: orchestration and routing live in
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -13,18 +14,34 @@ import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
+from dataclasses import replace
 from typing import Any
 
 from fastapi import HTTPException
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.audio import tts_trigger
+from guardian.cognition.prompts import build_context_system_message
+from guardian.cognition.system_profiles.resolver import (
+    resolve_thread_system_profile,
+)
+from guardian.context.broker import ContextBroker
+from guardian.core import chat_completion_service as _chat_completion_service
 from guardian.core import dependencies, event_bus
-from guardian.core.chat_completion_service import (
-    ChatTaskCancelled,
-    run_chat_completion_task,
+from guardian.core.ai_router import chat_with_ai, stream_local
+from guardian.core.chat_completion_service import ChatTaskCancelled
+from guardian.core.config import (
+    LLMConfigError,
+    get_settings,
+    validate_llm_config,
 )
 from guardian.core.db import GuardianDB
+from guardian.core.llm_catalog import (
+    first_enabled_provider,
+    first_model_for_provider,
+    resolve_provider_for_model,
+)
 from guardian.core.metrics import CHAT_TURN_METADATA_PERSIST_FAILURES_TOTAL
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
@@ -44,6 +61,29 @@ from guardian.voice.audio_assets import (
 from guardian.voice.runtime import assistant_message_audio_autogenerate_enabled
 
 logger = logging.getLogger(__name__)
+
+build_guardian_system_prompt = (
+    _chat_completion_service.build_guardian_system_prompt
+)
+_embed_message = _chat_completion_service._embed_message
+_ORIGINAL_BUILD_MESSAGES_FOR_LLM = (
+    _chat_completion_service.build_messages_for_llm
+)
+
+
+def _resolve_media_items(*_args: Any, **_kwargs: Any) -> list[Any]:
+    return []
+
+
+def _build_media_system_message(_items: list[Any]) -> str | None:
+    return None
+
+
+def _maybe_add_vision_summary(
+    _items: list[Any], _provider: str
+) -> dict[str, Any] | None:
+    return None
+
 
 QUEUE_NAME = os.getenv("CHAT_QUEUE_NAME", "codexify:queue:chat")
 CONCURRENCY = int(os.getenv("CHAT_WORKER_CONCURRENCY", "2"))
@@ -649,6 +689,279 @@ def _schedule_assistant_message_audio_generation(
         provider_key,
     )
     return True
+
+
+def _normalize_provider_override(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower()
+    return normalized or None
+
+
+def _normalize_model_override(value: Any) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _coerce_build_messages_result(
+    payload: Any,
+) -> tuple[
+    list[dict[str, str]],
+    str,
+    str,
+    dict[str, Any],
+    dict[str, Any] | None,
+]:
+    if not isinstance(payload, tuple) or len(payload) < 3:
+        raise RuntimeError("invalid_build_messages_result")
+
+    messages = list(payload[0] or [])
+    provider = str(payload[1] or "").strip().lower()
+    model = str(payload[2] or "").strip()
+    bundle = (
+        dict(payload[3])
+        if len(payload) > 3 and isinstance(payload[3], dict)
+        else {}
+    )
+    if len(payload) >= 7:
+        trace = payload[6] if isinstance(payload[6], dict) else None
+    elif len(payload) > 4 and isinstance(payload[4], dict):
+        trace = payload[4]
+    else:
+        trace = None
+    return messages, provider, model, bundle, trace
+
+
+def _merge_system_messages(
+    messages: list[dict[str, str]],
+    *,
+    extras: list[str] | None = None,
+) -> list[dict[str, str]]:
+    extras = [item for item in (extras or []) if str(item or "").strip()]
+    merged_parts: list[str] = []
+    other_messages: list[dict[str, str]] = []
+
+    for message in messages:
+        role = str(message.get("role") or "").strip().lower()
+        content = str(message.get("content") or "").strip()
+        if role == "system":
+            if content and content not in merged_parts:
+                merged_parts.append(content)
+            continue
+        other_messages.append(message)
+
+    for extra in extras:
+        cleaned = str(extra or "").strip()
+        if cleaned and cleaned not in merged_parts:
+            merged_parts.append(cleaned)
+
+    if not merged_parts:
+        return messages
+
+    return [
+        {"role": "system", "content": "\n\n".join(merged_parts)},
+        *other_messages,
+    ]
+
+
+def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
+    settings = get_settings()
+    profile = None
+    try:
+        profile = resolve_thread_system_profile(
+            task.thread_id,
+            chatlog_db=getattr(dependencies, "chatlog_db", None),
+        )
+    except Exception:
+        profile = None
+
+    provider = _normalize_provider_override(task.provider)
+    model = _normalize_model_override(task.model)
+
+    if model:
+        resolved_provider = resolve_provider_for_model(model, settings=settings)
+        if resolved_provider:
+            provider = _normalize_provider_override(resolved_provider)
+        elif provider not in {None, "local"}:
+            raise LLMConfigError(f"Requested model '{model}' is not available")
+
+    if provider is None:
+        provider = _normalize_provider_override(
+            getattr(profile, "provider_override", None)
+        )
+    if provider is None:
+        provider = _normalize_provider_override(
+            first_enabled_provider(settings=settings)
+            or settings.LLM_PROVIDER
+            or getattr(dependencies, "CHAT_PROVIDER", None)
+        )
+
+    if model is None:
+        model = _normalize_model_override(
+            getattr(profile, "model_override", None)
+        )
+    if model is None and provider:
+        model = _normalize_model_override(
+            first_model_for_provider(provider, settings=settings)
+        )
+
+    return replace(task, provider=provider, model=model)
+
+
+def _sync_build_messages_compat_seams() -> None:
+    _chat_completion_service.get_settings = get_settings
+    _chat_completion_service.validate_llm_config = validate_llm_config
+    _chat_completion_service.ContextBroker = ContextBroker
+    _chat_completion_service.build_guardian_system_prompt = (
+        build_guardian_system_prompt
+    )
+
+
+async def _build_messages_for_llm(
+    task: ChatCompletionTask,
+) -> tuple[
+    list[dict[str, str]],
+    str,
+    str,
+    dict[str, Any],
+    Any,
+    Any,
+    dict[str, Any] | None,
+]:
+    resolved_task = _compat_resolve_task(task)
+    _sync_build_messages_compat_seams()
+    messages, provider, model, bundle, trace = _coerce_build_messages_result(
+        await _ORIGINAL_BUILD_MESSAGES_FOR_LLM(resolved_task)
+    )
+
+    extra_system_messages: list[str] = []
+    if callable(build_context_system_message):
+        try:
+            extra_context = build_context_system_message(bundle)
+        except Exception:
+            extra_context = None
+        if extra_context:
+            extra_system_messages.append(str(extra_context))
+
+    media_items = _resolve_media_items(resolved_task, bundle, provider=provider)
+    media_system_message = _build_media_system_message(media_items)
+    if media_system_message:
+        extra_system_messages.append(str(media_system_message))
+    _maybe_add_vision_summary(media_items, provider)
+
+    merged_messages = _merge_system_messages(
+        messages,
+        extras=extra_system_messages,
+    )
+    return merged_messages, provider, model, bundle, None, None, trace
+
+
+def _run_chat_completion_task_compat(
+    task: ChatCompletionTask,
+    *,
+    token_callback: Any = None,
+    cancel_check: Any = None,
+    persist_assistant_message: bool = True,
+) -> dict[str, Any]:
+    build_result = asyncio.run(_build_messages_for_llm(task))
+    (
+        messages_for_llm,
+        provider,
+        model,
+        bundle,
+        trace,
+    ) = _coerce_build_messages_result(build_result)
+
+    assistant_text = ""
+    if provider == "local":
+        streamed_any = False
+        token_stream = stream_local(
+            messages_for_llm,
+            model,
+            reasoning_mode=getattr(task, "reasoning_mode", None),
+        )
+        try:
+            for token in token_stream:
+                if cancel_check and cancel_check():
+                    raise ChatTaskCancelled("task_cancelled")
+                if token:
+                    streamed_any = True
+                    assistant_text += token
+                    if token_callback:
+                        token_callback(token)
+        finally:
+            token_stream.close()
+
+        if not assistant_text.strip():
+            assistant_text = str(
+                chat_with_ai(
+                    messages_for_llm,
+                    model=model,
+                    provider=provider,
+                    reasoning_mode=getattr(task, "reasoning_mode", None),
+                )
+            )
+            if token_callback and (not streamed_any) and assistant_text:
+                token_callback(assistant_text)
+    else:
+        if cancel_check and cancel_check():
+            raise ChatTaskCancelled("task_cancelled")
+        assistant_text = str(
+            chat_with_ai(
+                messages_for_llm,
+                model=model,
+                provider=provider,
+                reasoning_mode=getattr(task, "reasoning_mode", None),
+            )
+        )
+        if token_callback:
+            token_callback(assistant_text)
+
+    if not assistant_text.strip():
+        assistant_text = "No assistant response was generated."
+
+    result: dict[str, Any] = {
+        "assistant_text": assistant_text,
+        "provider": provider,
+        "model": model,
+        "bundle": bundle,
+        "trace": trace,
+        "thread_id": task.thread_id,
+    }
+
+    if not persist_assistant_message:
+        return result
+
+    message_id = dependencies.chatlog_db.create_message(
+        task.thread_id,
+        "assistant",
+        assistant_text,
+    )
+    result["message_id"] = message_id
+
+    with suppress(Exception):
+        dependencies.chatlog_db.write_audit_log(
+            "create",
+            "chat_message",
+            str(message_id),
+            user_id="bot",
+        )
+
+    try:
+        event_bus.emit_event(
+            "message.created",
+            {
+                "thread_id": task.thread_id,
+                "message_id": message_id,
+                "role": "assistant",
+            },
+        )
+    except Exception:
+        logger.debug("[chat-completion] emit message.created failed")
+
+    _embed_message(task.thread_id, "assistant", assistant_text, message_id)
+    return result
+
+
+run_chat_completion_task = _run_chat_completion_task_compat
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
