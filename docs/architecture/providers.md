@@ -1,5 +1,50 @@
 # Inference Providers
 
+## Alibaba / DashScope
+
+Alibaba Cloud DashScope / Model Studio is available as a first-class chat
+provider through the backend provider registry and `/api/llm/catalog`.
+
+### Enable Alibaba / DashScope
+
+Set:
+
+- `LLM_PROVIDER=alibaba`
+- `ALIBABA_API_KEY=<your_dashscope_api_key>`
+- `ALIBABA_API_BASE=https://dashscope-us.aliyuncs.com/compatible-mode/v1`
+- `ALLOW_CLOUD_PROVIDERS=true`
+- `CODEXIFY_LOCAL_ONLY_MODE=false`
+- `CODEXIFY_EGRESS_ALLOWLIST=...` including `alibaba`
+
+Optional:
+
+- `ALIBABA_MODEL=<default_model_id>`
+- `ALIBABA_TIMEOUT_SECONDS=<request_timeout_seconds>`
+
+Default base URL:
+
+- `https://dashscope-us.aliyuncs.com/compatible-mode/v1`
+
+When `LLM_PROVIDER=alibaba`, backend config validation fails fast with a clear
+message if `ALIBABA_API_KEY` is missing or `ALIBABA_API_BASE` is blank.
+
+### Routing behavior
+
+- Runtime chat routing uses Alibaba through its OpenAI-compatible
+  `/chat/completions` endpoint.
+- Explicit request selection (`provider`/`model`) takes precedence over profile
+  overrides in the chat worker.
+- Provider registry loads Alibaba only when `ALIBABA_API_KEY` is present and
+  `ALIBABA_API_BASE` resolves to a non-empty value.
+- Catalog entry is deterministic and exposes `ALIBABA_MODEL` when configured.
+- Existing fallback order is unchanged. Alibaba is used only when selected.
+
+### Security
+
+- Keep Alibaba credentials server-side only.
+- Do not commit `.env`/`.env.local` files with real keys.
+- Do not expose provider keys to frontend clients in production.
+
 ## MiniMax
 
 MiniMax is available as a first-class chat provider through the backend provider
