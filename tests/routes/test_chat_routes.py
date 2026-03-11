@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 
 @pytest.fixture(autouse=True)
@@ -433,6 +435,146 @@ class TestChatMessagesGet:
         assert payload["messages"][0]["audio_url"] == "/api/voice/audio/99"
         assert payload["messages"][0]["audio_mime_type"] == "audio/wav"
         assert payload["messages"][0]["audio_duration_ms"] == 1250
+
+    def test_get_messages_includes_ready_audio_from_live_lookup_without_detached_access(
+        self, test_client, mock_db, monkeypatch
+    ):
+        from guardian.voice import audio_assets
+
+        class _DetachOnCloseRow:
+            def __init__(self, **data):
+                self._data = data
+                self._detached = False
+
+            def detach(self):
+                self._detached = True
+
+            def _get(self, key):
+                if self._detached:
+                    raise DetachedInstanceError(
+                        f"Attribute '{key}' was accessed after the session closed"
+                    )
+                return self._data[key]
+
+            @property
+            def id(self):
+                return self._get("id")
+
+            @property
+            def message_id(self):
+                return self._get("message_id")
+
+            @property
+            def provider(self):
+                return self._get("provider")
+
+            @property
+            def voice(self):
+                return self._get("voice")
+
+            @property
+            def text_hash(self):
+                return self._get("text_hash")
+
+            @property
+            def src_url(self):
+                return self._get("src_url")
+
+            @property
+            def internal_format(self):
+                return self._get("internal_format")
+
+            @property
+            def delivery_variants_json(self):
+                return self._get("delivery_variants_json")
+
+            @property
+            def duration_seconds(self):
+                return self._get("duration_seconds")
+
+            @property
+            def filesize_bytes(self):
+                return self._get("filesize_bytes")
+
+            @property
+            def created_at(self):
+                return self._get("created_at")
+
+        ready_row = _DetachOnCloseRow(
+            id=109,
+            message_id=59,
+            provider="chatterbox",
+            voice="assistant",
+            text_hash="ready123",
+            src_url="/media/audio/messages/59.wav",
+            internal_format="wav",
+            delivery_variants_json={
+                "status": "ready",
+                "source": "assistant_message_autogenerate",
+                "mime_type": "audio/wav",
+            },
+            duration_seconds=1.5,
+            filesize_bytes=512,
+            created_at=datetime(2026, 3, 8, 13, 15, tzinfo=timezone.utc),
+        )
+
+        class _FakeQuery:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def filter(self, *_args, **_kwargs):
+                return self
+
+            def order_by(self, *_args, **_kwargs):
+                return self
+
+            def all(self):
+                return list(self._rows)
+
+        class _FakeSession:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                ready_row.detach()
+                return False
+
+            def query(self, _model):
+                return _FakeQuery([ready_row])
+
+        class _FakePostgresChatLogDB:
+            def _sa_session(self):
+                return _FakeSession()
+
+        mock_db.list_messages.return_value = [
+            {
+                "id": 59,
+                "thread_id": 1,
+                "role": "assistant",
+                "content": "Hello from live lookup",
+                "created_at": "2026-03-07T12:01:00.000Z",
+            }
+        ]
+        mock_db.count_messages.return_value = 1
+        monkeypatch.setenv("GUARDIAN_MEDIA_URL_SECRET", "voice-test-secret")
+        monkeypatch.setattr(
+            audio_assets,
+            "_db",
+            lambda: _FakePostgresChatLogDB(),
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.list_message_audio_assets",
+            audio_assets.list_message_audio_assets,
+        )
+
+        response = test_client.get("/chat/1/messages")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["messages"][0]["audio_status"] == "ready"
+        assert payload["messages"][0]["audio_url"] == "/api/voice/audio/109"
+        assert payload["messages"][0]["audio_mime_type"] == "audio/wav"
+        assert payload["messages"][0]["audio_duration_ms"] == 1500
 
 
 class TestChatCompletePost:
