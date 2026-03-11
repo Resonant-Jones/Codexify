@@ -18,7 +18,11 @@ pub fn run() {
             commands::desktop_get_api_key,
             commands::desktop_set_api_key,
             commands::desktop_clear_api_key,
-            commands::desktop_open_external
+            commands::desktop_open_external,
+            commands::desktop_runtime_preflight_check,
+            commands::desktop_run_setup_cli,
+            commands::desktop_compose_up,
+            commands::desktop_runtime_health_check
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
