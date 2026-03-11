@@ -1,40 +1,32 @@
-# Tech Debt and Risks
-
-Purpose: Maintain an actionable, evidence-linked risk register for architecture and runtime debt that can regress reliability, security, or delivery speed.
-Last updated: 2026-02-17
+Purpose: Maintain an actionable, evidence-backed risk register so planning can prioritize the most consequential architecture debt instead of rediscovering it during incidents.
+Last updated: 2026-03-11
 Source anchors:
 - guardian/guardian_api.py
-- guardian/routes/chat.py
-- guardian/workers/chat_worker.py
-- guardian/context/broker.py
-- guardian/core/config.py
-- guardian/config/core.py
-- guardian/routes/media.py
-- guardian/workers/document_embed_worker.py
-- guardian/routes/tools.py
-- guardian/sync/bus.py
-- guardian/routes/rag_upload.py
-- guardian/routes/codexify_router.py
-- guardian/core/ai_router.py
-- guardian/core/llm_catalog.py
-- guardian/routes/federation.py
-- guardian/core/egress.py
+- guardian/core/
+- guardian/config/
+- guardian/routes/
+- guardian/context/
+- guardian/workers/
+- guardian/command_bus/
+- guardian/sync/
+- frontend/src/
 - docker-compose.yml
 
-- Risk: Import-time `VectorStore()` construction can fail route module loading and break startup under missing embed model conditions. | Subsystem: `embedding/bootstrap` | Severity: high | Evidence: `guardian/routes/codexify_router.py`, `backend/rag/embedder.py` | Mitigation: Move heavy initialization behind startup factory and lazy dependency injection.
-- Risk: Chat completion availability depends on Redis queue health with limited graceful degradation. | Subsystem: `chat/queue` | Severity: high | Evidence: `guardian/routes/chat.py`, `guardian/queue/redis_queue.py` | Mitigation: Add queue health gating plus fallback mode or clearer degraded-state signaling.
-- Risk: Chat worker combines retrieval, prompting, provider execution, persistence, and events in one module, increasing regression blast radius. | Subsystem: `chat-worker` | Severity: high | Evidence: `guardian/workers/chat_worker.py` | Mitigation: Split into explicit stage functions with contract tests per stage.
-- Risk: Provider catalog can advertise providers the runtime router cannot execute (`anthropic`, `gemini`). | Subsystem: `provider-routing` | Severity: medium | Evidence: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py` | Mitigation: Enforce shared provider capability source and deny unsupported options at catalog build time.
-- Risk: Dual config systems increase startup complexity and mismatch risk. | Subsystem: `config` | Severity: high | Evidence: `guardian/core/config.py`, `guardian/config/core.py` | Mitigation: Deprecate one settings path and keep one canonical schema + migration plan.
-- Risk: Dotenv load ordering intent and effective precedence can diverge because all layers load with `override=False`. | Subsystem: `config` | Severity: medium | Evidence: `guardian/core/dependencies.py` | Mitigation: Document/implement deterministic precedence explicitly and add regression tests for layer overrides.
-- Risk: Tool execution jobs are stored in an in-memory dict and are lost on restart. | Subsystem: `tools` | Severity: medium | Evidence: `guardian/routes/tools.py` | Mitigation: Persist tool jobs in Postgres/Redis using existing task model patterns.
-- Risk: Sync event bus is process-local; no replay/durability guarantees for subscribers. | Subsystem: `sync` | Severity: medium | Evidence: `guardian/sync/bus.py`, `guardian/sync/api.py` | Mitigation: Back sync publish/subscribe with Redis streams or outbox table.
-- Risk: `upload-chat` RAG endpoint hard-depends on optional module and returns 503 when unavailable. | Subsystem: `rag-ingestion` | Severity: medium | Evidence: `guardian/routes/rag_upload.py` | Mitigation: Either remove endpoint from public contract or ship a guaranteed default implementation.
-- Risk: Document embedding failures can leave uploads in failed state without built-in retry workflow. | Subsystem: `ingestion` | Severity: medium | Evidence: `guardian/routes/media.py`, `guardian/workers/document_embed_worker.py` | Mitigation: Add retry queue + admin rerun endpoint based on `embedding_status`.
-- Risk: Event outbox cleanup in stream loop could conflict with lagging consumers if tenant/id semantics drift. | Subsystem: `events` | Severity: medium | Evidence: `/api/events` logic in `guardian/guardian_api.py`, `guardian/core/event_bus.py` | Mitigation: Track consumer cursors separately from global delete-through logic.
-- Risk: Redis in Compose is configured without persistence (`appendonly no`), so queued work/events can be lost on restart. | Subsystem: `ops/queue` | Severity: medium | Evidence: `docker-compose.yml` Redis command | Mitigation: Enable persistence in non-dev environments and document durability expectations.
-- Risk: Federation path has strict policy/signature/env coupling and can fail closed with limited operator diagnostics. | Subsystem: `federation` | Severity: medium | Evidence: `guardian/routes/federation.py`, `guardian/core/config.py` | Mitigation: Add explicit startup validation endpoint and policy lint command.
-- Risk: Webhook cron jobs rely on runtime egress policy and allowlist correctness; misconfigurations surface as runtime failures. | Subsystem: `cron/egress` | Severity: medium | Evidence: `guardian/routes/cron.py`, `guardian/cron/executor.py`, `guardian/core/egress.py` | Mitigation: Add dry-run validation endpoint for webhook target + policy preview.
-- Risk: Sensitive user text is persisted broadly (chat content, parsed docs, generated docs) with encryption-at-rest assumptions not encoded in app logic. | Subsystem: `data-security` | Severity: high | Evidence: `guardian/db/models.py` content columns and media/doc tables | Mitigation: Define and enforce storage encryption/key-management controls at infra layer and document compliance boundaries.
-- Risk: Local provider hostname resolution failures (especially `.local` in containers) are common and operationally expensive. | Subsystem: `provider-connectivity` | Severity: low | Evidence: error handling in `guardian/core/ai_router.py`, containerized topology in `docker-compose.yml` | Mitigation: Add startup connectivity preflight and explicit env validation for local base URL.
-- Risk: Mixed-dimension embedding stores (after provider/model swaps) can reduce recall due to dimension-based skip behavior in retrieval paths. | Subsystem: `memoryos/embeddings` | Severity: medium | Evidence: dimension-safe guards in `guardian/memoryos/mid_term.py`, `guardian/memoryos/long_term.py` | Mitigation: Monitor skip-ratio telemetry and run an opt-in full re-embedding maintenance task when skip ratios stay elevated.
+# Tech Debt and Risks
+
+- Risk statement: Chat completion availability is tightly coupled to Redis queue health and worker presence, so API uptime alone does not mean assistant uptime. | Subsystem tag: `chat/queue` | Severity: high | Evidence: `guardian/routes/chat.py`, `guardian/queue/redis_queue.py`, `guardian/workers/chat_worker.py` | Suggested mitigation: expose queue/worker readiness more prominently and add degraded-mode behavior or clearer operator alarms.
+- Risk statement: Config is split across canonical and legacy settings modules, which can block startup or create operator confusion during env changes. | Subsystem tag: `config` | Severity: high | Evidence: `guardian/core/config.py`, `guardian/config/core.py`, `tests/core/test_config_coherence.py` | Suggested mitigation: converge on one settings path and keep compatibility shims temporary and test-backed.
+- Risk statement: Completion assembly, provider execution, persistence, and event emission still converge in a small high-coupling area. | Subsystem tag: `chat/core-loop` | Severity: high | Evidence: `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py` | Suggested mitigation: split the completion pipeline into typed stages with focused contract tests.
+- Risk statement: Provider catalog output can imply support that the runtime execution path does not fully deliver. | Subsystem tag: `providers` | Severity: medium | Evidence: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py` | Suggested mitigation: derive catalog visibility from the same capability map the runtime uses.
+- Risk statement: Legacy `/tools` behavior and command bus behavior coexist, increasing contract drift risk. | Subsystem tag: `tools/command-bus` | Severity: high | Evidence: `guardian/routes/tools.py`, `guardian/routes/command_bus.py`, `guardian/command_bus/invoke.py` | Suggested mitigation: make the command bus the only durable execution path and shrink the shim surface over time.
+- Risk statement: Some tool-job visibility still relies on process-local state, so restarts can erase operator context. | Subsystem tag: `tools` | Severity: medium | Evidence: `guardian/routes/tools.py` | Suggested mitigation: route all job state through `CommandBusStore` or another durable backing store.
+- Risk statement: Document parsing happens inline in the API process, which mixes upload latency with ingestion orchestration. | Subsystem tag: `ingestion` | Severity: medium | Evidence: `guardian/routes/media.py`, `guardian/services/document_parsers/` | Suggested mitigation: move heavier parsing work behind an explicit async job boundary when ingestion volume grows.
+- Risk statement: Failed document embeddings are visible but retry/replay ergonomics are weak in the scanned runtime path. | Subsystem tag: `ingestion` | Severity: medium | Evidence: `guardian/routes/media.py`, `guardian/workers/document_embed_worker.py` | Suggested mitigation: add a supported retry path keyed off `embedding_status` and document it in the API.
+- Risk statement: Retrieval quality can drift if embedding backends or dimensions change without coordinated re-indexing. | Subsystem tag: `retrieval` | Severity: medium | Evidence: `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py`, `guardian/workers/document_embed_worker.py` | Suggested mitigation: add explicit re-embedding workflows and telemetry for skipped or stale vectors.
+- Risk statement: The durable event outbox and the process-local sync/event paths create two different delivery semantics in one codebase. | Subsystem tag: `events/sync` | Severity: medium | Evidence: `guardian/core/event_bus.py`, `guardian/sync/api.py`, `guardian/sync/bus.py` | Suggested mitigation: document the semantic split clearly and migrate critical consumers to durable channels.
+- Risk statement: Sync subscriptions are process-local and lose continuity on restart. | Subsystem tag: `sync` | Severity: medium | Evidence: `guardian/sync/bus.py`, `guardian/sync/api.py` | Suggested mitigation: back sync subscriptions with Redis streams or Postgres-backed cursors if they become product-critical.
+- Risk statement: Federation is security- and config-sensitive, with failure modes spread across feature flags, trust policy, and egress checks. | Subsystem tag: `federation` | Severity: high | Evidence: `guardian/routes/federation.py`, `guardian/core/config.py`, `guardian/core/egress.py` | Suggested mitigation: add a dedicated policy validation and diagnostics surface before expanding federation usage.
+- Risk statement: Browser-side state is spread across manual pathname logic, local/session storage, and custom events, increasing UI regression risk. | Subsystem tag: `frontend/shell` | Severity: medium | Evidence: `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/state/session/SessionSpine.ts` | Suggested mitigation: centralize route/session orchestration behind fewer explicit state boundaries.
+- Risk statement: Backend auth and exposure behavior are heavily env-driven, so deployment mistakes can change trust boundaries quickly. | Subsystem tag: `auth/exposure` | Severity: high | Evidence: `guardian/core/dependencies.py`, `guardian/core/public_exposure.py`, `guardian/guardian_api.py` | Suggested mitigation: keep deployment checklists explicit and add startup-time summaries of effective auth/exposure mode.
+- Risk statement: Raw chat and document text are persisted broadly, but encryption-at-rest guarantees are not encoded in app logic. | Subsystem tag: `data-security` | Severity: high | Evidence: `guardian/db/models.py`, `guardian/routes/media.py` | Suggested mitigation: document infra-level encryption requirements and treat them as non-optional operational controls.
+- Risk statement: Redis in Compose is configured without durable persistence, so queued work and transient events can be lost across restarts. | Subsystem tag: `ops/redis` | Severity: medium | Evidence: `docker-compose.yml` | Suggested mitigation: keep the non-durable setup explicitly dev-only and document stronger production expectations.

@@ -1,118 +1,156 @@
-# Data and Storage
-
-Purpose: Provide an implementation-aligned map of where Codexify data lives, which entities matter most, and what invariants/risk assumptions changes must preserve.
-Last updated: 2026-02-17
+Purpose: Map where Codexify stores state today, which entities carry the most architectural weight, and which invariants or exposure points change work must preserve.
+Last updated: 2026-03-11
 Source anchors:
 - guardian/db/models.py
-- guardian/core/pgdb.py
-- guardian/core/dependencies.py
-- guardian/queue/redis_queue.py
-- guardian/queue/task_events.py
-- guardian/routes/media.py
-- guardian/workers/document_embed_worker.py
-- guardian/routes/cron.py
-- guardian/routes/websocket.py
-- guardian/routes/health.py
+- guardian/db/migrations/
+- guardian/core/db.py
+- guardian/core/storage.py
+- guardian/core/event_bus.py
+- guardian/core/outbox.py
+- guardian/queue/
+- guardian/routes/
+- guardian/workers/
+- guardian/context/
+- guardian/vector/
+- guardian/runtime/embed/
+- guardian/command_bus/
+- guardian/realtime/
+- guardian/sync/
 - docker-compose.yml
-- frontend/src/lib/providerPref.ts
+- frontend/src/
+
+# Data and Storage
 
 ## Storage Systems in Use
 
-| System | Usage in current code | Key anchors |
+| System | What it stores today | Key anchors |
 |---|---|---|
-| Postgres (primary system of record) | Threads/messages, projects, media metadata, docs, events outbox, cron jobs/runs, permissions/audit | `guardian/db/models.py`, `guardian/core/pgdb.py`, `guardian/core/dependencies.py` |
-| Redis | Async task queues, cancellation set, per-thread turn locks, task event streams | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py` |
-| Vector store (Chroma or FAISS) | Semantic retrieval for chat + ingestion embeddings | `guardian/vector/store.py`, `backend/rag/embedder.py`, `guardian/context/broker.py` |
-| Neo4j (optional) | Graph context/logging and federation graph snapshot features | `guardian/context/broker.py`, `guardian/routes/federation.py`, `docker-compose.yml` |
-| File/object storage | Uploaded/generated media bytes and TTS outputs (`src_url` references) | `guardian/core/storage.py`, `guardian/routes/media.py` |
-| Browser local/session storage | UI preferences/auth token/provider selection | `frontend/src/lib/api.ts`, `frontend/src/lib/providerPref.ts` |
+| Postgres | Projects, threads, messages, memories, media metadata, documents, audit logs, command runs, cron runs, collaboration data, provider state | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
+| Redis | Chat/document/cron queues, cancellation set, turn locks, task event transport, worker heartbeat keys | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/routes/health.py` |
+| Vector store | Semantic retrieval corpus for messages and documents | `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py`, `guardian/context/broker.py` |
+| File or object storage | Raw uploaded/generated media bytes and document/image/audio artifacts | `guardian/core/storage.py`, `guardian/routes/media.py` |
+| Neo4j | Optional graph context/logging and federation graph features | `guardian/context/broker.py`, `guardian/routes/federation.py`, `docker-compose.yml` |
+| Browser local/session storage | Auth tokens, runtime overrides, shell state, drafts, UI preferences, cached session spine | `frontend/src/lib/api.ts`, `frontend/src/lib/runtimeConfig.ts`, `frontend/src/state/session/SessionSpine.ts` |
+| In-process buses | Fallback event fanout and the lightweight sync subscription bus | `guardian/core/event_bus.py`, `guardian/sync/bus.py` |
 
-## Key Entities (Most Operationally Relevant)
+## Key Entities and Collections
 
-### Core conversation + memory
+### Core chat and knowledge entities
 
-| Entity/Table | Why it matters | Notes |
+| Entity | Why it matters | Key invariants |
 |---|---|---|
-| `projects` | Parent grouping for threads/resources | `identity_depth` constrained to `light|deep` |
-| `chat_threads` | Primary conversation container | `project_id`, `parent_id`, `archived_at`, profile metadata |
-| `chat_messages` | Ordered per-thread conversation records | `thread_id` FK cascade; `kind` defaults `chat` |
-| `memory_entries` | Ephemeral/midterm/longterm memory storage | `silo` check constraint enforced |
-| `personal_facts` | User-fact memory graph with confidence/status | status + confidence constrained |
-| `personal_fact_evidence` | Evidence links to facts and optional source message | fact delete cascades, message link `SET NULL` |
-| `personal_fact_revisions` | Audit of fact changes | fact delete cascades |
+| `projects` | Top-level ownership and grouping boundary for threads and documents | `identity_depth` constrained to `light` or `deep` |
+| `chat_threads` | Primary conversation container | can be archived, nested via `parent_id`, and tied to a project/profile |
+| `chat_messages` | Ordered conversation state | hard-linked to thread by FK with cascade delete |
+| `memory_entries` | Stored episodic/semantic memory | `silo` constraint and retrieval policy dependence |
+| `personal_facts` | Higher-level fact memory | confidence/status constraints drive fact lifecycle |
+| `personal_fact_evidence` | Evidence rows that tie facts back to messages or sources | fact delete cascades; message link may be nullable |
+| `personal_fact_revisions` | Fact history | supports auditability of memory changes |
 
-### Media / documents / generation
+### Documents, media, and generated artifacts
 
-| Entity/Table | Why it matters | Notes |
+| Entity | Why it matters | Key invariants |
 |---|---|---|
-| `media_assets` | Canonical content identity and dedupe root | active identity uniqueness index by project/kind/provenance/hash |
-| `media_aliases` | Human-facing aliases for canonical assets | alias type constrained |
-| `uploaded_images` | User-uploaded image references | soft delete (`deleted_at`) |
-| `generated_images` | Generated image references | soft delete (`deleted_at`) |
-| `uploaded_documents` | Uploaded docs + parse/embed lifecycle | `embedding_status` constrained (`pending|processing|ready|failed`) |
-| `generated_documents` | LLM-generated documents | `format` constrained (`txt|md|docx|pdf|html|json`) |
-| `thread_documents` | Thread <-> document linkage | `relation` constrained (`autosave|attached|reference`) |
-| `tts_outputs` | Synthesized audio metadata | optional project/thread ownership |
+| `media_assets` | Canonical dedupe root for uploaded/generated assets | uniqueness is scoped by active identity fields with `deleted_at IS NULL` |
+| `media_aliases` | Alternate references to canonical assets | alias type constrained |
+| `uploaded_documents` | Parsed text, embedding lifecycle, storage reference | `embedding_status` drives RAG availability |
+| `generated_documents` | LLM-produced docs linked to users/threads/projects | `format` constrained |
+| `thread_documents` | Thread-to-document linkage for RAG and UI | `relation` constrained to known link semantics |
+| `project_document_links` | Project-level document scope for context assembly | used by `ContextBroker` to widen doc context |
+| `uploaded_images` | User-uploaded image metadata | soft delete via `deleted_at` |
+| `generated_images` | AI-generated image metadata | soft delete via `deleted_at` |
+| `tts_outputs` | Synthesized audio outputs | may be connected back to thread/project/message context |
+| `message_audio_assets` | Message-to-audio attachment map | lets chat output pick up voice artifacts |
 
-### Events / audit / sharing / jobs
+### Operational and control-plane entities
 
-| Entity/Table | Why it matters | Notes |
+| Entity | Why it matters | Key invariants |
 |---|---|---|
-| `events_outbox` | Durable SSE feed source | tenant-scoped outbox polling/deletion |
-| `event_graph_events` | Idempotent event lineage/audit | `idempotency_key` unique |
-| `audit_log` | Generic mutation audit rows | entity + entity_id indexed |
-| `shared_links` | Thread/document share token mapping | `target_type` constrained |
-| `collaboration_permissions` | Document-level access control | `(document_id,user_id)` uniqueness index |
-| `collaboration_audit_log` | Collaboration action history | document/user indexed |
-| `ws_audit_log` | WebSocket RPC request audit | params hash + duration |
-| `cron_jobs` | Scheduled job definitions | enabled/status lifecycle through runs |
-| `cron_runs` | Durable execution outcomes | status constrained (`queued|running|succeeded|failed`) |
-| `connector_configs` | External connector settings | one-to-many runs/raw docs |
-| `connector_runs` | Connector sync execution rows | status/error/document_count |
-| `raw_documents` | Connector raw payload staging | unique per (`config_id`,`external_id`) |
-| `sync_jobs` | Connector sync job bookkeeping | runtime support table for connector orchestration |
+| `audit_log` | Generic mutation audit trail | many routes append here after state changes |
+| `events_outbox` | Durable source for `/api/events` | consumers rely on monotonically increasing IDs |
+| `event_graph_events` | Idempotent event lineage | `idempotency_key` uniqueness is relied on |
+| `inference_providers` | Catalog-backed provider inventory | synced from `/api/llm/catalog` at startup |
+| `inference_provider_runtime` | Runtime health and capability state | kept in sync with provider catalog bootstrap |
+| `tool_jobs` | Durable tool orchestration table | exists in schema even though legacy `/tools` still uses in-memory state too |
+| `command_runs` | Command bus execution record | captures actor, auth subject, status, args hash, idempotency |
+| `command_run_events` | Streamable command bus events | ordered by run-local sequence |
+| `cron_jobs` | Saved schedules | validation constrains schedule grammar and target types |
+| `cron_runs` | Run history for cron executions | status transitions are `queued -> running -> terminal` |
+| `sync_jobs` | Connector/sync support bookkeeping | ensured at startup |
+| `oauth_connections` | Encrypted token-bearing connection state | uniqueness on `(user_id, provider, mode)` |
+| `shared_links` | Share tokens for thread/document access | token leakage is high impact |
+| `collaboration_permissions` | Explicit per-document access rules | uniqueness on `(document_id, user_id)` |
+| `collaboration_audit_log` | Collaboration activity trace | backs auditability on shared docs |
+| `ws_audit_log` | WebSocket RPC audit trail | stores method, hashes, and latency metadata |
 
-## Relationship and Invariant Rules the Code Relies On
+## Relationships the Code Relies On
 
-- `chat_messages.thread_id -> chat_threads.id` uses `ON DELETE CASCADE`; deleting a thread removes its chat messages (`guardian/db/models.py`).
-- `chat_threads.updated_at` is bumped when `create_message` succeeds; many UI listings rely on this for recency ordering (`guardian/core/pgdb.py`).
-- Turn concurrency invariant: only one assistant completion per thread at a time via Redis lock key `turn_lock:{thread_id}` (`guardian/queue/redis_queue.py`, `guardian/routes/chat.py`, `guardian/workers/chat_worker.py`).
-- `uploaded_documents.embedding_status` drives ingestion UX and retry semantics (`guardian/routes/media.py`, `guardian/workers/document_embed_worker.py`).
-- Media dedupe invariant depends on `media_assets` active identity unique index with `deleted_at IS NULL` predicate (`guardian/db/models.py`, `guardian/routes/media.py`).
-- Outbox consumers assume monotonic `events_outbox.id` for resume/cleanup semantics (`guardian/guardian_api.py`, `guardian/core/event_bus.py`).
-- Cron execution assumes `cron_runs` row exists before queue execution and is updated in place through terminal state (`guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py`).
-- WebSocket audit assumes a configured DB session factory; otherwise route still runs with noop DB adapter (`guardian/routes/websocket.py`).
+- `chat_threads -> chat_messages`
+  - assistant persistence, thread recency ordering, and thread deletion assume this FK remains intact.
+- `projects -> chat_threads`
+  - project identity depth affects whether chat can run `deep` retrieval modes.
+- `projects -> project_document_links -> uploaded_documents/generated_documents`
+  - project-scoped docs are part of normal and deep context assembly.
+- `chat_threads -> thread_documents -> uploaded_documents/generated_documents`
+  - thread-linked docs flow directly into the RAG path.
+- `command_runs -> command_run_events`
+  - command bus SSE streaming assumes ordered append-only event sequences.
+- `cron_jobs -> cron_runs`
+  - scheduler/worker logic assumes a run row exists before execution starts.
+- `media_assets -> uploaded_documents/uploaded_images/generated_images`
+  - dedupe and alias behavior depend on canonical asset identity outliving individual references.
+- `personal_facts -> personal_fact_evidence/personal_fact_revisions`
+  - fact mutation and evidence display rely on these dependent rows staying consistent.
 
-## Lifecycle Rules
+## Invariants and Lifecycle Rules
 
-- Soft-delete surfaces:
-  - `uploaded_images.deleted_at`
-  - `generated_images.deleted_at`
-  - `uploaded_documents.deleted_at`
-  - `generated_documents.deleted_at`
-  - `media_assets.deleted_at`
-- Hard-delete/cascade surfaces:
-  - deleting `chat_threads` cascades messages and linked FK rows where defined with `ON DELETE CASCADE`.
-  - deleting `cron_jobs` cascades `cron_runs`.
-  - deleting `connector_configs` cascades `connector_runs` and `raw_documents`.
-- Event outbox retention:
-  - `/api/events` consumer deletes events through last delivered id for tenant to prevent unbounded growth (`guardian/guardian_api.py`).
-- Memory retention:
-  - `MEMORY_RETENTION_DAYS` exists as config flag, but explicit pruning workflow is Unverified from current runtime code scan. Verify in memory worker/maintenance jobs outside scanned paths.
+### Hard invariants
+
+- Only one assistant turn should be in flight per thread at a time.
+  - Enforced by Redis turn locks in `guardian/queue/redis_queue.py` and `guardian/routes/chat.py`.
+- Chat completion, cron execution, and document embedding are queue-backed, not fire-and-forget in the API process.
+  - Anchors: `guardian/routes/chat.py`, `guardian/routes/cron.py`, `guardian/queue/document_embed_queue.py`
+- Postgres is the source of truth for conversation, document metadata, command runs, and audit state.
+  - Anchors: `guardian/core/db.py`, `guardian/db/models.py`
+- Federation and collaboration access are explicit, not ambient.
+  - Anchors: `guardian/routes/federation.py`, `guardian/realtime/collaboration.py`, `guardian/db/models.py`
+
+### Soft delete and archival surfaces
+
+- `chat_threads.archived_at` archives threads without removing them.
+- `media_assets.deleted_at`, `uploaded_documents.deleted_at`, `uploaded_images.deleted_at`, `generated_documents.deleted_at`, and `generated_images.deleted_at` act as soft-delete boundaries.
+- Deduplication logic relies on active rows where `deleted_at IS NULL`.
+
+### Cascade and retention behavior
+
+- `chat_messages` delete with their thread.
+- `cron_runs` delete with their parent cron job.
+- Connector runs and raw documents delete with connector configs.
+- `/api/events` can delete durable outbox rows through the last delivered event ID for a tenant, so outbox retention is consumption-shaped rather than archival.
+- Memory retention pruning is `Unverified`; a config surface exists, but a repo-scanned maintenance path was not confirmed.
 
 ## Data Risk Hotspots
 
-- API auth tokens and session/JWT secrets are environment-driven and can be accepted from multiple secret keys (`GUARDIAN_SESSION_SECRET`, `GUARDIAN_JWT_SECRET`, `GUARDIAN_API_KEY` compatibility path).
-  - Evidence: `guardian/core/dependencies.py`.
-  - Risk: secret sprawl and mixed-mode auth confusion.
-- Raw uploaded content, parsed document text, and generated text are persisted in plaintext columns.
-  - Evidence: `uploaded_documents.parsed_text`, `generated_documents.content`, `chat_messages.content` in `guardian/db/models.py`.
-- Websocket audit stores method and params hash (not raw params) but identity linkage still exists.
-  - Evidence: `guardian/routes/websocket.py`, `ws_audit_log` model.
-- Collaboration and share link tables expose document/thread access edges; token leakage is high impact.
-  - Evidence: `shared_links`, `collaboration_permissions` in `guardian/db/models.py`.
-- Redis queue/event data is operationally critical but non-durable by default configuration (`appendonly no` in Compose).
-  - Evidence: `docker-compose.yml` Redis command.
-- Encryption at rest assumptions are Unverified for Postgres volume, Chroma path, and media store.
-  - Verify via host/cloud disk encryption and storage backend configuration (not represented in this repo).
+- PII surfaces:
+  - `chat_messages.content`
+  - `uploaded_documents.parsed_text`
+  - `generated_documents.content`
+  - `personal_facts` and related evidence
+- Secret-bearing surfaces:
+  - `oauth_connections` stores encrypted access and refresh token material
+  - browser storage can hold session or API key material depending on mode
+- Access-control assumptions:
+  - API access control is route/auth-layer enforced; the DB schema itself does not encode every user ownership rule
+  - collaboration and share-link security depends on token and permission handling, not row-level security
+- Durability assumptions:
+  - Redis is operationally critical but is configured in Compose without durable persistence guarantees
+  - sync bus and some event fanout paths are still process-local
+- Encryption at rest:
+  - Infra-level encryption for Postgres volumes, Neo4j data, and local media storage is `Unverified` in this repo
 
+## Storage Mismatch and Drift Signals
+
+- Vector-store configuration is split:
+  - `guardian/vector/store.py` defaults to a configurable store abstraction
+  - `guardian/workers/document_embed_worker.py` currently instantiates the runtime embedder with `store="chroma"`
+- This means retrieval and embedding paths should be treated as a coupled surface during provider or vector-backend changes.

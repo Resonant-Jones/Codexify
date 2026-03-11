@@ -1,156 +1,193 @@
+Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
+Last updated: 2026-03-11
+Source anchors:
+- Makefile
+- package.json
+- frontend/src/package.json
+- docker-compose.yml
+- guardian/guardian_api.py
+- guardian/core/
+- guardian/config/
+- guardian/routes/
+- guardian/command_bus/
+- src-tauri/
+- frontend/src/
+- tests/
+
 # Config and Ops
 
-Purpose: Give senior developers the operational truth needed to run, debug, and harden Codexify without guessing hidden defaults.
-Last updated: 2026-02-17
-Source anchors:
-- guardian/core/dependencies.py
-- guardian/core/config.py
-- guardian/config/core.py
-- guardian/guardian_api.py
-- guardian/routes/health.py
-- guardian/core/egress.py
-- docker-compose.yml
-- Makefile
-- README.md
-- frontend/src/lib/api.ts
+## Primary Environment Variables
 
-## Primary Environment Variables (Grouped)
+### Server and auth
 
-### Server/Auth boundary
-
-| Variable | Default/behavior | Anchor |
+| Variable | Current behavior | Anchors |
 |---|---|---|
-| `GUARDIAN_API_KEY` | Required at API startup; process exits if missing | `guardian/guardian_api.py` |
-| `GUARDIAN_API_KEYS` | Optional additional static API keys | `guardian/core/dependencies.py`, `guardian/core/config.py` |
-| `GUARDIAN_EXPOSURE_MODE` | `local_safe` by default; `public_allowlist` forces remote auth mode | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
-| `GUARDIAN_AUTH_MODE` | `local` default; `remote` requires session/JWT tokens | `guardian/core/dependencies.py` |
-| `GUARDIAN_SESSION_SECRET` / `GUARDIAN_JWT_SECRET` | Required for remote session/JWT verification | `guardian/core/dependencies.py` |
-| `GUARDIAN_ALLOWED_ORIGINS` | Comma-separated CORS origins | `guardian/core/dependencies.py`, `guardian/guardian_api.py` |
-| `CODEXIFY_DESKTOP_BACKEND_URL` | Default backend URL for Tauri shell runtime config | `src-tauri/src/commands.rs`, `.env.template` |
-| `CODEXIFY_DESKTOP_SHARE_BASE_URL` | Default web share origin used by desktop copy-link flows | `src-tauri/src/commands.rs`, `.env.template` |
-| `CODEXIFY_SINGLE_USER_ID` | Canonical user id in single-user mode | `guardian/core/dependencies.py` |
+| `GUARDIAN_API_KEY` | Required at backend startup; app fails fast if absent | `guardian/guardian_api.py` |
+| `GUARDIAN_API_KEYS` | Optional additional accepted API keys | `guardian/core/dependencies.py`, `guardian/core/config.py` |
+| `GUARDIAN_EXPOSURE_MODE` | Defaults to `local_safe`; can force public-facing restrictions | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
+| `GUARDIAN_AUTH_MODE` | Defaults to local auth unless exposure mode or remote settings require otherwise | `guardian/core/dependencies.py` |
+| `GUARDIAN_SESSION_SECRET`, `GUARDIAN_JWT_SECRET` | Needed for remote/session/JWT flows | `guardian/core/dependencies.py` |
+| `GUARDIAN_ALLOWED_ORIGINS` | CORS allowlist consumed at app startup | `guardian/core/dependencies.py`, `guardian/guardian_api.py` |
+| `CODEXIFY_SINGLE_USER_ID` | Default subject in single-user mode | `guardian/core/dependencies.py` |
 
-### Data/DB/queues
+### Database, queues, and event transport
 
-| Variable | Default/behavior | Anchor |
+| Variable | Current behavior | Anchors |
 |---|---|---|
-| `GUARDIAN_DATABASE_URL` / `DATABASE_URL` | Postgres DSN used by DB init | `guardian/core/dependencies.py` |
-| `REDIS_URL` | `redis://redis:6379/0` fallback | `guardian/queue/redis_queue.py` |
-| `CHAT_QUEUE_NAME` | `codexify:queue:chat` | `guardian/workers/chat_worker.py` |
-| `DOCUMENT_EMBED_QUEUE_NAME` | `codexify:queue:document-embed` | `guardian/queue/document_embed_queue.py` |
-| `CRON_QUEUE_NAME` | `codexify:queue:cron` | `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py` |
-| `CHAT_TURN_LOCK_TTL_SECONDS` | 300 seconds default lock ttl | `guardian/queue/redis_queue.py` |
+| `GUARDIAN_DATABASE_URL`, `DATABASE_URL` | Postgres DSN for the primary DB adapter and migrations | `guardian/core/dependencies.py`, `guardian/core/db.py`, `guardian/db/migrations/env.py` |
+| `REDIS_URL` | Defaults to `redis://redis:6379/0` | `guardian/queue/redis_queue.py` |
+| `CHAT_TURN_LOCK_TTL_SECONDS` | Defaults to `300` seconds | `guardian/queue/redis_queue.py` |
+| `CHAT_EMBED_QUEUE_NAME` | Defaults to `codexify:queue:chat-embed` | `guardian/queue/redis_queue.py` |
+| document embed queue env | Defaults to `codexify:queue:document-embed` through queue module constants | `guardian/queue/document_embed_queue.py` |
+| cron queue env | Defaults to `codexify:queue:cron` through scheduler/worker constants | `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py` |
+| outbox envs | Poll interval, batch size, and tenant semantics are parsed defensively for `/api/events` | `guardian/core/outbox.py`, `guardian/guardian_api.py` |
 
-### Providers/models/egress
+### Providers and model routing
 
-| Variable | Default/behavior | Anchor |
+| Variable | Current behavior | Anchors |
 |---|---|---|
-| `LLM_PROVIDER` | `local` default in core settings | `guardian/core/config.py` |
-| `ALLOW_CLOUD_PROVIDERS` | `false` default; blocks openai/groq unless enabled | `guardian/core/config.py`, `guardian/core/egress.py` |
-| `CODEXIFY_LOCAL_ONLY_MODE` | `true` default; blocks outbound egress | `guardian/core/config.py`, `guardian/core/egress.py` |
-| `CODEXIFY_EGRESS_ALLOWLIST` | Empty default; explicit allowlist required when non-local | `guardian/core/config.py`, `guardian/core/egress.py` |
-| `LOCAL_BASE_URL`, `LOCAL_API_KEY`, `LOCAL_LLM_MODEL` | Local provider connection/model | `guardian/core/config.py`, `guardian/core/ai_router.py` |
-| `OPENAI_API_KEY`, `OPENAI_BASE_URL` | OpenAI provider credentials/endpoint | `guardian/core/config.py`, `guardian/core/ai_router.py` |
-| `GROQ_API_KEY`, `GROQ_BASE_URL` | Groq provider credentials/endpoint | `guardian/core/config.py`, `guardian/core/ai_router.py` |
-| `LLM_REQUEST_TIMEOUT_SECONDS` | Provider request timeout | `guardian/core/config.py`, `guardian/core/ai_router.py` |
+| `LLM_PROVIDER` | Canonical provider default in core settings; defaults to `local` | `guardian/core/config.py` |
+| `ALLOW_CLOUD_PROVIDERS` | Default `false`; used with egress policy to gate cloud providers | `guardian/core/config.py`, `guardian/core/egress.py` |
+| `CODEXIFY_LOCAL_ONLY_MODE` | Default `true`; keeps the system local-first unless explicitly relaxed | `guardian/core/config.py`, `guardian/core/egress.py` |
+| `CODEXIFY_EGRESS_ALLOWLIST` | Explicit outbound allowlist when non-local access is permitted | `guardian/core/config.py`, `guardian/core/egress.py` |
+| `LOCAL_BASE_URL`, `LOCAL_API_KEY`, `LOCAL_CHAT_MODEL`, `LOCAL_EMBED_MODEL` | Local provider connectivity and model selection | `guardian/core/config.py`, `guardian/core/ai_router.py`, `docker-compose.yml` |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL` | OpenAI execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
+| `GROQ_API_KEY`, `GROQ_BASE_URL` | Groq execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
+| `MINIMAX_API_KEY`, `MINIMAX_BASE_URL` | Minimax execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
+| `LLM_REQUEST_TIMEOUT_SECONDS` | Global timeout shaping for provider calls | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 
-### Vector/storage/ingestion
+### Storage, media, and embeddings
 
-| Variable | Default/behavior | Anchor |
+| Variable | Current behavior | Anchors |
 |---|---|---|
-| `CODEXIFY_VECTOR_STORE` | `faiss` in `VectorStore`, often overridden to `chroma` in compose workers | `guardian/vector/store.py`, `docker-compose.yml` |
-| `CODEXIFY_CHROMA_PATH` | `./.chroma` default | `guardian/runtime/embed/embedder.py` |
-| `CODEXIFY_COLLECTION` | `codexify_vault` default | `guardian/runtime/embed/embedder.py` |
-| `LOCAL_EMBED_MODEL` | Expected local embedding model path | `backend/rag/embedder.py`, `docker-compose.yml` |
-| `ENABLE_BLIP_MODEL` | Feature flag for optional image model path | `guardian/core/dependencies.py` |
+| `CODEXIFY_VECTOR_STORE` | Selects vector backend in the general vector abstraction | `guardian/vector/store.py` |
+| `CODEXIFY_CHROMA_PATH` | Local Chroma persistence path | `guardian/runtime/embed/embedder.py`, `docker-compose.yml` |
+| `CODEXIFY_COLLECTION` | Chroma collection name | `guardian/runtime/embed/embedder.py` |
+| storage backend envs | Storage factory can target local filesystem, S3, or GCS | `guardian/core/storage.py` |
+| `GUARDIAN_MEDIA_URL_SECRET` | Signs `/media/*` URLs | `guardian/core/media_signing.py` |
 
-### Federation/graph/websocket/cron
+### Federation, graph, and command bus
 
-| Variable | Default/behavior | Anchor |
+| Variable | Current behavior | Anchors |
 |---|---|---|
-| `GUARDIAN_FEDERATION_ENABLED` | Master federation feature gate | `guardian/core/config.py`, `guardian/routes/federation.py` |
-| `GUARDIAN_FEDERATION_REQUIRE_SIGNED_POLICY` | Signed trust policy required by default | `guardian/core/config.py`, `guardian/routes/federation.py` |
-| `GUARDIAN_FEDERATION_TRUST_POLICY_JSON` + signature fields | Peer allowlist policy source | `guardian/core/config.py`, `guardian/routes/federation.py` |
-| `GUARDIAN_ENABLE_GRAPH_CONTEXT` | Enables graph snippets in context broker | `guardian/core/config.py`, `guardian/context/broker.py` |
-| `WS_RPC_RATE_LIMIT_*`, `WS_RPC_IDLE_TIMEOUT_SECONDS`, `WS_RPC_MAX_CONNECTIONS` | websocket RPC guards | `guardian/core/config.py`, `guardian/routes/websocket.py` |
-| `CRON_SCHEDULER_POLL_SECONDS` | cron tick cadence (default 30s) | `guardian/cron/scheduler.py` |
-| `CRON_WEBHOOK_ALLOWLIST` | optional host allowlist for webhook jobs | `guardian/routes/cron.py` |
+| `GUARDIAN_ENABLE_GRAPH_CONTEXT` | Enables graph snippets during context assembly | `guardian/context/broker.py`, `guardian/core/config.py` |
+| `GUARDIAN_FEDERATION_ENABLED` | Master feature gate for federation routes | `guardian/routes/federation.py`, `guardian/core/config.py` |
+| trust policy envs | Signed policy, node allowlist, and federation auth requirements are env-driven | `guardian/routes/federation.py`, `guardian/core/config.py` |
+| `GUARDIAN_COMMAND_BUS_LOOPBACK_BASE` | Base URL for command bus loopback execution | `guardian/command_bus/loopback_http_adapter.py`, `docker-compose.yml` |
+| WebSocket rate-limit envs | Guard `/api/ws/rpc` connection and payload behavior | `guardian/routes/websocket.py`, `guardian/core/config.py` |
+
+### Frontend and desktop runtime
+
+| Variable | Current behavior | Anchors |
+|---|---|---|
+| `VITE_PROXY_TARGET` | Frontend dev proxy target in Compose | `docker-compose.yml` |
+| desktop backend/share envs | Tauri can inject backend/share base URLs at runtime | `src-tauri/src/commands.rs`, `frontend/src/lib/runtimeConfig.ts` |
+| browser-stored overrides | Desktop/web runtime can be overridden by local storage keys | `frontend/src/lib/runtimeConfig.ts` |
 
 ## Config Resolution Order and Defaults
 
-1. `guardian/guardian_api.py` imports and calls `dependencies._load_env_chain()` before app init.
-2. `_load_env_chain()` attempts to load files in this order:
+1. `guardian/guardian_api.py` imports `guardian.core.dependencies` and explicitly loads dotenv files through `_load_env_chain()`.
+2. `_load_env_chain()` attempts to read, in order:
    - `.env`
    - `.env.backend.{GUARDIAN_ENV|development}`
    - `.env.local`
-3. Implementation detail: each `load_dotenv(..., override=False)` call preserves existing `os.environ` values.
-   - Practical consequence: process env wins, and earlier-loaded dotenv values can prevent later dotenv layers from overriding the same key.
-4. Pydantic settings (`guardian/core/config.py`) then read env + `.env` defaults.
-5. Coherence checks compare `guardian/core/config.py` with legacy `guardian/config/core.py` depending on `CODEXIFY_CONFIG_SOURCE` (`strict` default).
+3. Each dotenv file loads with `override=False`.
+   - Practical result: existing `os.environ` wins, and earlier dotenv layers can block later dotenv layers from overriding the same key.
+4. `guardian/core/config.py` then materializes canonical settings through Pydantic.
+5. `assert_config_coherence()` compares canonical settings against legacy settings in `guardian/config/core.py`.
+6. `CODEXIFY_CONFIG_SOURCE` controls how strict that reconciliation is, with `strict` as the default in `guardian/core/config.py`.
+
+Operational consequence:
+- Config is not yet single-source. A safe config change should be checked against both `guardian/core/config.py` and `guardian/config/core.py`.
 
 Unverified:
-- Exact precedence interaction between dotenv-loaded values and pydantic `env_file` for every variable in all deployment modes. Verify with controlled env matrix tests in `tests/core/test_config_coherence.py` and runtime print diagnostics.
+- The full precedence matrix across every deployment mode is not exhaustively documented in-repo; `tests/core/test_config_coherence.py` is the best current verification anchor.
 
-## Local Dev Run Commands (As Implemented)
+## Local Dev Run Commands
 
-- Full stack (recommended):
+### Main entry points
+
+- Full stack with containers:
   - `docker compose up --build`
-- Backend only (non-Docker path):
-  - `alembic -c backend/alembic.ini upgrade head`
-  - `python backend/scripts/seed_defaults.py`
+- Backend app:
   - `uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8888`
-- Frontend only:
+- Packaged backend entrypoint:
+  - `guardian-api`
+- Frontend:
   - `pnpm --dir frontend/src install`
   - `pnpm --dir frontend/src dev`
 - Desktop shell:
   - `make desktop-dev`
   - `make desktop-build`
-- Test/lint entrypoints:
+
+### Checks and tests
+
+- Python test suite:
   - `make test`
+- Python lint/type checks:
   - `make lint`
-  - `pnpm lint` (root routes to `frontend/src` lint)
-- Docs check/build:
+- Frontend lint:
+  - `pnpm lint`
+- Frontend tests:
+  - `pnpm test`
+- Docs build:
   - `make docs`
 
 ## Healthchecks and Diagnostics
 
-- Base health: `GET /health`
-- Provider health: `GET /health/llm`, `GET /api/health/llm`
-- Chat/memory/vector health: `GET /health/chat`, `GET /health/memory`, `GET /health/vector`
-- Metrics: `GET /metrics`
-- Dependency snapshot: `GET /health/deps`
-- Task event stream: `GET /api/tasks/{task_id}/events`
-- Domain event stream: `GET /api/events`
-- LLM catalog payload: `GET /api/llm/catalog`
-- Docker first-response debugging: `docker compose logs backend`
+- `GET /ping`
+- `GET /health`
+- `GET /health/llm`
+- `GET /health/chat`
+- `GET /health/memory`
+- `GET /api/llm/catalog`
+- `GET /metrics`
+- `GET /api/tasks/{task_id}/events`
+- `GET /api/events`
+- command bus run stream:
+  - `GET /api/guardian/commands/runs/{run_id}/events`
 
-Anchors:
+Primary anchors:
 - `guardian/routes/health.py`
 - `guardian/guardian_api.py`
-- `README.md`
+- `guardian/routes/command_bus.py`
 
-## Logging Conventions and Signal Sources
+## Logging and Observability
 
-- API layer uses stdlib logging with request-id middleware and global exception handler returning `request_id` in error body.
-  - Anchor: `guardian/guardian_api.py`.
-- Workers log with subsystem prefixes (`[chat-worker]`, `[document-embed]`, `[cron-worker]`) and task lifecycle labels.
-  - Anchors: `guardian/workers/chat_worker.py`, `guardian/workers/document_embed_worker.py`, `guardian/workers/cron_worker.py`.
-- Task progress is dual-channel:
-  - Logs + Redis stream events (`task_events.publish`).
-  - Anchor: `guardian/queue/task_events.py`.
-- Structured JSON logging pipeline is Unverified (no repo-level JSON logger formatter found in scanned startup path).
+- API requests get request IDs through middleware, and both HTTP and unhandled exception responses include `request_id`.
+- Worker processes log with subsystem-specific prefixes and emit task lifecycle signals through Redis task events.
+- `/metrics` exists and Prometheus setup is initialized during app startup.
+- Command bus and websocket paths have explicit event/audit storage rather than relying only on console logs.
+- Structured JSON logger setup is `Unverified`; the scanned startup path used stdlib logging plus subsystem-specific log messages.
 
 ## Common Failure Signatures
 
 | Symptom | Likely cause | Where to look |
 |---|---|---|
-| Backend exits on startup with auth error | `GUARDIAN_API_KEY` missing | `guardian/guardian_api.py` |
-| `POST /chat/{id}/complete` returns `503 queue_unavailable` | Redis down or unreachable | `guardian/routes/chat.py`, `guardian/queue/redis_queue.py` |
-| Completion hangs or fails after enqueue | worker not running or provider/network failure | `guardian/workers/chat_worker.py`, Compose worker services |
-| Deep mode silently behaves like normal | project `identity_depth` not allowed for deep | `guardian/routes/chat.py`, `guardian/cognition/identity_policy.py` |
-| Document upload returns success but never searchable | parse failed or embed task failed (`embedding_status=failed`) | `guardian/routes/media.py`, `guardian/workers/document_embed_worker.py` |
-| Local provider errors mentioning DNS / `.local` names | container cannot resolve hostname | `guardian/core/ai_router.py` (error formatting), `docker-compose.yml` |
-| Federation request rejected with 403/503 | federation disabled or trust policy/signature invalid | `guardian/routes/federation.py`, `guardian/core/config.py` |
-| Webhook cron run fails immediately | egress denied or target host forbidden | `guardian/routes/cron.py`, `guardian/cron/executor.py`, `guardian/core/egress.py` |
-| `/api/events` appears idle while UI expects updates | outbox disabled/misconfigured tenant/polling mismatch | `guardian/guardian_api.py`, `guardian/core/event_bus.py` |
-| Websocket RPC closes unexpectedly | auth failure, rate limit, payload too large, or idle timeout | `guardian/routes/websocket.py` |
+| Backend exits immediately on boot | `GUARDIAN_API_KEY` missing or config coherence failure | `guardian/guardian_api.py`, `guardian/core/config.py` |
+| `POST /api/chat/{id}/complete` returns `503` | Redis unavailable or queue enqueue failure | `guardian/routes/chat.py`, `guardian/queue/redis_queue.py` |
+| Completion task starts but no answer arrives | chat worker down, provider timeout, or provider connectivity issue | `guardian/workers/chat_worker.py`, `guardian/core/ai_router.py`, Compose worker logs |
+| Provider appears selectable but fails at runtime | catalog/runtime mismatch for provider support | `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py` |
+| Document upload succeeds but never becomes searchable | parse failure, embed enqueue failure, or embed worker failure | `guardian/routes/media.py`, `guardian/workers/document_embed_worker.py` |
+| Command bus run stays `blocked` | policy decision, write-lane restriction, or loopback recursion guard | `guardian/command_bus/invoke.py`, `guardian/routes/tools.py` |
+| Cron run is queued but never finishes | scheduler/worker split or Redis issue | `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py` |
+| Federation endpoints reject requests with `403` or `503` | feature flag disabled, trust policy invalid, or egress disallowed | `guardian/routes/federation.py`, `guardian/core/egress.py` |
+| Live UI events stop after restart | relying on process-local sync/event fanout path | `guardian/sync/bus.py`, `guardian/core/event_bus.py` |
+
+## Testing Reality
+
+- Python tests cover:
+  - startup and config coherence
+  - chat routes and worker behavior
+  - command bus and tools
+  - federation and realtime layers
+  - migrations and storage behavior
+- Frontend harnesses exist separately for:
+  - Vitest
+  - Playwright
+  - Cypress
+- Golden-path regression for architecture work usually means:
+  - boot backend successfully
+  - create/send/complete a chat turn
+  - upload a document and observe embedding lifecycle
+  - invoke a command bus command and inspect run events

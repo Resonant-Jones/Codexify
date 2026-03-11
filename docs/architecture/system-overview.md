@@ -1,96 +1,142 @@
-# System Overview
-
-Purpose: Capture the current runtime architecture of Codexify in one place so PM/dev planning starts from what is actually implemented, not assumed.
-Last updated: 2026-02-17
+Purpose: Capture Codexify's current runtime architecture in one place so onboarding, estimation, and design review start from implemented behavior rather than assumptions.
+Last updated: 2026-03-11
 Source anchors:
 - docker-compose.yml
+- src-tauri/
+- guardian/server/run.py
 - guardian/guardian_api.py
-- guardian/core/dependencies.py
-- guardian/routes/chat.py
-- guardian/workers/chat_worker.py
-- guardian/context/broker.py
-- guardian/routes/media.py
-- guardian/workers/document_embed_worker.py
-- guardian/routes/tools.py
-- guardian/routes/cron.py
-- guardian/routes/federation.py
+- guardian/core/
+- guardian/routes/
+- guardian/context/
+- guardian/workers/
+- guardian/command_bus/
+- guardian/vector/
 - guardian/sync/api.py
-- frontend/src/main.tsx
-- frontend/src/App.tsx
+- frontend/src/
 
-## Components and Responsibilities
+# System Overview
+
+## Runtime Components
 
 | Component | Responsibility | Key anchors |
 |---|---|---|
-| Frontend (React + Vite) | UI shell, thread/document views, auth token + dev key request headers, route-to-view mapping | `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/lib/api.ts` |
-| API gateway (FastAPI app) | Router composition, startup/shutdown orchestration, middleware, SSE endpoints, static media mount | `guardian/guardian_api.py` |
-| Auth boundary layer | Local API-key mode vs remote session/JWT mode, exposure mode allowlisting | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
-| Chat API surface | Thread/message CRUD, completion enqueue, debug traces | `guardian/routes/chat.py`, `guardian/routes/threads.py` |
-| Completion worker | Dequeue chat tasks, assemble prompt/context, call provider, persist assistant message, emit task events | `guardian/workers/chat_worker.py` |
-| Context/RAG broker | Retrieve recent messages + semantic + memory + graph/federated context by depth mode | `guardian/context/broker.py` |
-| Provider/model routing | Route to local/groq/openai backends, enforce egress constraints, build provider catalog | `guardian/core/ai_router.py`, `guardian/core/llm_catalog.py`, `guardian/core/egress.py` |
-| Media ingestion | Upload image/document, dedupe via canonical asset identity, parse document text, enqueue embedding | `guardian/routes/media.py`, `guardian/services/document_parsers/` |
-| Embedding workers | Process document/chat embedding tasks and index into configured vector store | `guardian/workers/document_embed_worker.py`, `guardian/workers/chat_embedding_worker.py` |
-| Storage/persistence | Postgres system of record (threads/messages/media/events/etc), Redis queues/streams, optional Neo4j graph, local/remote file storage | `guardian/db/models.py`, `guardian/queue/redis_queue.py`, `guardian/routes/health.py`, `docker-compose.yml` |
-| Tool/job execution | Direct tools endpoint (in-memory jobs) plus durable cron scheduler/worker queue path | `guardian/routes/tools.py`, `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py` |
-| Federation/sync | Peer manifest/session exchange, relay ws, diff push/pull, lightweight sync event bus API | `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/api.py` |
+| React frontend | Manual route-to-view mapping, chat/doc/gallery/settings UX, local session state, live event consumption | `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx` |
+| Frontend API/runtime layer | Resolves backend base URL, injects auth/API-key headers, manages SSE connections | `frontend/src/lib/runtimeConfig.ts`, `frontend/src/lib/api.ts`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/lib/guardianEventSource.ts` |
+| FastAPI app | Startup orchestration, middleware, router inclusion, `/api/events`, `/api/tasks/*/events`, metrics, media mount | `guardian/guardian_api.py`, `guardian/server/run.py` |
+| Auth and exposure boundary | Chooses local vs remote auth mode, derives current user, enforces API key/session rules, shapes CORS/public exposure | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
+| Chat API surface | Thread CRUD, message persistence, completion enqueue, RAG trace/debug endpoints | `guardian/routes/chat.py`, `guardian/routes/threads.py` |
+| Completion service and chat worker | Builds provider-ready message bundles, runs model calls, persists assistant output, emits task events | `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py` |
+| Context broker | Composes recent messages, semantic retrieval, document context, memory retrieval, optional graph/federated context | `guardian/context/broker.py`, `guardian/memoryos/retriever.py` |
+| Media and document ingestion | Uploads documents/images, deduplicates assets, extracts text, links docs to threads/projects, enqueues embedding jobs | `guardian/routes/media.py`, `guardian/routes/documents.py`, `guardian/services/document_parsers/` |
+| Embedding and retrieval stack | Creates chat/document embeddings, indexes and searches vector data, exposes health state | `guardian/workers/document_embed_worker.py`, `guardian/workers/chat_embedding_worker.py`, `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py` |
+| Command bus and tools layer | Derives callable commands from OpenAPI, enforces policy/idempotency, exposes legacy `/tools` compatibility shim | `guardian/routes/command_bus.py`, `guardian/command_bus/`, `guardian/routes/tools.py` |
+| Cron and job execution | Persists schedules, queues due runs, executes jobs, records run history | `guardian/routes/cron.py`, `guardian/cron/`, `guardian/workers/cron_worker.py` |
+| Federation and sync | Manages peer trust/session flows, relay/diff/context endpoints, and a separate lightweight sync bus | `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/api.py` |
+| Persistence and infra | Postgres system of record, Redis queues/locks/events, optional Neo4j, local/object media storage | `guardian/db/models.py`, `guardian/queue/redis_queue.py`, `guardian/core/storage.py`, `docker-compose.yml` |
+| Desktop shell | Tauri runtime that can inject backend base URL and API key into the frontend | `src-tauri/src/commands.rs`, `frontend/src/lib/runtimeConfig.ts` |
 
-## Deployment and Runtime Topology (As Implemented)
+## Deployment and Runtime Topology
 
-Default Docker Compose runtime (`docker-compose.yml`):
-- `frontend` serves Vite UI on `:5173`, proxies to backend.
-- `backend` serves FastAPI on `:8888` (`uvicorn guardian.guardian_api:app`).
-- `db` provides Postgres (`:5433` host mapping).
-- `redis` backs queue + task event stream transport.
-- `neo4j` is present by default; graph context/logging still gated by config flags.
-- Workers run as separate services:
+### Default local topology
+
+- `frontend` serves the Vite UI and proxies browser traffic to `backend`.
+- `backend` runs `uvicorn guardian.guardian_api:app` on port `8888`.
+- `db` provides Postgres and is the primary system of record.
+- `redis` backs chat/document/cron queues, cancellation, heartbeats, and task event transport.
+- `neo4j` is started by default in Compose, but graph usage is still feature-flagged.
+- Worker processes run separately in Compose:
   - `worker-chat`
   - `worker-chat-embed`
   - `worker-document-embed`
   - `worker-warmup`
-- One-shot startup services:
-  - `migrator` (alembic + seed)
-  - `graph-init` (constraints + seed graph nodes)
-- Additional profiles: `chatgpt-migrate`, `embedding-backfill`, `graph-backfill`.
+- One-shot services handle schema/bootstrap tasks:
+  - `migrator`
+  - `graph-init`
+  - optional profiles such as `chatgpt-migrate` and `embedding-backfill`
 
-Unverified:
-- Production deployment layout outside Compose is not described in-repo. Verify via deployment manifests or infra repo (not present under this workspace).
+### Runtime boundaries
+
+- Node boundary:
+  - browser / Tauri desktop shell
+  - FastAPI backend
+  - Postgres
+  - Redis
+  - optional Neo4j
+  - optional external provider endpoints
+- Trust boundaries:
+  - browser or desktop client to backend auth boundary
+  - backend to local/cloud model providers
+  - backend to peer nodes in federation mode
+  - backend to storage backends for media assets
+- Threat model implied by code:
+  - honest-but-buggy local runtime is the default assumption
+  - public exposure and peer federation paths add explicit signature/auth/policy checks
+  - enforcement is in route/auth/policy code, not in prompts
+
+### Unverified runtime
+
+- Production deployment outside Docker Compose is `Unverified`; no Kubernetes, Nomad, or other infra manifests were found in this repo.
 
 ## Critical Paths
 
-### 1) Chat Completion Path
+### Chat completion path
 
-- Entry: `POST /chat/{thread_id}/complete` and `/api/chat/{thread_id}/complete`.
-- Queue + lock: route acquires per-thread turn lock and enqueues `ChatCompletionTask` in Redis.
-- Worker: `worker-chat` dequeues, resolves profile/provider/model, builds system prompt + context bundle.
-- Provider call: local streaming or cloud sync completion.
-- Persist + emit: assistant message written to Postgres, embeddings enqueued/written, task events streamed, turn lock released.
-- Anchors: `guardian/routes/chat.py`, `guardian/queue/redis_queue.py`, `guardian/workers/chat_worker.py`, `guardian/queue/task_events.py`.
+- Trigger: `POST /api/chat/{thread_id}/complete`
+- Core sequence:
+  - validate thread and depth context
+  - acquire Redis turn lock
+  - enqueue `ChatCompletionTask`
+  - worker assembles context and calls provider
+  - persist assistant message and emit task/domain events
+- Anchors: `guardian/routes/chat.py`, `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py`, `guardian/queue/redis_queue.py`
 
-### 2) RAG/Context Assembly Path
+### RAG/context assembly path
 
-- Trigger: chat worker processing a completion task.
-- Broker: message history + semantic search (+ memory for deep/diagnostic) + optional graph/federated context.
-- Prompt merge: `build_guardian_system_prompt` + `build_context_system_message` become a single system section prepended to conversation messages.
-- Anchors: `guardian/context/broker.py`, `guardian/cognition/system_prompt_builder.py`, `guardian/cognition/prompts.py`, `guardian/workers/chat_worker.py`.
+- Trigger: chat worker or completion service building model input
+- Core sequence:
+  - load recent thread messages
+  - pull vector matches
+  - add project/thread documents
+  - optionally add memory, graph, sensors, or federated context by depth/flags
+  - render system/context messages
+- Anchors: `guardian/context/broker.py`, `guardian/memoryos/retriever.py`, `guardian/cognition/system_prompt_builder.py`
 
-### 3) Ingestion Path (Documents + Images)
+### Ingestion path
 
-- Trigger: `/api/media/upload/document` or `/api/media/upload/image`.
-- Identity/dedupe: hash + canonical media asset identity created/reused.
-- Parse: document text extraction (`txt/md/pdf/docx`) done inline in API process.
-- Async embedding: if parsed text exists, enqueue `document_embed` task and worker updates `embedding_status` lifecycle.
-- Anchors: `guardian/routes/media.py`, `guardian/services/document_parsers/`, `guardian/queue/document_embed_queue.py`, `guardian/workers/document_embed_worker.py`.
+- Trigger: document/image upload or document generation
+- Core sequence:
+  - validate content type
+  - compute canonical media identity
+  - store bytes and metadata
+  - extract document text inline
+  - enqueue embed work
+  - mark `embedding_status` as worker progresses
+- Anchors: `guardian/routes/media.py`, `guardian/routes/documents.py`, `guardian/workers/document_embed_worker.py`
 
-### 4) Tool Execution Path
+### Tool execution path
 
-- Direct tools path: `/tools/execute` writes immediate result to in-memory `JOBS`; supports profile switch + noop.
-- Durable scheduled jobs path: `/api/cron/jobs` definitions -> scheduler tick creates `cron_runs` + queue message -> cron worker executes and writes run result/errors.
-- Anchors: `guardian/routes/tools.py`, `guardian/routes/cron.py`, `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py`.
+- Trigger: command bus invoke or legacy `/api/tools/*` call
+- Core sequence:
+  - derive manifest from OpenAPI
+  - validate actor claim and idempotency
+  - apply tool policy and execution-lane rules
+  - execute loopback HTTP request for allowed commands
+  - stream run events or return shim response
+- Anchors: `guardian/routes/command_bus.py`, `guardian/command_bus/invoke.py`, `guardian/routes/tools.py`
 
-### 5) Sync/Federation Path
+### Sync/federation path
 
-- Federation: trust policy gates manifest/session exchange and peer relay operations; includes diff push/pull endpoints.
-- Sync bus: separate `/api/sync/event` and `/api/sync/subscribe` SSE event bus with idempotent side-effect upserts.
-- Anchors: `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/api.py`, `guardian/sync/models.py`.
+- Trigger: federation session/diff/context endpoints or `/api/sync/event`
+- Core sequence:
+  - validate feature flags and trust policy
+  - establish peer session or accept local event
+  - apply diff/context/sync side effects
+  - publish relay or SSE updates
+- Anchors: `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/api.py`
 
+## Testing Reality
+
+- Backend coverage is concentrated in Python tests for routes, core services, workers, realtime, federation, and migrations.
+- Frontend test harnesses exist for Vitest, Playwright, and Cypress, but they are configured under `frontend/src` rather than integrated into the Python `make test` path.
+- Docs-specific validation is nominally `make docs`, but the repo's actual docs build health should be checked each time because the target exists independently of the content in `docs/architecture/`.
+- Anchors: `tests/`, `frontend/src/vitest.config.ts`, `frontend/src/playwright.config.ts`, `frontend/src/cypress.config.ts`, `Makefile`
