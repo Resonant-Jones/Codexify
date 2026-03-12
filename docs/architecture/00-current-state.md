@@ -17,7 +17,7 @@ This file is authoritative for:
 
 ## Current phase
 
-Codexify is in local-stack beta hardening for the single-node workflow. The present operating focus is keeping the Docker Compose path, the core chat/RAG loop, the ingestion path, and the newer control surfaces stable enough to ship without widening the deployment promise.
+Codexify is in local-stack beta hardening for the single-node workflow. The present operating focus is keeping the Docker Compose path, the core chat/RAG loop, the ingestion path, and the newer control surfaces stable enough to ship without widening the deployment promise. The 2026-03-11 smoke run on local `main` did not pass: clean stack boot was not reliable, the WebUI did not bootstrap in the observed environment, and the assistant completion path failed on the configured local provider.
 
 ## What changed recently
 
@@ -48,9 +48,12 @@ Codexify is in local-stack beta hardening for the single-node workflow. The pres
 ## Active blockers
 
 - Provider catalog and runtime support are not fully aligned.
+- Main-branch smoke still does not complete a clean supported-stack boot without manual recovery; frontend bootstrap and full dependency bring-up were not green on the observed run.
 - Tool execution still spans command bus behavior and legacy `/tools` behavior.
-- Release health still depends on Redis plus worker availability, not just API boot.
+- Release health still depends on Redis plus worker availability, not just API boot, and `/health/llm` can still be red while `/health/chat` looks healthy.
+- The configured local completion provider path failed the 2026-03-11 smoke run, leaving completion tasks without assistant turns.
 - Document embedding failure recovery is weaker than the main happy path.
+- Uploaded document embedding reached `ready` in smoke, but retrieval on the supported chat path was not proven because no assistant completion succeeded and the latest smoke-thread RAG trace showed no injected documents.
 - Docs build is not locally runnable in the current repo state because MkDocs tooling/config is missing.
 
 ## This week’s priorities
@@ -63,6 +66,7 @@ Codexify is in local-stack beta hardening for the single-node workflow. The pres
 
 ## Release definition right now
 
+- Latest smoke on local `main` did not satisfy this gate. Backend-only fallback confirmed thread/message persistence plus document upload and embedding, but supported-path stack boot, WebUI load, assistant completion, and document-backed retrieval were not green.
 - [ ] Local Docker Compose stack boots cleanly.
 - [ ] A user can create a thread, send a message, and receive an assistant turn.
 - [ ] Redis-backed chat worker and task events operate without stuck turns.

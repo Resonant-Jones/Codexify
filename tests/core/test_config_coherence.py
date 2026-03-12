@@ -182,3 +182,36 @@ def test_config_coherence_skips_when_legacy_unavailable(monkeypatch):
     )
 
     core_config.assert_config_coherence(core)
+
+
+def test_validate_llm_config_rejects_alibaba_without_api_key():
+    settings = core_config.Settings(
+        LLM_PROVIDER="alibaba",
+        ALLOW_CLOUD_PROVIDERS=True,
+        ALIBABA_API_KEY="",
+    )
+
+    with pytest.raises(core_config.LLMConfigError, match="ALIBABA_API_KEY"):
+        core_config.validate_llm_config(settings)
+
+
+def test_validate_llm_config_rejects_alibaba_with_blank_base():
+    settings = core_config.Settings(
+        LLM_PROVIDER="alibaba",
+        ALLOW_CLOUD_PROVIDERS=True,
+        ALIBABA_API_KEY="test-alibaba-key",
+        ALIBABA_API_BASE="",
+    )
+
+    with pytest.raises(core_config.LLMConfigError, match="ALIBABA_API_BASE"):
+        core_config.validate_llm_config(settings)
+
+
+def test_validate_llm_config_accepts_alibaba_with_default_base():
+    settings = core_config.Settings(
+        LLM_PROVIDER="alibaba",
+        ALLOW_CLOUD_PROVIDERS=True,
+        ALIBABA_API_KEY="test-alibaba-key",
+    )
+
+    core_config.validate_llm_config(settings)
