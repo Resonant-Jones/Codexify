@@ -18,6 +18,7 @@ const updatePersonaSettingsMock = vi.mocked(updatePersonaSettings);
 
 describe("PersonaSettingsPanel", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 

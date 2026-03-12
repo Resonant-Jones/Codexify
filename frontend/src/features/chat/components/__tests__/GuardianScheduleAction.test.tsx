@@ -19,6 +19,7 @@ const createGuardianCronJobMock = vi.mocked(createGuardianCronJob);
 
 describe("GuardianScheduleAction", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
