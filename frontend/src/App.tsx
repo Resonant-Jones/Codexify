@@ -7,6 +7,7 @@ import AppShell from "./components/persona/layout/AppShell";
 import { TopBar } from "./components/TopBar";
 import { Button } from "./components/ui/button";
 import api from "./lib/api";
+import OperatorConsoleShell from "./components/operator/OperatorConsoleShell";
 import EventsConsole from "./pages/EventsConsole";
 import { SharePage } from "./pages/SharePage";
 
@@ -49,6 +50,11 @@ function isEventsRoute() {
 function isShareRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/share/");
+}
+
+function isOperatorRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/operator");
 }
 
 function getShareToken() {
@@ -241,6 +247,9 @@ export default function App() {
     if (token) {
       return <SharePage token={token} />;
     }
+  }
+  if (isOperatorRoute()) {
+    return <OperatorConsoleShell />;
   }
   return (
     <>
