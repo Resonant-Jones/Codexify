@@ -164,7 +164,7 @@ chatgpt-conversation-extractor-master/
 chatgpt-conversation.json
 
 # local agent/tooling
-.claude/
+.claude/settings.local.json
 .codex/
 
 # Local/vendor checkouts
