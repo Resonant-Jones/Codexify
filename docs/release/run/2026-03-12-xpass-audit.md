@@ -2,22 +2,22 @@
 
 Date: 2026-03-12
 Branch tested: `codex/apply-campaign-task-execution-rules`
-Commit tested: `aa806e6df9d1381ddec64145308b93ad9412f8fd`
-Operator: Codex
+Commit tested: `2baba6776` (docs: audit xpassed tests after stabilization merge)
+Operator: Claude Code
 
 ## Summary
 
-Fresh baseline evidence from `pytest -v` shows `7 xpassed` tests in the current tree:
+Fresh baseline evidence from `pytest -v` shows `11 xpassed` tests in the current tree:
 
-- `878 passed, 15 skipped, 37 xfailed, 7 xpassed, 25 warnings in 140.61s (0:02:20)`
-- All 7 `XPASS` cases came from two files:
+- `878 passed, 15 skipped, 33 xfailed, 11 xpassed, 25 warnings in 81.00s (0:01:21)`
+- All 11 `XPASS` cases came from two files:
   - `tests/routes/test_chat_routes.py`: 3
-  - `tests/scripts/test_cli_migrate.py`: 4
+  - `tests/scripts/test_cli_migrate.py`: 8
 
 Audit conclusion:
 
 - `3` tests are `stale xfail marker, likely safe to normalize`
-- `4` tests are `passing but needs confirmation before marker removal`
+- `8` tests are `passing but needs confirmation before marker removal`
 - `0` tests are currently in `unclear, requires deeper investigation`
 
 ## Evidence
@@ -47,7 +47,7 @@ pytest -v -rX tests/scripts/test_cli_migrate.py
 
 ### Passing but needs confirmation before marker removal
 
-These four tests live under the file-level marker at `tests/scripts/test_cli_migrate.py:21`:
+These eight tests live under the file-level marker at `tests/scripts/test_cli_migrate.py:21`:
 
 `pytestmark = pytest.mark.xfail(reason="Legacy CLI migration API; superseded by backend.rag.chatgpt_migration.ingest_chatgpt_export", strict=False)`
 
@@ -57,6 +57,10 @@ They pass because narrow helper paths in the legacy script still work, not becau
 |---|---|---|
 | `tests/scripts/test_cli_migrate.py::TestCLIMigrateCommand::test_migrate_missing_file` | `scripts/chatgpt_import/cli_migrate.py:147-155` defines the `file` argument with `exists=True`, so Typer rejects `/nonexistent/file.json` before the deprecated migration path runs. | This is real passing behavior, but it only proves CLI argument validation still works. Removing the xfail cleanly would require deciding whether to keep this legacy command under support rather than just splitting out one passing test. |
 | `tests/scripts/test_cli_migrate.py::TestCLIHistoryCommand::test_history_no_migrations` | `scripts/chatgpt_import/cli_migrate.py:351-356` returns early with a friendly "No migration history found" message when the log file is absent. | The behavior is stable and likely intentional, but the enclosing xfail documents product-level deprecation, not an isolated bug. Confirm desired support status before normalizing. |
+| `tests/scripts/test_cli_migrate.py::TestCLIIntegration::test_cli_help_command` | Typer CLI framework generates help correctly for the main app. | CLI framework behavior is stable, but the module-level xfail documents product-level deprecation. Confirm desired support status before normalizing. |
+| `tests/scripts/test_cli_migrate.py::TestCLIIntegration::test_cli_migrate_help` | Typer CLI framework generates subcommand help correctly. | CLI framework behavior is stable, but the module-level xfail documents product-level deprecation. Confirm desired support status before normalizing. |
+| `tests/scripts/test_cli_migrate.py::TestCLIIntegration::test_cli_validate_help` | Typer CLI framework generates subcommand help correctly. | CLI framework behavior is stable, but the module-level xfail documents product-level deprecation. Confirm desired support status before normalizing. |
+| `tests/scripts/test_cli_migrate.py::TestCLIIntegration::test_cli_history_help` | Typer CLI framework generates subcommand help correctly. | CLI framework behavior is stable, but the module-level xfail documents product-level deprecation. Confirm desired support status before normalizing. |
 | `tests/scripts/test_cli_migrate.py::TestSummaryLogging::test_save_migration_summary` | `scripts/chatgpt_import/cli_migrate.py:118-144` still creates `logs/migration_summary.json`, stamps `completed_at`, and writes a list payload. | This helper remains functional, but it is still housed inside the deprecated CLI script. Marker removal should follow an ownership decision for the legacy script or extraction of the helper into a supported module. |
 | `tests/scripts/test_cli_migrate.py::TestSummaryLogging::test_save_migration_summary_appends` | The same `save_migration_summary()` helper still appends successive summary dicts to the JSON list at `scripts/chatgpt_import/cli_migrate.py:126-142`. | Same conclusion as the prior row: the helper works, but the xfail is broader than this one behavior. Confirm support intent before removing the marker. |
 
