@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import time
+import traceback
 from typing import Any, Dict
 from uuid import uuid4
 
@@ -29,6 +30,7 @@ from guardian.command_bus.contracts import (
 from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.manifest import build_command_index
 from guardian.core.dependencies import get_request_user_id, require_api_key
+from guardian.db import models
 from guardian.tools.approval_tokens import (
     ApprovalTokenError,
     approval_idempotency_key,
@@ -60,6 +62,7 @@ logger = logging.getLogger(__name__)
 
 # In-memory job registry (ok for dev; replace with persistent store for prod)
 JOBS: dict[str, dict[str, Any]] = {}
+_configured_tool_jobs_db: Any | None = None
 
 DEPRECATION_PHASE = "1.5"
 MANIFEST_REPLACED_BY = "/api/guardian/commands/manifest"
@@ -116,6 +119,19 @@ except ImportError:
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
 api_router = APIRouter(prefix="/api/tools", tags=["Tools"])
+
+
+def configure_db(db: Any | None) -> None:
+    """Compatibility seam for tests injecting a tool-job store."""
+
+    global _configured_tool_jobs_db
+    _configured_tool_jobs_db = db
+
+
+def _dispatch_tool(body: ToolCallRequest | ToolRequest) -> dict[str, Any]:
+    """Legacy local dispatcher retained for durable job seam tests."""
+
+    return {"ok": True, "tool": body.name, "args": dict(body.args or {})}
 
 
 def _deprecation_headers(replaced_by: str) -> dict[str, str]:
@@ -770,6 +786,127 @@ def _store_job_snapshot(response: ToolCallResponse) -> None:
     JOBS[response.run_id] = {"status": response.status, "result": payload}
 
 
+def _uses_persisted_compat_seam(body: ToolCallRequest) -> bool:
+    if _configured_tool_jobs_db is None:
+        return False
+    if body.mode != "execute":
+        return False
+    if body.actor is not None:
+        return False
+    if any(
+        [
+            body.tool_id,
+            body.command_id,
+            body.operation_id,
+            body.method,
+            body.path,
+            body.path_template,
+        ]
+    ):
+        return False
+    return bool(body.name)
+
+
+def _persist_tool_job(
+    *,
+    job_id: str,
+    tool_name: str,
+    status: str,
+    request_json: dict[str, Any],
+    result_json: dict[str, Any] | None = None,
+    error: str | None = None,
+    error_json: dict[str, Any] | None = None,
+) -> models.ToolJob:
+    if _configured_tool_jobs_db is None:
+        raise RuntimeError("tool_jobs_db_not_configured")
+
+    job = models.ToolJob(
+        id=job_id,
+        tool_name=tool_name,
+        status=status,
+        request_json=request_json,
+        result_json=result_json,
+        error=error,
+        error_json=error_json,
+    )
+    with _configured_tool_jobs_db.get_session() as session:
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+    return job
+
+
+def _load_persisted_tool_job(job_id: str) -> models.ToolJob | None:
+    if _configured_tool_jobs_db is None:
+        return None
+    with _configured_tool_jobs_db.get_session() as session:
+        return session.get(models.ToolJob, job_id)
+
+
+def _tool_job_payload(job: models.ToolJob) -> dict[str, Any]:
+    return {
+        "job_id": job.id,
+        "tool_name": job.tool_name,
+        "status": job.status,
+        "result": job.result_json,
+        "error": job.error,
+        "created_at": (
+            job.created_at.isoformat() if job.created_at is not None else None
+        ),
+        "updated_at": (
+            job.updated_at.isoformat() if job.updated_at is not None else None
+        ),
+    }
+
+
+def _execute_persisted_compat_tool(body: ToolCallRequest) -> JSONResponse:
+    job_id = str(uuid4())
+    request_json = {"name": body.name, "args": dict(body.args or {})}
+
+    try:
+        result = _dispatch_tool(body)
+        job = _persist_tool_job(
+            job_id=job_id,
+            tool_name=body.name,
+            status="succeeded",
+            request_json=request_json,
+            result_json=result,
+        )
+    except Exception as exc:
+        error_text = "".join(
+            traceback.format_exception_only(type(exc), exc)
+        ).strip()
+        job = _persist_tool_job(
+            job_id=job_id,
+            tool_name=body.name,
+            status="failed",
+            request_json=request_json,
+            error=error_text,
+            error_json={
+                "type": type(exc).__name__,
+                "message": str(exc),
+            },
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": {
+                    "job_id": job.id,
+                    "status": job.status,
+                    "error": error_text,
+                }
+            },
+        )
+
+    return JSONResponse(
+        content={
+            "job_id": job.id,
+            "status": job.status,
+            "result": job.result_json,
+        }
+    )
+
+
 async def _execute_tools_call(
     *,
     body: ToolCallRequest,
@@ -1262,6 +1399,8 @@ async def api_tools_execute(
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for POST /tools/execute."""
+    if _uses_persisted_compat_seam(body):
+        return _execute_persisted_compat_tool(body)
     return await tools_execute_route(
         body,
         request=request,
@@ -1292,4 +1431,7 @@ async def api_tools_approve(
 @api_router.get("/jobs/{job_id}", response_model=JobStatus)
 def api_tools_job_status(job_id: str, api_key: str = Depends(require_api_key)):
     """Compat alias for GET /tools/jobs/{job_id}."""
+    persisted_job = _load_persisted_tool_job(job_id)
+    if persisted_job is not None:
+        return JSONResponse(content=_tool_job_payload(persisted_job))
     return tools_job_status(job_id, api_key=api_key)

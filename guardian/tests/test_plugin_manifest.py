@@ -170,10 +170,37 @@ def test_active_tts_manifest_origin_matches_runtime_compose_mapping():
     compose_text = (repo_root / "docker-compose.yml").read_text(
         encoding="utf-8"
     )
+    backend_block = compose_text.split("  backend:\n", 1)[1].split(
+        "\n  worker-warmup:\n", 1
+    )[0]
+    worker_chat_block = compose_text.split("  worker-chat:\n", 1)[1].split(
+        "\n  worker-voice:\n", 1
+    )[0]
 
     assert "tts:" in compose_text
     assert 'ports: ["8000:8000"]' in compose_text
-    assert compose_text.count("./plugins:/app/plugins:ro") >= 2
+    assert "- ./plugins:/app/plugins:ro" in backend_block
+    assert "- ./plugins:/app/plugins:ro" in worker_chat_block
     assert "./plugins/chatterbox:/app/plugins/chatterbox:ro" not in compose_text
-    assert "worker-chat:" in compose_text
+    assert (
+        'CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE: "true"'
+        in worker_chat_block
+    )
     assert manifest.base_url == "http://tts:8000"
+
+
+def test_backend_runtime_image_and_worker_chat_runtime_keep_canonical_plugins():
+    repo_root = Path(__file__).resolve().parents[2]
+    dockerfile_text = (repo_root / "backend" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    compose_text = (repo_root / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    worker_chat_block = compose_text.split("  worker-chat:\n", 1)[1].split(
+        "\n  worker-voice:\n", 1
+    )[0]
+
+    assert "COPY plugins /app/plugins" in dockerfile_text
+    assert "worker-chat:" in compose_text
+    assert "- ./plugins:/app/plugins:ro" in worker_chat_block

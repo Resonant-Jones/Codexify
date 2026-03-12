@@ -51,6 +51,14 @@ def _catalog_payload() -> dict:
                 ],
             },
             {
+                "id": "alibaba",
+                "displayName": "Alibaba / DashScope",
+                "enabled": True,
+                "authorized": True,
+                "available": True,
+                "models": [{"id": "qwen-plus"}],
+            },
+            {
                 "id": "local",
                 "displayName": "Local",
                 "enabled": True,
@@ -93,6 +101,9 @@ def test_provider_seed_rows_from_catalog_is_launch_scoped() -> None:
     by_id = {row["provider_id"]: row for row in rows}
     assert by_id["groq"]["enabled"] is True
     assert by_id["groq"]["priority"] == 10
+    assert by_id["alibaba"]["enabled"] is True
+    assert by_id["alibaba"]["default_model_id"] == "qwen-plus"
+    assert by_id["alibaba"]["priority"] == 60
     assert by_id["openai"]["enabled"] is False
     assert by_id["openai"]["default_model_id"] == "gpt-4o"
     assert by_id["openai"]["capabilities"]["vision"] is True
@@ -107,9 +118,9 @@ def test_sync_inference_provider_rows_is_idempotent() -> None:
     with SessionLocal() as session:
         first = sync_inference_provider_rows(session, rows)
         session.commit()
-        assert first["provider_rows"] == 5
-        assert first["providers_created"] == 5
-        assert first["runtime_created"] == 5
+        assert first["provider_rows"] == 6
+        assert first["providers_created"] == 6
+        assert first["runtime_created"] == 6
 
     with SessionLocal() as session:
         groq_runtime = session.get(InferenceProviderRuntime, "groq")
@@ -121,15 +132,15 @@ def test_sync_inference_provider_rows_is_idempotent() -> None:
     with SessionLocal() as session:
         second = sync_inference_provider_rows(session, rows)
         session.commit()
-        assert second["provider_rows"] == 5
+        assert second["provider_rows"] == 6
         assert second["providers_created"] == 0
         assert second["runtime_created"] == 0
 
     with SessionLocal() as session:
         providers = session.query(InferenceProvider).all()
         runtime_rows = session.query(InferenceProviderRuntime).all()
-        assert len(providers) == 5
-        assert len(runtime_rows) == 5
+        assert len(providers) == 6
+        assert len(runtime_rows) == 6
 
         groq_runtime = session.get(InferenceProviderRuntime, "groq")
         assert groq_runtime is not None

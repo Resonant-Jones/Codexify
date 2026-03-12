@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_DEFAULT_ALIBABA_API_BASE = (
+    "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+)
+
 
 class Settings(BaseSettings):
     """
@@ -20,7 +24,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field(
         default="local",
         description=(
-            "The LLM provider to use ('local', 'groq', 'openai', 'minimax')."
+            "The LLM provider to use ('local', 'groq', 'openai', 'alibaba', 'minimax')."
         ),
     )
     CODEXIFY_CONFIG_SOURCE: str = Field(
@@ -34,7 +38,7 @@ class Settings(BaseSettings):
     ALLOW_CLOUD_PROVIDERS: bool = Field(
         default=False,
         description=(
-            "Safety switch: when false, cloud providers (openai/groq) are disallowed and local must be used. "
+            "Safety switch: when false, cloud providers (openai/groq/alibaba/minimax) are disallowed and local must be used. "
             "Set to true only if you intentionally want cloud fallback."
         ),
     )
@@ -48,7 +52,7 @@ class Settings(BaseSettings):
         default="",
         description=(
             "Comma-separated outbound capability allowlist used when CODEXIFY_LOCAL_ONLY_MODE=false. "
-            "Supported entries include: openai, groq, elevenlabs, federation, webhook."
+            "Supported entries include: openai, groq, alibaba, minimax, elevenlabs, federation, webhook."
         ),
     )
     LLM_MODEL: str = Field(
@@ -122,6 +126,26 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str | None = Field(
         default=None,
         description="Optional override for the OpenAI API base URL.",
+    )
+    ALIBABA_API_KEY: str | None = Field(
+        default=None,
+        description="API key for Alibaba Cloud DashScope / Model Studio.",
+    )
+    ALIBABA_API_BASE: str | None = Field(
+        default=_DEFAULT_ALIBABA_API_BASE,
+        description=(
+            "Base URL for Alibaba Cloud DashScope's OpenAI-compatible API endpoint."
+        ),
+    )
+    ALIBABA_MODEL: str | None = Field(
+        default=None,
+        description="Optional default chat model for Alibaba Cloud DashScope.",
+    )
+    ALIBABA_TIMEOUT_SECONDS: float = Field(
+        default=60.0,
+        description=(
+            "Timeout for Alibaba Cloud DashScope chat completion requests (seconds)."
+        ),
     )
     MINIMAX_API_KEY: str | None = Field(
         default=None, description="API key for MiniMax."
@@ -358,7 +382,7 @@ class Settings(BaseSettings):
 # Create a singleton instance that can be imported across the application
 settings = Settings()
 
-CLOUD_LLM_PROVIDERS = {"openai", "groq", "minimax"}
+CLOUD_LLM_PROVIDERS = {"openai", "groq", "alibaba", "minimax"}
 _VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
 _SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _LOGGED_COHERENCE_SOURCES: set[str] = set()
@@ -661,6 +685,24 @@ def validate_llm_config(
             raise LLMConfigError("GROQ_API_KEY is not configured")
         return
 
+    if provider == "alibaba":
+        if not settings.ALLOW_CLOUD_PROVIDERS:
+            raise LLMConfigError(
+                "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
+            )
+        missing: list[str] = []
+        if not (settings.ALIBABA_API_KEY or "").strip():
+            missing.append("ALIBABA_API_KEY")
+        if not (settings.ALIBABA_API_BASE or "").strip():
+            missing.append("ALIBABA_API_BASE")
+        if missing:
+            missing_text = ", ".join(missing)
+            raise LLMConfigError(
+                "LLM_PROVIDER is 'alibaba' but required environment variable(s) are missing: "
+                f"{missing_text}. Set {missing_text} in your backend environment."
+            )
+        return
+
     if provider == "minimax":
         if not settings.ALLOW_CLOUD_PROVIDERS:
             raise LLMConfigError(
@@ -688,7 +730,7 @@ def validate_llm_config(
         return
 
     raise LLMConfigError(
-        f"Unsupported LLM_PROVIDER: {provider or '<empty>'} (expected one of: local, groq, openai, minimax)"
+        f"Unsupported LLM_PROVIDER: {provider or '<empty>'} (expected one of: local, groq, openai, alibaba, minimax)"
     )
 
 

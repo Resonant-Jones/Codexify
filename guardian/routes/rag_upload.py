@@ -15,17 +15,8 @@ from guardian.core.dependencies import get_request_user_id
 
 logger = logging.getLogger(__name__)
 
-# RAG modules import
-try:
-    from codexify.rag.enhanced_rag import EnhancedRAG
-
-    from backend.rag.embedder import Embedder
-    from backend.rag.parser import parse_chat_history
-
-    RAG_AVAILABLE = True
-except Exception as e:
-    logging.warning(f"[RAG] Failed to import RAG modules: {e}")
-    RAG_AVAILABLE = False
+from backend.rag.embedder import Embedder
+from backend.rag.parser import parse_chat_history
 
 # ChatGPT migration module import
 try:
@@ -50,11 +41,6 @@ async def upload_chat(file: UploadFile = File(...)):
     Returns:
         Number of embedded documents or error message
     """
-    if not RAG_AVAILABLE:
-        return JSONResponse(
-            {"error": "RAG modules not available"}, status_code=503
-        )
-
     content = await file.read()
     try:
         text_blocks = parse_chat_history(content.decode("utf-8"))

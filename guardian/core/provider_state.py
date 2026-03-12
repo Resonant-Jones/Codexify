@@ -13,6 +13,7 @@ LAUNCH_PROVIDER_IDS: tuple[str, ...] = (
     "anthropic",
     "gemini",
     "groq",
+    "alibaba",
     "local",
 )
 
@@ -21,6 +22,7 @@ _DISPLAY_NAMES: dict[str, str] = {
     "anthropic": "Anthropic",
     "gemini": "Gemini",
     "groq": "Groq",
+    "alibaba": "Alibaba / DashScope",
     "local": "Local",
 }
 
@@ -31,6 +33,7 @@ _PROVIDER_PRIORITY: dict[str, int] = {
     "openai": 30,
     "anthropic": 40,
     "gemini": 50,
+    "alibaba": 60,
 }
 
 

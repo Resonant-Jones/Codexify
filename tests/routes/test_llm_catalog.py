@@ -41,6 +41,9 @@ def _clear_extra_cloud_keys(monkeypatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GENAI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ALIBABA_API_KEY", raising=False)
+    monkeypatch.delenv("ALIBABA_API_BASE", raising=False)
+    monkeypatch.delenv("ALIBABA_MODEL", raising=False)
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
     monkeypatch.delenv("MINIMAX_API_BASE", raising=False)
     monkeypatch.delenv("MINIMAX_MODEL", raising=False)
@@ -60,6 +63,9 @@ def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+        "ALIBABA_MODEL": settings.ALIBABA_MODEL,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
@@ -69,6 +75,11 @@ def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai,anthropic,gemini,groq"
         settings.OPENAI_API_KEY = None
         settings.GROQ_API_KEY = None
+        settings.ALIBABA_API_KEY = None
+        settings.ALIBABA_API_BASE = (
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+        )
+        settings.ALIBABA_MODEL = None
         settings.MINIMAX_API_KEY = None
         settings.MINIMAX_API_BASE = None
 
@@ -97,6 +108,9 @@ def test_llm_catalog_provider_appears_when_key_exists(monkeypatch):
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+        "ALIBABA_MODEL": settings.ALIBABA_MODEL,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
@@ -105,6 +119,11 @@ def test_llm_catalog_provider_appears_when_key_exists(monkeypatch):
         settings.CODEXIFY_LOCAL_ONLY_MODE = False
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai"
         settings.OPENAI_API_KEY = "test-openai-key"
+        settings.ALIBABA_API_KEY = None
+        settings.ALIBABA_API_BASE = (
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+        )
+        settings.ALIBABA_MODEL = None
         settings.MINIMAX_API_KEY = None
         settings.MINIMAX_API_BASE = None
 
@@ -114,6 +133,48 @@ def test_llm_catalog_provider_appears_when_key_exists(monkeypatch):
         assert openai["enabled"] is True
         assert openai["available"] is True
         assert openai["authorized"] is True
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_alibaba_provider_appears_when_configured(monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+        "ALIBABA_MODEL": settings.ALIBABA_MODEL,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = "alibaba"
+        settings.ALIBABA_API_KEY = "test-alibaba-key"
+        settings.ALIBABA_API_BASE = (
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+        )
+        settings.ALIBABA_MODEL = "qwen-plus"
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+        alibaba = _provider_by_id(payload, "alibaba")
+        assert alibaba["enabled"] is True
+        assert alibaba["available"] is True
+        assert alibaba["authorized"] is True
+        assert alibaba["models"][0]["id"] == "qwen-plus"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -132,6 +193,9 @@ def test_llm_catalog_disabled_cloud_provider_has_reason(monkeypatch):
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+        "ALIBABA_MODEL": settings.ALIBABA_MODEL,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
@@ -140,6 +204,11 @@ def test_llm_catalog_disabled_cloud_provider_has_reason(monkeypatch):
         settings.CODEXIFY_LOCAL_ONLY_MODE = False
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai"
         settings.OPENAI_API_KEY = "test-openai-key"
+        settings.ALIBABA_API_KEY = None
+        settings.ALIBABA_API_BASE = (
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+        )
+        settings.ALIBABA_MODEL = None
         settings.MINIMAX_API_KEY = None
         settings.MINIMAX_API_BASE = None
 
@@ -168,6 +237,9 @@ def test_llm_catalog_include_all_shows_unauthorized_providers(monkeypatch):
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+        "ALIBABA_MODEL": settings.ALIBABA_MODEL,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
     }
@@ -177,6 +249,11 @@ def test_llm_catalog_include_all_shows_unauthorized_providers(monkeypatch):
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai,anthropic,gemini,groq"
         settings.OPENAI_API_KEY = None
         settings.GROQ_API_KEY = None
+        settings.ALIBABA_API_KEY = None
+        settings.ALIBABA_API_BASE = (
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+        )
+        settings.ALIBABA_MODEL = None
         settings.MINIMAX_API_KEY = None
         settings.MINIMAX_API_BASE = None
 
@@ -189,9 +266,17 @@ def test_llm_catalog_include_all_shows_unauthorized_providers(monkeypatch):
             "anthropic",
             "gemini",
             "groq",
+            "alibaba",
             "minimax",
         } <= provider_ids
-        for provider_id in ("openai", "anthropic", "gemini", "groq", "minimax"):
+        for provider_id in (
+            "openai",
+            "anthropic",
+            "gemini",
+            "groq",
+            "alibaba",
+            "minimax",
+        ):
             provider = _provider_by_id(payload, provider_id)
             assert provider["enabled"] is False
             assert provider["authorized"] is False

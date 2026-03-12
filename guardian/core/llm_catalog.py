@@ -23,6 +23,7 @@ _PROVIDER_ORDER = (
     "anthropic",
     "gemini",
     "groq",
+    "alibaba",
     "minimax",
     "local",
 )
@@ -31,6 +32,7 @@ _PROVIDER_LABELS = {
     "anthropic": "Anthropic",
     "gemini": "Gemini",
     "groq": "Groq",
+    "alibaba": "Alibaba / DashScope",
     "minimax": "MiniMax",
     "local": "Local",
 }
@@ -102,7 +104,14 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
     ),
 }
 
-_CLOUD_PROVIDERS = {"openai", "anthropic", "gemini", "groq", "minimax"}
+_CLOUD_PROVIDERS = {
+    "openai",
+    "anthropic",
+    "gemini",
+    "groq",
+    "alibaba",
+    "minimax",
+}
 _MODEL_FAMILY_ALIASES = {
     "deepseek": "DeepSeek",
     "gemma": "Gemma",
@@ -174,6 +183,15 @@ def _is_authorized(provider_id: str, settings: Settings) -> bool:
         return _has_real_api_key(
             str(getattr(settings, "GROQ_API_KEY", "") or "")
         )
+    if provider_id == "alibaba":
+        has_key = _has_real_api_key(
+            str(getattr(settings, "ALIBABA_API_KEY", "") or "")
+        ) or _has_real_api_key(_env_secret("ALIBABA_API_KEY"))
+        has_base = bool(
+            str(getattr(settings, "ALIBABA_API_BASE", "") or "").strip()
+            or _env_secret("ALIBABA_API_BASE")
+        )
+        return has_key and has_base
     if provider_id == "minimax":
         has_key = _has_real_api_key(
             str(getattr(settings, "MINIMAX_API_KEY", "") or "")
@@ -533,6 +551,13 @@ def _provider_models(
 ) -> list[dict[str, Any]]:
     if provider_id == "local":
         return _fetch_local_models(settings)
+    if provider_id == "alibaba":
+        model_id = str(
+            getattr(settings, "ALIBABA_MODEL", "") or ""
+        ).strip() or _env_secret("ALIBABA_MODEL")
+        if not model_id:
+            return []
+        return [_base_model_entry(model_id=model_id, display_name=model_id)]
     if provider_id == "minimax":
         model_id = (
             str(getattr(settings, "MINIMAX_MODEL", "") or "").strip()

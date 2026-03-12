@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
+_DEFAULT_ALIBABA_BASE = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 
 
 @dataclass(frozen=True)
@@ -468,6 +469,15 @@ def _default_model_for_provider(provider: str, settings: Settings) -> str:
         return settings.LLM_MODEL or settings.DEFAULT_GROQ_MODEL
     if provider == "openai":
         return settings.DEFAULT_OPENAI_MODEL
+    if provider == "alibaba":
+        explicit_model = str(settings.ALIBABA_MODEL or "").strip()
+        if explicit_model:
+            return explicit_model
+        shared_model = str(settings.LLM_MODEL or "").strip()
+        default_local_model = str(settings.DEFAULT_LOCAL_MODEL or "").strip()
+        if shared_model and shared_model != default_local_model:
+            return shared_model
+        return ""
     if provider == "minimax":
         return (settings.MINIMAX_MODEL or "").strip()
     return ""
@@ -516,6 +526,8 @@ def chat_with_ai(
             _normalize_openai_model(target_model, settings),
             settings=settings,
         )
+    if provider_name == "alibaba":
+        return call_alibaba(messages, target_model, settings=settings)
     if provider_name == "minimax":
         return call_minimax(messages, target_model, settings=settings)
 
@@ -923,21 +935,41 @@ def call_groq(messages, model: str, *, settings: Optional[Settings] = None):
         raise HTTPException(status_code=502, detail=str(e))
 
 
-def call_openai(messages, model: str, *, settings: Optional[Settings] = None):
-    settings = _resolve_settings(settings)
+def _call_openai_compatible_chat(
+    *,
+    provider_name: str,
+    provider_display_name: str,
+    egress_target: str,
+    api_key: str | None,
+    base_url: str | None,
+    default_base_url: str,
+    base_path: str,
+    messages,
+    model: str,
+    timeout: float,
+    settings: Settings,
+):
     try:
-        assert_egress_allowed("openai", settings=settings)
+        assert_egress_allowed(egress_target, settings=settings)
     except EgressDeniedError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    api_key = settings.OPENAI_API_KEY
-    if not api_key:
+    clean_api_key = str(api_key or "").strip()
+    if not clean_api_key:
         raise HTTPException(
-            status_code=400, detail="OPENAI_API_KEY is not configured"
+            status_code=400,
+            detail=f"{provider_name.upper()}_API_KEY is not configured",
+        )
+
+    resolved_base = str(base_url or default_base_url or "").strip().rstrip("/")
+    if not resolved_base:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{provider_name.upper()}_API_BASE is not configured",
         )
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {clean_api_key}",
         "Content-Type": "application/json",
     }
     payload: Dict[str, Any] = {
@@ -945,17 +977,90 @@ def call_openai(messages, model: str, *, settings: Optional[Settings] = None):
         "messages": messages,
         "temperature": 0.7,
     }
-    base_url = (settings.OPENAI_BASE_URL or _DEFAULT_OPENAI_BASE).rstrip("/")
-    url = f"{base_url}/v1/chat/completions"
+    url = f"{resolved_base}{base_path}"
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
+        response = requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=float(timeout),
+        )
+    except req_exc.RequestException as exc:
+        logger.exception("%s backend request error", provider_display_name)
+        detail = _sanitize_provider_error(str(exc), secret=clean_api_key)
+        raise HTTPException(
+            status_code=502,
+            detail=f"{provider_display_name} request failed: {detail}",
+        ) from exc
+
+    if not (200 <= response.status_code < 300):
+        detail = _extract_provider_error_message(response, secret=clean_api_key)
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"{provider_display_name} request failed "
+                f"({response.status_code}): {detail}"
+            ),
+        )
+
+    try:
         data = response.json()
         return data["choices"][0]["message"]["content"]
-    except Exception as e:
-        logger.exception("OpenAI backend error")
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as exc:
+        logger.exception(
+            "%s backend response parse error", provider_display_name
+        )
+        detail = _sanitize_provider_error(str(exc), secret=clean_api_key)
+        raise HTTPException(
+            status_code=502,
+            detail=f"{provider_display_name} response parse failed: {detail}",
+        ) from exc
+
+
+def call_openai(messages, model: str, *, settings: Optional[Settings] = None):
+    settings = _resolve_settings(settings)
+    return _call_openai_compatible_chat(
+        provider_name="openai",
+        provider_display_name="OpenAI",
+        egress_target="openai",
+        api_key=settings.OPENAI_API_KEY,
+        base_url=settings.OPENAI_BASE_URL,
+        default_base_url=_DEFAULT_OPENAI_BASE,
+        base_path="/v1/chat/completions",
+        messages=messages,
+        model=model,
+        timeout=30.0,
+        settings=settings,
+    )
+
+
+def call_alibaba(messages, model: str, *, settings: Optional[Settings] = None):
+    settings = _resolve_settings(settings)
+    if not bool(getattr(settings, "ALLOW_CLOUD_PROVIDERS", True)):
+        raise HTTPException(
+            status_code=403,
+            detail="Egress 'alibaba' blocked: ALLOW_CLOUD_PROVIDERS=false.",
+        )
+    return _call_openai_compatible_chat(
+        provider_name="alibaba",
+        provider_display_name="Alibaba",
+        egress_target="alibaba",
+        api_key=settings.ALIBABA_API_KEY,
+        base_url=settings.ALIBABA_API_BASE,
+        default_base_url=_DEFAULT_ALIBABA_BASE,
+        base_path="/chat/completions",
+        messages=messages,
+        model=model,
+        timeout=float(
+            getattr(
+                settings,
+                "ALIBABA_TIMEOUT_SECONDS",
+                getattr(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 60),
+            )
+        ),
+        settings=settings,
+    )
 
 
 def _sanitize_provider_error(message: str, *, secret: str | None = None) -> str:
