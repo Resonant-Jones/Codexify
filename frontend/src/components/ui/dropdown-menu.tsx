@@ -73,9 +73,15 @@ export const DropdownMenuTrigger = ({
   if (asChild && React.isValidElement(children)) {
     const child = children as React.ReactElement<{
       onClick?: (event: React.MouseEvent<HTMLElement>) => void;
+      onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void;
       type?: string;
     }>;
     const childOnClick = child.props?.onClick;
+    const childOnKeyDown = child.props?.onKeyDown;
+    const childType =
+      typeof child.type === "string" ? child.type.toLowerCase() : null;
+    const shouldSetButtonType =
+      childType === "button" || child.props.type != null;
 
     return React.cloneElement(child, {
       ...props,
@@ -87,7 +93,13 @@ export const DropdownMenuTrigger = ({
         if (event.defaultPrevented) return;
         toggle();
       },
-      type: child.props.type ?? "button",
+      onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
+        childOnKeyDown?.(event);
+        onKeyDown?.(
+          event as unknown as React.KeyboardEvent<HTMLButtonElement>
+        );
+      },
+      ...(shouldSetButtonType ? { type: child.props.type ?? "button" } : {}),
     });
   }
 
