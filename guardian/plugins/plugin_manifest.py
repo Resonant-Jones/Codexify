@@ -84,6 +84,17 @@ class PluginManifest(BaseModel):
             raise ValueError("value must be non-empty")
         return value
 
+    @field_validator("capabilities")
+    @classmethod
+    def _validate_capabilities(
+        cls, value: list[PluginCapability]
+    ) -> list[PluginCapability]:
+        if not value:
+            raise ValueError(
+                "capabilities must contain at least one capability"
+            )
+        return value
+
     @field_validator("base_url")
     @classmethod
     def _validate_base_url(cls, value: str) -> str:
@@ -126,11 +137,10 @@ class PluginManifest(BaseModel):
 
     def supports_operation(self, capability: str, action: str) -> bool:
         wanted = (capability.strip(), action.strip())
-        return any(
-            (decl.id, declared_action) == wanted
-            for decl in self.capabilities
-            for declared_action in decl.actions
-        )
+        return wanted in self.operation_pairs
+
+    def operations(self) -> set[tuple[str, str]]:
+        return self.operation_pairs
 
     @property
     def operation_pairs(self) -> set[tuple[str, str]]:

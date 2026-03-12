@@ -380,6 +380,11 @@ def get_plugin_health(plugin_id: str) -> dict[str, Any]:
     return payload
 
 
+def probe_plugin_health(plugin_id: str) -> dict[str, Any]:
+    """Alias for get_plugin_health used by newer call sites."""
+    return get_plugin_health(plugin_id)
+
+
 def invoke_capability(
     capability: str,
     action: str,
@@ -457,4 +462,5 @@ __all__ = [
     "invoke_plugin",
     "list_plugin_manifests",
     "load_runtime_plugins",
+    "probe_plugin_health",
 ]

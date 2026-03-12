@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from guardian.plugins import plugin_loader
+from guardian.plugins.plugin_loader import DuplicatePluginIdError
 from guardian.plugins.plugin_manifest import PluginManifest
 
 
@@ -79,26 +80,23 @@ def test_rejects_duplicate_capability_action_pairs():
         )
 
 
-def test_discovery_lists_only_validated_manifests(tmp_path, monkeypatch):
+def test_discovery_lists_only_validated_manifests(tmp_path):
     plugins_root = tmp_path / "plugins"
-    monkeypatch.setattr(plugin_loader, "PLUGIN_DIR", plugins_root)
 
     _write_manifest(
         plugins_root / "voice" / "manifest.json",
         _manifest_payload("voice", base_url="https://voice.example"),
     )
-    # Invalid (missing required version): excluded from discovery.
     invalid = _manifest_payload("broken", base_url="https://broken.example")
     invalid.pop("version")
     _write_manifest(plugins_root / "broken" / "manifest.json", invalid)
 
-    manifests = plugin_loader.load_all_manifests()
+    manifests = plugin_loader.load_all_manifests(plugin_dir=plugins_root)
     assert [manifest.id for manifest in manifests] == ["voice"]
 
 
-def test_discovery_rejects_duplicate_plugin_ids(tmp_path, monkeypatch):
+def test_discovery_rejects_duplicate_plugin_ids(tmp_path):
     plugins_root = tmp_path / "plugins"
-    monkeypatch.setattr(plugin_loader, "PLUGIN_DIR", plugins_root)
 
     _write_manifest(
         plugins_root / "voice_a" / "manifest.json",
@@ -108,24 +106,13 @@ def test_discovery_rejects_duplicate_plugin_ids(tmp_path, monkeypatch):
         plugins_root / "voice_b" / "manifest.json",
         _manifest_payload("shared"),
     )
-    _write_manifest(
-        plugins_root / "vision" / "manifest.json",
-        _manifest_payload(
-            "vision",
-            capabilities=[{"id": "vision", "actions": ["classify"]}],
-        ),
-    )
 
-    first = plugin_loader.load_all_manifests()
-    second = plugin_loader.load_all_manifests()
-
-    assert [manifest.id for manifest in first] == ["vision"]
-    assert [manifest.id for manifest in second] == ["vision"]
+    with pytest.raises(DuplicatePluginIdError):
+        plugin_loader.load_all_manifests(plugin_dir=plugins_root)
 
 
-def test_discovery_uses_canonical_path_only(tmp_path, monkeypatch):
+def test_discovery_uses_canonical_path_only(tmp_path):
     plugins_root = tmp_path / "plugins"
-    monkeypatch.setattr(plugin_loader, "PLUGIN_DIR", plugins_root)
 
     _write_manifest(
         plugins_root / "voice" / "manifest.json",
@@ -140,7 +127,7 @@ def test_discovery_uses_canonical_path_only(tmp_path, monkeypatch):
         _manifest_payload("nested"),
     )
 
-    manifests = plugin_loader.load_all_manifests()
+    manifests = plugin_loader.load_all_manifests(plugin_dir=plugins_root)
     assert [manifest.id for manifest in manifests] == ["voice"]
 
 
