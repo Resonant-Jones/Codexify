@@ -405,7 +405,6 @@ async def _fetch_messages(self, thread_id, n):
 | `codexify_router.py` | `/codexify` | (inferred) Codexify integration | Google Drive OAuth |
 | `media.py` | `/api/media` | (inferred) Image/audio upload | ORM session |
 | `meta.py` | `/api/meta` | (inferred) System metadata | Config |
-| `rag_upload.py` | `/api/rag/upload` | (inferred) Document ingestion | Vector store |
 | `research.py` | `/api/research` | (inferred) Research tools | External APIs |
 | `tools.py` | `/api/tools` | (inferred) Tool registry | PluginManager |
 
