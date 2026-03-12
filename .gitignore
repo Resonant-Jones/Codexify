@@ -185,3 +185,6 @@ codex_runner/.github/
 # local runs/audits
 /docs/_audits/
 /docs/_campaign_runs/
+
+# Local tooling artifacts
+codex_runner.zip
