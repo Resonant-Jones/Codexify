@@ -27,6 +27,7 @@ import useChat from "@/features/chat/useChat";
 import api, {
   buildChatCompletePath,
   clearInFlightCompletionTurnId,
+  getInFlightCompletionTurnId,
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
@@ -414,10 +415,22 @@ export function GuardianChat({
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
   // Chat state management including completion tracking
   const {
+    messages,
+    loading: chatLoading,
+    error: chatError,
+    hasMore: chatHasMore,
+    activateThread,
+    refreshSnapshot,
+    loadOlderMessages,
     completionState,
     startCompletion,
     endCompletion,
     updateCompletionTaskId,
+    startCompletionSession,
+    reassociateCompletionSession,
+    updateCompletionSessionTurnId,
+    finalizeCompletionSession,
+    handleIncomingAssistantMessage,
     isCompletionInFlight,
     setCompletionInFlight,
   } = useChat();
@@ -435,12 +448,24 @@ export function GuardianChat({
   const traceEndpointRef = useRef<Record<number, string>>({});
   const traceFetchInflightRef = useRef<Record<number, boolean>>({});
   const activeThreadRef = useRef<Thread>(activeThread);
+  const effectiveThreadIdRef = useRef<number | null>(null);
   const activeSessionTabIdRef = useRef<TabId | null>(activeSessionTabId);
   const pendingFastRetryRef = useRef<{
     threadId: number;
     providerId: string | null;
     modelId: string | null;
   } | null>(null);
+  const threadProfileRequestRef = useRef<{
+    controller: AbortController | null;
+    promise: Promise<SystemProfileOption | null> | null;
+    threadId: number | null;
+    token: number;
+  }>({
+    controller: null,
+    promise: null,
+    threadId: null,
+    token: 0,
+  });
 
   useEffect(() => {
     activeThreadRef.current = activeThread;
@@ -998,15 +1023,42 @@ export function GuardianChat({
       const response = await api.post(buildChatCompletePath(tid), payload);
       console.log(`[guardian] Completing with depth=${depth}`);
 
+      if (effectiveThreadIdRef.current === tid) {
+        startCompletionSession({
+          threadId: tid,
+          taskId: provisionalTaskId,
+          turnId: null,
+          reloadVersion: chatReloadVersion,
+        });
+      }
+
       // Capture task_id for completion state tracking
       const taskId = response?.data?.task_id ?? provisionalTaskId;
       const responseDepth = (response?.data?.depth_mode as DepthMode | undefined) ?? depth;
       lastCompletionDepthRef.current[tid] = responseDepth;
 
+      if (effectiveThreadIdRef.current === tid) {
+        reassociateCompletionSession({
+          threadId: tid,
+          provisionalTaskId,
+          realTaskId: taskId,
+          reloadVersion: chatReloadVersion,
+        });
+      }
+
       if (taskId) {
         console.debug(`[guardian] Starting completion tracking: task=${taskId}`);
         updateCompletionTaskId(taskId);
         inferenceRequest.attachTask(taskId);
+      }
+
+      const turnId =
+        typeof response?.data?.turn_id === "string" &&
+        response.data.turn_id.trim().length > 0
+          ? response.data.turn_id.trim()
+          : getInFlightCompletionTurnId(tid);
+      if (turnId && effectiveThreadIdRef.current === tid) {
+        updateCompletionSessionTurnId(taskId, turnId);
       }
 
       const traceUrlRaw = response?.data?.trace_url;
@@ -1061,9 +1113,6 @@ export function GuardianChat({
         }
       );
       return "failed";
-    } finally {
-      // always nudge the view to reconcile with server state
-      triggerReload();
     }
   };
 
@@ -1113,6 +1162,10 @@ export function GuardianChat({
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
 
+  useEffect(() => {
+    effectiveThreadIdRef.current = effectiveThreadId;
+  }, [effectiveThreadId]);
+
   const refreshPromptCostSummary = useCallback(async (threadId: number | null) => {
     try {
       const params = threadId != null ? { thread_id: threadId } : undefined;
@@ -1157,49 +1210,93 @@ export function GuardianChat({
       threadId: number,
       options: { throwOnError?: boolean } = {}
     ) => {
-      try {
-        const response = await api.get(`/chat/${threadId}/profile`);
-        const data = response?.data ?? {};
-        const profileRaw = data?.profile ?? null;
-        const profilesRaw = Array.isArray(data?.profiles) ? data.profiles : [];
-
-        const parsedProfiles = profilesRaw
-          .map((entry: any) => normalizeProfileOption(entry))
-          .filter(Boolean) as SystemProfileOption[];
-
-        if (parsedProfiles.length > 0) {
-          setAvailableProfiles(parsedProfiles);
-        } else {
-          setAvailableProfiles(PROFILE_FALLBACK_OPTIONS);
-        }
-
-        const parsedProfile = normalizeProfileOption(profileRaw);
-        if (parsedProfile) {
-          setResolvedProfile({
-            id: parsedProfile.id,
-            name: parsedProfile.name,
-            mode: parsedProfile.mode,
-            providerOverride: parsedProfile.providerOverride || null,
-            modelOverride: parsedProfile.modelOverride || null,
-          });
-          return parsedProfile;
-        }
-      } catch (err: any) {
-        logOnce("poll:chat-profile", 10_000, () => {
-          console.warn(
-            `[guardian] profile refresh failed for thread ${threadId}`,
-            err
-          );
-        });
-        applyProfileFallback();
-        if (options.throwOnError) {
-          throw err;
-        }
-        return null;
+      if (
+        threadProfileRequestRef.current.promise &&
+        threadProfileRequestRef.current.threadId === threadId
+      ) {
+        return threadProfileRequestRef.current.promise;
       }
 
-      applyProfileFallback();
-      return null;
+      if (
+        threadProfileRequestRef.current.threadId != null &&
+        threadProfileRequestRef.current.threadId !== threadId
+      ) {
+        threadProfileRequestRef.current.controller?.abort();
+      }
+
+      const nextToken = threadProfileRequestRef.current.token + 1;
+      const controller = new AbortController();
+      threadProfileRequestRef.current = {
+        controller,
+        promise: null,
+        threadId,
+        token: nextToken,
+      };
+
+      const request = (async () => {
+        try {
+          const response = await api.get(`/chat/${threadId}/profile`, {
+            signal: controller.signal,
+          });
+          if (
+            effectiveThreadIdRef.current !== threadId ||
+            threadProfileRequestRef.current.token !== nextToken
+          ) {
+            return null;
+          }
+          const data = response?.data ?? {};
+          const profileRaw = data?.profile ?? null;
+          const profilesRaw = Array.isArray(data?.profiles) ? data.profiles : [];
+
+          const parsedProfiles = profilesRaw
+            .map((entry: any) => normalizeProfileOption(entry))
+            .filter(Boolean) as SystemProfileOption[];
+
+          if (parsedProfiles.length > 0) {
+            setAvailableProfiles(parsedProfiles);
+          } else {
+            setAvailableProfiles(PROFILE_FALLBACK_OPTIONS);
+          }
+
+          const parsedProfile = normalizeProfileOption(profileRaw);
+          if (parsedProfile) {
+            setResolvedProfile({
+              id: parsedProfile.id,
+              name: parsedProfile.name,
+              mode: parsedProfile.mode,
+              providerOverride: parsedProfile.providerOverride || null,
+              modelOverride: parsedProfile.modelOverride || null,
+            });
+            return parsedProfile;
+          }
+        } catch (err: any) {
+          if (err?.name === "CanceledError" || err?.code === "ERR_CANCELED") {
+            return null;
+          }
+          logOnce("poll:chat-profile", 10_000, () => {
+            console.warn(
+              `[guardian] profile refresh failed for thread ${threadId}`,
+              err
+            );
+          });
+          applyProfileFallback();
+          if (options.throwOnError) {
+            throw err;
+          }
+          return null;
+        }
+
+        applyProfileFallback();
+        return null;
+      })();
+
+      threadProfileRequestRef.current.promise = request;
+      return request.finally(() => {
+        if (threadProfileRequestRef.current.token === nextToken) {
+          threadProfileRequestRef.current.controller = null;
+          threadProfileRequestRef.current.promise = null;
+        }
+      });
     },
     [applyProfileFallback]
   );
@@ -1241,11 +1338,22 @@ export function GuardianChat({
 
   useEffect(() => {
     if (effectiveThreadId == null) {
+      threadProfileRequestRef.current.controller?.abort();
+      threadProfileRequestRef.current = {
+        controller: null,
+        promise: null,
+        threadId: null,
+        token: threadProfileRequestRef.current.token,
+      };
       applyProfileFallback();
       return;
     }
     void refreshThreadProfile(effectiveThreadId);
   }, [applyProfileFallback, effectiveThreadId, refreshThreadProfile]);
+
+  useEffect(() => {
+    void activateThread(effectiveThreadId);
+  }, [activateThread, effectiveThreadId]);
 
   usePollWithBackoff(
     async () => {
@@ -1386,7 +1494,12 @@ export function GuardianChat({
     });
   }, [effectiveThreadId, refreshPromptCostSummary]);
 
-  useEffect(() => () => triggerReload.cancel(), [triggerReload]);
+  useEffect(() => {
+    return () => {
+      triggerReload.cancel();
+      threadProfileRequestRef.current.controller?.abort();
+    };
+  }, [triggerReload]);
 
   useEffect(() => {
     void refreshVoiceCapabilities();
@@ -1416,7 +1529,7 @@ export function GuardianChat({
     }
   }, [activeThread?.id, activeThread?.title, currentThreadId]);
 
-  // Live event integration for real-time updates (no forced refetch — ChatView listens for message events)
+  // Live event integration keeps the shared chat hook synchronized.
   useEffect(() => {
     const offThread = subscribe("thread.updated", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
@@ -1447,21 +1560,18 @@ export function GuardianChat({
       offProfileSwitched();
     };
   }, [effectiveThreadId, refreshThreadProfile, subscribe]);
+
   useEffect(() => {
     const offMessage = subscribe("message.created", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
       const tid = Number(payload?.thread_id ?? payload?.threadId);
       const role = String(payload?.role ?? "").trim().toLowerCase();
       if (!Number.isFinite(tid) || role !== "assistant") return;
+      const handled = handleIncomingAssistantMessage(payload);
+      if (!handled) return;
       setTurnLockForThread(tid, false);
       clearInFlightCompletionTurnId(tid);
       void fetchTraceForThread(tid, "message-event");
-      if (
-        completionState.isCompleting &&
-        completionState.activeThreadId === tid
-      ) {
-        endCompletion();
-      }
       if (
         inferenceRequest.state.threadId === tid &&
         isActiveInferencePhase(inferenceRequest.state.phase)
@@ -1473,19 +1583,37 @@ export function GuardianChat({
       const payload = (event.data as any)?.data ?? event.data;
       const tid = Number(payload?.thread_id ?? payload?.threadId);
       if (!Number.isFinite(tid)) return;
-      clearInFlightCompletionTurnId(tid);
-      setTurnLockForThread(tid, false);
       const eventTaskId = String(
-        payload?.task_id ?? payload?.taskId ?? ""
+        payload?.task_id ??
+          payload?.taskId ??
+          completionState.activeTaskId ??
+          inferenceRequest.state.taskId ??
+          ""
       ).trim();
-      if (
-        completionState.isCompleting &&
-        completionState.activeThreadId === tid &&
-        (!completionState.activeTaskId ||
-          !eventTaskId ||
-          eventTaskId === completionState.activeTaskId)
-      ) {
-        endCompletion();
+      const eventTurnId = String(
+        payload?.turn_id ?? payload?.turnId ?? ""
+      ).trim();
+      if (eventTaskId && eventTurnId) {
+        updateCompletionSessionTurnId(eventTaskId, eventTurnId);
+      }
+      const terminalState =
+        event.type === "task.completed"
+          ? "completed"
+          : event.type === "task.cancelled"
+            ? "cancelled"
+            : event.type === "completion.error"
+              ? "error"
+              : "failed";
+      const finalized =
+        eventTaskId.length > 0
+          ? finalizeCompletionSession({
+              taskId: eventTaskId,
+              terminalState,
+            })
+          : false;
+      if (finalized) {
+        clearInFlightCompletionTurnId(tid);
+        setTurnLockForThread(tid, false);
       }
       if (event.type === "task.failed" || event.type === "completion.error") {
         inferenceRequest.markFailed(
@@ -1526,16 +1654,17 @@ export function GuardianChat({
     };
   }, [
     completionState.activeTaskId,
-    completionState.activeThreadId,
-    completionState.isCompleting,
-    endCompletion,
     fetchTraceForThread,
+    finalizeCompletionSession,
+    handleIncomingAssistantMessage,
     inferenceRequest,
     inferenceRequest.state.phase,
+    inferenceRequest.state.taskId,
     inferenceRequest.state.threadId,
     setTurnLockForThread,
     retryWithoutThinkingAfterCancel,
     subscribe,
+    updateCompletionSessionTurnId,
   ]);
   useEffect(() => {
     if (completionState.isCompleting && completionState.activeThreadId != null) {
@@ -1704,7 +1833,9 @@ export function GuardianChat({
             content: `Profile switched to ${label}. Next completion will use this profile.`,
             user_id: normalizedUserId,
           });
-          triggerReload();
+          if (targetThreadId === effectiveThreadId) {
+            await refreshSnapshot(targetThreadId, "profile-switch");
+          }
         }
       } catch (error) {
         console.error("[guardian] profile switch command failed", error);
@@ -1740,6 +1871,7 @@ export function GuardianChat({
         handleThreadCreated(numericNewId, derivedTitle, {
           tabId: originTabId,
         });
+        await activateThread(numericNewId);
         onThreadPersisted?.(numericNewId, derivedTitle, {
           tabId: originTabId,
         });
@@ -1791,6 +1923,7 @@ export function GuardianChat({
           setChatReloadVersion((v) => v + 1);
         } else {
           await onSendMessage(text);
+          await refreshSnapshot(targetThreadId, "user-send");
         }
 
         // Fire-and-forget completion a beat later so the just-sent message is persisted
@@ -2215,6 +2348,11 @@ export function GuardianChat({
             key={effectiveThreadId}
             threadId={effectiveThreadId}
             guardianName={guardianName}
+            messages={messages}
+            loading={chatLoading}
+            error={chatError}
+            hasMore={chatHasMore}
+            onLoadOlderMessages={() => loadOlderMessages(effectiveThreadId)}
             reloadVersion={chatReloadVersion}
             completionState={completionState}
             endCompletion={endCompletion}
@@ -2357,7 +2495,7 @@ export function GuardianChat({
                     headers: { "Content-Type": "multipart/form-data" },
                     timeout: 180000,
                   });
-                  triggerReload();
+                  await refreshSnapshot(effectiveThreadId, "voice-turn");
                 } catch (error) {
                   console.warn("[guardian] voice turn failed", error);
                   alert("Voice turn failed. Check backend voice configuration.");
