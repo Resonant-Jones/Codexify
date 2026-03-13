@@ -15,13 +15,25 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Iterator
 
-DEFAULT_CAMPAIGN_DIR = Path("docs/Campaign")
-DEFAULT_TASKS_DIR = Path("docs/tasks")
+DEFAULT_CAMPAIGN_DIR = Path("docs/work/campaigns")
+DEFAULT_TASKS_DIR = Path("docs/work/tasks")
+LEGACY_CAMPAIGN_DIR = Path("docs/Campaign")
+LEGACY_TASKS_DIR = Path("docs/tasks")
 
-CAMPAIGN_PATH_PATTERN = re.compile(
-    r"^docs/Campaign/CAMPAIGN_(\d{4})_(\d{2})_(\d{2})(?:_[A-Z0-9_+\-]+)?\.md$"
+CANONICAL_CAMPAIGN_PATH_PATTERN = re.compile(
+    r"^docs/work/campaigns/(?P<year>\d{4})/(?P<month>\d{2})/"
+    r"CAMPAIGN_(?P=year)_(?P=month)_(?P<day>\d{2})"
+    r"(?:_[A-Z0-9_+\-]+)?\.md$"
 )
-TASK_PATH_PATTERN = re.compile(
+LEGACY_CAMPAIGN_PATH_PATTERN = re.compile(
+    r"^docs/Campaign/CAMPAIGN_(?P<year>\d{4})_(?P<month>\d{2})_(?P<day>\d{2})"
+    r"(?:_[A-Z0-9_+\-]+)?\.md$"
+)
+CANONICAL_TASK_PATH_PATTERN = re.compile(
+    r"^docs/work/tasks/(?P<year>\d{4})/(?P<month>\d{2})/"
+    r"TASK_(?P=year)_(?P=month)_\d{2}_\d{3}_[a-z0-9_]+\.md$"
+)
+LEGACY_TASK_PATH_PATTERN = re.compile(
     r"^docs/tasks/TASK_\d{4}_\d{2}_\d{2}_\d{3}_[a-z0-9_]+\.md$"
 )
 
@@ -172,12 +184,14 @@ def validate_campaign_payload(payload: dict[str, Any]) -> None:
         raise RunnerError(f"Missing campaign fields: {', '.join(missing)}")
 
     campaign_path = payload["campaign_doc_path"]
-    if not isinstance(
-        campaign_path, str
-    ) or not CAMPAIGN_PATH_PATTERN.fullmatch(campaign_path):
+    if not isinstance(campaign_path, str) or not match_campaign_path(
+        campaign_path
+    ):
         raise RunnerError(
-            "Invalid campaign_doc_path. Expected format "
-            f"{DEFAULT_CAMPAIGN_DIR}/CAMPAIGN_YYYY_MM_DD[_SUFFIX].md"
+            "Invalid campaign_doc_path. Expected canonical format "
+            f"{DEFAULT_CAMPAIGN_DIR}/YYYY/MM/CAMPAIGN_YYYY_MM_DD[_SUFFIX].md "
+            "or legacy format "
+            f"{LEGACY_CAMPAIGN_DIR}/CAMPAIGN_YYYY_MM_DD[_SUFFIX].md"
         )
 
     tasks = payload["tasks"]
@@ -207,14 +221,28 @@ def validate_campaign_payload(payload: dict[str, Any]) -> None:
                 f"Task {index} missing fields: {', '.join(missing_task_fields)}"
             )
         task_path = task["task_artifact_path"]
-        if not isinstance(task_path, str) or not TASK_PATH_PATTERN.fullmatch(
-            task_path
-        ):
+        if not isinstance(task_path, str) or not match_task_path(task_path):
             raise RunnerError(
                 "Invalid task_artifact_path for task "
-                f"{index}. Expected format {DEFAULT_TASKS_DIR}/"
-                "TASK_YYYY_MM_DD_NNN_lower_snake_slug.md"
+                f"{index}. Expected canonical format {DEFAULT_TASKS_DIR}/"
+                "YYYY/MM/TASK_YYYY_MM_DD_NNN_lower_snake_slug.md "
+                "or legacy format "
+                f"{LEGACY_TASKS_DIR}/TASK_YYYY_MM_DD_NNN_lower_snake_slug.md"
             )
+
+
+def match_campaign_path(campaign_doc_path: str) -> re.Match[str] | None:
+    """Match either the canonical or legacy campaign artifact path."""
+    return CANONICAL_CAMPAIGN_PATH_PATTERN.fullmatch(
+        campaign_doc_path
+    ) or LEGACY_CAMPAIGN_PATH_PATTERN.fullmatch(campaign_doc_path)
+
+
+def match_task_path(task_artifact_path: str) -> re.Match[str] | None:
+    """Match either the canonical or legacy task artifact path."""
+    return CANONICAL_TASK_PATH_PATTERN.fullmatch(
+        task_artifact_path
+    ) or LEGACY_TASK_PATH_PATTERN.fullmatch(task_artifact_path)
 
 
 def write_text_file(path: Path, content: str) -> None:
@@ -345,9 +373,11 @@ def slugify_branch(value: str) -> str:
 
 def campaign_date_from_path(campaign_doc_path: str, *, debug: bool) -> str:
     """Extract the campaign date from the campaign doc path."""
-    match = CAMPAIGN_PATH_PATTERN.fullmatch(campaign_doc_path)
+    match = match_campaign_path(campaign_doc_path)
     if match:
-        year, month, day = match.groups()
+        year = match.group("year")
+        month = match.group("month")
+        day = match.group("day")
         try:
             return date(int(year), int(month), int(day)).strftime("%Y-%m-%d")
         except ValueError:
