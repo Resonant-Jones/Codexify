@@ -2,13 +2,15 @@
 
 Codexify is a local-first chat + knowledge workspace built around a FastAPI backend (Guardian) and a React UI. It provides thread-based chat, memory silos, document autosave and sharing, media uploads, vector search, and optional workers for background tasks. Docker Compose is the primary, supported way to run the full stack.
 
+The docs landing page now lives at `docs/README.md`, with canonical reference docs under `docs/reference/` and execution/history docs under `docs/work/`.
+
 ## 📘 Help & Setup Guide
 
 New to Codexify?
 
 Start here:
 
-👉 [Help, Setup, and FAQ](docs/help/CODEXIFY_HELP_AND_FAQ.md)
+👉 [Help, Setup, and FAQ](docs/reference/operator/help/CODEXIFY_HELP_AND_FAQ.md)
 
 This document covers:
 
@@ -95,7 +97,7 @@ cp .env.template .env
 - `.env` stays ignored (`.gitignore` enforces this); never push or share the file.
 - Generate a long random `GUARDIAN_API_KEY` per environment and rotate it often.
 - `VITE_GUARDIAN_API_KEY` is strictly for localhost/trusted builds so the browser can talk to the backend. Leave it empty for any shared, hosted, or production deployment—shipping it would leak backend access.
-- Remote/hosted deployments must instead use `GUARDIAN_AUTH_MODE=remote` and session/JWT auth (see `docs/security/auth-boundary-decision.md`).
+- Remote/hosted deployments must instead use `GUARDIAN_AUTH_MODE=remote` and session/JWT auth (see `docs/reference/security/auth-boundary-decision.md`).
 
 Minimum variables required for the **default Compose stack**:
 
@@ -248,7 +250,7 @@ make desktop-build
 Desktop connection defaults are configurable via:
 - `.env`: `CODEXIFY_DESKTOP_BACKEND_URL`, `CODEXIFY_DESKTOP_SHARE_BASE_URL`
 - Settings -> Connection (desktop-only overrides, persisted locally)
-- Validation checklist: `docs/desktop/TAURI_PARITY_CHECKLIST.md`
+- Validation checklist: `docs/reference/operator/desktop/TAURI_PARITY_CHECKLIST.md`
 
 ## Runtime Topology
 
@@ -494,8 +496,8 @@ Start with the document that matches your goal:
 ### 6. Security & integrity
 - **docs/SECURITY.md**
 - **docs/CONFIGURATION.md**
-- **docs/security/auth-boundary-decision.md**
-- **docs/dev/SECURITY_HARDENING_PLAN.md**
+- **docs/reference/security/auth-boundary-decision.md**
+- **docs/reference/development/SECURITY_HARDENING_PLAN.md**
   Threat model, guardrails, and non-goals.
 
 ### 7. Contributing
@@ -540,8 +542,8 @@ Start with the document that matches your goal:
 
 * **docs/SECURITY.md**
 * **docs/CONFIGURATION.md**
-* **docs/security/auth-boundary-decision.md**
-* **docs/dev/SECURITY_HARDENING_PLAN.md**
+* **docs/reference/security/auth-boundary-decision.md**
+* **docs/reference/development/SECURITY_HARDENING_PLAN.md**
   Threat model, guardrails, and non-goals.
 
 ### 7. Contributing

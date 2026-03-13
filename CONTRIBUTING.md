@@ -859,8 +859,8 @@ Contributors will be:
 - [README.md](README.md) - Project overview and quick start
 - [Architecture Guide](docs/DB_POSTGRES_ONLY.md) - Database design
 - [API Documentation](http://localhost:8888/docs) - Interactive API reference
-- [Plugin Development](docs/Plugins/) - Building custom plugins
-- [Infrastructure Guides](docs/infra/) - Deployment and scaling
+- [Plugin Development](docs/reference/plugins/) - Building custom plugins
+- [Infrastructure Guides](docs/reference/infrastructure/) - Deployment and scaling
 
 ### Community
 

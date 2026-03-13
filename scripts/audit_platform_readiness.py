@@ -27,7 +27,7 @@ class DomainReport:
 
 
 def doc_candidates(name: str) -> tuple[str, ...]:
-    return (f"docs/architecture/{name}", f"docs/{name}", name)
+    return (f"docs/reference/architecture/{name}", f"docs/{name}", name)
 
 
 def relative_path(path: Path) -> str:

@@ -179,17 +179,17 @@ This dossier is a curated, non-destructive copy of selected project documentatio
 ## Suggested Reading Order
 
 1. `README.md`
-2. `docs/help/CODEXIFY_HELP_AND_FAQ.md`
-3. `docs/architecture/README.md`
-4. `docs/architecture/system-overview.md`
-5. `docs/architecture/flows.md`
-6. `docs/architecture/modules-and-ownership.md`
-7. `docs/architecture/data-and-storage.md`
-8. `docs/architecture/config-and-ops.md`
-9. `docs/architecture/roadmap-signals.md`
-10. `docs/architecture/tech-debt-and-risks.md`
-11. `docs/Plugins/plugin-sdk.md`
-12. `docs/Plugins/plugin_development.md`
+2. `docs/reference/operator/help/CODEXIFY_HELP_AND_FAQ.md`
+3. `docs/reference/architecture/README.md`
+4. `docs/reference/architecture/system-overview.md`
+5. `docs/reference/architecture/flows.md`
+6. `docs/reference/architecture/modules-and-ownership.md`
+7. `docs/reference/architecture/data-and-storage.md`
+8. `docs/reference/architecture/config-and-ops.md`
+9. `docs/reference/architecture/roadmap-signals.md`
+10. `docs/reference/architecture/tech-debt-and-risks.md`
+11. `docs/reference/plugins/plugin-sdk.md`
+12. `docs/reference/plugins/plugin_development.md`
 
 ## Notes
 

@@ -1,0 +1,109 @@
+# TASK_2026_02_11_012 — Runner: deterministic task artifact dedupe + receipt hash propagation
+
+## Preflight (ABSOLUTE STOP)
+Run:
+- git status --porcelain -uall
+
+Must be empty. If not empty: STOP and output cleanup commands only.
+
+---
+
+## Goal
+
+1) Make task artifact paths deterministic across reruns (derived from Task-ID, not “today”).
+2) Add semantic artifact dedupe:
+   - Reuse existing artifact by exact embedded Task-ID match.
+   - Fallback to a semantic key match (e.g., NNN:slug) from content/path.
+   - Prevent collisions across different Task-IDs.
+3) Propagate receipt hashes into the task artifact:
+   - Ensure `receipt_update_commit_hash` is non-empty in the task artifact’s embedded structured block.
+   - Use `git commit --amend --no-edit` so the receipt commit contains its own final hash.
+4) Keep the runner’s “two commits per task” behavior intact.
+
+---
+
+## Allowed Files (HARD CONSTRAINT)
+Only touch:
+- codex_runner/runner.py
+- codex_runner/templates/task_file_template.md
+- codex_runner/templates/activation_prompt.md.tmpl
+- codex_runner/README.md
+- docs/work/reports/Task_Observability_Debug_Analysis.md
+
+Do not commit temp artifacts like `task_result.json` in the repo.
+
+---
+
+## Implementation Requirements
+
+### A) Deterministic task artifact path
+- Derive canonical artifact paths from Task-ID components (date + NNN + slug).
+- Do not include the current date/time unless it is part of Task-ID.
+
+### B) Artifact dedupe
+When generating or locating task artifacts:
+1. Prefer exact embedded Task-ID match inside existing task docs.
+2. Fallback to semantic key match (NNN:slug) from content/path.
+3. Guarantee no collisions:
+   - If a semantic match points to a doc whose embedded Task-ID differs, treat as non-match and create a new canonical doc.
+
+### C) Receipt hash propagation
+- After creating the receipt update commit:
+  - Write the seed receipt hash into the task doc.
+  - Amend the receipt commit so it contains its own final hash.
+  - Write the final receipt hash back into the task doc (and update any mapping docs, if applicable).
+- Ensure the task artifact’s embedded structured JSON block ends with:
+  - `"receipt_update_commit_hash": "<non-empty sha>"`
+
+---
+
+## Command Checklist
+
+### Baseline
+- pytest -q
+
+### Proof / behavior
+1) Run execute mode twice (must be idempotent on artifacts):
+- python -u codex_runner/runner.py \
+  --mega-audit-prompt-file codex_runner/prompts/mega_audit.md \
+  --campaign-compiler-prompt-file codex_runner/prompts/audit_report_to_campaign_runner.md \
+  --cycles 1 \
+  --execute \
+  --no-return-to-base-branch \
+  --no-verify \
+  --auto-commit
+
+2) Re-run the same command again.
+
+3) Validate:
+- No duplicate task artifacts were created on rerun.
+- Task doc has non-empty receipt_update_commit_hash.
+- Commits remain “2 per task” (implementation commit + receipt update commit), unless you’re using amend (still counts as 2 logical strokes).
+
+Suggested probes:
+- git log --oneline -n 50
+- rg -n "receipt_update_commit_hash\": \"\"" docs/work/tasks -S || true
+- rg -n "\"receipt_update_commit_hash\": \"[0-9a-f]{7,40}\"" docs/work/tasks -S | head
+- ls -R docs/work/tasks | rg "TASK_2026_02_11_012" -n || true
+
+---
+
+## Expected Outputs (Success Signals)
+
+- Runner uses deterministic task artifact paths derived from Task-ID.
+- Rerunning execute mode does not create duplicate artifacts for already-existing tasks.
+- At least one updated task doc contains a non-empty `receipt_update_commit_hash`.
+- All tests run are reported in task_result.json output, but **task_result.json is not committed**.
+
+---
+
+## Rollback / Cleanup
+- git reset --hard
+- git clean -fd
+- git checkout <base-branch>
+
+---
+
+## Activation Prompt (for Codex)
+
+Implement deterministic task artifact path derivation and semantic artifact dedupe in codex_runner/runner.py, reusing existing task docs by embedded Task-ID match first and semantic key match second, while preventing collisions. Add receipt hash propagation by amending the receipt commit so it contains its own hash and syncing `receipt_update_commit_hash` into the task doc’s embedded structured JSON. Prove via running execute mode twice and showing no duplicate artifact creation and non-empty receipt_update_commit_hash. Ensure task_result.json is not committed. Output a task_result.json conforming to schema including tests ran and commit hashes.

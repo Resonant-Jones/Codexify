@@ -1,13 +1,12 @@
 # Codexify collaborator dossier denylist: technical teaser profile.
 # One repo-relative file path or glob per line.
-docs/prompt-docs/**
-docs/tasks/**
-docs/Campaign/**
-docs/Campaigns/**
-docs/_audits/**
-docs/_audit_runs/**
-docs/security/INCIDENT_RESPONSE.md
-docs/infra/**
-docs/Codexify/**
+docs/archive/prompt-workbench/**
+docs/work/tasks/**
+docs/work/campaigns/**
+artifacts/audits/**
+artifacts/audit-runs/**
+docs/reference/security/INCIDENT_RESPONSE.md
+docs/reference/infrastructure/**
+docs/reference/product/**
 CODEBASE_SUMMARY.md
 QUICK_REFERENCE.md
