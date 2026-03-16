@@ -60,7 +60,7 @@ venv
 /src-tauri
 /tests
 /tools
-/guardian/codemap
+/guardian/codemap/codemap.json
 /guardian/tts_output
 /guardian/*.backup
 /guardian/*.old
