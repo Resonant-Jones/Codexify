@@ -1,9 +1,12 @@
-try:
-    from notion_client import Client
-except ImportError:
-    raise ImportError(
-        "notion-client package required. Run 'pip install notion-client'."
-    )
+def _require_notion_client():
+    try:
+        from notion_client import Client
+    except ImportError as exc:
+        raise ImportError(
+            "notion-client package required. Run 'pip install notion-client'."
+        ) from exc
+
+    return Client
 
 
 def load_alias_map(alias_path):
@@ -191,7 +194,7 @@ logger = logging.getLogger(__name__)
 def export_notion_database_to_json(db_id, notion_token, out_file):
     import sys
 
-    client = Client(auth=notion_token)
+    client = _require_notion_client()(auth=notion_token)
     # Get database schema
     try:
         db = client.databases.retrieve(db_id)
@@ -280,7 +283,7 @@ def get_or_create_page(client, parent_title, notion_token):
 
 
 def add_records_to_notion_database(records, db_id, notion_token, fieldmap=None):
-    client = Client(auth=notion_token)
+    client = _require_notion_client()(auth=notion_token)
     # Fetch columns from Notion DB schema for field matching
     notion_cols = client.databases.retrieve(db_id)["properties"]
     for record in records:
@@ -471,7 +474,7 @@ def codexify_database_cli_wrapper():
                 sys.exit(1)
 
             # Notion client
-            client = Client(auth=notion_token)
+            client = _require_notion_client()(auth=notion_token)
             logger.info("Fetching databases shared with your integration...")
             dbs = []
             next_cursor = None
@@ -771,7 +774,7 @@ def codexify_database_cli_wrapper():
             with open(args.template) as f:
                 template_md = f.read()
 
-        client = Client(auth=args.token)
+        client = _require_notion_client()(auth=args.token)
         if args.parent_title:
             parent_page_id = get_or_create_page(
                 client, args.parent_title, args.token
@@ -818,7 +821,7 @@ def codexify_database_cli_wrapper():
             # If not supplied, prompt if any mismatches:
             else:
                 # Infer Notion columns from created DB
-                client_for_map = Client(auth=args.token)
+                client_for_map = _require_notion_client()(auth=args.token)
                 db_schema = client_for_map.databases.retrieve(db_id)
                 notion_cols = set(db_schema["properties"].keys())
                 rec_keys = set(records[0].keys())
@@ -1125,7 +1128,7 @@ def create_notion_database_from_records(
     and attaches a page template (markdown) if desired.
     Returns the new database ID.
     """
-    client = Client(auth=notion_token)
+    client = _require_notion_client()(auth=notion_token)
     if not db_title:
         db_title = f"Guardian Codex {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')}"
 
