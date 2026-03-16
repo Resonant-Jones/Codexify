@@ -1,9 +1,24 @@
 import importlib
 import os
+from contextlib import contextmanager
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+
+_GUARDIAN_API_ENV_KEYS = (
+    "GUARDIAN_API_KEY",
+    "ENABLE_CONNECTOR_WORKER",
+    "CODEXIFY_SUPPORTED_PROFILE",
+    "LLM_PROVIDER",
+    "ALLOW_CLOUD_PROVIDERS",
+    "CODEXIFY_LOCAL_ONLY_MODE",
+    "CODEXIFY_EGRESS_ALLOWLIST",
+    "LOCAL_BASE_URL",
+    "LOCAL_API_KEY",
+    "LOCAL_LLM_MODEL",
+    "LOCAL_CHAT_MODEL",
+)
 
 
 def _fake_db() -> MagicMock:
@@ -104,27 +119,55 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     return guardian_api
 
 
-def test_supported_profile_health_reports_active_profile(monkeypatch) -> None:
-    guardian_api = _load_guardian_api(monkeypatch)
-    guardian_api._refresh_supported_profile_state(
-        guardian_api.app, guardian_api.get_settings()
-    )
+def _snapshot_guardian_api_env() -> dict[str, str | None]:
+    return {key: os.environ.get(key) for key in _GUARDIAN_API_ENV_KEYS}
 
-    client = TestClient(guardian_api.app)
+
+def _restore_guardian_api_env(snapshot: dict[str, str | None]) -> None:
+    for key, value in snapshot.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
+@contextmanager
+def _loaded_guardian_api(monkeypatch, **env_overrides):
+    snapshot = _snapshot_guardian_api_env()
+    guardian_api = _load_guardian_api(monkeypatch, **env_overrides)
     try:
-        response = client.get("/health")
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["status"] == "ok"
-        assert payload["supported_profile"]["name"] == "v1-local-core-web-mcp"
-        assert payload["supported_profile"]["valid"] is True
+        yield guardian_api
     finally:
-        client.close()
+        _restore_guardian_api_env(snapshot)
+        from guardian.core import event_bus
+
+        event_bus.reset()
+        importlib.reload(guardian_api)
 
 
-def test_supported_profile_startup_fails_on_provider_drift(monkeypatch) -> None:
-    guardian_api = _load_guardian_api(monkeypatch, LLM_PROVIDER="groq")
-    with pytest.raises(RuntimeError, match="supported profile drift"):
+def test_supported_profile_health_reports_active_profile(monkeypatch) -> None:
+    with _loaded_guardian_api(monkeypatch) as guardian_api:
         guardian_api._refresh_supported_profile_state(
             guardian_api.app, guardian_api.get_settings()
         )
+
+        client = TestClient(guardian_api.app)
+        try:
+            response = client.get("/health")
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["status"] == "ok"
+            assert (
+                payload["supported_profile"]["name"] == "v1-local-core-web-mcp"
+            )
+            assert payload["supported_profile"]["valid"] is True
+        finally:
+            client.close()
+
+
+def test_supported_profile_startup_fails_on_provider_drift(monkeypatch) -> None:
+    with _loaded_guardian_api(monkeypatch, LLM_PROVIDER="groq") as guardian_api:
+        with pytest.raises(RuntimeError, match="supported profile drift"):
+            guardian_api._refresh_supported_profile_state(
+                guardian_api.app, guardian_api.get_settings()
+            )
