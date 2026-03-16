@@ -40,3 +40,27 @@ venv
 # test/cache
 .cache
 .pytest_cache
+
+# backend image build only needs dependency manifests plus guardian/, backend/,
+# plugins/, and scripts/; exclude unrelated or runtime-mounted repo areas.
+/.github
+/.chroma
+/archive
+/artifacts
+/codex_ralph_loop
+/codex_runner
+/codex_tasks
+/codexify-ui-triage
+/cypress
+/data
+/docker
+/docs
+/frontend
+/models
+/src-tauri
+/tests
+/tools
+/guardian/codemap
+/guardian/tts_output
+/guardian/*.backup
+/guardian/*.old
