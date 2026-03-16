@@ -12,16 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from guardian.codex.lineage import normalize_front_matter
-from guardian.codexify import create_notion_database_from_records
 from guardian.core.event_graph import get_event_writer
-from guardian.export_engine import (
-    export_records,
-    export_to_gdrive,
-    import_from_gdrive,
-    import_from_icloud,
-)
-from guardian.integrations.google_drive import build_drive_service
-from guardian.integrations.google_oauth import ensure_oauth_credentials
 
 router = APIRouter(prefix="/codexify", tags=["codexify"])
 logger = logging.getLogger(__name__)
@@ -36,6 +27,58 @@ _REMOTE_AUTH_MODES = {
     "prod",
     "production",
 }
+
+
+def create_notion_database_from_records(*args, **kwargs):
+    from guardian.codexify import (
+        create_notion_database_from_records as notion_create,
+    )
+
+    return notion_create(*args, **kwargs)
+
+
+def export_records(*args, **kwargs):
+    from guardian.export_engine import export_records as export_records_impl
+
+    return export_records_impl(*args, **kwargs)
+
+
+def export_to_gdrive(*args, **kwargs):
+    from guardian.export_engine import export_to_gdrive as export_to_gdrive_impl
+
+    return export_to_gdrive_impl(*args, **kwargs)
+
+
+def import_from_gdrive(*args, **kwargs):
+    from guardian.export_engine import (
+        import_from_gdrive as import_from_gdrive_impl,
+    )
+
+    return import_from_gdrive_impl(*args, **kwargs)
+
+
+def import_from_icloud(*args, **kwargs):
+    from guardian.export_engine import (
+        import_from_icloud as import_from_icloud_impl,
+    )
+
+    return import_from_icloud_impl(*args, **kwargs)
+
+
+def build_drive_service(*args, **kwargs):
+    from guardian.integrations.google_drive import (
+        build_drive_service as build_drive_service_impl,
+    )
+
+    return build_drive_service_impl(*args, **kwargs)
+
+
+def ensure_oauth_credentials(*args, **kwargs):
+    from guardian.integrations.google_oauth import (
+        ensure_oauth_credentials as ensure_oauth_credentials_impl,
+    )
+
+    return ensure_oauth_credentials_impl(*args, **kwargs)
 
 
 class GDriveExportRequest(BaseModel):
