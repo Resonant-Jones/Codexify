@@ -33,6 +33,7 @@ from guardian.core.ai_router import chat_with_ai, stream_local
 from guardian.core.chat_completion_service import ChatTaskCancelled
 from guardian.core.config import (
     LLMConfigError,
+    Settings,
     get_settings,
     validate_llm_config,
 )
@@ -43,6 +44,11 @@ from guardian.core.llm_catalog import (
     resolve_provider_for_model,
 )
 from guardian.core.metrics import CHAT_TURN_METADATA_PERSIST_FAILURES_TOTAL
+from guardian.core.provider_registry import (
+    default_model_for_provider,
+    normalize_provider,
+    validate_provider_model_selection,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     clear_cancelled,
@@ -164,6 +170,32 @@ def _persist_turn_id_metadata(
             RETURNING id
             """,
             (json.dumps({"turn_id": turn_id}), thread_id, message_id),
+        )
+        row = cur.fetchone()
+        return bool(row)
+
+
+def _persist_message_extra_meta(
+    *, thread_id: int, message_id: int, payload: dict[str, Any]
+) -> bool:
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return False
+
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return False
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE chat_messages
+            SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
+            WHERE thread_id = %s
+              AND id = %s
+            RETURNING id
+            """,
+            (json.dumps(payload or {}), thread_id, message_id),
         )
         row = cur.fetchone()
         return bool(row)
@@ -363,6 +395,17 @@ def _describe_task_error(exc: Exception) -> str:
         if detail:
             return str(detail)
     return str(exc) or exc.__class__.__name__
+
+
+def _task_error_metadata(exc: Exception) -> dict[str, Any]:
+    if isinstance(exc, HTTPException):
+        detail = getattr(exc, "detail", None)
+        if isinstance(detail, dict):
+            return dict(detail)
+    metadata = getattr(exc, "metadata", None)
+    if isinstance(metadata, dict):
+        return dict(metadata)
+    return {}
 
 
 def _classify_runtime_status(detail: str) -> str | None:
@@ -692,13 +735,24 @@ def _schedule_assistant_message_audio_generation(
 
 
 def _normalize_provider_override(value: Any) -> str | None:
-    normalized = str(value or "").strip().lower()
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    normalized = normalize_provider(raw)
     return normalized or None
 
 
 def _normalize_model_override(value: Any) -> str | None:
     normalized = str(value or "").strip()
+    if normalized.lower() in {"", "auto"}:
+        return None
     return normalized or None
+
+
+class AssistantPersistenceError(RuntimeError):
+    def __init__(self, message: str, *, metadata: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.metadata = dict(metadata or {})
 
 
 def _coerce_build_messages_result(
@@ -773,26 +827,56 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
     except Exception:
         profile = None
 
-    provider = _normalize_provider_override(task.provider)
-    model = _normalize_model_override(task.model)
+    requested_provider = _normalize_provider_override(task.provider)
+    requested_model = _normalize_model_override(task.model)
+    selection_source = (
+        str(getattr(task, "selection_source", "") or "").strip() or None
+    )
+    provider_pinned = bool(getattr(task, "provider_pinned", False))
+
+    provider = requested_provider
+    model = requested_model
 
     if model:
         resolved_provider = resolve_provider_for_model(model, settings=settings)
         if resolved_provider:
-            provider = _normalize_provider_override(resolved_provider)
-        elif provider not in {None, "local"}:
+            if provider and provider != resolved_provider:
+                valid, reason = validate_provider_model_selection(
+                    provider_id=provider,
+                    model_id=model,
+                    settings=settings,
+                )
+                if not valid:
+                    raise LLMConfigError(
+                        reason or "Requested model is not available"
+                    )
+            provider = _normalize_provider_override(
+                provider or resolved_provider
+            )
+        elif provider is None:
             raise LLMConfigError(f"Requested model '{model}' is not available")
 
     if provider is None:
         provider = _normalize_provider_override(
             getattr(profile, "provider_override", None)
         )
+        if provider and selection_source is None:
+            selection_source = "profile"
+
+    if provider is None:
+        provider = _normalize_provider_override(
+            settings.LLM_PROVIDER
+            or getattr(dependencies, "CHAT_PROVIDER", None)
+        )
+        if provider and selection_source is None:
+            selection_source = "default"
+
     if provider is None:
         provider = _normalize_provider_override(
             first_enabled_provider(settings=settings)
-            or settings.LLM_PROVIDER
-            or getattr(dependencies, "CHAT_PROVIDER", None)
         )
+        if provider and selection_source is None:
+            selection_source = "default"
 
     if model is None:
         model = _normalize_model_override(
@@ -800,10 +884,33 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
         )
     if model is None and provider:
         model = _normalize_model_override(
-            first_model_for_provider(provider, settings=settings)
+            default_model_for_provider(provider, settings)
+            or first_model_for_provider(provider, settings=settings)
         )
 
-    return replace(task, provider=provider, model=model)
+    if provider and isinstance(settings, Settings):
+        valid, reason = validate_provider_model_selection(
+            provider_id=provider,
+            model_id=model,
+            settings=settings,
+        )
+        if not valid:
+            raise LLMConfigError(
+                reason or "Provider/model selection is invalid"
+            )
+
+    return replace(
+        task,
+        provider=provider,
+        model=model,
+        requested_provider=requested_provider,
+        requested_model=requested_model,
+        selection_source=selection_source
+        or (
+            "explicit" if (requested_provider or requested_model) else "default"
+        ),
+        provider_pinned=provider_pinned,
+    )
 
 
 def _sync_build_messages_compat_seams() -> None:
@@ -831,6 +938,8 @@ async def _build_messages_for_llm(
     messages, provider, model, bundle, trace = _coerce_build_messages_result(
         await _ORIGINAL_BUILD_MESSAGES_FOR_LLM(resolved_task)
     )
+    provider = _normalize_provider_override(resolved_task.provider) or provider
+    model = _normalize_model_override(resolved_task.model) or model
 
     extra_system_messages: list[str] = []
     if callable(build_context_system_message):
@@ -869,59 +978,133 @@ def _run_chat_completion_task_compat(
         bundle,
         trace,
     ) = _coerce_build_messages_result(build_result)
-
-    assistant_text = ""
-    if provider == "local":
-        streamed_any = False
-        token_stream = stream_local(
-            messages_for_llm,
-            model,
-            reasoning_mode=getattr(task, "reasoning_mode", None),
-        )
-        try:
-            for token in token_stream:
-                if cancel_check and cancel_check():
-                    raise ChatTaskCancelled("task_cancelled")
-                if token:
-                    streamed_any = True
-                    assistant_text += token
-                    if token_callback:
-                        token_callback(token)
-        finally:
-            token_stream.close()
-
-        if not assistant_text.strip():
-            assistant_text = str(
-                chat_with_ai(
-                    messages_for_llm,
-                    model=model,
-                    provider=provider,
-                    reasoning_mode=getattr(task, "reasoning_mode", None),
-                )
+    settings = get_settings()
+    attempted_provider = provider
+    attempted_model = model
+    selection_source = str(
+        getattr(task, "selection_source", "") or ""
+    ).strip() or (
+        "explicit"
+        if (
+            _normalize_provider_override(
+                getattr(task, "requested_provider", None) or task.provider
             )
-            if token_callback and (not streamed_any) and assistant_text:
-                token_callback(assistant_text)
-    else:
+            or _normalize_model_override(
+                getattr(task, "requested_model", None) or task.model
+            )
+        )
+        else "default"
+    )
+    provider_pinned = bool(getattr(task, "provider_pinned", False))
+
+    def _execute_completion(
+        execution_provider: str,
+        execution_model: str,
+    ) -> str:
+        assistant_output = ""
+        if execution_provider == "local":
+            streamed_any = False
+            token_stream = stream_local(
+                messages_for_llm,
+                execution_model,
+                reasoning_mode=getattr(task, "reasoning_mode", None),
+            )
+            try:
+                for token in token_stream:
+                    if cancel_check and cancel_check():
+                        raise ChatTaskCancelled("task_cancelled")
+                    if token:
+                        streamed_any = True
+                        assistant_output += token
+                        if token_callback:
+                            token_callback(token)
+            finally:
+                token_stream.close()
+
+            if not assistant_output.strip():
+                assistant_output = str(
+                    chat_with_ai(
+                        messages_for_llm,
+                        model=execution_model,
+                        provider=execution_provider,
+                        reasoning_mode=getattr(task, "reasoning_mode", None),
+                    )
+                )
+                if token_callback and (not streamed_any) and assistant_output:
+                    token_callback(assistant_output)
+            return assistant_output
+
         if cancel_check and cancel_check():
             raise ChatTaskCancelled("task_cancelled")
-        assistant_text = str(
+        assistant_output = str(
             chat_with_ai(
                 messages_for_llm,
-                model=model,
-                provider=provider,
+                model=execution_model,
+                provider=execution_provider,
                 reasoning_mode=getattr(task, "reasoning_mode", None),
             )
         )
         if token_callback:
-            token_callback(assistant_text)
+            token_callback(assistant_output)
+        return assistant_output
+
+    fallback_reason: str | None = None
+    failure_meta: dict[str, Any] = {}
+    final_provider = provider
+    final_model = model
+    try:
+        assistant_text = _execute_completion(provider, model)
+    except Exception as exc:
+        failure_meta = _task_error_metadata(exc)
+        explicit_fallback_enabled = str(
+            os.getenv("CODEXIFY_CHAT_EXPLICIT_LOCAL_FALLBACK_ENABLED", "")
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        should_rescue = bool(
+            provider != "local"
+            and (
+                selection_source != "explicit"
+                or (explicit_fallback_enabled and not provider_pinned)
+            )
+        )
+        fallback_model = _normalize_model_override(
+            first_model_for_provider("local", settings=settings)
+            or default_model_for_provider("local", settings)
+        )
+        if not should_rescue or not fallback_model:
+            raise
+        logger.warning(
+            "[chat-worker] provider_rescue_start attempted_provider=%s attempted_model=%s selection_source=%s provider_pinned=%s fallback_provider=local fallback_model=%s",
+            provider,
+            model,
+            selection_source,
+            provider_pinned,
+            fallback_model,
+        )
+        assistant_text = _execute_completion("local", fallback_model)
+        fallback_reason = "cloud_failure_local_rescue"
+        final_provider = "local"
+        final_model = fallback_model
 
     if not assistant_text.strip():
         assistant_text = "No assistant response was generated."
 
     result: dict[str, Any] = {
         "assistant_text": assistant_text,
-        "provider": provider,
-        "model": model,
+        "provider": final_provider,
+        "model": final_model,
+        "attempted_provider": attempted_provider,
+        "attempted_model": attempted_model,
+        "resolved_provider": provider,
+        "resolved_model": model,
+        "selection_source": selection_source,
+        "fallback_reason": fallback_reason,
+        "upstream_status": failure_meta.get("upstream_status"),
+        "provider_error": failure_meta.get("provider_error"),
+        "transport_classification": failure_meta.get(
+            "transport_classification"
+        ),
+        "provider_failure_kind": failure_meta.get("failure_kind"),
+        "provider_failure_message": failure_meta.get("message"),
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,
@@ -930,12 +1113,59 @@ def _run_chat_completion_task_compat(
     if not persist_assistant_message:
         return result
 
-    message_id = dependencies.chatlog_db.create_message(
-        task.thread_id,
-        "assistant",
-        assistant_text,
-    )
+    try:
+        message_id = dependencies.chatlog_db.create_message(
+            task.thread_id,
+            "assistant",
+            assistant_text,
+        )
+    except Exception as exc:
+        persistence_meta = {
+            "error": "assistant_message_persist_failed",
+            "message": "Assistant generation succeeded but persistence failed",
+            "attempted_provider": attempted_provider,
+            "attempted_model": attempted_model,
+            "resolved_provider": provider,
+            "resolved_model": model,
+            "final_provider": final_provider,
+            "final_model": final_model,
+            "selection_source": selection_source,
+            "fallback_reason": fallback_reason,
+            "assistant_text_chars": len(assistant_text),
+            "persistence_outcome": "failed",
+        }
+        logger.error(
+            "[chat-worker] assistant_message_persist_failed thread_id=%s attempted_provider=%s attempted_model=%s final_provider=%s final_model=%s chars=%s",
+            task.thread_id,
+            attempted_provider,
+            attempted_model,
+            final_provider,
+            final_model,
+            len(assistant_text),
+            exc_info=True,
+        )
+        raise AssistantPersistenceError(
+            "assistant_message_persist_failed",
+            metadata=persistence_meta,
+        ) from exc
     result["message_id"] = message_id
+    result["persistence_outcome"] = "persisted"
+
+    with suppress(Exception):
+        _persist_message_extra_meta(
+            thread_id=task.thread_id,
+            message_id=message_id,
+            payload={
+                "attempted_provider": attempted_provider,
+                "attempted_model": attempted_model,
+                "resolved_provider": provider,
+                "resolved_model": model,
+                "final_provider": final_provider,
+                "final_model": final_model,
+                "selection_source": selection_source,
+                "fallback_reason": fallback_reason,
+            },
+        )
 
     with suppress(Exception):
         dependencies.chatlog_db.write_audit_log(
@@ -1214,7 +1444,22 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "message_id": message_id,
                 "provider": result.get("provider"),
                 "model": result.get("model"),
+                "attempted_provider": result.get("attempted_provider"),
+                "attempted_model": result.get("attempted_model"),
+                "resolved_provider": result.get("resolved_provider"),
+                "resolved_model": result.get("resolved_model"),
                 "selection_source": result.get("selection_source"),
+                "fallback_reason": result.get("fallback_reason"),
+                "upstream_status": result.get("upstream_status"),
+                "provider_error": result.get("provider_error"),
+                "transport_classification": result.get(
+                    "transport_classification"
+                ),
+                "provider_failure_kind": result.get("provider_failure_kind"),
+                "provider_failure_message": result.get(
+                    "provider_failure_message"
+                ),
+                "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
             },
@@ -1250,6 +1495,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     except Exception as exc:
         duration_ms = int((time.monotonic() - started) * 1000)
         error_detail = _describe_task_error(exc)
+        error_metadata = _task_error_metadata(exc)
         failure_payload = {
             "run_id": run_id,
             "duration_ms": duration_ms,
@@ -1259,6 +1505,28 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "origin": task.origin,
             "turn_id": turn_id,
         }
+        for key in (
+            "provider",
+            "model",
+            "attempted_provider",
+            "attempted_model",
+            "resolved_provider",
+            "resolved_model",
+            "selection_source",
+            "fallback_reason",
+            "upstream_status",
+            "provider_error",
+            "transport_classification",
+            "failure_kind",
+            "message",
+            "persistence_outcome",
+        ):
+            value = error_metadata.get(key)
+            if value is not None:
+                normalized_key = (
+                    "provider_failure_message" if key == "message" else key
+                )
+                failure_payload[normalized_key] = value
         runtime_status = _classify_runtime_status(error_detail)
         if runtime_status:
             failure_payload["runtime_status"] = runtime_status

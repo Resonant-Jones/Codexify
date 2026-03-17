@@ -8,6 +8,13 @@ export type ProviderModelSelection = {
   model: string | null;
 };
 
+type ProviderLike = {
+  id: string;
+  available?: boolean;
+  enabled?: boolean;
+  models?: Array<{ id: string }>;
+};
+
 function normalizeString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -113,4 +120,44 @@ export function setPreferredProviderSelection(
   } catch {
     /* ignore */
   }
+}
+
+export function reconcilePreferredProviderSelection(
+  providers: ProviderLike[]
+): ProviderModelSelection | null {
+  const current = getPreferredProviderSelection();
+  if (!current) return null;
+
+  const normalizedProviders = Array.isArray(providers) ? providers : [];
+  const providerId = normalizeString(current.provider);
+  const modelId = normalizeString(current.model);
+
+  const matchedProvider = providerId
+    ? normalizedProviders.find((provider) => normalizeString(provider.id) === providerId)
+    : modelId
+      ? normalizedProviders.find((provider) =>
+          Array.isArray(provider.models)
+          && provider.models.some((model) => normalizeString(model.id) === modelId)
+        )
+      : null;
+
+  if (!matchedProvider) {
+    setPreferredProviderSelection(null);
+    return null;
+  }
+
+  const nextProvider = normalizeString(matchedProvider.id);
+  const models = Array.isArray(matchedProvider.models)
+    ? matchedProvider.models
+    : [];
+  const modelStillValid = modelId
+    ? models.some((model) => normalizeString(model.id) === modelId)
+    : false;
+
+  const reconciled: ProviderModelSelection = {
+    provider: nextProvider,
+    model: modelStillValid ? modelId : null,
+  };
+  setPreferredProviderSelection(reconciled);
+  return reconciled;
 }
