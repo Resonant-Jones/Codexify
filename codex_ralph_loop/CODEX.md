@@ -21,7 +21,7 @@ This repo depends on fast-moving tools and specs. Use web research *selectively*
 - Any library/API surface that likely changed since 2024
 2. Do not use web research for timeless basics (JSON, HTTP fundamentals, TypeScript syntax, etc.).
 3. Prefer primary sources (official docs, upstream GitHub repos/releases).
-4. When validating a framework/library behavior, first identify the version used in this repo (for example from `package.json`, lockfiles, or official config), and search against that version’s docs/release notes.
+4. When validating a framework/library behavior, first identify the version used in this repo (for example from `package.json`, lockfiles, or official config), and search against that version’s docs/reference/operator/release notes.
 5. When you rely on web research for a finding, include an **External References** section in the report with:
 - URL
 - Date accessed (today’s date is provided by the runner)
