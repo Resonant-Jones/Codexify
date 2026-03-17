@@ -7,6 +7,7 @@ import DocumentGenModal, {
 import AppShell from "./components/persona/layout/AppShell";
 import { TopBar } from "./components/TopBar";
 import { Button } from "./components/ui/button";
+import CommandCenterPage from "./features/commandCenter/CommandCenterPage";
 import api from "./lib/api";
 import {
   appendBootstrapDetail,
@@ -47,6 +48,11 @@ import { SharePage } from "./pages/SharePage";
  */
 
 const TUNE_ENABLED = (import.meta as any)?.env?.DEV || (import.meta as any)?.env?.VITE_TUNE === "1";
+const COMMAND_CENTER_ENABLED =
+  (import.meta as any)?.env?.DEV ||
+  /^(1|true)$/i.test(
+    String((import.meta as any)?.env?.VITE_ENABLE_COMMAND_CENTER ?? "")
+  );
 
 const DOC_GEN_EXT_MAP: Record<string, string> = {
   markdown: "md",
@@ -69,6 +75,11 @@ function isTuneRoute() {
 function isEventsRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/dev/events");
+}
+
+function isCommandCenterRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/command-center");
 }
 
 function isShareRoute() {
@@ -270,12 +281,14 @@ function DevTuneGate() {
 export default function App() {
   const tuneRoute = TUNE_ENABLED && isTuneRoute();
   const eventsRoute = isEventsRoute();
+  const commandCenterRoute = isCommandCenterRoute();
   const shareRoute = isShareRoute();
   const shareToken = shareRoute ? getShareToken() : null;
   const bootstrapEnabled =
     shouldRunRuntimeBootstrap() &&
     !tuneRoute &&
     !eventsRoute &&
+    !commandCenterRoute &&
     !(shareRoute && !!shareToken);
   const [docGenOpen, setDocGenOpen] = React.useState(false);
   const [docGenDraft, setDocGenDraft] = React.useState<DocumentGenInput | null>(
@@ -670,6 +683,9 @@ export default function App() {
         </main>
       </div>
     );
+  }
+  if (commandCenterRoute) {
+    return <CommandCenterPage enabled={COMMAND_CENTER_ENABLED} />;
   }
   if (shareRoute) {
     if (shareToken) {
