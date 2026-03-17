@@ -118,6 +118,58 @@ def test_duplicate_turn_short_circuits_new_completion(monkeypatch):
     assert completed_payloads[-1]["selection_source"] == "turn_id_dedupe"
 
 
+def test_existing_assistant_message_completes_idempotently_and_releases_lock(
+    monkeypatch,
+):
+    _isolate_turn_anchor(monkeypatch)
+    task = _build_task(task_id="task-existing-assistant")
+    published: list[tuple[str, str, dict[str, Any]]] = []
+    released: list[tuple[int, str]] = []
+    run_completion_calls = {"count": 0}
+
+    def _run_completion(*_args, **_kwargs):
+        run_completion_calls["count"] += 1
+        return {"message_id": 999}
+
+    monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
+    monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        _run_completion,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_safe_publish",
+        lambda task_id, event_type, data: published.append(
+            (task_id, event_type, data)
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: 1
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "release_turn_lock",
+        lambda thread_id, owner: released.append((thread_id, owner)) or True,
+    )
+
+    chat_worker._run_chat_task(task)
+
+    event_types = [event_type for _task_id, event_type, _payload in published]
+    completed_payload = next(
+        payload
+        for _task_id, event_type, payload in published
+        if event_type == "task.completed"
+    )
+    assert run_completion_calls["count"] == 0
+    assert "task.completed" in event_types
+    assert "task.failed" not in event_types
+    assert completed_payload["message_id"] == 1
+    assert completed_payload["selection_source"] == "turn_id_dedupe"
+    assert released == [(task.thread_id, task.task_id)]
+
+
 def test_missing_assistant_message_marks_task_failed_and_releases_lock(
     monkeypatch,
 ):
@@ -139,6 +191,14 @@ def test_missing_assistant_message_marks_task_failed_and_releases_lock(
         lambda task_id, event_type, data: published.append(
             (task_id, event_type, data)
         ),
+    )
+    monkeypatch.setattr(
+        chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_find_assistant_message_id_by_turn_id",
+        lambda **_kwargs: None,
     )
     monkeypatch.setattr(
         chat_worker,

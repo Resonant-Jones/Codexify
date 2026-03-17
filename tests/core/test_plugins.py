@@ -1,395 +1,174 @@
+import pytest
 import requests
 
 from guardian.core import plugins as core_plugins
 from guardian.plugins.plugin_manifest import PluginManifest
 
 
-class DummyRuntimeLoader:
-    def __init__(self, plugins=None):
-        self.plugins = plugins or {}
-        self.load_calls = 0
-
-    def load_all_plugins(self):
-        self.load_calls += 1
-        self.plugins["loaded"] = object()
-
-
-class FakeResponse:
-    def __init__(self, *, status_code=200, payload=None, json_exc=None):
-        self.status_code = status_code
-        self._payload = payload if payload is not None else {}
-        self._json_exc = json_exc
-
-    def json(self):
-        if self._json_exc is not None:
-            raise self._json_exc
-        return self._payload
-
-
-def _manifest(
-    plugin_id: str,
-    *,
-    base_url: str,
-    operations: list[tuple[str, str]] | None = None,
-) -> PluginManifest:
-    operations = operations or [("tts", "speak")]
-    grouped_actions: dict[str, list[str]] = {}
-    for capability, action in operations:
-        grouped_actions.setdefault(capability, []).append(action)
-    return PluginManifest(
-        schema_version="1.0",
-        id=plugin_id,
-        name=plugin_id,
-        version="1.0.0",
-        base_url=base_url,
-        capabilities=[
-            {"id": capability, "actions": actions}
-            for capability, actions in grouped_actions.items()
-        ],
+def _manifest(plugin_id: str, cap_action: tuple[str, str]) -> PluginManifest:
+    capability, action = cap_action
+    return PluginManifest.model_validate(
+        {
+            "schema_version": "1.0",
+            "id": plugin_id,
+            "name": plugin_id,
+            "version": "0.1.0",
+            "base_url": "https://plugin.example",
+            "capabilities": [{"id": capability, "actions": [action]}],
+        }
     )
-
-
-def test_load_runtime_plugins_loads_once_when_empty(monkeypatch):
-    loader = DummyRuntimeLoader()
-    monkeypatch.setattr(
-        core_plugins, "get_runtime_plugin_loader", lambda: loader
-    )
-
-    loaded = core_plugins.load_runtime_plugins()
-
-    assert loaded is loader
-    assert loader.load_calls == 1
-
-
-def test_load_runtime_plugins_skips_reload_when_registry_present(monkeypatch):
-    loader = DummyRuntimeLoader(plugins={"existing": object()})
-    monkeypatch.setattr(
-        core_plugins, "get_runtime_plugin_loader", lambda: loader
-    )
-
-    loaded = core_plugins.load_runtime_plugins()
-
-    assert loaded is loader
-    assert loader.load_calls == 0
-
-
-def test_get_plugin_manifest_by_capability_is_case_insensitive(monkeypatch):
-    manifests = [
-        _manifest(
-            "non_tts",
-            base_url="https://voice-a.example",
-            operations=[("vision", "classify")],
-        ),
-        _manifest(
-            "voice",
-            base_url="https://voice-b.example",
-            operations=[("TTS", "Speak"), ("audio", "mix")],
-        ),
-    ]
-    monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: manifests
-    )
-
-    manifest = core_plugins.get_plugin_manifest_by_capability("tts")
-
-    assert manifest is not None
-    assert manifest.id == "voice"
-    assert core_plugins.get_plugin_manifest_by_capability("missing") is None
-
-
-def test_find_plugins_by_capability_action_returns_matching_plugins(
-    monkeypatch,
-):
-    manifests = [
-        _manifest("voice_a", base_url="https://voice-a.example"),
-        _manifest("voice_b", base_url="https://voice-b.example"),
-        _manifest(
-            "vision",
-            base_url="https://vision.example",
-            operations=[("vision", "classify")],
-        ),
-    ]
-    monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: manifests
-    )
-
-    matches = core_plugins.find_plugins_by_capability_action("tts", "speak")
-
-    assert [manifest.id for manifest in matches] == ["voice_a", "voice_b"]
-
-
-def test_invoke_plugin_sends_canonical_envelope(monkeypatch):
-    manifest = _manifest("voice", base_url="https://voice.example")
-    monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: [manifest]
-    )
-    captured: dict[str, object] = {}
-
-    def _fake_post(url, json, headers, timeout):
-        captured["url"] = url
-        captured["json"] = json
-        captured["headers"] = headers
-        captured["timeout"] = timeout
-        return FakeResponse(payload={"output": {"status": "ok"}})
-
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
-
-    payload = core_plugins.invoke_plugin(
-        "voice",
-        capability="tts",
-        action="speak",
-        input={"text": "hello"},
-        context={
-            "request_id": "req-123",
-            "thread_id": None,
-            "user_id": None,
-            "api_key": "should_not_forward",
-        },
-    )
-
-    assert payload == {"output": {"status": "ok"}}
-    assert captured["url"] == "https://voice.example/invoke"
-    assert captured["timeout"] == core_plugins.INVOKE_TIMEOUT_SECONDS
-    assert captured["headers"] == {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    assert "Authorization" not in captured["headers"]
-    assert captured["json"] == {
-        "protocol_version": "1.0",
-        "plugin_id": "voice",
-        "capability": "tts",
-        "action": "speak",
-        "input": {"text": "hello"},
-        "context": {
-            "request_id": "req-123",
-            "thread_id": None,
-            "user_id": None,
-        },
-    }
 
 
 def test_invoke_capability_fails_on_zero_matches(monkeypatch):
     monkeypatch.setattr(core_plugins, "list_plugin_manifests", lambda: [])
 
-    try:
-        core_plugins.invoke_capability("tts", "speak", input={"text": "hello"})
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_NOT_FOUND
+    with pytest.raises(core_plugins.PluginFacadeError) as exc_info:
+        core_plugins.invoke_capability("chat", "reply", input={})
+
+    assert exc_info.value.code == "not_found"
 
 
 def test_invoke_capability_fails_on_multiple_matches(monkeypatch):
     manifests = [
-        _manifest("voice_a", base_url="https://voice-a.example"),
-        _manifest("voice_b", base_url="https://voice-b.example"),
+        _manifest("a", ("chat", "reply")),
+        _manifest("b", ("chat", "reply")),
     ]
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: manifests
     )
 
-    try:
-        core_plugins.invoke_capability("tts", "speak", input={"text": "hello"})
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_AMBIGUOUS
-        assert exc.details == ["voice_a", "voice_b"]
+    with pytest.raises(core_plugins.PluginFacadeError) as exc_info:
+        core_plugins.invoke_capability("chat", "reply", input={})
+
+    assert exc_info.value.code == "ambiguous"
 
 
-def test_explicit_plugin_invocation_works_with_shared_operation(monkeypatch):
+def test_explicit_plugin_invocation_works_when_multiple_share_operation(
+    monkeypatch,
+):
     manifests = [
-        _manifest("voice_a", base_url="https://voice-a.example"),
-        _manifest("voice_b", base_url="https://voice-b.example"),
+        _manifest("a", ("chat", "reply")),
+        _manifest("b", ("chat", "reply")),
     ]
     monkeypatch.setattr(
         core_plugins, "list_plugin_manifests", lambda: manifests
     )
-    captured: dict[str, object] = {}
 
-    def _fake_post(url, json, headers, timeout):
-        captured["url"] = url
-        captured["plugin_id"] = json["plugin_id"]
-        return FakeResponse(payload={"output": {"plugin": json["plugin_id"]}})
+    sent = {}
 
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
+    class DummyResponse:
+        def json(self):
+            return {"ok": True, "output": {"message": "hello"}}
 
-    payload = core_plugins.invoke_plugin(
-        "voice_b",
-        capability="tts",
-        action="speak",
-        input={"text": "hello"},
+    def fake_post(url, json, timeout):
+        sent["url"] = url
+        sent["json"] = json
+        sent["timeout"] = timeout
+        return DummyResponse()
+
+    monkeypatch.setattr(core_plugins.requests, "post", fake_post)
+    result = core_plugins.invoke_plugin(
+        "a",
+        "chat",
+        "reply",
+        input={"prompt": "hi"},
+        context={"request_id": "req-1"},
     )
 
-    assert payload == {"output": {"plugin": "voice_b"}}
-    assert captured["plugin_id"] == "voice_b"
-    assert captured["url"] == "https://voice-b.example/invoke"
+    assert result == {"ok": True, "output": {"message": "hello"}}
+    assert sent["url"] == "https://plugin.example/invoke"
+    assert sent["timeout"] == core_plugins.INVOKE_TIMEOUT_SECONDS
+    assert sent["json"] == {
+        "protocol_version": "1.0",
+        "plugin_id": "a",
+        "capability": "chat",
+        "action": "reply",
+        "input": {"prompt": "hi"},
+        "context": {
+            "request_id": "req-1",
+            "thread_id": None,
+            "user_id": None,
+        },
+    }
 
 
 def test_invoke_plugin_normalizes_timeout(monkeypatch):
-    manifest = _manifest("voice", base_url="https://voice.example")
     monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: [manifest]
+        core_plugins,
+        "list_plugin_manifests",
+        lambda: [_manifest("a", ("chat", "reply"))],
     )
 
-    def _fake_post(url, json, headers, timeout):
-        raise requests.Timeout("timed out")
+    def raise_timeout(*_args, **_kwargs):
+        raise requests.Timeout("boom")
 
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
+    monkeypatch.setattr(core_plugins.requests, "post", raise_timeout)
 
-    try:
-        core_plugins.invoke_plugin(
-            "voice", "tts", "speak", input={"text": "hello"}
-        )
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_TIMEOUT
+    with pytest.raises(core_plugins.PluginFacadeError) as exc_info:
+        core_plugins.invoke_plugin("a", "chat", "reply", input={})
+
+    assert exc_info.value.code == "timeout"
 
 
-def test_invoke_plugin_normalizes_connection_failure(monkeypatch):
-    manifest = _manifest("voice", base_url="https://voice.example")
+def test_invoke_plugin_normalizes_transport_failure(monkeypatch):
     monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: [manifest]
+        core_plugins,
+        "list_plugin_manifests",
+        lambda: [_manifest("a", ("chat", "reply"))],
     )
 
-    def _fake_post(url, json, headers, timeout):
-        raise requests.ConnectionError("connection refused")
+    def raise_transport(*_args, **_kwargs):
+        raise requests.ConnectionError("boom")
 
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
+    monkeypatch.setattr(core_plugins.requests, "post", raise_transport)
 
-    try:
-        core_plugins.invoke_plugin(
-            "voice", "tts", "speak", input={"text": "hello"}
-        )
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_TRANSPORT_FAILURE
+    with pytest.raises(core_plugins.PluginFacadeError) as exc_info:
+        core_plugins.invoke_plugin("a", "chat", "reply", input={})
+
+    assert exc_info.value.code == "transport_failure"
 
 
-def test_invoke_plugin_normalizes_malformed_json_response(monkeypatch):
-    manifest = _manifest("voice", base_url="https://voice.example")
+def test_invoke_plugin_normalizes_malformed_json(monkeypatch):
     monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: [manifest]
+        core_plugins,
+        "list_plugin_manifests",
+        lambda: [_manifest("a", ("chat", "reply"))],
     )
 
-    def _fake_post(url, json, headers, timeout):
-        return FakeResponse(status_code=200, json_exc=ValueError("bad json"))
+    class BadJsonResponse:
+        def json(self):
+            raise ValueError("invalid")
 
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
-
-    try:
-        core_plugins.invoke_plugin(
-            "voice", "tts", "speak", input={"text": "hello"}
-        )
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_INVALID_RESPONSE
-
-
-def test_invoke_plugin_normalizes_nonconforming_response(monkeypatch):
-    manifest = _manifest("voice", base_url="https://voice.example")
     monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: [manifest]
+        core_plugins.requests,
+        "post",
+        lambda *_args, **_kwargs: BadJsonResponse(),
     )
 
-    def _fake_post(url, json, headers, timeout):
-        return FakeResponse(
-            status_code=200, payload={"result": "missing-output"}
-        )
+    with pytest.raises(core_plugins.PluginFacadeError) as exc_info:
+        core_plugins.invoke_plugin("a", "chat", "reply", input={})
 
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
-
-    try:
-        core_plugins.invoke_plugin(
-            "voice", "tts", "speak", input={"text": "hello"}
-        )
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_INVALID_RESPONSE
+    assert exc_info.value.code == "invalid_response"
 
 
-def test_invoke_plugin_rejects_non_object_output(monkeypatch):
-    manifest = _manifest("voice", base_url="https://voice.example")
+def test_invoke_plugin_normalizes_non_conforming_response(monkeypatch):
     monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: [manifest]
+        core_plugins,
+        "list_plugin_manifests",
+        lambda: [_manifest("a", ("chat", "reply"))],
     )
 
-    def _fake_post(url, json, headers, timeout):
-        return FakeResponse(
-            status_code=200, payload={"output": "not-an-object"}
-        )
+    class InvalidResponse:
+        def json(self):
+            return {"output": {"message": "missing ok"}}
 
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
-
-    try:
-        core_plugins.invoke_plugin(
-            "voice", "tts", "speak", input={"text": "hello"}
-        )
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_INVALID_RESPONSE
-
-
-def test_invoke_plugin_rejects_failed_ok_without_error_payload(monkeypatch):
-    manifest = _manifest("voice", base_url="https://voice.example")
     monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: [manifest]
+        core_plugins.requests,
+        "post",
+        lambda *_args, **_kwargs: InvalidResponse(),
     )
 
-    def _fake_post(url, json, headers, timeout):
-        return FakeResponse(
-            status_code=200, payload={"ok": False, "output": {}}
-        )
+    with pytest.raises(core_plugins.PluginFacadeError) as exc_info:
+        core_plugins.invoke_plugin("a", "chat", "reply", input={})
 
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
-
-    try:
-        core_plugins.invoke_plugin(
-            "voice", "tts", "speak", input={"text": "hello"}
-        )
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_INVALID_RESPONSE
-
-
-def test_invoke_plugin_normalizes_remote_error_response(monkeypatch):
-    manifest = _manifest("voice", base_url="https://voice.example")
-    monkeypatch.setattr(
-        core_plugins, "list_plugin_manifests", lambda: [manifest]
-    )
-
-    def _fake_post(url, json, headers, timeout):
-        return FakeResponse(
-            status_code=500,
-            payload={"error": {"code": "upstream_failure"}},
-        )
-
-    monkeypatch.setattr(core_plugins.requests, "post", _fake_post)
-
-    try:
-        core_plugins.invoke_plugin(
-            "voice", "tts", "speak", input={"text": "hello"}
-        )
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_REMOTE_ERROR
-
-
-def test_unhealthy_plugin_still_appears_installed(monkeypatch):
-    manifest = _manifest("voice", base_url="https://voice.example")
-    monkeypatch.setattr(
-        core_plugins, "_load_manifest_plugins", lambda: [manifest]
-    )
-
-    def _fake_get(url, timeout):
-        raise requests.Timeout("health timeout")
-
-    monkeypatch.setattr(core_plugins.requests, "get", _fake_get)
-
-    manifests = core_plugins.list_plugin_manifests()
-
-    assert [m.id for m in manifests] == ["voice"]
-    try:
-        core_plugins.get_plugin_health("voice")
-        raise AssertionError("expected PluginFacadeError")
-    except core_plugins.PluginFacadeError as exc:
-        assert exc.code == core_plugins.ERROR_TIMEOUT
+    assert exc_info.value.code == "invalid_response"

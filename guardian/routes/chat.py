@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import uuid
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -37,7 +38,15 @@ from guardian.depth import (
 )
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue, enqueue_chat_embed
-from guardian.queue.turn_lock import acquire_turn_lock, release_turn_lock
+from guardian.queue.turn_lock import (
+    TurnLockEnvelope,
+    acquire_turn_lock,
+    build_turn_lock_envelope,
+    clear_turn_lock,
+    get_turn_lock,
+    release_turn_lock,
+    turn_lock_is_stale,
+)
 from guardian.tasks.types import ChatCompletionTask
 from guardian.voice.audio_assets import list_message_audio_assets
 
@@ -56,6 +65,57 @@ def _completion_service_unavailable(reason: str) -> HTTPException:
             "message": COMPLETION_SERVICE_UNAVAILABLE_MESSAGE,
         },
     )
+
+
+def _task_terminal_event(_task_id: str) -> dict[str, Any] | None:
+    return None
+
+
+def _chat_worker_heartbeat_age_seconds() -> float | None:
+    return None
+
+
+def _turn_lock_payload(
+    lock: TurnLockEnvelope | None,
+    *,
+    thread_id: int,
+    owner: str,
+    turn_id: str,
+) -> dict[str, Any]:
+    if isinstance(lock, TurnLockEnvelope):
+        return asdict(lock)
+    return asdict(
+        build_turn_lock_envelope(
+            thread_id,
+            owner,
+            turn_id=turn_id,
+            source="api:chat.complete",
+        )
+    )
+
+
+def _recover_orphaned_turn_lock(thread_id: int) -> bool:
+    stale_lock = get_turn_lock(thread_id)
+    if stale_lock is None or not turn_lock_is_stale(stale_lock):
+        return False
+    if _task_terminal_event(stale_lock.owner_task_id) is not None:
+        return False
+
+    heartbeat_age = _chat_worker_heartbeat_age_seconds()
+    if heartbeat_age is not None and heartbeat_age <= float(
+        stale_lock.lease_ttl_seconds
+    ):
+        return False
+
+    cleared = clear_turn_lock(thread_id, expected=stale_lock)
+    if cleared and hasattr(chatlog_db, "write_audit_log"):
+        chatlog_db.write_audit_log(
+            "recover_orphaned_turn_lock",
+            "chat_thread",
+            str(thread_id),
+            user_id="system",
+        )
+    return cleared
 
 
 # =========================
@@ -1494,6 +1554,10 @@ async def chat_complete(
         thread_id=thread_id,
         provider=provider,
         model=body.model,
+        requested_provider=provider,
+        requested_model=body.model,
+        selection_source="explicit" if (provider or body.model) else "default",
+        provider_pinned=bool(str(provider or "").strip()),
         reasoning_mode=body.reasoning_mode,
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
@@ -1510,7 +1574,24 @@ async def chat_complete(
         logger.warning("[chat.complete] turn lock unavailable: %s", exc)
         raise _completion_service_unavailable("turn_lock_unavailable")
     if not locked:
-        raise HTTPException(status_code=429, detail="turn_in_flight")
+        if _recover_orphaned_turn_lock(thread_id):
+            try:
+                locked = acquire_turn_lock(thread_id, task.turn_lock_owner)
+            except Exception as exc:
+                logger.warning(
+                    "[chat.complete] turn lock unavailable after recovery: %s",
+                    exc,
+                )
+                raise _completion_service_unavailable("turn_lock_unavailable")
+        if not locked:
+            raise HTTPException(status_code=429, detail="turn_in_flight")
+
+    task.turn_lock = _turn_lock_payload(
+        locked if isinstance(locked, TurnLockEnvelope) else None,
+        thread_id=thread_id,
+        owner=task.turn_lock_owner,
+        turn_id=turn_id,
+    )
 
     try:
         enqueue(task, "codexify:queue:chat")

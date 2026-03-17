@@ -38,6 +38,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -78,6 +79,10 @@ from guardian.core.public_exposure import (
     PublicExposureMiddleware,
 )
 from guardian.core.storage import ensure_storage_base_path
+from guardian.core.supported_profile import (
+    build_supported_profile_runtime_state,
+    get_active_supported_profile,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
@@ -157,6 +162,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 _BETA_CORE_ONLY = _env_bool("CODEXIFY_BETA_CORE_ONLY", default=False)
+_SUPPORTED_PROFILE_MANIFEST = get_active_supported_profile()
 
 
 def _include_router(
@@ -167,6 +173,19 @@ def _include_router(
     default_enabled: bool = True,
     core_surface: bool = False,
 ) -> None:
+    profile_manifest = _SUPPORTED_PROFILE_MANIFEST
+    profile_status = (
+        profile_manifest.route_status(label)
+        if profile_manifest is not None
+        else "enabled"
+    )
+    if profile_status == "quarantined":
+        logger.info(
+            "[routers] quarantined %s (supported_profile=%s)",
+            label,
+            profile_manifest.name if profile_manifest is not None else "none",
+        )
+        return
     if _BETA_CORE_ONLY and not core_surface:
         logger.info(
             "[routers] quarantined %s (CODEXIFY_BETA_CORE_ONLY=true)",
@@ -176,7 +195,34 @@ def _include_router(
     if not _env_bool(flag_name, default=default_enabled):
         logger.info("[routers] quarantined %s (%s=false)", label, flag_name)
         return
+    route_count_before = len(app.routes)
     include_fn()
+    if profile_manifest is not None:
+        enabled_labels = getattr(
+            app.state, "supported_profile_enabled_labels", None
+        )
+        if enabled_labels is None:
+            enabled_labels = set()
+            app.state.supported_profile_enabled_labels = enabled_labels
+        enabled_labels.add(label)
+        if profile_status == "internal_only":
+            hidden_paths = getattr(
+                app.state, "supported_profile_hidden_paths", None
+            )
+            if hidden_paths is None:
+                hidden_paths = set()
+                app.state.supported_profile_hidden_paths = hidden_paths
+            for route in app.routes[route_count_before:]:
+                path = getattr(route, "path", None)
+                if isinstance(path, str) and path:
+                    hidden_paths.add(path)
+            app.openapi_schema = None
+            logger.info(
+                "[routers] enabled %s as internal-only via supported profile %s",
+                label,
+                profile_manifest.name,
+            )
+            return
     logger.info("[routers] enabled %s", label)
 
 
@@ -486,6 +532,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=app_lifespan,
 )
+app.state.supported_profile_manifest = _SUPPORTED_PROFILE_MANIFEST
+app.state.supported_profile = None
+app.state.supported_profile_hidden_paths = set()
+app.state.supported_profile_enabled_labels = set()
 
 exposure_mode = os.getenv("GUARDIAN_EXPOSURE_MODE", DEFAULT_EXPOSURE_MODE)
 public_routes_file = os.getenv(
@@ -498,6 +548,7 @@ app.add_middleware(
     exposure_mode=exposure_mode,
     routes_file=public_routes_file,
     profile=public_profile,
+    internal_only_paths=app.state.supported_profile_hidden_paths,
 )
 logger.info(
     "[public_exposure] mode=%s profile=%s routes_file=%s",
@@ -505,6 +556,52 @@ logger.info(
     public_profile,
     public_routes_file,
 )
+
+
+def _refresh_supported_profile_state(
+    app: FastAPI, settings: Any
+) -> dict[str, Any] | None:
+    manifest = getattr(app.state, "supported_profile_manifest", None)
+    if manifest is None:
+        app.state.supported_profile = None
+        return None
+
+    enabled_routes = set(
+        getattr(app.state, "supported_profile_enabled_labels", set())
+    )
+    state = build_supported_profile_runtime_state(
+        manifest,
+        settings=settings,
+        enabled_routes=enabled_routes,
+    )
+    app.state.supported_profile = state
+    if not state["valid"]:
+        detail = "; ".join(state["mismatches"])
+        raise RuntimeError(f"supported profile drift: {detail}")
+    return state
+
+
+def _custom_openapi() -> dict[str, Any]:
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    hidden_paths = set(
+        getattr(app.state, "supported_profile_hidden_paths", set())
+    )
+    paths = schema.get("paths", {})
+    for path in hidden_paths:
+        paths.pop(path, None)
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _custom_openapi
 
 
 def _get_request_id(request: Request) -> str:

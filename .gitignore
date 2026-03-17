@@ -121,10 +121,10 @@ gitleaks-report.txt
 gitleaks-report.*
 
 # Local audit outputs
-/docs/_audit_runs/
+/artifacts/audit-runs/
 
 # local reports
-/docs/reports/
+/docs/work/reports/
 
 # Local temp artifacts
 /guardian/temp/
@@ -164,7 +164,7 @@ chatgpt-conversation-extractor-master/
 chatgpt-conversation.json
 
 # local agent/tooling
-.claude/
+.claude/settings.local.json
 .codex/
 
 # Local/vendor checkouts
@@ -185,6 +185,8 @@ codex_runner/.github/
 # local runs/audits
 /docs/_audits/
 /docs/_campaign_runs/
+/artifacts/audits/
+/artifacts/campaign-runs/
 
 # Local tooling artifacts
 codex_runner.zip

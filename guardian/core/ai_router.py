@@ -9,6 +9,10 @@ from requests import exceptions as req_exc
 
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+from guardian.core.provider_registry import default_model_for_provider
+from guardian.core.provider_registry import (
+    normalize_provider as normalize_registry_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +78,7 @@ def _normalize_provider(provider: Optional[str]) -> str:
       `local` (local-first + deterministic). This prevents config/UX mismatch
       from hard-failing completions when UI does not send an explicit provider.
     """
-    normalized = (provider or "").strip().lower()
-    if normalized in ("", "auto"):
-        return "local"
-    return normalized
+    return normalize_registry_provider(provider)
 
 
 def _coerce_positive_timeout(raw: Any, default: float) -> float:
@@ -458,29 +459,46 @@ def _resolve_settings(settings: Optional[Settings]) -> Settings:
 
 
 def _default_model_for_provider(provider: str, settings: Settings) -> str:
-    if provider == "local":
-        return (
-            settings.LOCAL_LLM_MODEL
-            or settings.DEFAULT_LOCAL_MODEL
-            or settings.LLM_MODEL
-            or ""
-        )
-    if provider == "groq":
-        return settings.LLM_MODEL or settings.DEFAULT_GROQ_MODEL
-    if provider == "openai":
-        return settings.DEFAULT_OPENAI_MODEL
-    if provider == "alibaba":
-        explicit_model = str(settings.ALIBABA_MODEL or "").strip()
-        if explicit_model:
-            return explicit_model
-        shared_model = str(settings.LLM_MODEL or "").strip()
-        default_local_model = str(settings.DEFAULT_LOCAL_MODEL or "").strip()
-        if shared_model and shared_model != default_local_model:
-            return shared_model
-        return ""
-    if provider == "minimax":
-        return (settings.MINIMAX_MODEL or "").strip()
-    return ""
+    return default_model_for_provider(provider, settings)
+
+
+def _provider_failure_detail(
+    *,
+    provider: str,
+    model: str,
+    endpoint: str,
+    failure_kind: str,
+    message: str,
+    upstream_status: int | None = None,
+    provider_error: str | None = None,
+    transport_classification: str | None = None,
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "error": "provider_request_failed",
+        "provider": provider,
+        "model": model,
+        "endpoint": endpoint,
+        "failure_kind": failure_kind,
+        "message": message,
+    }
+    if upstream_status is not None:
+        detail["upstream_status"] = upstream_status
+    if provider_error:
+        detail["provider_error"] = provider_error
+    if transport_classification:
+        detail["transport_classification"] = transport_classification
+    return detail
+
+
+def _classify_transport_error(exc: Exception) -> str:
+    lowered = str(exc or "").strip().lower()
+    if isinstance(exc, req_exc.Timeout) or "timed out" in lowered:
+        return "timeout"
+    if "connection refused" in lowered:
+        return "connection_refused"
+    if "name or service not known" in lowered or "failed to resolve" in lowered:
+        return "dns_error"
+    return "request_error"
 
 
 def _normalize_openai_model(model: str, settings: Settings) -> str:
@@ -543,7 +561,25 @@ def _resolve_local_base(settings: Settings) -> str:
         raise HTTPException(
             status_code=400, detail="LOCAL_BASE_URL is not configured"
         )
-    return base_url.rstrip("/")
+    normalized_base = base_url.rstrip("/")
+
+    from guardian.core.supported_profile import get_active_supported_profile
+
+    manifest = get_active_supported_profile()
+    if manifest is not None:
+        expected_base = str(
+            manifest.provider_contract.get("LOCAL_BASE_URL") or ""
+        ).strip()
+        expected_base = expected_base.rstrip("/")
+        if expected_base and normalized_base != expected_base:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Supported profile {manifest.name} requires "
+                    f"LOCAL_BASE_URL={expected_base}"
+                ),
+            )
+    return normalized_base
 
 
 def call_local(
@@ -927,12 +963,70 @@ def call_groq(messages, model: str, *, settings: Optional[Settings] = None):
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
+    except req_exc.RequestException as exc:
+        detail = _sanitize_provider_error(str(exc), secret=api_key)
+        logger.exception(
+            "GROQ backend request error model=%s endpoint=%s transport=%s",
+            model,
+            url,
+            _classify_transport_error(exc),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_provider_failure_detail(
+                provider="groq",
+                model=model,
+                endpoint=url,
+                failure_kind="request_error",
+                message=f"Groq request failed: {detail}",
+                provider_error=detail,
+                transport_classification=_classify_transport_error(exc),
+            ),
+        ) from exc
+
+    if not (200 <= response.status_code < 300):
+        detail = _extract_provider_error_message(response, secret=api_key)
+        logger.error(
+            "GROQ backend non-2xx model=%s endpoint=%s status=%s detail=%s",
+            model,
+            url,
+            response.status_code,
+            detail,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_provider_failure_detail(
+                provider="groq",
+                model=model,
+                endpoint=url,
+                failure_kind="http_error",
+                message=f"Groq request failed ({response.status_code}): {detail}",
+                upstream_status=response.status_code,
+                provider_error=detail,
+            ),
+        )
+
+    try:
         data = response.json()
         return data["choices"][0]["message"]["content"]
-    except Exception as e:
-        logger.exception("GROQ backend error")
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as exc:
+        detail = _sanitize_provider_error(str(exc), secret=api_key)
+        logger.exception(
+            "GROQ backend response parse error model=%s endpoint=%s",
+            model,
+            url,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_provider_failure_detail(
+                provider="groq",
+                model=model,
+                endpoint=url,
+                failure_kind="parse_error",
+                message=f"Groq response parse failed: {detail}",
+                provider_error=detail,
+            ),
+        ) from exc
 
 
 def _call_openai_compatible_chat(
@@ -987,20 +1081,50 @@ def _call_openai_compatible_chat(
             timeout=float(timeout),
         )
     except req_exc.RequestException as exc:
-        logger.exception("%s backend request error", provider_display_name)
         detail = _sanitize_provider_error(str(exc), secret=clean_api_key)
+        logger.exception(
+            "%s backend request error model=%s endpoint=%s transport=%s",
+            provider_display_name,
+            model,
+            url,
+            _classify_transport_error(exc),
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"{provider_display_name} request failed: {detail}",
+            detail=_provider_failure_detail(
+                provider=provider_name,
+                model=model,
+                endpoint=url,
+                failure_kind="request_error",
+                message=f"{provider_display_name} request failed: {detail}",
+                provider_error=detail,
+                transport_classification=_classify_transport_error(exc),
+            ),
         ) from exc
 
     if not (200 <= response.status_code < 300):
         detail = _extract_provider_error_message(response, secret=clean_api_key)
+        logger.error(
+            "%s backend non-2xx model=%s endpoint=%s status=%s detail=%s",
+            provider_display_name,
+            model,
+            url,
+            response.status_code,
+            detail,
+        )
         raise HTTPException(
             status_code=502,
-            detail=(
-                f"{provider_display_name} request failed "
-                f"({response.status_code}): {detail}"
+            detail=_provider_failure_detail(
+                provider=provider_name,
+                model=model,
+                endpoint=url,
+                failure_kind="http_error",
+                message=(
+                    f"{provider_display_name} request failed "
+                    f"({response.status_code}): {detail}"
+                ),
+                upstream_status=response.status_code,
+                provider_error=detail,
             ),
         )
 
@@ -1008,13 +1132,23 @@ def _call_openai_compatible_chat(
         data = response.json()
         return data["choices"][0]["message"]["content"]
     except Exception as exc:
-        logger.exception(
-            "%s backend response parse error", provider_display_name
-        )
         detail = _sanitize_provider_error(str(exc), secret=clean_api_key)
+        logger.exception(
+            "%s backend response parse error model=%s endpoint=%s",
+            provider_display_name,
+            model,
+            url,
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"{provider_display_name} response parse failed: {detail}",
+            detail=_provider_failure_detail(
+                provider=provider_name,
+                model=model,
+                endpoint=url,
+                failure_kind="parse_error",
+                message=f"{provider_display_name} response parse failed: {detail}",
+                provider_error=detail,
+            ),
         ) from exc
 
 
@@ -1226,18 +1360,39 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
             timeout=timeout,
         )
     except req_exc.RequestException as exc:
-        logger.exception("MiniMax backend request error")
         detail = _sanitize_provider_error(str(exc), secret=api_key)
+        logger.exception(
+            "MiniMax backend request error model=%s endpoint=%s transport=%s",
+            model,
+            url,
+            _classify_transport_error(exc),
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"MiniMax request failed: {detail}",
+            detail=_provider_failure_detail(
+                provider="minimax",
+                model=model,
+                endpoint=url,
+                failure_kind="request_error",
+                message=f"MiniMax request failed: {detail}",
+                provider_error=detail,
+                transport_classification=_classify_transport_error(exc),
+            ),
         ) from exc
 
     if not (200 <= response.status_code < 300):
         detail = _extract_provider_error_message(response, secret=api_key)
         raise HTTPException(
             status_code=502,
-            detail=f"MiniMax request failed ({response.status_code}): {detail}",
+            detail=_provider_failure_detail(
+                provider="minimax",
+                model=model,
+                endpoint=url,
+                failure_kind="http_error",
+                message=f"MiniMax request failed ({response.status_code}): {detail}",
+                upstream_status=response.status_code,
+                provider_error=detail,
+            ),
         )
 
     try:
@@ -1249,9 +1404,20 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
             raise KeyError("content")
         return data["choices"][0]["message"]["content"]
     except Exception as exc:
-        logger.exception("MiniMax backend response parse error")
         detail = _sanitize_provider_error(str(exc), secret=api_key)
+        logger.exception(
+            "MiniMax backend response parse error model=%s endpoint=%s",
+            model,
+            url,
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"MiniMax response parse failed: {detail}",
+            detail=_provider_failure_detail(
+                provider="minimax",
+                model=model,
+                endpoint=url,
+                failure_kind="parse_error",
+                message=f"MiniMax response parse failed: {detail}",
+                provider_error=detail,
+            ),
         ) from exc

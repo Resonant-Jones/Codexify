@@ -1,7 +1,10 @@
-from __future__ import annotations
-
 import logging
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
+from fastapi import HTTPException
+
+from guardian.core.config import Settings
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
 
@@ -32,7 +35,7 @@ def _build_task(
     task = ChatCompletionTask(
         thread_id=thread_id,
         provider="groq",
-        model="moonshotai-kimi-k2-instruct-9050",
+        model="moonshotai/kimi-k2-instruct-0905",
     )
     task.turn_id = turn_id
     task.turn_lock_owner = f"lock-{thread_id}"
@@ -63,7 +66,7 @@ def _stubbed_success_setup(monkeypatch):
         lambda *_a, **_k: {
             "message_id": 501,
             "provider": "groq",
-            "model": "moonshotai-kimi-k2-instruct-9050",
+            "model": "moonshotai/kimi-k2-instruct-0905",
         },
     )
     monkeypatch.setattr(
@@ -155,7 +158,7 @@ def test_retry_after_metadata_failure_reuses_cached_turn_anchor(monkeypatch):
         return {
             "message_id": 501,
             "provider": "groq",
-            "model": "moonshotai-kimi-k2-instruct-9050",
+            "model": "moonshotai/kimi-k2-instruct-0905",
         }
 
     monkeypatch.setattr(
@@ -167,7 +170,7 @@ def test_retry_after_metadata_failure_reuses_cached_turn_anchor(monkeypatch):
         task_id="task-retry",
         thread_id=29,
         provider="groq",
-        model="moonshotai-kimi-k2-instruct-9050",
+        model="moonshotai/kimi-k2-instruct-0905",
         origin=f"api:chat.complete|turn_id={TURN_ID}",
     )
     retry_task.turn_id = TURN_ID
@@ -238,6 +241,206 @@ def test_worker_failure_before_assistant_emit_marks_failed_and_emits_completion_
     assert completion_error_payload.get("thread_id") == 17
 
 
+def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.create_message.return_value = 321
+    mock_db.write_audit_log = MagicMock()
+    monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(
+        chat_worker.event_bus, "emit_event", lambda *a, **k: None
+    )
+    monkeypatch.setattr(chat_worker, "_embed_message", lambda *a, **k: None)
+
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "hello"}],
+            "groq",
+            "moonshotai/kimi-k2-instruct-0905",
+            {},
+            None,
+            None,
+            {},
+        )
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    monkeypatch.setattr(
+        chat_worker,
+        "get_settings",
+        lambda: Settings(
+            LLM_PROVIDER="local",
+            ALLOW_CLOUD_PROVIDERS=True,
+            CODEXIFY_LOCAL_ONLY_MODE=False,
+            CODEXIFY_EGRESS_ALLOWLIST="groq,openai,minimax",
+            LOCAL_LLM_MODEL="qwen3.5:27b",
+            DEFAULT_LOCAL_MODEL="qwen3.5:27b",
+            LLM_MODEL="qwen3.5:27b",
+            GROQ_API_KEY="groq-key",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "first_model_for_provider",
+        lambda provider_id, settings=None: "qwen3.5:27b"
+        if provider_id == "local"
+        else None,
+    )
+
+    class _EmptyStream:
+        def __iter__(self):
+            return iter(())
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(
+        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+    )
+
+    def _chat_with_ai(_messages, *, model=None, provider=None, **_kwargs):
+        if provider == "groq":
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "provider_request_failed",
+                    "provider": "groq",
+                    "model": model,
+                    "upstream_status": 404,
+                    "failure_kind": "http_error",
+                    "message": "Groq request failed (404): not found",
+                },
+            )
+        return "rescued locally"
+
+    monkeypatch.setattr(chat_worker, "chat_with_ai", _chat_with_ai)
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="groq",
+        model="moonshotai/kimi-k2-instruct-0905",
+        selection_source="default",
+        provider_pinned=False,
+    )
+
+    result = chat_worker._run_chat_completion_task_compat(task)
+
+    assert result["provider"] == "local"
+    assert result["model"] == "qwen3.5:27b"
+    assert result["attempted_provider"] == "groq"
+    assert result["upstream_status"] == 404
+    assert result["fallback_reason"] == "cloud_failure_local_rescue"
+    assert mock_db.create_message.call_args[0][2] == "rescued locally"
+
+
+def test_explicit_provider_failure_does_not_rescue(monkeypatch):
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "hello"}],
+            "groq",
+            "moonshotai/kimi-k2-instruct-0905",
+            {},
+            None,
+            None,
+            {},
+        )
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    monkeypatch.setattr(
+        chat_worker,
+        "get_settings",
+        lambda: Settings(
+            LLM_PROVIDER="local",
+            ALLOW_CLOUD_PROVIDERS=True,
+            CODEXIFY_LOCAL_ONLY_MODE=False,
+            CODEXIFY_EGRESS_ALLOWLIST="groq,openai,minimax",
+            LOCAL_LLM_MODEL="qwen3.5:27b",
+            DEFAULT_LOCAL_MODEL="qwen3.5:27b",
+            LLM_MODEL="qwen3.5:27b",
+            GROQ_API_KEY="groq-key",
+        ),
+    )
+    monkeypatch.setattr(chat_worker, "stream_local", lambda *a, **k: iter(()))
+    monkeypatch.setattr(
+        chat_worker,
+        "chat_with_ai",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            HTTPException(
+                status_code=502,
+                detail={
+                    "error": "provider_request_failed",
+                    "provider": "groq",
+                    "model": "moonshotai/kimi-k2-instruct-0905",
+                    "upstream_status": 404,
+                    "failure_kind": "http_error",
+                    "message": "Groq request failed (404): not found",
+                },
+            )
+        ),
+    )
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="groq",
+        model="moonshotai/kimi-k2-instruct-0905",
+        selection_source="explicit",
+        provider_pinned=True,
+    )
+
+    try:
+        chat_worker._run_chat_completion_task_compat(task)
+        assert False, "expected HTTPException"
+    except HTTPException as exc:
+        assert exc.status_code == 502
+        assert exc.detail["provider"] == "groq"
+
+
+def test_generation_success_but_persistence_failure_is_non_authoritative(
+    monkeypatch,
+):
+    mock_db = MagicMock()
+    mock_db.create_message.side_effect = RuntimeError("db down")
+    monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", mock_db)
+
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "hello"}],
+            "local",
+            "qwen3.5:27b",
+            {},
+            None,
+            None,
+            {},
+        )
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+
+    class _EmptyStream:
+        def __iter__(self):
+            return iter(())
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(
+        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+    )
+    monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *_a, **_k: "ready")
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="local",
+        model="qwen3.5:27b",
+        selection_source="explicit",
+    )
+
+    try:
+        chat_worker._run_chat_completion_task_compat(task)
+        assert False, "expected AssistantPersistenceError"
+    except chat_worker.AssistantPersistenceError as exc:
+        assert exc.metadata["error"] == "assistant_message_persist_failed"
+        assert exc.metadata["final_provider"] == "local"
+        assert exc.metadata["persistence_outcome"] == "failed"
+
+
 def test_duplicate_turn_is_prevented_before_new_completion(monkeypatch):
     published: list[tuple[str, dict]] = []
 
@@ -302,7 +505,7 @@ def test_completion_schedules_background_audio_generation_without_blocking(
             "message_id": 777,
             "assistant_text": "hello from the assistant",
             "provider": "groq",
-            "model": "moonshotai-kimi-k2-instruct-9050",
+            "model": "moonshotai/kimi-k2-instruct-0905",
         },
     )
 
@@ -346,7 +549,7 @@ def test_audio_generation_schedule_failure_does_not_fail_text_reply(
             "message_id": 778,
             "assistant_text": "still persist the reply",
             "provider": "groq",
-            "model": "moonshotai-kimi-k2-instruct-9050",
+            "model": "moonshotai/kimi-k2-instruct-0905",
         },
     )
 

@@ -88,6 +88,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -127,6 +128,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     profiles:
       - cli
@@ -174,6 +176,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     image: codexify-backend
     working_dir: /app
     entrypoint: ["python"]
@@ -200,6 +203,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     entrypoint: ["python"]
     ports: ["8888:8888"]
@@ -321,6 +325,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -382,6 +387,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -416,7 +422,7 @@ services:
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
-      CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE: "true"
+      CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE: "false"
       REDIS_URL: redis://redis:6379/0
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"
@@ -438,6 +444,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -491,6 +498,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -549,6 +557,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -607,6 +616,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     profiles:
       - backfill
@@ -662,6 +672,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     profiles:
       - backfill
@@ -712,6 +723,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     profiles:
       - cli
@@ -737,6 +749,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     profiles:
       - cli

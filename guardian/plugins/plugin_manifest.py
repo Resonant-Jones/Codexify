@@ -1,10 +1,8 @@
-"""
-Canonical service plugin manifest schema (v1).
-"""
+"""Canonical v1 service-plugin manifest types and validation."""
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import urlparse
 
 from pydantic import (
@@ -15,134 +13,113 @@ from pydantic import (
     model_validator,
 )
 
-_ALLOWED_BASE_URL_SCHEMES = {"http", "https"}
-
 
 class PluginCapability(BaseModel):
-    """Single capability declaration for service plugins."""
+    """Capability declaration for a service plugin."""
 
-    id: str = Field(..., description="Capability namespace identifier")
-    actions: list[str] = Field(
-        ..., description="Actions exposed under this capability"
-    )
-
-    model_config = ConfigDict(extra="forbid")
+    id: str = Field(..., min_length=1)
+    actions: list[str] = Field(..., min_length=1)
 
     @field_validator("id")
     @classmethod
-    def _validate_capability_id(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
+    def _validate_id(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
             raise ValueError("capability id must be non-empty")
-        return value
+        return cleaned
 
     @field_validator("actions")
     @classmethod
-    def _validate_actions(cls, values: list[str]) -> list[str]:
-        if not values:
-            raise ValueError("actions must contain at least one action")
-        normalized: list[str] = []
-        for action in values:
-            action = action.strip()
-            if not action:
-                raise ValueError("action must be non-empty")
-            normalized.append(action)
-        return normalized
+    def _validate_actions(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for action in value:
+            normalized = action.strip()
+            if not normalized:
+                raise ValueError("capability actions must be non-empty")
+            cleaned.append(normalized)
+        return cleaned
 
 
 class PluginManifest(BaseModel):
-    """Validated canonical service plugin manifest."""
+    """Canonical v1 manifest schema for HTTP service plugins."""
 
-    schema_version: Literal["1.0"] = Field(
-        ..., description='Manifest schema version (must be "1.0")'
-    )
-    id: str = Field(..., description="Unique plugin identifier")
-    name: str = Field(..., description="Human-readable plugin name")
-    version: str = Field(..., description="Plugin version")
-    description: str | None = Field(
-        default=None, description="Optional plugin description"
-    )
-    base_url: str = Field(
-        ...,
-        description="Plugin service base URL, e.g. https://plugin.example.com",
-    )
-    capabilities: list[PluginCapability] = Field(
-        ..., description="Capability/action declarations"
-    )
-    extensions: dict[str, Any] | None = Field(
-        default=None,
-        description="Non-authoritative metadata extensions",
-    )
+    schema_version: str = Field(...)
+    id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    version: str = Field(..., min_length=1)
+    description: str | None = None
+    base_url: str = Field(...)
+    capabilities: list[PluginCapability] = Field(...)
+    extensions: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="forbid")
 
+    @field_validator("schema_version")
+    @classmethod
+    def _validate_schema_version(cls, value: str) -> str:
+        if value != "1.0":
+            raise ValueError("schema_version must be '1.0'")
+        return value
+
     @field_validator("id", "name", "version")
     @classmethod
-    def _validate_required_strings(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("value must be non-empty")
-        return value
+    def _validate_text_fields(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("field must be non-empty")
+        return cleaned
 
     @field_validator("base_url")
     @classmethod
     def _validate_base_url(cls, value: str) -> str:
-        value = value.strip()
-        parsed = urlparse(value)
-        scheme = parsed.scheme.lower()
-        if scheme not in _ALLOWED_BASE_URL_SCHEMES:
+        cleaned = value.strip()
+        parsed = urlparse(cleaned)
+        if parsed.scheme not in {"http", "https"}:
             raise ValueError("base_url must use http or https")
         if not parsed.netloc:
             raise ValueError("base_url must include a host")
-        if parsed.query or parsed.fragment:
-            raise ValueError(
-                "base_url must not include a query string or fragment"
-            )
         if parsed.path not in ("", "/"):
             raise ValueError("base_url must not include a path")
-        return f"{scheme}://{parsed.netloc}".rstrip("/")
+        if parsed.query:
+            raise ValueError("base_url must not include a query")
+        if parsed.fragment:
+            raise ValueError("base_url must not include a fragment")
+        return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+    @field_validator("capabilities")
+    @classmethod
+    def _validate_capabilities_present(
+        cls, value: list[PluginCapability]
+    ) -> list[PluginCapability]:
+        if not value:
+            raise ValueError("capabilities must not be empty")
+        return value
 
     @model_validator(mode="after")
-    def _validate_unique_operation_pairs(self) -> PluginManifest:
-        seen: set[tuple[str, str]] = set()
+    def _validate_no_duplicate_operations(self) -> PluginManifest:
+        operations: set[tuple[str, str]] = set()
         duplicates: set[tuple[str, str]] = set()
         for capability in self.capabilities:
             for action in capability.actions:
-                pair = (capability.id, action)
-                if pair in seen:
-                    duplicates.add(pair)
-                else:
-                    seen.add(pair)
+                key = (capability.id, action)
+                if key in operations:
+                    duplicates.add(key)
+                operations.add(key)
+
         if duplicates:
-            duplicate_list = ", ".join(
-                f"{capability}:{action}"
-                for capability, action in sorted(duplicates)
-            )
-            raise ValueError(
-                "duplicate capability/action pairs are not allowed: "
-                f"{duplicate_list}"
-            )
+            dupes = ", ".join(f"{cap}:{act}" for cap, act in sorted(duplicates))
+            raise ValueError(f"duplicate capability/action pairs: {dupes}")
+
         return self
 
     def supports_operation(self, capability: str, action: str) -> bool:
-        wanted = (capability.strip(), action.strip())
-        return any(
-            (decl.id, declared_action) == wanted
-            for decl in self.capabilities
-            for declared_action in decl.actions
-        )
+        """Return True when the manifest declares the capability/action pair."""
+        return (capability, action) in self.operations()
 
-    @property
-    def operation_pairs(self) -> set[tuple[str, str]]:
+    def operations(self) -> set[tuple[str, str]]:
+        """Callable operations represented as (capability, action) pairs."""
         return {
-            (decl.id, action)
-            for decl in self.capabilities
-            for action in decl.actions
+            (capability.id, action)
+            for capability in self.capabilities
+            for action in capability.actions
         }
-
-    @property
-    def entrypoint(self) -> str:
-        """
-        Back-compat alias for legacy callers still reading `entrypoint`.
-        """
-        return self.base_url

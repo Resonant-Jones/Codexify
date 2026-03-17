@@ -1,84 +1,46 @@
-"""Canonical service plugin facade for discovery and invocation."""
+"""Canonical facade for service-plugin discovery and invocation."""
 
 from __future__ import annotations
 
+import json
 import logging
-import uuid
+from dataclasses import dataclass
 from threading import Lock
-from typing import Any, Mapping
+from typing import Any
 
 import requests
 
 from guardian.plugin_loader import plugin_loader as _runtime_plugin_loader
-from guardian.plugins.plugin_loader import (
-    load_all_manifests as _load_manifest_plugins,
-)
+from guardian.plugins.plugin_loader import load_all_manifests
 from guardian.plugins.plugin_manifest import PluginManifest
 
 logger = logging.getLogger(__name__)
 
 _RUNTIME_LOADER_LOCK = Lock()
-HEALTH_TIMEOUT_SECONDS = 2.0
-INVOKE_TIMEOUT_SECONDS = 10.0
-PROTOCOL_VERSION = "1.0"
 
-ERROR_NOT_FOUND = "not_found"
-ERROR_AMBIGUOUS = "ambiguous"
-ERROR_TIMEOUT = "timeout"
-ERROR_TRANSPORT_FAILURE = "transport_failure"
-ERROR_INVALID_RESPONSE = "invalid_response"
-ERROR_REMOTE_ERROR = "remote_error"
-
-_INVOKE_HEADERS = {
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-}
+HEALTH_TIMEOUT_SECONDS = 2
+INVOKE_TIMEOUT_SECONDS = 10
+_PROTOCOL_VERSION = "1.0"
 
 
-class PluginFacadeError(RuntimeError):
-    """Stable error surface for plugin facade consumers."""
+@dataclass
+class PluginFacadeError(Exception):
+    """Stable facade error for plugin discovery and invocation failures."""
 
-    def __init__(
-        self,
-        *,
-        code: str,
-        message: str,
-        plugin_id: str | None = None,
-        capability: str | None = None,
-        action: str | None = None,
-        details: Any | None = None,
-    ):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.plugin_id = plugin_id
-        self.capability = capability
-        self.action = action
-        self.details = details
+    code: str
+    message: str
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "code": self.code,
-            "message": self.message,
-            "plugin_id": self.plugin_id,
-            "capability": self.capability,
-            "action": self.action,
-            "details": self.details,
-        }
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.code}: {self.message}"
 
 
 def get_runtime_plugin_loader():
-    """Return the singleton runtime plugin loader instance."""
+    """Return the singleton legacy runtime plugin loader instance."""
     return _runtime_plugin_loader
 
 
 def load_runtime_plugins():
-    """
-    Load runtime plugins through a single guarded entrypoint.
-
-    Loader invocation is idempotent for non-empty registries to avoid
-    accidental duplicate initialization across call sites.
-    """
+    """Load runtime plugins once for compatibility with legacy callers."""
     loader = get_runtime_plugin_loader()
     with _RUNTIME_LOADER_LOCK:
         if not getattr(loader, "plugins", {}):
@@ -87,12 +49,12 @@ def load_runtime_plugins():
 
 
 def list_plugin_manifests() -> list[PluginManifest]:
-    """Return manifests validated via the canonical discovery path."""
-    return _load_manifest_plugins()
+    """Return installed plugins from canonical validated manifest discovery."""
+    return load_all_manifests()
 
 
 def get_plugin_manifest_by_id(plugin_id: str) -> PluginManifest | None:
-    """Return a plugin manifest by id from the centralized manifest list."""
+    """Return the installed manifest for a plugin id."""
     for manifest in list_plugin_manifests():
         if manifest.id == plugin_id:
             return manifest
@@ -100,361 +62,204 @@ def get_plugin_manifest_by_id(plugin_id: str) -> PluginManifest | None:
 
 
 def find_plugins_by_capability_action(
-    capability: str, action: str
+    capability: str,
+    action: str,
 ) -> list[PluginManifest]:
-    """Return all plugins advertising the capability/action pair."""
-    wanted_capability = capability.strip()
-    wanted_action = action.strip()
-    if not wanted_capability or not wanted_action:
-        return []
+    """Return manifests that advertise a callable (capability, action) pair."""
+    return [
+        manifest
+        for manifest in list_plugin_manifests()
+        if manifest.supports_operation(capability, action)
+    ]
 
-    matches: list[PluginManifest] = []
+
+def get_plugin_manifest_by_capability(capability: str) -> PluginManifest | None:
+    """Compatibility helper for legacy TTS lookup by capability id only."""
+    wanted = capability.strip()
+    if not wanted:
+        return None
+
     for manifest in list_plugin_manifests():
-        if manifest.supports_operation(wanted_capability, wanted_action):
-            matches.append(manifest)
-    return matches
+        if any(cap.id == wanted for cap in manifest.capabilities):
+            return manifest
+    return None
 
 
-def _normalize_context(
-    context: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    context = dict(context or {})
-    request_id = context.get("request_id")
-    if request_id is None or str(request_id).strip() == "":
-        request_id = str(uuid.uuid4())
-
-    return {
-        "request_id": str(request_id),
-        "thread_id": context.get("thread_id"),
-        "user_id": context.get("user_id"),
-    }
+def _invoke_url(base_url: str) -> str:
+    return f"{base_url}/invoke"
 
 
-def _build_invoke_envelope(
+def _health_url(base_url: str) -> str:
+    return f"{base_url}/health"
+
+
+def _build_context(context: dict[str, Any] | None) -> dict[str, Any]:
+    defaults = {"request_id": "", "thread_id": None, "user_id": None}
+    if context:
+        defaults.update(context)
+    return defaults
+
+
+def _build_envelope(
     *,
     plugin_id: str,
     capability: str,
     action: str,
-    input: Any,
-    context: Mapping[str, Any] | None,
+    input: dict[str, Any],
+    context: dict[str, Any] | None,
 ) -> dict[str, Any]:
     return {
-        "protocol_version": PROTOCOL_VERSION,
+        "protocol_version": _PROTOCOL_VERSION,
         "plugin_id": plugin_id,
         "capability": capability,
         "action": action,
         "input": input,
-        "context": _normalize_context(context),
+        "context": _build_context(context),
     }
 
 
-def _parse_response_payload(
-    response: requests.Response,
-    *,
-    plugin_id: str,
-    capability: str,
-    action: str,
-) -> dict[str, Any]:
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise PluginFacadeError(
-            code=ERROR_INVALID_RESPONSE,
-            message="Plugin response was not valid JSON",
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-            details={"status_code": response.status_code},
-        ) from exc
-
+def _normalize_response(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise PluginFacadeError(
-            code=ERROR_INVALID_RESPONSE,
-            message="Plugin response payload must be a JSON object",
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-            details={"status_code": response.status_code},
+            code="invalid_response",
+            message="plugin response must be a JSON object",
         )
-    return payload
-
-
-def _handle_transport_error(
-    exc: Exception,
-    *,
-    plugin_id: str,
-    capability: str,
-    action: str,
-) -> None:
-    if isinstance(exc, requests.Timeout):
+    if "ok" not in payload:
         raise PluginFacadeError(
-            code=ERROR_TIMEOUT,
-            message="Plugin invocation timed out",
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-        ) from exc
-
+            code="invalid_response",
+            message="plugin response missing 'ok'",
+        )
+    if payload["ok"] is True:
+        return payload
+    if payload["ok"] is False:
+        raise PluginFacadeError(
+            code="remote_error",
+            message=str(payload.get("error") or "plugin reported an error"),
+        )
     raise PluginFacadeError(
-        code=ERROR_TRANSPORT_FAILURE,
-        message="Plugin transport failure",
-        plugin_id=plugin_id,
-        capability=capability,
-        action=action,
-        details=str(exc),
-    ) from exc
+        code="invalid_response",
+        message="plugin response field 'ok' must be a boolean",
+    )
+
+
+def _safe_json(response: requests.Response) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise PluginFacadeError(
+            code="invalid_response",
+            message=f"plugin returned malformed JSON: {exc}",
+        ) from exc
+    return _normalize_response(payload)
 
 
 def invoke_plugin(
     plugin_id: str,
     capability: str,
     action: str,
-    input: Any,
-    context: Mapping[str, Any] | None = None,
+    input: dict[str, Any],
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """
-    Invoke a specific plugin for a declared capability/action pair.
-    """
+    """Invoke a specific plugin service endpoint using the canonical envelope."""
     manifest = get_plugin_manifest_by_id(plugin_id)
     if manifest is None:
         raise PluginFacadeError(
-            code=ERROR_NOT_FOUND,
-            message=f"Plugin not found: {plugin_id}",
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
+            code="not_found",
+            message=f"plugin '{plugin_id}' not found",
         )
     if not manifest.supports_operation(capability, action):
         raise PluginFacadeError(
-            code=ERROR_NOT_FOUND,
+            code="not_found",
             message=(
-                "Plugin does not advertise capability/action pair: "
-                f"{plugin_id} {capability}/{action}"
+                f"plugin '{plugin_id}' does not support "
+                f"{capability}/{action}"
             ),
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
         )
 
-    envelope = _build_invoke_envelope(
+    envelope = _build_envelope(
         plugin_id=plugin_id,
         capability=capability,
         action=action,
         input=input,
         context=context,
     )
-    url = f"{manifest.base_url}/invoke"
 
     try:
         response = requests.post(
-            url,
+            _invoke_url(manifest.base_url),
             json=envelope,
-            headers=_INVOKE_HEADERS,
             timeout=INVOKE_TIMEOUT_SECONDS,
         )
+    except requests.Timeout as exc:
+        raise PluginFacadeError(
+            code="timeout",
+            message=f"plugin invoke timed out for '{plugin_id}'",
+        ) from exc
     except requests.RequestException as exc:
-        _handle_transport_error(
-            exc,
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-        )
-
-    payload = _parse_response_payload(
-        response,
-        plugin_id=plugin_id,
-        capability=capability,
-        action=action,
-    )
-
-    if response.status_code >= 400:
         raise PluginFacadeError(
-            code=ERROR_REMOTE_ERROR,
-            message="Plugin returned an error response",
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-            details={
-                "status_code": response.status_code,
-                "error": payload.get("error"),
-            },
-        )
+            code="transport_failure",
+            message=f"plugin invoke transport failure for '{plugin_id}'",
+        ) from exc
 
-    if payload.get("error") not in (None, ""):
-        raise PluginFacadeError(
-            code=ERROR_REMOTE_ERROR,
-            message="Plugin returned an application error",
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-            details=payload.get("error"),
-        )
-
-    if "ok" in payload and not isinstance(payload["ok"], bool):
-        raise PluginFacadeError(
-            code=ERROR_INVALID_RESPONSE,
-            message="Plugin response field 'ok' must be boolean when present",
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-            details={"status_code": response.status_code},
-        )
-
-    if payload.get("ok") is False and payload.get("error") in (None, ""):
-        raise PluginFacadeError(
-            code=ERROR_INVALID_RESPONSE,
-            message=(
-                "Plugin response marked failure without canonical error payload"
-            ),
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-            details={"status_code": response.status_code},
-        )
-
-    if "output" not in payload:
-        raise PluginFacadeError(
-            code=ERROR_INVALID_RESPONSE,
-            message="Plugin response missing required 'output' field",
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-            details={"status_code": response.status_code},
-        )
-    if not isinstance(payload["output"], dict):
-        raise PluginFacadeError(
-            code=ERROR_INVALID_RESPONSE,
-            message="Plugin response field 'output' must be an object",
-            plugin_id=plugin_id,
-            capability=capability,
-            action=action,
-            details={"status_code": response.status_code},
-        )
-
-    return payload
-
-
-def get_plugin_health(plugin_id: str) -> dict[str, Any]:
-    """
-    Fetch liveness metadata from GET /health for a specific plugin.
-
-    Health does not influence installation/discovery state.
-    """
-    manifest = get_plugin_manifest_by_id(plugin_id)
-    if manifest is None:
-        raise PluginFacadeError(
-            code=ERROR_NOT_FOUND,
-            message=f"Plugin not found: {plugin_id}",
-            plugin_id=plugin_id,
-        )
-
-    url = f"{manifest.base_url}/health"
-    try:
-        response = requests.get(url, timeout=HEALTH_TIMEOUT_SECONDS)
-    except requests.RequestException as exc:
-        _handle_transport_error(
-            exc,
-            plugin_id=plugin_id,
-            capability="health",
-            action="health",
-        )
-
-    payload = _parse_response_payload(
-        response,
-        plugin_id=plugin_id,
-        capability="health",
-        action="health",
-    )
-    if response.status_code >= 400:
-        raise PluginFacadeError(
-            code=ERROR_REMOTE_ERROR,
-            message="Plugin health endpoint returned an error response",
-            plugin_id=plugin_id,
-            capability="health",
-            action="health",
-            details={
-                "status_code": response.status_code,
-                "error": payload.get("error"),
-            },
-        )
-    return payload
+    return _safe_json(response)
 
 
 def invoke_capability(
     capability: str,
     action: str,
-    input: Any,
-    context: Mapping[str, Any] | None = None,
+    input: dict[str, Any],
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """
-    Invoke by capability/action when exactly one plugin advertises it.
-    """
-    matches = find_plugins_by_capability_action(capability, action)
-    if not matches:
+    """Invoke a capability/action pair when exactly one plugin supports it."""
+    manifests = find_plugins_by_capability_action(capability, action)
+    if not manifests:
         raise PluginFacadeError(
-            code=ERROR_NOT_FOUND,
-            message=(
-                "No plugin advertises capability/action pair: "
-                f"{capability}/{action}"
-            ),
-            capability=capability,
-            action=action,
+            code="not_found",
+            message=f"no plugin found for {capability}/{action}",
         )
-    if len(matches) > 1:
+    if len(manifests) > 1:
+        plugin_ids = ", ".join(sorted(manifest.id for manifest in manifests))
         raise PluginFacadeError(
-            code=ERROR_AMBIGUOUS,
-            message=(
-                "Multiple plugins advertise capability/action pair: "
-                f"{capability}/{action}"
-            ),
-            capability=capability,
-            action=action,
-            details=[manifest.id for manifest in matches],
+            code="ambiguous",
+            message=f"multiple plugins found for {capability}/{action}: {plugin_ids}",
         )
-    return invoke_plugin(
-        matches[0].id,
-        capability=capability,
-        action=action,
-        input=input,
-        context=context,
-    )
+    return invoke_plugin(manifests[0].id, capability, action, input, context)
 
 
-def get_plugin_manifest_by_capability(
-    capability: str,
-) -> PluginManifest | None:
-    """
-    Back-compat helper: return first plugin exposing any action for capability.
-    """
-    wanted = capability.strip().lower()
-    if not wanted:
-        return None
+def probe_plugin_health(plugin_id: str) -> dict[str, Any]:
+    """Fetch /health metadata without affecting installation state."""
+    manifest = get_plugin_manifest_by_id(plugin_id)
+    if manifest is None:
+        raise PluginFacadeError(code="not_found", message="plugin not found")
 
-    for manifest in list_plugin_manifests():
-        capability_ids = {
-            decl.id.strip().lower() for decl in manifest.capabilities
-        }
-        if wanted in capability_ids:
-            return manifest
-
-    return None
+    try:
+        response = requests.get(
+            _health_url(manifest.base_url), timeout=HEALTH_TIMEOUT_SECONDS
+        )
+        return response.json()
+    except requests.Timeout as exc:
+        raise PluginFacadeError(
+            code="timeout", message="health check timed out"
+        ) from exc
+    except requests.RequestException as exc:
+        raise PluginFacadeError(
+            code="transport_failure", message="health check failed"
+        ) from exc
+    except ValueError as exc:
+        raise PluginFacadeError(
+            code="invalid_response", message="health response is not JSON"
+        ) from exc
 
 
 __all__ = [
-    "ERROR_AMBIGUOUS",
-    "ERROR_INVALID_RESPONSE",
-    "ERROR_NOT_FOUND",
-    "ERROR_REMOTE_ERROR",
-    "ERROR_TIMEOUT",
-    "ERROR_TRANSPORT_FAILURE",
     "PluginFacadeError",
     "find_plugins_by_capability_action",
     "get_plugin_manifest_by_capability",
-    "get_plugin_manifest_by_id",
-    "get_plugin_health",
     "get_runtime_plugin_loader",
+    "get_plugin_manifest_by_id",
     "invoke_capability",
     "invoke_plugin",
     "list_plugin_manifests",
     "load_runtime_plugins",
+    "probe_plugin_health",
 ]
