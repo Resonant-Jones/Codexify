@@ -182,7 +182,7 @@ Unknown preset keys are ignored with warnings.
 ## Core guarantees
 
 - Runner owns identifiers (`run_id`, `audit_id`) and artifact paths.
-- Runner owns state (`docs/_campaign_runs/state/state.json`) and transition history.
+- Runner owns state (`artifacts/campaign-runs/state/state.json`) and transition history.
 - Stage B is a proposal; runner merges deterministically and hard-fails on task mutation drift.
 - Campaign mapping edits are restricted to:
   - `<!-- RUNNER_TASK_MAP -->`
@@ -198,8 +198,8 @@ Unknown preset keys are ignored with warnings.
 ## Run metadata
 
 The runner writes `run_meta.json` to:
-- `docs/_audits/YYYY-MM-DD/<audit_id>/run_meta.json`
-- `docs/_campaign_runs/YYYY-MM-DD/<campaign_slug>/<run_id>/run_meta.json`
+- `artifacts/audits/YYYY-MM-DD/<audit_id>/run_meta.json`
+- `artifacts/campaign-runs/YYYY-MM-DD/<campaign_slug>/<run_id>/run_meta.json`
 
 Additional provider traceability in `run_meta.json`:
 - provider name
