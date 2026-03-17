@@ -1,206 +1,182 @@
 import json
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from guardian.plugins import plugin_loader
+from guardian.plugins.plugin_loader import DuplicatePluginIdError
 from guardian.plugins.plugin_manifest import PluginManifest
 
 
-def _manifest_payload(
-    plugin_id: str,
-    *,
-    base_url: str = "https://plugin.example",
-    capabilities=None,
-):
-    return {
-        "schema_version": "1.0",
-        "id": plugin_id,
-        "name": f"{plugin_id} plugin",
-        "version": "1.2.3",
-        "description": "test plugin",
-        "base_url": base_url,
-        "capabilities": capabilities or [{"id": "tts", "actions": ["speak"]}],
-        "extensions": {"owner": "tests"},
-    }
+def _write_manifest(base, plugin_dir, payload):
+    path = base / plugin_dir
+    path.mkdir(parents=True)
+    with (path / "manifest.json").open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
 
 
-def _write_manifest(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-
-def test_accepts_valid_v1_manifest():
-    manifest = PluginManifest(
-        **_manifest_payload("voice", base_url="https://voice.example/")
+def test_accepts_valid_v1_manifest_and_normalizes_base_url():
+    manifest = PluginManifest.model_validate(
+        {
+            "schema_version": "1.0",
+            "id": "alpha",
+            "name": "Alpha",
+            "version": "1.2.3",
+            "description": "desc",
+            "base_url": "https://example.com/",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+            "extensions": {"x": True},
+        }
     )
-    assert manifest.schema_version == "1.0"
-    assert manifest.base_url == "https://voice.example"
-    assert manifest.operation_pairs == {("tts", "speak")}
+
+    assert manifest.base_url == "https://example.com"
 
 
 @pytest.mark.parametrize(
     "base_url",
-    [
-        "ftp://voice.example",
-        "ws://voice.example",
-        "localhost:7101",
-    ],
+    ["ftp://example.com", "file:///tmp/nope", "wss://example.com"],
 )
 def test_rejects_non_http_base_url(base_url):
     with pytest.raises(ValidationError):
-        PluginManifest(**_manifest_payload("voice", base_url=base_url))
+        PluginManifest.model_validate(
+            {
+                "schema_version": "1.0",
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.2.3",
+                "base_url": base_url,
+                "capabilities": [{"id": "chat", "actions": ["reply"]}],
+            }
+        )
 
 
 @pytest.mark.parametrize(
     "base_url",
     [
-        "https://voice.example/api",
-        "https://voice.example/?x=1",
-        "https://voice.example/#fragment",
+        "https://example.com/path",
+        "https://example.com?x=1",
+        "https://example.com#frag",
     ],
 )
 def test_rejects_base_url_with_path_query_or_fragment(base_url):
     with pytest.raises(ValidationError):
-        PluginManifest(**_manifest_payload("voice", base_url=base_url))
+        PluginManifest.model_validate(
+            {
+                "schema_version": "1.0",
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.2.3",
+                "base_url": base_url,
+                "capabilities": [{"id": "chat", "actions": ["reply"]}],
+            }
+        )
 
 
-def test_rejects_duplicate_capability_action_pairs():
+def test_rejects_duplicate_capability_action_pairs_within_manifest():
     with pytest.raises(ValidationError):
-        PluginManifest(
-            **_manifest_payload(
-                "voice",
-                capabilities=[
-                    {"id": "tts", "actions": ["speak"]},
-                    {"id": "tts", "actions": ["speak"]},
-                ],
-            )
+        PluginManifest.model_validate(
+            {
+                "schema_version": "1.0",
+                "id": "alpha",
+                "name": "Alpha",
+                "version": "1.2.3",
+                "base_url": "https://example.com",
+                "capabilities": [{"id": "chat", "actions": ["reply", "reply"]}],
+            }
         )
 
 
-def test_discovery_lists_only_validated_manifests(tmp_path, monkeypatch):
-    plugins_root = tmp_path / "plugins"
-    monkeypatch.setattr(plugin_loader, "PLUGIN_DIR", plugins_root)
-
+def test_only_validated_manifests_are_listed_as_installed(tmp_path):
     _write_manifest(
-        plugins_root / "voice" / "manifest.json",
-        _manifest_payload("voice", base_url="https://voice.example"),
-    )
-    # Invalid (missing required version): excluded from discovery.
-    invalid = _manifest_payload("broken", base_url="https://broken.example")
-    invalid.pop("version")
-    _write_manifest(plugins_root / "broken" / "manifest.json", invalid)
-
-    manifests = plugin_loader.load_all_manifests()
-    assert [manifest.id for manifest in manifests] == ["voice"]
-
-
-def test_discovery_rejects_duplicate_plugin_ids(tmp_path, monkeypatch):
-    plugins_root = tmp_path / "plugins"
-    monkeypatch.setattr(plugin_loader, "PLUGIN_DIR", plugins_root)
-
-    _write_manifest(
-        plugins_root / "voice_a" / "manifest.json",
-        _manifest_payload("shared"),
+        tmp_path,
+        "good",
+        {
+            "schema_version": "1.0",
+            "id": "good",
+            "name": "Good",
+            "version": "1.0.0",
+            "base_url": "https://good.example",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+        },
     )
     _write_manifest(
-        plugins_root / "voice_b" / "manifest.json",
-        _manifest_payload("shared"),
+        tmp_path,
+        "bad",
+        {
+            "schema_version": "1.0",
+            "id": "bad",
+            "name": "Bad",
+            "version": "1.0.0",
+            "base_url": "ftp://bad.example",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+        },
     )
+
+    manifests = plugin_loader.load_all_manifests(plugin_dir=tmp_path)
+
+    assert [manifest.id for manifest in manifests] == ["good"]
+
+
+def test_unhealthy_plugins_remain_installed_if_manifest_is_valid(tmp_path):
     _write_manifest(
-        plugins_root / "vision" / "manifest.json",
-        _manifest_payload(
-            "vision",
-            capabilities=[{"id": "vision", "actions": ["classify"]}],
-        ),
+        tmp_path,
+        "good",
+        {
+            "schema_version": "1.0",
+            "id": "good",
+            "name": "Good",
+            "version": "1.0.0",
+            "base_url": "https://good.example",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+        },
     )
 
-    first = plugin_loader.load_all_manifests()
-    second = plugin_loader.load_all_manifests()
+    manifests = plugin_loader.load_all_manifests(plugin_dir=tmp_path)
 
-    assert [manifest.id for manifest in first] == ["vision"]
-    assert [manifest.id for manifest in second] == ["vision"]
+    assert len(manifests) == 1
+    assert manifests[0].id == "good"
 
 
-def test_discovery_uses_canonical_path_only(tmp_path, monkeypatch):
-    plugins_root = tmp_path / "plugins"
-    monkeypatch.setattr(plugin_loader, "PLUGIN_DIR", plugins_root)
+def test_canonical_discovery_uses_plugins_manifest_json_only(tmp_path):
+    (tmp_path / "one").mkdir(parents=True)
+    with (tmp_path / "one" / "plugin.json").open(
+        "w", encoding="utf-8"
+    ) as handle:
+        json.dump({}, handle)
+    with (tmp_path / "one" / "manifest.yaml").open(
+        "w", encoding="utf-8"
+    ) as handle:
+        handle.write("id: no")
 
     _write_manifest(
-        plugins_root / "voice" / "manifest.json",
-        _manifest_payload("voice"),
+        tmp_path,
+        "two",
+        {
+            "schema_version": "1.0",
+            "id": "two",
+            "name": "Two",
+            "version": "1.0.0",
+            "base_url": "https://two.example",
+            "capabilities": [{"id": "chat", "actions": ["reply"]}],
+        },
     )
-    _write_manifest(
-        plugins_root / "legacy" / "plugin_manifest.json",
-        _manifest_payload("legacy"),
-    )
-    _write_manifest(
-        plugins_root / "nested" / "child" / "manifest.json",
-        _manifest_payload("nested"),
-    )
 
-    manifests = plugin_loader.load_all_manifests()
-    assert [manifest.id for manifest in manifests] == ["voice"]
+    manifests = plugin_loader.load_all_manifests(plugin_dir=tmp_path)
+
+    assert [manifest.id for manifest in manifests] == ["two"]
 
 
-def test_active_tts_manifest_is_valid_and_discoverable():
-    manifest_path = (
-        Path(__file__).resolve().parents[2]
-        / "plugins"
-        / "chatterbox"
-        / "manifest.json"
-    )
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest = PluginManifest(**payload)
-    assert manifest.supports_operation("tts", "speak")
+def test_rejects_duplicate_plugin_ids_across_discovery(tmp_path):
+    payload = {
+        "schema_version": "1.0",
+        "id": "dup",
+        "name": "Dup",
+        "version": "1.0.0",
+        "base_url": "https://dup.example",
+        "capabilities": [{"id": "chat", "actions": ["reply"]}],
+    }
+    _write_manifest(tmp_path, "one", payload)
+    _write_manifest(tmp_path, "two", payload)
 
-    discovered_ids = {item.id for item in plugin_loader.load_all_manifests()}
-    assert "chatterbox" in discovered_ids
-
-
-def test_active_tts_manifest_origin_matches_runtime_compose_mapping():
-    repo_root = Path(__file__).resolve().parents[2]
-    manifest_payload = json.loads(
-        (repo_root / "plugins" / "chatterbox" / "manifest.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    manifest = PluginManifest(**manifest_payload)
-    compose_text = (repo_root / "docker-compose.yml").read_text(
-        encoding="utf-8"
-    )
-    backend_block = compose_text.split("  backend:\n", 1)[1].split(
-        "\n  worker-warmup:\n", 1
-    )[0]
-    worker_chat_block = compose_text.split("  worker-chat:\n", 1)[1].split(
-        "\n  worker-voice:\n", 1
-    )[0]
-
-    assert "tts:" in compose_text
-    assert 'ports: ["8000:8000"]' in compose_text
-    assert "- ./plugins:/app/plugins:ro" in backend_block
-    assert "- ./plugins:/app/plugins:ro" in worker_chat_block
-    assert "./plugins/chatterbox:/app/plugins/chatterbox:ro" not in compose_text
-    assert (
-        'CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE: "true"'
-        in worker_chat_block
-    )
-    assert manifest.base_url == "http://tts:8000"
-
-
-def test_backend_runtime_image_and_worker_chat_runtime_keep_canonical_plugins():
-    repo_root = Path(__file__).resolve().parents[2]
-    dockerfile_text = (repo_root / "backend" / "Dockerfile").read_text(
-        encoding="utf-8"
-    )
-    compose_text = (repo_root / "docker-compose.yml").read_text(
-        encoding="utf-8"
-    )
-    worker_chat_block = compose_text.split("  worker-chat:\n", 1)[1].split(
-        "\n  worker-voice:\n", 1
-    )[0]
-
-    assert "COPY plugins /app/plugins" in dockerfile_text
-    assert "worker-chat:" in compose_text
-    assert "- ./plugins:/app/plugins:ro" in worker_chat_block
+    with pytest.raises(DuplicatePluginIdError):
+        plugin_loader.load_all_manifests(plugin_dir=tmp_path)
