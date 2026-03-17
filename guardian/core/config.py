@@ -167,6 +167,19 @@ class Settings(BaseSettings):
             "Timeout for Alibaba Cloud DashScope chat completion requests (seconds)."
         ),
     )
+    ALIBABA_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for Alibaba's live model index endpoint. "
+            "Defaults to deriving /models from ALIBABA_API_BASE."
+        ),
+    )
+    ALIBABA_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for Alibaba live model index discovery requests (seconds)."
+        ),
+    )
     MINIMAX_API_KEY: str | None = Field(
         default=None, description="API key for MiniMax."
     )
@@ -194,6 +207,19 @@ class Settings(BaseSettings):
     MINIMAX_TIMEOUT_SECONDS: float = Field(
         default=60.0,
         description="Timeout for MiniMax chat completion requests (seconds).",
+    )
+    MINIMAX_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for MiniMax's live model index endpoint. "
+            "Defaults to deriving /models from MINIMAX_API_BASE."
+        ),
+    )
+    MINIMAX_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for MiniMax live model index discovery requests (seconds)."
+        ),
     )
     GUARDIAN_API_KEY: str | None = Field(
         default=None,
