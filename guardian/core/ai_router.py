@@ -13,12 +13,14 @@ from guardian.core.provider_registry import default_model_for_provider
 from guardian.core.provider_registry import (
     normalize_provider as normalize_registry_provider,
 )
+from guardian.core.provider_registry import validate_provider_model_selection
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
 _DEFAULT_ALIBABA_BASE = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+_DYNAMIC_DISCOVERY_VALIDATED_PROVIDERS = {"alibaba", "minimax"}
 
 
 @dataclass(frozen=True)
@@ -528,6 +530,18 @@ def chat_with_ai(
                 "model setting (e.g. LOCAL_LLM_MODEL / DEFAULT_LOCAL_MODEL)."
             ),
         )
+
+    if provider_name in _DYNAMIC_DISCOVERY_VALIDATED_PROVIDERS:
+        valid, reason = validate_provider_model_selection(
+            provider_id=provider_name,
+            model_id=target_model,
+            settings=settings,
+        )
+        if not valid:
+            raise HTTPException(
+                status_code=400,
+                detail=reason or "Provider/model selection is invalid",
+            )
 
     if provider_name == "local":
         return call_local(

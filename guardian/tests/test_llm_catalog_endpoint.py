@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import requests
 from fastapi.testclient import TestClient
 
 from guardian.core.config import get_settings
@@ -425,10 +426,94 @@ def test_llm_catalog_include_all_returns_unauthorized_cloud_providers(
             setattr(settings, field, value)
 
 
+def test_llm_catalog_populates_alibaba_and_minimax_from_live_discovery(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+
+    def fake_provider_discovery(url, headers, timeout):
+        assert timeout == 3.0
+        if url == "https://dashscope-us.aliyuncs.com/compatible-mode/v1/models":
+            assert headers["Authorization"] == "Bearer test-alibaba-key"
+            return _MockResponse(
+                {
+                    "data": [
+                        {"id": "qwen-max"},
+                        {"id": "text-embedding-v3", "task": "embedding"},
+                    ]
+                }
+            )
+        if url == "https://api.minimax.local/v1/models":
+            assert headers["Authorization"] == "Bearer test-minimax-key"
+            return _MockResponse(
+                {"data": [{"id": "minimax-chat"}, {"id": "abab7.5-chat"}]}
+            )
+        raise AssertionError(f"unexpected discovery url: {url}")
+
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        fake_provider_discovery,
+    )
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "MINIMAX_API_FLAVOR": settings.MINIMAX_API_FLAVOR,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = "alibaba,minimax"
+        settings.ALIBABA_API_KEY = "test-alibaba-key"
+        settings.ALIBABA_API_BASE = (
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+        )
+        settings.MINIMAX_API_KEY = "test-minimax-key"
+        settings.MINIMAX_API_BASE = "https://api.minimax.local/v1"
+        settings.MINIMAX_API_FLAVOR = "openai"
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+        payload = response.json()
+
+        alibaba = _provider_by_id(payload, "alibaba")
+        minimax = _provider_by_id(payload, "minimax")
+
+        assert [model["id"] for model in alibaba["models"]] == ["qwen-max"]
+        assert alibaba["model_index"]["state"] == "available"
+        assert alibaba["model_index"]["model_count"] == 1
+
+        assert [model["id"] for model in minimax["models"]] == [
+            "minimax-chat",
+            "abab7.5-chat",
+        ]
+        assert minimax["model_index"]["state"] == "available"
+        assert minimax["model_index"]["model_count"] == 2
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
 def test_llm_catalog_minimax_enabled_with_key_base_and_egress(monkeypatch):
     monkeypatch.setattr(
         "guardian.core.llm_catalog.requests.get",
         _mock_local_catalog_request,
+    )
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: _MockResponse(
+            {"data": [{"id": "minimax-chat"}]}
+        ),
     )
 
     settings = get_settings()
@@ -458,6 +543,55 @@ def test_llm_catalog_minimax_enabled_with_key_base_and_egress(monkeypatch):
         assert minimax["available"] is True
         assert minimax["enabled"] is True
         assert minimax["models"][0]["id"] == "minimax-chat"
+        assert minimax["model_index"]["state"] == "available"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_dynamic_discovery_failure_reports_degraded_metadata(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: (_ for _ in ()).throw(
+            requests.exceptions.Timeout("timed out")
+        ),
+    )
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "MINIMAX_MODEL": settings.MINIMAX_MODEL,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = "minimax"
+        settings.MINIMAX_API_KEY = "test-minimax-key"
+        settings.MINIMAX_API_BASE = "https://api.minimax.local/v1"
+        settings.MINIMAX_MODEL = "minimax-chat"
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+        payload = response.json()
+
+        minimax = _provider_by_id(payload, "minimax")
+        assert minimax["authorized"] is True
+        assert minimax["available"] is True
+        assert minimax["enabled"] is True
+        assert minimax["models"] == []
+        assert minimax["model_index"]["state"] == "degraded"
+        assert "timed out" in minimax["model_index"]["reason"].lower()
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
