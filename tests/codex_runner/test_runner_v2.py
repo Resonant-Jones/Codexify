@@ -1,6 +1,18 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+root_str = str(ROOT)
+if root_str in sys.path:
+    sys.path.remove(root_str)
+sys.path.insert(0, root_str)
+
+sys.modules.pop("codex_runner", None)
+sys.modules.pop("codex_runner.runner", None)
 
 from codex_runner import runner
 
@@ -20,6 +32,30 @@ def _sample_task(task_id: str = "TASK-001", slug: str = "alpha") -> dict:
     }
 
 
+def _sample_campaign(
+    *,
+    date: str = "2026-03-12",
+    slug: str = "alpha",
+    seq: str = "001",
+    tasks: list[dict] | None = None,
+) -> dict:
+    campaign_id = f"{date}::{slug}::{seq}"
+    task_map = {task["id"]: task for task in (tasks or [])}
+    return {
+        "campaign_id": campaign_id,
+        "campaign_slug": slug,
+        "campaign_date": date,
+        "campaign_seq": seq,
+        "depends_on": [],
+        "campaign_markdown": "# Campaign",
+        "tasks": task_map,
+        "materialized": {
+            "campaign_doc_path": None,
+            "task_artifact_paths": {},
+        },
+    }
+
+
 def test_run_id_determinism() -> None:
     hashes = runner.StageHashes(
         audit_prompt_sha256="a" * 64,
@@ -34,6 +70,7 @@ def test_run_id_determinism() -> None:
         hashes=hashes,
         pass_index=1,
         execute_mode="dry-run",
+        provider="local",
     )
     payload_b = runner.run_inputs_payload(
         repo_root=runner.Path("/tmp/repo"),
@@ -41,6 +78,7 @@ def test_run_id_determinism() -> None:
         hashes=hashes,
         pass_index=1,
         execute_mode="dry-run",
+        provider="local",
     )
 
     run_id_a = runner.sha256_text(runner.canonical_json(payload_a))[:12]
@@ -174,3 +212,51 @@ def test_normalize_repo_relative_path_rejects_parent_segments() -> None:
         runner.normalize_repo_relative_path("backend/app.py")
         == "backend/app.py"
     )
+
+
+def test_task_artifact_paths_do_not_collide_across_campaigns(
+    tmp_path: runner.Path,
+) -> None:
+    task_a = _sample_task("TASK-001-A", "alpha")
+    task_b = _sample_task("TASK-001-B", "alpha")
+    campaign_a = _sample_campaign(
+        date="2026-03-12", slug="alpha", seq="001", tasks=[task_a]
+    )
+    campaign_b = _sample_campaign(
+        date="2026-03-12", slug="alpha", seq="002", tasks=[task_b]
+    )
+
+    runner.materialize_campaign_artifacts(tmp_path, campaign_a)
+    runner.materialize_campaign_artifacts(tmp_path, campaign_b)
+
+    path_a = campaign_a["materialized"]["task_artifact_paths"][task_a["id"]]
+    path_b = campaign_b["materialized"]["task_artifact_paths"][task_b["id"]]
+
+    assert path_a != path_b
+    assert "alpha_2026_03_12_001" in path_a
+    assert "alpha_2026_03_12_002" in path_b
+    assert (tmp_path / path_a).exists()
+    assert (tmp_path / path_b).exists()
+
+
+def test_task_artifact_paths_stable_when_tasks_reordered(
+    tmp_path: runner.Path,
+) -> None:
+    task_two = _sample_task("TASK-002", "beta")
+    task_three = _sample_task("TASK-003", "gamma")
+    campaign = _sample_campaign(
+        date="2026-03-12", slug="alpha", seq="001", tasks=[task_two, task_three]
+    )
+
+    runner.materialize_campaign_artifacts(tmp_path, campaign)
+    path_before = campaign["materialized"]["task_artifact_paths"][
+        task_two["id"]
+    ]
+
+    task_one = _sample_task("TASK-001", "alpha")
+    campaign["tasks"][task_one["id"]] = task_one
+    runner.materialize_campaign_artifacts(tmp_path, campaign)
+    path_after = campaign["materialized"]["task_artifact_paths"][task_two["id"]]
+
+    assert path_before == path_after
+    assert (tmp_path / path_before).exists()
