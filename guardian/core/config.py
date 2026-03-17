@@ -9,6 +9,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
+ROUTER_SUPPORTED_LLM_PROVIDERS: tuple[str, ...] = (
+    "local",
+    "groq",
+    "openai",
+    "alibaba",
+    "minimax",
+)
+_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT = ", ".join(ROUTER_SUPPORTED_LLM_PROVIDERS)
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +40,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field(
         default="local",
         description=(
-            "The LLM provider to use ('local', 'groq', 'openai', 'alibaba', 'minimax')."
+            "The LLM provider to use. Runtime-supported values: "
+            f"{_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT}."
         ),
     )
     CODEXIFY_CONFIG_SOURCE: str = Field(
@@ -824,7 +833,9 @@ def validate_llm_config(
         return
 
     raise LLMConfigError(
-        f"Unsupported LLM_PROVIDER: {provider or '<empty>'} (expected one of: local, groq, openai, alibaba, minimax)"
+        "Unsupported LLM_PROVIDER: "
+        f"{provider or '<empty>'} (expected one of: "
+        f"{_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT})"
     )
 
 

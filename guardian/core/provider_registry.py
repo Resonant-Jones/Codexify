@@ -6,7 +6,8 @@ decisions used by catalog, health, router, and worker code.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from dataclasses import dataclass
+from typing import Any, Iterable, Literal
 
 import requests
 from requests import exceptions as req_exc
@@ -14,37 +15,120 @@ from requests import exceptions as req_exc
 from guardian.core.config import LLMConfigError, Settings, validate_llm_config
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 
-PROVIDER_ORDER = (
-    "openai",
-    "anthropic",
-    "gemini",
-    "groq",
-    "alibaba",
-    "minimax",
-    "local",
+ProviderGovernanceClassification = Literal[
+    "discovery_backed",
+    "static_authorized",
+    "local_only",
+    "disabled",
+]
+
+
+@dataclass(frozen=True)
+class ProviderGovernanceRule:
+    provider: str
+    label: str
+    governance_classification: ProviderGovernanceClassification
+    live_discovery_expected: bool
+    routing_validate_discovered_inventory: bool
+    configured_defaults_allowed_during_degraded_discovery: bool
+    local_only: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "governance_classification": self.governance_classification,
+            "live_discovery_expected": self.live_discovery_expected,
+            "routing_validate_discovered_inventory": (
+                self.routing_validate_discovered_inventory
+            ),
+            "configured_defaults_allowed_during_degraded_discovery": (
+                self.configured_defaults_allowed_during_degraded_discovery
+            ),
+            "local_only": self.local_only,
+        }
+
+
+_PROVIDER_GOVERNANCE_RULES: tuple[ProviderGovernanceRule, ...] = (
+    ProviderGovernanceRule(
+        provider="openai",
+        label="OpenAI",
+        governance_classification="static_authorized",
+        live_discovery_expected=False,
+        routing_validate_discovered_inventory=False,
+        configured_defaults_allowed_during_degraded_discovery=False,
+        local_only=False,
+    ),
+    ProviderGovernanceRule(
+        provider="anthropic",
+        label="Anthropic",
+        governance_classification="disabled",
+        live_discovery_expected=False,
+        routing_validate_discovered_inventory=False,
+        configured_defaults_allowed_during_degraded_discovery=False,
+        local_only=False,
+    ),
+    ProviderGovernanceRule(
+        provider="gemini",
+        label="Gemini",
+        governance_classification="disabled",
+        live_discovery_expected=False,
+        routing_validate_discovered_inventory=False,
+        configured_defaults_allowed_during_degraded_discovery=False,
+        local_only=False,
+    ),
+    ProviderGovernanceRule(
+        provider="groq",
+        label="Groq",
+        governance_classification="static_authorized",
+        live_discovery_expected=False,
+        routing_validate_discovered_inventory=False,
+        configured_defaults_allowed_during_degraded_discovery=False,
+        local_only=False,
+    ),
+    ProviderGovernanceRule(
+        provider="alibaba",
+        label="Alibaba / DashScope",
+        governance_classification="discovery_backed",
+        live_discovery_expected=True,
+        routing_validate_discovered_inventory=True,
+        configured_defaults_allowed_during_degraded_discovery=True,
+        local_only=False,
+    ),
+    ProviderGovernanceRule(
+        provider="minimax",
+        label="MiniMax",
+        governance_classification="discovery_backed",
+        live_discovery_expected=True,
+        routing_validate_discovered_inventory=True,
+        configured_defaults_allowed_during_degraded_discovery=True,
+        local_only=False,
+    ),
+    ProviderGovernanceRule(
+        provider="local",
+        label="Local",
+        governance_classification="local_only",
+        live_discovery_expected=False,
+        routing_validate_discovered_inventory=False,
+        configured_defaults_allowed_during_degraded_discovery=False,
+        local_only=True,
+    ),
 )
 
+_PROVIDER_GOVERNANCE_BY_ID = {
+    rule.provider: rule for rule in _PROVIDER_GOVERNANCE_RULES
+}
+
+PROVIDER_ORDER = tuple(rule.provider for rule in _PROVIDER_GOVERNANCE_RULES)
+
 PROVIDER_LABELS = {
-    "openai": "OpenAI",
-    "anthropic": "Anthropic",
-    "gemini": "Gemini",
-    "groq": "Groq",
-    "alibaba": "Alibaba / DashScope",
-    "minimax": "MiniMax",
-    "local": "Local",
+    rule.provider: rule.label for rule in _PROVIDER_GOVERNANCE_RULES
 }
 
 CLOUD_PROVIDERS = {
-    "openai",
-    "anthropic",
-    "gemini",
-    "groq",
-    "alibaba",
-    "minimax",
+    rule.provider for rule in _PROVIDER_GOVERNANCE_RULES if not rule.local_only
 }
 
 _AUTO_MODEL_SENTINELS = {"", "auto"}
-_DYNAMIC_MODEL_PROVIDERS = {"alibaba", "minimax"}
 _MODEL_INDEX_NON_CHAT_HINTS = (
     "audio",
     "asr",
@@ -140,6 +224,42 @@ def normalize_model_id(model_id: str | None) -> str:
     if normalized.lower() in _AUTO_MODEL_SENTINELS:
         return ""
     return normalized
+
+
+def _provider_governance_rule(
+    provider_id: str | None,
+) -> ProviderGovernanceRule | None:
+    return _PROVIDER_GOVERNANCE_BY_ID.get(normalize_provider(provider_id))
+
+
+def provider_governance(provider_id: str | None) -> dict[str, Any]:
+    rule = _provider_governance_rule(provider_id)
+    if rule is None:
+        normalized = normalize_provider(provider_id)
+        raise ValueError(f"Unsupported provider: {normalized or '<empty>'}")
+    return rule.as_dict()
+
+
+def provider_governance_contract() -> dict[str, dict[str, Any]]:
+    return {
+        rule.provider: rule.as_dict() for rule in _PROVIDER_GOVERNANCE_RULES
+    }
+
+
+def provider_routing_requires_discovered_inventory(
+    provider_id: str | None,
+) -> bool:
+    rule = _provider_governance_rule(provider_id)
+    return bool(rule and rule.routing_validate_discovered_inventory)
+
+
+def provider_allows_default_during_degraded_discovery(
+    provider_id: str | None,
+) -> bool:
+    rule = _provider_governance_rule(provider_id)
+    return bool(
+        rule and rule.configured_defaults_allowed_during_degraded_discovery
+    )
 
 
 def _normalize_reason(message: str) -> str:
@@ -542,8 +662,12 @@ def _discover_dynamic_provider_models(
 
 def provider_authorized(provider_id: str, settings: Settings) -> bool:
     provider = normalize_provider(provider_id)
-    if provider == "local":
+    governance = _provider_governance_rule(provider)
+
+    if governance and governance.local_only:
         return True
+    if governance and governance.governance_classification == "disabled":
+        return False
     if provider == "openai":
         return _has_real_api_key(
             str(getattr(settings, "OPENAI_API_KEY", "") or "")
@@ -586,6 +710,9 @@ def provider_availability(
     authorized: bool | None = None,
 ) -> tuple[bool, str | None]:
     provider = normalize_provider(provider_id)
+    governance = _provider_governance_rule(provider)
+    if governance is None:
+        return False, "Unsupported provider"
     authorized_value = (
         provider_authorized(provider, settings)
         if authorized is None
@@ -606,9 +733,6 @@ def provider_availability(
             assert_egress_allowed(provider, settings=settings)
         except EgressDeniedError as exc:
             return False, _normalize_reason(str(exc))
-
-    if provider not in PROVIDER_ORDER:
-        return False, "Unsupported provider"
 
     return True, None
 
@@ -653,6 +777,7 @@ def resolve_provider_capability(
     settings: Settings,
 ) -> dict[str, Any]:
     provider = normalize_provider(provider_id)
+    governance = _provider_governance_rule(provider)
     authorized = provider_authorized(provider, settings)
     available, disabled_reason = provider_availability(
         provider,
@@ -661,20 +786,23 @@ def resolve_provider_capability(
     )
     default_model = default_model_for_provider(provider, settings)
 
-    if provider == "local":
+    if governance and governance.local_only:
         models: list[dict[str, Any]] = []
         model_index = {
             "source": "local",
             "state": "available",
         }
-    elif provider in _DYNAMIC_MODEL_PROVIDERS:
+    elif governance and governance.live_discovery_expected:
         models, model_index = _discover_dynamic_provider_models(
             provider,
             settings,
             available=available,
             disabled_reason=disabled_reason,
         )
-        if model_index["state"] != "available" and not default_model:
+        if model_index["state"] != "available" and (
+            not default_model
+            or not provider_allows_default_during_degraded_discovery(provider)
+        ):
             available = False
             disabled_reason = (
                 str(
@@ -692,7 +820,9 @@ def resolve_provider_capability(
             "model_count": len(models),
         }
 
-    enabled = bool(available) and (provider == "local" or bool(authorized))
+    enabled = bool(available) and (
+        bool(governance and governance.local_only) or bool(authorized)
+    )
     return {
         "id": provider,
         "authorized": authorized,
@@ -778,9 +908,10 @@ def validate_provider_model_selection(
     if model not in provider_model_ids:
         model_index = capability["model_index"]
         if (
-            provider in _DYNAMIC_MODEL_PROVIDERS
+            provider_routing_requires_discovered_inventory(provider)
             and normalize_model_id(capability["default_model"]) == model
             and str(model_index.get("state") or "").strip() != "available"
+            and provider_allows_default_during_degraded_discovery(provider)
         ):
             return True, None
         return (
