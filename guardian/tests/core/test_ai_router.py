@@ -38,6 +38,15 @@ class _FakeStreamingResponse:
         return None
 
 
+class _MockDiscoveryResponse:
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+
+    def json(self):
+        return self._payload
+
+
 def _fake_settings(provider: str) -> Settings:
     return Settings(
         LLM_PROVIDER=provider,
@@ -54,6 +63,13 @@ def _fake_settings(provider: str) -> Settings:
         DEFAULT_GROQ_MODEL="moonshotai/kimi-k2-instruct-0905",
         DEFAULT_OPENAI_MODEL="gpt-4o",
     )
+
+
+def _mock_minimax_model_index(url, headers, timeout):
+    assert url == "https://api.minimax.local/v1/models"
+    assert timeout == 3.0
+    assert headers["Authorization"] == "Bearer minimax-key"
+    return _MockDiscoveryResponse({"data": [{"id": "minimax-chat"}]})
 
 
 def test_chat_with_ai_groq_default(monkeypatch):
@@ -126,6 +142,10 @@ def test_chat_with_ai_minimax_default(monkeypatch):
         return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_minimax_model_index,
+    )
 
     settings = _fake_settings("minimax")
     reply = chat_with_ai([{"role": "user", "content": "hi"}], settings=settings)
@@ -154,6 +174,12 @@ def test_chat_with_ai_minimax_anthropic_surface(monkeypatch):
     settings.MINIMAX_API_BASE = "https://api.minimax.local/anthropic"
     settings.MINIMAX_MODEL = "MiniMax-M2.5"
     settings.MINIMAX_ANTHROPIC_VERSION = "2023-06-01"
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: _MockDiscoveryResponse(
+            {"data": [{"id": "MiniMax-M2.5"}]}
+        ),
+    )
 
     reply = chat_with_ai(
         [
@@ -173,6 +199,32 @@ def test_chat_with_ai_minimax_anthropic_surface(monkeypatch):
     assert calls["headers"]["anthropic-version"] == "2023-06-01"
     assert calls["timeout"] == 60.0
     assert reply == "ok-a"
+
+
+def test_chat_with_ai_rejects_undiscovered_minimax_model(monkeypatch):
+    def fake_post(url, json, headers, timeout):  # pragma: no cover
+        return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: _MockDiscoveryResponse(
+            {"data": [{"id": "minimax-chat"}]}
+        ),
+    )
+
+    settings = _fake_settings("minimax")
+
+    with pytest.raises(HTTPException) as exc:
+        chat_with_ai(
+            [{"role": "user", "content": "hi"}],
+            provider="minimax",
+            model="bogus-model",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 400
+    assert "bogus-model" in str(exc.value.detail)
 
 
 def test_chat_with_ai_groq_override_not_openai(monkeypatch):
