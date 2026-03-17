@@ -61,6 +61,10 @@ class ChatCompletionTask(BaseTask):
     thread_id: int = 0
     model: str | None = None
     provider: str | None = None
+    requested_model: str | None = None
+    requested_provider: str | None = None
+    selection_source: str | None = None
+    provider_pinned: bool = False
     reasoning_mode: str | None = None
     max_context: int | None = 50
     depth_mode: str | None = "normal"
@@ -74,6 +78,10 @@ class ChatCompletionTask(BaseTask):
             thread_id=int(payload.get("thread_id") or 0),
             model=payload.get("model"),
             provider=payload.get("provider"),
+            requested_model=payload.get("requested_model"),
+            requested_provider=payload.get("requested_provider"),
+            selection_source=payload.get("selection_source"),
+            provider_pinned=bool(payload.get("provider_pinned", False)),
             reasoning_mode=payload.get("reasoning_mode"),
             max_context=payload.get("max_context"),
             depth_mode=payload.get("depth_mode"),

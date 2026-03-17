@@ -406,6 +406,21 @@ async def test_rag_integration_memory_loop(monkeypatch):
         _deny_llm_http,
         raising=False,
     )
+    monkeypatch.setattr(
+        chat_routes,
+        "acquire_turn_lock",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_routes,
+        "release_turn_lock",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "release_turn_lock",
+        lambda *_args, **_kwargs: True,
+    )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
     monkeypatch.setattr(redis_queue, "_CLIENT", None)

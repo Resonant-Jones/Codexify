@@ -15,13 +15,21 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-DEFAULT_AUDITS_DIR = Path("docs/_audits")
-DEFAULT_CAMPAIGN_DIR = Path("docs/Campaign")
-DEFAULT_TASKS_DIR = Path("docs/tasks")
-DEFAULT_RUNS_DIR = Path("docs/_campaign_runs")
+DEFAULT_AUDITS_DIR = Path("artifacts/audits")
+DEFAULT_CAMPAIGN_DIR = Path("docs/work/campaigns")
+DEFAULT_TASKS_DIR = Path("docs/work/tasks")
+DEFAULT_RUNS_DIR = Path("artifacts/campaign-runs")
+LEGACY_AUDITS_DIR = Path("docs/_audits")
+LEGACY_CAMPAIGN_DIR = Path("docs/Campaign")
+LEGACY_TASKS_DIR = Path("docs/tasks")
+LEGACY_RUNS_DIR = Path("docs/_campaign_runs")
 STATE_DIR = DEFAULT_RUNS_DIR / "state"
 STATE_PATH = STATE_DIR / "state.json"
 STATE_TRANSITIONS_PATH = STATE_DIR / "state_transitions.jsonl"
+LEGACY_STATE_PATH = LEGACY_RUNS_DIR / "state" / "state.json"
+LEGACY_STATE_TRANSITIONS_PATH = (
+    LEGACY_RUNS_DIR / "state" / "state_transitions.jsonl"
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_MEGA_AUDIT_SCHEMA_PATH = (
@@ -460,6 +468,10 @@ def parse_campaign_id(campaign_id: str) -> tuple[str, str, str]:
 def load_state(repo_root: Path) -> dict[str, Any]:
     path = repo_root / STATE_PATH
     if not path.exists():
+        legacy_path = repo_root / LEGACY_STATE_PATH
+        if legacy_path.exists():
+            path = legacy_path
+    if not path.exists():
         return {
             "version": 1,
             "campaigns": {},
@@ -828,25 +840,27 @@ def materialize_campaign_artifacts(
 ) -> list[str]:
     touched: list[str] = []
     date_underscore = campaign["campaign_date"].replace("-", "_")
+    year, month, _ = campaign["campaign_date"].split("-")
     slug = campaign["campaign_slug"]
     seq = campaign["campaign_seq"]
 
     campaign_doc_name = (
         f"CAMPAIGN_{date_underscore}_{to_upper_snake(slug)}_{seq}.md"
     )
-    campaign_doc_path = repo_root / DEFAULT_CAMPAIGN_DIR / campaign_doc_name
+    campaign_dir_rel = DEFAULT_CAMPAIGN_DIR / year / month
+    campaign_doc_path = repo_root / campaign_dir_rel / campaign_doc_name
     campaign_doc_content = ensure_mapping_block(campaign["campaign_markdown"])
     if not campaign_doc_path.exists():
         text_write(campaign_doc_path, campaign_doc_content)
-        touched.append(
-            str((DEFAULT_CAMPAIGN_DIR / campaign_doc_name).as_posix())
-        )
+        touched.append(str((campaign_dir_rel / campaign_doc_name).as_posix()))
 
     campaign["materialized"]["campaign_doc_path"] = str(
-        (DEFAULT_CAMPAIGN_DIR / campaign_doc_name).as_posix()
+        (campaign_dir_rel / campaign_doc_name).as_posix()
     )
 
-    task_dir_rel = DEFAULT_TASKS_DIR / f"{slug}_{date_underscore}_{seq}"
+    task_dir_rel = (
+        DEFAULT_TASKS_DIR / year / month / f"{slug}_{date_underscore}_{seq}"
+    )
     task_dir_abs = repo_root / task_dir_rel
     task_dir_abs.mkdir(parents=True, exist_ok=True)
 

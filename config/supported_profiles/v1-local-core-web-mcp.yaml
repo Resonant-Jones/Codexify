@@ -1,0 +1,108 @@
+name: v1-local-core-web-mcp
+version: 1
+surface: local-docker-compose-webui
+required_services:
+  - frontend
+  - backend
+  - db
+  - redis
+  - worker-chat
+  - worker-document-embed
+  - migrator
+optional_services:
+  - worker-warmup
+  - neo4j
+  - graph-init
+extension_posture:
+  public:
+    - mcp
+  internal:
+    - command_bus_http
+    - plugin_sdk
+route_posture:
+  enabled:
+    - health
+    - admin
+    - chat
+    - simple_chat
+    - api_chat
+    - threads
+    - projects
+    - api_projects
+    - documents
+    - media
+    - migration
+    - embeddings
+  internal_only:
+    - command_bus
+  quarantined:
+    - neo
+    - imprint
+    - system_prompt
+    - system_docs
+    - iddb
+    - backfill
+    - memory
+    - personal_facts
+    - agent
+    - research
+    - share
+    - federation
+    - collaboration
+    - connectors
+    - google_connect
+    - voice
+    - flows
+    - tools
+    - api_tools
+    - exports
+    - codex
+    - devtools
+    - websocket
+    - cron
+    - ui_session
+    - agent_orchestration
+    - agent_orchestration_chat
+provider_contract:
+  LLM_PROVIDER: local
+  ALLOW_CLOUD_PROVIDERS: false
+  CODEXIFY_LOCAL_ONLY_MODE: true
+  CODEXIFY_EGRESS_ALLOWLIST: ""
+  LOCAL_BASE_URL: http://host.docker.internal:11434/v1
+  LOCAL_API_KEY: local
+  LOCAL_LLM_MODEL: library2/ministral-3:8b
+  LOCAL_CHAT_MODEL: library2/ministral-3:8b
+criticality:
+  tier0:
+    services:
+      - frontend
+      - backend
+      - db
+      - redis
+      - worker-chat
+      - worker-document-embed
+    routes:
+      - health
+      - chat
+      - api_chat
+      - threads
+      - media
+      - documents
+  tier1:
+    services:
+      - migrator
+      - worker-warmup
+    routes:
+      - embeddings
+  tier2:
+    services:
+      - command_bus_http
+      - tts
+      - cron
+      - federation
+    routes:
+      - command_bus
+      - tools
+      - api_tools
+      - websocket
+      - cron

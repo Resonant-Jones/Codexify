@@ -19,7 +19,7 @@
     },
     "campaign_doc_path": {
       "type": "string",
-      "pattern": "^docs/Campaign/CAMPAIGN_\\d{4}_\\d{2}_\\d{2}(?:_[A-Z0-9_+\\-]+)?\\.md$"
+      "pattern": "^(docs/work/campaigns/\\d{4}/\\d{2}/CAMPAIGN_\\d{4}_\\d{2}_\\d{2}(?:_[A-Z0-9_+\\-]+)?\\.md|docs/Campaign/CAMPAIGN_\\d{4}_\\d{2}_\\d{2}(?:_[A-Z0-9_+\\-]+)?\\.md)$"
     },
     "campaign_markdown": {
       "type": "string"
@@ -75,7 +75,7 @@
           },
           "task_artifact_path": {
             "type": "string",
-            "pattern": "^docs/tasks/TASK_\\d{4}_\\d{2}_\\d{2}_\\d{3}_[a-z0-9_]+\\.md$"
+            "pattern": "^(docs/work/tasks/\\d{4}/\\d{2}/TASK_\\d{4}_\\d{2}_\\d{2}_\\d{3}_[a-z0-9_]+\\.md|docs/tasks/TASK_\\d{4}_\\d{2}_\\d{2}_\\d{3}_[a-z0-9_]+\\.md)$"
           },
           "task_artifact_markdown": {
             "type": "string"

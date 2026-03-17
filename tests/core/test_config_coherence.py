@@ -188,6 +188,7 @@ def test_validate_llm_config_rejects_alibaba_without_api_key():
     settings = core_config.Settings(
         LLM_PROVIDER="alibaba",
         ALLOW_CLOUD_PROVIDERS=True,
+        ALIBABA_API_KEY="",
     )
 
     with pytest.raises(core_config.LLMConfigError, match="ALIBABA_API_KEY"):

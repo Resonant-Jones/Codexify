@@ -251,7 +251,7 @@ class MemoryEntry:
 
 | Endpoint | Status | Notes |
 |----------|--------|-------|
-| `POST /upload-chatgpt-export` | ✅ Complete | In `guardian/routes/migration.py` + `guardian/routes/rag_upload.py` |
+| `POST /upload-chatgpt-export` | ✅ Complete | In `guardian/routes/migration.py` |
 | `POST /api/migration/status/{job_id}` | 🔴 Missing | No progress tracking endpoint |
 
 **Status:** ✅ Endpoint exists; no progress tracking
@@ -269,7 +269,7 @@ class MemoryEntry:
 - ✅ **Implemented:** Source tagging (import_timestamp, original_source)
 - **Status:** Complete with error handling
 
-**Routes** (`guardian/routes/migration.py` + `guardian/routes/rag_upload.py`)
+**Routes** (`guardian/routes/migration.py`)
 - ✅ **Implemented:** File upload handling
 - ✅ **Implemented:** Validation + error responses
 - ✅ **Implemented:** Returns success/failure with import counts

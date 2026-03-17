@@ -55,6 +55,7 @@ def tools_client():
 
     app = FastAPI()
     app.include_router(tools.router)
+    app.include_router(tools.api_router)
     app.dependency_overrides[tools.require_api_key] = lambda: "test-api-key"
 
     with TestClient(app) as client:

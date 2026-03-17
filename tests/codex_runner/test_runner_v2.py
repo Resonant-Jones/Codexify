@@ -70,7 +70,7 @@ def test_run_id_determinism() -> None:
         hashes=hashes,
         pass_index=1,
         execute_mode="dry-run",
-        provider="local",
+        provider="codex",
     )
     payload_b = runner.run_inputs_payload(
         repo_root=runner.Path("/tmp/repo"),
@@ -78,7 +78,7 @@ def test_run_id_determinism() -> None:
         hashes=hashes,
         pass_index=1,
         execute_mode="dry-run",
-        provider="local",
+        provider="codex",
     )
 
     run_id_a = runner.sha256_text(runner.canonical_json(payload_a))[:12]
