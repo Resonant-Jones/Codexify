@@ -772,6 +772,15 @@ def to_lower_snake(value: str) -> str:
     return re.sub(r"_+", "_", cleaned).strip("_") or "task"
 
 
+def safe_task_id_for_path(task_id: str) -> str:
+    lowered = task_id.lower()
+    safe = re.sub(r"[^a-z0-9_-]+", "-", lowered)
+    safe = re.sub(r"-{2,}", "-", safe).strip("-") or "task"
+    if safe != lowered:
+        safe = f"{safe}-{sha256_text(task_id)[:8]}"
+    return safe
+
+
 def ensure_mapping_block(text: str) -> str:
     if MAPPING_START in text and MAPPING_END in text:
         return text
@@ -849,22 +858,25 @@ def materialize_campaign_artifacts(
         (campaign_dir_rel / campaign_doc_name).as_posix()
     )
 
-    task_dir_rel = DEFAULT_TASKS_DIR / year / month
+    task_dir_rel = (
+        DEFAULT_TASKS_DIR / year / month / f"{slug}_{date_underscore}_{seq}"
+    )
     task_dir_abs = repo_root / task_dir_rel
     task_dir_abs.mkdir(parents=True, exist_ok=True)
 
-    for index, task in enumerate(
-        sorted(campaign["tasks"].values(), key=lambda item: item["id"]),
-        start=1,
-    ):
-        task_file_name = f"TASK_{date_underscore}_{index:03d}_{to_lower_snake(task['slug'])}.md"
+    for task in sorted(campaign["tasks"].values(), key=lambda item: item["id"]):
+        task_id = str(task["id"])
+        safe_task_id = safe_task_id_for_path(task_id)
+        task_file_name = (
+            f"TASK_{safe_task_id}_{to_lower_snake(task['slug'])}.md"
+        )
         task_rel = task_dir_rel / task_file_name
         task_abs = repo_root / task_rel
         if not task_abs.exists():
             content = task["task_artifact_markdown"].rstrip() + "\n"
             text_write(task_abs, content)
             touched.append(str(task_rel.as_posix()))
-        campaign["materialized"]["task_artifact_paths"][task["id"]] = str(
+        campaign["materialized"]["task_artifact_paths"][task_id] = str(
             task_rel.as_posix()
         )
 
