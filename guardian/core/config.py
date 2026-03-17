@@ -107,6 +107,10 @@ class Settings(BaseSettings):
         default="library2/ministral-3:8b",
         description="Local chat model identifier for Ollama.",
     )
+    LOCAL_CHAT_MODEL: str = Field(
+        default="library2/ministral-3:8b",
+        description="Local chat model identifier used by supported profile validation.",
+    )
     LOCAL_EMBEDDING_MODEL: str | None = Field(
         default=None,
         description=(
@@ -645,6 +649,25 @@ def _normalize_embedding_provider(provider: str | None) -> str:
     return normalized
 
 
+def _validate_supported_profile_contract(settings: Settings) -> None:
+    from guardian.core.supported_profile import (
+        get_active_supported_profile,
+        validate_supported_profile_runtime,
+    )
+
+    manifest = get_active_supported_profile()
+    if manifest is None:
+        return
+
+    mismatches = validate_supported_profile_runtime(manifest, settings=settings)
+    if mismatches:
+        detail = "; ".join(mismatches)
+        raise LLMConfigError(
+            "supported profile requires blessed local gateway contract: "
+            f"{detail}"
+        )
+
+
 def validate_llm_config(
     settings: Settings, provider_override: str | None = None
 ) -> None:
@@ -665,6 +688,7 @@ def validate_llm_config(
     if provider == "local":
         if not settings.LOCAL_BASE_URL:
             raise LLMConfigError("LOCAL_BASE_URL is not configured")
+        _validate_supported_profile_contract(settings)
         return
 
     if provider == "openai":
@@ -674,6 +698,7 @@ def validate_llm_config(
             )
         if not settings.OPENAI_API_KEY:
             raise LLMConfigError("OPENAI_API_KEY is not configured")
+        _validate_supported_profile_contract(settings)
         return
 
     if provider == "groq":
@@ -683,6 +708,7 @@ def validate_llm_config(
             )
         if not settings.GROQ_API_KEY:
             raise LLMConfigError("GROQ_API_KEY is not configured")
+        _validate_supported_profile_contract(settings)
         return
 
     if provider == "alibaba":
@@ -701,6 +727,7 @@ def validate_llm_config(
                 "LLM_PROVIDER is 'alibaba' but required environment variable(s) are missing: "
                 f"{missing_text}. Set {missing_text} in your backend environment."
             )
+        _validate_supported_profile_contract(settings)
         return
 
     if provider == "minimax":
@@ -727,6 +754,7 @@ def validate_llm_config(
             raise LLMConfigError(
                 "MINIMAX_API_FLAVOR must be one of: openai, anthropic."
             )
+        _validate_supported_profile_contract(settings)
         return
 
     raise LLMConfigError(

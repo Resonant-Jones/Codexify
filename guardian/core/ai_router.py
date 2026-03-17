@@ -543,7 +543,25 @@ def _resolve_local_base(settings: Settings) -> str:
         raise HTTPException(
             status_code=400, detail="LOCAL_BASE_URL is not configured"
         )
-    return base_url.rstrip("/")
+    normalized_base = base_url.rstrip("/")
+
+    from guardian.core.supported_profile import get_active_supported_profile
+
+    manifest = get_active_supported_profile()
+    if manifest is not None:
+        expected_base = str(
+            manifest.provider_contract.get("LOCAL_BASE_URL") or ""
+        ).strip()
+        expected_base = expected_base.rstrip("/")
+        if expected_base and normalized_base != expected_base:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Supported profile {manifest.name} requires "
+                    f"LOCAL_BASE_URL={expected_base}"
+                ),
+            )
+    return normalized_base
 
 
 def call_local(

@@ -72,11 +72,13 @@ class PublicExposureMiddleware:
         exposure_mode: str = DEFAULT_EXPOSURE_MODE,
         routes_file: str = DEFAULT_ROUTES_FILE,
         profile: str = DEFAULT_PROFILE,
+        internal_only_paths: set[str] | None = None,
     ) -> None:
         self.app = app
         self.exposure_mode = (exposure_mode or DEFAULT_EXPOSURE_MODE).strip()
         self.routes_file = routes_file or DEFAULT_ROUTES_FILE
         self.profile = profile or DEFAULT_PROFILE
+        self.internal_only_paths = internal_only_paths or set()
         self._allowlist = PublicAllowlist.deny_all()
         if self.exposure_mode == PUBLIC_ALLOWLIST_MODE:
             self._allowlist = PublicAllowlist.load(
@@ -97,7 +99,15 @@ class PublicExposureMiddleware:
 
         method = str(scope.get("method", "GET"))
         path = str(scope.get("path", "/"))
-        if self._allowlist.is_allowed(method=method, path=path):
+        normalized_path = _normalize_path(path)
+        if normalized_path in self.internal_only_paths:
+            response = JSONResponse(
+                status_code=403,
+                content={"ok": False, "error": "forbidden"},
+            )
+            await response(scope, receive, send)
+            return
+        if self._allowlist.is_allowed(method=method, path=normalized_path):
             await self.app(scope, receive, send)
             return
 
