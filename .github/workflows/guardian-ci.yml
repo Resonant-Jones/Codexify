@@ -325,9 +325,29 @@ jobs:
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
         run: .github/scripts/create-ci-env.sh .env
 
+      - name: Reclaim Docker space before backend build
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker system df || true
+          docker builder prune -af
+          docker image prune -f || true
+          docker system df || true
+
       - name: Build backend image
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
         run: docker compose build backend
+
+      - name: Reclaim Docker build cache before starting database
+        if: ${{ needs.changes.outputs.run_backend == 'true' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker system df || true
+          docker builder prune -af
+          docker image prune -f || true
+          docker system df || true
 
       - name: Start database
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
