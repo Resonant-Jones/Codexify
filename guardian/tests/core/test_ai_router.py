@@ -50,8 +50,8 @@ def _fake_settings(provider: str) -> Settings:
         MINIMAX_API_BASE="https://api.minimax.local/v1",
         MINIMAX_API_FLAVOR="openai",
         MINIMAX_MODEL="minimax-chat",
-        LLM_MODEL="moonshotai-kimi-k2-instruct-9050",
-        DEFAULT_GROQ_MODEL="moonshotai-kimi-k2-instruct-9050",
+        LLM_MODEL="moonshotai/kimi-k2-instruct-0905",
+        DEFAULT_GROQ_MODEL="moonshotai/kimi-k2-instruct-0905",
         DEFAULT_OPENAI_MODEL="gpt-4o",
     )
 
@@ -70,7 +70,30 @@ def test_chat_with_ai_groq_default(monkeypatch):
     reply = chat_with_ai([{"role": "user", "content": "hi"}], settings=settings)
 
     assert "api.groq.com/openai/v1/chat/completions" in calls["url"]
-    assert calls["json"]["model"] == "moonshotai-kimi-k2-instruct-9050"
+    assert calls["json"]["model"] == "moonshotai/kimi-k2-instruct-0905"
+    assert reply == "ok"
+
+
+def test_chat_with_ai_groq_prefers_groq_model_over_generic_llm_model(
+    monkeypatch,
+):
+    calls = {}
+
+    def fake_post(url, json, headers, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("groq")
+    settings.LLM_MODEL = "qwen3.5:27b"
+    settings.GROQ_MODEL = "moonshotai/kimi-k2-instruct-0905"
+
+    reply = chat_with_ai([{"role": "user", "content": "hi"}], settings=settings)
+
+    assert "api.groq.com/openai/v1/chat/completions" in calls["url"]
+    assert calls["json"]["model"] == "moonshotai/kimi-k2-instruct-0905"
     assert reply == "ok"
 
 

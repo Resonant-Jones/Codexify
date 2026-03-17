@@ -10,108 +10,22 @@ from urllib.parse import urlparse
 
 import requests
 
-from guardian.core.ai_router import (
-    _default_model_for_provider,
-    _resolve_local_base,
-    describe_local_runtime,
-)
+from guardian.core.ai_router import _resolve_local_base, describe_local_runtime
 from guardian.core.config import Settings, get_settings
-from guardian.core.egress import EgressDeniedError, assert_egress_allowed
-
-_PROVIDER_ORDER = (
-    "openai",
-    "anthropic",
-    "gemini",
-    "groq",
-    "alibaba",
-    "minimax",
-    "local",
+from guardian.core.provider_registry import CLOUD_PROVIDERS as _CLOUD_PROVIDERS
+from guardian.core.provider_registry import PROVIDER_LABELS as _PROVIDER_LABELS
+from guardian.core.provider_registry import PROVIDER_ORDER as _PROVIDER_ORDER
+from guardian.core.provider_registry import (
+    default_model_for_provider,
+    get_provider_model_descriptors,
+    normalize_model_id,
+    normalize_provider,
+    provider_status,
 )
-_PROVIDER_LABELS = {
-    "openai": "OpenAI",
-    "anthropic": "Anthropic",
-    "gemini": "Gemini",
-    "groq": "Groq",
-    "alibaba": "Alibaba / DashScope",
-    "minimax": "MiniMax",
-    "local": "Local",
-}
+from guardian.core.provider_registry import (
+    resolve_provider_for_model as resolve_provider_for_model_registry,
+)
 
-_STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
-    "openai": (
-        {
-            "id": "gpt-4o",
-            "displayName": "GPT-4o",
-            "contextWindow": 128000,
-            "capabilities": {"vision": True, "tools": True, "streaming": True},
-        },
-        {
-            "id": "gpt-4.1-mini",
-            "displayName": "GPT-4.1 Mini",
-            "contextWindow": 128000,
-            "capabilities": {"vision": True, "tools": True, "streaming": True},
-        },
-    ),
-    "anthropic": (
-        {
-            "id": "claude-3-5-sonnet-latest",
-            "displayName": "Claude 3.5 Sonnet",
-            "contextWindow": 200000,
-            "capabilities": {"vision": True, "tools": True, "streaming": True},
-        },
-        {
-            "id": "claude-3-5-haiku-latest",
-            "displayName": "Claude 3.5 Haiku",
-            "contextWindow": 200000,
-            "capabilities": {"vision": True, "tools": True, "streaming": True},
-        },
-    ),
-    "gemini": (
-        {
-            "id": "gemini-1.5-pro",
-            "displayName": "Gemini 1.5 Pro",
-            "contextWindow": 1048576,
-            "capabilities": {"vision": True, "tools": True, "streaming": True},
-        },
-        {
-            "id": "gemini-1.5-flash",
-            "displayName": "Gemini 1.5 Flash",
-            "contextWindow": 1048576,
-            "capabilities": {"vision": True, "tools": True, "streaming": True},
-        },
-    ),
-    "groq": (
-        {
-            "id": "moonshotai-kimi-k2-instruct-9050",
-            "displayName": "Kimi K2 Instruct",
-            "contextWindow": 128000,
-            "capabilities": {
-                "vision": False,
-                "tools": False,
-                "streaming": True,
-            },
-        },
-        {
-            "id": "llama-3.1-70b-versatile",
-            "displayName": "Llama 3.1 70B",
-            "contextWindow": 128000,
-            "capabilities": {
-                "vision": False,
-                "tools": False,
-                "streaming": True,
-            },
-        },
-    ),
-}
-
-_CLOUD_PROVIDERS = {
-    "openai",
-    "anthropic",
-    "gemini",
-    "groq",
-    "alibaba",
-    "minimax",
-}
 _MODEL_FAMILY_ALIASES = {
     "deepseek": "DeepSeek",
     "gemma": "Gemma",
@@ -147,67 +61,6 @@ def _catalog_timeout_seconds() -> float:
     except ValueError:
         value = 1.5
     return max(0.2, value)
-
-
-def _normalize_reason(message: str) -> str:
-    text = str(message or "").strip()
-    if "ALLOW_CLOUD_PROVIDERS" in text:
-        return "Cloud providers disabled by config"
-    if "CODEXIFY_LOCAL_ONLY_MODE=true" in text:
-        return "Local-only mode enabled"
-    if "CODEXIFY_EGRESS_ALLOWLIST" in text:
-        return "Provider blocked by egress policy"
-    return text or "Provider unavailable"
-
-
-def _has_real_api_key(value: str | None) -> bool:
-    return bool(value and value.strip())
-
-
-def _env_secret(*keys: str) -> str:
-    for key in keys:
-        raw = os.getenv(key)
-        if _has_real_api_key(raw):
-            return str(raw).strip()
-    return ""
-
-
-def _is_authorized(provider_id: str, settings: Settings) -> bool:
-    if provider_id == "local":
-        return True
-    if provider_id == "openai":
-        return _has_real_api_key(
-            str(getattr(settings, "OPENAI_API_KEY", "") or "")
-        )
-    if provider_id == "groq":
-        return _has_real_api_key(
-            str(getattr(settings, "GROQ_API_KEY", "") or "")
-        )
-    if provider_id == "alibaba":
-        has_key = _has_real_api_key(
-            str(getattr(settings, "ALIBABA_API_KEY", "") or "")
-        ) or _has_real_api_key(_env_secret("ALIBABA_API_KEY"))
-        has_base = bool(
-            str(getattr(settings, "ALIBABA_API_BASE", "") or "").strip()
-            or _env_secret("ALIBABA_API_BASE")
-        )
-        return has_key and has_base
-    if provider_id == "minimax":
-        has_key = _has_real_api_key(
-            str(getattr(settings, "MINIMAX_API_KEY", "") or "")
-        ) or _has_real_api_key(_env_secret("MINIMAX_API_KEY"))
-        has_base = bool(
-            str(getattr(settings, "MINIMAX_API_BASE", "") or "").strip()
-            or _env_secret("MINIMAX_API_BASE")
-        )
-        return has_key and has_base
-    if provider_id == "anthropic":
-        return _has_real_api_key(_env_secret("ANTHROPIC_API_KEY"))
-    if provider_id == "gemini":
-        return _has_real_api_key(
-            _env_secret("GEMINI_API_KEY", "GENAI_API_KEY", "GOOGLE_API_KEY")
-        )
-    return False
 
 
 def _base_model_entry(
@@ -506,24 +359,8 @@ def _fetch_local_models(settings: Settings) -> list[dict[str, Any]]:
 
 
 def _cloud_models(provider_id: str, settings: Settings) -> list[dict[str, Any]]:
-    static_models = list(_STATIC_PROVIDER_MODELS.get(provider_id, ()))
-    try:
-        default_model = str(
-            _default_model_for_provider(provider_id, settings) or ""
-        ).strip()
-    except Exception:
-        default_model = ""
-
-    existing_model_ids = {
-        str(entry.get("id") or "").strip() for entry in static_models
-    }
-    if default_model and default_model not in existing_model_ids:
-        static_models.insert(
-            0, {"id": default_model, "displayName": default_model}
-        )
-
     entries: list[dict[str, Any]] = []
-    for item in static_models:
+    for item in get_provider_model_descriptors(provider_id, settings):
         model_id = str(item.get("id") or "").strip()
         if not model_id:
             continue
@@ -551,25 +388,6 @@ def _provider_models(
 ) -> list[dict[str, Any]]:
     if provider_id == "local":
         return _fetch_local_models(settings)
-    if provider_id == "alibaba":
-        model_id = str(
-            getattr(settings, "ALIBABA_MODEL", "") or ""
-        ).strip() or _env_secret("ALIBABA_MODEL")
-        if not model_id:
-            return []
-        return [_base_model_entry(model_id=model_id, display_name=model_id)]
-    if provider_id == "minimax":
-        model_id = (
-            str(getattr(settings, "MINIMAX_MODEL", "") or "").strip()
-            or _env_secret("MINIMAX_MODEL")
-            or "minimax-default"
-        )
-        return [
-            _base_model_entry(
-                model_id=model_id,
-                display_name="MiniMax (default)",
-            )
-        ]
     return _cloud_models(provider_id, settings)
 
 
@@ -610,24 +428,8 @@ def _provider_availability(
     settings: Settings,
     authorized: bool,
 ) -> tuple[bool, str | None]:
-    if provider_id in _CLOUD_PROVIDERS and not authorized:
-        return False, "Missing provider credentials"
-
-    if provider_id in _CLOUD_PROVIDERS:
-        if not bool(getattr(settings, "ALLOW_CLOUD_PROVIDERS", True)):
-            return False, "Cloud providers disabled by config"
-        try:
-            assert_egress_allowed(provider_id, settings=settings)
-        except EgressDeniedError as exc:
-            return False, _normalize_reason(str(exc))
-        return True, None
-
-    # local provider
-    try:
-        _resolve_local_base(settings)
-    except Exception as exc:
-        return False, _normalize_reason(str(exc))
-    return True, None
+    status = provider_status(provider_id, settings)
+    return bool(status["available"]), status["disabled_reason"]
 
 
 def _provider_entry(
@@ -635,16 +437,21 @@ def _provider_entry(
     settings: Settings,
     include_all: bool,
 ) -> dict[str, Any] | None:
-    authorized = _is_authorized(provider_id, settings)
+    status = provider_status(provider_id, settings)
+    authorized = bool(status["authorized"])
     if not include_all and provider_id != "local" and not authorized:
         return None
 
-    available, disabled_reason = _provider_availability(
-        provider_id, settings, authorized
-    )
-    enabled = bool(available) and bool(authorized)
-    if provider_id == "local":
-        enabled = bool(available)
+    available = bool(status["available"])
+    disabled_reason = status["disabled_reason"]
+    enabled = bool(status["enabled"])
+    models = _provider_models(provider_id, settings)
+    if provider_id != "local" and not models:
+        available = False
+        enabled = False
+        disabled_reason = disabled_reason or "No models configured for provider"
+        if not include_all:
+            return None
 
     entry: dict[str, Any] = {
         "id": provider_id,
@@ -654,7 +461,7 @@ def _provider_entry(
         "label": _PROVIDER_LABELS.get(provider_id, provider_id.title()),
         "authorized": authorized,
         "available": available,
-        "models": _provider_models(provider_id, settings),
+        "models": models,
     }
     source = _provider_source(provider_id, settings)
     if source is not None:
@@ -683,25 +490,23 @@ def resolve_provider_for_model(
     *,
     settings: Settings | None = None,
 ) -> str | None:
-    candidate = str(model_id or "").strip()
-    if not candidate:
-        return None
-
-    catalog = build_llm_catalog(settings=settings, include_all=True)
-    for provider in catalog.get("providers", []):
-        if not provider.get("enabled"):
-            continue
-        for model in provider.get("models", []):
-            if str(model.get("id") or "").strip() == candidate:
-                return str(provider.get("id") or "").strip() or None
-    return None
+    resolved = settings or get_settings()
+    local_model_ids = [
+        model.get("id") for model in _fetch_local_models(resolved)
+    ]
+    return resolve_provider_for_model_registry(
+        model_id,
+        settings=resolved,
+        local_model_ids=local_model_ids,
+        enabled_only=True,
+    )
 
 
 def first_enabled_provider(*, settings: Settings | None = None) -> str | None:
     catalog = build_llm_catalog(settings=settings, include_all=True)
     for provider in catalog.get("providers", []):
         if provider.get("enabled"):
-            resolved = str(provider.get("id") or "").strip()
+            resolved = normalize_provider(provider.get("id"))
             if resolved:
                 return resolved
     return None
@@ -712,19 +517,19 @@ def first_model_for_provider(
     *,
     settings: Settings | None = None,
 ) -> str | None:
-    target = str(provider_id or "").strip().lower()
+    target = normalize_provider(provider_id)
     if not target:
         return None
 
     catalog = build_llm_catalog(settings=settings, include_all=True)
     for provider in catalog.get("providers", []):
-        if str(provider.get("id") or "").strip().lower() != target:
+        if normalize_provider(provider.get("id")) != target:
             continue
         if not provider.get("enabled"):
             return None
         models = provider.get("models")
         if not isinstance(models, list) or not models:
             return None
-        first = str(models[0].get("id") or "").strip()
+        first = normalize_model_id(models[0].get("id"))
         return first or None
     return None

@@ -9,6 +9,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
+logger = logging.getLogger(__name__)
+
+
+def _normalize_model_setting(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if normalized.lower() in {"", "auto"}:
+        return ""
+    return normalized
 
 
 class Settings(BaseSettings):
@@ -67,9 +75,17 @@ class Settings(BaseSettings):
         default="gpt-4o",
         description="Default chat model for OpenAI completions.",
     )
+    OPENAI_MODEL: str | None = Field(
+        default=None,
+        description="Optional explicit chat model for OpenAI completions.",
+    )
     DEFAULT_GROQ_MODEL: str = Field(
-        default="moonshotai-kimi-k2-instruct-9050",
+        default="moonshotai/kimi-k2-instruct-0905",
         description="Default chat model for Groq completions.",
+    )
+    GROQ_MODEL: str | None = Field(
+        default=None,
+        description="Optional explicit chat model for Groq completions.",
     )
     EMBEDDER_PROVIDER: str = Field(
         default="local_api",
@@ -382,6 +398,31 @@ class Settings(BaseSettings):
         description="Maximum concurrent websocket RPC connections allowed.",
     )
 
+    def model_post_init(self, __context) -> None:
+        legacy_openai_model = _normalize_model_setting(
+            os.getenv("OPENAI_MODEL_CHAT")
+        )
+        if legacy_openai_model and not _normalize_model_setting(
+            self.OPENAI_MODEL
+        ):
+            self.OPENAI_MODEL = legacy_openai_model
+            logger.warning(
+                "[config] OPENAI_MODEL_CHAT is deprecated; use OPENAI_MODEL."
+            )
+
+        legacy_cloud_model = _normalize_model_setting(
+            os.getenv("DEFAULT_CLOUD_MODEL")
+        )
+        if (
+            legacy_cloud_model
+            and not _normalize_model_setting(self.GROQ_MODEL)
+            and str(self.LLM_PROVIDER or "").strip().lower() == "groq"
+        ):
+            self.GROQ_MODEL = legacy_cloud_model
+            logger.warning(
+                "[config] DEFAULT_CLOUD_MODEL is deprecated for Groq; use GROQ_MODEL."
+            )
+
 
 # Create a singleton instance that can be imported across the application
 settings = Settings()
@@ -390,7 +431,6 @@ CLOUD_LLM_PROVIDERS = {"openai", "groq", "alibaba", "minimax"}
 _VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
 _SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _LOGGED_COHERENCE_SOURCES: set[str] = set()
-logger = logging.getLogger(__name__)
 
 
 class LLMConfigError(Exception):

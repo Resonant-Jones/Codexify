@@ -10,7 +10,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePreferredProvider } from "@/hooks/usePreferredProvider";
 import api, { buildLlmCatalogPath } from "@/lib/api";
-import { setPreferredProviderSelection } from "@/lib/providerPref";
+import {
+  reconcilePreferredProviderSelection,
+  setPreferredProviderSelection,
+} from "@/lib/providerPref";
 import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
 
@@ -160,6 +163,7 @@ export function ProviderSelect({
         .filter((entry) => entry.id.length > 0 && entry.enabled);
 
       setProviders(normalizedProviders);
+      reconcilePreferredProviderSelection(normalizedProviders);
       setActiveProviderId((previous) =>
         previous && normalizedProviders.some((entry) => entry.id === previous)
           ? previous

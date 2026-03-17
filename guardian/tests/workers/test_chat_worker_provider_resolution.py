@@ -180,7 +180,7 @@ def test_explicit_model_selects_provider_even_with_profile_override(
     task = ChatCompletionTask(
         thread_id=1,
         provider=None,
-        model="moonshotai-kimi-k2-instruct-9050",
+        model="moonshotai/kimi-k2-instruct-0905",
         max_context=10,
     )
 
@@ -188,4 +188,4 @@ def test_explicit_model_selects_provider_even_with_profile_override(
         chat_worker._build_messages_for_llm(task)
     )
     assert provider == "groq"
-    assert model == "moonshotai-kimi-k2-instruct-9050"
+    assert model == "moonshotai/kimi-k2-instruct-0905"

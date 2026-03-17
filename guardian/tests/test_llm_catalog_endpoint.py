@@ -86,6 +86,9 @@ def test_llm_catalog_hides_unauthorized_cloud_providers_by_default(monkeypatch):
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "GROQ_API_KEY": settings.GROQ_API_KEY,
         "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+        "ALIBABA_MODEL": settings.ALIBABA_MODEL,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
         "MINIMAX_MODEL": settings.MINIMAX_MODEL,
@@ -104,6 +107,9 @@ def test_llm_catalog_hides_unauthorized_cloud_providers_by_default(monkeypatch):
         settings.CODEXIFY_EGRESS_ALLOWLIST = "openai,anthropic,gemini,groq"
         settings.GROQ_API_KEY = None
         settings.OPENAI_API_KEY = None
+        settings.ALIBABA_API_KEY = None
+        settings.ALIBABA_API_BASE = None
+        settings.ALIBABA_MODEL = None
         settings.MINIMAX_API_KEY = None
         settings.MINIMAX_API_BASE = None
         settings.MINIMAX_MODEL = None
