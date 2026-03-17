@@ -14,7 +14,7 @@ import time
 from uuid import uuid4
 
 import requests
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from guardian.core import metrics
 from guardian.core.dependencies import DB_BACKEND, get_database_dsn
@@ -125,9 +125,13 @@ def _normalize_health_provider(raw_provider: str) -> str:
 
 
 @router.get("/health")
-def health():
+def health(request: Request):
     """Base health check endpoint for system-level monitoring."""
-    return {"status": "ok"}
+    payload = {"status": "ok"}
+    supported_profile = getattr(request.app.state, "supported_profile", None)
+    if supported_profile is not None:
+        payload["supported_profile"] = supported_profile
+    return payload
 
 
 @router.get("/health/llm")
