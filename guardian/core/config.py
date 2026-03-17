@@ -140,12 +140,38 @@ class Settings(BaseSettings):
         default=None,
         description="Optional override for the Groq-compatible OpenAI base URL.",
     )
+    GROQ_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for Groq's live model index endpoint. "
+            "Defaults to deriving /openai/v1/models from GROQ_BASE_URL."
+        ),
+    )
+    GROQ_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for Groq live model index discovery requests (seconds)."
+        ),
+    )
     OPENAI_API_KEY: str | None = Field(
         default=None, description="API key for OpenAI."
     )
     OPENAI_BASE_URL: str | None = Field(
         default=None,
         description="Optional override for the OpenAI API base URL.",
+    )
+    OPENAI_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for OpenAI's live model index endpoint. "
+            "Defaults to deriving /v1/models from OPENAI_BASE_URL."
+        ),
+    )
+    OPENAI_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for OpenAI live model index discovery requests (seconds)."
+        ),
     )
     ALIBABA_API_KEY: str | None = Field(
         default=None,

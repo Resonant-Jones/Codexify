@@ -14,6 +14,9 @@ from requests import exceptions as req_exc
 from guardian.core.config import LLMConfigError, Settings, validate_llm_config
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 
+_DEFAULT_OPENAI_API_BASE = "https://api.openai.com"
+_DEFAULT_GROQ_API_BASE = "https://api.groq.com"
+
 PROVIDER_ORDER = (
     "openai",
     "anthropic",
@@ -44,7 +47,7 @@ CLOUD_PROVIDERS = {
 }
 
 _AUTO_MODEL_SENTINELS = {"", "auto"}
-_DYNAMIC_MODEL_PROVIDERS = {"alibaba", "minimax"}
+_DYNAMIC_MODEL_PROVIDERS = {"openai", "groq", "alibaba", "minimax"}
 _MODEL_INDEX_NON_CHAT_HINTS = (
     "audio",
     "asr",
@@ -204,7 +207,11 @@ def _provider_model_index_timeout(
     settings: Settings,
 ) -> float:
     provider = normalize_provider(provider_id)
-    if provider == "alibaba":
+    if provider == "openai":
+        raw = getattr(settings, "OPENAI_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
+    elif provider == "groq":
+        raw = getattr(settings, "GROQ_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
+    elif provider == "alibaba":
         raw = getattr(settings, "ALIBABA_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
     elif provider == "minimax":
         raw = getattr(settings, "MINIMAX_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
@@ -218,7 +225,21 @@ def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
     override = ""
     base_url = ""
 
-    if provider == "alibaba":
+    if provider == "openai":
+        override = str(
+            getattr(settings, "OPENAI_MODEL_DISCOVERY_URL", "") or ""
+        ).strip()
+        base_url = str(
+            getattr(settings, "OPENAI_BASE_URL", "") or _DEFAULT_OPENAI_API_BASE
+        ).strip()
+    elif provider == "groq":
+        override = str(
+            getattr(settings, "GROQ_MODEL_DISCOVERY_URL", "") or ""
+        ).strip()
+        base_url = str(
+            getattr(settings, "GROQ_BASE_URL", "") or _DEFAULT_GROQ_API_BASE
+        ).strip()
+    elif provider == "alibaba":
         override = str(
             getattr(settings, "ALIBABA_MODEL_DISCOVERY_URL", "") or ""
         ).strip()
@@ -235,6 +256,12 @@ def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
     clean_base = base_url.rstrip("/")
     if not clean_base:
         return ""
+    if provider == "groq":
+        if clean_base.endswith("/openai/v1/models"):
+            return clean_base
+        if clean_base.endswith("/openai/v1"):
+            return f"{clean_base}/models"
+        return f"{clean_base}/openai/v1/models"
     if clean_base.endswith("/models"):
         return clean_base
     if clean_base.endswith("/v1"):
@@ -248,6 +275,16 @@ def _provider_model_index_headers(
 ) -> dict[str, str]:
     provider = normalize_provider(provider_id)
     headers = {"Accept": "application/json"}
+    if provider == "openai":
+        headers[
+            "Authorization"
+        ] = f"Bearer {str(getattr(settings, 'OPENAI_API_KEY', '') or '').strip()}"
+        return headers
+    if provider == "groq":
+        headers[
+            "Authorization"
+        ] = f"Bearer {str(getattr(settings, 'GROQ_API_KEY', '') or '').strip()}"
+        return headers
     if provider == "alibaba":
         headers[
             "Authorization"

@@ -22,7 +22,9 @@ def _provider_settings(**overrides) -> Settings:
     base = {
         "ALLOW_CLOUD_PROVIDERS": True,
         "CODEXIFY_LOCAL_ONLY_MODE": False,
-        "CODEXIFY_EGRESS_ALLOWLIST": "alibaba,minimax",
+        "CODEXIFY_EGRESS_ALLOWLIST": "openai,groq,alibaba,minimax",
+        "OPENAI_API_KEY": "openai-key",
+        "GROQ_API_KEY": "groq-key",
         "ALIBABA_API_KEY": "alibaba-key",
         "ALIBABA_API_BASE": "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
         "MINIMAX_API_KEY": "minimax-key",
@@ -31,6 +33,93 @@ def _provider_settings(**overrides) -> Settings:
     }
     base.update(overrides)
     return Settings(**base)
+
+
+def test_resolve_provider_capability_discovers_openai_models_live(
+    monkeypatch,
+):
+    def fake_get(url, headers, timeout):
+        assert url == "https://api.openai.com/v1/models"
+        assert headers["Authorization"] == "Bearer openai-key"
+        assert timeout == 3.0
+        return _MockResponse(
+            {
+                "data": [
+                    {
+                        "id": "gpt-4o",
+                        "context_window": 128000,
+                        "capabilities": {"tools": True, "vision": True},
+                    },
+                    {
+                        "id": "text-embedding-3-large",
+                        "task": "embedding",
+                    },
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get", fake_get
+    )
+
+    capability = resolve_provider_capability("openai", _provider_settings())
+
+    assert capability["authorized"] is True
+    assert capability["available"] is True
+    assert capability["enabled"] is True
+    assert capability["models"] == [
+        {
+            "id": "gpt-4o",
+            "displayName": "gpt-4o",
+            "contextWindow": 128000,
+            "capabilities": {"tools": True, "vision": True},
+        }
+    ]
+    assert capability["model_index"]["state"] == "available"
+    assert (
+        capability["model_index"]["endpoint"]
+        == "https://api.openai.com/v1/models"
+    )
+    assert capability["model_index"]["model_count"] == 1
+
+
+def test_resolve_provider_capability_discovers_groq_models_live(
+    monkeypatch,
+):
+    def fake_get(url, headers, timeout):
+        assert url == "https://api.groq.com/openai/v1/models"
+        assert headers["Authorization"] == "Bearer groq-key"
+        assert timeout == 3.0
+        return _MockResponse(
+            {
+                "data": [
+                    {"id": "llama-3.3-70b-versatile"},
+                    {"id": "whisper-large-v3", "task": "transcription"},
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get", fake_get
+    )
+
+    capability = resolve_provider_capability("groq", _provider_settings())
+
+    assert capability["authorized"] is True
+    assert capability["available"] is True
+    assert capability["enabled"] is True
+    assert capability["models"] == [
+        {
+            "id": "llama-3.3-70b-versatile",
+            "displayName": "llama-3.3-70b-versatile",
+        }
+    ]
+    assert capability["model_index"]["state"] == "available"
+    assert (
+        capability["model_index"]["endpoint"]
+        == "https://api.groq.com/openai/v1/models"
+    )
+    assert capability["model_index"]["model_count"] == 1
 
 
 def test_resolve_provider_capability_discovers_alibaba_models_live(
@@ -125,6 +214,47 @@ def test_minimax_discovery_failure_degrades_without_fabricating_models(
     assert "not-real" in str(reason)
 
 
+def test_openai_discovery_failure_degrades_without_fabricating_models(
+    monkeypatch,
+):
+    def fake_get(url, headers, timeout):
+        assert url == "https://api.openai.com/v1/models"
+        assert headers["Authorization"] == "Bearer openai-key"
+        assert timeout == 3.0
+        raise requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get", fake_get
+    )
+
+    settings = _provider_settings(OPENAI_MODEL="gpt-4o")
+    capability = resolve_provider_capability("openai", settings)
+
+    assert capability["authorized"] is True
+    assert capability["available"] is True
+    assert capability["enabled"] is True
+    assert capability["models"] == []
+    assert capability["default_model"] == "gpt-4o"
+    assert capability["model_index"]["state"] == "degraded"
+    assert "timed out" in capability["model_index"]["reason"].lower()
+
+    valid, reason = validate_provider_model_selection(
+        provider_id="openai",
+        model_id="gpt-4o",
+        settings=settings,
+    )
+    assert valid is True
+    assert reason is None
+
+    valid, reason = validate_provider_model_selection(
+        provider_id="openai",
+        model_id="not-real",
+        settings=settings,
+    )
+    assert valid is False
+    assert "not-real" in str(reason)
+
+
 def test_dynamic_provider_without_default_becomes_unavailable_when_discovery_fails(
     monkeypatch,
 ):
@@ -145,14 +275,41 @@ def test_dynamic_provider_without_default_becomes_unavailable_when_discovery_fai
     assert "request failed" in capability["disabled_reason"].lower()
 
 
-def test_resolve_provider_for_model_only_matches_discovered_dynamic_models(
+def test_discovery_backed_provider_without_default_becomes_unavailable_when_discovery_fails(
     monkeypatch,
 ):
     monkeypatch.setattr(
         "guardian.core.provider_registry.requests.get",
-        lambda *args, **kwargs: _MockResponse(
-            {"data": [{"id": "minimax-chat"}, {"id": "abab7.5-chat"}]}
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            requests.exceptions.ConnectionError("boom")
         ),
+    )
+
+    capability = resolve_provider_capability(
+        "groq",
+        _provider_settings(GROQ_MODEL=None, DEFAULT_GROQ_MODEL=""),
+    )
+
+    assert capability["available"] is False
+    assert capability["enabled"] is False
+    assert capability["models"] == []
+    assert capability["model_index"]["state"] == "degraded"
+    assert "request failed" in capability["disabled_reason"].lower()
+
+
+def test_resolve_provider_for_model_only_matches_discovered_dynamic_models(
+    monkeypatch,
+):
+    def fake_get(url, headers, timeout):
+        if url == "https://api.minimax.local/v1/models":
+            return _MockResponse(
+                {"data": [{"id": "minimax-chat"}, {"id": "abab7.5-chat"}]}
+            )
+        return _MockResponse({"data": []})
+
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        fake_get,
     )
 
     settings = _provider_settings(

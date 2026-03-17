@@ -20,7 +20,20 @@ logger = logging.getLogger(__name__)
 _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
 _DEFAULT_ALIBABA_BASE = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
-_DYNAMIC_DISCOVERY_VALIDATED_PROVIDERS = {"alibaba", "minimax"}
+_DYNAMIC_DISCOVERY_VALIDATED_PROVIDERS = {
+    "openai",
+    "groq",
+    "alibaba",
+    "minimax",
+}
+_DISCOVERY_VALIDATION_FORBIDDEN_REASONS = {
+    "Cloud providers disabled by config",
+    "Local-only mode enabled",
+    "Provider blocked by egress policy",
+}
+_DISCOVERY_VALIDATION_REASON_DETAILS = {
+    "Local-only mode enabled": "Egress blocked: CODEXIFY_LOCAL_ONLY_MODE=true.",
+}
 
 
 @dataclass(frozen=True)
@@ -538,9 +551,18 @@ def chat_with_ai(
             settings=settings,
         )
         if not valid:
+            clean_reason = str(reason or "").strip()
             raise HTTPException(
-                status_code=400,
-                detail=reason or "Provider/model selection is invalid",
+                status_code=(
+                    403
+                    if clean_reason in _DISCOVERY_VALIDATION_FORBIDDEN_REASONS
+                    else 400
+                ),
+                detail=(
+                    _DISCOVERY_VALIDATION_REASON_DETAILS.get(clean_reason)
+                    or reason
+                    or "Provider/model selection is invalid"
+                ),
             )
 
     if provider_name == "local":

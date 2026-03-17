@@ -146,6 +146,12 @@ def test_llm_catalog_includes_authorized_provider(monkeypatch):
         "guardian.core.llm_catalog.requests.get",
         _mock_local_catalog_request,
     )
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: _MockResponse(
+            {"data": [{"id": "moonshotai/kimi-k2-instruct-0905"}]}
+        ),
+    )
 
     settings = get_settings()
     snapshot = {
@@ -178,6 +184,8 @@ def test_llm_catalog_includes_authorized_provider(monkeypatch):
         assert groq["authorized"] is True
         assert groq["available"] is True
         assert groq["enabled"] is True
+        assert groq["models"][0]["id"] == "moonshotai/kimi-k2-instruct-0905"
+        assert groq["model_index"]["state"] == "available"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -504,6 +512,80 @@ def test_llm_catalog_populates_alibaba_and_minimax_from_live_discovery(
             setattr(settings, field, value)
 
 
+def test_llm_catalog_populates_openai_and_groq_from_live_discovery(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+
+    def fake_provider_discovery(url, headers, timeout):
+        assert timeout == 3.0
+        if url == "https://api.openai.com/v1/models":
+            assert headers["Authorization"] == "Bearer test-openai-key"
+            return _MockResponse(
+                {
+                    "data": [
+                        {"id": "gpt-4o"},
+                        {"id": "text-embedding-3-large", "task": "embedding"},
+                    ]
+                }
+            )
+        if url == "https://api.groq.com/openai/v1/models":
+            assert headers["Authorization"] == "Bearer test-groq-key"
+            return _MockResponse(
+                {
+                    "data": [
+                        {"id": "moonshotai/kimi-k2-instruct-0905"},
+                        {"id": "whisper-large-v3", "task": "transcription"},
+                    ]
+                }
+            )
+        raise AssertionError(f"unexpected discovery url: {url}")
+
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        fake_provider_discovery,
+    )
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "GROQ_API_KEY": settings.GROQ_API_KEY,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = "openai,groq"
+        settings.OPENAI_API_KEY = "test-openai-key"
+        settings.GROQ_API_KEY = "test-groq-key"
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+        payload = response.json()
+
+        openai = _provider_by_id(payload, "openai")
+        groq = _provider_by_id(payload, "groq")
+
+        assert [model["id"] for model in openai["models"]] == ["gpt-4o"]
+        assert openai["model_index"]["state"] == "available"
+        assert openai["model_index"]["model_count"] == 1
+
+        assert [model["id"] for model in groq["models"]] == [
+            "moonshotai/kimi-k2-instruct-0905"
+        ]
+        assert groq["model_index"]["state"] == "available"
+        assert groq["model_index"]["model_count"] == 1
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
 def test_llm_catalog_minimax_enabled_with_key_base_and_egress(monkeypatch):
     monkeypatch.setattr(
         "guardian.core.llm_catalog.requests.get",
@@ -592,6 +674,52 @@ def test_llm_catalog_dynamic_discovery_failure_reports_degraded_metadata(
         assert minimax["models"] == []
         assert minimax["model_index"]["state"] == "degraded"
         assert "timed out" in minimax["model_index"]["reason"].lower()
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_openai_discovery_failure_reports_degraded_metadata(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: (_ for _ in ()).throw(
+            requests.exceptions.Timeout("timed out")
+        ),
+    )
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "OPENAI_MODEL": settings.OPENAI_MODEL,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = "openai"
+        settings.OPENAI_API_KEY = "test-openai-key"
+        settings.OPENAI_MODEL = "gpt-4o"
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+        payload = response.json()
+
+        openai = _provider_by_id(payload, "openai")
+        assert openai["authorized"] is True
+        assert openai["available"] is True
+        assert openai["enabled"] is True
+        assert openai["models"] == []
+        assert openai["model_index"]["state"] == "degraded"
+        assert "timed out" in openai["model_index"]["reason"].lower()
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)

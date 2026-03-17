@@ -4,6 +4,15 @@ from fastapi.testclient import TestClient
 from guardian.guardian_api import app
 
 
+class _Resp:
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+
+    def json(self):
+        return self._payload
+
+
 def test_health_endpoints_ok():
     client = TestClient(app)
     resp = client.get("/health")
@@ -26,11 +35,12 @@ def test_health_llm_reports_local_online(monkeypatch):
     settings.LLM_PROVIDER = "local"
     settings.LOCAL_BASE_URL = "http://127.0.0.1:11434/v1"
 
-    class _Resp:
+    class _HealthProbeResp:
         status_code = 200
 
     monkeypatch.setattr(
-        "guardian.routes.health.requests.get", lambda *a, **k: _Resp()
+        "guardian.routes.health.requests.get",
+        lambda *a, **k: _HealthProbeResp(),
     )
 
     client = TestClient(app)
@@ -70,6 +80,12 @@ def test_health_llm_cloud_configured_is_truthful_unknown(monkeypatch):
             "error": None,
         },
     )
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: _Resp(
+            {"data": [{"id": "moonshotai/kimi-k2-instruct-0905"}]}
+        ),
+    )
 
     settings.LLM_PROVIDER = "groq"
     settings.ALLOW_CLOUD_PROVIDERS = True
@@ -87,6 +103,9 @@ def test_health_llm_cloud_configured_is_truthful_unknown(monkeypatch):
         assert payload["ok"] is False
         assert payload["mode"] == "runtime_unprobed"
         assert payload["provider_runtime"]["enabled"] is True
+        assert (
+            payload["provider_runtime"]["model_index"]["state"] == "available"
+        )
         assert payload["completion_service"]["status_reason"] == "ok"
     finally:
         for field, value in snapshot.items():
@@ -97,14 +116,6 @@ def test_health_and_catalog_share_dynamic_provider_model_index_state(
     monkeypatch,
 ):
     from guardian.core.config import get_settings
-
-    class _Resp:
-        def __init__(self, payload, status_code=200):
-            self._payload = payload
-            self.status_code = status_code
-
-        def json(self):
-            return self._payload
 
     settings = get_settings()
     snapshot = {
@@ -179,6 +190,87 @@ def test_health_and_catalog_share_dynamic_provider_model_index_state(
         assert minimax["models"] == []
         assert minimax["model_index"]["state"] == "degraded"
         assert "timed out" in minimax["model_index"]["reason"].lower()
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_health_and_catalog_share_openai_provider_model_index_state(
+    monkeypatch,
+):
+    from guardian.core.config import get_settings
+
+    settings = get_settings()
+    snapshot = {
+        "LLM_PROVIDER": settings.LLM_PROVIDER,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "OPENAI_MODEL": settings.OPENAI_MODEL,
+    }
+
+    monkeypatch.setattr(
+        "guardian.routes.health._collect_completion_service_health",
+        lambda: {
+            "ok": True,
+            "redis_reachable": True,
+            "enqueue_test_ok": True,
+            "worker_heartbeat_detected": True,
+            "worker_heartbeat_age_seconds": 0.5,
+            "status_reason": "ok",
+            "error": None,
+        },
+    )
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        lambda url, *args, **kwargs: _Resp({"data": []}, status_code=404),
+    )
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: (_ for _ in ()).throw(
+            requests.exceptions.Timeout("timed out")
+        ),
+    )
+
+    settings.LLM_PROVIDER = "openai"
+    settings.ALLOW_CLOUD_PROVIDERS = True
+    settings.CODEXIFY_LOCAL_ONLY_MODE = False
+    settings.CODEXIFY_EGRESS_ALLOWLIST = "openai"
+    settings.OPENAI_API_KEY = "openai-key"
+    settings.OPENAI_MODEL = "gpt-4o"
+
+    client = TestClient(app)
+    try:
+        health = client.get("/api/health/llm")
+        assert health.status_code == 200
+        health_payload = health.json()
+
+        catalog = client.get("/api/llm/catalog")
+        assert catalog.status_code == 200
+        catalog_payload = catalog.json()
+        openai = next(
+            provider
+            for provider in catalog_payload["providers"]
+            if provider["id"] == "openai"
+        )
+
+        assert health_payload["provider"] == "openai"
+        assert health_payload["model"] == "gpt-4o"
+        assert (
+            health_payload["provider_runtime"]["model_index"]
+            == openai["model_index"]
+        )
+        assert (
+            health_payload["provider_runtime"]["available"]
+            == openai["available"]
+        )
+        assert (
+            health_payload["provider_runtime"]["enabled"] == openai["enabled"]
+        )
+        assert openai["models"] == []
+        assert openai["model_index"]["state"] == "degraded"
+        assert "timed out" in openai["model_index"]["reason"].lower()
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)

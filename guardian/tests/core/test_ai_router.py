@@ -72,6 +72,27 @@ def _mock_minimax_model_index(url, headers, timeout):
     return _MockDiscoveryResponse({"data": [{"id": "minimax-chat"}]})
 
 
+def _mock_openai_model_index(url, headers, timeout):
+    assert url == "https://api.openai.com/v1/models"
+    assert timeout == 3.0
+    assert headers["Authorization"] == "Bearer openai-key"
+    return _MockDiscoveryResponse({"data": [{"id": "gpt-4o"}]})
+
+
+def _mock_groq_model_index(url, headers, timeout):
+    assert url == "https://api.groq.com/openai/v1/models"
+    assert timeout == 3.0
+    assert headers["Authorization"] == "Bearer groq-key"
+    return _MockDiscoveryResponse(
+        {
+            "data": [
+                {"id": "moonshotai/kimi-k2-instruct-0905"},
+                {"id": "custom-model"},
+            ]
+        }
+    )
+
+
 def test_chat_with_ai_groq_default(monkeypatch):
     calls = {}
 
@@ -81,6 +102,10 @@ def test_chat_with_ai_groq_default(monkeypatch):
         return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_groq_model_index,
+    )
 
     settings = _fake_settings("groq")
     reply = chat_with_ai([{"role": "user", "content": "hi"}], settings=settings)
@@ -101,6 +126,10 @@ def test_chat_with_ai_groq_prefers_groq_model_over_generic_llm_model(
         return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_groq_model_index,
+    )
 
     settings = _fake_settings("groq")
     settings.LLM_MODEL = "qwen3.5:27b"
@@ -122,6 +151,10 @@ def test_chat_with_ai_openai_default(monkeypatch):
         return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_openai_model_index,
+    )
 
     settings = _fake_settings("openai")
     reply = chat_with_ai([{"role": "user", "content": "hi"}], settings=settings)
@@ -227,6 +260,54 @@ def test_chat_with_ai_rejects_undiscovered_minimax_model(monkeypatch):
     assert "bogus-model" in str(exc.value.detail)
 
 
+def test_chat_with_ai_rejects_undiscovered_openai_model(monkeypatch):
+    def fake_post(url, json, headers, timeout):  # pragma: no cover
+        return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_openai_model_index,
+    )
+
+    settings = _fake_settings("openai")
+
+    with pytest.raises(HTTPException) as exc:
+        chat_with_ai(
+            [{"role": "user", "content": "hi"}],
+            provider="openai",
+            model="bogus-model",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 400
+    assert "bogus-model" in str(exc.value.detail)
+
+
+def test_chat_with_ai_rejects_undiscovered_groq_model(monkeypatch):
+    def fake_post(url, json, headers, timeout):  # pragma: no cover
+        return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_groq_model_index,
+    )
+
+    settings = _fake_settings("groq")
+
+    with pytest.raises(HTTPException) as exc:
+        chat_with_ai(
+            [{"role": "user", "content": "hi"}],
+            provider="groq",
+            model="bogus-model",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 400
+    assert "bogus-model" in str(exc.value.detail)
+
+
 def test_chat_with_ai_groq_override_not_openai(monkeypatch):
     calls = {}
 
@@ -235,6 +316,10 @@ def test_chat_with_ai_groq_override_not_openai(monkeypatch):
         return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_groq_model_index,
+    )
 
     settings = _fake_settings("groq")
     chat_with_ai(
