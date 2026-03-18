@@ -2,18 +2,14 @@ from itertools import combinations
 
 import requests
 
-from guardian.core.config import Settings
+from guardian.core.config import ROUTER_SUPPORTED_LLM_PROVIDERS, Settings
 from guardian.core.provider_registry import (
-    DISABLED_PROVIDERS,
-    DISCOVERY_BACKED_PROVIDERS,
-    LOCAL_ONLY_PROVIDERS,
-    PROVIDER_GOVERNANCE,
-    PROVIDER_LABELS,
     PROVIDER_ORDER,
-    STATIC_AUTHORIZED_PROVIDERS,
-    get_provider_governance,
     get_provider_model_descriptors,
-    provider_availability,
+    provider_allows_default_during_degraded_discovery,
+    provider_governance,
+    provider_governance_contract,
+    provider_routing_requires_discovered_inventory,
     resolve_provider_capability,
     resolve_provider_for_model,
     validate_provider_model_selection,
@@ -306,3 +302,84 @@ def test_resolve_provider_for_model_only_matches_discovered_dynamic_models(
         == "minimax"
     )
     assert resolve_provider_for_model("not-real", settings=settings) is None
+
+
+def test_provider_governance_contract_classifies_every_known_provider_once():
+    contract = provider_governance_contract()
+
+    assert set(contract) == set(PROVIDER_ORDER)
+    assert len(contract) == len(PROVIDER_ORDER)
+    assert all(
+        entry["provider"] == provider for provider, entry in contract.items()
+    )
+
+    discovery_backed = {
+        provider
+        for provider, entry in contract.items()
+        if entry["governance_classification"] == "discovery_backed"
+    }
+    static_authorized = {
+        provider
+        for provider, entry in contract.items()
+        if entry["governance_classification"] == "static_authorized"
+    }
+    local_only = {
+        provider
+        for provider, entry in contract.items()
+        if entry["governance_classification"] == "local_only"
+    }
+    disabled = {
+        provider
+        for provider, entry in contract.items()
+        if entry["governance_classification"] == "disabled"
+    }
+
+    assert discovery_backed == {"alibaba", "minimax"}
+    assert static_authorized == {"openai", "groq"}
+    assert local_only == {"local"}
+    assert disabled == {"anthropic", "gemini"}
+    assert discovery_backed.isdisjoint(static_authorized)
+    assert discovery_backed | static_authorized | local_only == set(
+        ROUTER_SUPPORTED_LLM_PROVIDERS
+    )
+
+
+def test_provider_governance_contract_is_internally_consistent():
+    contract = provider_governance_contract()
+
+    for provider, entry in contract.items():
+        assert provider_governance(provider) == entry
+        assert (
+            provider_routing_requires_discovered_inventory(provider)
+            is entry["routing_validate_discovered_inventory"]
+        )
+        assert (
+            provider_allows_default_during_degraded_discovery(provider)
+            is entry["configured_defaults_allowed_during_degraded_discovery"]
+        )
+
+        classification = entry["governance_classification"]
+        if classification == "discovery_backed":
+            assert entry["live_discovery_expected"] is True
+            assert entry["routing_validate_discovered_inventory"] is True
+            assert (
+                entry["configured_defaults_allowed_during_degraded_discovery"]
+                is True
+            )
+            assert entry["local_only"] is False
+        elif classification == "local_only":
+            assert entry["live_discovery_expected"] is False
+            assert entry["routing_validate_discovered_inventory"] is False
+            assert (
+                entry["configured_defaults_allowed_during_degraded_discovery"]
+                is False
+            )
+            assert entry["local_only"] is True
+        else:
+            assert entry["live_discovery_expected"] is False
+            assert entry["routing_validate_discovered_inventory"] is False
+            assert (
+                entry["configured_defaults_allowed_during_degraded_discovery"]
+                is False
+            )
+            assert entry["local_only"] is False
