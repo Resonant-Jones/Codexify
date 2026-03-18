@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Literal, TypedDict
 
+import requests
+from requests import exceptions as req_exc
+
 from guardian.core.config import (
     SUPPORTED_ROUTED_LLM_PROVIDERS,
     LLMConfigError,
@@ -135,6 +138,21 @@ CLOUD_PROVIDERS = frozenset(
 
 _AUTO_MODEL_SENTINELS = {"", "auto"}
 _VALIDATED_PROVIDER_SET = frozenset(SUPPORTED_ROUTED_LLM_PROVIDERS)
+_DYNAMIC_MODEL_PROVIDERS = {"alibaba", "minimax"}
+_MODEL_INDEX_NON_CHAT_HINTS = (
+    "audio",
+    "asr",
+    "embedding",
+    "embeddings",
+    "image",
+    "moderation",
+    "music",
+    "rerank",
+    "speech",
+    "transcription",
+    "tts",
+    "video",
+)
 
 _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
     "openai": (
@@ -248,6 +266,14 @@ def _has_real_api_key(value: str | None) -> bool:
     return bool(value and value.strip())
 
 
+def _coerce_positive_timeout(raw: Any, default: float) -> float:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = float(default)
+    return max(0.2, value)
+
+
 def default_model_for_provider(provider_id: str, settings: Settings) -> str:
     provider = normalize_provider(provider_id)
 
@@ -280,6 +306,347 @@ def default_model_for_provider(provider_id: str, settings: Settings) -> str:
         if normalized:
             return normalized
     return ""
+
+
+def _provider_model_index_timeout(
+    provider_id: str,
+    settings: Settings,
+) -> float:
+    provider = normalize_provider(provider_id)
+    if provider == "alibaba":
+        raw = getattr(settings, "ALIBABA_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
+    elif provider == "minimax":
+        raw = getattr(settings, "MINIMAX_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
+    else:
+        raw = 3.0
+    return _coerce_positive_timeout(raw, 3.0)
+
+
+def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
+    provider = normalize_provider(provider_id)
+    override = ""
+    base_url = ""
+
+    if provider == "alibaba":
+        override = str(
+            getattr(settings, "ALIBABA_MODEL_DISCOVERY_URL", "") or ""
+        ).strip()
+        base_url = str(getattr(settings, "ALIBABA_API_BASE", "") or "").strip()
+    elif provider == "minimax":
+        override = str(
+            getattr(settings, "MINIMAX_MODEL_DISCOVERY_URL", "") or ""
+        ).strip()
+        base_url = str(getattr(settings, "MINIMAX_API_BASE", "") or "").strip()
+
+    if override:
+        return override.rstrip("/")
+
+    clean_base = base_url.rstrip("/")
+    if not clean_base:
+        return ""
+    if clean_base.endswith("/models"):
+        return clean_base
+    if clean_base.endswith("/v1"):
+        return f"{clean_base}/models"
+    return f"{clean_base}/v1/models"
+
+
+def _provider_model_index_headers(
+    provider_id: str,
+    settings: Settings,
+) -> dict[str, str]:
+    provider = normalize_provider(provider_id)
+    headers = {"Accept": "application/json"}
+    if provider == "alibaba":
+        headers[
+            "Authorization"
+        ] = f"Bearer {str(getattr(settings, 'ALIBABA_API_KEY', '') or '').strip()}"
+        return headers
+    if provider == "minimax":
+        api_key = str(getattr(settings, "MINIMAX_API_KEY", "") or "").strip()
+        api_flavor = (
+            str(getattr(settings, "MINIMAX_API_FLAVOR", "openai") or "")
+            .strip()
+            .lower()
+            or "openai"
+        )
+        if api_flavor == "anthropic":
+            headers["x-api-key"] = api_key
+            headers["anthropic-version"] = (
+                str(
+                    getattr(settings, "MINIMAX_ANTHROPIC_VERSION", "2023-06-01")
+                    or ""
+                ).strip()
+                or "2023-06-01"
+            )
+            return headers
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def _model_index_metadata(
+    state: str,
+    *,
+    endpoint: str | None = None,
+    reason: str | None = None,
+    model_count: int | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "source": "live",
+        "state": state,
+    }
+    if endpoint:
+        payload["endpoint"] = endpoint
+    if reason:
+        payload["reason"] = reason
+    if model_count is not None:
+        payload["model_count"] = int(model_count)
+    return payload
+
+
+def _extract_model_index_collections(payload: Any) -> list[list[Any]]:
+    if isinstance(payload, list):
+        return [payload]
+    if not isinstance(payload, dict):
+        return []
+
+    collections: list[list[Any]] = []
+    for key in (
+        "data",
+        "models",
+        "items",
+        "list",
+        "result",
+        "results",
+        "model_list",
+    ):
+        candidate = payload.get(key)
+        if isinstance(candidate, list):
+            collections.append(candidate)
+        elif isinstance(candidate, dict):
+            collections.extend(_extract_model_index_collections(candidate))
+    return collections
+
+
+def _model_id_from_index_item(item: Any) -> str:
+    if isinstance(item, str):
+        return normalize_model_id(item)
+    if not isinstance(item, dict):
+        return ""
+    for key in ("id", "model", "name", "model_id", "modelId"):
+        candidate = normalize_model_id(item.get(key))
+        if candidate:
+            return candidate
+    return ""
+
+
+def _model_index_hint_text(item: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in (
+        "type",
+        "model_type",
+        "category",
+        "task",
+        "tasks",
+        "modality",
+        "modalities",
+        "endpoint",
+        "endpoints",
+        "ability",
+        "abilities",
+        "capability",
+        "capabilities",
+        "features",
+        "feature_set",
+    ):
+        value = item.get(key)
+        if isinstance(value, str):
+            clean = value.strip()
+            if clean:
+                parts.append(clean)
+        elif isinstance(value, dict):
+            for nested_key, nested_value in value.items():
+                if isinstance(nested_value, bool) and nested_value:
+                    parts.append(str(nested_key))
+                elif isinstance(nested_value, str):
+                    clean = nested_value.strip()
+                    if clean:
+                        parts.append(clean)
+        elif isinstance(value, (list, tuple, set)):
+            for nested_value in value:
+                if isinstance(nested_value, str):
+                    clean = nested_value.strip()
+                    if clean:
+                        parts.append(clean)
+    return " ".join(parts).lower()
+
+
+def _is_chat_model_index_item(item: dict[str, Any]) -> bool:
+    hint_text = _model_index_hint_text(item)
+    if not hint_text:
+        return True
+    return not any(hint in hint_text for hint in _MODEL_INDEX_NON_CHAT_HINTS)
+
+
+def _extract_context_window(item: dict[str, Any]) -> int | None:
+    for key in (
+        "contextWindow",
+        "context_window",
+        "max_context_tokens",
+        "maxContextTokens",
+        "context_length",
+        "contextLength",
+    ):
+        raw = item.get(key)
+        if isinstance(raw, bool):
+            continue
+        if isinstance(raw, int):
+            if raw > 0:
+                return raw
+            continue
+        if isinstance(raw, float):
+            if raw > 0:
+                return int(raw)
+            continue
+        if isinstance(raw, str) and raw.strip().isdigit():
+            return int(raw.strip())
+    return None
+
+
+def _extract_capabilities(item: dict[str, Any]) -> dict[str, bool] | None:
+    raw = item.get("capabilities")
+    if not isinstance(raw, dict):
+        return None
+    capabilities = {
+        str(key): bool(value)
+        for key, value in raw.items()
+        if isinstance(value, bool)
+    }
+    return capabilities or None
+
+
+def _parse_dynamic_model_descriptors(
+    payload: Any,
+) -> tuple[list[dict[str, Any]], bool]:
+    collections = _extract_model_index_collections(payload)
+    if not collections:
+        return [], False
+
+    models: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for collection in collections:
+        for item in collection:
+            model_id = _model_id_from_index_item(item)
+            if not model_id or model_id in seen:
+                continue
+            if isinstance(item, dict) and not _is_chat_model_index_item(item):
+                continue
+
+            descriptor: dict[str, Any] = {
+                "id": model_id,
+                "displayName": (
+                    str(
+                        item.get("displayName") or item.get("name") or model_id
+                    ).strip()
+                    if isinstance(item, dict)
+                    else model_id
+                ),
+            }
+            if isinstance(item, dict):
+                context_window = _extract_context_window(item)
+                if context_window is not None:
+                    descriptor["contextWindow"] = context_window
+                capabilities = _extract_capabilities(item)
+                if capabilities:
+                    descriptor["capabilities"] = capabilities
+
+            seen.add(model_id)
+            models.append(descriptor)
+
+    return models, True
+
+
+def _discover_dynamic_provider_models(
+    provider_id: str,
+    settings: Settings,
+    *,
+    available: bool,
+    disabled_reason: str | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    provider = normalize_provider(provider_id)
+    endpoint = _provider_model_index_url(provider, settings)
+
+    if not available:
+        return [], _model_index_metadata(
+            "unavailable",
+            endpoint=endpoint or None,
+            reason=disabled_reason or "Provider unavailable",
+        )
+
+    if not endpoint:
+        return [], _model_index_metadata(
+            "unavailable",
+            reason="Provider model index URL is not configured",
+        )
+
+    try:
+        response = requests.get(
+            endpoint,
+            headers=_provider_model_index_headers(provider, settings),
+            timeout=_provider_model_index_timeout(provider, settings),
+        )
+    except req_exc.Timeout:
+        return [], _model_index_metadata(
+            "degraded",
+            endpoint=endpoint,
+            reason="Provider model index request timed out",
+        )
+    except req_exc.RequestException as exc:
+        return [], _model_index_metadata(
+            "degraded",
+            endpoint=endpoint,
+            reason=f"Provider model index request failed: {type(exc).__name__}",
+        )
+
+    if not (200 <= response.status_code < 300):
+        return [], _model_index_metadata(
+            "degraded",
+            endpoint=endpoint,
+            reason=(
+                "Provider model index request failed "
+                f"(HTTP {response.status_code})"
+            ),
+        )
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return [], _model_index_metadata(
+            "degraded",
+            endpoint=endpoint,
+            reason="Provider model index returned invalid JSON",
+        )
+
+    models, recognized_payload = _parse_dynamic_model_descriptors(payload)
+    if not recognized_payload:
+        return [], _model_index_metadata(
+            "degraded",
+            endpoint=endpoint,
+            reason="Provider model index payload was invalid",
+        )
+    if not models:
+        return [], _model_index_metadata(
+            "degraded",
+            endpoint=endpoint,
+            reason="Provider model index returned no chat-capable models",
+            model_count=0,
+        )
+    return models, _model_index_metadata(
+        "available",
+        endpoint=endpoint,
+        model_count=len(models),
+    )
 
 
 def provider_authorized(provider_id: str, settings: Settings) -> bool:
@@ -360,43 +727,23 @@ def provider_availability(
 
 
 def provider_status(provider_id: str, settings: Settings) -> dict[str, Any]:
-    provider = normalize_provider(provider_id)
-    authorized = provider_authorized(provider, settings)
-    available, disabled_reason = provider_availability(
-        provider,
-        settings,
-        authorized=authorized,
-    )
-    enabled = bool(available) and (provider == "local" or bool(authorized))
+    capability = resolve_provider_capability(provider_id, settings)
     return {
-        "id": provider,
-        "authorized": authorized,
-        "available": available,
-        "enabled": enabled,
-        "disabled_reason": disabled_reason,
-        "default_model": default_model_for_provider(provider, settings),
+        "id": capability["id"],
+        "authorized": capability["authorized"],
+        "available": capability["available"],
+        "enabled": capability["enabled"],
+        "disabled_reason": capability["disabled_reason"],
+        "default_model": capability["default_model"],
+        "model_index": dict(capability["model_index"]),
     }
 
 
-def get_provider_model_descriptors(
+def _static_provider_models(
     provider_id: str,
     settings: Settings,
 ) -> list[dict[str, Any]]:
     provider = normalize_provider(provider_id)
-
-    if provider == "local":
-        return []
-    if provider == "alibaba":
-        model_id = normalize_model_id(getattr(settings, "ALIBABA_MODEL", None))
-        if not model_id:
-            return []
-        return [{"id": model_id, "displayName": model_id}]
-    if provider == "minimax":
-        model_id = normalize_model_id(
-            getattr(settings, "MINIMAX_MODEL", None) or "minimax-default"
-        )
-        return [{"id": model_id, "displayName": "MiniMax (default)"}]
-
     static_models = [
         dict(item) for item in _STATIC_PROVIDER_MODELS.get(provider, ())
     ]
@@ -412,6 +759,90 @@ def get_provider_model_descriptors(
             {"id": default_model, "displayName": default_model},
         )
     return static_models
+
+
+def resolve_provider_capability(
+    provider_id: str,
+    settings: Settings,
+) -> dict[str, Any]:
+    provider = normalize_provider(provider_id)
+    authorized = provider_authorized(provider, settings)
+    available, disabled_reason = provider_availability(
+        provider,
+        settings,
+        authorized=authorized,
+    )
+    default_model = default_model_for_provider(provider, settings)
+
+    if provider == "local":
+        models: list[dict[str, Any]] = []
+        model_index = {
+            "source": "local",
+            "state": "available",
+        }
+    elif provider in _DYNAMIC_MODEL_PROVIDERS:
+        models, model_index = _discover_dynamic_provider_models(
+            provider,
+            settings,
+            available=available,
+            disabled_reason=disabled_reason,
+        )
+        if model_index["state"] != "available" and not default_model:
+            available = False
+            disabled_reason = (
+                str(
+                    disabled_reason
+                    or model_index.get("reason")
+                    or "Provider model index unavailable"
+                ).strip()
+                or "Provider model index unavailable"
+            )
+    else:
+        models = _static_provider_models(provider, settings)
+        model_index = {
+            "source": "static",
+            "state": "available",
+            "model_count": len(models),
+        }
+
+    enabled = bool(available) and (provider == "local" or bool(authorized))
+    return {
+        "id": provider,
+        "authorized": authorized,
+        "available": available,
+        "enabled": enabled,
+        "disabled_reason": disabled_reason,
+        "default_model": default_model,
+        "models": [dict(item) for item in models],
+        "model_index": dict(model_index),
+    }
+
+
+def get_provider_model_descriptors(
+    provider_id: str,
+    settings: Settings,
+) -> list[dict[str, Any]]:
+    provider = normalize_provider(provider_id)
+    capability = resolve_provider_capability(provider, settings)
+    models = [dict(item) for item in capability["models"]]
+    if models:
+        return models
+
+    contract = _provider_governance(provider)
+    if contract is None:
+        return []
+
+    default_model = normalize_model_id(capability["default_model"])
+    model_index_state = str(
+        capability["model_index"].get("state") or ""
+    ).strip()
+    if (
+        contract["configured_defaults_allowed_on_discovery_failure"]
+        and default_model
+        and model_index_state != "available"
+    ):
+        return [{"id": default_model, "displayName": default_model}]
+    return []
 
 
 def resolve_provider_for_model(
@@ -436,8 +867,8 @@ def resolve_provider_for_model(
     for provider_id in PROVIDER_ORDER:
         if provider_id == "local":
             continue
-        status = provider_status(provider_id, settings)
-        if enabled_only and not status["enabled"]:
+        capability = resolve_provider_capability(provider_id, settings)
+        if enabled_only and not capability["enabled"]:
             continue
         for model in get_provider_model_descriptors(provider_id, settings):
             if normalize_model_id(model.get("id")) == candidate:
@@ -453,13 +884,15 @@ def validate_provider_model_selection(
     local_model_ids: Iterable[str] | None = None,
 ) -> tuple[bool, str | None]:
     provider = normalize_provider(provider_id)
-    status = provider_status(provider, settings)
-    if not status["enabled"]:
-        return False, str(status["disabled_reason"] or "Provider unavailable")
+    capability = resolve_provider_capability(provider, settings)
+    if not capability["enabled"]:
+        return False, str(
+            capability["disabled_reason"] or "Provider unavailable"
+        )
 
     model = normalize_model_id(model_id)
     if not model:
-        if status["default_model"]:
+        if capability["default_model"]:
             return True, None
         return False, "No model configured for provider"
 
@@ -472,10 +905,16 @@ def validate_provider_model_selection(
         return True, None
 
     provider_model_ids = {
-        normalize_model_id(item.get("id"))
-        for item in get_provider_model_descriptors(provider, settings)
+        normalize_model_id(item.get("id")) for item in capability["models"]
     }
     if model not in provider_model_ids:
+        model_index = capability["model_index"]
+        if (
+            provider in _DYNAMIC_MODEL_PROVIDERS
+            and normalize_model_id(capability["default_model"]) == model
+            and str(model_index.get("state") or "").strip() != "available"
+        ):
+            return True, None
         return (
             False,
             f"Requested model '{model}' is not available for provider '{provider}'",
