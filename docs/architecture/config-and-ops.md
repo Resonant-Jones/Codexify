@@ -98,6 +98,27 @@ Source anchors:
 | How should routing validation be done? | Supported profile + provider registry behavior + live completion evidence | Do not infer routing correctness from shell UI presence alone. |
 | What is the best current evidence for RAG trace behavior? | `GET /debug/rag-trace/{thread_id}/latest` plus task events/logs | Dev-only and non-durable; useful for live debugging, not durable release proof by itself. |
 
+### Beta readiness operator verification workflow
+
+1. Confirm the intended beta contract before trusting runtime signals.
+   - Read `config/supported_profiles/v1-local-core-web-mcp.yaml` for the supported provider posture, internal-only extensions, and quarantined routes.
+   - Treat `guardian/core/provider_registry.py` as the canonical provider-governance source and `GET /health` as the runtime read of the active supported profile.
+   - Call the release `hold` if runtime profile state or mounted route posture contradicts that contract.
+2. Compare discovered inventory with the live provider path.
+   - Use `GET /api/llm/catalog` and `GET /api/llm/catalog?include=all` to inspect what the runtime is exposing and filtering.
+   - Use `GET /health/llm` to confirm the active provider path and `GET /health/chat` to confirm Redis, enqueue, and worker heartbeat for completion.
+   - Treat catalog, health, and supported-profile state as one release gate; a green health response alone is not beta proof.
+3. Use current shipped operator surfaces, not partial UI, for signoff.
+   - The Command Center / Observability Deck and partial action-center UI are still internal or dev-only; they are supplemental, not the released beta source of truth.
+   - `/debug/rag-trace/{thread_id}/latest` is useful for live debugging, but it is still dev-only and non-durable.
+   - For current beta decisions, the supported evidence pack is backend endpoints, logs, `/metrics`, and direct probes.
+4. Separate backend correctness from observability completeness.
+   - Strong deterministic tests plus green queue/provider health can justify a "runtime stabilizing" read.
+   - They do not justify `go` if the supported-profile contract is drifting, quarantined routes are exposed, or the operator still needs ad hoc Compose/container inspection to explain the real state.
+5. Manually verify the minimum beta-ready evidence before calling `go`.
+   - Verify the supported-profile flags are active, internal-only/quarantined routes are not exposed on the supported beta surface, provider registry posture agrees with catalog and health, and the current audit window includes fresh live proof for assistant completion plus upload -> embed -> retrieve.
+   - If any of those checks fail, or if the mismatch can only be explained through unsupported/internal surfaces, record the release as `hold`.
+
 ### Storage, media, and embeddings
 
 | Variable | Current behavior | Anchors |
