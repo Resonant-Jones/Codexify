@@ -21,8 +21,17 @@ SUPPORTED_ROUTED_CLOUD_LLM_PROVIDERS: tuple[str, ...] = tuple(
     for provider in SUPPORTED_ROUTED_LLM_PROVIDERS
     if provider != "local"
 )
-logger = logging.getLogger(__name__)
-
+ROUTER_SUPPORTED_LLM_PROVIDERS: tuple[str, ...] = (
+    "local",
+    "groq",
+    "openai",
+    "alibaba",
+    "minimax",
+)
+_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT = ", ".join(ROUTER_SUPPORTED_LLM_PROVIDERS)
+CLOUD_LLM_PROVIDERS = frozenset(
+    provider for provider in ROUTER_SUPPORTED_LLM_PROVIDERS if provider != "local"
+)
 
 def _normalize_model_setting(value: str | None) -> str:
     normalized = str(value or "").strip()
@@ -44,8 +53,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field(
         default="local",
         description=(
-            "The routed LLM provider to use "
-            f"({', '.join(repr(provider) for provider in SUPPORTED_ROUTED_LLM_PROVIDERS)})."
+            "The LLM provider to use. Runtime-supported values: "
+            f"{_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT}."
         ),
     )
     CODEXIFY_CONFIG_SOURCE: str = Field(
@@ -466,7 +475,9 @@ class Settings(BaseSettings):
 # Create a singleton instance that can be imported across the application
 settings = Settings()
 
-CLOUD_LLM_PROVIDERS = frozenset(SUPPORTED_ROUTED_CLOUD_LLM_PROVIDERS)
+CLOUD_LLM_PROVIDERS = frozenset(
+    provider for provider in ROUTER_SUPPORTED_LLM_PROVIDERS if provider != "local"
+)
 _VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
 _SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _LOGGED_COHERENCE_SOURCES: set[str] = set()
@@ -838,8 +849,8 @@ def validate_llm_config(
 
     raise LLMConfigError(
         "Unsupported LLM_PROVIDER: "
-        f"{provider or '<empty>'} "
-        f"(expected one of: {', '.join(SUPPORTED_ROUTED_LLM_PROVIDERS)})"
+        f"{provider or '<empty>'} (expected one of: "
+        f"{_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT})"
     )
 
 
