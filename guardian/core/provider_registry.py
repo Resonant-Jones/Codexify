@@ -134,6 +134,29 @@ CLOUD_PROVIDERS = {
     rule.provider for rule in _PROVIDER_GOVERNANCE_RULES if not rule.local_only
 }
 
+# Audit views derived from the canonical governance tuple. Keep them read-only;
+# runtime behavior should continue to derive from _PROVIDER_GOVERNANCE_RULES.
+DISCOVERY_BACKED_PROVIDERS = frozenset(
+    rule.provider
+    for rule in _PROVIDER_GOVERNANCE_RULES
+    if rule.governance_classification == "discovery_backed"
+)
+STATIC_AUTHORIZED_PROVIDERS = frozenset(
+    rule.provider
+    for rule in _PROVIDER_GOVERNANCE_RULES
+    if rule.governance_classification == "static_authorized"
+)
+LOCAL_ONLY_PROVIDERS = frozenset(
+    rule.provider
+    for rule in _PROVIDER_GOVERNANCE_RULES
+    if rule.governance_classification == "local_only"
+)
+DISABLED_PROVIDERS = frozenset(
+    rule.provider
+    for rule in _PROVIDER_GOVERNANCE_RULES
+    if rule.governance_classification == "disabled"
+)
+
 _AUTO_MODEL_SENTINELS = {"", "auto"}
 _MODEL_INDEX_NON_CHAT_HINTS = (
     "audio",

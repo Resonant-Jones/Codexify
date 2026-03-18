@@ -4,7 +4,11 @@ import requests
 
 from guardian.core.config import ROUTER_SUPPORTED_LLM_PROVIDERS, Settings
 from guardian.core.provider_registry import (
+    DISABLED_PROVIDERS,
+    DISCOVERY_BACKED_PROVIDERS,
+    LOCAL_ONLY_PROVIDERS,
     PROVIDER_ORDER,
+    STATIC_AUTHORIZED_PROVIDERS,
     get_provider_model_descriptors,
     provider_allows_default_during_degraded_discovery,
     provider_governance,
@@ -334,10 +338,33 @@ def test_provider_governance_contract_classifies_every_known_provider_once():
         if entry["governance_classification"] == "disabled"
     }
 
-    assert discovery_backed == {"alibaba", "minimax"}
-    assert static_authorized == {"openai", "groq"}
-    assert local_only == {"local"}
-    assert disabled == {"anthropic", "gemini"}
+    categories = (
+        DISCOVERY_BACKED_PROVIDERS,
+        STATIC_AUTHORIZED_PROVIDERS,
+        LOCAL_ONLY_PROVIDERS,
+        DISABLED_PROVIDERS,
+    )
+    for left, right in combinations(categories, 2):
+        assert left.isdisjoint(right)
+
+    assert (
+        discovery_backed
+        == DISCOVERY_BACKED_PROVIDERS
+        == {
+            "alibaba",
+            "minimax",
+        }
+    )
+    assert (
+        static_authorized
+        == STATIC_AUTHORIZED_PROVIDERS
+        == {
+            "openai",
+            "groq",
+        }
+    )
+    assert local_only == LOCAL_ONLY_PROVIDERS == {"local"}
+    assert disabled == DISABLED_PROVIDERS == {"anthropic", "gemini"}
     assert discovery_backed.isdisjoint(static_authorized)
     assert discovery_backed | static_authorized | local_only == set(
         ROUTER_SUPPORTED_LLM_PROVIDERS
