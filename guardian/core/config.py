@@ -9,18 +9,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
-SUPPORTED_ROUTED_LLM_PROVIDERS: tuple[str, ...] = (
+ROUTER_SUPPORTED_LLM_PROVIDERS: tuple[str, ...] = (
     "local",
-    "openai",
     "groq",
+    "openai",
     "alibaba",
     "minimax",
 )
-SUPPORTED_ROUTED_CLOUD_LLM_PROVIDERS: tuple[str, ...] = tuple(
-    provider
-    for provider in SUPPORTED_ROUTED_LLM_PROVIDERS
-    if provider != "local"
-)
+_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT = ", ".join(ROUTER_SUPPORTED_LLM_PROVIDERS)
 logger = logging.getLogger(__name__)
 
 
@@ -44,8 +40,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field(
         default="local",
         description=(
-            "The routed LLM provider to use "
-            f"({', '.join(repr(provider) for provider in SUPPORTED_ROUTED_LLM_PROVIDERS)})."
+            "The LLM provider to use. Runtime-supported values: "
+            f"{_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT}."
         ),
     )
     CODEXIFY_CONFIG_SOURCE: str = Field(
@@ -180,6 +176,19 @@ class Settings(BaseSettings):
             "Timeout for Alibaba Cloud DashScope chat completion requests (seconds)."
         ),
     )
+    ALIBABA_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for Alibaba's live model index endpoint. "
+            "Defaults to deriving /models from ALIBABA_API_BASE."
+        ),
+    )
+    ALIBABA_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for Alibaba live model index discovery requests (seconds)."
+        ),
+    )
     MINIMAX_API_KEY: str | None = Field(
         default=None, description="API key for MiniMax."
     )
@@ -207,6 +216,19 @@ class Settings(BaseSettings):
     MINIMAX_TIMEOUT_SECONDS: float = Field(
         default=60.0,
         description="Timeout for MiniMax chat completion requests (seconds).",
+    )
+    MINIMAX_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for MiniMax's live model index endpoint. "
+            "Defaults to deriving /models from MINIMAX_API_BASE."
+        ),
+    )
+    MINIMAX_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for MiniMax live model index discovery requests (seconds)."
+        ),
     )
     GUARDIAN_API_KEY: str | None = Field(
         default=None,
@@ -440,7 +462,7 @@ class Settings(BaseSettings):
 # Create a singleton instance that can be imported across the application
 settings = Settings()
 
-CLOUD_LLM_PROVIDERS = frozenset(SUPPORTED_ROUTED_CLOUD_LLM_PROVIDERS)
+CLOUD_LLM_PROVIDERS = {"openai", "groq", "alibaba", "minimax"}
 _VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
 _SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _LOGGED_COHERENCE_SOURCES: set[str] = set()
@@ -812,8 +834,8 @@ def validate_llm_config(
 
     raise LLMConfigError(
         "Unsupported LLM_PROVIDER: "
-        f"{provider or '<empty>'} "
-        f"(expected one of: {', '.join(SUPPORTED_ROUTED_LLM_PROVIDERS)})"
+        f"{provider or '<empty>'} (expected one of: "
+        f"{_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT})"
     )
 
 
