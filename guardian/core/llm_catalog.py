@@ -16,6 +16,7 @@ from guardian.core.provider_registry import CLOUD_PROVIDERS as _CLOUD_PROVIDERS
 from guardian.core.provider_registry import PROVIDER_LABELS as _PROVIDER_LABELS
 from guardian.core.provider_registry import PROVIDER_ORDER as _PROVIDER_ORDER
 from guardian.core.provider_registry import (
+    get_provider_model_descriptors,
     normalize_model_id,
     normalize_provider,
     resolve_provider_capability,
@@ -357,10 +358,11 @@ def _fetch_local_models(settings: Settings) -> list[dict[str, Any]]:
 
 
 def _cloud_models(
-    descriptors: list[dict[str, Any]],
+    provider_id: str,
+    settings: Settings,
 ) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    for item in descriptors:
+    for item in get_provider_model_descriptors(provider_id, settings):
         model_id = str(item.get("id") or "").strip()
         if not model_id:
             continue
@@ -386,15 +388,10 @@ def _cloud_models(
 def _provider_models(
     provider_id: str,
     settings: Settings,
-    capability: dict[str, Any],
 ) -> list[dict[str, Any]]:
     if provider_id == "local":
         return _fetch_local_models(settings)
-    return _cloud_models(
-        capability["models"]
-        if isinstance(capability.get("models"), list)
-        else []
-    )
+    return _cloud_models(provider_id, settings)
 
 
 def _source_label(base_url: str) -> str:
@@ -442,7 +439,7 @@ def _provider_entry(
     available = bool(capability["available"])
     disabled_reason = capability["disabled_reason"]
     enabled = bool(capability["enabled"])
-    models = _provider_models(provider_id, settings, capability)
+    models = _provider_models(provider_id, settings)
 
     entry: dict[str, Any] = {
         "id": provider_id,
