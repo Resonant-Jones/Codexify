@@ -14,6 +14,10 @@ export type CommandCenterRunStatus =
 export type CommandCenterHealthStatus = "OK" | "FAIL" | "UNKNOWN";
 
 export type CommandCenterJson = Record<string, unknown> | null;
+export type CommandCenterRagTraceUnavailableReason =
+  | "no_run"
+  | "no_thread"
+  | "no_trace";
 
 export interface CommandCenterEvent {
   eventId: string | null;
@@ -40,6 +44,8 @@ export interface CommandCenterRun {
   status: CommandCenterRunStatus;
   summary: string;
   taskId: string | null;
+  threadId?: number | null;
+  traceUrl?: string | null;
 }
 
 export interface CommandCenterApproval {
@@ -72,4 +78,23 @@ export interface CommandCenterTaskEvent {
   raw: string;
   receivedAt: number;
   summary: string;
+}
+
+export interface CommandCenterRagTraceItem {
+  depthUsed: string | null;
+  id: string;
+  origin: string | null;
+  raw: Record<string, unknown> | null;
+  score: number | null;
+  silo: string | null;
+  source: string | null;
+  text: string;
+  threadId: string | null;
+  timestamp: string | null;
+}
+
+export interface CommandCenterRagTracePayload {
+  memory: CommandCenterRagTraceItem[];
+  resolvedThreadId: number;
+  semantic: CommandCenterRagTraceItem[];
 }
