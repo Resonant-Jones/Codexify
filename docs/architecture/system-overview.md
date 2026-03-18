@@ -1,5 +1,5 @@
 Purpose: Capture Codexify's current runtime architecture in one place so onboarding, estimation, and design review start from implemented behavior rather than assumptions.
-Last updated: 2026-03-11
+Last updated: 2026-03-17
 Source anchors:
 - docker-compose.yml
 - src-tauri/
@@ -76,6 +76,19 @@ Source anchors:
 ### Unverified runtime
 
 - Production deployment outside Docker Compose is `Unverified`; no Kubernetes, Nomad, or other infra manifests were found in this repo.
+
+## Provider Governance Contract
+
+The configured provider is not the same thing as discovered provider inventory. Configuration selects the execution surface. Discovered inventory is only the live model list fetched by the registry for providers whose governance policy expects discovery.
+
+`guardian/core/provider_registry.py` is the canonical source of provider-governance truth. Router behavior, catalog behavior, health reporting, and runtime model-selection checks should derive from that registry contract rather than from provider-specific hardcoded lists.
+
+| Governance category | Providers | Operational meaning | Live discovery expected | Routing validates against discovered inventory | Configured defaults allowed during degraded discovery | Local-only / unavailable |
+|---|---|---|---|---|---|---|
+| `discovery_backed` | `alibaba`, `minimax` | Provider is routed through the canonical registry and expected to expose a live model index. | Yes | Yes | Yes | No |
+| `static_authorized` | `openai`, `groq` | Provider is supported for routed execution through static model descriptors plus credential and egress authorization. | No | No | No | No |
+| `local_only` | `local` | Provider is intentionally local-first and does not depend on cloud discovery or remote authorization. | No | No | No | Yes, intentionally local-only |
+| `disabled` | `anthropic`, `gemini` | Provider remains explicitly classified in the registry but is unavailable for routed execution under the current contract. | No | No | No | Yes, unavailable |
 
 ## Critical Paths
 
