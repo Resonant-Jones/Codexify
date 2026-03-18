@@ -3,6 +3,7 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import RagTracePanel from "@/features/commandCenter/components/RagTracePanel";
 import {
   Sheet,
   SheetContent,
@@ -136,6 +137,9 @@ export default function RunDetailDrawer({
   onClose,
 }: RunDetailDrawerProps) {
   const auth = useAuthState();
+  const [activeView, setActiveView] = React.useState<"events" | "rag-trace">(
+    "events"
+  );
   const [taskEvents, setTaskEvents] = React.useState<CommandCenterTaskEvent[]>([]);
   const [connectionState, setConnectionState] =
     React.useState<CommandCenterConnectionState>("closed");
@@ -156,6 +160,7 @@ export default function RunDetailDrawer({
 
   React.useEffect(() => {
     setShowRawJson(false);
+    setActiveView("events");
   }, [run?.key]);
 
   React.useEffect(() => {
@@ -314,10 +319,34 @@ export default function RunDetailDrawer({
                     <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
                       Run: {run.runId ?? "—"}
                     </span>
+                    <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
+                      Thread: {run.threadId ?? "—"}
+                    </span>
                   </div>
                 </CardContent>
               </Card>
 
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={activeView === "events" ? "default" : "ghost"}
+                  onClick={() => setActiveView("events")}
+                >
+                  Task Events
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={activeView === "rag-trace" ? "default" : "ghost"}
+                  onClick={() => setActiveView("rag-trace")}
+                >
+                  RAG Trace
+                </Button>
+              </div>
+
+              {activeView === "events" ? (
+                <>
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
@@ -403,6 +432,21 @@ export default function RunDetailDrawer({
                         </CardContent>
                       </Card>
                     ))}
+                </div>
+              )}
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                      Retrieval Diagnostics
+                    </div>
+                    <div className="text-xs" style={{ color: "var(--muted)" }}>
+                      Latest thread-scoped retrieval evidence from the existing RAG
+                      trace debug endpoint.
+                    </div>
+                  </div>
+                  <RagTracePanel run={run} />
                 </div>
               )}
             </div>
