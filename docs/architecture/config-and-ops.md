@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-03-11
+Last updated: 2026-03-17
 Source anchors:
 - Makefile
 - package.json
@@ -55,6 +55,48 @@ Source anchors:
 | `GROQ_API_KEY`, `GROQ_BASE_URL` | Groq execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL` | Minimax execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | Global timeout shaping for provider calls | `guardian/core/config.py`, `guardian/core/ai_router.py` |
+
+## Provider Governance and Beta Operator Workflow
+
+### Governance model
+
+- `guardian/core/provider_registry.py` is the canonical source of truth for provider authorization, availability, and capability decisions. Catalog, health, router, and worker paths are expected to agree with it.
+- `config/supported_profiles/v1-local-core-web-mcp.yaml` is the beta release contract for the current supported local-first provider posture. `/health` exposes the active supported-profile state during runtime.
+- `/api/llm/catalog` is the discovered inventory surface. It shows provider/model entries and policy-shaped availability state; `?include=all` is the operator view when hidden or unauthorized providers need inspection.
+- `/health/llm` is the active-provider runtime surface. It reports the currently selected provider, provider-runtime status, and queue-backed completion-service health for that live runtime.
+- `/health/chat` is the queue/worker surface. It is the quickest confirmation that Redis, enqueue, and worker heartbeat are healthy for chat completion.
+
+### Why operators should read registry, health, and catalog together
+
+- Catalog answers “what inventory does the runtime currently describe?”
+- Health answers “is the currently selected execution path reachable and are chat workers alive?”
+- The supported profile and provider registry answer “what should be allowed and treated as supported for this beta?”
+- None of those surfaces is sufficient alone. A green health check does not prove the mounted route surface matches the supported profile, and catalog presence does not prove that a provider path is part of the supported beta contract.
+
+### Current operator limits without a full Command Center / Observability Deck
+
+- Operators can currently infer whether the selected provider is configured, credentialed, egress-allowed, and reachable enough for the active runtime path.
+- Operators can currently infer whether discovered provider inventory is available, disabled, or filtered with a reason.
+- Operators can currently infer whether the chat completion service is degraded because Redis is unreachable, enqueue is failing, or worker heartbeat is missing.
+- Operators cannot yet rely on a single integrated surface to explain every routing decision, provider downgrade, discovery mismatch, or queue-to-UI causal chain.
+- Operators cannot treat partial operator UI components as the supported beta source of truth. The repo contains internal/operator-facing UI work, but the Command Center / Observability Deck is not the released beta operator surface and should not be assumed to live in the main shell navigation.
+
+### Current dev-only and internal operational surfaces
+
+- `/debug/rag-trace/{thread_id}/latest` is explicitly dev-only. It reads the latest completion trace from task events when available, falls back to in-memory cache, and is cleared by restart.
+- In the current supported profile, `command_bus` is marked internal-only. That route posture is an operator/runtime concern, not an end-user release surface.
+- Partial action-center style UI exists in the frontend codebase, but its backing data sources depend on routes and operational surfaces that are not the primary supported beta workflow.
+
+### Expected source of truth during beta operation
+
+| Question | Current source of truth | Notes |
+|---|---|---|
+| Which provider posture is supported for this beta? | `config/supported_profiles/v1-local-core-web-mcp.yaml` plus `GET /health` | Use this before trusting broader route or provider availability claims. |
+| Which providers/models are currently discoverable and policy-shaped? | `GET /api/llm/catalog` | Use `?include=all` for operator debugging when filtered providers matter. |
+| Is the active provider path actually available right now? | `GET /health/llm` | Read `provider_runtime` together with completion-service status. |
+| Is chat execution degraded because of queue or worker issues? | `GET /health/chat` | This is the fastest signal for Redis reachability, enqueue health, and worker heartbeat. |
+| How should routing validation be done? | Supported profile + provider registry behavior + live completion evidence | Do not infer routing correctness from shell UI presence alone. |
+| What is the best current evidence for RAG trace behavior? | `GET /debug/rag-trace/{thread_id}/latest` plus task events/logs | Dev-only and non-durable; useful for live debugging, not durable release proof by itself. |
 
 ### Storage, media, and embeddings
 
