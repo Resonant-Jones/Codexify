@@ -2,6 +2,15 @@
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## Recent Release Notes
+
+### 2026-03-17 - Provider Governance Policy Synchronization
+
+- Documented the canonical provider-governance map now enforced by the registry as the implementation source of truth.
+- Recorded the current provider classifications exactly as implemented: `discovery_backed` (`alibaba`, `minimax`), `static_authorized` (`openai`, `groq`), `local_only` (`local`), and `disabled` (`anthropic`, `gemini`).
+- Recorded that router-side discovery validation derives from registry policy instead of a duplicated router-local provider list.
+- Synchronized release and architecture documentation with the current provider contract without changing runtime behavior.
+
 ## Versioning Guidelines
 - Increment **MAJOR** for incompatible API changes.
 - Increment **MINOR** for backward compatible functionality.
