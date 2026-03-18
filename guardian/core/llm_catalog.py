@@ -16,11 +16,10 @@ from guardian.core.provider_registry import CLOUD_PROVIDERS as _CLOUD_PROVIDERS
 from guardian.core.provider_registry import PROVIDER_LABELS as _PROVIDER_LABELS
 from guardian.core.provider_registry import PROVIDER_ORDER as _PROVIDER_ORDER
 from guardian.core.provider_registry import (
-    default_model_for_provider,
     get_provider_model_descriptors,
     normalize_model_id,
     normalize_provider,
-    provider_status,
+    resolve_provider_capability,
 )
 from guardian.core.provider_registry import (
     resolve_provider_for_model as resolve_provider_for_model_registry,
@@ -358,7 +357,10 @@ def _fetch_local_models(settings: Settings) -> list[dict[str, Any]]:
     return entries
 
 
-def _cloud_models(provider_id: str, settings: Settings) -> list[dict[str, Any]]:
+def _cloud_models(
+    provider_id: str,
+    settings: Settings,
+) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for item in get_provider_model_descriptors(provider_id, settings):
         model_id = str(item.get("id") or "").strip()
@@ -384,7 +386,8 @@ def _cloud_models(provider_id: str, settings: Settings) -> list[dict[str, Any]]:
 
 
 def _provider_models(
-    provider_id: str, settings: Settings
+    provider_id: str,
+    settings: Settings,
 ) -> list[dict[str, Any]]:
     if provider_id == "local":
         return _fetch_local_models(settings)
@@ -423,35 +426,20 @@ def _provider_source(
     return source
 
 
-def _provider_availability(
-    provider_id: str,
-    settings: Settings,
-    authorized: bool,
-) -> tuple[bool, str | None]:
-    status = provider_status(provider_id, settings)
-    return bool(status["available"]), status["disabled_reason"]
-
-
 def _provider_entry(
     provider_id: str,
     settings: Settings,
     include_all: bool,
 ) -> dict[str, Any] | None:
-    status = provider_status(provider_id, settings)
-    authorized = bool(status["authorized"])
+    capability = resolve_provider_capability(provider_id, settings)
+    authorized = bool(capability["authorized"])
     if not include_all and provider_id != "local" and not authorized:
         return None
 
-    available = bool(status["available"])
-    disabled_reason = status["disabled_reason"]
-    enabled = bool(status["enabled"])
+    available = bool(capability["available"])
+    disabled_reason = capability["disabled_reason"]
+    enabled = bool(capability["enabled"])
     models = _provider_models(provider_id, settings)
-    if provider_id != "local" and not models:
-        available = False
-        enabled = False
-        disabled_reason = disabled_reason or "No models configured for provider"
-        if not include_all:
-            return None
 
     entry: dict[str, Any] = {
         "id": provider_id,
@@ -462,6 +450,7 @@ def _provider_entry(
         "authorized": authorized,
         "available": available,
         "models": models,
+        "model_index": dict(capability["model_index"]),
     }
     source = _provider_source(provider_id, settings)
     if source is not None:
