@@ -9,6 +9,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
+SUPPORTED_ROUTED_LLM_PROVIDERS: tuple[str, ...] = (
+    "local",
+    "openai",
+    "groq",
+    "alibaba",
+    "minimax",
+)
+SUPPORTED_ROUTED_CLOUD_LLM_PROVIDERS: tuple[str, ...] = tuple(
+    provider
+    for provider in SUPPORTED_ROUTED_LLM_PROVIDERS
+    if provider != "local"
+)
 ROUTER_SUPPORTED_LLM_PROVIDERS: tuple[str, ...] = (
     "local",
     "groq",
@@ -17,8 +29,9 @@ ROUTER_SUPPORTED_LLM_PROVIDERS: tuple[str, ...] = (
     "minimax",
 )
 _ROUTER_SUPPORTED_LLM_PROVIDER_TEXT = ", ".join(ROUTER_SUPPORTED_LLM_PROVIDERS)
-logger = logging.getLogger(__name__)
-
+CLOUD_LLM_PROVIDERS = frozenset(
+    provider for provider in ROUTER_SUPPORTED_LLM_PROVIDERS if provider != "local"
+)
 
 def _normalize_model_setting(value: str | None) -> str:
     normalized = str(value or "").strip()
@@ -462,7 +475,9 @@ class Settings(BaseSettings):
 # Create a singleton instance that can be imported across the application
 settings = Settings()
 
-CLOUD_LLM_PROVIDERS = {"openai", "groq", "alibaba", "minimax"}
+CLOUD_LLM_PROVIDERS = frozenset(
+    provider for provider in ROUTER_SUPPORTED_LLM_PROVIDERS if provider != "local"
+)
 _VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
 _SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _LOGGED_COHERENCE_SOURCES: set[str] = set()

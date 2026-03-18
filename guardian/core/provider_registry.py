@@ -6,13 +6,19 @@ decisions used by catalog, health, router, and worker code.
 
 from __future__ import annotations
 
+from typing import Any, Iterable, Literal, TypedDict
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal
+
 
 import requests
 from requests import exceptions as req_exc
 
-from guardian.core.config import LLMConfigError, Settings, validate_llm_config
+from guardian.core.config import (
+    SUPPORTED_ROUTED_LLM_PROVIDERS,
+    LLMConfigError,
+    Settings,
+    validate_llm_config,
+)
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 
 ProviderGovernanceClassification = Literal[
@@ -722,8 +728,11 @@ def provider_availability(
     if provider in CLOUD_PROVIDERS and not authorized_value:
         return False, "Missing provider credentials"
 
+    if contract["classification"] == "disabled":
+        return False, "Unsupported provider"
+
     try:
-        if provider in {"local", "openai", "groq", "alibaba", "minimax"}:
+        if provider in _VALIDATED_PROVIDER_SET:
             validate_llm_config(settings, provider_override=provider)
     except LLMConfigError as exc:
         return False, _normalize_reason(str(exc))
@@ -839,8 +848,27 @@ def get_provider_model_descriptors(
     provider_id: str,
     settings: Settings,
 ) -> list[dict[str, Any]]:
-    capability = resolve_provider_capability(provider_id, settings)
-    return [dict(item) for item in capability["models"]]
+    provider = normalize_provider(provider_id)
+    capability = resolve_provider_capability(provider, settings)
+    models = [dict(item) for item in capability["models"]]
+    if models:
+        return models
+
+    contract = _provider_governance(provider)
+    if contract is None:
+        return []
+
+    default_model = normalize_model_id(capability["default_model"])
+    model_index_state = str(
+        capability["model_index"].get("state") or ""
+    ).strip()
+    if (
+        contract["configured_defaults_allowed_on_discovery_failure"]
+        and default_model
+        and model_index_state != "available"
+    ):
+        return [{"id": default_model, "displayName": default_model}]
+    return []
 
 
 def resolve_provider_for_model(
@@ -868,7 +896,7 @@ def resolve_provider_for_model(
         capability = resolve_provider_capability(provider_id, settings)
         if enabled_only and not capability["enabled"]:
             continue
-        for model in capability["models"]:
+        for model in get_provider_model_descriptors(provider_id, settings):
             if normalize_model_id(model.get("id")) == candidate:
                 return provider_id
     return None
