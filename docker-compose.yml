@@ -58,7 +58,7 @@ services:
       retries: 20
   graph-init:
     image: neo4j:5
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     depends_on:
       neo4j:
         condition: service_healthy
@@ -94,7 +94,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
@@ -133,7 +133,7 @@ services:
     profiles:
       - cli
     entrypoint: ["python", "scripts/chatgpt_import/import_chatgpt.py"]
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -212,7 +212,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
@@ -335,7 +335,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -397,7 +397,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -452,7 +452,7 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -508,7 +508,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -567,7 +567,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -628,7 +628,7 @@ services:
         condition: service_completed_successfully
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -688,7 +688,7 @@ services:
         condition: service_completed_successfully
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -826,7 +826,7 @@ services:
       - /app/src/node_modules
       - corepack_cache:/root/.cache/node/corepack
       - frontend_pnpm_store:/pnpm/store
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     # Do not start the dev UI until the core API is actually reachable.
     # This avoids proxy storms against the in-network hostname `backend` during boot.
     depends_on:
