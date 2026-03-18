@@ -212,7 +212,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
@@ -335,7 +335,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -397,7 +397,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -508,7 +508,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
@@ -567,7 +567,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LANG: C.UTF-8
