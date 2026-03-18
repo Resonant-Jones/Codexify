@@ -9,6 +9,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
+SUPPORTED_ROUTED_LLM_PROVIDERS: tuple[str, ...] = (
+    "local",
+    "openai",
+    "groq",
+    "alibaba",
+    "minimax",
+)
+SUPPORTED_ROUTED_CLOUD_LLM_PROVIDERS: tuple[str, ...] = tuple(
+    provider
+    for provider in SUPPORTED_ROUTED_LLM_PROVIDERS
+    if provider != "local"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +44,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field(
         default="local",
         description=(
-            "The LLM provider to use ('local', 'groq', 'openai', 'alibaba', 'minimax')."
+            "The routed LLM provider to use "
+            f"({', '.join(repr(provider) for provider in SUPPORTED_ROUTED_LLM_PROVIDERS)})."
         ),
     )
     CODEXIFY_CONFIG_SOURCE: str = Field(
@@ -427,7 +440,7 @@ class Settings(BaseSettings):
 # Create a singleton instance that can be imported across the application
 settings = Settings()
 
-CLOUD_LLM_PROVIDERS = {"openai", "groq", "alibaba", "minimax"}
+CLOUD_LLM_PROVIDERS = frozenset(SUPPORTED_ROUTED_CLOUD_LLM_PROVIDERS)
 _VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
 _SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _LOGGED_COHERENCE_SOURCES: set[str] = set()
@@ -798,7 +811,9 @@ def validate_llm_config(
         return
 
     raise LLMConfigError(
-        f"Unsupported LLM_PROVIDER: {provider or '<empty>'} (expected one of: local, groq, openai, alibaba, minimax)"
+        "Unsupported LLM_PROVIDER: "
+        f"{provider or '<empty>'} "
+        f"(expected one of: {', '.join(SUPPORTED_ROUTED_LLM_PROVIDERS)})"
     )
 
 
