@@ -28,6 +28,11 @@ def _mock_local_catalog_request(url: str, *args, **kwargs) -> _MockResponse:
     return _MockResponse({"data": []}, status_code=404)
 
 
+def _mock_alibaba_model_index(url: str, *args, **kwargs) -> _MockResponse:
+    assert url == "https://dashscope-us.aliyuncs.com/compatible-mode/v1/models"
+    return _MockResponse({"data": [{"id": "qwen-plus"}]})
+
+
 def _provider_by_id(payload: dict, provider_id: str) -> dict:
     return next(
         provider
@@ -142,6 +147,10 @@ def test_llm_catalog_alibaba_provider_appears_when_configured(monkeypatch):
     monkeypatch.setattr(
         "guardian.core.llm_catalog.requests.get",
         _mock_local_catalog_request,
+    )
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_alibaba_model_index,
     )
     _clear_extra_cloud_keys(monkeypatch)
 

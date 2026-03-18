@@ -238,6 +238,10 @@ export function buildChatCompletePath(threadId: string | number): string {
   return `/chat/${normalizePathSegment(threadId)}/complete`;
 }
 
+export function buildLatestRagTracePath(threadId: string | number): string {
+  return `/api/chat/debug/rag-trace/${normalizePathSegment(threadId)}/latest`;
+}
+
 function isAbsoluteUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
@@ -811,5 +815,14 @@ api.interceptors.response.use(
 
 (api as any).getInFlightCompletionTurnId = getInFlightCompletionTurnId;
 (api as any).clearInFlightCompletionTurnId = clearInFlightCompletionTurnId;
+
+export async function fetchLatestRagTrace(
+  threadId: number
+): Promise<Record<string, unknown>> {
+  const response = await api.get<Record<string, unknown>>(
+    buildLatestRagTracePath(threadId)
+  );
+  return response.data;
+}
 
 export default api;

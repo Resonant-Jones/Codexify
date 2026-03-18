@@ -19,7 +19,10 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from guardian.core import metrics
 from guardian.core.dependencies import DB_BACKEND, get_database_dsn
 from guardian.core.llm_catalog import build_llm_catalog
-from guardian.core.provider_registry import normalize_provider, provider_status
+from guardian.core.provider_registry import (
+    normalize_provider,
+    resolve_provider_capability,
+)
 
 logger = logging.getLogger(__name__)
 _LLM_HEALTH_PROBE_CACHE: dict | None = None
@@ -120,7 +123,7 @@ def _normalize_health_provider(raw_provider: str) -> str:
     legacy_backend = (os.getenv("AI_BACKEND") or "").strip().lower()
     if legacy_backend in {"ollama", "local"}:
         return "local"
-    if legacy_backend in {"openai", "groq", "minimax"}:
+    if legacy_backend in {"openai", "groq", "alibaba", "minimax"}:
         return legacy_backend
     return "local"
 
@@ -232,13 +235,12 @@ def health_llm():
         get_settings,
         validate_llm_config,
     )
-    from guardian.core.provider_registry import default_model_for_provider
 
     settings = get_settings()
     provider = _normalize_health_provider(settings.LLM_PROVIDER or "local")
-    model = default_model_for_provider(provider, settings)
+    provider_runtime = resolve_provider_capability(provider, settings)
+    model = str(provider_runtime.get("default_model") or "").strip()
     completion_service = _collect_completion_service_health()
-    provider_runtime = provider_status(provider, settings)
 
     payload = {
         "provider": provider,
