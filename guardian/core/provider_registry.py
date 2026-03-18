@@ -6,41 +6,135 @@ decisions used by catalog, health, router, and worker code.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal, TypedDict
 
-from guardian.core.config import LLMConfigError, Settings, validate_llm_config
+from guardian.core.config import (
+    SUPPORTED_ROUTED_LLM_PROVIDERS,
+    LLMConfigError,
+    Settings,
+    validate_llm_config,
+)
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 
-PROVIDER_ORDER = (
-    "openai",
-    "anthropic",
-    "gemini",
-    "groq",
-    "alibaba",
-    "minimax",
-    "local",
-)
+ProviderGovernanceClassification = Literal[
+    "discovery_backed",
+    "static_authorized",
+    "local_only",
+    "disabled",
+]
+
+
+class ProviderGovernanceContract(TypedDict):
+    provider: str
+    display_name: str
+    classification: ProviderGovernanceClassification
+    live_discovery_expected: bool
+    routing_requires_discovered_inventory: bool
+    configured_defaults_allowed_on_discovery_failure: bool
+    local_only: bool
+
+
+PROVIDER_GOVERNANCE: dict[str, ProviderGovernanceContract] = {
+    "openai": {
+        "provider": "openai",
+        "display_name": "OpenAI",
+        "classification": "discovery_backed",
+        "live_discovery_expected": True,
+        "routing_requires_discovered_inventory": True,
+        "configured_defaults_allowed_on_discovery_failure": True,
+        "local_only": False,
+    },
+    "anthropic": {
+        "provider": "anthropic",
+        "display_name": "Anthropic",
+        "classification": "disabled",
+        "live_discovery_expected": False,
+        "routing_requires_discovered_inventory": False,
+        "configured_defaults_allowed_on_discovery_failure": False,
+        "local_only": False,
+    },
+    "gemini": {
+        "provider": "gemini",
+        "display_name": "Gemini",
+        "classification": "disabled",
+        "live_discovery_expected": False,
+        "routing_requires_discovered_inventory": False,
+        "configured_defaults_allowed_on_discovery_failure": False,
+        "local_only": False,
+    },
+    "groq": {
+        "provider": "groq",
+        "display_name": "Groq",
+        "classification": "discovery_backed",
+        "live_discovery_expected": True,
+        "routing_requires_discovered_inventory": True,
+        "configured_defaults_allowed_on_discovery_failure": True,
+        "local_only": False,
+    },
+    "alibaba": {
+        "provider": "alibaba",
+        "display_name": "Alibaba / DashScope",
+        "classification": "discovery_backed",
+        "live_discovery_expected": True,
+        "routing_requires_discovered_inventory": True,
+        "configured_defaults_allowed_on_discovery_failure": True,
+        "local_only": False,
+    },
+    "minimax": {
+        "provider": "minimax",
+        "display_name": "MiniMax",
+        "classification": "discovery_backed",
+        "live_discovery_expected": True,
+        "routing_requires_discovered_inventory": True,
+        "configured_defaults_allowed_on_discovery_failure": True,
+        "local_only": False,
+    },
+    "local": {
+        "provider": "local",
+        "display_name": "Local",
+        "classification": "local_only",
+        "live_discovery_expected": True,
+        "routing_requires_discovered_inventory": True,
+        "configured_defaults_allowed_on_discovery_failure": True,
+        "local_only": True,
+    },
+}
+
+PROVIDER_ORDER = tuple(PROVIDER_GOVERNANCE)
 
 PROVIDER_LABELS = {
-    "openai": "OpenAI",
-    "anthropic": "Anthropic",
-    "gemini": "Gemini",
-    "groq": "Groq",
-    "alibaba": "Alibaba / DashScope",
-    "minimax": "MiniMax",
-    "local": "Local",
+    provider_id: contract["display_name"]
+    for provider_id, contract in PROVIDER_GOVERNANCE.items()
 }
 
-CLOUD_PROVIDERS = {
-    "openai",
-    "anthropic",
-    "gemini",
-    "groq",
-    "alibaba",
-    "minimax",
-}
+DISCOVERY_BACKED_PROVIDERS = frozenset(
+    provider_id
+    for provider_id, contract in PROVIDER_GOVERNANCE.items()
+    if contract["classification"] == "discovery_backed"
+)
+STATIC_AUTHORIZED_PROVIDERS = frozenset(
+    provider_id
+    for provider_id, contract in PROVIDER_GOVERNANCE.items()
+    if contract["classification"] == "static_authorized"
+)
+LOCAL_ONLY_PROVIDERS = frozenset(
+    provider_id
+    for provider_id, contract in PROVIDER_GOVERNANCE.items()
+    if contract["classification"] == "local_only"
+)
+DISABLED_PROVIDERS = frozenset(
+    provider_id
+    for provider_id, contract in PROVIDER_GOVERNANCE.items()
+    if contract["classification"] == "disabled"
+)
+CLOUD_PROVIDERS = frozenset(
+    provider_id
+    for provider_id, contract in PROVIDER_GOVERNANCE.items()
+    if not contract["local_only"]
+)
 
 _AUTO_MODEL_SENTINELS = {"", "auto"}
+_VALIDATED_PROVIDER_SET = frozenset(SUPPORTED_ROUTED_LLM_PROVIDERS)
 
 _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
     "openai": (
@@ -122,6 +216,21 @@ def normalize_model_id(model_id: str | None) -> str:
     if normalized.lower() in _AUTO_MODEL_SENTINELS:
         return ""
     return normalized
+
+
+def _provider_governance(
+    provider_id: str | None,
+) -> ProviderGovernanceContract | None:
+    return PROVIDER_GOVERNANCE.get(normalize_provider(provider_id))
+
+
+def get_provider_governance(
+    provider_id: str | None,
+) -> ProviderGovernanceContract | None:
+    contract = _provider_governance(provider_id)
+    if contract is None:
+        return None
+    return dict(contract)
 
 
 def _normalize_reason(message: str) -> str:
@@ -219,6 +328,10 @@ def provider_availability(
     authorized: bool | None = None,
 ) -> tuple[bool, str | None]:
     provider = normalize_provider(provider_id)
+    contract = _provider_governance(provider)
+    if contract is None:
+        return False, "Unsupported provider"
+
     authorized_value = (
         provider_authorized(provider, settings)
         if authorized is None
@@ -228,8 +341,11 @@ def provider_availability(
     if provider in CLOUD_PROVIDERS and not authorized_value:
         return False, "Missing provider credentials"
 
+    if contract["classification"] == "disabled":
+        return False, "Unsupported provider"
+
     try:
-        if provider in {"local", "openai", "groq", "alibaba", "minimax"}:
+        if provider in _VALIDATED_PROVIDER_SET:
             validate_llm_config(settings, provider_override=provider)
     except LLMConfigError as exc:
         return False, _normalize_reason(str(exc))
@@ -239,9 +355,6 @@ def provider_availability(
             assert_egress_allowed(provider, settings=settings)
         except EgressDeniedError as exc:
             return False, _normalize_reason(str(exc))
-
-    if provider not in PROVIDER_ORDER:
-        return False, "Unsupported provider"
 
     return True, None
 
