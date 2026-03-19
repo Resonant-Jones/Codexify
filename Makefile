@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build daily-audit
 
 # Python executable
 PYTHON      ?= python
@@ -173,6 +173,10 @@ status:
 report:
 	@mkdir -p reports
 	$(PYTHON) -m guardian.system_init --generate-report
+
+# Generate the daily audit record
+daily-audit:
+	$(PYTHON) scripts/daily_audit.py
 
 # Help target
 help:
