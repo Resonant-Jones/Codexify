@@ -29,7 +29,11 @@ This document is the first-pass runtime diagram pack derived only from the valid
 - `feature-flagged`: available only when explicit runtime flags or policy enable it.
 - `release-bounded exclusion`: intentionally omitted from v1 because the validated runtime docs do not treat it as part of the present release promise.
 
-## Diagram 1: Runtime Topology Overview (high confidence)
+## Diagram 1: Runtime Topology Overview
+
+### high confidence
+
+This is a coarse runtime topology map for the validated baseline.
 
 ```mermaid
 flowchart LR
@@ -106,7 +110,11 @@ Supported runtime topology is the local Docker Compose stack. Non-Compose deploy
 - Conservative assumptions: worker types are collapsed into one worker layer, event surfaces are grouped into one runtime boundary, and provider execution is shown as one policy-shaped boundary rather than per-provider lanes.
 - Explicit exclusions: non-Compose deployment detail, one-shot bootstrap services, federation/sync surfaces, and provider inventory/governance nuance beyond the current execution boundary.
 
-## Diagram 2: Chat Completion Sequence (high confidence)
+## Diagram 2: Chat Completion Sequence
+
+### high confidence
+
+This sequence keeps the baseline completion loop focused on the enqueue -> worker -> retrieval -> persist -> task-event path documented in the validated runtime set.
 
 ```mermaid
 sequenceDiagram
@@ -154,7 +162,11 @@ This sequence keeps the baseline completion loop focused on the current enqueue 
 - Conservative assumptions: the task-event surface is shown as one actor, context assembly is compressed to its stable data dependencies, and the user-message step is collapsed into the request lane so the completion path stays readable.
 - Explicit exclusions: provider catalog nuance, failure/retry branches, memory/sensor/federated context branches, and any future delegation or orchestration lanes.
 
-## Diagram 3: Data and Storage Boundaries (high confidence)
+## Diagram 3: Data and Storage Boundaries
+
+### high confidence
+
+This boundary map emphasizes durable state versus operational transport. Redis is operationally critical but not the system of record; Postgres remains the durable source of truth in the validated runtime set.
 
 ```mermaid
 flowchart TB
@@ -192,7 +204,7 @@ flowchart TB
     backend -. optional / feature-flagged .-> neo4j
 ```
 
-This boundary map emphasizes durable state versus operational transport. Redis is operationally critical but not the system of record; Postgres remains the durable source of truth in the validated runtime set.
+**Evidence notes**
 
 ### Evidence notes
 
@@ -200,7 +212,11 @@ This boundary map emphasizes durable state versus operational transport. Redis i
 - Conservative assumptions: routes and workers share one runtime access node, vector storage is shown as one logical retrieval store, and file/object storage is grouped as one artifact boundary.
 - Explicit exclusions: entity-level schema detail, unverified retention/encryption claims, experimental sync durability, and backend-specific vector implementation detail.
 
-## Diagram 4: Subsystem / Ownership Map (moderate confidence)
+## Diagram 4: Subsystem / Ownership Map
+
+### moderate confidence
+
+This is a seam map, not a call graph. It groups subsystem boundaries and conservative dependency direction; it does not enumerate every route, file, or runtime edge.
 
 ```mermaid
 flowchart LR
@@ -252,9 +268,8 @@ flowchart LR
     cron --> persistence
 ```
 
-This is a seam map, not a call graph. It groups subsystem boundaries and conservative dependency direction; it does not enumerate every route, file, or runtime edge.
-
 ### Evidence notes
+This is a seam map, not a call graph. It groups subsystem boundaries and conservative dependency direction; it does not enumerate every route, file, or runtime edge.
 
 - Primary sources: `/docs/architecture/modules-and-ownership.md`, `/docs/architecture/system-overview.md`, `/docs/architecture/README.md`
 - Conservative assumptions: subsystem clusters are grouped at seam level rather than file level, queue/workers/persistence are collapsed into one platform lane, and command bus plus legacy tools are shown together because the validated docs describe them as coexisting runtime surfaces.
@@ -269,10 +284,6 @@ This is a seam map, not a call graph. It groups subsystem boundaries and conserv
 - Roadmap-only material and supplementary deep dives are excluded.
 - Speculative provider or future architecture details that exceed the validated runtime source set are excluded.
 
-## Diagram quality notes
-
-This is a first-pass runtime baseline intended to be refined after human review. Adjust edge granularity, labels, and scope only when the change can be justified from the validated runtime source set or freshly re-verified current runtime evidence.
-
 ## Reviewer guidance
 
-This pack is intended as a baseline runtime map. Resolve disagreements by checking the validated runtime source set first. If a diagram edge cannot be justified from that source set, remove it or downgrade the diagram's confidence. Future diagram variants should branch from this baseline rather than bypassing it.
+This pack is a baseline runtime map. Resolve disagreements by checking the validated runtime KB first. If a proposed edge cannot be supported by that source set, remove it or mark it unverified before expanding the pack.
