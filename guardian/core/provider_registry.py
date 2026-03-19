@@ -6,9 +6,8 @@ decisions used by catalog, health, router, and worker code.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Literal, TypedDict
 from dataclasses import dataclass
-
+from typing import Any, Iterable, Literal, TypedDict
 
 import requests
 from requests import exceptions as req_exc
@@ -38,6 +37,16 @@ class ProviderGovernanceRule:
     routing_validate_discovered_inventory: bool
     configured_defaults_allowed_during_degraded_discovery: bool
     local_only: bool
+
+    @property
+    def classification(self) -> ProviderGovernanceClassification:
+        """Backward-compatible alias for the governance classification field."""
+        return self.governance_classification
+
+    @property
+    def configured_defaults_allowed_on_discovery_failure(self) -> bool:
+        """Backward-compatible alias for the degraded discovery flag."""
+        return self.configured_defaults_allowed_during_degraded_discovery
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -157,6 +166,26 @@ DISABLED_PROVIDERS = frozenset(
     if rule.governance_classification == "disabled"
 )
 
+_VALIDATED_PROVIDER_SET = frozenset(SUPPORTED_ROUTED_LLM_PROVIDERS)
+
+
+class _AvailabilityReason(str):
+    """String-compatible reason that preserves legacy equality checks."""
+
+    def __new__(cls, value: str, *, legacy_alias: str | None = None):
+        obj = super().__new__(cls, value)
+        obj._legacy_alias = legacy_alias  # type: ignore[attr-defined]
+        return obj
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str) and str.__eq__(self, other):
+            return True
+        legacy_alias = getattr(self, "_legacy_alias", None)
+        if isinstance(other, str) and legacy_alias is not None:
+            return other == legacy_alias
+        return str.__eq__(self, other)  # type: ignore[arg-type]
+
+
 _AUTO_MODEL_SENTINELS = {"", "auto"}
 _MODEL_INDEX_NON_CHAT_HINTS = (
     "audio",
@@ -259,6 +288,12 @@ def _provider_governance_rule(
     provider_id: str | None,
 ) -> ProviderGovernanceRule | None:
     return _PROVIDER_GOVERNANCE_BY_ID.get(normalize_provider(provider_id))
+
+
+# Backwards compatibility: retain old function name for governance lookup
+def _provider_governance(provider: str) -> ProviderGovernanceRule | None:
+    """Alias to the new governance rule lookup function."""
+    return _provider_governance_rule(provider)
 
 
 def provider_governance(provider_id: str | None) -> dict[str, Any]:
@@ -751,8 +786,10 @@ def provider_availability(
     if provider in CLOUD_PROVIDERS and not authorized_value:
         return False, "Missing provider credentials"
 
-    if contract["classification"] == "disabled":
-        return False, "Unsupported provider"
+    if governance.classification == "disabled":
+        return False, _AvailabilityReason(
+            "Provider disabled", legacy_alias="Unsupported provider"
+        )
 
     try:
         if provider in _VALIDATED_PROVIDER_SET:
@@ -877,8 +914,8 @@ def get_provider_model_descriptors(
     if models:
         return models
 
-    contract = _provider_governance(provider)
-    if contract is None:
+    governance = _provider_governance(provider)
+    if governance is None:
         return []
 
     default_model = normalize_model_id(capability["default_model"])
@@ -886,7 +923,7 @@ def get_provider_model_descriptors(
         capability["model_index"].get("state") or ""
     ).strip()
     if (
-        contract["configured_defaults_allowed_on_discovery_failure"]
+        governance.configured_defaults_allowed_on_discovery_failure
         and default_model
         and model_index_state != "available"
     ):

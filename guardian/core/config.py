@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Module-level logger for config coherence reporting
+logger = logging.getLogger(__name__)
+
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
@@ -30,8 +33,11 @@ ROUTER_SUPPORTED_LLM_PROVIDERS: tuple[str, ...] = (
 )
 _ROUTER_SUPPORTED_LLM_PROVIDER_TEXT = ", ".join(ROUTER_SUPPORTED_LLM_PROVIDERS)
 CLOUD_LLM_PROVIDERS = frozenset(
-    provider for provider in ROUTER_SUPPORTED_LLM_PROVIDERS if provider != "local"
+    provider
+    for provider in ROUTER_SUPPORTED_LLM_PROVIDERS
+    if provider != "local"
 )
+
 
 def _normalize_model_setting(value: str | None) -> str:
     normalized = str(value or "").strip()
@@ -476,7 +482,9 @@ class Settings(BaseSettings):
 settings = Settings()
 
 CLOUD_LLM_PROVIDERS = frozenset(
-    provider for provider in ROUTER_SUPPORTED_LLM_PROVIDERS if provider != "local"
+    provider
+    for provider in ROUTER_SUPPORTED_LLM_PROVIDERS
+    if provider != "local"
 )
 _VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
 _SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
