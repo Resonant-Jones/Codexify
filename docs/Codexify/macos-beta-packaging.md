@@ -2,16 +2,106 @@
 
 ## Current contract
 
-Codexify currently produces a real macOS Tauri beta artifact, but the packaged desktop shell is still attached to the local Codexify repo/runtime model.
+Codexify now has a packaged-safe runtime attachment model for macOS.
 
-That means:
+The packaged desktop app does not depend on the repo checkout for startup. Instead, it resolves a user-scoped runtime home and materializes the minimum runtime payload there before setup or Compose starts.
 
-- the build emits a real `.app`
-- the build emits a real `.dmg`
-- the packaged app can only run bootstrap actions safely when it can resolve a local Codexify checkout
-- the workspace must remain locked whenever packaged bootstrap cannot safely continue
+Packaged runtime home on macOS:
 
-This is a beta packaging contract, not a signed/notarized public-distribution contract.
+- `~/Library/Application Support/Codexify`
+
+Implementation detail:
+
+- Tauri resolves the user data directory for the app
+- Codexify appends `Codexify`
+- that directory becomes the primary packaged runtime home
+
+If the runtime home cannot be resolved or created, packaged bootstrap fails with a classified error and the workspace stays locked.
+
+## Packaged runtime assets
+
+On packaged startup, Codexify expects the app bundle to contain the runtime payload needed for setup, Compose startup, logs, restart, and readiness checks.
+
+Bundled resources currently expected by the packaged app:
+
+- `backend`
+- `backend/requirements.txt`
+- `backend/requirements-tts.txt`
+- `docker`
+- `docker-compose.yml`
+- `guardian`
+- `plugins`
+- `pytest.ini`
+- `requirements`
+- `requirements.txt`
+- `scripts`
+- `tests`
+
+The packaged app copies those resources into the runtime home on startup.
+
+Runtime placeholders created under the runtime home:
+
+- `models`
+- `models/bge-large-en-v1.5`
+- `.chroma`
+
+The model-weight directory is only created as a placeholder here. It is not bundled by this slice.
+
+If the app bundle is missing any required packaged runtime resource, bootstrap fails with `packaged-runtime-assets-missing`.
+If copying or marker creation fails, bootstrap fails with `packaged-runtime-materialization-failed`.
+
+## Startup order
+
+The bootstrap sequence is unchanged:
+
+1. preflight
+2. setup
+3. compose up
+4. readiness wait
+5. welcome
+6. unlock
+
+This task only changed where packaged mode resolves runtime assets and paths from.
+
+## Packaged failure classification
+
+Packaged bootstrap now distinguishes these failure modes:
+
+- `runtime-home-unavailable`
+- `packaged-runtime-assets-missing`
+- `packaged-runtime-materialization-failed`
+- `docker-cli-unavailable`
+- `docker-daemon-unavailable`
+- `packaged-bootstrap-unsupported`
+- `unexpected-execution-error`
+
+The frontend copy now surfaces those cases separately instead of collapsing them into a generic startup failure.
+
+## Current limitations
+
+This packaged runtime model is still a beta attachment model, not a full public-distribution contract.
+
+Known limitations:
+
+- the packaged app still requires Docker Desktop and a reachable Docker daemon
+- the app bundle must contain the packaged runtime payload listed above
+- model weights are not bundled by this slice
+- signing and notarization automation are still not part of this task
+
+If packaged bootstrap cannot safely proceed, the workspace remains locked.
+
+## Validated current result
+
+On this machine, the packaged app now:
+
+- launches via Finder/open outside `cargo tauri dev`
+- resolves and creates the user-scoped runtime home at `~/Library/Application Support/Codexify`
+- materializes the packaged runtime payload into that directory
+- writes the packaged runtime marker at `.codexify-packaged-runtime`
+- reaches the bootstrap gate with a classified Docker preflight failure
+- keeps the workspace locked instead of unlocking prematurely
+
+The current validated packaged failure is Docker preflight, surfaced as "Docker Desktop is required" in the UI.
 
 ## Production build command
 
@@ -21,7 +111,7 @@ Run from the repo root:
 cd src-tauri && cargo tauri build
 ```
 
-## Current output artifacts
+## Output artifacts
 
 On the validated Apple Silicon build path, the production artifacts are:
 
@@ -32,18 +122,9 @@ The plain release executable is also produced at:
 
 - `src-tauri/target/release/app`
 
-## Artifact identity
-
-- Product name: `Codexify`
-- Bundle identifier: `com.codexify.desktop`
-- App bundle name: `Codexify.app`
-- DMG name on the validated Apple Silicon build: `Codexify_0.1.0_aarch64.dmg`
-
-The DMG suffix is architecture-specific. On this machine the validated output is `aarch64`.
-
 ## Signing and notarization status
 
-Current beta artifacts are not developer-signed or notarized.
+Current artifacts are not developer-signed or notarized.
 
 Observed local status:
 
@@ -53,69 +134,27 @@ Observed local status:
 
 This task does not add signing or notarization automation.
 
-## Packaged bootstrap behavior
+## Release posture
 
-The packaged macOS beta build now resolves runtime context explicitly instead of assuming the repo root from the shell working directory.
+The DMG is a technical preview artifact, not public-beta ready yet.
 
-Supported packaged bootstrap context today:
+Reason:
 
-- run `Codexify.app` from inside a Codexify checkout, including the default `src-tauri/target/release/bundle/macos/` build output
-- or launch with `CODEXIFY_DESKTOP_REPO_ROOT` pointing at a local Codexify checkout
+- it is not signed or notarized
+- packaged startup still depends on local Docker Desktop availability
+- the runtime payload is local-materialized, not fully self-contained
 
-Classified packaged failure modes:
+## Packaged startup expectations
 
-- `runtime-path-unavailable`
-- `repo-runtime-missing`
-- `packaged-bootstrap-unsupported`
-- `unexpected-execution-error`
+For a packaged Finder launch to succeed end-to-end, the app should:
 
-The bootstrap overlay now distinguishes:
+1. resolve `~/Library/Application Support/Codexify`
+2. materialize the packaged runtime payload into that directory
+3. run preflight
+4. run setup
+5. start Docker Compose from the runtime home
+6. wait for readiness
+7. show the welcome screen
+8. unlock the workspace
 
-- Docker missing
-- Docker daemon unavailable
-- packaged app cannot locate local runtime assets/config
-- packaged app launched outside a supported local runtime context
-- generic packaged startup failure
-
-## Current known limitations
-
-The packaged beta artifact is not self-contained yet.
-
-Known limitations in the current state:
-
-- setup, Compose startup, log retrieval, and restart actions still depend on the real local Codexify repo/runtime directory
-- launching the packaged app outside a Codexify checkout is unsupported unless `CODEXIFY_DESKTOP_REPO_ROOT` is provided
-- the validated Finder-launched packaged app still reproduced a Docker CLI execution failure even while Docker Desktop and the Compose stack were healthy; the app stayed locked and surfaced packaged startup support copy instead of unlocking the workspace
-- this means packaged bootstrap is supportable and classified, but not yet fully end-to-end reliable outside the development shell
-
-## Manual validation checklist
-
-Use this checklist for packaged beta validation:
-
-1. Run `cd src-tauri && cargo tauri build`.
-2. Confirm `Codexify.app` exists under `src-tauri/target/release/bundle/macos/`.
-3. Confirm the DMG exists under `src-tauri/target/release/bundle/dmg/`.
-4. Launch `Codexify.app` outside `cargo tauri dev`.
-5. Confirm the bootstrap overlay appears instead of unlocking the workspace prematurely.
-6. If the packaged app resolves the local runtime cleanly, confirm setup, Compose startup, readiness, welcome, and unlock complete in order.
-7. If packaged bootstrap does not complete, confirm the failure is classified, the workspace remains locked, and the recovery/support copy matches the real failure mode.
-8. Confirm logs/restart actions never pretend the packaged app can operate against a repo/runtime path it has not safely resolved.
-
-## Validated current result
-
-The current validated result on this machine is:
-
-- `cargo tauri build` completed successfully and emitted both `Codexify.app` and `Codexify_0.1.0_aarch64.dmg`
-- the packaged app launched outside `cargo tauri dev`
-- packaged bootstrap did not proceed end-to-end to welcome/unlock in Finder-launched validation
-- the window remained locked on the bootstrap gate, which is the required safety behavior
-
-## Beta download target
-
-The `codexify.space` beta download button should ultimately point at the uploaded DMG artifact for the current beta release lineage, not the raw `.app` bundle.
-
-For the currently validated local artifact shape, that means the hosted equivalent of:
-
-- `Codexify_0.1.0_aarch64.dmg`
-
-If universal or signed/notarized artifacts are introduced later, the download target should move to that release asset without changing the in-app bootstrap contract described here.
+If any packaged runtime step cannot proceed safely, the workspace must stay locked and the failure must be classified.

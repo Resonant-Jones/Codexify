@@ -1,5 +1,7 @@
 mod commands;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -11,6 +13,9 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            let handle = app.handle().clone();
+            let bootstrap_runtime = commands::resolve_bootstrap_runtime(&handle);
+            app.manage(bootstrap_runtime);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
