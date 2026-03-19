@@ -1,4 +1,7 @@
 # Memory‑Aware Persona System Architecture
+> Historical archive notice
+> This document is preserved as historical or conceptual lineage and is not a canonical source for current Codexify runtime behavior.
+> For current architecture and diagram source selection, use `/docs/architecture/kb-validity-matrix.md`, `/docs/architecture/README.md`, and `/docs/architecture/00-current-state.md`.
 
 This document provides a visual overview of the **Memory‑Aware Persona System** used in Codexify. The diagrams are written in **Mermaid** syntax, which is supported by GitHub, VS Code, and many Markdown viewers.
 
