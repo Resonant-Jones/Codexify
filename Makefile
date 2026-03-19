@@ -97,16 +97,11 @@ check: format lint test
 
 # Build documentation
 docs:
-	@echo "MkDocs is not configured in this repository."
-	@echo "Documentation is maintained as Markdown under docs/, so there is no repo-local MkDocs site to build."
-	@echo "Use ./scripts/preflight.sh for a general repository check, or the relevant task-specific validator for the docs area you changed."
-	@exit 1
+	$(PYTHON) scripts/validate_docs.py
 
 # Serve documentation locally
 docs-serve:
-	@echo "MkDocs is not configured in this repository."
-	@echo "Documentation is maintained as Markdown under docs/, so there is no repo-local MkDocs site to serve."
-	@echo "Use ./scripts/preflight.sh for a general repository check, or the relevant task-specific validator for the docs area you changed."
+	@echo "No repo-local docs server is configured."
 	@exit 1
 
 # Build distribution packages
