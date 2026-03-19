@@ -71,11 +71,20 @@ Packaged bootstrap now distinguishes these failure modes:
 - `packaged-runtime-assets-missing`
 - `packaged-runtime-materialization-failed`
 - `docker-cli-unavailable`
+- `docker-cli-execution-failed`
+- `docker-cli-found-but-unusable-from-packaged-context`
 - `docker-daemon-unavailable`
 - `packaged-bootstrap-unsupported`
 - `unexpected-execution-error`
 
-The frontend copy now surfaces those cases separately instead of collapsing them into a generic startup failure.
+The frontend copy now surfaces those cases separately instead of collapsing them into a generic startup failure or defaulting packaged Docker execution issues to "Install Docker Desktop".
+
+Current Docker classification semantics:
+
+- `docker-cli-unavailable`: no usable Docker binary was found after probing the known macOS locations and the normalized `PATH`
+- `docker-cli-execution-failed`: Docker was found, but `docker --version` could not execute successfully from the current app context
+- `docker-cli-found-but-unusable-from-packaged-context`: Docker was found, but the packaged macOS launch context could not execute it cleanly even after Codexify normalized the subprocess environment
+- `docker-daemon-unavailable`: Docker CLI and Compose resolved, but the daemon was not reachable
 
 ## Current limitations
 
@@ -84,6 +93,7 @@ This packaged runtime model is still a beta attachment model, not a full public-
 Known limitations:
 
 - the packaged app still requires Docker Desktop and a reachable Docker daemon
+- Finder-launched packaged startup depends on Codexify reconstructing a Docker-safe subprocess environment; if macOS still blocks CLI execution in that context, bootstrap stays locked and classifies `docker-cli-found-but-unusable-from-packaged-context`
 - the app bundle must contain the packaged runtime payload listed above
 - model weights are not bundled by this slice
 - signing and notarization automation are still not part of this task
@@ -98,10 +108,23 @@ On this machine, the packaged app now:
 - resolves and creates the user-scoped runtime home at `~/Library/Application Support/Codexify`
 - materializes the packaged runtime payload into that directory
 - writes the packaged runtime marker at `.codexify-packaged-runtime`
-- reaches the bootstrap gate with a classified Docker preflight failure
-- keeps the workspace locked instead of unlocking prematurely
+- reaches packaged Docker preflight with the hardened packaged subprocess environment
+- resolves Docker successfully from the packaged-safe probe path on this machine
 
-The current validated packaged failure is Docker preflight, surfaced as "Docker Desktop is required" in the UI.
+Validated packaged Docker probe shape:
+
+- `PATH=/opt/homebrew/bin:/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin`
+- preserve `HOME` when Finder provides it; otherwise reconstruct it from the packaged runtime home or `/Users/$USER`
+- preserve `DOCKER_CONFIG` when present; otherwise default it to `$HOME/.docker`
+- probe known Docker binaries directly before falling back to `docker` on `PATH`
+
+Validated direct packaged-safe probe results on this machine:
+
+- `/Applications/Docker.app/Contents/Resources/bin/docker --version`: success
+- `docker compose version`: success
+- `docker info --format '{{json .ServerVersion}}'`: success
+
+That means the packaged Docker preflight classification now reaches `installed and usable` on this machine instead of failing early as "Docker Desktop is required".
 
 ## Production build command
 
@@ -136,7 +159,7 @@ This task does not add signing or notarization automation.
 
 ## Release posture
 
-The DMG is a technical preview artifact, not public-beta ready yet.
+The DMG now reaches packaged Docker preflight successfully on this machine, but it remains a technical preview artifact rather than a public beta.
 
 Reason:
 

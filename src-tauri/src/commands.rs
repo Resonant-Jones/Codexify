@@ -22,6 +22,9 @@ const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_MISSING: &str = "packaged-runtime-ass
 const FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED: &str =
     "packaged-runtime-materialization-failed";
 const FAILURE_KIND_DOCKER_CLI_UNAVAILABLE: &str = "docker-cli-unavailable";
+const FAILURE_KIND_DOCKER_CLI_EXECUTION_FAILED: &str = "docker-cli-execution-failed";
+const FAILURE_KIND_DOCKER_CLI_FOUND_BUT_UNUSABLE_FROM_PACKAGED_CONTEXT: &str =
+    "docker-cli-found-but-unusable-from-packaged-context";
 const FAILURE_KIND_DOCKER_DAEMON_UNAVAILABLE: &str = "docker-daemon-unavailable";
 const FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE: &str = "runtime-path-unavailable";
 const FAILURE_KIND_REPO_RUNTIME_MISSING: &str = "repo-runtime-missing";
@@ -218,7 +221,8 @@ pub struct BootstrapRestartResult {
 #[derive(Debug, Clone, Copy)]
 enum FailureKind {
     DockerBinaryNotFound,
-    DockerCliInvocationFailed,
+    DockerCliExecutionFailed,
+    DockerCliFoundButUnusableFromPackagedContext,
     DockerComposeUnavailable,
     DockerDaemonUnreachable,
     UnexpectedCommandExecutionError,
@@ -228,7 +232,10 @@ impl FailureKind {
     fn as_str(self) -> &'static str {
         match self {
             Self::DockerBinaryNotFound => FAILURE_KIND_DOCKER_CLI_UNAVAILABLE,
-            Self::DockerCliInvocationFailed => FAILURE_KIND_DOCKER_CLI_UNAVAILABLE,
+            Self::DockerCliExecutionFailed => FAILURE_KIND_DOCKER_CLI_EXECUTION_FAILED,
+            Self::DockerCliFoundButUnusableFromPackagedContext => {
+                FAILURE_KIND_DOCKER_CLI_FOUND_BUT_UNUSABLE_FROM_PACKAGED_CONTEXT
+            }
             Self::DockerComposeUnavailable => "docker-compose-unavailable",
             Self::DockerDaemonUnreachable => FAILURE_KIND_DOCKER_DAEMON_UNAVAILABLE,
             Self::UnexpectedCommandExecutionError => FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR,
@@ -238,7 +245,10 @@ impl FailureKind {
     fn summary(self) -> &'static str {
         match self {
             Self::DockerBinaryNotFound => "Docker CLI unavailable",
-            Self::DockerCliInvocationFailed => "Docker CLI unavailable",
+            Self::DockerCliExecutionFailed => "Docker CLI execution failed",
+            Self::DockerCliFoundButUnusableFromPackagedContext => {
+                "Docker CLI found but unusable from packaged context"
+            }
             Self::DockerComposeUnavailable => "Docker Compose unavailable",
             Self::DockerDaemonUnreachable => "Docker daemon unavailable",
             Self::UnexpectedCommandExecutionError => "Unexpected command execution error",
@@ -246,11 +256,18 @@ impl FailureKind {
     }
 }
 
+#[derive(Debug, Clone)]
+struct DockerCommandEnvironment {
+    home: Option<String>,
+    docker_config: Option<String>,
+}
+
 #[derive(Debug)]
 struct ResolvedDockerBinary {
     command: String,
     display: String,
     resolution_detail: String,
+    environment: DockerCommandEnvironment,
 }
 
 #[derive(Debug)]
@@ -913,29 +930,24 @@ pub fn resolve_bootstrap_runtime(app: &tauri::AppHandle) -> BootstrapRuntime {
 }
 
 fn build_context_lines(label: &str, binary: &ResolvedDockerBinary) -> Vec<String> {
-    vec![
-        format!("{label}:"),
-        format!("binary: {}", binary.display),
-        format!("PATH: {NORMALIZED_DOCKER_PATH}"),
-    ]
+    let mut lines = vec![format!("{label}:"), format!("binary: {}", binary.display)];
+    lines.extend(build_docker_environment_lines(&binary.environment));
+    lines
 }
 
 fn spawn_docker_command(binary: &ResolvedDockerBinary, args: &[&str]) -> Command {
     let mut command = Command::new(&binary.command);
-    command.args(args).env("PATH", NORMALIZED_DOCKER_PATH);
-
-    if let Ok(home) = env::var("HOME") {
-        command.env("HOME", &home);
-        command.env("DOCKER_CONFIG", format!("{home}/.docker"));
-    }
-
+    command.args(args);
+    apply_docker_command_environment(&mut command, &binary.environment);
     command
 }
 
-fn resolve_docker_binary() -> Result<ResolvedDockerBinary, CommandProbe> {
-    let mut detail_lines = vec![format!("PATH: {NORMALIZED_DOCKER_PATH}")];
+fn resolve_docker_binary(runtime: &BootstrapRuntime) -> Result<ResolvedDockerBinary, CommandProbe> {
+    let environment = resolve_docker_command_environment(runtime);
+    let mut detail_lines = build_docker_environment_lines(&environment);
     let mut candidate_failures = Vec::new();
     let mut seen_resolved_paths = HashSet::new();
+    let mut found_candidate = false;
 
     #[cfg(target_os = "macos")]
     {
@@ -967,6 +979,7 @@ fn resolve_docker_binary() -> Result<ResolvedDockerBinary, CommandProbe> {
             detail_lines.push(format!(
                 "candidate resolved to absolute path: {resolved_display}"
             ));
+            found_candidate = true;
 
             if !seen_resolved_paths.insert(resolved_display.clone()) {
                 detail_lines.push(format!(
@@ -976,11 +989,8 @@ fn resolve_docker_binary() -> Result<ResolvedDockerBinary, CommandProbe> {
             }
 
             let mut probe = Command::new(&resolved_path);
-            probe.arg("--version").env("PATH", NORMALIZED_DOCKER_PATH);
-            if let Ok(home) = env::var("HOME") {
-                probe.env("HOME", &home);
-                probe.env("DOCKER_CONFIG", format!("{home}/.docker"));
-            }
+            probe.arg("--version");
+            apply_docker_command_environment(&mut probe, &environment);
 
             match probe.output() {
                 Ok(output) if output.status.success() => {
@@ -992,6 +1002,7 @@ fn resolve_docker_binary() -> Result<ResolvedDockerBinary, CommandProbe> {
                         command: resolved_display.clone(),
                         display: resolved_display,
                         resolution_detail: join_lines(detail_lines),
+                        environment: environment.clone(),
                     });
                 }
                 Ok(output) => {
@@ -1000,7 +1011,13 @@ fn resolve_docker_binary() -> Result<ResolvedDockerBinary, CommandProbe> {
                     ));
                     detail_lines.push(format!("exit status: {}", output.status));
                     detail_lines.extend(render_probe_output(&output.stdout, &output.stderr));
-                    candidate_failures.push(FailureKind::DockerCliInvocationFailed);
+                    candidate_failures.push(
+                        if runtime.packaged {
+                            FailureKind::DockerCliFoundButUnusableFromPackagedContext
+                        } else {
+                            FailureKind::DockerCliExecutionFailed
+                        },
+                    );
                 }
                 Err(err) if err.kind() == ErrorKind::NotFound => {
                     detail_lines.push(format!(
@@ -1011,20 +1028,21 @@ fn resolve_docker_binary() -> Result<ResolvedDockerBinary, CommandProbe> {
                     detail_lines.push(format!(
                         "candidate spawn error for {resolved_display}: {err}"
                     ));
-                    candidate_failures.push(FailureKind::UnexpectedCommandExecutionError);
+                    candidate_failures.push(
+                        if runtime.packaged {
+                            FailureKind::DockerCliFoundButUnusableFromPackagedContext
+                        } else {
+                            FailureKind::DockerCliExecutionFailed
+                        },
+                    );
                 }
             }
         }
     }
 
     let mut fallback = Command::new("docker");
-    fallback
-        .arg("--version")
-        .env("PATH", NORMALIZED_DOCKER_PATH);
-    if let Ok(home) = env::var("HOME") {
-        fallback.env("HOME", &home);
-        fallback.env("DOCKER_CONFIG", format!("{home}/.docker"));
-    }
+    fallback.arg("--version");
+    apply_docker_command_environment(&mut fallback, &environment);
 
     match fallback.output() {
         Ok(output) if output.status.success() => {
@@ -1034,6 +1052,7 @@ fn resolve_docker_binary() -> Result<ResolvedDockerBinary, CommandProbe> {
                 command: "docker".to_string(),
                 display: "docker".to_string(),
                 resolution_detail: join_lines(detail_lines),
+                environment,
             })
         }
         Ok(output) => {
@@ -1044,7 +1063,11 @@ fn resolve_docker_binary() -> Result<ResolvedDockerBinary, CommandProbe> {
             detail_lines.push(format!("exit status: {}", output.status));
             detail_lines.extend(render_probe_output(&output.stdout, &output.stderr));
             Err(CommandProbe::failure(
-                FailureKind::DockerCliInvocationFailed,
+                if runtime.packaged || found_candidate {
+                    FailureKind::DockerCliFoundButUnusableFromPackagedContext
+                } else {
+                    FailureKind::DockerCliExecutionFailed
+                },
                 join_lines(detail_lines),
             ))
         }
@@ -1065,7 +1088,11 @@ fn resolve_docker_binary() -> Result<ResolvedDockerBinary, CommandProbe> {
                 "PATH fallback raised an unexpected execution error: {err}"
             ));
             Err(CommandProbe::failure(
-                FailureKind::UnexpectedCommandExecutionError,
+                if runtime.packaged || found_candidate {
+                    FailureKind::DockerCliFoundButUnusableFromPackagedContext
+                } else {
+                    FailureKind::UnexpectedCommandExecutionError
+                },
                 join_lines(detail_lines),
             ))
         }
@@ -1151,6 +1178,95 @@ fn find_macos_app_bundle(path: &Path) -> Option<PathBuf> {
             None
         }
     })
+}
+
+fn infer_home_from_runtime_home(runtime_home: &Path) -> Option<String> {
+    runtime_home
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .filter(|candidate| candidate.is_dir())
+        .map(|candidate| candidate.display().to_string())
+}
+
+fn resolve_docker_home(runtime: &BootstrapRuntime) -> Option<String> {
+    env::var("HOME")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| runtime.runtime_home.as_deref().and_then(infer_home_from_runtime_home))
+        .or_else(|| {
+            #[cfg(target_os = "macos")]
+            {
+                env::var("USER")
+                    .ok()
+                    .map(|user| user.trim().to_string())
+                    .filter(|user| !user.is_empty())
+                    .map(|user| format!("/Users/{user}"))
+                    .filter(|candidate| Path::new(candidate.as_str()).is_dir())
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                None
+            }
+        })
+}
+
+fn resolve_docker_command_environment(runtime: &BootstrapRuntime) -> DockerCommandEnvironment {
+    let home = resolve_docker_home(runtime);
+    let docker_config = env::var("DOCKER_CONFIG")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| home.as_ref().map(|value| format!("{value}/.docker")));
+
+    DockerCommandEnvironment {
+        home,
+        docker_config,
+    }
+}
+
+pub fn prime_packaged_docker_environment(runtime: &BootstrapRuntime) {
+    if !runtime.packaged {
+        return;
+    }
+
+    let environment = resolve_docker_command_environment(runtime);
+    env::set_var("PATH", NORMALIZED_DOCKER_PATH);
+
+    if let Some(home) = environment.home {
+        env::set_var("HOME", home);
+    }
+    if let Some(docker_config) = environment.docker_config {
+        env::set_var("DOCKER_CONFIG", docker_config);
+    }
+}
+
+fn build_docker_environment_lines(environment: &DockerCommandEnvironment) -> Vec<String> {
+    let mut lines = vec![format!("PATH: {NORMALIZED_DOCKER_PATH}")];
+    match &environment.home {
+        Some(home) => lines.push(format!("HOME: {home}")),
+        None => lines.push("HOME: <unresolved>".to_string()),
+    }
+    match &environment.docker_config {
+        Some(docker_config) => lines.push(format!("DOCKER_CONFIG: {docker_config}")),
+        None => lines.push("DOCKER_CONFIG: <unresolved>".to_string()),
+    }
+    lines
+}
+
+fn apply_docker_command_environment(
+    command: &mut Command,
+    environment: &DockerCommandEnvironment,
+) {
+    command.env("PATH", NORMALIZED_DOCKER_PATH);
+
+    if let Some(home) = &environment.home {
+        command.env("HOME", home);
+    }
+    if let Some(docker_config) = &environment.docker_config {
+        command.env("DOCKER_CONFIG", docker_config);
+    }
 }
 
 fn resolve_python_binary(repo_root: &Path) -> PathBuf {
@@ -1684,7 +1800,7 @@ pub fn desktop_runtime_preflight_check(
         };
     }
 
-    match resolve_docker_binary() {
+    match resolve_docker_binary(&runtime) {
         Ok(binary) => {
             let resolution_probe = CommandProbe::success(format!(
                 "docker binary resolution:\n{}",
@@ -1694,7 +1810,11 @@ pub fn desktop_runtime_preflight_check(
                 &binary,
                 &["--version"],
                 "docker --version",
-                FailureKind::DockerCliInvocationFailed,
+                if runtime.packaged {
+                    FailureKind::DockerCliFoundButUnusableFromPackagedContext
+                } else {
+                    FailureKind::DockerCliExecutionFailed
+                },
             );
 
             let (
@@ -1774,7 +1894,11 @@ pub fn desktop_runtime_preflight_check(
         Err(resolution_probe) => {
             let failure_kind = resolution_probe.failure_kind.map(|kind| kind.as_str().to_string());
             RuntimePreflight {
-                docker_cli_installed: false,
+                docker_cli_installed: matches!(
+                    resolution_probe.failure_kind,
+                    Some(FailureKind::DockerCliExecutionFailed)
+                        | Some(FailureKind::DockerCliFoundButUnusableFromPackagedContext)
+                ),
                 docker_compose_available: false,
                 docker_daemon_reachable: false,
                 ready: false,
@@ -1929,7 +2053,7 @@ pub fn desktop_compose_up(
             }
         }
     };
-    let docker = match resolve_docker_binary() {
+    let docker = match resolve_docker_binary(&runtime) {
         Ok(binary) => binary,
         Err(probe) => {
             return build_step_result(
@@ -2120,7 +2244,7 @@ pub fn desktop_get_bootstrap_logs(
             }
         }
     };
-    let docker = match resolve_docker_binary() {
+    let docker = match resolve_docker_binary(&runtime) {
         Ok(binary) => binary,
         Err(probe) => {
             return BootstrapLogResult {
@@ -2226,7 +2350,7 @@ pub fn desktop_restart_runtime_services(
             }
         }
     };
-    let docker = match resolve_docker_binary() {
+    let docker = match resolve_docker_binary(&runtime) {
         Ok(binary) => binary,
         Err(probe) => {
             return BootstrapRestartResult {
