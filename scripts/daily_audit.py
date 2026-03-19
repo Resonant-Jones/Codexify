@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import shlex
@@ -17,6 +18,7 @@ BASELINE_HISTORY_DIR = REPO_ROOT / "docs" / "audits" / "history"
 DAILY_AUDIT_DIR = REPO_ROOT / "docs" / "audits" / "daily"
 LATEST_JSON = REPO_ROOT / "docs" / "audits" / "latest.json"
 LATEST_MD = REPO_ROOT / "docs" / "audits" / "latest.md"
+VALID_PHASES = ("morning", "evening")
 
 BUCKET_ORDER = [
     "chat",
@@ -140,6 +142,18 @@ def iso_now() -> datetime:
 
 def local_date() -> str:
     return iso_now().date().isoformat()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate the daily audit record."
+    )
+    parser.add_argument(
+        "--phase",
+        choices=VALID_PHASES,
+        help="Write the audit into a phase-specific daily directory.",
+    )
+    return parser.parse_args()
 
 
 def read_text(path: Path) -> str:
@@ -564,6 +578,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
 
     lines.append("## Repo Status")
     lines.append(f"- Date: {payload['date']}")
+    if payload.get("phase"):
+        lines.append(f"- Phase: {backtick(payload['phase'])}")
     lines.append(f"- Branch: {backtick(repo['branch'])}")
     lines.append(f"- HEAD: {backtick(repo['head'])}")
     lines.append(f"- Worktree: {'dirty' if repo['dirty'] else 'clean'}")
@@ -710,7 +726,7 @@ def write_text_file(path: Path, content: str) -> None:
     temp_path.replace(path)
 
 
-def build_payload() -> dict[str, Any]:
+def build_payload(phase: str | None = None) -> dict[str, Any]:
     now = iso_now()
     repo = collect_repo_metadata(now)
     audit_cli = run_audit_cli()
@@ -734,6 +750,9 @@ def build_payload() -> dict[str, Any]:
         "manual_notes": manual_notes,
     }
 
+    if phase is not None:
+        payload["phase"] = phase
+
     if parsed_text:
         payload["audit_cli"]["parsed_text"] = parsed_text
 
@@ -741,10 +760,22 @@ def build_payload() -> dict[str, Any]:
 
 
 def main() -> int:
+    args = parse_args()
     try:
-        payload = build_payload()
-        daily_json_path = DAILY_AUDIT_DIR / f"{payload['date']}-audit.json"
-        daily_md_path = DAILY_AUDIT_DIR / f"{payload['date']}-audit.md"
+        payload = build_payload(args.phase)
+        daily_audit_dir = (
+            DAILY_AUDIT_DIR
+            if args.phase is None
+            else DAILY_AUDIT_DIR / args.phase
+        )
+        daily_json_path = daily_audit_dir / f"{payload['date']}-audit.json"
+        daily_md_path = daily_audit_dir / f"{payload['date']}-audit.md"
+        phase_json_path = (
+            daily_audit_dir / "latest.json" if args.phase is not None else None
+        )
+        phase_md_path = (
+            daily_audit_dir / "latest.md" if args.phase is not None else None
+        )
 
         json_content = json.dumps(
             payload, indent=2, sort_keys=True, ensure_ascii=False
@@ -755,11 +786,17 @@ def main() -> int:
         write_text_file(daily_md_path, f"{markdown_content}\n")
         write_text_file(LATEST_JSON, f"{json_content}\n")
         write_text_file(LATEST_MD, f"{markdown_content}\n")
+        if phase_json_path is not None and phase_md_path is not None:
+            write_text_file(phase_json_path, f"{json_content}\n")
+            write_text_file(phase_md_path, f"{markdown_content}\n")
 
         print(f"Wrote {daily_json_path.relative_to(REPO_ROOT)}")
         print(f"Wrote {daily_md_path.relative_to(REPO_ROOT)}")
         print(f"Updated {LATEST_JSON.relative_to(REPO_ROOT)}")
         print(f"Updated {LATEST_MD.relative_to(REPO_ROOT)}")
+        if phase_json_path is not None and phase_md_path is not None:
+            print(f"Updated {phase_json_path.relative_to(REPO_ROOT)}")
+            print(f"Updated {phase_md_path.relative_to(REPO_ROOT)}")
         return 0
     except Exception as exc:  # pragma: no cover - defensive exit path
         print(f"daily_audit.py failed: {exc}", file=sys.stderr)
