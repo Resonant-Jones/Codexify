@@ -11,22 +11,35 @@ import CommandCenterPage from "./features/commandCenter/CommandCenterPage";
 import api from "./lib/api";
 import {
   appendBootstrapDetail,
+  BOOTSTRAP_LOG_SERVICES,
   createCheckingRuntimeBootstrapState,
+  createBootstrapSupportNoticeFromDockerOpenResult,
+  createBootstrapSupportNoticeFromLogResult,
+  createBootstrapSupportNoticeFromRestartResult,
+  createComposeRecoveryStepResult,
   createFailedRuntimeBootstrapState,
   createPreparingLocalConfigState,
   createReadyForWelcomeState,
   createStartingLocalServicesState,
   createWaitingForReadyState,
   formatBootstrapStepResult,
-  formatRuntimeHealthCheckResult,
+  formatRuntimeReadinessResult,
+  getBootstrapLogs,
   hasDismissedWelcomeScreen,
   mapRuntimePreflightFailureToState,
+  mapRuntimeReadinessFailureToState,
+  openDockerDesktopNative,
   openDockerDesktopDownloadPage,
+  restartRuntimeServices,
   runComposeUp,
   runRuntimeBootstrapPreflight,
   runSetupCli,
   setWelcomeScreenDismissed,
   shouldRunRuntimeBootstrap,
+  type BootstrapLogResult,
+  type BootstrapLogService,
+  type BootstrapRecoveryNotice,
+  type BootstrapRecoveryStage,
   type BootstrapStep,
   type BootstrapStepResult,
   type RuntimeBootstrapState,
@@ -94,6 +107,70 @@ function getShareToken() {
 }
 
 type BootstrapPhase = "bootstrap" | "welcome" | "unlocked";
+type BootstrapStartBoundary = BootstrapRecoveryStage;
+
+type BootstrapLogsState = {
+  visible: boolean;
+  loading: boolean;
+  service: BootstrapLogService;
+  result: BootstrapLogResult | null;
+};
+
+type BootstrapRetryPlan = {
+  boundary: BootstrapStartBoundary;
+  stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>>;
+};
+
+type StartupOrchestrationOptions = {
+  startAt: Exclude<BootstrapStartBoundary, "preflight">;
+  initialDetail?: string;
+  initialStepResults?: Partial<Record<BootstrapStep, BootstrapStepResult>>;
+};
+
+function resolveBootstrapRecoveryStage(
+  state: RuntimeBootstrapState
+): BootstrapRecoveryStage | null {
+  if (
+    state.status === "checking-requirements" ||
+    state.status === "docker-missing" ||
+    state.status === "compose-missing" ||
+    state.status === "docker-not-running"
+  ) {
+    return "preflight";
+  }
+
+  if (state.stepResults["health-check"] && !state.stepResults["health-check"]?.ok) {
+    return "readiness";
+  }
+
+  if (state.stepResults["compose-up"] && !state.stepResults["compose-up"]?.ok) {
+    return "compose-up";
+  }
+
+  if (state.stepResults.setup && !state.stepResults.setup?.ok) {
+    return "setup";
+  }
+
+  if (state.status === "failed") {
+    return "preflight";
+  }
+
+  return null;
+}
+
+function resolveBootstrapDefaultLogService(
+  state: RuntimeBootstrapState
+): BootstrapLogService {
+  if (state.stepResults["health-check"] && !state.stepResults["health-check"]?.ok) {
+    return "backend";
+  }
+
+  if (state.stepResults["compose-up"] && !state.stepResults["compose-up"]?.ok) {
+    return "backend";
+  }
+
+  return "backend";
+}
 
 function WelcomeScreen({ onEnter }: { onEnter: () => void }) {
   return (
@@ -142,9 +219,10 @@ function WelcomeScreen({ onEnter }: { onEnter: () => void }) {
               className="max-w-xl text-sm leading-6 sm:text-[15px]"
               style={{ color: "var(--muted)" }}
             >
-              The local setup step completed, Docker Compose is up, and the
-              runtime health checks are green. Enter when you want the full
-              workspace surface to become interactive.
+              The backend process is reachable, startup has completed, Redis
+              and chat health are green, and the local beta readiness contract
+              is satisfied. Enter when you want the full workspace surface to
+              become interactive.
             </p>
           </div>
 
@@ -209,7 +287,8 @@ function WelcomeScreen({ onEnter }: { onEnter: () => void }) {
                 style={{ color: "var(--text)" }}
               >
                 This welcome screen is dismissed per local profile so repeat
-                launches can go straight to the workspace once startup is green.
+                launches can go straight to the workspace once the local beta
+                loop is green.
               </p>
             </div>
           </div>
@@ -303,11 +382,19 @@ export default function App() {
   const autoBootstrapStartedRef = React.useRef(false);
   const latestPreflightRef = React.useRef<RuntimePreflight | null>(null);
   const diagnosticsRef = React.useRef<string | undefined>(undefined);
-  const appShellRef = React.useRef<React.ReactElement | null>(null);
-  if (!appShellRef.current) {
-    appShellRef.current = <AppShell />;
-  }
-  const appShell = appShellRef.current;
+  const bootstrapLogsRequestRef = React.useRef(0);
+  const [bootstrapLogs, setBootstrapLogs] = React.useState<BootstrapLogsState>(
+    () => ({
+      visible: false,
+      loading: false,
+      service: "backend",
+      result: null,
+    })
+  );
+  const [bootstrapRecoveryNotice, setBootstrapRecoveryNotice] =
+    React.useState<BootstrapRecoveryNotice | null>(null);
+  const [openingDockerDesktop, setOpeningDockerDesktop] = React.useState(false);
+  const [restartingServices, setRestartingServices] = React.useState(false);
 
   const handleDocGenSubmit = React.useCallback(
     async (input: DocumentGenInput) => {
@@ -431,6 +518,53 @@ export default function App() {
     []
   );
 
+  const syncBootstrapDetail = React.useCallback((detail: string | undefined) => {
+    setBootstrapState((current) =>
+      current.detail === detail ? current : { ...current, detail }
+    );
+  }, []);
+
+  const buildRetryPlan = React.useCallback(
+    (state: RuntimeBootstrapState): BootstrapRetryPlan => {
+      const stage = resolveBootstrapRecoveryStage(state);
+
+      if (stage === "readiness") {
+        const stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {};
+        if (state.stepResults.setup?.ok) {
+          stepResults.setup = state.stepResults.setup;
+        }
+        if (state.stepResults["compose-up"]?.ok) {
+          stepResults["compose-up"] = state.stepResults["compose-up"];
+        }
+        return { boundary: "readiness", stepResults };
+      }
+
+      if (stage === "compose-up") {
+        const stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {};
+        if (state.stepResults.setup?.ok) {
+          stepResults.setup = state.stepResults.setup;
+        }
+        return { boundary: "compose-up", stepResults };
+      }
+
+      if (stage === "setup" && state.preflight?.ready) {
+        return { boundary: "setup", stepResults: {} };
+      }
+
+      return { boundary: "preflight", stepResults: {} };
+    },
+    []
+  );
+
+  React.useEffect(() => {
+    const defaultService = resolveBootstrapDefaultLogService(bootstrapState);
+    setBootstrapLogs((current) =>
+      current.visible || current.service === defaultService
+        ? current
+        : { ...current, service: defaultService }
+    );
+  }, [bootstrapState]);
+
   const advanceToWelcomeOrWorkspace = React.useCallback((runId: number) => {
     const moveForward = () => {
       if (runId !== bootstrapRunRef.current) return;
@@ -453,68 +587,98 @@ export default function App() {
   }, []);
 
   const runStartupOrchestration = React.useCallback(
-    async (preflight: RuntimePreflight) => {
+    async (
+      preflight: RuntimePreflight,
+      options: StartupOrchestrationOptions
+    ) => {
       const runId = bootstrapRunRef.current;
-      let stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {};
-      let detail = diagnosticsRef.current;
+      let stepResults = { ...(options.initialStepResults ?? {}) };
+      let detail = options.initialDetail ?? diagnosticsRef.current;
+      let startAt = options.startAt;
 
-      setBootstrapPhase("bootstrap");
-      setBootstrapState(
-        createPreparingLocalConfigState(preflight, detail, stepResults)
-      );
-
-      const setupResult = await runSetupCli();
-      if (runId !== bootstrapRunRef.current) return;
-      stepResults = {
-        ...stepResults,
-        setup: setupResult,
-      };
-      detail = appendDiagnostics(
-        formatBootstrapStepResult(setupResult),
-        "Setup step"
-      );
-      if (!setupResult.ok) {
-        setBootstrapState(
-          createFailedRuntimeBootstrapState({
-            title: "Preparing local config failed",
-            message:
-              "Codexify could not complete the setup source-of-truth step, so the workspace remains locked. Retry to rerun orchestration from the start.",
-            detail,
-            failureKind: "setup-failed",
-            preflight,
-            stepResults,
-          })
-        );
-        return;
+      if (startAt === "readiness" && !stepResults["compose-up"]?.ok) {
+        startAt = "compose-up";
+      }
+      if (startAt !== "setup" && !stepResults.setup?.ok) {
+        startAt = "setup";
       }
 
-      setBootstrapState(
-        createStartingLocalServicesState(preflight, detail, stepResults)
-      );
+      setBootstrapPhase("bootstrap");
 
-      const composeResult = await runComposeUp();
-      if (runId !== bootstrapRunRef.current) return;
-      stepResults = {
-        ...stepResults,
-        "compose-up": composeResult,
-      };
-      detail = appendDiagnostics(
-        formatBootstrapStepResult(composeResult),
-        "Compose startup"
-      );
-      if (!composeResult.ok) {
+      if (startAt === "setup") {
         setBootstrapState(
-          createFailedRuntimeBootstrapState({
-            title: "Starting local services failed",
-            message:
-              "Codexify could not bring the Docker Compose stack up cleanly. The workspace stays locked until startup orchestration succeeds.",
-            detail,
-            failureKind: "compose-up-failed",
-            preflight,
-            stepResults,
-          })
+          createPreparingLocalConfigState(preflight, detail, stepResults)
         );
-        return;
+
+        const setupResult = await runSetupCli();
+        if (runId !== bootstrapRunRef.current) return;
+        stepResults = {
+          ...stepResults,
+          setup: setupResult,
+        };
+        detail = appendDiagnostics(
+          formatBootstrapStepResult(setupResult),
+          "Setup step"
+        );
+        if (!setupResult.ok) {
+          const failureKind =
+            setupResult.failureKind ??
+            (preflight.packaged ? "packaged-setup-failed" : "setup-failed");
+          setBootstrapState(
+            createFailedRuntimeBootstrapState({
+              title: preflight.packaged
+                ? "Packaged setup failed"
+                : "Preparing local config failed",
+              message: preflight.packaged
+                ? "Codexify could not complete the packaged setup step from the materialized runtime home. Retry to rerun setup while the workspace stays locked."
+                : "Codexify could not complete the repo-defined setup step. Retry to rerun setup, then continue through Compose startup and readiness while the workspace stays locked.",
+              detail,
+              failureKind,
+              preflight,
+              stepResults,
+            })
+          );
+          return;
+        }
+      }
+
+      if (startAt === "setup" || startAt === "compose-up") {
+        setBootstrapState(
+          createStartingLocalServicesState(preflight, detail, stepResults)
+        );
+
+        const composeResult = await runComposeUp();
+        if (runId !== bootstrapRunRef.current) return;
+        stepResults = {
+          ...stepResults,
+          "compose-up": composeResult,
+        };
+        detail = appendDiagnostics(
+          formatBootstrapStepResult(composeResult),
+          "Compose startup"
+        );
+        if (!composeResult.ok) {
+          const failureKind =
+            composeResult.failureKind ??
+            (preflight.packaged
+              ? "packaged-compose-up-failed"
+              : "compose-up-failed");
+          setBootstrapState(
+            createFailedRuntimeBootstrapState({
+              title: preflight.packaged
+                ? "Packaged Compose startup failed"
+                : "Starting local services failed",
+              message: preflight.packaged
+                ? "Codexify could not bring the packaged Compose stack up cleanly from the materialized runtime home. Retry to rerun Compose startup, or inspect logs and restart services if the runtime needs intervention."
+                : "Codexify could not bring the local Compose stack up cleanly. Retry to rerun Compose startup, or inspect logs and restart services if the runtime needs intervention.",
+              detail,
+              failureKind,
+              preflight,
+              stepResults,
+            })
+          );
+          return;
+        }
       }
 
       setBootstrapState(
@@ -526,14 +690,19 @@ export default function App() {
           if (runId !== bootstrapRunRef.current) return;
           const liveDetail = appendBootstrapDetail(
             detail,
-            formatRuntimeHealthCheckResult(healthResult),
+            formatRuntimeReadinessResult(healthResult),
             `Readiness probe ${attempt}`
           );
           setBootstrapState(
-            createWaitingForReadyState(preflight, liveDetail, {
-              ...stepResults,
-              "health-check": healthResult,
-            })
+            createWaitingForReadyState(
+              preflight,
+              liveDetail,
+              {
+                ...stepResults,
+                "health-check": healthResult,
+              },
+              healthResult
+            )
           );
         },
       });
@@ -545,7 +714,7 @@ export default function App() {
         "health-check": readiness.lastCheck,
       };
       detail = appendDiagnostics(
-        formatRuntimeHealthCheckResult(readiness.lastCheck),
+        formatRuntimeReadinessResult(readiness.lastCheck),
         readiness.ok
           ? `Readiness succeeded after ${readiness.attempts} probe(s) in ${Math.round(
               readiness.elapsedMs / 1000
@@ -557,21 +726,23 @@ export default function App() {
 
       if (!readiness.ok) {
         setBootstrapState(
-          createFailedRuntimeBootstrapState({
-            title: "Codexify did not become ready in time",
-            message:
-              "Docker Compose started, but the runtime health checks never reached a usable state. Retry to rerun setup, compose startup, and readiness from the beginning.",
-            detail,
-            failureKind: "health-check-failed",
+          mapRuntimeReadinessFailureToState(
             preflight,
-            stepResults,
-          })
+            readiness.lastCheck,
+            detail,
+            stepResults
+          )
         );
         return;
       }
 
       setBootstrapState(
-        createReadyForWelcomeState(preflight, detail, stepResults)
+        createReadyForWelcomeState(
+          preflight,
+          detail,
+          stepResults,
+          readiness.lastCheck
+        )
       );
       advanceToWelcomeOrWorkspace(runId);
     },
@@ -579,28 +750,33 @@ export default function App() {
   );
 
   const runBootstrapFlow = React.useCallback(
-    async (fromStart: boolean) => {
+    async (
+      boundary: BootstrapStartBoundary,
+      stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
+    ) => {
       if (!bootstrapEnabled) {
         setBootstrapPhase("unlocked");
         return;
       }
 
       const runId = ++bootstrapRunRef.current;
+      bootstrapLogsRequestRef.current += 1;
       setBootstrapPhase("bootstrap");
+      setBootstrapRecoveryNotice(null);
+      setOpeningDockerDesktop(false);
+      setRestartingServices(false);
 
       const reusePreflight =
-        !fromStart && latestPreflightRef.current?.ready
+        boundary !== "preflight" && latestPreflightRef.current?.ready
           ? latestPreflightRef.current
           : null;
 
       if (reusePreflight) {
-        setBootstrapState(
-          createPreparingLocalConfigState(
-            reusePreflight,
-            diagnosticsRef.current
-          )
-        );
-        await runStartupOrchestration(reusePreflight);
+        await runStartupOrchestration(reusePreflight, {
+          startAt: boundary === "preflight" ? "setup" : boundary,
+          initialDetail: diagnosticsRef.current,
+          initialStepResults: stepResults,
+        });
         return;
       }
 
@@ -625,18 +801,33 @@ export default function App() {
         return;
       }
 
-      setBootstrapState(
-        createPreparingLocalConfigState(preflight, preflightDetail)
-      );
-      await runStartupOrchestration(preflight);
+      await runStartupOrchestration(preflight, {
+        startAt: boundary === "preflight" ? "setup" : boundary,
+        initialDetail: preflightDetail,
+        initialStepResults: stepResults,
+      });
     },
-    [appendDiagnostics, bootstrapEnabled, runStartupOrchestration]
+    [
+      appendDiagnostics,
+      bootstrapEnabled,
+      runStartupOrchestration,
+      bootstrapLogsRequestRef,
+    ]
   );
 
   React.useEffect(() => {
     if (!bootstrapEnabled) {
       autoBootstrapStartedRef.current = false;
       latestPreflightRef.current = null;
+      bootstrapLogsRequestRef.current += 1;
+      setBootstrapRecoveryNotice(null);
+      setOpeningDockerDesktop(false);
+      setRestartingServices(false);
+      setBootstrapLogs((current) => ({
+        ...current,
+        visible: false,
+        loading: false,
+      }));
       setBootstrapPhase("unlocked");
       return;
     }
@@ -645,12 +836,51 @@ export default function App() {
     if (autoBootstrapStartedRef.current) return;
 
     autoBootstrapStartedRef.current = true;
-    void runBootstrapFlow(true);
+    void runBootstrapFlow("preflight");
   }, [bootstrapEnabled, runBootstrapFlow]);
 
+  const loadBootstrapLogs = React.useCallback(
+    async (service: BootstrapLogService) => {
+      const requestId = ++bootstrapLogsRequestRef.current;
+      setBootstrapRecoveryNotice(null);
+      setBootstrapLogs((current) => ({
+        visible: true,
+        loading: true,
+        service,
+        result: current.service === service ? current.result : null,
+      }));
+
+      const result = await getBootstrapLogs(service);
+      if (requestId !== bootstrapLogsRequestRef.current) return;
+
+      setBootstrapLogs({
+        visible: true,
+        loading: false,
+        service,
+        result,
+      });
+
+      if (!result.ok) {
+        const detail = appendDiagnostics(
+          result.detail,
+          `Log retrieval (${service})`
+        );
+        syncBootstrapDetail(detail);
+        setBootstrapRecoveryNotice(
+          createBootstrapSupportNoticeFromLogResult({
+            ...result,
+            detail,
+          })
+        );
+      }
+    },
+    [appendDiagnostics, syncBootstrapDetail]
+  );
+
   const handleRetryBootstrap = React.useCallback(() => {
-    void runBootstrapFlow(Boolean(latestPreflightRef.current?.ready));
-  }, [runBootstrapFlow]);
+    const plan = buildRetryPlan(bootstrapState);
+    void runBootstrapFlow(plan.boundary, plan.stepResults);
+  }, [bootstrapState, buildRetryPlan, runBootstrapFlow]);
 
   const handleWelcomeEnter = React.useCallback(() => {
     setWelcomeScreenDismissed(true);
@@ -658,6 +888,7 @@ export default function App() {
   }, []);
 
   const handleInstallDocker = React.useCallback(async () => {
+    setBootstrapRecoveryNotice(null);
     const opened = await openDockerDesktopDownloadPage();
     if (opened) return;
     try {
@@ -673,6 +904,119 @@ export default function App() {
       // ignore
     }
   }, []);
+
+  const handleOpenDocker = React.useCallback(async () => {
+    setBootstrapRecoveryNotice(null);
+    setOpeningDockerDesktop(true);
+    const result = await openDockerDesktopNative();
+    setOpeningDockerDesktop(false);
+
+    const detail = appendDiagnostics(result.detail, "Open Docker Desktop");
+    syncBootstrapDetail(detail);
+
+    if (!result.ok) {
+      setBootstrapRecoveryNotice(
+        createBootstrapSupportNoticeFromDockerOpenResult({
+          ...result,
+          detail,
+        })
+      );
+    }
+  }, [appendDiagnostics, syncBootstrapDetail]);
+
+  const handleToggleBootstrapLogs = React.useCallback(() => {
+    if (bootstrapLogs.visible) {
+      bootstrapLogsRequestRef.current += 1;
+      setBootstrapLogs((current) => ({
+        ...current,
+        visible: false,
+        loading: false,
+      }));
+      return;
+    }
+
+    const nextService =
+      bootstrapLogs.service || resolveBootstrapDefaultLogService(bootstrapState);
+    void loadBootstrapLogs(nextService);
+  }, [bootstrapLogs.service, bootstrapLogs.visible, bootstrapState, loadBootstrapLogs]);
+
+  const handleSelectBootstrapLogService = React.useCallback(
+    (service: BootstrapLogService) => {
+      if (!BOOTSTRAP_LOG_SERVICES.includes(service)) return;
+      if (!bootstrapLogs.visible) {
+        setBootstrapLogs((current) => ({ ...current, service }));
+        return;
+      }
+      void loadBootstrapLogs(service);
+    },
+    [bootstrapLogs.visible, loadBootstrapLogs]
+  );
+
+  const handleRestartServices = React.useCallback(async () => {
+    const preflight = latestPreflightRef.current ?? bootstrapState.preflight;
+    if (!preflight?.ready) {
+      void runBootstrapFlow("preflight");
+      return;
+    }
+
+    const runId = ++bootstrapRunRef.current;
+    bootstrapLogsRequestRef.current += 1;
+    setBootstrapRecoveryNotice(null);
+    setRestartingServices(true);
+    setBootstrapPhase("bootstrap");
+    setBootstrapState(
+      createStartingLocalServicesState(
+        preflight,
+        diagnosticsRef.current,
+        bootstrapState.stepResults
+      )
+    );
+
+    const result = await restartRuntimeServices();
+    if (runId !== bootstrapRunRef.current) return;
+    setRestartingServices(false);
+
+    const composeRecovery = createComposeRecoveryStepResult(result);
+    const detail = appendDiagnostics(
+      formatBootstrapStepResult(composeRecovery),
+      "Restart services"
+    );
+
+    if (!result.ok) {
+      setBootstrapState(
+        createFailedRuntimeBootstrapState({
+          title: "Restarting local services failed",
+          message:
+            "Codexify could not complete the targeted runtime restart from the desktop shell. The workspace stays locked until Compose startup and readiness succeed.",
+          detail,
+          failureKind: "restart-services-failed",
+          preflight,
+          stepResults: bootstrapState.stepResults,
+        })
+      );
+      setBootstrapRecoveryNotice(
+        createBootstrapSupportNoticeFromRestartResult({
+          ...result,
+          detail,
+        })
+      );
+      return;
+    }
+
+    const nextStepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {
+      ...bootstrapState.stepResults,
+      "compose-up": composeRecovery,
+    };
+
+    setBootstrapState(
+      createWaitingForReadyState(preflight, detail, nextStepResults)
+    );
+    await runStartupOrchestration(preflight, {
+      startAt: "readiness",
+      initialDetail: detail,
+      initialStepResults: nextStepResults,
+    });
+  }, [appendDiagnostics, bootstrapState, runBootstrapFlow, runStartupOrchestration]);
 
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
 
@@ -707,6 +1051,14 @@ export default function App() {
         state={bootstrapState}
         onRetry={handleRetryBootstrap}
         onInstallDocker={handleInstallDocker}
+        onOpenDocker={handleOpenDocker}
+        onRestartServices={handleRestartServices}
+        onToggleLogs={handleToggleBootstrapLogs}
+        onSelectLogService={handleSelectBootstrapLogService}
+        logs={bootstrapLogs}
+        recoveryNotice={bootstrapRecoveryNotice}
+        openingDocker={openingDockerDesktop}
+        restartingServices={restartingServices}
       />
     );
   }
