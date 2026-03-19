@@ -8,7 +8,12 @@ import type {
   BootstrapStep,
   RuntimeBootstrapState,
 } from "@/lib/runtimeBootstrap";
-import { BOOTSTRAP_LOG_SERVICES } from "@/lib/runtimeBootstrap";
+import {
+  BOOTSTRAP_LOG_SERVICES,
+  getBootstrapDisplayCopy,
+  getBootstrapRecoveryActions,
+  isPackagedBootstrapState,
+} from "@/lib/runtimeBootstrap";
 
 type BootstrapGateProps = {
   state: RuntimeBootstrapState;
@@ -46,38 +51,6 @@ const PHASE_STEP_MAP: Record<
   "compose-up": "starting-local-services",
   readiness: "waiting-for-ready",
 };
-
-function getRecoveryActions(state: RuntimeBootstrapState) {
-  if (state.status === "docker-missing") {
-    return ["retry", "install-docker"] as const;
-  }
-
-  if (state.status === "compose-missing") {
-    return ["retry", "install-docker"] as const;
-  }
-
-  if (state.status === "docker-not-running") {
-    return ["retry", "open-docker"] as const;
-  }
-
-  if (state.stepResults["health-check"] && !state.stepResults["health-check"]?.ok) {
-    return ["retry", "view-logs", "restart-services"] as const;
-  }
-
-  if (state.stepResults["compose-up"] && !state.stepResults["compose-up"]?.ok) {
-    return ["retry", "view-logs", "restart-services"] as const;
-  }
-
-  if (state.stepResults.setup && !state.stepResults.setup?.ok) {
-    return ["retry"] as const;
-  }
-
-  if (state.status === "failed") {
-    return ["retry"] as const;
-  }
-
-  return [] as const;
-}
 
 function PhaseCard({ label, state, description }: PhaseCardProps) {
   const palette =
@@ -208,7 +181,9 @@ export default function BootstrapGate({
   restartingServices,
 }: BootstrapGateProps) {
   const [openingInstallPage, setOpeningInstallPage] = React.useState(false);
-  const recoveryActions = getRecoveryActions(state);
+  const recoveryActions = getBootstrapRecoveryActions(state);
+  const displayCopy = getBootstrapDisplayCopy(state);
+  const packaged = isPackagedBootstrapState(state);
   const showInstallAction = recoveryActions.includes("install-docker");
   const showRetryAction = recoveryActions.includes("retry");
   const showOpenDockerAction = recoveryActions.includes("open-docker");
@@ -318,14 +293,37 @@ export default function BootstrapGate({
               id="bootstrap-gate-title"
               className="text-2xl font-semibold tracking-[-0.02em] sm:text-3xl"
             >
-              {state.title}
+              {displayCopy.title}
             </h1>
             <p
               className="max-w-3xl text-sm leading-6 sm:text-[15px]"
               style={{ color: "var(--muted)" }}
             >
-              {state.message}
+              {displayCopy.message}
             </p>
+            {packaged && (
+              <div
+                className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em]"
+                style={{
+                  borderColor: "var(--chip-border)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "var(--muted)",
+                }}
+              >
+                macOS beta artifact
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{
+                    background:
+                      state.status === "ready-for-welcome"
+                        ? "var(--accent-strong, #7dd3fc)"
+                        : state.status === "failed"
+                        ? "var(--danger-text, #fca5a5)"
+                        : "#fbbf24",
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

@@ -11,6 +11,9 @@ export type RuntimePreflight = {
   ready: boolean;
   failureKind?: string;
   detail?: string;
+  runtimeContext?: "development" | "packaged";
+  repoRoot?: string;
+  packaged?: boolean;
 };
 
 export type BootstrapStep = "setup" | "compose-up" | "health-check";
@@ -39,6 +42,10 @@ export type BootstrapStepResult = {
   ok: boolean;
   step: BootstrapStep;
   detail?: string;
+  failureKind?: string;
+  runtimeContext?: "development" | "packaged";
+  repoRoot?: string;
+  packaged?: boolean;
   command?: string;
   stdout?: string;
   stderr?: string;
@@ -78,6 +85,10 @@ export type BootstrapLogResult = {
   ok: boolean;
   service: BootstrapLogService;
   detail?: string;
+  failureKind?: string;
+  runtimeContext?: "development" | "packaged";
+  repoRoot?: string;
+  packaged?: boolean;
   logs?: string;
   command?: string;
   exitCode?: number;
@@ -86,6 +97,10 @@ export type BootstrapLogResult = {
 export type BootstrapRestartResult = {
   ok: boolean;
   detail?: string;
+  failureKind?: string;
+  runtimeContext?: "development" | "packaged";
+  repoRoot?: string;
+  packaged?: boolean;
   command?: string;
   stdout?: string;
   stderr?: string;
@@ -155,6 +170,12 @@ function normalizeFailureKind(value: unknown): string | undefined {
   return normalizeText(value)?.toLowerCase();
 }
 
+function normalizeRuntimeContext(
+  value: unknown
+): "development" | "packaged" | undefined {
+  return value === "development" || value === "packaged" ? value : undefined;
+}
+
 function normalizeExitCode(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
@@ -210,6 +231,10 @@ function normalizeStepResult(
     ok: asBoolean(source.ok ?? source.ready),
     step: normalizeStep(source.step, fallbackStep),
     detail: normalizeText(source.detail),
+    failureKind: normalizeFailureKind(source.failureKind),
+    runtimeContext: normalizeRuntimeContext(source.runtimeContext),
+    repoRoot: normalizeText(source.repoRoot),
+    packaged: normalizeOptionalBoolean(source.packaged),
     command: normalizeText(source.command),
     stdout: normalizeText(source.stdout),
     stderr: normalizeText(source.stderr),
@@ -245,6 +270,10 @@ function normalizeBootstrapLogResult(
     ok: asBoolean(source.ok),
     service: normalizeBootstrapLogService(source.service, fallbackService),
     detail: normalizeText(source.detail),
+    failureKind: normalizeFailureKind(source.failureKind),
+    runtimeContext: normalizeRuntimeContext(source.runtimeContext),
+    repoRoot: normalizeText(source.repoRoot),
+    packaged: normalizeOptionalBoolean(source.packaged),
     logs: normalizeText(source.logs),
     command: normalizeText(source.command),
     exitCode: normalizeExitCode(source.exitCode),
@@ -268,6 +297,10 @@ function normalizeBootstrapRestartResult(
   return {
     ok: asBoolean(source.ok),
     detail: normalizeText(source.detail),
+    failureKind: normalizeFailureKind(source.failureKind),
+    runtimeContext: normalizeRuntimeContext(source.runtimeContext),
+    repoRoot: normalizeText(source.repoRoot),
+    packaged: normalizeOptionalBoolean(source.packaged),
     command: normalizeText(source.command),
     stdout: normalizeText(source.stdout),
     stderr: normalizeText(source.stderr),
@@ -289,6 +322,9 @@ export function normalizeRuntimePreflight(payload: unknown): RuntimePreflight {
     ready: asBoolean(source.ready),
     failureKind: normalizeFailureKind(source.failureKind),
     detail: normalizeText(source.detail),
+    runtimeContext: normalizeRuntimeContext(source.runtimeContext),
+    repoRoot: normalizeText(source.repoRoot),
+    packaged: normalizeOptionalBoolean(source.packaged),
   };
 
   if (
@@ -366,6 +402,15 @@ function formatPreflightDetail(preflight: RuntimePreflight): string | undefined 
     `dockerDaemonReachable=${preflight.dockerDaemonReachable}`,
     `ready=${preflight.ready}`,
   ];
+  if (preflight.runtimeContext) {
+    lines.push(`runtimeContext=${preflight.runtimeContext}`);
+  }
+  if (typeof preflight.packaged === "boolean") {
+    lines.push(`packaged=${preflight.packaged}`);
+  }
+  if (preflight.repoRoot) {
+    lines.push(`repoRoot=${preflight.repoRoot}`);
+  }
   if (preflight.failureKind) {
     lines.push(`failureKind=${preflight.failureKind}`);
   }
@@ -497,11 +542,25 @@ export function mapRuntimePreflightFailureToState(
     preflight.detail
   );
 
-  if (preflight.failureKind === "docker-binary-not-found" || !preflight.dockerCliInstalled) {
+  if (preflight.failureKind === "docker-binary-not-found") {
     return buildRuntimeBootstrapState(
       "docker-missing",
       "Docker Desktop is required",
       "Codexify could not find a usable Docker installation on this machine. Install Docker Desktop, then retry the bootstrap check.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.packaged && preflight.failureKind === "docker-cli-invocation-failed") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged startup could not execute the Docker CLI",
+      "Docker Desktop appears to be installed, but this packaged beta build could not execute the Docker CLI cleanly from the desktop shell. Retry once, then relaunch from the repo build output and review the technical details before assuming Docker is missing.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -536,6 +595,62 @@ export function mapRuntimePreflightFailureToState(
       "docker-not-running",
       "Docker Desktop is not responding yet",
       "Codexify found Docker on this machine, but the local daemon is not reachable. Start Docker Desktop, wait for it to finish initializing, then retry.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "repo-runtime-missing") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged startup could not find local runtime assets",
+      "Docker is reachable, but this build could not locate the repo-backed Codexify runtime files it needs to run setup and Compose. Keep the app inside a Codexify checkout or point it at a local checkout with CODEXIFY_DESKTOP_REPO_ROOT, then retry.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "packaged-bootstrap-unsupported") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged beta app needs a local Codexify checkout",
+      "This packaged beta build was launched outside a supported local runtime context. The current macOS artifact is still repo-attached for setup, Compose, and recovery commands, so the workspace stays locked until the app is run from a Codexify checkout or an explicit local repo root is provided.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "runtime-path-unavailable") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Codexify could not inspect the packaged startup path",
+      "The desktop bootstrap could not determine where this packaged app is running from, so it cannot safely resolve the local runtime directory. Retry once, then relaunch from the produced Codexify.app inside the repo build output if the path stays unavailable.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.packaged && preflight.failureKind === "unexpected-execution-error") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged startup failed unexpectedly",
+      "The packaged desktop shell hit an unexpected startup error while validating the local runtime context. Retry first, then review the technical details below before trying broader recovery steps.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -660,6 +775,89 @@ export function createFailedRuntimeBootstrapState(options: {
   );
 }
 
+function stateFailureKind(state: RuntimeBootstrapState): string | undefined {
+  return normalizeFailureKind(
+    state.failureKind ??
+      state.preflight?.failureKind ??
+      state.stepResults["health-check"]?.failureKind ??
+      state.stepResults["compose-up"]?.failureKind ??
+      state.stepResults.setup?.failureKind
+  );
+}
+
+export function isPackagedBootstrapState(state: RuntimeBootstrapState): boolean {
+  return (
+    state.preflight?.packaged === true ||
+    state.stepResults.setup?.packaged === true ||
+    state.stepResults["compose-up"]?.packaged === true ||
+    state.stepResults["health-check"]?.packaged === true
+  );
+}
+
+export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
+  title: string;
+  message: string;
+} {
+  const failureKind = stateFailureKind(state);
+  const packaged = isPackagedBootstrapState(state);
+
+  if (failureKind === "repo-runtime-missing") {
+    return {
+      title: "Packaged startup could not find local runtime assets",
+      message:
+        "The desktop shell can see Docker, but it cannot find the Codexify repo runtime files it needs for setup and Compose. Run this build from a Codexify checkout or set CODEXIFY_DESKTOP_REPO_ROOT to a local checkout before retrying.",
+    };
+  }
+
+  if (failureKind === "packaged-bootstrap-unsupported") {
+    return {
+      title: "Packaged beta app needs a local Codexify checkout",
+      message:
+        "This macOS beta artifact is not self-contained yet. Launch the built Codexify.app from inside a Codexify checkout, or provide an explicit local repo root, so bootstrap can reach the real setup and Docker Compose runtime.",
+    };
+  }
+
+  if (failureKind === "runtime-path-unavailable") {
+    return {
+      title: "Codexify could not inspect the packaged startup path",
+      message:
+        "The packaged desktop shell could not determine its runtime path safely, so it kept the workspace locked. Retry once, then relaunch the produced Codexify.app from the repo build output if this keeps happening.",
+    };
+  }
+
+  if (packaged && failureKind === "docker-cli-invocation-failed") {
+    return {
+      title: "Packaged startup could not execute the Docker CLI",
+      message:
+        "Docker Desktop looks installed, but this packaged beta build could not execute the Docker CLI from the desktop shell cleanly. Retry once, then use the technical details below to confirm whether this is a packaged-shell limitation before reinstalling Docker.",
+    };
+  }
+
+  if (packaged && failureKind === "unexpected-execution-error") {
+    return {
+      title: "Packaged startup failed unexpectedly",
+      message:
+        "The macOS beta artifact reached the repo-backed bootstrap path but hit an unexpected execution error. Retry first, then review the technical details below before trying broader recovery.",
+    };
+  }
+
+  if (
+    packaged &&
+    (failureKind === "setup-failed" || failureKind === "compose-up-failed")
+  ) {
+    return {
+      title: "Packaged startup failed",
+      message:
+        "The macOS beta artifact found the local runtime context, but setup or Compose did not complete cleanly. Retry first, then use logs or service restart recovery if the runtime looks partially up.",
+    };
+  }
+
+  return {
+    title: state.title,
+    message: state.message,
+  };
+}
+
 export function getBootstrapRecoveryStage(
   state: RuntimeBootstrapState
 ): BootstrapRecoveryStage | null {
@@ -742,6 +940,20 @@ export function createBootstrapSupportNoticeFromLogResult(
 ): BootstrapRecoveryNotice | null {
   if (result.ok) return null;
 
+  if (
+    result.failureKind === "repo-runtime-missing" ||
+    result.failureKind === "packaged-bootstrap-unsupported" ||
+    result.failureKind === "runtime-path-unavailable"
+  ) {
+    return {
+      kind: "logs-unavailable",
+      title: "Runtime logs are unavailable from this packaged context",
+      message:
+        "Codexify could not read Compose logs because this packaged build does not currently have a safe local runtime path. Reopen the app from a Codexify checkout or provide CODEXIFY_DESKTOP_REPO_ROOT, then retry logs.",
+      detail: result.detail,
+    };
+  }
+
   return {
     kind: "logs-unavailable",
     title: "Recent logs are unavailable",
@@ -768,6 +980,20 @@ export function createBootstrapSupportNoticeFromRestartResult(
   result: BootstrapRestartResult
 ): BootstrapRecoveryNotice | null {
   if (result.ok) return null;
+
+  if (
+    result.failureKind === "repo-runtime-missing" ||
+    result.failureKind === "packaged-bootstrap-unsupported" ||
+    result.failureKind === "runtime-path-unavailable"
+  ) {
+    return {
+      kind: "restart-services-failed",
+      title: "Service restart is unavailable from this packaged context",
+      message:
+        "The packaged app could not reach the real repo-backed Compose runtime safely, so it did not attempt a service restart. Reopen the beta artifact from a Codexify checkout or configure CODEXIFY_DESKTOP_REPO_ROOT first.",
+      detail: result.detail,
+    };
+  }
 
   return {
     kind: "restart-services-failed",
@@ -817,6 +1043,18 @@ export function formatBootstrapStepResult(result: BootstrapStepResult): string {
     `step=${result.step}`,
     `ok=${result.ok}`,
   ];
+  if (result.runtimeContext) {
+    lines.push(`runtimeContext=${result.runtimeContext}`);
+  }
+  if (typeof result.packaged === "boolean") {
+    lines.push(`packaged=${result.packaged}`);
+  }
+  if (result.repoRoot) {
+    lines.push(`repoRoot=${result.repoRoot}`);
+  }
+  if (result.failureKind) {
+    lines.push(`failureKind=${result.failureKind}`);
+  }
   if (result.command) {
     lines.push(`command=${result.command}`);
   }
