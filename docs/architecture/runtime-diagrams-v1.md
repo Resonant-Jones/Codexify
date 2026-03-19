@@ -21,7 +21,15 @@ This document is the first-pass runtime diagram pack derived only from the valid
 - Optional or not-currently-active systems are labeled explicitly.
 - Quarantined legacy docs were not used.
 
-## Diagram 1: Runtime Topology Overview
+## Diagram legend
+
+- `durable`: persisted state or system-of-record surfaces that the validated runtime docs treat as restart-stable.
+- `operational / ephemeral`: queues, locks, event transport, or process-local state that keep the runtime moving but are not primary durable truth.
+- `optional`: present in current runtime docs but not required for the baseline supported path.
+- `feature-flagged`: available only when explicit runtime flags or policy enable it.
+- `release-bounded exclusion`: intentionally omitted from v1 because the validated runtime docs do not treat it as part of the present release promise.
+
+## Diagram 1: Runtime Topology Overview (high confidence)
 
 ```mermaid
 flowchart LR
@@ -29,7 +37,7 @@ flowchart LR
 
     subgraph clients["Client Boundary"]
         browser["Browser"]
-        tauri["Tauri desktop shell (optional)"]
+        tauri["Tauri desktop shell<br/>(optional client shell)"]
         frontend["React frontend"]
         client_state["Local/session storage"]
     end
@@ -40,7 +48,7 @@ flowchart LR
         workers["Worker layer<br/>chat, chat-embed, document-embed, warmup, cron"]
         context["Context + retrieval orchestration"]
         ingestion["Media + document ingestion"]
-        command["Command bus + legacy tools shim"]
+        command["Command bus + legacy tools shim<br/>(beta / internal-only surfaces)"]
     end
 
     subgraph durable["Durable stores"]
@@ -54,7 +62,7 @@ flowchart LR
     end
 
     subgraph optional["Optional / feature-flagged"]
-        neo4j["Neo4j<br/>optional graph context and logging"]
+        neo4j["Neo4j<br/>optional / feature-flagged graph context<br/>(not part of baseline release path)"]
     end
 
     subgraph model_boundary["Model execution boundary"]
@@ -92,7 +100,13 @@ flowchart LR
 
 Supported runtime topology is the local Docker Compose stack. Non-Compose deployment remains unverified in the validated source set.
 
-## Diagram 2: Chat Completion Sequence
+### Evidence notes
+
+- Primary sources: `/docs/architecture/00-current-state.md`, `/docs/architecture/system-overview.md`, `/docs/architecture/config-and-ops.md`
+- Conservative assumptions: worker types are collapsed into one worker layer, event surfaces are grouped into one runtime boundary, and provider execution is shown as one policy-shaped boundary rather than per-provider lanes.
+- Explicit exclusions: non-Compose deployment detail, one-shot bootstrap services, federation/sync surfaces, and provider inventory/governance nuance beyond the current execution boundary.
+
+## Diagram 2: Chat Completion Sequence (high confidence)
 
 ```mermaid
 sequenceDiagram
@@ -104,7 +118,7 @@ sequenceDiagram
     participant Ctx as Context broker
     participant PG as Postgres
     participant Vec as Vector store
-    participant Neo as Neo4j (optional)
+    participant Neo as Neo4j (optional / feature-flagged)
     participant LLM as Model provider
     participant Stream as Task event surface
 
@@ -132,12 +146,20 @@ sequenceDiagram
     API-->>FE: Updated thread/messages
 ```
 
-## Diagram 3: Data and Storage Boundaries
+This sequence keeps the baseline completion loop focused on the current enqueue -> worker -> retrieval -> persist -> task-event path documented in the validated runtime set.
+
+### Evidence notes
+
+- Primary sources: `/docs/architecture/flows.md`, `/docs/architecture/system-overview.md`, `/docs/architecture/00-current-state.md`
+- Conservative assumptions: the task-event surface is shown as one actor, context assembly is compressed to its stable data dependencies, and the user-message step is collapsed into the request lane so the completion path stays readable.
+- Explicit exclusions: provider catalog nuance, failure/retry branches, memory/sensor/federated context branches, and any future delegation or orchestration lanes.
+
+## Diagram 3: Data and Storage Boundaries (high confidence)
 
 ```mermaid
 flowchart TB
     subgraph runtime["Runtime surfaces"]
-        frontend["React frontend / Tauri shell"]
+        frontend["React frontend / optional Tauri client shell"]
         backend["FastAPI routes + workers"]
     end
 
@@ -157,7 +179,7 @@ flowchart TB
     end
 
     subgraph optional["Optional / feature-flagged"]
-        neo4j["Neo4j<br/>optional graph context and logging"]
+        neo4j["Neo4j<br/>optional / feature-flagged graph context<br/>(not part of baseline release path)"]
     end
 
     frontend <--> browser_state
@@ -172,7 +194,13 @@ flowchart TB
 
 This boundary map emphasizes durable state versus operational transport. Redis is operationally critical but not the system of record; Postgres remains the durable source of truth in the validated runtime set.
 
-## Diagram 4: Subsystem / Ownership Map
+### Evidence notes
+
+- Primary sources: `/docs/architecture/data-and-storage.md`, `/docs/architecture/system-overview.md`, `/docs/architecture/00-current-state.md`
+- Conservative assumptions: routes and workers share one runtime access node, vector storage is shown as one logical retrieval store, and file/object storage is grouped as one artifact boundary.
+- Explicit exclusions: entity-level schema detail, unverified retention/encryption claims, experimental sync durability, and backend-specific vector implementation detail.
+
+## Diagram 4: Subsystem / Ownership Map (moderate confidence)
 
 ```mermaid
 flowchart LR
@@ -226,6 +254,12 @@ flowchart LR
 
 This is a seam map, not a call graph. It groups subsystem boundaries and conservative dependency direction; it does not enumerate every route, file, or runtime edge.
 
+### Evidence notes
+
+- Primary sources: `/docs/architecture/modules-and-ownership.md`, `/docs/architecture/system-overview.md`, `/docs/architecture/README.md`
+- Conservative assumptions: subsystem clusters are grouped at seam level rather than file level, queue/workers/persistence are collapsed into one platform lane, and command bus plus legacy tools are shown together because the validated docs describe them as coexisting runtime surfaces.
+- Explicit exclusions: experimental federation/sync boundary detail, collaboration/websocket detail, formal team ownership labels, and file-level hotspot rendering.
+
 ## Omitted / intentionally excluded areas
 
 - Experimental federation and sync surfaces are not diagrammed in v1 because `00-current-state.md` says federation and sync durability are not part of the present release promise.
@@ -238,3 +272,7 @@ This is a seam map, not a call graph. It groups subsystem boundaries and conserv
 ## Diagram quality notes
 
 This is a first-pass runtime baseline intended to be refined after human review. Adjust edge granularity, labels, and scope only when the change can be justified from the validated runtime source set or freshly re-verified current runtime evidence.
+
+## Reviewer guidance
+
+This pack is intended as a baseline runtime map. Resolve disagreements by checking the validated runtime source set first. If a diagram edge cannot be justified from that source set, remove it or downgrade the diagram's confidence. Future diagram variants should branch from this baseline rather than bypassing it.
