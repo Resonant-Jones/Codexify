@@ -39,7 +39,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
-- [Runtime Diagrams v1](./runtime-diagrams-v1.md): first-pass current runtime diagram pack derived only from the validated runtime source set.
+- [Runtime Diagrams v1](./runtime-diagrams-v1.md): first-pass current runtime diagram pack with source-scoped evidence notes and confidence labels.
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
 - [Completion Pipeline](./completion_pipeline.md): older completion deep dive; supplementary only and verify against current routes/workers.
