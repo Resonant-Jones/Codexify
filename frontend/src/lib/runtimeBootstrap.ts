@@ -178,7 +178,9 @@ function normalizeFailureKind(value: unknown): string | undefined {
 
   switch (normalized) {
     case "runtime-path-unavailable":
-      return "runtime-home-unavailable";
+      return "runtime-path-unavailable";
+    case "runtime-home-unavailable":
+      return "packaged-runtime-home-unusable";
     case "repo-runtime-missing":
       return "packaged-runtime-assets-missing";
     case "docker-binary-not-found":
@@ -571,7 +573,7 @@ export function mapRuntimePreflightFailureToState(
     preflight.detail
   );
 
-  if (preflight.failureKind === "runtime-home-unavailable") {
+  if (preflight.failureKind === "packaged-runtime-home-unusable") {
     return buildRuntimeBootstrapState(
       "failed",
       "Packaged runtime home is unavailable",
@@ -604,6 +606,20 @@ export function mapRuntimePreflightFailureToState(
       "failed",
       "Packaged runtime materialization failed",
       "Codexify found the packaged runtime payload, but it could not finish copying the required bootstrap assets into the runtime home safely.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "packaged-runtime-assets-invalid") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged runtime assets are invalid",
+      "Codexify found the packaged runtime home, but the materialized payload is incomplete or invalid for setup and Compose startup.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -801,13 +817,16 @@ export function mapRuntimeReadinessFailureToState(
   stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
 ): RuntimeBootstrapState {
   const copy = describeRuntimeReadinessCopy(readiness, "failed");
+  const failureKind =
+    readiness?.failureKind ??
+    (preflight.packaged ? "packaged-readiness-failed" : copy.failureKind);
   return buildRuntimeBootstrapState(
     "failed",
     copy.title,
     copy.message,
     {
       detail,
-      failureKind: copy.failureKind,
+      failureKind,
       preflight,
       stepResults,
     }
@@ -861,7 +880,7 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
   const failureKind = stateFailureKind(state);
   const packaged = isPackagedBootstrapState(state);
 
-  if (failureKind === "runtime-home-unavailable") {
+  if (failureKind === "packaged-runtime-home-unusable") {
     return {
       title: "Packaged runtime home is unavailable",
       message:
@@ -882,6 +901,14 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
       title: "Packaged runtime materialization failed",
       message:
         "Codexify found the packaged runtime payload, but it could not safely copy the required bootstrap assets into the runtime home.",
+    };
+  }
+
+  if (failureKind === "packaged-runtime-assets-invalid") {
+    return {
+      title: "Packaged runtime assets are invalid",
+      message:
+        "The packaged runtime home was found, but the materialized payload is incomplete or invalid for setup, Compose startup, or recovery commands.",
     };
   }
 
@@ -940,6 +967,29 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
       title: "Packaged startup failed unexpectedly",
       message:
         "The macOS beta artifact reached the packaged bootstrap path but hit an unexpected execution error. Retry first, then review the technical details below before trying broader recovery.",
+    };
+  }
+
+  if (failureKind === "packaged-setup-failed") {
+    return {
+      title: "Packaged setup failed",
+      message:
+        "The packaged app passed Docker preflight, but the setup step did not complete cleanly from the materialized runtime home. Retry to rerun setup while the workspace stays locked.",
+    };
+  }
+
+  if (failureKind === "packaged-compose-up-failed") {
+    return {
+      title: "Packaged Compose startup failed",
+      message:
+        "The packaged app completed setup, but Docker Compose did not come up cleanly from the packaged runtime home. Retry first, then inspect logs or restart services if the runtime looks partially up.",
+    };
+  }
+
+  if (failureKind === "packaged-readiness-failed") {
+    return {
+      title: state.title,
+      message: `${state.message} This happened after the packaged app had already completed setup and Compose startup from the materialized runtime home.`,
     };
   }
 
@@ -1051,7 +1101,7 @@ export function createBootstrapSupportNoticeFromLogResult(
 ): BootstrapRecoveryNotice | null {
   if (result.ok) return null;
 
-  if (result.failureKind === "runtime-home-unavailable") {
+  if (result.failureKind === "packaged-runtime-home-unusable") {
     return {
       kind: "logs-unavailable",
       title: "Runtime home is unavailable",
@@ -1077,6 +1127,16 @@ export function createBootstrapSupportNoticeFromLogResult(
       title: "Packaged runtime materialization failed",
       message:
         "Codexify found the packaged runtime payload, but it could not finish copying it into the runtime home, so logs are unavailable.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-runtime-assets-invalid") {
+    return {
+      kind: "logs-unavailable",
+      title: "Packaged runtime assets are invalid",
+      message:
+        "Codexify found the packaged runtime home, but the materialized payload is incomplete or invalid, so Compose logs stayed unavailable.",
       detail: result.detail,
     };
   }
@@ -1128,7 +1188,7 @@ export function createBootstrapSupportNoticeFromRestartResult(
 ): BootstrapRecoveryNotice | null {
   if (result.ok) return null;
 
-  if (result.failureKind === "runtime-home-unavailable") {
+  if (result.failureKind === "packaged-runtime-home-unusable") {
     return {
       kind: "restart-services-failed",
       title: "Runtime home is unavailable",
@@ -1154,6 +1214,16 @@ export function createBootstrapSupportNoticeFromRestartResult(
       title: "Packaged runtime materialization failed",
       message:
         "Codexify found the packaged runtime payload, but it could not finish copying it into the runtime home, so service restart is unavailable.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-runtime-assets-invalid") {
+    return {
+      kind: "restart-services-failed",
+      title: "Packaged runtime assets are invalid",
+      message:
+        "Codexify found the packaged runtime home, but the materialized payload is incomplete or invalid, so service restart stayed unavailable.",
       detail: result.detail,
     };
   }
@@ -1194,6 +1264,11 @@ export function createComposeRecoveryStepResult(
     ok: result.ok,
     step: "compose-up",
     detail: result.detail,
+    failureKind: result.failureKind,
+    runtimeContext: result.runtimeContext,
+    repoRoot: result.repoRoot,
+    runtimeHome: result.runtimeHome,
+    packaged: result.packaged,
     command: result.command,
     stdout: result.stdout,
     stderr: result.stderr,
@@ -1271,6 +1346,18 @@ export function formatRuntimeReadinessResult(
     `redisReady=${result.redisReady}`,
     `chatReady=${result.chatReady}`,
   ];
+  if (result.runtimeContext) {
+    lines.push(`runtimeContext=${result.runtimeContext}`);
+  }
+  if (typeof result.packaged === "boolean") {
+    lines.push(`packaged=${result.packaged}`);
+  }
+  if (result.runtimeHome) {
+    lines.push(`runtimeHome=${result.runtimeHome}`);
+  }
+  if (result.failureKind) {
+    lines.push(`failureKind=${result.failureKind}`);
+  }
   if (typeof result.llmReady === "boolean") {
     lines.push(`llmReady=${result.llmReady}`);
   } else {
