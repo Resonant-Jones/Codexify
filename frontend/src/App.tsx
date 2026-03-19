@@ -303,7 +303,11 @@ export default function App() {
   const autoBootstrapStartedRef = React.useRef(false);
   const latestPreflightRef = React.useRef<RuntimePreflight | null>(null);
   const diagnosticsRef = React.useRef<string | undefined>(undefined);
-  const appShell = React.useMemo(() => <AppShell />, []);
+  const appShellRef = React.useRef<React.ReactElement | null>(null);
+  if (!appShellRef.current) {
+    appShellRef.current = <AppShell />;
+  }
+  const appShell = appShellRef.current;
 
   const handleDocGenSubmit = React.useCallback(
     async (input: DocumentGenInput) => {
