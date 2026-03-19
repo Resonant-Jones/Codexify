@@ -75,6 +75,12 @@ The model-weight directory is only a placeholder in this slice. Model weights ar
 In packaged mode, desktop commands no longer assume repo-root working-directory layout.
 
 Packaged command behavior:
+This slice changes what packaged startup does after preflight and how later phases resolve their inputs:
+
+- packaged setup no longer shells out through the repo-oriented Python setup path
+- packaged setup now writes the runtime `.env` natively inside the materialized runtime home
+- packaged Compose commands now run with explicit `--file`, `--project-directory`, and `CODEXIFY_RUNTIME_ENV_FILE` values rooted in the packaged runtime home
+- packaged setup/compose/log/restart commands validate the materialized runtime home before they run instead of assuming repo-root semantics
 
 - setup runs against the runtime home and receives runtime attachment environment variables
 - Docker Compose commands resolve with explicit `--project-directory` and `--file` arguments rooted at `~/Library/Application Support/Codexify`
@@ -90,14 +96,18 @@ Development behavior is unchanged:
 
 Packaged bootstrap now distinguishes runtime attachment failures from Docker failures:
 
-- `runtime-home-unavailable`
+- `packaged-runtime-home-unusable`
 - `packaged-runtime-assets-missing`
+- `packaged-runtime-assets-invalid`
 - `packaged-runtime-materialization-failed`
 - `packaged-runtime-assets-corrupt`
 - `docker-cli-unavailable`
 - `docker-cli-execution-failed`
 - `docker-cli-found-but-unusable-from-packaged-context`
 - `docker-daemon-unavailable`
+- `packaged-setup-failed`
+- `packaged-compose-up-failed`
+- `packaged-readiness-failed`
 - `packaged-bootstrap-unsupported`
 - `unexpected-execution-error`
 
@@ -106,6 +116,12 @@ Meaning:
 - `packaged-runtime-assets-missing`: the app bundle is missing part of the packaged runtime payload
 - `packaged-runtime-materialization-failed`: first-run/runtime refresh copying did not complete
 - `packaged-runtime-assets-corrupt`: the runtime home exists, but the materialized attachment is incomplete after refresh/verification
+- the packaged app still requires Docker Desktop and a reachable Docker daemon
+- Docker Desktop must be configured to share `~/Library/Application Support/Codexify` (or the equivalent packaged runtime home). Without that file-sharing allowance, packaged `compose up` fails when Docker tries to mount `backend`, `guardian`, `docker`, and related runtime-home paths.
+- Finder-launched packaged startup still depends on Codexify reconstructing a Docker-safe subprocess environment; if macOS blocks CLI execution in that context, bootstrap stays locked and classifies `docker-cli-found-but-unusable-from-packaged-context`
+- the app bundle must contain the packaged runtime payload listed above
+- model weights are not bundled by this slice
+- signing and notarization automation are still not part of this task
 
 The bootstrap UI now keeps those cases separate from:
 
@@ -117,6 +133,13 @@ The bootstrap UI now keeps those cases separate from:
 That prevents runtime attachment failures from being mislabeled as “install Docker Desktop.”
 
 ## Known limitations
+- launches via Finder/open outside `cargo tauri dev`
+- resolves and creates the user-scoped runtime home at `~/Library/Application Support/Codexify`
+- materializes the packaged runtime payload into that directory
+- writes the packaged runtime marker at `.codexify-packaged-runtime`
+- keeps the workspace locked unless setup, Compose, and readiness truly succeed
+- classifies packaged setup/compose/readiness failures separately instead of collapsing them into a generic bootstrap error
+- writes packaged setup state into the runtime home instead of assuming a repo checkout or a repo-local virtualenv
 
 This task only detaches packaged runtime state from the repo and materializes first-run assets.
 
@@ -143,6 +166,66 @@ Reason:
 - runtime detachment is implemented, but the packaged setup path still depends on host Python packages that are not bundled into the beta artifact
 - the app is still ad hoc signed / unsigned for distribution purposes and not notarized
 - technical-preview distribution should wait until packaged end-to-end bootstrap is consistently validated on the produced artifact, not just repo-attached or partial startup paths
+- `/Applications/Docker.app/Contents/Resources/bin/docker --version`: success
+- `docker compose version`: success
+- `docker info --format '{{json .ServerVersion}}'`: success
+
+Validated post-preflight packaged startup behavior in this slice:
+
+- native packaged setup can materialize the runtime `.env` contract inside `~/Library/Application Support/Codexify`
+- packaged Compose startup now resolves its compose file, project directory, and env file from the runtime home instead of the repo root
+- the next concrete blocker on this machine is `packaged-compose-up-failed` when Docker Desktop rejects mounts under `~/Library/Application Support/Codexify` because that path is not shared in Docker Desktop file sharing
+
+Current end-to-end status on this machine:
+
+- welcome/unlock is not yet reached from the packaged artifact
+- the bootstrap should remain locked and surface the compose-stage failure truthfully instead of pretending the runtime is ready
+
+## Production build command
+
+Run from the repo root:
+
+```bash
+cd src-tauri && cargo tauri build
+```
+
+## Output artifacts
+
+On the validated Apple Silicon build path, the production artifacts are:
+
+- `src-tauri/target/release/bundle/macos/Codexify.app`
+- `src-tauri/target/release/bundle/dmg/Codexify_0.1.0_aarch64.dmg`
+
+The plain release executable is also produced at:
+
+- `src-tauri/target/release/app`
+
+## Signing and notarization status
+
+Current artifacts are not developer-signed or notarized.
+
+Observed local status:
+
+- app bundle signature: ad hoc
+- Team ID: not set
+- notarization: not present
+
+This task does not add signing or notarization automation.
+
+## Release posture
+
+The DMG remains an internal-only artifact rather than a developer beta or public beta.
+
+Reason:
+
+- it is not signed or notarized
+- packaged startup still depends on local Docker Desktop availability and Docker Desktop file-sharing configuration for the packaged runtime home
+- this validation did not reach welcome/unlock end to end from the packaged artifact
+- the runtime payload is local-materialized, not fully self-contained
+
+## Packaged startup expectations
+
+For a packaged Finder launch to succeed end-to-end, the app should:
 
 Current factual posture:
 
