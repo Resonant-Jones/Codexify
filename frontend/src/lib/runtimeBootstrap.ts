@@ -13,6 +13,7 @@ export type RuntimePreflight = {
   detail?: string;
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
+  runtimeHome?: string;
   packaged?: boolean;
 };
 
@@ -45,6 +46,7 @@ export type BootstrapStepResult = {
   failureKind?: string;
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
+  runtimeHome?: string;
   packaged?: boolean;
   command?: string;
   stdout?: string;
@@ -88,6 +90,7 @@ export type BootstrapLogResult = {
   failureKind?: string;
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
+  runtimeHome?: string;
   packaged?: boolean;
   logs?: string;
   command?: string;
@@ -100,6 +103,7 @@ export type BootstrapRestartResult = {
   failureKind?: string;
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
+  runtimeHome?: string;
   packaged?: boolean;
   command?: string;
   stdout?: string;
@@ -167,7 +171,24 @@ function normalizeText(value: unknown): string | undefined {
 }
 
 function normalizeFailureKind(value: unknown): string | undefined {
-  return normalizeText(value)?.toLowerCase();
+  const normalized = normalizeText(value)?.toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  switch (normalized) {
+    case "runtime-path-unavailable":
+      return "runtime-home-unavailable";
+    case "repo-runtime-missing":
+      return "packaged-runtime-assets-missing";
+    case "docker-binary-not-found":
+    case "docker-cli-invocation-failed":
+      return "docker-cli-unavailable";
+    case "docker-daemon-unreachable":
+      return "docker-daemon-unavailable";
+    default:
+      return normalized;
+  }
 }
 
 function normalizeRuntimeContext(
@@ -234,6 +255,7 @@ function normalizeStepResult(
     failureKind: normalizeFailureKind(source.failureKind),
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
+    runtimeHome: normalizeText(source.runtimeHome),
     packaged: normalizeOptionalBoolean(source.packaged),
     command: normalizeText(source.command),
     stdout: normalizeText(source.stdout),
@@ -273,6 +295,7 @@ function normalizeBootstrapLogResult(
     failureKind: normalizeFailureKind(source.failureKind),
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
+    runtimeHome: normalizeText(source.runtimeHome),
     packaged: normalizeOptionalBoolean(source.packaged),
     logs: normalizeText(source.logs),
     command: normalizeText(source.command),
@@ -300,6 +323,7 @@ function normalizeBootstrapRestartResult(
     failureKind: normalizeFailureKind(source.failureKind),
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
+    runtimeHome: normalizeText(source.runtimeHome),
     packaged: normalizeOptionalBoolean(source.packaged),
     command: normalizeText(source.command),
     stdout: normalizeText(source.stdout),
@@ -324,6 +348,7 @@ export function normalizeRuntimePreflight(payload: unknown): RuntimePreflight {
     detail: normalizeText(source.detail),
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
+    runtimeHome: normalizeText(source.runtimeHome),
     packaged: normalizeOptionalBoolean(source.packaged),
   };
 
@@ -410,6 +435,9 @@ function formatPreflightDetail(preflight: RuntimePreflight): string | undefined 
   }
   if (preflight.repoRoot) {
     lines.push(`repoRoot=${preflight.repoRoot}`);
+  }
+  if (preflight.runtimeHome) {
+    lines.push(`runtimeHome=${preflight.runtimeHome}`);
   }
   if (preflight.failureKind) {
     lines.push(`failureKind=${preflight.failureKind}`);
@@ -542,11 +570,11 @@ export function mapRuntimePreflightFailureToState(
     preflight.detail
   );
 
-  if (preflight.failureKind === "docker-binary-not-found") {
+  if (preflight.failureKind === "runtime-home-unavailable") {
     return buildRuntimeBootstrapState(
-      "docker-missing",
-      "Docker Desktop is required",
-      "Codexify could not find a usable Docker installation on this machine. Install Docker Desktop, then retry the bootstrap check.",
+      "failed",
+      "Packaged runtime home is unavailable",
+      "Codexify could not resolve or create its user-scoped runtime home under the current macOS profile, so the packaged bootstrap stayed locked.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -556,11 +584,53 @@ export function mapRuntimePreflightFailureToState(
     );
   }
 
-  if (preflight.packaged && preflight.failureKind === "docker-cli-invocation-failed") {
+  if (preflight.failureKind === "packaged-runtime-assets-missing") {
     return buildRuntimeBootstrapState(
       "failed",
-      "Packaged startup could not execute the Docker CLI",
-      "Docker Desktop appears to be installed, but this packaged beta build could not execute the Docker CLI cleanly from the desktop shell. Retry once, then relaunch from the repo build output and review the technical details before assuming Docker is missing.",
+      "Packaged runtime assets are missing",
+      "This packaged build could not find the bundled runtime source it needs to materialize setup, Compose, and recovery assets into the user profile runtime home.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "packaged-runtime-materialization-failed") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged runtime materialization failed",
+      "Codexify found the packaged runtime payload, but it could not finish copying the required bootstrap assets into the runtime home safely.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "packaged-bootstrap-unsupported") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged bootstrap is not yet supported",
+      "This macOS artifact launched without a packaged runtime payload it can safely attach to, so the workspace stayed locked instead of falling back to a development checkout.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (!preflight.dockerCliInstalled || preflight.failureKind === "docker-cli-unavailable") {
+    return buildRuntimeBootstrapState(
+      "docker-missing",
+      "Docker Desktop is required",
+      "Codexify could not find a usable Docker installation on this machine. Install Docker Desktop, then retry the bootstrap check.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -588,55 +658,13 @@ export function mapRuntimePreflightFailureToState(
   }
 
   if (
-    preflight.failureKind === "docker-daemon-unreachable" ||
+    preflight.failureKind === "docker-daemon-unavailable" ||
     !preflight.dockerDaemonReachable
   ) {
     return buildRuntimeBootstrapState(
       "docker-not-running",
       "Docker Desktop is not responding yet",
       "Codexify found Docker on this machine, but the local daemon is not reachable. Start Docker Desktop, wait for it to finish initializing, then retry.",
-      {
-        detail,
-        failureKind: preflight.failureKind,
-        preflight,
-        stepResults,
-      }
-    );
-  }
-
-  if (preflight.failureKind === "repo-runtime-missing") {
-    return buildRuntimeBootstrapState(
-      "failed",
-      "Packaged startup could not find local runtime assets",
-      "Docker is reachable, but this build could not locate the repo-backed Codexify runtime files it needs to run setup and Compose. Keep the app inside a Codexify checkout or point it at a local checkout with CODEXIFY_DESKTOP_REPO_ROOT, then retry.",
-      {
-        detail,
-        failureKind: preflight.failureKind,
-        preflight,
-        stepResults,
-      }
-    );
-  }
-
-  if (preflight.failureKind === "packaged-bootstrap-unsupported") {
-    return buildRuntimeBootstrapState(
-      "failed",
-      "Packaged beta app needs a local Codexify checkout",
-      "This packaged beta build was launched outside a supported local runtime context. The current macOS artifact is still repo-attached for setup, Compose, and recovery commands, so the workspace stays locked until the app is run from a Codexify checkout or an explicit local repo root is provided.",
-      {
-        detail,
-        failureKind: preflight.failureKind,
-        preflight,
-        stepResults,
-      }
-    );
-  }
-
-  if (preflight.failureKind === "runtime-path-unavailable") {
-    return buildRuntimeBootstrapState(
-      "failed",
-      "Codexify could not inspect the packaged startup path",
-      "The desktop bootstrap could not determine where this packaged app is running from, so it cannot safely resolve the local runtime directory. Retry once, then relaunch from the produced Codexify.app inside the repo build output if the path stays unavailable.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -681,7 +709,7 @@ export function createPreparingLocalConfigState(
   return buildRuntimeBootstrapState(
     "preparing-local-config",
     "Preparing local config",
-    "Codexify is running the existing setup source of truth so local configuration stays aligned with the repo-defined bootstrap path.",
+    "Codexify is running the setup source of truth so local configuration stays aligned with the resolved runtime home.",
     { detail, preflight, stepResults }
   );
 }
@@ -694,7 +722,7 @@ export function createStartingLocalServicesState(
   return buildRuntimeBootstrapState(
     "starting-local-services",
     "Starting local services",
-    "Codexify is bringing the local Docker Compose stack up from the repo runtime directory.",
+    "Codexify is bringing the local Docker Compose stack up from the packaged-safe runtime home.",
     { detail, preflight, stepResults }
   );
 }
@@ -801,19 +829,51 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
   const failureKind = stateFailureKind(state);
   const packaged = isPackagedBootstrapState(state);
 
-  if (failureKind === "repo-runtime-missing") {
+  if (failureKind === "runtime-home-unavailable") {
     return {
-      title: "Packaged startup could not find local runtime assets",
+      title: "Packaged runtime home is unavailable",
       message:
-        "The desktop shell can see Docker, but it cannot find the Codexify repo runtime files it needs for setup and Compose. Run this build from a Codexify checkout or set CODEXIFY_DESKTOP_REPO_ROOT to a local checkout before retrying.",
+        "The packaged app could not resolve or create its user-scoped runtime home under the current macOS profile, so startup stayed locked.",
+    };
+  }
+
+  if (failureKind === "packaged-runtime-assets-missing") {
+    return {
+      title: "Packaged runtime assets are missing",
+      message:
+        "This packaged build could not find the bundled runtime source it needs to materialize setup, Compose, and recovery assets into the runtime home.",
+    };
+  }
+
+  if (failureKind === "packaged-runtime-materialization-failed") {
+    return {
+      title: "Packaged runtime materialization failed",
+      message:
+        "Codexify found the packaged runtime payload, but it could not safely copy the required bootstrap assets into the runtime home.",
     };
   }
 
   if (failureKind === "packaged-bootstrap-unsupported") {
     return {
-      title: "Packaged beta app needs a local Codexify checkout",
+      title: "Packaged bootstrap is not yet supported",
       message:
-        "This macOS beta artifact is not self-contained yet. Launch the built Codexify.app from inside a Codexify checkout, or provide an explicit local repo root, so bootstrap can reach the real setup and Docker Compose runtime.",
+        "This macOS artifact launched without a packaged runtime payload it can safely attach to yet, so the workspace stayed locked instead of falling back to a development checkout.",
+    };
+  }
+
+  if (failureKind === "docker-cli-unavailable") {
+    return {
+      title: "Docker is unavailable",
+      message:
+        "Codexify could not find a usable Docker CLI or Compose entrypoint on this machine. Install or repair Docker Desktop, then retry.",
+    };
+  }
+
+  if (failureKind === "docker-daemon-unavailable") {
+    return {
+      title: "Docker Desktop is not responding yet",
+      message:
+        "Docker is installed, but the local daemon is not reachable yet. Open Docker Desktop, wait for it to finish starting, then retry.",
     };
   }
 
@@ -821,15 +881,7 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Codexify could not inspect the packaged startup path",
       message:
-        "The packaged desktop shell could not determine its runtime path safely, so it kept the workspace locked. Retry once, then relaunch the produced Codexify.app from the repo build output if this keeps happening.",
-    };
-  }
-
-  if (packaged && failureKind === "docker-cli-invocation-failed") {
-    return {
-      title: "Packaged startup could not execute the Docker CLI",
-      message:
-        "Docker Desktop looks installed, but this packaged beta build could not execute the Docker CLI from the desktop shell cleanly. Retry once, then use the technical details below to confirm whether this is a packaged-shell limitation before reinstalling Docker.",
+        "The packaged desktop shell could not determine a safe runtime path, so it kept the workspace locked instead of guessing at local state. Retry once, then relaunch the produced Codexify.app if this keeps happening.",
     };
   }
 
@@ -837,7 +889,7 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Packaged startup failed unexpectedly",
       message:
-        "The macOS beta artifact reached the repo-backed bootstrap path but hit an unexpected execution error. Retry first, then review the technical details below before trying broader recovery.",
+        "The macOS beta artifact reached the packaged bootstrap path but hit an unexpected execution error. Retry first, then review the technical details below before trying broader recovery.",
     };
   }
 
@@ -940,16 +992,52 @@ export function createBootstrapSupportNoticeFromLogResult(
 ): BootstrapRecoveryNotice | null {
   if (result.ok) return null;
 
-  if (
-    result.failureKind === "repo-runtime-missing" ||
-    result.failureKind === "packaged-bootstrap-unsupported" ||
-    result.failureKind === "runtime-path-unavailable"
-  ) {
+  if (result.failureKind === "runtime-home-unavailable") {
     return {
       kind: "logs-unavailable",
-      title: "Runtime logs are unavailable from this packaged context",
+      title: "Runtime home is unavailable",
       message:
-        "Codexify could not read Compose logs because this packaged build does not currently have a safe local runtime path. Reopen the app from a Codexify checkout or provide CODEXIFY_DESKTOP_REPO_ROOT, then retry logs.",
+        "Codexify could not resolve or create its user-scoped runtime home, so it did not attempt to read Compose logs.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-runtime-assets-missing") {
+    return {
+      kind: "logs-unavailable",
+      title: "Packaged runtime assets are missing",
+      message:
+        "Codexify could not find the bundled runtime payload it needs to attach Compose logs from the packaged app.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-runtime-materialization-failed") {
+    return {
+      kind: "logs-unavailable",
+      title: "Packaged runtime materialization failed",
+      message:
+        "Codexify found the packaged runtime payload, but it could not finish copying it into the runtime home, so logs are unavailable.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-bootstrap-unsupported") {
+    return {
+      kind: "logs-unavailable",
+      title: "Packaged bootstrap is not yet supported",
+      message:
+        "This packaged build does not yet include a runtime payload it can safely attach to, so log access stayed locked.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "runtime-path-unavailable") {
+    return {
+      kind: "logs-unavailable",
+      title: "Runtime path is unavailable",
+      message:
+        "Codexify could not determine a safe local runtime path, so it did not attempt to read Compose logs.",
       detail: result.detail,
     };
   }
@@ -981,16 +1069,52 @@ export function createBootstrapSupportNoticeFromRestartResult(
 ): BootstrapRecoveryNotice | null {
   if (result.ok) return null;
 
-  if (
-    result.failureKind === "repo-runtime-missing" ||
-    result.failureKind === "packaged-bootstrap-unsupported" ||
-    result.failureKind === "runtime-path-unavailable"
-  ) {
+  if (result.failureKind === "runtime-home-unavailable") {
     return {
       kind: "restart-services-failed",
-      title: "Service restart is unavailable from this packaged context",
+      title: "Runtime home is unavailable",
       message:
-        "The packaged app could not reach the real repo-backed Compose runtime safely, so it did not attempt a service restart. Reopen the beta artifact from a Codexify checkout or configure CODEXIFY_DESKTOP_REPO_ROOT first.",
+        "Codexify could not resolve or create its user-scoped runtime home, so it did not attempt a service restart.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-runtime-assets-missing") {
+    return {
+      kind: "restart-services-failed",
+      title: "Packaged runtime assets are missing",
+      message:
+        "Codexify could not find the bundled runtime payload it needs to restart services from the packaged app.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-runtime-materialization-failed") {
+    return {
+      kind: "restart-services-failed",
+      title: "Packaged runtime materialization failed",
+      message:
+        "Codexify found the packaged runtime payload, but it could not finish copying it into the runtime home, so service restart is unavailable.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-bootstrap-unsupported") {
+    return {
+      kind: "restart-services-failed",
+      title: "Packaged bootstrap is not yet supported",
+      message:
+        "This packaged build does not yet include a runtime payload it can safely attach to, so service restart stayed locked.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "runtime-path-unavailable") {
+    return {
+      kind: "restart-services-failed",
+      title: "Runtime path is unavailable",
+      message:
+        "Codexify could not determine a safe local runtime path, so it did not attempt a service restart.",
       detail: result.detail,
     };
   }
@@ -1051,6 +1175,9 @@ export function formatBootstrapStepResult(result: BootstrapStepResult): string {
   }
   if (result.repoRoot) {
     lines.push(`repoRoot=${result.repoRoot}`);
+  }
+  if (result.runtimeHome) {
+    lines.push(`runtimeHome=${result.runtimeHome}`);
   }
   if (result.failureKind) {
     lines.push(`failureKind=${result.failureKind}`);

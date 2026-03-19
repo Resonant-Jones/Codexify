@@ -52,6 +52,22 @@ const PHASE_STEP_MAP: Record<
   readiness: "waiting-for-ready",
 };
 
+const PREFLIGHT_FAILURE_KINDS = new Set([
+  "runtime-home-unavailable",
+  "packaged-runtime-assets-missing",
+  "packaged-runtime-materialization-failed",
+  "packaged-bootstrap-unsupported",
+  "runtime-path-unavailable",
+  "repo-runtime-missing",
+  "docker-cli-unavailable",
+  "docker-compose-unavailable",
+  "docker-daemon-unavailable",
+  "docker-missing",
+  "compose-missing",
+  "docker-not-running",
+  "unexpected-execution-error",
+]);
+
 function PhaseCard({ label, state, description }: PhaseCardProps) {
   const palette =
     state === "done"
@@ -129,12 +145,21 @@ function phaseStateFor(
   state: RuntimeBootstrapState,
   step: "preflight" | "setup" | "compose-up" | "readiness"
 ): PhaseCardState {
+  const failureKind = state.failureKind ?? state.preflight?.failureKind;
+
   if (step === "preflight") {
     if (state.status === "checking-requirements") return "running";
     if (
       state.status === "docker-missing" ||
       state.status === "compose-missing" ||
       state.status === "docker-not-running"
+    ) {
+      return "failed";
+    }
+    if (
+      state.status === "failed" &&
+      failureKind &&
+      PREFLIGHT_FAILURE_KINDS.has(failureKind)
     ) {
       return "failed";
     }
@@ -216,13 +241,13 @@ export default function BootstrapGate({
       id: PHASE_STEP_MAP.setup,
       label: "Preparing local config",
       description:
-        "Run the repo-defined setup source so .env/bootstrap state comes from Codexify itself, not from duplicate Tauri logic.",
+        "Run the packaged-safe setup source so .env/bootstrap state comes from the resolved runtime home, not duplicate Tauri logic.",
     },
     {
       id: PHASE_STEP_MAP["compose-up"],
       label: "Starting local services",
       description:
-        "Bring the existing Docker Compose stack up from the real repo runtime directory.",
+        "Bring the existing Docker Compose stack up from the packaged-safe runtime home.",
     },
     {
       id: PHASE_STEP_MAP.readiness,
