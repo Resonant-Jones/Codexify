@@ -1019,6 +1019,7 @@ export default function App() {
   }, [appendDiagnostics, bootstrapState, runBootstrapFlow, runStartupOrchestration]);
 
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
+  const appShell = <AppShell />;
 
   if (tuneRoute) {
     return <DevTuneGate />;
