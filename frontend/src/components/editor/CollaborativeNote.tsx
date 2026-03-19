@@ -263,23 +263,24 @@ export function CollaborativeNote({
           justifyContent: "center",
           alignItems: "center",
           height: "100%",
-          backgroundColor: "#fff",
+          backgroundColor: "var(--panel-bg)",
           borderRadius: 8,
           padding: "32px",
           textAlign: "center",
+          color: "var(--text)",
         }}
       >
         <div
           style={{
             fontSize: 24,
             fontWeight: 700,
-            color: "#ef4444",
+            color: "var(--danger-text)",
             marginBottom: "12px",
           }}
         >
           Access Denied
         </div>
-        <div style={{ fontSize: 14, color: "rgba(0,0,0,.6)" }}>
+        <div style={{ fontSize: 14, color: "var(--muted)" }}>
           You do not have permission to access this document.
         </div>
       </div>
@@ -292,16 +293,17 @@ export function CollaborativeNote({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        backgroundColor: "#fff",
+        backgroundColor: "var(--panel-bg)",
         borderRadius: 8,
         overflow: "hidden",
+        color: "var(--text)",
       }}
     >
       {/* Header */}
       <div
         style={{
           padding: "12px 16px",
-          borderBottom: "1px solid rgba(0,0,0,.08)",
+          borderBottom: "1px solid var(--panel-border)",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
@@ -330,8 +332,9 @@ export function CollaborativeNote({
                 alignItems: "center",
                 gap: 4,
                 padding: "4px 8px",
-                backgroundColor: "#fef3c7",
+                backgroundColor: "var(--tag-surface)",
                 borderRadius: 4,
+                color: "var(--text)",
               }}
               title="Read-only mode"
             >
@@ -374,7 +377,7 @@ export function CollaborativeNote({
             <span
               style={{
                 fontSize: 11,
-                color: "rgba(0,0,0,.5)",
+                color: "var(--text-subtle)",
                 whiteSpace: "nowrap",
               }}
             >
@@ -400,11 +403,11 @@ export function CollaborativeNote({
               padding: "4px 12px",
               fontSize: 12,
               fontWeight: 500,
-              backgroundColor: showAuditTrail ? "#dbeafe" : "#f3f4f6",
-              border: "1px solid #e5e7eb",
+              backgroundColor: showAuditTrail ? "var(--info-surface)" : "var(--surface-soft)",
+              border: "1px solid var(--panel-border)",
               borderRadius: 4,
               cursor: "pointer",
-              color: showAuditTrail ? "#1e40af" : "rgba(0,0,0,.6)",
+              color: showAuditTrail ? "var(--info-text)" : "var(--muted)",
             }}
           >
             View History
@@ -418,8 +421,8 @@ export function CollaborativeNote({
           style={{
             maxHeight: "200px",
             overflowY: "auto",
-            borderBottom: "1px solid rgba(0,0,0,.08)",
-            backgroundColor: "#f9fafb",
+            borderBottom: "1px solid var(--panel-border)",
+            backgroundColor: "var(--surface-soft)",
             padding: "12px 16px",
             fontSize: 12,
           }}
@@ -429,7 +432,7 @@ export function CollaborativeNote({
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {auditHistory.length === 0 ? (
-              <div style={{ color: "rgba(0,0,0,.4)" }}>No activity yet</div>
+              <div style={{ color: "var(--text-subtle)" }}>No activity yet</div>
             ) : (
               auditHistory.map((entry: AuditLogEntry) => (
                 <div
@@ -437,15 +440,15 @@ export function CollaborativeNote({
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    color: "rgba(0,0,0,.7)",
+                    color: "var(--muted)",
                     paddingBottom: "6px",
-                    borderBottom: "1px solid rgba(0,0,0,.05)",
+                    borderBottom: "1px solid var(--panel-border)",
                   }}
                 >
                   <span>
                     <strong>{entry.user_id || "system"}</strong> {entry.action}
                   </span>
-                  <span style={{ color: "rgba(0,0,0,.4)" }}>
+                  <span style={{ color: "var(--text-subtle)" }}>
                     {entry.timestamp
                       ? new Date(entry.timestamp).toLocaleTimeString()
                       : ""}
@@ -476,8 +479,8 @@ export function CollaborativeNote({
           lineHeight: 1.6,
           resize: "none",
           outline: "none",
-          color: permissions?.can_edit === false ? "rgba(0,0,0,.5)" : "rgba(0,0,0,.9)",
-          backgroundColor: permissions?.can_edit === false ? "#f9fafb" : "#fff",
+          color: permissions?.can_edit === false ? "var(--text-subtle)" : "var(--text)",
+          backgroundColor: permissions?.can_edit === false ? "var(--surface-soft)" : "var(--panel-bg)",
           cursor: permissions?.can_edit === false ? "not-allowed" : "text",
         }}
       />
