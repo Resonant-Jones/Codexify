@@ -1,16 +1,58 @@
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::HashSet;
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
+use tauri::Manager;
 
 const DESKTOP_KEYCHAIN_SERVICE: &str = "com.codexify.desktop";
 const DESKTOP_KEYCHAIN_ACCOUNT: &str = "guardian_api_key";
 const NORMALIZED_DOCKER_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+const BOOTSTRAP_LOG_TAIL_LINES: &str = "200";
+const BOOTSTRAP_LOG_SERVICES: [&str; 5] = ["backend", "worker-chat", "db", "redis", "migrator"];
+const BOOTSTRAP_RESTART_SERVICES: [&str; 5] = ["db", "redis", "migrator", "backend", "worker-chat"];
+const FAILURE_KIND_RUNTIME_HOME_UNAVAILABLE: &str = "runtime-home-unavailable";
+const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_MISSING: &str = "packaged-runtime-assets-missing";
+const FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED: &str =
+    "packaged-runtime-materialization-failed";
+const FAILURE_KIND_DOCKER_CLI_UNAVAILABLE: &str = "docker-cli-unavailable";
+const FAILURE_KIND_DOCKER_DAEMON_UNAVAILABLE: &str = "docker-daemon-unavailable";
+const FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE: &str = "runtime-path-unavailable";
+const FAILURE_KIND_REPO_RUNTIME_MISSING: &str = "repo-runtime-missing";
+const FAILURE_KIND_PACKAGED_BOOTSTRAP_UNSUPPORTED: &str = "packaged-bootstrap-unsupported";
+const FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR: &str = "unexpected-execution-error";
+const RUNTIME_CONTEXT_DEVELOPMENT: &str = "development";
+const RUNTIME_CONTEXT_PACKAGED: &str = "packaged";
+const PACKAGED_RUNTIME_HOME_DIRNAME: &str = "Codexify";
+const PACKAGED_RUNTIME_MARKER_FILENAME: &str = ".codexify-packaged-runtime";
+const PACKAGED_RUNTIME_REQUIRED_ASSETS: [&str; 12] = [
+    "backend",
+    "backend/requirements.txt",
+    "backend/requirements-tts.txt",
+    "docker",
+    "docker-compose.yml",
+    "guardian",
+    "plugins",
+    "pytest.ini",
+    "requirements",
+    "requirements.txt",
+    "scripts",
+    "tests",
+];
+const PACKAGED_RUNTIME_PLACEHOLDER_DIRS: [&str; 3] = [
+    "models",
+    "models/bge-large-en-v1.5",
+    ".chroma",
+];
+
+#[cfg(target_os = "macos")]
+const MACOS_DOCKER_APP_BUNDLE: &str = "/Applications/Docker.app";
 
 #[cfg(target_os = "macos")]
 const MACOS_DOCKER_CANDIDATES: [&str; 3] = [
@@ -40,6 +82,14 @@ pub struct RuntimePreflight {
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_home: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaged: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,6 +98,16 @@ pub struct BootstrapStepResult {
     pub ok: bool,
     pub step: String,
     pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_home: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,14 +133,86 @@ pub struct HealthEndpointCheck {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeHealthCheckResult {
+pub struct RuntimeReadiness {
     pub ok: bool,
     pub step: String,
     pub ready: bool,
+    pub backend_reachable: bool,
+    pub startup_ready: bool,
+    pub redis_ready: bool,
+    pub chat_ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_ready: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     pub checks: Vec<HealthEndpointCheck>,
+}
+
+#[allow(dead_code)]
+pub type RuntimeHealthCheckResult = RuntimeReadiness;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapDockerOpenResult {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapLogResult {
+    pub ok: bool,
+    pub service: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_home: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapRestartResult {
+    pub ok: bool,
+    pub services: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_home: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stderr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -95,20 +227,20 @@ enum FailureKind {
 impl FailureKind {
     fn as_str(self) -> &'static str {
         match self {
-            Self::DockerBinaryNotFound => "docker-binary-not-found",
-            Self::DockerCliInvocationFailed => "docker-cli-invocation-failed",
+            Self::DockerBinaryNotFound => FAILURE_KIND_DOCKER_CLI_UNAVAILABLE,
+            Self::DockerCliInvocationFailed => FAILURE_KIND_DOCKER_CLI_UNAVAILABLE,
             Self::DockerComposeUnavailable => "docker-compose-unavailable",
-            Self::DockerDaemonUnreachable => "docker-daemon-unreachable",
-            Self::UnexpectedCommandExecutionError => "unexpected-command-execution-error",
+            Self::DockerDaemonUnreachable => FAILURE_KIND_DOCKER_DAEMON_UNAVAILABLE,
+            Self::UnexpectedCommandExecutionError => FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR,
         }
     }
 
     fn summary(self) -> &'static str {
         match self {
-            Self::DockerBinaryNotFound => "Docker binary not found",
-            Self::DockerCliInvocationFailed => "Docker CLI invocation failed",
+            Self::DockerBinaryNotFound => "Docker CLI unavailable",
+            Self::DockerCliInvocationFailed => "Docker CLI unavailable",
             Self::DockerComposeUnavailable => "Docker Compose unavailable",
-            Self::DockerDaemonUnreachable => "Docker daemon unreachable",
+            Self::DockerDaemonUnreachable => "Docker daemon unavailable",
             Self::UnexpectedCommandExecutionError => "Unexpected command execution error",
         }
     }
@@ -159,6 +291,273 @@ struct ParsedHttpUrl {
     host: String,
     port: u16,
     path: String,
+}
+
+#[derive(Debug)]
+pub struct BootstrapRuntime {
+    runtime_context: String,
+    packaged: bool,
+    runtime_root: Option<PathBuf>,
+    repo_root: Option<PathBuf>,
+    runtime_home: Option<PathBuf>,
+    resource_root: Option<PathBuf>,
+    resolution_detail: Option<String>,
+    failure_kind: Option<String>,
+}
+
+impl BootstrapRuntime {
+    fn success(
+        runtime_context: &'static str,
+        packaged: bool,
+        runtime_root: PathBuf,
+        repo_root: Option<PathBuf>,
+        runtime_home: Option<PathBuf>,
+        resource_root: Option<PathBuf>,
+        resolution_detail: String,
+    ) -> Self {
+        Self {
+            runtime_context: runtime_context.to_string(),
+            packaged,
+            runtime_root: Some(runtime_root),
+            repo_root,
+            runtime_home,
+            resource_root,
+            resolution_detail: Some(resolution_detail),
+            failure_kind: None,
+        }
+    }
+
+    fn failure(
+        runtime_context: &'static str,
+        packaged: bool,
+        runtime_root: Option<PathBuf>,
+        repo_root: Option<PathBuf>,
+        runtime_home: Option<PathBuf>,
+        resource_root: Option<PathBuf>,
+        failure_kind: &'static str,
+        detail: String,
+    ) -> Self {
+        Self {
+            runtime_context: runtime_context.to_string(),
+            packaged,
+            runtime_root,
+            repo_root,
+            runtime_home,
+            resource_root,
+            resolution_detail: Some(detail),
+            failure_kind: Some(failure_kind.to_string()),
+        }
+    }
+
+    fn runtime_root_path(&self) -> Option<&Path> {
+        self.runtime_root.as_deref()
+    }
+
+    fn runtime_home_display(&self) -> Option<String> {
+        self.runtime_home
+            .as_ref()
+            .map(|path| path.display().to_string())
+    }
+
+    fn repo_root_display(&self) -> Option<String> {
+        self.repo_root
+            .as_ref()
+            .map(|path| path.display().to_string())
+    }
+}
+
+#[derive(Debug)]
+struct BootstrapRuntimeMaterializationError {
+    failure_kind: &'static str,
+    detail: String,
+}
+
+fn path_exists(path: &Path) -> bool {
+    path.exists()
+}
+
+fn copy_file_to_runtime(source: &Path, destination: &Path) -> Result<(), String> {
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("Failed to create runtime parent {}: {err}", parent.display()))?;
+    }
+
+    fs::copy(source, destination).map_err(|err| {
+        format!(
+            "Failed to copy resource {} -> {}: {err}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+fn copy_dir_all(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.is_dir() {
+        return Err(format!("Resource directory missing: {}", source.display()));
+    }
+
+    fs::create_dir_all(destination).map_err(|err| {
+        format!(
+            "Failed to create runtime directory {}: {err}",
+            destination.display()
+        )
+    })?;
+
+    for entry in fs::read_dir(source).map_err(|err| {
+        format!("Failed to read resource directory {}: {err}", source.display())
+    })? {
+        let entry = entry.map_err(|err| {
+            format!(
+                "Failed to inspect resource entry under {}: {err}",
+                source.display()
+            )
+        })?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let file_type = entry.file_type().map_err(|err| {
+            format!(
+                "Failed to inspect resource type {}: {err}",
+                source_path.display()
+            )
+        })?;
+
+        if file_type.is_dir() {
+            copy_dir_all(&source_path, &destination_path)?;
+        } else if file_type.is_file() {
+            copy_file_to_runtime(&source_path, &destination_path)?;
+        } else if file_type.is_symlink() {
+            let metadata = fs::metadata(&source_path).map_err(|err| {
+                format!(
+                    "Failed to resolve symbolic resource {}: {err}",
+                    source_path.display()
+                )
+            })?;
+            if metadata.is_dir() {
+                copy_dir_all(&source_path, &destination_path)?;
+            } else if metadata.is_file() {
+                copy_file_to_runtime(&source_path, &destination_path)?;
+            } else {
+                return Err(format!(
+                    "Unsupported packaged resource type at {}",
+                    source_path.display()
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn materialize_packaged_runtime_assets(
+    resource_root: &Path,
+    runtime_root: &Path,
+) -> Result<Vec<String>, BootstrapRuntimeMaterializationError> {
+    let mut detail_lines = vec![
+        format!("resourceRoot={}", resource_root.display()),
+        format!("runtimeHome={}", runtime_root.display()),
+    ];
+
+    fs::create_dir_all(runtime_root).map_err(|err| BootstrapRuntimeMaterializationError {
+        failure_kind: FAILURE_KIND_RUNTIME_HOME_UNAVAILABLE,
+        detail: join_lines(vec![
+            "Packaged runtime home is unavailable.".to_string(),
+            format!("runtimeHome={}", runtime_root.display()),
+            format!("error={err}"),
+        ]),
+    })?;
+
+    for placeholder in PACKAGED_RUNTIME_PLACEHOLDER_DIRS {
+        let placeholder_path = runtime_root.join(placeholder);
+        fs::create_dir_all(&placeholder_path).map_err(|err| BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+            detail: join_lines(vec![
+                "Packaged runtime materialization failed while creating placeholder directories."
+                    .to_string(),
+                format!("runtimeHome={}", runtime_root.display()),
+                format!("placeholder={}", placeholder_path.display()),
+                format!("error={err}"),
+            ]),
+        })?;
+    }
+
+    let mut missing_assets = Vec::new();
+    for relative_path in PACKAGED_RUNTIME_REQUIRED_ASSETS {
+        let source_path = resource_root.join(relative_path);
+        let destination_path = runtime_root.join(relative_path);
+        if !path_exists(&source_path) {
+            missing_assets.push(relative_path.to_string());
+            continue;
+        }
+
+        let metadata = fs::metadata(&source_path).map_err(|err| BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+            detail: join_lines(vec![
+                "Packaged runtime materialization failed while inspecting a resource.".to_string(),
+                format!("resource={}", source_path.display()),
+                format!("error={err}"),
+            ]),
+        })?;
+
+        if metadata.is_dir() {
+            copy_dir_all(&source_path, &destination_path).map_err(|detail| {
+                BootstrapRuntimeMaterializationError {
+                    failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+                    detail: join_lines(vec![
+                        "Packaged runtime materialization failed while copying a resource directory."
+                            .to_string(),
+                        detail,
+                    ]),
+                }
+            })?;
+        } else if metadata.is_file() {
+            copy_file_to_runtime(&source_path, &destination_path).map_err(|detail| {
+                BootstrapRuntimeMaterializationError {
+                    failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+                    detail: join_lines(vec![
+                        "Packaged runtime materialization failed while copying a resource file."
+                            .to_string(),
+                        detail,
+                    ]),
+                }
+            })?;
+        } else {
+            missing_assets.push(relative_path.to_string());
+        }
+    }
+
+    if !missing_assets.is_empty() {
+        detail_lines.push(format!("missingAssets={}", missing_assets.join(",")));
+        detail_lines.push(
+            "The packaged app bundle is missing the runtime source payload needed to bootstrap safely."
+                .to_string(),
+        );
+        return Err(BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_MISSING,
+            detail: join_lines(detail_lines),
+        });
+    }
+
+    let marker_path = runtime_root.join(PACKAGED_RUNTIME_MARKER_FILENAME);
+    let marker_contents = join_lines(vec![
+        format!("version={}", env!("CARGO_PKG_VERSION")),
+        format!("resourceRoot={}", resource_root.display()),
+        format!("runtimeHome={}", runtime_root.display()),
+    ]);
+    fs::write(&marker_path, marker_contents).map_err(|err| BootstrapRuntimeMaterializationError {
+        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+        detail: join_lines(vec![
+            "Packaged runtime materialization failed while writing the runtime marker."
+                .to_string(),
+            format!("runtimeHome={}", runtime_root.display()),
+            format!("marker={}", marker_path.display()),
+            format!("error={err}"),
+        ]),
+    })?;
+
+    detail_lines.push("materialization=complete".to_string());
+    Ok(detail_lines)
 }
 
 fn env_first(keys: &[&str], fallback: &str) -> String {
@@ -255,6 +654,262 @@ fn render_probe_output(stdout: &[u8], stderr: &[u8]) -> Vec<String> {
         lines.push(format!("stderr: {stderr}"));
     }
     lines
+}
+
+fn normalize_bootstrap_service(service: &str) -> Result<&'static str, String> {
+    let trimmed = service.trim();
+    BOOTSTRAP_LOG_SERVICES
+        .iter()
+        .copied()
+        .find(|candidate| candidate.eq_ignore_ascii_case(trimmed))
+        .ok_or_else(|| {
+            format!(
+                "Unsupported bootstrap log service `{trimmed}`. Supported services: {}.",
+                BOOTSTRAP_LOG_SERVICES.join(", ")
+            )
+        })
+}
+
+fn resolve_development_bootstrap_runtime() -> BootstrapRuntime {
+    let current_exe = match env::current_exe() {
+        Ok(path) => path,
+        Err(err) => {
+            return BootstrapRuntime::failure(
+                RUNTIME_CONTEXT_DEVELOPMENT,
+                false,
+                None,
+                None,
+                None,
+                None,
+                FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE,
+                join_lines(vec![
+                    "runtime repo resolution: failed".to_string(),
+                    format!("currentExeError={err}"),
+                ]),
+            );
+        }
+    };
+
+    let mut detail_lines = vec![
+        "runtime repo resolution:".to_string(),
+        format!("runtimeContext={RUNTIME_CONTEXT_DEVELOPMENT}"),
+        "packaged=false".to_string(),
+        format!("currentExe={}", current_exe.display()),
+    ];
+
+    if let Ok(current_dir) = env::current_dir() {
+        detail_lines.push(format!("currentDir={}", current_dir.display()));
+    }
+
+    if let Some(override_root) = env::var_os("CODEXIFY_DESKTOP_REPO_ROOT") {
+        let override_path = PathBuf::from(override_root);
+        detail_lines.push(format!(
+            "repoRootOverride={}",
+            override_path.display()
+        ));
+
+        if is_repo_runtime_root(&override_path) {
+            detail_lines.push("repo root resolved from CODEXIFY_DESKTOP_REPO_ROOT.".to_string());
+            return BootstrapRuntime::success(
+                RUNTIME_CONTEXT_DEVELOPMENT,
+                false,
+                override_path.clone(),
+                Some(override_path),
+                None,
+                None,
+                join_lines(detail_lines),
+            );
+        }
+
+        detail_lines.push(
+            "The explicit CODEXIFY_DESKTOP_REPO_ROOT override did not contain the required Codexify runtime files."
+                .to_string(),
+        );
+        return BootstrapRuntime::failure(
+            RUNTIME_CONTEXT_DEVELOPMENT,
+            false,
+            None,
+            None,
+            None,
+            None,
+            FAILURE_KIND_REPO_RUNTIME_MISSING,
+            join_lines(detail_lines),
+        );
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest_candidate = manifest_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| manifest_dir.clone());
+
+    detail_lines.push(format!(
+        "manifestCandidate={}",
+        manifest_candidate.display()
+    ));
+    if let Some(repo_root) = find_repo_root_from_ancestors(&manifest_candidate) {
+        detail_lines.push(format!(
+            "repo root resolved from cargo manifest ancestors: {}",
+            repo_root.display()
+        ));
+        return BootstrapRuntime::success(
+            RUNTIME_CONTEXT_DEVELOPMENT,
+            false,
+            repo_root.clone(),
+            Some(repo_root),
+            None,
+            None,
+            join_lines(detail_lines),
+        );
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        if let Some(repo_root) = find_repo_root_from_ancestors(&current_dir) {
+            detail_lines.push(format!(
+                "repo root resolved from working directory ancestors: {}",
+                repo_root.display()
+            ));
+            return BootstrapRuntime::success(
+                RUNTIME_CONTEXT_DEVELOPMENT,
+                false,
+                repo_root.clone(),
+                Some(repo_root),
+                None,
+                None,
+                join_lines(detail_lines),
+            );
+        }
+    }
+
+    detail_lines.push(
+        "Unable to resolve the Codexify repo root from the active development runtime."
+            .to_string(),
+    );
+    BootstrapRuntime::failure(
+        RUNTIME_CONTEXT_DEVELOPMENT,
+        false,
+        None,
+        None,
+        None,
+        None,
+        FAILURE_KIND_REPO_RUNTIME_MISSING,
+        join_lines(detail_lines),
+    )
+}
+
+fn resolve_packaged_bootstrap_runtime(
+    app: &tauri::AppHandle,
+    current_exe: &Path,
+    packaged_bundle: &Path,
+) -> BootstrapRuntime {
+    let mut detail_lines = vec![
+        "runtime repo resolution:".to_string(),
+        format!("runtimeContext={RUNTIME_CONTEXT_PACKAGED}"),
+        "packaged=true".to_string(),
+        format!("currentExe={}", current_exe.display()),
+        format!("appBundle={}", packaged_bundle.display()),
+    ];
+
+    if let Ok(current_dir) = env::current_dir() {
+        detail_lines.push(format!("currentDir={}", current_dir.display()));
+    }
+
+    let runtime_home = match app.path().data_dir() {
+        Ok(data_dir) => data_dir.join(PACKAGED_RUNTIME_HOME_DIRNAME),
+        Err(err) => {
+            detail_lines.push(
+                "The packaged app could not resolve a user-scoped runtime home."
+                    .to_string(),
+            );
+            detail_lines.push(format!("runtimeHomeError={err}"));
+            return BootstrapRuntime::failure(
+                RUNTIME_CONTEXT_PACKAGED,
+                true,
+                None,
+                None,
+                None,
+                None,
+                FAILURE_KIND_RUNTIME_HOME_UNAVAILABLE,
+                join_lines(detail_lines),
+            );
+        }
+    };
+    detail_lines.push(format!("runtimeHome={}", runtime_home.display()));
+
+    let resource_root = match app.path().resource_dir() {
+        Ok(path) => path,
+        Err(err) => {
+            detail_lines.push(
+                "The packaged app could not resolve its bundled resource directory."
+                    .to_string(),
+            );
+            detail_lines.push(format!("resourceRootError={err}"));
+            return BootstrapRuntime::failure(
+                RUNTIME_CONTEXT_PACKAGED,
+                true,
+                Some(runtime_home.clone()),
+                None,
+                Some(runtime_home),
+                None,
+                FAILURE_KIND_PACKAGED_BOOTSTRAP_UNSUPPORTED,
+                join_lines(detail_lines),
+            );
+        }
+    };
+    detail_lines.push(format!("resourceRoot={}", resource_root.display()));
+
+    match materialize_packaged_runtime_assets(&resource_root, &runtime_home) {
+        Ok(materialization_detail) => {
+            detail_lines.extend(materialization_detail);
+            BootstrapRuntime::success(
+                RUNTIME_CONTEXT_PACKAGED,
+                true,
+                runtime_home.clone(),
+                None,
+                Some(runtime_home),
+                Some(resource_root),
+                join_lines(detail_lines),
+            )
+        }
+        Err(err) => BootstrapRuntime::failure(
+            RUNTIME_CONTEXT_PACKAGED,
+            true,
+            Some(runtime_home.clone()),
+            None,
+            Some(runtime_home),
+            Some(resource_root),
+            err.failure_kind,
+            join_lines(vec![join_lines(detail_lines), err.detail]),
+        ),
+    }
+}
+
+pub fn resolve_bootstrap_runtime(app: &tauri::AppHandle) -> BootstrapRuntime {
+    let current_exe = match env::current_exe() {
+        Ok(path) => path,
+        Err(err) => {
+            return BootstrapRuntime::failure(
+                RUNTIME_CONTEXT_DEVELOPMENT,
+                false,
+                None,
+                None,
+                None,
+                None,
+                FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE,
+                join_lines(vec![
+                    "runtime repo resolution: failed".to_string(),
+                    format!("currentExeError={err}"),
+                ]),
+            );
+        }
+    };
+
+    let packaged_bundle = find_macos_app_bundle(&current_exe);
+    if let Some(bundle) = packaged_bundle {
+        return resolve_packaged_bootstrap_runtime(app, &current_exe, &bundle);
+    }
+
+    resolve_development_bootstrap_runtime()
 }
 
 fn build_context_lines(label: &str, binary: &ResolvedDockerBinary) -> Vec<String> {
@@ -474,26 +1129,28 @@ fn build_preflight_detail(probes: &[CommandProbe]) -> Option<String> {
     }
 }
 
-fn resolve_repo_root() -> Result<PathBuf, String> {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let manifest_candidate = manifest_dir
-        .parent()
+fn is_repo_runtime_root(candidate: &Path) -> bool {
+    candidate.join("docker-compose.yml").is_file()
+        && candidate.join("guardian").is_dir()
+        && candidate.join("frontend").is_dir()
+        && candidate.join("src-tauri").is_dir()
+}
+
+fn find_repo_root_from_ancestors(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .find(|candidate| is_repo_runtime_root(candidate))
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| manifest_dir.clone());
+}
 
-    for candidate in [
-        manifest_candidate,
-        env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-    ] {
-        if candidate.join("docker-compose.yml").is_file()
-            && candidate.join("guardian").is_dir()
-            && candidate.join("frontend").is_dir()
-        {
-            return Ok(candidate);
+fn find_macos_app_bundle(path: &Path) -> Option<PathBuf> {
+    path.ancestors().find_map(|candidate| {
+        if candidate.extension() == Some(OsStr::new("app")) {
+            Some(candidate.to_path_buf())
+        } else {
+            None
         }
-    }
-
-    Err("Unable to resolve the Codexify repo root from the Tauri runtime.".to_string())
+    })
 }
 
 fn resolve_python_binary(repo_root: &Path) -> PathBuf {
@@ -521,11 +1178,18 @@ fn build_step_result(
     stdout: Option<String>,
     stderr: Option<String>,
     exit_code: Option<i32>,
+    context: Option<&BootstrapRuntime>,
+    failure_kind: Option<&str>,
 ) -> BootstrapStepResult {
     BootstrapStepResult {
         ok,
         step: step.to_string(),
         detail,
+        failure_kind: failure_kind.map(str::to_string),
+        runtime_context: context.map(|resolved| resolved.runtime_context.clone()),
+        repo_root: context.and_then(|resolved| resolved.repo_root_display()),
+        runtime_home: context.and_then(|resolved| resolved.runtime_home_display()),
+        packaged: context.map(|resolved| resolved.packaged),
         command,
         stdout,
         stderr,
@@ -555,6 +1219,33 @@ fn render_step_detail(
     } else {
         Some(detail)
     }
+}
+
+fn build_compose_runtime_lines(context: &BootstrapRuntime) -> Vec<String> {
+    let runtime_root = context.runtime_root_path();
+    let mut lines = vec![
+        format!("runtimeContext={}", context.runtime_context),
+        format!("packaged={}", context.packaged),
+    ];
+
+    if let Some(repo_root) = &context.repo_root {
+        lines.push(format!("repoRoot={}", repo_root.display()));
+    }
+    if let Some(runtime_home) = &context.runtime_home {
+        lines.push(format!("runtimeHome={}", runtime_home.display()));
+    }
+    if let Some(resource_root) = &context.resource_root {
+        lines.push(format!("resourceRoot={}", resource_root.display()));
+    }
+    if let Some(runtime_root) = runtime_root {
+        lines.push(format!("runtimeRoot={}", runtime_root.display()));
+        lines.push(format!(
+            "composeFile={}",
+            runtime_root.join("docker-compose.yml").display()
+        ));
+    }
+
+    lines
 }
 
 fn parse_http_url(url: &str) -> Result<ParsedHttpUrl, String> {
@@ -591,17 +1282,17 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect::<String>()
 }
 
-fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCheck {
+struct HttpResponseProbe {
+    status_line: String,
+    status_code: Option<u16>,
+    body: String,
+}
+
+fn fetch_http_response(url: &str) -> Result<HttpResponseProbe, String> {
     let parsed = match parse_http_url(url) {
         Ok(parsed) => parsed,
         Err(detail) => {
-            return HealthEndpointCheck {
-                endpoint: url.to_string(),
-                ok: false,
-                status_code: None,
-                detail: Some(detail),
-                response_excerpt: None,
-            }
+            return Err(detail);
         }
     };
 
@@ -610,23 +1301,11 @@ fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCh
         Ok(mut addrs) => match addrs.next() {
             Some(addr) => addr,
             None => {
-                return HealthEndpointCheck {
-                    endpoint: url.to_string(),
-                    ok: false,
-                    status_code: None,
-                    detail: Some(format!("No socket addresses resolved for {address}")),
-                    response_excerpt: None,
-                }
+                return Err(format!("No socket addresses resolved for {address}"));
             }
         },
         Err(err) => {
-            return HealthEndpointCheck {
-                endpoint: url.to_string(),
-                ok: false,
-                status_code: None,
-                detail: Some(format!("Failed to resolve {address}: {err}")),
-                response_excerpt: None,
-            }
+            return Err(format!("Failed to resolve {address}: {err}"));
         }
     };
 
@@ -634,13 +1313,7 @@ fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCh
     let mut stream = match TcpStream::connect_timeout(&socket_addr, timeout) {
         Ok(stream) => stream,
         Err(err) => {
-            return HealthEndpointCheck {
-                endpoint: url.to_string(),
-                ok: false,
-                status_code: None,
-                detail: Some(format!("TCP connect failed: {err}")),
-                response_excerpt: None,
-            }
+            return Err(format!("TCP connect failed: {err}"));
         }
     };
 
@@ -653,24 +1326,12 @@ fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCh
     );
 
     if let Err(err) = stream.write_all(request.as_bytes()) {
-        return HealthEndpointCheck {
-            endpoint: url.to_string(),
-            ok: false,
-            status_code: None,
-            detail: Some(format!("Failed to write request: {err}")),
-            response_excerpt: None,
-        };
+        return Err(format!("Failed to write request: {err}"));
     }
 
     let mut response = String::new();
     if let Err(err) = stream.read_to_string(&mut response) {
-        return HealthEndpointCheck {
-            endpoint: url.to_string(),
-            ok: false,
-            status_code: None,
-            detail: Some(format!("Failed to read response: {err}")),
-            response_excerpt: None,
-        };
+        return Err(format!("Failed to read response: {err}"));
     }
 
     let mut lines = response.lines();
@@ -685,29 +1346,140 @@ fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCh
         .unwrap_or_default()
         .trim()
         .to_string();
-    let response_excerpt = if body.is_empty() {
-        None
-    } else {
-        Some(truncate_chars(&body, 240))
-    };
 
-    let ok = match status_code {
-        Some(code) if allow_client_errors => (200..500).contains(&code),
-        Some(code) => (200..300).contains(&code),
-        None => false,
-    };
-    let detail = if status_line.is_empty() {
-        Some("Missing HTTP status line in response.".to_string())
-    } else {
-        Some(status_line)
-    };
-
-    HealthEndpointCheck {
-        endpoint: url.to_string(),
-        ok,
+    Ok(HttpResponseProbe {
+        status_line,
         status_code,
-        detail,
-        response_excerpt,
+        body,
+    })
+}
+
+#[allow(dead_code)]
+fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCheck {
+    match fetch_http_response(url) {
+        Ok(response) => {
+            let response_excerpt = if response.body.is_empty() {
+                None
+            } else {
+                Some(truncate_chars(&response.body, 240))
+            };
+
+            let ok = match response.status_code {
+                Some(code) if allow_client_errors => (200..500).contains(&code),
+                Some(code) => (200..300).contains(&code),
+                None => false,
+            };
+            let detail = if response.status_line.is_empty() {
+                Some("Missing HTTP status line in response.".to_string())
+            } else {
+                Some(response.status_line)
+            };
+
+            HealthEndpointCheck {
+                endpoint: url.to_string(),
+                ok,
+                status_code: response.status_code,
+                detail,
+                response_excerpt,
+            }
+        }
+        Err(detail) => HealthEndpointCheck {
+            endpoint: url.to_string(),
+            ok: false,
+            status_code: None,
+            detail: Some(detail),
+            response_excerpt: None,
+        },
+    }
+}
+
+fn parse_json_body(body: &str) -> Option<Value> {
+    serde_json::from_str(body).ok()
+}
+
+fn json_bool_field(value: &Value, key: &str) -> Option<bool> {
+    value.get(key).and_then(|entry| entry.as_bool())
+}
+
+fn json_string_field(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(|entry| entry.as_str()).and_then(|text| {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn json_status_matches(value: &Value, expected: &str) -> bool {
+    json_string_field(value, "status")
+        .map(|status| status.eq_ignore_ascii_case(expected))
+        .unwrap_or(false)
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn option_bool_label(value: Option<bool>) -> String {
+    match value {
+        Some(true) => "true".to_string(),
+        Some(false) => "false".to_string(),
+        None => "not-gated".to_string(),
+    }
+}
+
+fn probe_http_endpoint_with_body(
+    url: &str,
+    allow_client_errors: bool,
+) -> (HealthEndpointCheck, Option<String>) {
+    match fetch_http_response(url) {
+        Ok(response) => {
+            let body = if response.body.is_empty() {
+                None
+            } else {
+                Some(response.body.clone())
+            };
+            let response_excerpt = body
+                .as_deref()
+                .map(|body| truncate_chars(body, 240));
+            let ok = match response.status_code {
+                Some(code) if allow_client_errors => (200..500).contains(&code),
+                Some(code) => (200..300).contains(&code),
+                None => false,
+            };
+            let detail = if response.status_line.is_empty() {
+                Some("Missing HTTP status line in response.".to_string())
+            } else {
+                Some(response.status_line)
+            };
+
+            (
+                HealthEndpointCheck {
+                    endpoint: url.to_string(),
+                    ok,
+                    status_code: response.status_code,
+                    detail,
+                    response_excerpt,
+                },
+                body,
+            )
+        }
+        Err(detail) => (
+            HealthEndpointCheck {
+                endpoint: url.to_string(),
+                ok: false,
+                status_code: None,
+                detail: Some(detail),
+                response_excerpt: None,
+            },
+            None,
+        ),
     }
 }
 
@@ -884,7 +1656,34 @@ pub fn desktop_open_external(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn desktop_runtime_preflight_check() -> RuntimePreflight {
+pub fn desktop_runtime_preflight_check(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+) -> RuntimePreflight {
+    let runtime_probe = if let Some(detail) = &runtime.resolution_detail {
+        CommandProbe::success(detail.clone())
+    } else {
+        CommandProbe::success("runtime resolution detail unavailable.".to_string())
+    };
+    let runtime_context = Some(runtime.runtime_context.clone());
+    let repo_root = runtime.repo_root_display();
+    let runtime_home = runtime.runtime_home_display();
+    let packaged = Some(runtime.packaged);
+
+    if runtime.failure_kind.is_some() || runtime.runtime_root_path().is_none() {
+        return RuntimePreflight {
+            docker_cli_installed: false,
+            docker_compose_available: false,
+            docker_daemon_reachable: false,
+            ready: false,
+            detail: build_preflight_detail(&[runtime_probe]),
+            failure_kind: runtime.failure_kind.clone(),
+            runtime_context,
+            repo_root,
+            runtime_home,
+            packaged,
+        };
+    }
+
     match resolve_docker_binary() {
         Ok(binary) => {
             let resolution_probe = CommandProbe::success(format!(
@@ -947,9 +1746,17 @@ pub fn desktop_runtime_preflight_check() -> RuntimePreflight {
                 )
             };
 
-            let ready = cli_probe.ok && docker_compose_available && docker_daemon_reachable;
-            let detail =
-                build_preflight_detail(&[resolution_probe, cli_probe, compose_probe, daemon_probe]);
+            let ready = cli_probe.ok
+                && docker_compose_available
+                && docker_daemon_reachable
+                && runtime.runtime_root_path().is_some();
+            let detail = build_preflight_detail(&[
+                runtime_probe,
+                resolution_probe,
+                cli_probe,
+                compose_probe,
+                daemon_probe,
+            ]);
 
             RuntimePreflight {
                 docker_cli_installed: true,
@@ -958,30 +1765,51 @@ pub fn desktop_runtime_preflight_check() -> RuntimePreflight {
                 ready,
                 detail,
                 failure_kind,
+                runtime_context,
+                repo_root,
+                runtime_home,
+                packaged,
             }
         }
         Err(resolution_probe) => {
-            let failure_kind = resolution_probe
-                .failure_kind
-                .map(|kind| kind.as_str().to_string());
+            let failure_kind = resolution_probe.failure_kind.map(|kind| kind.as_str().to_string());
             RuntimePreflight {
                 docker_cli_installed: false,
                 docker_compose_available: false,
                 docker_daemon_reachable: false,
                 ready: false,
-                detail: build_preflight_detail(&[resolution_probe]),
+                detail: build_preflight_detail(&[runtime_probe, resolution_probe]),
                 failure_kind,
+                runtime_context,
+                repo_root,
+                runtime_home,
+                packaged,
             }
         }
     }
 }
 
 #[tauri::command]
-pub fn desktop_run_setup_cli() -> BootstrapStepResult {
-    let repo_root = match resolve_repo_root() {
-        Ok(path) => path,
-        Err(detail) => {
-            return build_step_result(false, "setup", Some(detail), None, None, None, None)
+pub fn desktop_run_setup_cli(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+) -> BootstrapStepResult {
+    let repo_root = match runtime.runtime_root_path() {
+        Some(path) => path.to_path_buf(),
+        None => {
+            return BootstrapStepResult {
+                ok: false,
+                step: "setup".to_string(),
+                detail: runtime.resolution_detail.clone(),
+                failure_kind: runtime.failure_kind.clone(),
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                packaged: Some(runtime.packaged),
+                command: None,
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
         }
     };
     let python = resolve_python_binary(&repo_root);
@@ -1034,7 +1862,14 @@ raise SystemExit(code)
             let stderr = normalize_output(&output.stderr);
             let detail = render_step_detail(
                 vec![
+                    format!("runtimeContext={}", runtime.runtime_context),
+                    format!("packaged={}", runtime.packaged),
                     format!("repoRoot={}", repo_root.display()),
+                    runtime
+                        .runtime_home
+                        .as_ref()
+                        .map(|path| format!("runtimeHome={}", path.display()))
+                        .unwrap_or_default(),
                     "setupSource=guardian.cli.memoryos_cli setup".to_string(),
                     "automationPath=guardian.tui.setup_wizard_app.write_wizard_env".to_string(),
                     format!("status={}", output.status),
@@ -1050,6 +1885,8 @@ raise SystemExit(code)
                 stdout,
                 stderr,
                 output.status.code(),
+                Some(&*runtime),
+                None,
             )
         }
         Err(err) => build_step_result(
@@ -1063,16 +1900,33 @@ raise SystemExit(code)
             None,
             None,
             None,
+            Some(&*runtime),
+            Some(FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR),
         ),
     }
 }
 
 #[tauri::command]
-pub fn desktop_compose_up() -> BootstrapStepResult {
-    let repo_root = match resolve_repo_root() {
-        Ok(path) => path,
-        Err(detail) => {
-            return build_step_result(false, "compose-up", Some(detail), None, None, None, None)
+pub fn desktop_compose_up(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+) -> BootstrapStepResult {
+    let repo_root = match runtime.runtime_root_path() {
+        Some(path) => path.to_path_buf(),
+        None => {
+            return BootstrapStepResult {
+                ok: false,
+                step: "compose-up".to_string(),
+                detail: runtime.resolution_detail.clone(),
+                failure_kind: runtime.failure_kind.clone(),
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                packaged: Some(runtime.packaged),
+                command: None,
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
         }
     };
     let docker = match resolve_docker_binary() {
@@ -1086,6 +1940,8 @@ pub fn desktop_compose_up() -> BootstrapStepResult {
                 None,
                 None,
                 None,
+                Some(&*runtime),
+                probe.failure_kind.map(FailureKind::as_str),
             )
         }
     };
@@ -1099,14 +1955,11 @@ pub fn desktop_compose_up() -> BootstrapStepResult {
             let stdout = normalize_output(&output.stdout);
             let stderr = normalize_output(&output.stderr);
             let detail = render_step_detail(
-                vec![
-                    format!("repoRoot={}", repo_root.display()),
-                    format!(
-                        "composeFile={}",
-                        repo_root.join("docker-compose.yml").display()
-                    ),
-                    format!("status={}", output.status),
-                ],
+                {
+                    let mut lines = build_compose_runtime_lines(&runtime);
+                    lines.push(format!("status={}", output.status));
+                    lines
+                },
                 stdout.as_ref(),
                 stderr.as_ref(),
             );
@@ -1118,6 +1971,8 @@ pub fn desktop_compose_up() -> BootstrapStepResult {
                 stdout,
                 stderr,
                 output.status.code(),
+                Some(&*runtime),
+                None,
             )
         }
         Err(err) => build_step_result(
@@ -1128,12 +1983,429 @@ pub fn desktop_compose_up() -> BootstrapStepResult {
             None,
             None,
             None,
+            Some(&*runtime),
+            Some(FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR),
         ),
     }
 }
 
 #[tauri::command]
-pub fn desktop_runtime_health_check() -> RuntimeHealthCheckResult {
+pub fn desktop_open_docker_desktop() -> BootstrapDockerOpenResult {
+    #[cfg(target_os = "macos")]
+    {
+        let mut detail_lines = vec![
+            "Attempting to open Docker Desktop via macOS Launch Services.".to_string(),
+            format!("appBundle={MACOS_DOCKER_APP_BUNDLE}"),
+        ];
+
+        let primary_command = "open -a Docker";
+        match Command::new("open").args(["-a", "Docker"]).output() {
+            Ok(output) if output.status.success() => {
+                detail_lines.push(format!("status={}", output.status));
+                detail_lines.extend(render_probe_output(&output.stdout, &output.stderr));
+                BootstrapDockerOpenResult {
+                    ok: true,
+                    detail: Some(join_lines(detail_lines)),
+                    command: Some(primary_command.to_string()),
+                }
+            }
+            Ok(output) => {
+                detail_lines.push(format!("primary status={}", output.status));
+                detail_lines.extend(render_probe_output(&output.stdout, &output.stderr));
+
+                let fallback_command = format!("open {MACOS_DOCKER_APP_BUNDLE}");
+                match Command::new("open").arg(MACOS_DOCKER_APP_BUNDLE).output() {
+                    Ok(fallback_output) if fallback_output.status.success() => {
+                        detail_lines.push("Fallback app-bundle open succeeded.".to_string());
+                        detail_lines.push(format!("fallback status={}", fallback_output.status));
+                        detail_lines
+                            .extend(render_probe_output(&fallback_output.stdout, &fallback_output.stderr));
+                        BootstrapDockerOpenResult {
+                            ok: true,
+                            detail: Some(join_lines(detail_lines)),
+                            command: Some(format!("{primary_command} || {fallback_command}")),
+                        }
+                    }
+                    Ok(fallback_output) => {
+                        detail_lines.push("Fallback app-bundle open failed.".to_string());
+                        detail_lines.push(format!("fallback status={}", fallback_output.status));
+                        detail_lines
+                            .extend(render_probe_output(&fallback_output.stdout, &fallback_output.stderr));
+                        detail_lines.push(
+                            "Action: confirm Docker Desktop is installed in /Applications and launch it manually."
+                                .to_string(),
+                        );
+                        BootstrapDockerOpenResult {
+                            ok: false,
+                            detail: Some(join_lines(detail_lines)),
+                            command: Some(format!("{primary_command} || {fallback_command}")),
+                        }
+                    }
+                    Err(err) => {
+                        detail_lines.push(format!("Fallback open execution error: {err}"));
+                        detail_lines.push(
+                            "Action: confirm Docker Desktop is installed in /Applications and launch it manually."
+                                .to_string(),
+                        );
+                        BootstrapDockerOpenResult {
+                            ok: false,
+                            detail: Some(join_lines(detail_lines)),
+                            command: Some(format!("{primary_command} || {fallback_command}")),
+                        }
+                    }
+                }
+            }
+            Err(err) => BootstrapDockerOpenResult {
+                ok: false,
+                detail: Some(format!(
+                    "Failed to execute `{primary_command}` via macOS Launch Services: {err}"
+                )),
+                command: Some(primary_command.to_string()),
+            },
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        BootstrapDockerOpenResult {
+            ok: false,
+            detail: Some(
+                "Docker Desktop launch assistance is currently implemented for macOS only."
+                    .to_string(),
+            ),
+            command: None,
+        }
+    }
+}
+
+#[tauri::command]
+pub fn desktop_get_bootstrap_logs(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+    service: String,
+) -> BootstrapLogResult {
+    let requested_service = service.trim().to_string();
+    let service = match normalize_bootstrap_service(&requested_service) {
+        Ok(service) => service,
+        Err(detail) => {
+            return BootstrapLogResult {
+                ok: false,
+                service: requested_service,
+                detail: Some(detail),
+                failure_kind: None,
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                packaged: Some(runtime.packaged),
+                logs: None,
+                command: None,
+                exit_code: None,
+            }
+        }
+    };
+
+    let repo_root = match runtime.runtime_root_path() {
+        Some(path) => path.to_path_buf(),
+        None => {
+            return BootstrapLogResult {
+                ok: false,
+                service: service.to_string(),
+                detail: runtime.resolution_detail.clone(),
+                failure_kind: runtime.failure_kind.clone(),
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                packaged: Some(runtime.packaged),
+                logs: None,
+                command: None,
+                exit_code: None,
+            }
+        }
+    };
+    let docker = match resolve_docker_binary() {
+        Ok(binary) => binary,
+        Err(probe) => {
+            return BootstrapLogResult {
+                ok: false,
+                service: service.to_string(),
+                detail: Some(probe.detail),
+                failure_kind: probe.failure_kind.map(|kind| kind.as_str().to_string()),
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                packaged: Some(runtime.packaged),
+                logs: None,
+                command: Some(format!("docker compose logs --tail {BOOTSTRAP_LOG_TAIL_LINES} --no-color {service}")),
+                exit_code: None,
+            }
+        }
+    };
+
+    let command_display = format!(
+        "{} compose logs --tail {} --no-color {}",
+        docker.display, BOOTSTRAP_LOG_TAIL_LINES, service
+    );
+
+    match spawn_docker_command(
+        &docker,
+        &[
+            "compose",
+            "logs",
+            "--tail",
+            BOOTSTRAP_LOG_TAIL_LINES,
+            "--no-color",
+            service,
+        ],
+    )
+    .current_dir(&repo_root)
+    .output()
+    {
+        Ok(output) => {
+            let logs = normalize_output(&output.stdout);
+            let stderr = normalize_output(&output.stderr);
+            let mut detail_lines = build_compose_runtime_lines(&runtime);
+            detail_lines.push(format!("service={service}"));
+            detail_lines.push(format!("status={}", output.status));
+            if let Some(stderr) = &stderr {
+                detail_lines.push(String::new());
+                detail_lines.push("stderr:".to_string());
+                detail_lines.push(stderr.clone());
+            }
+
+            BootstrapLogResult {
+                ok: output.status.success(),
+                service: service.to_string(),
+                detail: Some(join_lines(detail_lines)),
+                failure_kind: None,
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                packaged: Some(runtime.packaged),
+                logs,
+                command: Some(command_display),
+                exit_code: output.status.code(),
+            }
+        }
+        Err(err) => BootstrapLogResult {
+            ok: false,
+            service: service.to_string(),
+            detail: Some(format!("Failed to execute `{command_display}`: {err}")),
+            failure_kind: Some(FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR.to_string()),
+            runtime_context: Some(runtime.runtime_context.clone()),
+            repo_root: runtime.repo_root_display(),
+            runtime_home: runtime.runtime_home_display(),
+            packaged: Some(runtime.packaged),
+            logs: None,
+            command: Some(command_display),
+            exit_code: None,
+        },
+    }
+}
+
+#[tauri::command]
+pub fn desktop_restart_runtime_services(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+) -> BootstrapRestartResult {
+    let repo_root = match runtime.runtime_root_path() {
+        Some(path) => path.to_path_buf(),
+        None => {
+            return BootstrapRestartResult {
+                ok: false,
+                services: BOOTSTRAP_RESTART_SERVICES
+                    .iter()
+                    .map(|service| service.to_string())
+                    .collect(),
+                detail: runtime.resolution_detail.clone(),
+                failure_kind: runtime.failure_kind.clone(),
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                packaged: Some(runtime.packaged),
+                command: None,
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
+        }
+    };
+    let docker = match resolve_docker_binary() {
+        Ok(binary) => binary,
+        Err(probe) => {
+            return BootstrapRestartResult {
+                ok: false,
+                services: BOOTSTRAP_RESTART_SERVICES
+                    .iter()
+                    .map(|service| service.to_string())
+                    .collect(),
+                detail: Some(probe.detail),
+                failure_kind: probe.failure_kind.map(|kind| kind.as_str().to_string()),
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                packaged: Some(runtime.packaged),
+                command: Some(format!(
+                    "docker compose restart {} && docker compose up -d {}",
+                    ["db", "redis", "backend", "worker-chat"].join(" "),
+                    BOOTSTRAP_RESTART_SERVICES.join(" ")
+                )),
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
+        }
+    };
+
+    let restart_services = ["db", "redis", "backend", "worker-chat"];
+    let restart_command_display = format!(
+        "{} compose restart {}",
+        docker.display,
+        restart_services.join(" ")
+    );
+    let up_command_display = format!(
+        "{} compose up -d {}",
+        docker.display,
+        BOOTSTRAP_RESTART_SERVICES.join(" ")
+    );
+    let combined_command_display =
+        format!("{restart_command_display} && {up_command_display}");
+
+    let restart_output = spawn_docker_command(
+        &docker,
+        &[
+            "compose",
+            "restart",
+            "db",
+            "redis",
+            "backend",
+            "worker-chat",
+        ],
+    )
+    .current_dir(&repo_root)
+    .output();
+
+    let up_output = spawn_docker_command(
+        &docker,
+        &[
+            "compose",
+            "up",
+            "-d",
+            "db",
+            "redis",
+            "migrator",
+            "backend",
+            "worker-chat",
+        ],
+    )
+    .current_dir(&repo_root)
+    .output();
+
+    let mut detail_lines = build_compose_runtime_lines(&runtime);
+    detail_lines.push(format!(
+        "services={}",
+        BOOTSTRAP_RESTART_SERVICES.join(",")
+    ));
+
+    let mut stdout_sections = Vec::new();
+    let mut stderr_sections = Vec::new();
+
+    match &restart_output {
+        Ok(output) => {
+            detail_lines.push(format!("restartStatus={}", output.status));
+            if let Some(stdout) = normalize_output(&output.stdout) {
+                stdout_sections.push(format!("restart:\n{stdout}"));
+            }
+            if let Some(stderr) = normalize_output(&output.stderr) {
+                stderr_sections.push(format!("restart:\n{stderr}"));
+            }
+        }
+        Err(err) => {
+            detail_lines.push(format!("restartExecutionError={err}"));
+        }
+    }
+
+    match &up_output {
+        Ok(output) => {
+            detail_lines.push(format!("upStatus={}", output.status));
+            if let Some(stdout) = normalize_output(&output.stdout) {
+                stdout_sections.push(format!("up:\n{stdout}"));
+            }
+            if let Some(stderr) = normalize_output(&output.stderr) {
+                stderr_sections.push(format!("up:\n{stderr}"));
+            }
+        }
+        Err(err) => {
+            detail_lines.push(format!("upExecutionError={err}"));
+        }
+    }
+
+    let ok = matches!(&up_output, Ok(output) if output.status.success());
+    if ok && matches!(&restart_output, Ok(output) if !output.status.success()) {
+        detail_lines.push(
+            "Restart step failed, but compose up -d succeeded and recovered the targeted services."
+                .to_string(),
+        );
+    }
+
+    let detail = Some(join_lines(detail_lines));
+    let stdout = if stdout_sections.is_empty() {
+        None
+    } else {
+        Some(stdout_sections.join("\n\n"))
+    };
+    let stderr = if stderr_sections.is_empty() {
+        None
+    } else {
+        Some(stderr_sections.join("\n\n"))
+    };
+    let exit_code = match &up_output {
+        Ok(output) => output.status.code(),
+        Err(_) => None,
+    };
+
+    if let Err(err) = &restart_output {
+        if up_output.is_err() {
+            return BootstrapRestartResult {
+                ok: false,
+                services: BOOTSTRAP_RESTART_SERVICES
+                    .iter()
+                    .map(|service| service.to_string())
+                    .collect(),
+                detail: Some(format!(
+                    "{}\n\nBoth Compose recovery commands failed to execute. Restart error: {}",
+                    detail.unwrap_or_default(),
+                    err
+                )),
+                failure_kind: Some(FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR.to_string()),
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                packaged: Some(runtime.packaged),
+                command: Some(combined_command_display),
+                stdout,
+                stderr,
+                exit_code,
+            };
+        }
+    }
+
+    BootstrapRestartResult {
+        ok,
+        services: BOOTSTRAP_RESTART_SERVICES
+            .iter()
+            .map(|service| service.to_string())
+            .collect(),
+        detail,
+        failure_kind: None,
+        runtime_context: Some(runtime.runtime_context.clone()),
+        repo_root: runtime.repo_root_display(),
+        runtime_home: runtime.runtime_home_display(),
+        packaged: Some(runtime.packaged),
+        command: Some(combined_command_display),
+        stdout,
+        stderr,
+        exit_code,
+    }
+}
+
+fn runtime_readiness_snapshot() -> RuntimeReadiness {
     let backend_base_url = trim_trailing_slash(&env_first(
         &[
             "CODEXIFY_DESKTOP_BACKEND_URL",
@@ -1143,23 +2415,92 @@ pub fn desktop_runtime_health_check() -> RuntimeHealthCheckResult {
         "http://127.0.0.1:8888",
     ));
     let ping_url = combine_url(&backend_base_url, "/ping");
-    let llm_health_url = combine_url(&backend_base_url, "/api/health/llm");
+    let health_url = combine_url(&backend_base_url, "/health");
+    let chat_health_url = combine_url(&backend_base_url, "/health/chat");
+    let llm_health_url = combine_url(&backend_base_url, "/health/llm");
 
-    let checks = vec![
-        probe_http_endpoint(&ping_url, false),
-        probe_http_endpoint(&llm_health_url, true),
-    ];
-    let ready = checks.iter().all(|check| check.ok);
+    let (ping_check, _ping_body) = probe_http_endpoint_with_body(&ping_url, false);
+    let (health_check, health_body) =
+        probe_http_endpoint_with_body(&health_url, false);
+    let (chat_check, chat_body) =
+        probe_http_endpoint_with_body(&chat_health_url, false);
+    let (llm_check, llm_body) =
+        probe_http_endpoint_with_body(&llm_health_url, false);
+
+    let health_json = health_body.as_deref().and_then(parse_json_body);
+    let chat_json = chat_body.as_deref().and_then(parse_json_body);
+    let llm_json = llm_body.as_deref().and_then(parse_json_body);
+
+    let backend_reachable = ping_check.ok;
+    let startup_ready = health_check.ok
+        && health_json
+            .as_ref()
+            .map(|value| json_status_matches(value, "ok"))
+            .unwrap_or(false);
+
+    let chat_completion_service = chat_json
+        .as_ref()
+        .and_then(|value| value.get("completion_service"));
+    let redis_ready = chat_completion_service
+        .and_then(|value| json_bool_field(value, "redis_reachable"))
+        .unwrap_or(false);
+    let chat_ready = chat_completion_service
+        .and_then(|value| json_bool_field(value, "ok"))
+        .unwrap_or(false);
+    let chat_status_reason = chat_completion_service
+        .and_then(|value| json_string_field(value, "status_reason"))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let llm_provider = llm_json
+        .as_ref()
+        .and_then(|value| json_string_field(value, "provider"));
+    let llm_status = llm_json
+        .as_ref()
+        .and_then(|value| json_string_field(value, "status"))
+        .unwrap_or_else(|| "unknown".to_string());
+    let llm_ready = match llm_provider.as_deref() {
+        Some(provider) if provider.eq_ignore_ascii_case("local") => Some(
+            llm_check.ok
+                && llm_json
+                    .as_ref()
+                    .map(|value| json_status_matches(value, "online"))
+                    .unwrap_or(false),
+        ),
+        Some(_) => None,
+        None => Some(false),
+    };
+
+    let ready =
+        backend_reachable && startup_ready && redis_ready && chat_ready && llm_ready.unwrap_or(true);
+
     let detail = {
-        let mut lines = vec![format!("backendBaseUrl={backend_base_url}")];
-        for check in &checks {
+        let mut lines = vec![
+            format!("backendBaseUrl={backend_base_url}"),
+            format!("backendReachable={}", bool_label(backend_reachable)),
+            format!("startupReady={}", bool_label(startup_ready)),
+            format!("redisReady={}", bool_label(redis_ready)),
+            format!("chatReady={}", bool_label(chat_ready)),
+            format!("chatStatusReason={chat_status_reason}"),
+            format!(
+                "llmProvider={}",
+                llm_provider.as_deref().unwrap_or("unknown")
+            ),
+            format!("llmStatus={llm_status}"),
+            format!("llmReady={}", option_bool_label(llm_ready)),
+            format!("ready={}", bool_label(ready)),
+        ];
+
+        let checks = [&ping_check, &health_check, &chat_check, &llm_check];
+        for check in checks {
             let status_fragment = check
                 .status_code
                 .map(|code| format!(" statusCode={code}"))
                 .unwrap_or_default();
             lines.push(format!(
                 "{} -> ok={}{}",
-                check.endpoint, check.ok, status_fragment
+                check.endpoint,
+                bool_label(check.ok),
+                status_fragment
             ));
             if let Some(detail) = &check.detail {
                 lines.push(detail.clone());
@@ -1169,6 +2510,7 @@ pub fn desktop_runtime_health_check() -> RuntimeHealthCheckResult {
             }
             lines.push(String::new());
         }
+
         let rendered = join_lines(lines);
         if rendered.trim().is_empty() {
             None
@@ -1177,12 +2519,29 @@ pub fn desktop_runtime_health_check() -> RuntimeHealthCheckResult {
         }
     };
 
-    RuntimeHealthCheckResult {
+    RuntimeReadiness {
         ok: ready,
         step: "health-check".to_string(),
         ready,
+        backend_reachable,
+        startup_ready,
+        redis_ready,
+        chat_ready,
+        llm_ready,
         detail,
-        command: Some(format!("GET {ping_url}; GET {llm_health_url}")),
-        checks,
+        command: Some(format!(
+            "GET {ping_url}; GET {health_url}; GET {chat_health_url}; GET {llm_health_url}"
+        )),
+        checks: vec![ping_check, health_check, chat_check, llm_check],
     }
+}
+
+#[tauri::command]
+pub fn desktop_runtime_readiness_check() -> RuntimeReadiness {
+    runtime_readiness_snapshot()
+}
+
+#[tauri::command]
+pub fn desktop_runtime_health_check() -> RuntimeReadiness {
+    runtime_readiness_snapshot()
 }
