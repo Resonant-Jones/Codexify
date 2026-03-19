@@ -33,11 +33,20 @@ export type HealthEndpointCheck = {
   responseExcerpt?: string;
 };
 
-export type RuntimeHealthCheckResult = BootstrapStepResult & {
+export type RuntimeReadinessResult = BootstrapStepResult & {
   step: "health-check";
   ready: boolean;
+  backendReachable: boolean;
+  startupReady: boolean;
+  redisReady: boolean;
+  chatReady: boolean;
+  llmReady?: boolean;
   checks: HealthEndpointCheck[];
 };
+
+export type RuntimeReadiness = RuntimeReadinessResult;
+
+export type RuntimeHealthCheckResult = RuntimeReadinessResult;
 
 export type RuntimeBootstrapStatus =
   | "checking-requirements"
@@ -64,7 +73,7 @@ export type RuntimeReadinessWaitResult = {
   ok: boolean;
   attempts: number;
   elapsedMs: number;
-  lastCheck: RuntimeHealthCheckResult;
+  lastCheck: RuntimeReadinessResult;
 };
 
 const WELCOME_DISMISSED_STORAGE_KEY = "cfy.bootstrap.welcomeDismissed";
@@ -87,6 +96,12 @@ function normalizeFailureKind(value: unknown): string | undefined {
 function normalizeExitCode(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeOptionalBoolean(value: unknown): boolean | undefined {
+  if (value === true) return true;
+  if (value === false) return false;
+  return undefined;
 }
 
 function normalizeEndpointCheck(payload: unknown): HealthEndpointCheck {
@@ -121,7 +136,7 @@ function normalizeStepResult(
       : {};
 
   return {
-    ok: asBoolean(source.ok),
+    ok: asBoolean(source.ok ?? source.ready),
     step: normalizeStep(source.step, fallbackStep),
     detail: normalizeText(source.detail),
     command: normalizeText(source.command),
@@ -158,9 +173,9 @@ export function normalizeRuntimePreflight(payload: unknown): RuntimePreflight {
   return preflight;
 }
 
-export function normalizeRuntimeHealthCheck(
+export function normalizeRuntimeReadiness(
   payload: unknown
-): RuntimeHealthCheckResult {
+): RuntimeReadinessResult {
   const base = normalizeStepResult(payload, "health-check");
   const source =
     payload && typeof payload === "object"
@@ -171,9 +186,23 @@ export function normalizeRuntimeHealthCheck(
   return {
     ...base,
     step: "health-check",
-    ready: asBoolean(source.ready),
+    ok: asBoolean(source.ok ?? source.ready),
+    ready: asBoolean(source.ready ?? source.ok),
+    backendReachable: asBoolean(
+      source.backendReachable ?? source.backend_reachable
+    ),
+    startupReady: asBoolean(source.startupReady ?? source.startup_ready),
+    redisReady: asBoolean(source.redisReady ?? source.redis_ready),
+    chatReady: asBoolean(source.chatReady ?? source.chat_ready),
+    llmReady: normalizeOptionalBoolean(source.llmReady ?? source.llm_ready),
     checks: rawChecks.map((item) => normalizeEndpointCheck(item)),
   };
+}
+
+export function normalizeRuntimeHealthCheck(
+  payload: unknown
+): RuntimeReadinessResult {
+  return normalizeRuntimeReadiness(payload);
 }
 
 type RuntimeBootstrapBuildOptions = {
@@ -214,6 +243,104 @@ function formatPreflightDetail(preflight: RuntimePreflight): string | undefined 
     lines.push("", preflight.detail);
   }
   return lines.join("\n").trim() || undefined;
+}
+
+type RuntimeReadinessPhase = "waiting" | "failed";
+
+type RuntimeReadinessCopy = {
+  title: string;
+  message: string;
+  failureKind: string;
+};
+
+function describeRuntimeReadinessCopy(
+  readiness: RuntimeReadinessResult | null | undefined,
+  phase: RuntimeReadinessPhase
+): RuntimeReadinessCopy {
+  const generic =
+    phase === "waiting"
+      ? {
+          title: "Waiting for local beta runtime",
+          message:
+            "Codexify is polling the real local readiness surfaces until the supported beta loop is usable.",
+          failureKind: "readiness-waiting",
+        }
+      : {
+          title: "Codexify did not become ready in time",
+          message:
+            "The local beta runtime never satisfied the readiness contract. Retry the bootstrap or inspect the technical details below.",
+          failureKind: "readiness-failed",
+        };
+
+  if (!readiness) {
+    return generic;
+  }
+
+  if (!readiness.backendReachable) {
+    return phase === "waiting"
+      ? {
+          title: "Backend is still starting",
+          message:
+            "The backend process has not responded to /ping yet, so the workspace stays locked until the local API comes up.",
+          failureKind: "backend-unreachable",
+        }
+      : {
+          title: "Backend never became reachable",
+          message:
+            "Compose started, but the backend process never answered /ping. Retry startup from the beginning once the local API is available.",
+          failureKind: "backend-unreachable",
+        };
+  }
+
+  if (!readiness.startupReady) {
+    return phase === "waiting"
+      ? {
+          title: "Backend is warming up",
+          message:
+            "The backend responds, but /health has not reported a completed startup yet. Postgres-backed initialization may still be finishing.",
+          failureKind: "startup-not-ready",
+        }
+      : {
+          title: "Backend startup did not finish",
+          message:
+            "The backend answered /ping, but /health never reached a usable state. Retry the bootstrap so Postgres-backed startup can complete cleanly.",
+          failureKind: "startup-not-ready",
+        };
+  }
+
+  if (!readiness.redisReady || !readiness.chatReady) {
+    return phase === "waiting"
+      ? {
+          title: "Redis or chat workers are still warming up",
+          message:
+            "The backend is up, but /health/chat still reports the Redis or worker-backed completion path as unavailable.",
+          failureKind: "chat-path-unavailable",
+        }
+      : {
+          title: "Redis or chat workers are unavailable",
+          message:
+            "The backend is up, but /health/chat never reported a healthy completion path. The workspace stays locked until Redis, queueing, and worker heartbeat are green.",
+          failureKind: "chat-path-unavailable",
+        };
+  }
+
+  if (readiness.llmReady === false) {
+    return phase === "waiting"
+      ? {
+          title: "Model health is still red",
+          message:
+            "The backend and queue surfaces are up, but /health/llm still reports the model path as unavailable.",
+          failureKind: "llm-unavailable",
+        }
+      : {
+          title: "Model health did not recover",
+          message:
+            "The backend and queue surfaces are up, but /health/llm never became healthy. Retry once the model path is green.",
+          failureKind: "llm-unavailable",
+        };
+  }
+
+  return generic;
 }
 
 export function shouldRunRuntimeBootstrap(): boolean {
@@ -330,12 +457,14 @@ export function createStartingLocalServicesState(
 export function createWaitingForReadyState(
   preflight: RuntimePreflight,
   detail?: string,
-  stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
+  stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {},
+  readiness?: RuntimeReadinessResult | null
 ): RuntimeBootstrapState {
+  const copy = describeRuntimeReadinessCopy(readiness, "waiting");
   return buildRuntimeBootstrapState(
     "waiting-for-ready",
-    "Waiting for Codexify to become ready",
-    "Codexify is polling the existing local readiness surfaces instead of sleeping blindly. The workspace stays locked until those checks pass.",
+    copy.title,
+    copy.message,
     { detail, preflight, stepResults }
   );
 }
@@ -343,13 +472,40 @@ export function createWaitingForReadyState(
 export function createReadyForWelcomeState(
   preflight: RuntimePreflight,
   detail?: string,
-  stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
+  stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {},
+  readiness?: RuntimeReadinessResult | null
 ): RuntimeBootstrapState {
+  const modelStatus =
+    readiness && typeof readiness.llmReady === "boolean"
+      ? readiness.llmReady
+        ? " The model health surface is green too."
+        : " The model health surface is still red."
+      : "";
   return buildRuntimeBootstrapState(
     "ready-for-welcome",
-    "Ready for welcome",
-    "Docker preflight passed, setup completed, Compose is up, and the runtime health checks succeeded. Transitioning into the welcome screen now.",
+    "Local beta runtime is ready",
+    `Docker preflight passed, setup completed, Compose is up, and the local beta readiness checks succeeded.${modelStatus} Transitioning into the welcome screen now.`,
     { detail, preflight, stepResults }
+  );
+}
+
+export function mapRuntimeReadinessFailureToState(
+  preflight: RuntimePreflight,
+  readiness: RuntimeReadinessResult | null,
+  detail?: string,
+  stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
+): RuntimeBootstrapState {
+  const copy = describeRuntimeReadinessCopy(readiness, "failed");
+  return buildRuntimeBootstrapState(
+    "failed",
+    copy.title,
+    copy.message,
+    {
+      detail,
+      failureKind: copy.failureKind,
+      preflight,
+      stepResults,
+    }
   );
 }
 
@@ -417,14 +573,29 @@ export function formatBootstrapStepResult(result: BootstrapStepResult): string {
   return lines.join("\n").trim();
 }
 
-export function formatRuntimeHealthCheckResult(
-  result: RuntimeHealthCheckResult
+export function formatRuntimeReadinessResult(
+  result: RuntimeReadinessResult
 ): string {
   const lines = [
     `step=${result.step}`,
     `ok=${result.ok}`,
     `ready=${result.ready}`,
+    `backendReachable=${result.backendReachable}`,
+    `startupReady=${result.startupReady}`,
+    `redisReady=${result.redisReady}`,
+    `chatReady=${result.chatReady}`,
   ];
+  if (typeof result.llmReady === "boolean") {
+    lines.push(`llmReady=${result.llmReady}`);
+  } else {
+    lines.push("llmReady=not-gated");
+  }
+  if (result.command) {
+    lines.push(`command=${result.command}`);
+  }
+  if (typeof result.exitCode === "number") {
+    lines.push(`exitCode=${result.exitCode}`);
+  }
   for (const check of result.checks) {
     lines.push(
       "",
@@ -445,6 +616,12 @@ export function formatRuntimeHealthCheckResult(
     lines.push("", result.detail);
   }
   return lines.join("\n").trim();
+}
+
+export function formatRuntimeHealthCheckResult(
+  result: RuntimeReadinessResult
+): string {
+  return formatRuntimeReadinessResult(result);
 }
 
 export async function runRuntimeBootstrapPreflight(): Promise<RuntimePreflight> {
@@ -511,17 +688,21 @@ export async function runComposeUp(): Promise<BootstrapStepResult> {
   }
 }
 
-export async function runRuntimeHealthCheck(): Promise<RuntimeHealthCheckResult> {
+export async function runRuntimeReadinessCheck(): Promise<RuntimeReadinessResult> {
   try {
     const payload = await invokeTauriCommand<unknown>(
-      "desktop_runtime_health_check"
+      "desktop_runtime_readiness_check"
     );
-    return normalizeRuntimeHealthCheck(payload);
+    return normalizeRuntimeReadiness(payload);
   } catch (error) {
     return {
       ok: false,
       ready: false,
       step: "health-check",
+      backendReachable: false,
+      startupReady: false,
+      redisReady: false,
+      chatReady: false,
       checks: [],
       detail:
         error instanceof Error
@@ -534,7 +715,7 @@ export async function runRuntimeHealthCheck(): Promise<RuntimeHealthCheckResult>
 type RuntimeReadinessWaitOptions = {
   timeoutMs?: number;
   intervalMs?: number;
-  onPoll?: (result: RuntimeHealthCheckResult, attempt: number) => void;
+  onPoll?: (result: RuntimeReadinessResult, attempt: number) => void;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -548,13 +729,13 @@ export async function waitForRuntimeReady(
   const intervalMs = Math.max(500, options.intervalMs ?? 1_500);
   const startedAt = Date.now();
   let attempts = 0;
-  let lastCheck = await runRuntimeHealthCheck();
+  let lastCheck = await runRuntimeReadinessCheck();
   attempts += 1;
   options.onPoll?.(lastCheck, attempts);
 
   while (!lastCheck.ready && Date.now() - startedAt < timeoutMs) {
     await sleep(intervalMs);
-    lastCheck = await runRuntimeHealthCheck();
+    lastCheck = await runRuntimeReadinessCheck();
     attempts += 1;
     options.onPoll?.(lastCheck, attempts);
   }
@@ -565,6 +746,10 @@ export async function waitForRuntimeReady(
     elapsedMs: Date.now() - startedAt,
     lastCheck,
   };
+}
+
+export async function runRuntimeHealthCheck(): Promise<RuntimeReadinessResult> {
+  return runRuntimeReadinessCheck();
 }
 
 export function hasDismissedWelcomeScreen(): boolean {
