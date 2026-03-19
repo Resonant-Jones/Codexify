@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -73,15 +74,25 @@ pub struct HealthEndpointCheck {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeHealthCheckResult {
+pub struct RuntimeReadiness {
     pub ok: bool,
     pub step: String,
     pub ready: bool,
+    pub backend_reachable: bool,
+    pub startup_ready: bool,
+    pub redis_ready: bool,
+    pub chat_ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_ready: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     pub checks: Vec<HealthEndpointCheck>,
 }
+
+#[allow(dead_code)]
+pub type RuntimeHealthCheckResult = RuntimeReadiness;
 
 #[derive(Debug, Clone, Copy)]
 enum FailureKind {
@@ -591,17 +602,17 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect::<String>()
 }
 
-fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCheck {
+struct HttpResponseProbe {
+    status_line: String,
+    status_code: Option<u16>,
+    body: String,
+}
+
+fn fetch_http_response(url: &str) -> Result<HttpResponseProbe, String> {
     let parsed = match parse_http_url(url) {
         Ok(parsed) => parsed,
         Err(detail) => {
-            return HealthEndpointCheck {
-                endpoint: url.to_string(),
-                ok: false,
-                status_code: None,
-                detail: Some(detail),
-                response_excerpt: None,
-            }
+            return Err(detail);
         }
     };
 
@@ -610,23 +621,11 @@ fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCh
         Ok(mut addrs) => match addrs.next() {
             Some(addr) => addr,
             None => {
-                return HealthEndpointCheck {
-                    endpoint: url.to_string(),
-                    ok: false,
-                    status_code: None,
-                    detail: Some(format!("No socket addresses resolved for {address}")),
-                    response_excerpt: None,
-                }
+                return Err(format!("No socket addresses resolved for {address}"));
             }
         },
         Err(err) => {
-            return HealthEndpointCheck {
-                endpoint: url.to_string(),
-                ok: false,
-                status_code: None,
-                detail: Some(format!("Failed to resolve {address}: {err}")),
-                response_excerpt: None,
-            }
+            return Err(format!("Failed to resolve {address}: {err}"));
         }
     };
 
@@ -634,13 +633,7 @@ fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCh
     let mut stream = match TcpStream::connect_timeout(&socket_addr, timeout) {
         Ok(stream) => stream,
         Err(err) => {
-            return HealthEndpointCheck {
-                endpoint: url.to_string(),
-                ok: false,
-                status_code: None,
-                detail: Some(format!("TCP connect failed: {err}")),
-                response_excerpt: None,
-            }
+            return Err(format!("TCP connect failed: {err}"));
         }
     };
 
@@ -653,24 +646,12 @@ fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCh
     );
 
     if let Err(err) = stream.write_all(request.as_bytes()) {
-        return HealthEndpointCheck {
-            endpoint: url.to_string(),
-            ok: false,
-            status_code: None,
-            detail: Some(format!("Failed to write request: {err}")),
-            response_excerpt: None,
-        };
+        return Err(format!("Failed to write request: {err}"));
     }
 
     let mut response = String::new();
     if let Err(err) = stream.read_to_string(&mut response) {
-        return HealthEndpointCheck {
-            endpoint: url.to_string(),
-            ok: false,
-            status_code: None,
-            detail: Some(format!("Failed to read response: {err}")),
-            response_excerpt: None,
-        };
+        return Err(format!("Failed to read response: {err}"));
     }
 
     let mut lines = response.lines();
@@ -685,29 +666,140 @@ fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCh
         .unwrap_or_default()
         .trim()
         .to_string();
-    let response_excerpt = if body.is_empty() {
-        None
-    } else {
-        Some(truncate_chars(&body, 240))
-    };
 
-    let ok = match status_code {
-        Some(code) if allow_client_errors => (200..500).contains(&code),
-        Some(code) => (200..300).contains(&code),
-        None => false,
-    };
-    let detail = if status_line.is_empty() {
-        Some("Missing HTTP status line in response.".to_string())
-    } else {
-        Some(status_line)
-    };
-
-    HealthEndpointCheck {
-        endpoint: url.to_string(),
-        ok,
+    Ok(HttpResponseProbe {
+        status_line,
         status_code,
-        detail,
-        response_excerpt,
+        body,
+    })
+}
+
+#[allow(dead_code)]
+fn probe_http_endpoint(url: &str, allow_client_errors: bool) -> HealthEndpointCheck {
+    match fetch_http_response(url) {
+        Ok(response) => {
+            let response_excerpt = if response.body.is_empty() {
+                None
+            } else {
+                Some(truncate_chars(&response.body, 240))
+            };
+
+            let ok = match response.status_code {
+                Some(code) if allow_client_errors => (200..500).contains(&code),
+                Some(code) => (200..300).contains(&code),
+                None => false,
+            };
+            let detail = if response.status_line.is_empty() {
+                Some("Missing HTTP status line in response.".to_string())
+            } else {
+                Some(response.status_line)
+            };
+
+            HealthEndpointCheck {
+                endpoint: url.to_string(),
+                ok,
+                status_code: response.status_code,
+                detail,
+                response_excerpt,
+            }
+        }
+        Err(detail) => HealthEndpointCheck {
+            endpoint: url.to_string(),
+            ok: false,
+            status_code: None,
+            detail: Some(detail),
+            response_excerpt: None,
+        },
+    }
+}
+
+fn parse_json_body(body: &str) -> Option<Value> {
+    serde_json::from_str(body).ok()
+}
+
+fn json_bool_field(value: &Value, key: &str) -> Option<bool> {
+    value.get(key).and_then(|entry| entry.as_bool())
+}
+
+fn json_string_field(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(|entry| entry.as_str()).and_then(|text| {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn json_status_matches(value: &Value, expected: &str) -> bool {
+    json_string_field(value, "status")
+        .map(|status| status.eq_ignore_ascii_case(expected))
+        .unwrap_or(false)
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn option_bool_label(value: Option<bool>) -> String {
+    match value {
+        Some(true) => "true".to_string(),
+        Some(false) => "false".to_string(),
+        None => "not-gated".to_string(),
+    }
+}
+
+fn probe_http_endpoint_with_body(
+    url: &str,
+    allow_client_errors: bool,
+) -> (HealthEndpointCheck, Option<String>) {
+    match fetch_http_response(url) {
+        Ok(response) => {
+            let body = if response.body.is_empty() {
+                None
+            } else {
+                Some(response.body.clone())
+            };
+            let response_excerpt = body
+                .as_deref()
+                .map(|body| truncate_chars(body, 240));
+            let ok = match response.status_code {
+                Some(code) if allow_client_errors => (200..500).contains(&code),
+                Some(code) => (200..300).contains(&code),
+                None => false,
+            };
+            let detail = if response.status_line.is_empty() {
+                Some("Missing HTTP status line in response.".to_string())
+            } else {
+                Some(response.status_line)
+            };
+
+            (
+                HealthEndpointCheck {
+                    endpoint: url.to_string(),
+                    ok,
+                    status_code: response.status_code,
+                    detail,
+                    response_excerpt,
+                },
+                body,
+            )
+        }
+        Err(detail) => (
+            HealthEndpointCheck {
+                endpoint: url.to_string(),
+                ok: false,
+                status_code: None,
+                detail: Some(detail),
+                response_excerpt: None,
+            },
+            None,
+        ),
     }
 }
 
@@ -1132,8 +1224,7 @@ pub fn desktop_compose_up() -> BootstrapStepResult {
     }
 }
 
-#[tauri::command]
-pub fn desktop_runtime_health_check() -> RuntimeHealthCheckResult {
+fn runtime_readiness_snapshot() -> RuntimeReadiness {
     let backend_base_url = trim_trailing_slash(&env_first(
         &[
             "CODEXIFY_DESKTOP_BACKEND_URL",
@@ -1143,23 +1234,92 @@ pub fn desktop_runtime_health_check() -> RuntimeHealthCheckResult {
         "http://127.0.0.1:8888",
     ));
     let ping_url = combine_url(&backend_base_url, "/ping");
-    let llm_health_url = combine_url(&backend_base_url, "/api/health/llm");
+    let health_url = combine_url(&backend_base_url, "/health");
+    let chat_health_url = combine_url(&backend_base_url, "/health/chat");
+    let llm_health_url = combine_url(&backend_base_url, "/health/llm");
 
-    let checks = vec![
-        probe_http_endpoint(&ping_url, false),
-        probe_http_endpoint(&llm_health_url, true),
-    ];
-    let ready = checks.iter().all(|check| check.ok);
+    let (ping_check, _ping_body) = probe_http_endpoint_with_body(&ping_url, false);
+    let (health_check, health_body) =
+        probe_http_endpoint_with_body(&health_url, false);
+    let (chat_check, chat_body) =
+        probe_http_endpoint_with_body(&chat_health_url, false);
+    let (llm_check, llm_body) =
+        probe_http_endpoint_with_body(&llm_health_url, false);
+
+    let health_json = health_body.as_deref().and_then(parse_json_body);
+    let chat_json = chat_body.as_deref().and_then(parse_json_body);
+    let llm_json = llm_body.as_deref().and_then(parse_json_body);
+
+    let backend_reachable = ping_check.ok;
+    let startup_ready = health_check.ok
+        && health_json
+            .as_ref()
+            .map(|value| json_status_matches(value, "ok"))
+            .unwrap_or(false);
+
+    let chat_completion_service = chat_json
+        .as_ref()
+        .and_then(|value| value.get("completion_service"));
+    let redis_ready = chat_completion_service
+        .and_then(|value| json_bool_field(value, "redis_reachable"))
+        .unwrap_or(false);
+    let chat_ready = chat_completion_service
+        .and_then(|value| json_bool_field(value, "ok"))
+        .unwrap_or(false);
+    let chat_status_reason = chat_completion_service
+        .and_then(|value| json_string_field(value, "status_reason"))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let llm_provider = llm_json
+        .as_ref()
+        .and_then(|value| json_string_field(value, "provider"));
+    let llm_status = llm_json
+        .as_ref()
+        .and_then(|value| json_string_field(value, "status"))
+        .unwrap_or_else(|| "unknown".to_string());
+    let llm_ready = match llm_provider.as_deref() {
+        Some(provider) if provider.eq_ignore_ascii_case("local") => Some(
+            llm_check.ok
+                && llm_json
+                    .as_ref()
+                    .map(|value| json_status_matches(value, "online"))
+                    .unwrap_or(false),
+        ),
+        Some(_) => None,
+        None => Some(false),
+    };
+
+    let ready =
+        backend_reachable && startup_ready && redis_ready && chat_ready && llm_ready.unwrap_or(true);
+
     let detail = {
-        let mut lines = vec![format!("backendBaseUrl={backend_base_url}")];
-        for check in &checks {
+        let mut lines = vec![
+            format!("backendBaseUrl={backend_base_url}"),
+            format!("backendReachable={}", bool_label(backend_reachable)),
+            format!("startupReady={}", bool_label(startup_ready)),
+            format!("redisReady={}", bool_label(redis_ready)),
+            format!("chatReady={}", bool_label(chat_ready)),
+            format!("chatStatusReason={chat_status_reason}"),
+            format!(
+                "llmProvider={}",
+                llm_provider.as_deref().unwrap_or("unknown")
+            ),
+            format!("llmStatus={llm_status}"),
+            format!("llmReady={}", option_bool_label(llm_ready)),
+            format!("ready={}", bool_label(ready)),
+        ];
+
+        let checks = [&ping_check, &health_check, &chat_check, &llm_check];
+        for check in checks {
             let status_fragment = check
                 .status_code
                 .map(|code| format!(" statusCode={code}"))
                 .unwrap_or_default();
             lines.push(format!(
                 "{} -> ok={}{}",
-                check.endpoint, check.ok, status_fragment
+                check.endpoint,
+                bool_label(check.ok),
+                status_fragment
             ));
             if let Some(detail) = &check.detail {
                 lines.push(detail.clone());
@@ -1169,6 +1329,7 @@ pub fn desktop_runtime_health_check() -> RuntimeHealthCheckResult {
             }
             lines.push(String::new());
         }
+
         let rendered = join_lines(lines);
         if rendered.trim().is_empty() {
             None
@@ -1177,12 +1338,29 @@ pub fn desktop_runtime_health_check() -> RuntimeHealthCheckResult {
         }
     };
 
-    RuntimeHealthCheckResult {
+    RuntimeReadiness {
         ok: ready,
         step: "health-check".to_string(),
         ready,
+        backend_reachable,
+        startup_ready,
+        redis_ready,
+        chat_ready,
+        llm_ready,
         detail,
-        command: Some(format!("GET {ping_url}; GET {llm_health_url}")),
-        checks,
+        command: Some(format!(
+            "GET {ping_url}; GET {health_url}; GET {chat_health_url}; GET {llm_health_url}"
+        )),
+        checks: vec![ping_check, health_check, chat_check, llm_check],
     }
+}
+
+#[tauri::command]
+pub fn desktop_runtime_readiness_check() -> RuntimeReadiness {
+    runtime_readiness_snapshot()
+}
+
+#[tauri::command]
+pub fn desktop_runtime_health_check() -> RuntimeReadiness {
+    runtime_readiness_snapshot()
 }
