@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-03-11
+Last updated: 2026-03-19
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -22,6 +22,15 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 When you need current-state interpretation instead of structural architecture, begin with [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
+## KB Validity and Diagram Source Sets
+
+Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-validity-matrix.md).
+
+- Use the validity matrix before using docs as diagram inputs.
+- For first-pass runtime architecture diagrams, use only `Runtime Diagram Source Set v1`.
+- Treat [`00-current-state.md`](./00-current-state.md) as the short-horizon override when older or broader docs conflict with present release reality.
+- Do not use quarantined legacy docs as source inputs, especially Threadspace / `guardian-backend_v2` / obsolete installer-era material.
+
 ## Doc Map
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
@@ -30,6 +39,7 @@ When you need current-state interpretation instead of structural architecture, b
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, run commands, health checks, logging, and debugging cues.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
+- [Runtime Diagrams v1](./runtime-diagrams-v1.md): first-pass current runtime diagram pack derived only from the validated runtime source set.
 - [Roadmap Signals](./roadmap-signals.md): derived planning constraints, refactor leverage points, and sequencing suggestions.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed risk register.
 - [Completion Pipeline](./completion_pipeline.md): older deep dive on completion internals; treat as supplementary and verify against current routes/workers.
