@@ -2,6 +2,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -12,6 +13,18 @@ use std::time::Duration;
 const DESKTOP_KEYCHAIN_SERVICE: &str = "com.codexify.desktop";
 const DESKTOP_KEYCHAIN_ACCOUNT: &str = "guardian_api_key";
 const NORMALIZED_DOCKER_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+const BOOTSTRAP_LOG_TAIL_LINES: &str = "200";
+const BOOTSTRAP_LOG_SERVICES: [&str; 5] = ["backend", "worker-chat", "db", "redis", "migrator"];
+const BOOTSTRAP_RESTART_SERVICES: [&str; 5] = ["db", "redis", "migrator", "backend", "worker-chat"];
+const FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE: &str = "runtime-path-unavailable";
+const FAILURE_KIND_REPO_RUNTIME_MISSING: &str = "repo-runtime-missing";
+const FAILURE_KIND_PACKAGED_BOOTSTRAP_UNSUPPORTED: &str = "packaged-bootstrap-unsupported";
+const FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR: &str = "unexpected-execution-error";
+const RUNTIME_CONTEXT_DEVELOPMENT: &str = "development";
+const RUNTIME_CONTEXT_PACKAGED: &str = "packaged";
+
+#[cfg(target_os = "macos")]
+const MACOS_DOCKER_APP_BUNDLE: &str = "/Applications/Docker.app";
 
 #[cfg(target_os = "macos")]
 const MACOS_DOCKER_CANDIDATES: [&str; 3] = [
@@ -41,6 +54,12 @@ pub struct RuntimePreflight {
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaged: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,6 +68,14 @@ pub struct BootstrapStepResult {
     pub ok: bool,
     pub step: String,
     pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -93,6 +120,64 @@ pub struct RuntimeReadiness {
 
 #[allow(dead_code)]
 pub type RuntimeHealthCheckResult = RuntimeReadiness;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapDockerOpenResult {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapLogResult {
+    pub ok: bool,
+    pub service: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapRestartResult {
+    pub ok: bool,
+    pub services: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stderr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+}
 
 #[derive(Debug, Clone, Copy)]
 enum FailureKind {
@@ -170,6 +255,22 @@ struct ParsedHttpUrl {
     host: String,
     port: u16,
     path: String,
+}
+
+#[derive(Debug)]
+struct ResolvedRuntimeRepo {
+    repo_root: PathBuf,
+    runtime_context: &'static str,
+    packaged: bool,
+    resolution_detail: String,
+}
+
+#[derive(Debug)]
+struct RuntimeRepoResolutionError {
+    failure_kind: &'static str,
+    runtime_context: &'static str,
+    packaged: bool,
+    detail: String,
 }
 
 fn env_first(keys: &[&str], fallback: &str) -> String {
@@ -266,6 +367,20 @@ fn render_probe_output(stdout: &[u8], stderr: &[u8]) -> Vec<String> {
         lines.push(format!("stderr: {stderr}"));
     }
     lines
+}
+
+fn normalize_bootstrap_service(service: &str) -> Result<&'static str, String> {
+    let trimmed = service.trim();
+    BOOTSTRAP_LOG_SERVICES
+        .iter()
+        .copied()
+        .find(|candidate| candidate.eq_ignore_ascii_case(trimmed))
+        .ok_or_else(|| {
+            format!(
+                "Unsupported bootstrap log service `{trimmed}`. Supported services: {}.",
+                BOOTSTRAP_LOG_SERVICES.join(", ")
+            )
+        })
 }
 
 fn build_context_lines(label: &str, binary: &ResolvedDockerBinary) -> Vec<String> {
@@ -485,26 +600,222 @@ fn build_preflight_detail(probes: &[CommandProbe]) -> Option<String> {
     }
 }
 
-fn resolve_repo_root() -> Result<PathBuf, String> {
+fn is_repo_runtime_root(candidate: &Path) -> bool {
+    candidate.join("docker-compose.yml").is_file()
+        && candidate.join("guardian").is_dir()
+        && candidate.join("frontend").is_dir()
+        && candidate.join("src-tauri").is_dir()
+}
+
+fn has_repo_runtime_hints(candidate: &Path) -> bool {
+    candidate.join(".git").exists()
+        || candidate.join("docker-compose.yml").exists()
+        || candidate.join("guardian").exists()
+        || candidate.join("frontend").exists()
+        || candidate.join("src-tauri").exists()
+}
+
+fn find_repo_root_from_ancestors(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .find(|candidate| is_repo_runtime_root(candidate))
+        .map(Path::to_path_buf)
+}
+
+fn find_repo_hint_from_ancestors(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .find(|candidate| has_repo_runtime_hints(candidate))
+        .map(Path::to_path_buf)
+}
+
+fn find_macos_app_bundle(path: &Path) -> Option<PathBuf> {
+    path.ancestors().find_map(|candidate| {
+        if candidate.extension() == Some(OsStr::new("app")) {
+            Some(candidate.to_path_buf())
+        } else {
+            None
+        }
+    })
+}
+
+fn build_runtime_resolution_detail(lines: Vec<String>) -> String {
+    join_lines(lines)
+}
+
+fn resolve_repo_root() -> Result<ResolvedRuntimeRepo, RuntimeRepoResolutionError> {
+    let current_exe = env::current_exe().map_err(|err| RuntimeRepoResolutionError {
+        failure_kind: FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE,
+        runtime_context: RUNTIME_CONTEXT_DEVELOPMENT,
+        packaged: false,
+        detail: build_runtime_resolution_detail(vec![
+            "runtime repo resolution: failed".to_string(),
+            format!("currentExeError={err}"),
+        ]),
+    })?;
+
+    let packaged_bundle = find_macos_app_bundle(&current_exe);
+    let packaged = packaged_bundle.is_some();
+    let runtime_context = if packaged {
+        RUNTIME_CONTEXT_PACKAGED
+    } else {
+        RUNTIME_CONTEXT_DEVELOPMENT
+    };
+
+    let mut detail_lines = vec![
+        "runtime repo resolution:".to_string(),
+        format!("runtimeContext={runtime_context}"),
+        format!("packaged={packaged}"),
+        format!("currentExe={}", current_exe.display()),
+    ];
+
+    if let Some(bundle) = &packaged_bundle {
+        detail_lines.push(format!("appBundle={}", bundle.display()));
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        detail_lines.push(format!("currentDir={}", current_dir.display()));
+    }
+
+    if let Some(override_root) = env::var_os("CODEXIFY_DESKTOP_REPO_ROOT") {
+        let override_path = PathBuf::from(override_root);
+        detail_lines.push(format!(
+            "repoRootOverride={}",
+            override_path.display()
+        ));
+
+        if is_repo_runtime_root(&override_path) {
+            detail_lines.push("repo root resolved from CODEXIFY_DESKTOP_REPO_ROOT.".to_string());
+            return Ok(ResolvedRuntimeRepo {
+                repo_root: override_path,
+                runtime_context,
+                packaged,
+                resolution_detail: build_runtime_resolution_detail(detail_lines),
+            });
+        }
+
+        detail_lines.push(
+            "The explicit CODEXIFY_DESKTOP_REPO_ROOT override did not contain the required Codexify runtime files."
+                .to_string(),
+        );
+        return Err(RuntimeRepoResolutionError {
+            failure_kind: FAILURE_KIND_REPO_RUNTIME_MISSING,
+            runtime_context,
+            packaged,
+            detail: build_runtime_resolution_detail(detail_lines),
+        });
+    }
+
+    if packaged {
+        if let Some(repo_root) = find_repo_root_from_ancestors(&current_exe) {
+            detail_lines.push(format!(
+                "repo root resolved from packaged executable ancestors: {}",
+                repo_root.display()
+            ));
+            return Ok(ResolvedRuntimeRepo {
+                repo_root,
+                runtime_context,
+                packaged,
+                resolution_detail: build_runtime_resolution_detail(detail_lines),
+            });
+        }
+
+        if let Some(bundle) = &packaged_bundle {
+            if let Some(repo_root) = find_repo_root_from_ancestors(bundle) {
+                detail_lines.push(format!(
+                    "repo root resolved from packaged app bundle ancestors: {}",
+                    repo_root.display()
+                ));
+                return Ok(ResolvedRuntimeRepo {
+                    repo_root,
+                    runtime_context,
+                    packaged,
+                    resolution_detail: build_runtime_resolution_detail(detail_lines),
+                });
+            }
+        }
+
+        if let Some(hint_root) = find_repo_hint_from_ancestors(&current_exe) {
+            detail_lines.push(format!(
+                "Found a partial repo-like ancestor, but the required runtime files were missing: {}",
+                hint_root.display()
+            ));
+            detail_lines.push(
+                "Required files: docker-compose.yml, guardian/, frontend/, and src-tauri/."
+                    .to_string(),
+            );
+            return Err(RuntimeRepoResolutionError {
+                failure_kind: FAILURE_KIND_REPO_RUNTIME_MISSING,
+                runtime_context,
+                packaged,
+                detail: build_runtime_resolution_detail(detail_lines),
+            });
+        }
+
+        detail_lines.push(
+            "The packaged app is not running inside a supported local Codexify repo context."
+                .to_string(),
+        );
+        detail_lines.push(
+            "Supported packaged beta context: run the built .app from a Codexify checkout or set CODEXIFY_DESKTOP_REPO_ROOT explicitly."
+                .to_string(),
+        );
+        return Err(RuntimeRepoResolutionError {
+            failure_kind: FAILURE_KIND_PACKAGED_BOOTSTRAP_UNSUPPORTED,
+            runtime_context,
+            packaged,
+            detail: build_runtime_resolution_detail(detail_lines),
+        });
+    }
+
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let manifest_candidate = manifest_dir
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| manifest_dir.clone());
 
-    for candidate in [
-        manifest_candidate,
-        env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-    ] {
-        if candidate.join("docker-compose.yml").is_file()
-            && candidate.join("guardian").is_dir()
-            && candidate.join("frontend").is_dir()
-        {
-            return Ok(candidate);
+    detail_lines.push(format!(
+        "manifestCandidate={}",
+        manifest_candidate.display()
+    ));
+    if let Some(repo_root) = find_repo_root_from_ancestors(&manifest_candidate) {
+        detail_lines.push(format!(
+            "repo root resolved from cargo manifest ancestors: {}",
+            repo_root.display()
+        ));
+        return Ok(ResolvedRuntimeRepo {
+            repo_root,
+            runtime_context,
+            packaged,
+            resolution_detail: build_runtime_resolution_detail(detail_lines),
+        });
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        if let Some(repo_root) = find_repo_root_from_ancestors(&current_dir) {
+            detail_lines.push(format!(
+                "repo root resolved from working directory ancestors: {}",
+                repo_root.display()
+            ));
+            return Ok(ResolvedRuntimeRepo {
+                repo_root,
+                runtime_context,
+                packaged,
+                resolution_detail: build_runtime_resolution_detail(detail_lines),
+            });
         }
     }
 
-    Err("Unable to resolve the Codexify repo root from the Tauri runtime.".to_string())
+    detail_lines.push(
+        "Unable to resolve the Codexify repo root from the active development runtime."
+            .to_string(),
+    );
+    Err(RuntimeRepoResolutionError {
+        failure_kind: FAILURE_KIND_REPO_RUNTIME_MISSING,
+        runtime_context,
+        packaged,
+        detail: build_runtime_resolution_detail(detail_lines),
+    })
 }
 
 fn resolve_python_binary(repo_root: &Path) -> PathBuf {
@@ -532,11 +843,17 @@ fn build_step_result(
     stdout: Option<String>,
     stderr: Option<String>,
     exit_code: Option<i32>,
+    context: Option<&ResolvedRuntimeRepo>,
+    failure_kind: Option<&str>,
 ) -> BootstrapStepResult {
     BootstrapStepResult {
         ok,
         step: step.to_string(),
         detail,
+        failure_kind: failure_kind.map(str::to_string),
+        runtime_context: context.map(|resolved| resolved.runtime_context.to_string()),
+        repo_root: context.map(|resolved| resolved.repo_root.display().to_string()),
+        packaged: context.map(|resolved| resolved.packaged),
         command,
         stdout,
         stderr,
@@ -566,6 +883,18 @@ fn render_step_detail(
     } else {
         Some(detail)
     }
+}
+
+fn build_compose_runtime_lines(context: &ResolvedRuntimeRepo) -> Vec<String> {
+    vec![
+        format!("runtimeContext={}", context.runtime_context),
+        format!("packaged={}", context.packaged),
+        format!("repoRoot={}", context.repo_root.display()),
+        format!(
+            "composeFile={}",
+            context.repo_root.join("docker-compose.yml").display()
+        ),
+    ]
 }
 
 fn parse_http_url(url: &str) -> Result<ParsedHttpUrl, String> {
@@ -977,6 +1306,28 @@ pub fn desktop_open_external(url: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn desktop_runtime_preflight_check() -> RuntimePreflight {
+    let runtime_repo = resolve_repo_root();
+    let (runtime_context, packaged, repo_root, runtime_probe, runtime_failure_kind) =
+        match &runtime_repo {
+            Ok(resolved) => (
+                Some(resolved.runtime_context.to_string()),
+                Some(resolved.packaged),
+                Some(resolved.repo_root.display().to_string()),
+                CommandProbe::success(resolved.resolution_detail.clone()),
+                None,
+            ),
+            Err(err) => (
+                Some(err.runtime_context.to_string()),
+                Some(err.packaged),
+                None,
+                CommandProbe::failure(
+                    FailureKind::UnexpectedCommandExecutionError,
+                    err.detail.clone(),
+                ),
+                Some(err.failure_kind.to_string()),
+            ),
+        };
+
     match resolve_docker_binary() {
         Ok(binary) => {
             let resolution_probe = CommandProbe::success(format!(
@@ -1039,9 +1390,18 @@ pub fn desktop_runtime_preflight_check() -> RuntimePreflight {
                 )
             };
 
-            let ready = cli_probe.ok && docker_compose_available && docker_daemon_reachable;
-            let detail =
-                build_preflight_detail(&[resolution_probe, cli_probe, compose_probe, daemon_probe]);
+            let ready = cli_probe.ok
+                && docker_compose_available
+                && docker_daemon_reachable
+                && runtime_repo.is_ok();
+            let detail = build_preflight_detail(&[
+                runtime_probe,
+                resolution_probe,
+                cli_probe,
+                compose_probe,
+                daemon_probe,
+            ]);
+            let failure_kind = failure_kind.or(runtime_failure_kind);
 
             RuntimePreflight {
                 docker_cli_installed: true,
@@ -1050,19 +1410,26 @@ pub fn desktop_runtime_preflight_check() -> RuntimePreflight {
                 ready,
                 detail,
                 failure_kind,
+                runtime_context,
+                repo_root,
+                packaged,
             }
         }
         Err(resolution_probe) => {
             let failure_kind = resolution_probe
                 .failure_kind
-                .map(|kind| kind.as_str().to_string());
+                .map(|kind| kind.as_str().to_string())
+                .or(runtime_failure_kind);
             RuntimePreflight {
                 docker_cli_installed: false,
                 docker_compose_available: false,
                 docker_daemon_reachable: false,
                 ready: false,
-                detail: build_preflight_detail(&[resolution_probe]),
+                detail: build_preflight_detail(&[runtime_probe, resolution_probe]),
                 failure_kind,
+                runtime_context,
+                repo_root,
+                packaged,
             }
         }
     }
@@ -1072,11 +1439,23 @@ pub fn desktop_runtime_preflight_check() -> RuntimePreflight {
 pub fn desktop_run_setup_cli() -> BootstrapStepResult {
     let repo_root = match resolve_repo_root() {
         Ok(path) => path,
-        Err(detail) => {
-            return build_step_result(false, "setup", Some(detail), None, None, None, None)
+        Err(err) => {
+            return BootstrapStepResult {
+                ok: false,
+                step: "setup".to_string(),
+                detail: Some(err.detail),
+                failure_kind: Some(err.failure_kind.to_string()),
+                runtime_context: Some(err.runtime_context.to_string()),
+                repo_root: None,
+                packaged: Some(err.packaged),
+                command: None,
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
         }
     };
-    let python = resolve_python_binary(&repo_root);
+    let python = resolve_python_binary(&repo_root.repo_root);
     let command_display = format!(
         "{} -c <guardian.tui.setup_wizard_app.write_wizard_env>",
         python.display()
@@ -1113,12 +1492,12 @@ payload = {{
 print(json.dumps(payload, indent=2))
 raise SystemExit(code)
 "#,
-        repo_root = repo_root.display().to_string()
+        repo_root = repo_root.repo_root.display().to_string()
     );
 
     match Command::new(&python)
         .args(["-c", &script])
-        .current_dir(&repo_root)
+        .current_dir(&repo_root.repo_root)
         .output()
     {
         Ok(output) => {
@@ -1126,7 +1505,9 @@ raise SystemExit(code)
             let stderr = normalize_output(&output.stderr);
             let detail = render_step_detail(
                 vec![
-                    format!("repoRoot={}", repo_root.display()),
+                    format!("runtimeContext={}", repo_root.runtime_context),
+                    format!("packaged={}", repo_root.packaged),
+                    format!("repoRoot={}", repo_root.repo_root.display()),
                     "setupSource=guardian.cli.memoryos_cli setup".to_string(),
                     "automationPath=guardian.tui.setup_wizard_app.write_wizard_env".to_string(),
                     format!("status={}", output.status),
@@ -1142,6 +1523,8 @@ raise SystemExit(code)
                 stdout,
                 stderr,
                 output.status.code(),
+                Some(&repo_root),
+                None,
             )
         }
         Err(err) => build_step_result(
@@ -1155,6 +1538,8 @@ raise SystemExit(code)
             None,
             None,
             None,
+            Some(&repo_root),
+            Some(FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR),
         ),
     }
 }
@@ -1163,8 +1548,20 @@ raise SystemExit(code)
 pub fn desktop_compose_up() -> BootstrapStepResult {
     let repo_root = match resolve_repo_root() {
         Ok(path) => path,
-        Err(detail) => {
-            return build_step_result(false, "compose-up", Some(detail), None, None, None, None)
+        Err(err) => {
+            return BootstrapStepResult {
+                ok: false,
+                step: "compose-up".to_string(),
+                detail: Some(err.detail),
+                failure_kind: Some(err.failure_kind.to_string()),
+                runtime_context: Some(err.runtime_context.to_string()),
+                repo_root: None,
+                packaged: Some(err.packaged),
+                command: None,
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
         }
     };
     let docker = match resolve_docker_binary() {
@@ -1178,27 +1575,26 @@ pub fn desktop_compose_up() -> BootstrapStepResult {
                 None,
                 None,
                 None,
+                Some(&repo_root),
+                probe.failure_kind.map(FailureKind::as_str),
             )
         }
     };
     let command_display = format!("{} compose up -d", docker.display);
 
     match spawn_docker_command(&docker, &["compose", "up", "-d"])
-        .current_dir(&repo_root)
+        .current_dir(&repo_root.repo_root)
         .output()
     {
         Ok(output) => {
             let stdout = normalize_output(&output.stdout);
             let stderr = normalize_output(&output.stderr);
             let detail = render_step_detail(
-                vec![
-                    format!("repoRoot={}", repo_root.display()),
-                    format!(
-                        "composeFile={}",
-                        repo_root.join("docker-compose.yml").display()
-                    ),
-                    format!("status={}", output.status),
-                ],
+                {
+                    let mut lines = build_compose_runtime_lines(&repo_root);
+                    lines.push(format!("status={}", output.status));
+                    lines
+                },
                 stdout.as_ref(),
                 stderr.as_ref(),
             );
@@ -1210,6 +1606,8 @@ pub fn desktop_compose_up() -> BootstrapStepResult {
                 stdout,
                 stderr,
                 output.status.code(),
+                Some(&repo_root),
+                None,
             )
         }
         Err(err) => build_step_result(
@@ -1220,7 +1618,411 @@ pub fn desktop_compose_up() -> BootstrapStepResult {
             None,
             None,
             None,
+            Some(&repo_root),
+            Some(FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR),
         ),
+    }
+}
+
+#[tauri::command]
+pub fn desktop_open_docker_desktop() -> BootstrapDockerOpenResult {
+    #[cfg(target_os = "macos")]
+    {
+        let mut detail_lines = vec![
+            "Attempting to open Docker Desktop via macOS Launch Services.".to_string(),
+            format!("appBundle={MACOS_DOCKER_APP_BUNDLE}"),
+        ];
+
+        let primary_command = "open -a Docker";
+        match Command::new("open").args(["-a", "Docker"]).output() {
+            Ok(output) if output.status.success() => {
+                detail_lines.push(format!("status={}", output.status));
+                detail_lines.extend(render_probe_output(&output.stdout, &output.stderr));
+                BootstrapDockerOpenResult {
+                    ok: true,
+                    detail: Some(join_lines(detail_lines)),
+                    command: Some(primary_command.to_string()),
+                }
+            }
+            Ok(output) => {
+                detail_lines.push(format!("primary status={}", output.status));
+                detail_lines.extend(render_probe_output(&output.stdout, &output.stderr));
+
+                let fallback_command = format!("open {MACOS_DOCKER_APP_BUNDLE}");
+                match Command::new("open").arg(MACOS_DOCKER_APP_BUNDLE).output() {
+                    Ok(fallback_output) if fallback_output.status.success() => {
+                        detail_lines.push("Fallback app-bundle open succeeded.".to_string());
+                        detail_lines.push(format!("fallback status={}", fallback_output.status));
+                        detail_lines
+                            .extend(render_probe_output(&fallback_output.stdout, &fallback_output.stderr));
+                        BootstrapDockerOpenResult {
+                            ok: true,
+                            detail: Some(join_lines(detail_lines)),
+                            command: Some(format!("{primary_command} || {fallback_command}")),
+                        }
+                    }
+                    Ok(fallback_output) => {
+                        detail_lines.push("Fallback app-bundle open failed.".to_string());
+                        detail_lines.push(format!("fallback status={}", fallback_output.status));
+                        detail_lines
+                            .extend(render_probe_output(&fallback_output.stdout, &fallback_output.stderr));
+                        detail_lines.push(
+                            "Action: confirm Docker Desktop is installed in /Applications and launch it manually."
+                                .to_string(),
+                        );
+                        BootstrapDockerOpenResult {
+                            ok: false,
+                            detail: Some(join_lines(detail_lines)),
+                            command: Some(format!("{primary_command} || {fallback_command}")),
+                        }
+                    }
+                    Err(err) => {
+                        detail_lines.push(format!("Fallback open execution error: {err}"));
+                        detail_lines.push(
+                            "Action: confirm Docker Desktop is installed in /Applications and launch it manually."
+                                .to_string(),
+                        );
+                        BootstrapDockerOpenResult {
+                            ok: false,
+                            detail: Some(join_lines(detail_lines)),
+                            command: Some(format!("{primary_command} || {fallback_command}")),
+                        }
+                    }
+                }
+            }
+            Err(err) => BootstrapDockerOpenResult {
+                ok: false,
+                detail: Some(format!(
+                    "Failed to execute `{primary_command}` via macOS Launch Services: {err}"
+                )),
+                command: Some(primary_command.to_string()),
+            },
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        BootstrapDockerOpenResult {
+            ok: false,
+            detail: Some(
+                "Docker Desktop launch assistance is currently implemented for macOS only."
+                    .to_string(),
+            ),
+            command: None,
+        }
+    }
+}
+
+#[tauri::command]
+pub fn desktop_get_bootstrap_logs(service: String) -> BootstrapLogResult {
+    let requested_service = service.trim().to_string();
+    let service = match normalize_bootstrap_service(&requested_service) {
+        Ok(service) => service,
+        Err(detail) => {
+            return BootstrapLogResult {
+                ok: false,
+                service: requested_service,
+                detail: Some(detail),
+                failure_kind: None,
+                runtime_context: None,
+                repo_root: None,
+                packaged: None,
+                logs: None,
+                command: None,
+                exit_code: None,
+            }
+        }
+    };
+
+    let repo_root = match resolve_repo_root() {
+        Ok(path) => path,
+        Err(err) => {
+            return BootstrapLogResult {
+                ok: false,
+                service: service.to_string(),
+                detail: Some(err.detail),
+                failure_kind: Some(err.failure_kind.to_string()),
+                runtime_context: Some(err.runtime_context.to_string()),
+                repo_root: None,
+                packaged: Some(err.packaged),
+                logs: None,
+                command: None,
+                exit_code: None,
+            }
+        }
+    };
+    let docker = match resolve_docker_binary() {
+        Ok(binary) => binary,
+        Err(probe) => {
+            return BootstrapLogResult {
+                ok: false,
+                service: service.to_string(),
+                detail: Some(probe.detail),
+                failure_kind: probe.failure_kind.map(|kind| kind.as_str().to_string()),
+                runtime_context: Some(repo_root.runtime_context.to_string()),
+                repo_root: Some(repo_root.repo_root.display().to_string()),
+                packaged: Some(repo_root.packaged),
+                logs: None,
+                command: Some(format!("docker compose logs --tail {BOOTSTRAP_LOG_TAIL_LINES} --no-color {service}")),
+                exit_code: None,
+            }
+        }
+    };
+
+    let command_display = format!(
+        "{} compose logs --tail {} --no-color {}",
+        docker.display, BOOTSTRAP_LOG_TAIL_LINES, service
+    );
+
+    match spawn_docker_command(
+        &docker,
+        &[
+            "compose",
+            "logs",
+            "--tail",
+            BOOTSTRAP_LOG_TAIL_LINES,
+            "--no-color",
+            service,
+        ],
+    )
+    .current_dir(&repo_root.repo_root)
+    .output()
+    {
+        Ok(output) => {
+            let logs = normalize_output(&output.stdout);
+            let stderr = normalize_output(&output.stderr);
+            let mut detail_lines = build_compose_runtime_lines(&repo_root);
+            detail_lines.push(format!("service={service}"));
+            detail_lines.push(format!("status={}", output.status));
+            if let Some(stderr) = &stderr {
+                detail_lines.push(String::new());
+                detail_lines.push("stderr:".to_string());
+                detail_lines.push(stderr.clone());
+            }
+
+            BootstrapLogResult {
+                ok: output.status.success(),
+                service: service.to_string(),
+                detail: Some(join_lines(detail_lines)),
+                failure_kind: None,
+                runtime_context: Some(repo_root.runtime_context.to_string()),
+                repo_root: Some(repo_root.repo_root.display().to_string()),
+                packaged: Some(repo_root.packaged),
+                logs,
+                command: Some(command_display),
+                exit_code: output.status.code(),
+            }
+        }
+        Err(err) => BootstrapLogResult {
+            ok: false,
+            service: service.to_string(),
+            detail: Some(format!("Failed to execute `{command_display}`: {err}")),
+            failure_kind: Some(FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR.to_string()),
+            runtime_context: Some(repo_root.runtime_context.to_string()),
+            repo_root: Some(repo_root.repo_root.display().to_string()),
+            packaged: Some(repo_root.packaged),
+            logs: None,
+            command: Some(command_display),
+            exit_code: None,
+        },
+    }
+}
+
+#[tauri::command]
+pub fn desktop_restart_runtime_services() -> BootstrapRestartResult {
+    let repo_root = match resolve_repo_root() {
+        Ok(path) => path,
+        Err(err) => {
+            return BootstrapRestartResult {
+                ok: false,
+                services: BOOTSTRAP_RESTART_SERVICES
+                    .iter()
+                    .map(|service| service.to_string())
+                    .collect(),
+                detail: Some(err.detail),
+                failure_kind: Some(err.failure_kind.to_string()),
+                runtime_context: Some(err.runtime_context.to_string()),
+                repo_root: None,
+                packaged: Some(err.packaged),
+                command: None,
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
+        }
+    };
+    let docker = match resolve_docker_binary() {
+        Ok(binary) => binary,
+        Err(probe) => {
+            return BootstrapRestartResult {
+                ok: false,
+                services: BOOTSTRAP_RESTART_SERVICES
+                    .iter()
+                    .map(|service| service.to_string())
+                    .collect(),
+                detail: Some(probe.detail),
+                failure_kind: probe.failure_kind.map(|kind| kind.as_str().to_string()),
+                runtime_context: Some(repo_root.runtime_context.to_string()),
+                repo_root: Some(repo_root.repo_root.display().to_string()),
+                packaged: Some(repo_root.packaged),
+                command: Some(format!(
+                    "docker compose restart {} && docker compose up -d {}",
+                    ["db", "redis", "backend", "worker-chat"].join(" "),
+                    BOOTSTRAP_RESTART_SERVICES.join(" ")
+                )),
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
+        }
+    };
+
+    let restart_services = ["db", "redis", "backend", "worker-chat"];
+    let restart_command_display = format!(
+        "{} compose restart {}",
+        docker.display,
+        restart_services.join(" ")
+    );
+    let up_command_display = format!(
+        "{} compose up -d {}",
+        docker.display,
+        BOOTSTRAP_RESTART_SERVICES.join(" ")
+    );
+    let combined_command_display =
+        format!("{restart_command_display} && {up_command_display}");
+
+    let restart_output = spawn_docker_command(
+        &docker,
+        &[
+            "compose",
+            "restart",
+            "db",
+            "redis",
+            "backend",
+            "worker-chat",
+        ],
+    )
+    .current_dir(&repo_root.repo_root)
+    .output();
+
+    let up_output = spawn_docker_command(
+        &docker,
+        &[
+            "compose",
+            "up",
+            "-d",
+            "db",
+            "redis",
+            "migrator",
+            "backend",
+            "worker-chat",
+        ],
+    )
+    .current_dir(&repo_root.repo_root)
+    .output();
+
+    let mut detail_lines = build_compose_runtime_lines(&repo_root);
+    detail_lines.push(format!(
+        "services={}",
+        BOOTSTRAP_RESTART_SERVICES.join(",")
+    ));
+
+    let mut stdout_sections = Vec::new();
+    let mut stderr_sections = Vec::new();
+
+    match &restart_output {
+        Ok(output) => {
+            detail_lines.push(format!("restartStatus={}", output.status));
+            if let Some(stdout) = normalize_output(&output.stdout) {
+                stdout_sections.push(format!("restart:\n{stdout}"));
+            }
+            if let Some(stderr) = normalize_output(&output.stderr) {
+                stderr_sections.push(format!("restart:\n{stderr}"));
+            }
+        }
+        Err(err) => {
+            detail_lines.push(format!("restartExecutionError={err}"));
+        }
+    }
+
+    match &up_output {
+        Ok(output) => {
+            detail_lines.push(format!("upStatus={}", output.status));
+            if let Some(stdout) = normalize_output(&output.stdout) {
+                stdout_sections.push(format!("up:\n{stdout}"));
+            }
+            if let Some(stderr) = normalize_output(&output.stderr) {
+                stderr_sections.push(format!("up:\n{stderr}"));
+            }
+        }
+        Err(err) => {
+            detail_lines.push(format!("upExecutionError={err}"));
+        }
+    }
+
+    let ok = matches!(&up_output, Ok(output) if output.status.success());
+    if ok && matches!(&restart_output, Ok(output) if !output.status.success()) {
+        detail_lines.push(
+            "Restart step failed, but compose up -d succeeded and recovered the targeted services."
+                .to_string(),
+        );
+    }
+
+    let detail = Some(join_lines(detail_lines));
+    let stdout = if stdout_sections.is_empty() {
+        None
+    } else {
+        Some(stdout_sections.join("\n\n"))
+    };
+    let stderr = if stderr_sections.is_empty() {
+        None
+    } else {
+        Some(stderr_sections.join("\n\n"))
+    };
+    let exit_code = match &up_output {
+        Ok(output) => output.status.code(),
+        Err(_) => None,
+    };
+
+    if let Err(err) = &restart_output {
+        if up_output.is_err() {
+            return BootstrapRestartResult {
+                ok: false,
+                services: BOOTSTRAP_RESTART_SERVICES
+                    .iter()
+                    .map(|service| service.to_string())
+                    .collect(),
+                detail: Some(format!(
+                    "{}\n\nBoth Compose recovery commands failed to execute. Restart error: {}",
+                    detail.unwrap_or_default(),
+                    err
+                )),
+                failure_kind: Some(FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR.to_string()),
+                runtime_context: Some(repo_root.runtime_context.to_string()),
+                repo_root: Some(repo_root.repo_root.display().to_string()),
+                packaged: Some(repo_root.packaged),
+                command: Some(combined_command_display),
+                stdout,
+                stderr,
+                exit_code,
+            };
+        }
+    }
+
+    BootstrapRestartResult {
+        ok,
+        services: BOOTSTRAP_RESTART_SERVICES
+            .iter()
+            .map(|service| service.to_string())
+            .collect(),
+        detail,
+        failure_kind: None,
+        runtime_context: Some(repo_root.runtime_context.to_string()),
+        repo_root: Some(repo_root.repo_root.display().to_string()),
+        packaged: Some(repo_root.packaged),
+        command: Some(combined_command_display),
+        stdout,
+        stderr,
+        exit_code,
     }
 }
 
