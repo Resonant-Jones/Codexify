@@ -43,6 +43,7 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
+import { SessionSpine } from "@/state/session/SessionSpine";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
@@ -214,6 +215,63 @@ function readRouteThreadId(): number | null {
   return routeThreadIdFromPath(window.location.pathname);
 }
 
+function normalizeInterceptPath(url: unknown): string {
+  if (typeof url !== "string" || !url.trim()) return "";
+  try {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    return new URL(url, base).pathname;
+  } catch {
+    return url;
+  }
+}
+
+function parseRequestPayload(data: unknown): Record<string, unknown> {
+  if (!data) return {};
+  if (typeof data === "string") {
+    try {
+      const parsed = JSON.parse(data);
+      return parsed && typeof parsed === "object"
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof data === "object") {
+    return data as Record<string, unknown>;
+  }
+  return {};
+}
+
+function normalizeShellToken(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function extractCompletionThreadId(pathname: string): string | null {
+  const match = pathname.match(/\/chat\/([^/]+)\/complete$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function extractMessageThreadId(pathname: string): string | null {
+  const match = pathname.match(/\/chat\/([^/]+)\/messages$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function extractCancelTaskId(pathname: string): string | null {
+  const match = pathname.match(/\/tasks\/([^/]+)\/cancel$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function isCreateMessagePath(pathname: string): boolean {
+  return pathname.endsWith("/chat/messages");
+}
+
 function normalizeProjectName(value: unknown): string {
   return String(value ?? "")
     .trim()
@@ -336,6 +394,134 @@ export default function AppShell({
 }: AppShellProps) {
   const auth = useAuthState();
   const shellContentRef = React.useRef<HTMLDivElement | null>(null);
+  const { lastEvent } = useLiveEvents();
+  const [guardianSurfaceEpoch, setGuardianSurfaceEpoch] = useState(0);
+  const [sessionComposerBlocked, setSessionComposerBlocked] = useState<boolean>(
+    () => SessionSpine.getRegisteredSpine()?.isComposerBlocked() ?? false
+  );
+  const lastCanceledCompletionIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    return SessionSpine.subscribeActiveSpine((spine) => {
+      const activeCompletion = spine?.getActiveCompletion() ?? null;
+      setSessionComposerBlocked(spine?.isComposerBlocked() ?? false);
+      if (
+        activeCompletion?.status === "canceled" &&
+        activeCompletion.completionId !== lastCanceledCompletionIdRef.current
+      ) {
+        lastCanceledCompletionIdRef.current = activeCompletion.completionId;
+        setGuardianSurfaceEpoch((previous) => previous + 1);
+      }
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (!lastEvent) return;
+    SessionSpine.getRegisteredSpine()?.consumeAcceptedLiveEvent(lastEvent);
+  }, [lastEvent]);
+
+  React.useEffect(() => {
+    const requestInterceptorId = api.interceptors.request.use((config) => {
+      const spine = SessionSpine.getRegisteredSpine();
+      if (!spine) return config;
+
+      const method = String(config?.method ?? "get").toLowerCase();
+      if (method !== "post") return config;
+
+      const pathname = normalizeInterceptPath(config?.url);
+      const payload = parseRequestPayload(config?.data);
+      const messageThreadId = extractMessageThreadId(pathname);
+
+      if (isCreateMessagePath(pathname) || messageThreadId) {
+        const submittedDraft = normalizeShellToken(payload.content);
+        if (submittedDraft) {
+          const draftTabId =
+            normalizeShellToken(payload.draft_tab_id ?? payload.draftTabId) ??
+            spine.findTabIdForThread(messageThreadId) ??
+            spine.getActiveTabId();
+          spine.rememberSubmittedDraft(submittedDraft, {
+            tabId: draftTabId ?? undefined,
+            threadId: messageThreadId,
+          });
+        }
+      }
+
+      const completionThreadId = extractCompletionThreadId(pathname);
+      if (completionThreadId) {
+        const tabId =
+          spine.findTabIdForThread(completionThreadId) ?? spine.getActiveTabId();
+        const turnId = normalizeShellToken(
+          payload.turn_id ?? payload.turnId ?? (config as any)?.__cfyCompletionTurnId
+        );
+        spine.startCompletion({
+          tabId: tabId ?? undefined,
+          threadId: completionThreadId,
+          turnId,
+        });
+      }
+
+      const cancelTaskId = extractCancelTaskId(pathname);
+      if (cancelTaskId) {
+        spine.cancelActiveCompletion({ taskId: cancelTaskId });
+      }
+
+      return config;
+    });
+
+    const responseInterceptorId = api.interceptors.response.use(
+      (response) => {
+        const spine = SessionSpine.getRegisteredSpine();
+        if (!spine) return response;
+
+        const pathname = normalizeInterceptPath(response?.config?.url);
+        const completionThreadId = extractCompletionThreadId(pathname);
+        if (completionThreadId) {
+          spine.attachCompletionIdentity({
+            threadId: completionThreadId,
+            taskId: normalizeShellToken(response?.data?.task_id ?? response?.data?.taskId),
+            turnId: normalizeShellToken(
+              response?.data?.turn_id ??
+                response?.data?.turnId ??
+                (response?.config as any)?.__cfyCompletionTurnId
+            ),
+          });
+        }
+
+        return response;
+      },
+      (error) => {
+        const spine = SessionSpine.getRegisteredSpine();
+        if (spine) {
+          const pathname = normalizeInterceptPath(error?.config?.url);
+          const completionThreadId = extractCompletionThreadId(pathname);
+          if (completionThreadId) {
+            spine.failActiveCompletion({
+              threadId: completionThreadId,
+              taskId: normalizeShellToken(
+                error?.response?.data?.task_id ?? error?.response?.data?.taskId
+              ),
+              turnId: normalizeShellToken(
+                error?.response?.data?.turn_id ??
+                  error?.response?.data?.turnId ??
+                  (error?.config as any)?.__cfyCompletionTurnId
+              ),
+              errorText: normalizeShellToken(
+                error?.response?.data?.detail ??
+                  error?.response?.data?.message ??
+                  error?.message
+              ),
+            });
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      api.interceptors.request.eject(requestInterceptorId);
+      api.interceptors.response.eject(responseInterceptorId);
+    };
+  }, []);
 
   React.useEffect(() => {
     const node = shellContentRef.current as (HTMLDivElement & { inert?: boolean }) | null;
@@ -1827,6 +2013,10 @@ export default function AppShell({
             <div
               className="flex-1 h-full w-full min-h-0 isolate flex flex-col"
               aria-hidden={view !== "guardian"}
+              aria-busy={view === "guardian" ? sessionComposerBlocked : undefined}
+              data-composer-blocked={
+                view === "guardian" && sessionComposerBlocked ? "true" : "false"
+              }
               hidden={view !== "guardian"}
               style={{
                 "--frame": "1px",
@@ -1840,6 +2030,7 @@ export default function AppShell({
             >
               <ErrorBoundary>
                 <GuardianChatWithSidebar
+                  key={`guardian-surface-${guardianSurfaceEpoch}`}
                   guardianName={guardianName}
                   userName={userName}
                   prefill={prefill}
