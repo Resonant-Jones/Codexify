@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from sqlalchemy.exc import IntegrityError
 
+from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.dependencies import chatlog_db
 from guardian.core.media_signing import sign_media_url
@@ -21,9 +22,7 @@ _AUDIO_STATUS_VALUES = {"pending", "ready", "failed"}
 
 
 def _database_url() -> str:
-    return os.getenv(
-        "DATABASE_URL", "postgresql://guardian:guardian@db:5432/guardian"
-    )
+    return os.getenv("DATABASE_URL") or DEFAULT_PG_DSN
 
 
 def _db() -> Any:

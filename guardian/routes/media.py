@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
+from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.default_project import canonicalize_default_project
 from guardian.core.dependencies import verify_api_key
@@ -218,9 +219,7 @@ def _get_db() -> GuardianDB:
             type(resolved),
         )
 
-    db_url = os.getenv(
-        "DATABASE_URL", "postgresql://guardian:guardian@db:5432/guardian"
-    )
+    db_url = os.getenv("DATABASE_URL") or DEFAULT_PG_DSN
     return GuardianDB(db_url)
 
 

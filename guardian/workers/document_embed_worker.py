@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.core.db import GuardianDB
 from guardian.db.models import UploadedDocument
 from guardian.queue.document_embed_queue import (
@@ -21,15 +22,13 @@ from guardian.services.document_chunking import chunk_document_text
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DB_URL = "postgresql://guardian:guardian@db:5432/guardian"
-
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _get_db() -> GuardianDB:
-    db_url = os.getenv("DATABASE_URL", _DEFAULT_DB_URL)
+    db_url = os.getenv("DATABASE_URL") or DEFAULT_PG_DSN
     return GuardianDB(db_url)
 
 

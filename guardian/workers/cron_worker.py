@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.core import event_bus
 from guardian.core.db import GuardianDB
 from guardian.cron.executor import execute_cron_job
@@ -19,7 +20,6 @@ from guardian.queue.redis_queue import dequeue
 logger = logging.getLogger(__name__)
 
 QUEUE_NAME = os.getenv("CRON_QUEUE_NAME", "codexify:queue:cron")
-_DEFAULT_DB_URL = "postgresql://guardian:guardian@db:5432/guardian"
 _MAX_ERROR_LENGTH = 512
 
 
@@ -30,7 +30,7 @@ def _utc_now() -> datetime:
 def _resolve_db(db: GuardianDB | None) -> GuardianDB:
     if db is not None:
         return db
-    db_url = os.getenv("DATABASE_URL", _DEFAULT_DB_URL)
+    db_url = os.getenv("DATABASE_URL") or DEFAULT_PG_DSN
     return GuardianDB(db_url)
 
 
