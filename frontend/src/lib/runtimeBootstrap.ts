@@ -15,6 +15,26 @@ export type RuntimePreflight = {
 
 export type BootstrapStep = "setup" | "compose-up" | "health-check";
 
+export type BootstrapRecoveryStage =
+  | "preflight"
+  | "setup"
+  | "compose-up"
+  | "readiness";
+
+export type BootstrapRecoveryAction =
+  | "retry"
+  | "view-logs"
+  | "open-docker"
+  | "restart-services"
+  | "install-docker";
+
+export type BootstrapLogService =
+  | "backend"
+  | "worker-chat"
+  | "db"
+  | "redis"
+  | "migrator";
+
 export type BootstrapStepResult = {
   ok: boolean;
   step: BootstrapStep;
@@ -48,6 +68,41 @@ export type RuntimeReadiness = RuntimeReadinessResult;
 
 export type RuntimeHealthCheckResult = RuntimeReadinessResult;
 
+export type BootstrapDockerOpenResult = {
+  ok: boolean;
+  detail?: string;
+  command?: string;
+};
+
+export type BootstrapLogResult = {
+  ok: boolean;
+  service: BootstrapLogService;
+  detail?: string;
+  logs?: string;
+  command?: string;
+  exitCode?: number;
+};
+
+export type BootstrapRestartResult = {
+  ok: boolean;
+  detail?: string;
+  command?: string;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  services: string[];
+};
+
+export type BootstrapRecoveryNotice = {
+  kind:
+    | "logs-unavailable"
+    | "docker-open-failed"
+    | "restart-services-failed";
+  title: string;
+  message: string;
+  detail?: string;
+};
+
 export type RuntimeBootstrapStatus =
   | "checking-requirements"
   | "docker-missing"
@@ -79,6 +134,13 @@ export type RuntimeReadinessWaitResult = {
 const WELCOME_DISMISSED_STORAGE_KEY = "cfy.bootstrap.welcomeDismissed";
 const DOCKER_DESKTOP_DOWNLOAD_URL =
   "https://www.docker.com/products/docker-desktop/";
+export const BOOTSTRAP_LOG_SERVICES: BootstrapLogService[] = [
+  "backend",
+  "worker-chat",
+  "db",
+  "redis",
+  "migrator",
+];
 
 function asBoolean(value: unknown): boolean {
   return value === true;
@@ -102,6 +164,15 @@ function normalizeOptionalBoolean(value: unknown): boolean | undefined {
   if (value === true) return true;
   if (value === false) return false;
   return undefined;
+}
+
+function normalizeBootstrapLogService(
+  value: unknown,
+  fallback: BootstrapLogService
+): BootstrapLogService {
+  return BOOTSTRAP_LOG_SERVICES.includes(value as BootstrapLogService)
+    ? (value as BootstrapLogService)
+    : fallback;
 }
 
 function normalizeEndpointCheck(payload: unknown): HealthEndpointCheck {
@@ -143,6 +214,65 @@ function normalizeStepResult(
     stdout: normalizeText(source.stdout),
     stderr: normalizeText(source.stderr),
     exitCode: normalizeExitCode(source.exitCode),
+  };
+}
+
+function normalizeBootstrapDockerOpenResult(
+  payload: unknown
+): BootstrapDockerOpenResult {
+  const source =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+
+  return {
+    ok: asBoolean(source.ok),
+    detail: normalizeText(source.detail),
+    command: normalizeText(source.command),
+  };
+}
+
+function normalizeBootstrapLogResult(
+  payload: unknown,
+  fallbackService: BootstrapLogService
+): BootstrapLogResult {
+  const source =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+
+  return {
+    ok: asBoolean(source.ok),
+    service: normalizeBootstrapLogService(source.service, fallbackService),
+    detail: normalizeText(source.detail),
+    logs: normalizeText(source.logs),
+    command: normalizeText(source.command),
+    exitCode: normalizeExitCode(source.exitCode),
+  };
+}
+
+function normalizeBootstrapRestartResult(
+  payload: unknown
+): BootstrapRestartResult {
+  const source =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+
+  const services = Array.isArray(source.services)
+    ? source.services
+        .map((entry) => normalizeText(entry))
+        .filter((entry): entry is string => Boolean(entry))
+    : [];
+
+  return {
+    ok: asBoolean(source.ok),
+    detail: normalizeText(source.detail),
+    command: normalizeText(source.command),
+    stdout: normalizeText(source.stdout),
+    stderr: normalizeText(source.stderr),
+    exitCode: normalizeExitCode(source.exitCode),
+    services,
   };
 }
 
@@ -268,7 +398,7 @@ function describeRuntimeReadinessCopy(
       : {
           title: "Codexify did not become ready in time",
           message:
-            "The local beta runtime never satisfied the readiness contract. Retry the bootstrap or inspect the technical details below.",
+            "The local beta runtime never satisfied the readiness contract. Retry the readiness checks first, then restart services if the runtime still looks wedged.",
           failureKind: "readiness-failed",
         };
 
@@ -287,7 +417,7 @@ function describeRuntimeReadinessCopy(
       : {
           title: "Backend never became reachable",
           message:
-            "Compose started, but the backend process never answered /ping. Retry startup from the beginning once the local API is available.",
+            "Compose started, but the backend process never answered /ping. Retry the readiness gate first, then restart services if the API is still unavailable.",
           failureKind: "backend-unreachable",
         };
   }
@@ -303,7 +433,7 @@ function describeRuntimeReadinessCopy(
       : {
           title: "Backend startup did not finish",
           message:
-            "The backend answered /ping, but /health never reached a usable state. Retry the bootstrap so Postgres-backed startup can complete cleanly.",
+            "The backend answered /ping, but /health never reached a usable state. Retry readiness first so startup can settle, then restart services if it stays stuck.",
           failureKind: "startup-not-ready",
         };
   }
@@ -319,7 +449,7 @@ function describeRuntimeReadinessCopy(
       : {
           title: "Redis or chat workers are unavailable",
           message:
-            "The backend is up, but /health/chat never reported a healthy completion path. The workspace stays locked until Redis, queueing, and worker heartbeat are green.",
+            "The backend is up, but /health/chat never reported a healthy completion path. View logs or restart services if Redis, queueing, or worker heartbeat stay red.",
           failureKind: "chat-path-unavailable",
         };
   }
@@ -335,7 +465,7 @@ function describeRuntimeReadinessCopy(
       : {
           title: "Model health did not recover",
           message:
-            "The backend and queue surfaces are up, but /health/llm never became healthy. Retry once the model path is green.",
+            "The backend and queue surfaces are up, but /health/llm never became healthy. Retry readiness first, then inspect logs or restart services if the model path stays red.",
           failureKind: "llm-unavailable",
         };
   }
@@ -530,6 +660,138 @@ export function createFailedRuntimeBootstrapState(options: {
   );
 }
 
+export function getBootstrapRecoveryStage(
+  state: RuntimeBootstrapState
+): BootstrapRecoveryStage | null {
+  if (
+    state.status === "checking-requirements" ||
+    state.status === "docker-missing" ||
+    state.status === "compose-missing" ||
+    state.status === "docker-not-running"
+  ) {
+    return "preflight";
+  }
+
+  if (state.stepResults["health-check"] && !state.stepResults["health-check"]?.ok) {
+    return "readiness";
+  }
+
+  if (state.stepResults["compose-up"] && !state.stepResults["compose-up"]?.ok) {
+    return "compose-up";
+  }
+
+  if (state.stepResults.setup && !state.stepResults.setup?.ok) {
+    return "setup";
+  }
+
+  if (state.status === "failed") {
+    return "preflight";
+  }
+
+  return null;
+}
+
+export function getBootstrapRecoveryActions(
+  state: RuntimeBootstrapState
+): BootstrapRecoveryAction[] {
+  const stage = getBootstrapRecoveryStage(state);
+
+  if (state.status === "docker-missing") {
+    return ["retry", "install-docker"];
+  }
+
+  if (state.status === "compose-missing") {
+    return ["retry", "install-docker"];
+  }
+
+  if (state.status === "docker-not-running") {
+    return ["retry", "open-docker"];
+  }
+
+  if (stage === "setup") {
+    return ["retry"];
+  }
+
+  if (stage === "compose-up" || stage === "readiness") {
+    return ["retry", "view-logs", "restart-services"];
+  }
+
+  if (stage === "preflight") {
+    return ["retry"];
+  }
+
+  return [];
+}
+
+export function getDefaultBootstrapLogService(
+  state: RuntimeBootstrapState
+): BootstrapLogService {
+  if (state.stepResults["health-check"] && !state.stepResults["health-check"]?.ok) {
+    return "backend";
+  }
+
+  if (state.stepResults["compose-up"] && !state.stepResults["compose-up"]?.ok) {
+    return "backend";
+  }
+
+  return "backend";
+}
+
+export function createBootstrapSupportNoticeFromLogResult(
+  result: BootstrapLogResult
+): BootstrapRecoveryNotice | null {
+  if (result.ok) return null;
+
+  return {
+    kind: "logs-unavailable",
+    title: "Recent logs are unavailable",
+    message: `Codexify could not load recent ${result.service} logs from the local Compose runtime. Retry the log fetch or verify Docker and the service state directly.`,
+    detail: result.detail,
+  };
+}
+
+export function createBootstrapSupportNoticeFromDockerOpenResult(
+  result: BootstrapDockerOpenResult
+): BootstrapRecoveryNotice | null {
+  if (result.ok) return null;
+
+  return {
+    kind: "docker-open-failed",
+    title: "Docker Desktop did not open",
+    message:
+      "Codexify could not launch Docker Desktop through the native macOS open path. Start Docker Desktop manually, wait for the daemon to come up, then retry preflight.",
+    detail: result.detail,
+  };
+}
+
+export function createBootstrapSupportNoticeFromRestartResult(
+  result: BootstrapRestartResult
+): BootstrapRecoveryNotice | null {
+  if (result.ok) return null;
+
+  return {
+    kind: "restart-services-failed",
+    title: "Service restart failed",
+    message:
+      "Codexify could not complete the targeted Compose restart/start recovery flow. Review the command detail and runtime logs before retrying.",
+    detail: result.detail,
+  };
+}
+
+export function createComposeRecoveryStepResult(
+  result: BootstrapRestartResult
+): BootstrapStepResult {
+  return {
+    ok: result.ok,
+    step: "compose-up",
+    detail: result.detail,
+    command: result.command,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+  };
+}
+
 export function appendBootstrapDetail(
   current: string | undefined,
   next: string | undefined,
@@ -652,6 +914,62 @@ export async function runRuntimeBootstrapPreflight(): Promise<RuntimePreflight> 
         error instanceof Error
           ? error.message
           : String(error ?? "Unknown error"),
+    };
+  }
+}
+
+export async function openDockerDesktopNative(): Promise<BootstrapDockerOpenResult> {
+  try {
+    const payload = await invokeTauriCommand<unknown>(
+      "desktop_open_docker_desktop"
+    );
+    return normalizeBootstrapDockerOpenResult(payload);
+  } catch (error) {
+    return {
+      ok: false,
+      detail:
+        error instanceof Error
+          ? error.message
+          : String(error ?? "Unknown error"),
+    };
+  }
+}
+
+export async function getBootstrapLogs(
+  service: BootstrapLogService
+): Promise<BootstrapLogResult> {
+  try {
+    const payload = await invokeTauriCommand<unknown>(
+      "desktop_get_bootstrap_logs",
+      { service }
+    );
+    return normalizeBootstrapLogResult(payload, service);
+  } catch (error) {
+    return {
+      ok: false,
+      service,
+      detail:
+        error instanceof Error
+          ? error.message
+          : String(error ?? "Unknown error"),
+    };
+  }
+}
+
+export async function restartRuntimeServices(): Promise<BootstrapRestartResult> {
+  try {
+    const payload = await invokeTauriCommand<unknown>(
+      "desktop_restart_runtime_services"
+    );
+    return normalizeBootstrapRestartResult(payload);
+  } catch (error) {
+    return {
+      ok: false,
+      detail:
+        error instanceof Error
+          ? error.message
+          : String(error ?? "Unknown error"),
+      services: [],
     };
   }
 }
