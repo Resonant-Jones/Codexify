@@ -53,11 +53,13 @@ const PHASE_STEP_MAP: Record<
 };
 
 const PREFLIGHT_FAILURE_KINDS = new Set([
+  "runtime-root-unavailable",
   "packaged-runtime-home-unusable",
   "runtime-home-unavailable",
   "packaged-runtime-assets-missing",
   "packaged-runtime-assets-invalid",
   "packaged-runtime-materialization-failed",
+  "docker-mount-path-unshared-or-unsupported",
   "packaged-bootstrap-unsupported",
   "runtime-path-unavailable",
   "repo-runtime-missing",
@@ -227,6 +229,8 @@ export default function BootstrapGate({
   const failureKind = state.failureKind ?? state.preflight?.failureKind;
   const packagedDockerContextFailure =
     failureKind === "docker-cli-found-but-unusable-from-packaged-context";
+  const packagedMountPathFailure =
+    failureKind === "docker-mount-path-unshared-or-unsupported";
 
   const handleInstallDocker = React.useCallback(async () => {
     setOpeningInstallPage(true);
@@ -248,13 +252,13 @@ export default function BootstrapGate({
       id: PHASE_STEP_MAP.setup,
       label: "Preparing local config",
       description:
-        "Run the packaged-safe setup source so .env/bootstrap state comes from the resolved runtime home, not duplicate Tauri logic.",
+        "Run the packaged-safe setup source so .env/bootstrap state comes from the resolved packaged runtime root, not duplicate Tauri logic.",
     },
     {
       id: PHASE_STEP_MAP["compose-up"],
       label: "Starting local services",
       description:
-        "Bring the existing Docker Compose stack up from the packaged-safe runtime home.",
+        "Bring the existing Docker Compose stack up from the Docker-compatible packaged runtime root.",
     },
     {
       id: PHASE_STEP_MAP.readiness,
@@ -340,6 +344,15 @@ export default function BootstrapGate({
               >
                 Docker was found, but this packaged Finder launch could not invoke
                 it with the current macOS subprocess environment.
+              </p>
+            )}
+            {packagedMountPathFailure && (
+              <p
+                className="max-w-3xl text-xs uppercase tracking-[0.12em] sm:text-[13px]"
+                style={{ color: "var(--danger-text, #fca5a5)" }}
+              >
+                Docker Desktop rejected the packaged runtime root mount path during
+                Compose startup.
               </p>
             )}
             {packaged && (
