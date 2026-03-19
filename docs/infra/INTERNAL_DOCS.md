@@ -1,4 +1,7 @@
 # 🧠 Codexify Internal Architecture
+> Legacy notice
+> This document is retained for historical context and does not describe Codexify's current runtime architecture, supported install path, or present product identity.
+> Before using any documentation for architecture or diagram work, read `/docs/architecture/kb-validity-matrix.md`. For current runtime truth, start with `/docs/architecture/README.md` and `/docs/architecture/00-current-state.md`.
 
 This document details the internal architecture and self-awareness capabilities of the Codexify system. It serves as both documentation for developers and a reference for the system's own understanding of its capabilities.
 
