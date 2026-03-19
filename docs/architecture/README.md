@@ -40,6 +40,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, run commands, health checks, logging, and debugging cues.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
 - [Runtime Diagrams v1](./runtime-diagrams-v1.md): first-pass current runtime diagram pack derived only from the validated runtime source set.
+- [UI Diagrams v1](./ui-diagrams-v1.md): first-pass UI diagram pack derived only from the validated UI canon source set.
 - [Roadmap Signals](./roadmap-signals.md): derived planning constraints, refactor leverage points, and sequencing suggestions.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed risk register.
 - [Completion Pipeline](./completion_pipeline.md): older deep dive on completion internals; treat as supplementary and verify against current routes/workers.
