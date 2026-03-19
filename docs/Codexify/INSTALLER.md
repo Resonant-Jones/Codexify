@@ -1,4 +1,7 @@
 # Bundled Installer
+> Legacy notice
+> This document is retained for historical context and does not describe Codexify's current runtime architecture, supported install path, or present product identity.
+> Before using any documentation for architecture or diagram work, read `/docs/architecture/kb-validity-matrix.md`. For current runtime truth, start with `/docs/architecture/README.md` and `/docs/architecture/00-current-state.md`.
 
 This project can be distributed as a single installer bundling Codexify and required Ollama models.
 
