@@ -18,9 +18,10 @@ import {
   createStartingLocalServicesState,
   createWaitingForReadyState,
   formatBootstrapStepResult,
-  formatRuntimeHealthCheckResult,
+  formatRuntimeReadinessResult,
   hasDismissedWelcomeScreen,
   mapRuntimePreflightFailureToState,
+  mapRuntimeReadinessFailureToState,
   openDockerDesktopDownloadPage,
   runComposeUp,
   runRuntimeBootstrapPreflight,
@@ -142,9 +143,10 @@ function WelcomeScreen({ onEnter }: { onEnter: () => void }) {
               className="max-w-xl text-sm leading-6 sm:text-[15px]"
               style={{ color: "var(--muted)" }}
             >
-              The local setup step completed, Docker Compose is up, and the
-              runtime health checks are green. Enter when you want the full
-              workspace surface to become interactive.
+              The backend process is reachable, startup has completed, Redis
+              and chat health are green, and the local beta readiness contract
+              is satisfied. Enter when you want the full workspace surface to
+              become interactive.
             </p>
           </div>
 
@@ -209,7 +211,8 @@ function WelcomeScreen({ onEnter }: { onEnter: () => void }) {
                 style={{ color: "var(--text)" }}
               >
                 This welcome screen is dismissed per local profile so repeat
-                launches can go straight to the workspace once startup is green.
+                launches can go straight to the workspace once the local beta
+                loop is green.
               </p>
             </div>
           </div>
@@ -521,14 +524,19 @@ export default function App() {
           if (runId !== bootstrapRunRef.current) return;
           const liveDetail = appendBootstrapDetail(
             detail,
-            formatRuntimeHealthCheckResult(healthResult),
+            formatRuntimeReadinessResult(healthResult),
             `Readiness probe ${attempt}`
           );
           setBootstrapState(
-            createWaitingForReadyState(preflight, liveDetail, {
-              ...stepResults,
-              "health-check": healthResult,
-            })
+            createWaitingForReadyState(
+              preflight,
+              liveDetail,
+              {
+                ...stepResults,
+                "health-check": healthResult,
+              },
+              healthResult
+            )
           );
         },
       });
@@ -540,7 +548,7 @@ export default function App() {
         "health-check": readiness.lastCheck,
       };
       detail = appendDiagnostics(
-        formatRuntimeHealthCheckResult(readiness.lastCheck),
+        formatRuntimeReadinessResult(readiness.lastCheck),
         readiness.ok
           ? `Readiness succeeded after ${readiness.attempts} probe(s) in ${Math.round(
               readiness.elapsedMs / 1000
@@ -552,21 +560,23 @@ export default function App() {
 
       if (!readiness.ok) {
         setBootstrapState(
-          createFailedRuntimeBootstrapState({
-            title: "Codexify did not become ready in time",
-            message:
-              "Docker Compose started, but the runtime health checks never reached a usable state. Retry to rerun setup, compose startup, and readiness from the beginning.",
-            detail,
-            failureKind: "health-check-failed",
+          mapRuntimeReadinessFailureToState(
             preflight,
-            stepResults,
-          })
+            readiness.lastCheck,
+            detail,
+            stepResults
+          )
         );
         return;
       }
 
       setBootstrapState(
-        createReadyForWelcomeState(preflight, detail, stepResults)
+        createReadyForWelcomeState(
+          preflight,
+          detail,
+          stepResults,
+          readiness.lastCheck
+        )
       );
       advanceToWelcomeOrWorkspace(runId);
     },

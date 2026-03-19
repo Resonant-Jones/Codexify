@@ -194,9 +194,9 @@ export default function BootstrapGate({
     },
     {
       id: PHASE_STEP_MAP.readiness,
-      label: "Waiting for Codexify to become ready",
+      label: "Waiting for local beta runtime",
       description:
-        "Poll the real backend health/readiness surfaces until the stack is genuinely usable.",
+        "Poll /ping, /health, /health/chat, and /health/llm until the supported local beta loop is genuinely usable.",
     },
   ] as const;
 
@@ -328,7 +328,7 @@ export default function BootstrapGate({
             )}
             {state.status === "ready-for-welcome" && (
               <p className="text-sm" style={{ color: "var(--muted)" }}>
-                Runtime checks are green. Opening the welcome screen next.
+                Local beta readiness checks are green. Opening the welcome screen next.
               </p>
             )}
           </div>

@@ -22,6 +22,7 @@ pub fn run() {
             commands::desktop_runtime_preflight_check,
             commands::desktop_run_setup_cli,
             commands::desktop_compose_up,
+            commands::desktop_runtime_readiness_check,
             commands::desktop_runtime_health_check
         ])
         .run(tauri::generate_context!())
