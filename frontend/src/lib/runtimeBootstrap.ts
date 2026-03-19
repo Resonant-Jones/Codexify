@@ -182,8 +182,9 @@ function normalizeFailureKind(value: unknown): string | undefined {
     case "repo-runtime-missing":
       return "packaged-runtime-assets-missing";
     case "docker-binary-not-found":
-    case "docker-cli-invocation-failed":
       return "docker-cli-unavailable";
+    case "docker-cli-invocation-failed":
+      return "docker-cli-execution-failed";
     case "docker-daemon-unreachable":
       return "docker-daemon-unavailable";
     default:
@@ -626,6 +627,37 @@ export function mapRuntimePreflightFailureToState(
     );
   }
 
+  if (
+    preflight.failureKind ===
+    "docker-cli-found-but-unusable-from-packaged-context"
+  ) {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged app could not execute Docker",
+      "Codexify found a Docker installation, but this Finder-launched packaged app could not execute the Docker CLI cleanly from the current macOS launch context. The workspace stayed locked instead of pretending Docker is ready.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "docker-cli-execution-failed") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Docker CLI execution failed",
+      "Codexify found Docker, but the Docker CLI could not be executed successfully from the current app context. Retry first, then inspect the technical details below before reinstalling Docker Desktop.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
   if (!preflight.dockerCliInstalled || preflight.failureKind === "docker-cli-unavailable") {
     return buildRuntimeBootstrapState(
       "docker-missing",
@@ -863,9 +895,27 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
 
   if (failureKind === "docker-cli-unavailable") {
     return {
-      title: "Docker is unavailable",
+      title: "Docker Desktop is required",
       message:
         "Codexify could not find a usable Docker CLI or Compose entrypoint on this machine. Install or repair Docker Desktop, then retry.",
+    };
+  }
+
+  if (failureKind === "docker-cli-execution-failed") {
+    return {
+      title: "Docker CLI execution failed",
+      message:
+        "Codexify found Docker, but the CLI could not be executed successfully from the current app context. Retry first, then inspect the technical details below before reinstalling Docker Desktop.",
+    };
+  }
+
+  if (
+    failureKind === "docker-cli-found-but-unusable-from-packaged-context"
+  ) {
+    return {
+      title: "Packaged app could not execute Docker",
+      message:
+        "Codexify found Docker on this machine, but this Finder-launched packaged app could not execute it correctly from the current macOS launch context. The workspace stayed locked instead of telling you to reinstall Docker Desktop.",
     };
   }
 
@@ -956,6 +1006,15 @@ export function getBootstrapRecoveryActions(
 
   if (state.status === "docker-not-running") {
     return ["retry", "open-docker"];
+  }
+
+  const failureKind = stateFailureKind(state);
+
+  if (
+    failureKind === "docker-cli-execution-failed" ||
+    failureKind === "docker-cli-found-but-unusable-from-packaged-context"
+  ) {
+    return ["retry"];
   }
 
   if (stage === "setup") {
