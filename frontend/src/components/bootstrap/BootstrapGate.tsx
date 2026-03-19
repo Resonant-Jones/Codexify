@@ -60,6 +60,8 @@ const PREFLIGHT_FAILURE_KINDS = new Set([
   "runtime-path-unavailable",
   "repo-runtime-missing",
   "docker-cli-unavailable",
+  "docker-cli-execution-failed",
+  "docker-cli-found-but-unusable-from-packaged-context",
   "docker-compose-unavailable",
   "docker-daemon-unavailable",
   "docker-missing",
@@ -220,6 +222,9 @@ export default function BootstrapGate({
     state.status === "starting-local-services" ||
     state.status === "waiting-for-ready";
   const actionsBusy = isBusy || openingDocker || restartingServices;
+  const failureKind = state.failureKind ?? state.preflight?.failureKind;
+  const packagedDockerContextFailure =
+    failureKind === "docker-cli-found-but-unusable-from-packaged-context";
 
   const handleInstallDocker = React.useCallback(async () => {
     setOpeningInstallPage(true);
@@ -326,6 +331,15 @@ export default function BootstrapGate({
             >
               {displayCopy.message}
             </p>
+            {packagedDockerContextFailure && (
+              <p
+                className="max-w-3xl text-xs uppercase tracking-[0.12em] sm:text-[13px]"
+                style={{ color: "var(--danger-text, #fca5a5)" }}
+              >
+                Docker was found, but this packaged Finder launch could not invoke
+                it with the current macOS subprocess environment.
+              </p>
+            )}
             {packaged && (
               <div
                 className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em]"
