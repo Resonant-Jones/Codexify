@@ -33,6 +33,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 
 ## Doc Map
 
+- [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 - [System Overview](./system-overview.md): runtime components, topology, and critical paths.
 - [Critical Flows](./flows.md): step-by-step operational flows with Mermaid diagrams and failure modes.
