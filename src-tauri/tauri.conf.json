@@ -27,6 +27,8 @@
     "active": true,
     "targets": ["app", "dmg"],
     "resources": {
+      "../.env.example": ".env.example",
+      "../.env.template": ".env.template",
       "../backend": "backend",
       "../docker": "docker",
       "../docker-compose.yml": "docker-compose.yml",

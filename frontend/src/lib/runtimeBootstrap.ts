@@ -177,10 +177,6 @@ function normalizeFailureKind(value: unknown): string | undefined {
   }
 
   switch (normalized) {
-    case "runtime-path-unavailable":
-      return "runtime-home-unavailable";
-    case "repo-runtime-missing":
-      return "packaged-runtime-assets-missing";
     case "docker-binary-not-found":
       return "docker-cli-unavailable";
     case "docker-cli-invocation-failed":
@@ -589,7 +585,7 @@ export function mapRuntimePreflightFailureToState(
     return buildRuntimeBootstrapState(
       "failed",
       "Packaged runtime assets are missing",
-      "This packaged build could not find the bundled runtime source it needs to materialize setup, Compose, and recovery assets into the user profile runtime home.",
+      "This packaged build is missing the bundled runtime payload it needs to materialize setup, Compose, and recovery assets into the user-scoped runtime home.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -603,7 +599,49 @@ export function mapRuntimePreflightFailureToState(
     return buildRuntimeBootstrapState(
       "failed",
       "Packaged runtime materialization failed",
-      "Codexify found the packaged runtime payload, but it could not finish copying the required bootstrap assets into the runtime home safely.",
+      "Codexify found the packaged runtime payload, but it could not finish first-run materialization of the runtime attachment into the user-scoped runtime home safely.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "packaged-runtime-assets-corrupt") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged runtime assets are missing or corrupt",
+      "Codexify created the packaged runtime home, but the materialized attachment is incomplete or corrupt, so startup stayed locked instead of running against partial assets.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "repo-runtime-missing") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Repo-attached runtime is missing",
+      "The development desktop shell could not resolve the repo-attached Codexify runtime from this checkout, so startup stayed locked instead of guessing at local paths.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "runtime-path-unavailable") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Startup path is unavailable",
+      "Codexify could not determine a safe native startup path, so it kept the workspace locked instead of guessing at local runtime state.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -873,7 +911,7 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Packaged runtime assets are missing",
       message:
-        "This packaged build could not find the bundled runtime source it needs to materialize setup, Compose, and recovery assets into the runtime home.",
+        "This packaged build is missing the bundled runtime payload it needs to materialize setup, Compose, and recovery assets into the runtime home.",
     };
   }
 
@@ -881,7 +919,15 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Packaged runtime materialization failed",
       message:
-        "Codexify found the packaged runtime payload, but it could not safely copy the required bootstrap assets into the runtime home.",
+        "Codexify found the packaged runtime payload, but it could not finish first-run materialization of the runtime attachment into the runtime home.",
+    };
+  }
+
+  if (failureKind === "packaged-runtime-assets-corrupt") {
+    return {
+      title: "Packaged runtime assets are missing or corrupt",
+      message:
+        "Codexify created the packaged runtime home, but the materialized runtime attachment is incomplete or corrupt, so startup stayed locked instead of running against partial assets.",
     };
   }
 
@@ -932,6 +978,14 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
       title: "Codexify could not inspect the packaged startup path",
       message:
         "The packaged desktop shell could not determine a safe runtime path, so it kept the workspace locked instead of guessing at local state. Retry once, then relaunch the produced Codexify.app if this keeps happening.",
+    };
+  }
+
+  if (failureKind === "repo-runtime-missing") {
+    return {
+      title: "Repo-attached runtime is missing",
+      message:
+        "The development desktop shell could not resolve the repo-attached Codexify runtime from this checkout, so startup stayed locked instead of guessing at local paths.",
     };
   }
 
@@ -1076,7 +1130,17 @@ export function createBootstrapSupportNoticeFromLogResult(
       kind: "logs-unavailable",
       title: "Packaged runtime materialization failed",
       message:
-        "Codexify found the packaged runtime payload, but it could not finish copying it into the runtime home, so logs are unavailable.",
+        "Codexify found the packaged runtime payload, but it could not finish first-run materialization into the runtime home, so logs are unavailable.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-runtime-assets-corrupt") {
+    return {
+      kind: "logs-unavailable",
+      title: "Packaged runtime assets are missing or corrupt",
+      message:
+        "Codexify found the packaged runtime home, but the materialized attachment is incomplete or corrupt, so it did not attempt to read Compose logs.",
       detail: result.detail,
     };
   }
@@ -1097,6 +1161,16 @@ export function createBootstrapSupportNoticeFromLogResult(
       title: "Runtime path is unavailable",
       message:
         "Codexify could not determine a safe local runtime path, so it did not attempt to read Compose logs.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "repo-runtime-missing") {
+    return {
+      kind: "logs-unavailable",
+      title: "Repo-attached runtime is missing",
+      message:
+        "The development desktop shell could not resolve the repo-attached Codexify runtime from this checkout, so it did not attempt to read Compose logs.",
       detail: result.detail,
     };
   }
@@ -1153,7 +1227,17 @@ export function createBootstrapSupportNoticeFromRestartResult(
       kind: "restart-services-failed",
       title: "Packaged runtime materialization failed",
       message:
-        "Codexify found the packaged runtime payload, but it could not finish copying it into the runtime home, so service restart is unavailable.",
+        "Codexify found the packaged runtime payload, but it could not finish first-run materialization into the runtime home, so service restart is unavailable.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "packaged-runtime-assets-corrupt") {
+    return {
+      kind: "restart-services-failed",
+      title: "Packaged runtime assets are missing or corrupt",
+      message:
+        "Codexify found the packaged runtime home, but the materialized attachment is incomplete or corrupt, so service restart stayed locked.",
       detail: result.detail,
     };
   }
@@ -1174,6 +1258,16 @@ export function createBootstrapSupportNoticeFromRestartResult(
       title: "Runtime path is unavailable",
       message:
         "Codexify could not determine a safe local runtime path, so it did not attempt a service restart.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "repo-runtime-missing") {
+    return {
+      kind: "restart-services-failed",
+      title: "Repo-attached runtime is missing",
+      message:
+        "The development desktop shell could not resolve the repo-attached Codexify runtime from this checkout, so it did not attempt a service restart.",
       detail: result.detail,
     };
   }
