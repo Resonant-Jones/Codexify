@@ -1819,16 +1819,18 @@ export default function AppShell({
               <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
             </>
           )}
-          {!startupLocked && view === "guardian" && (
+          {!startupLocked && (
             <div
               className="flex-1 h-full w-full min-h-0 isolate flex flex-col"
+              aria-hidden={view !== "guardian"}
+              hidden={view !== "guardian"}
               style={{
                 "--frame": "1px",
                 "--bezel": "var(--bezel, 6px)",
                 "--rim": "1px",
                 height: "100%",
                 width: "100%",
-                display: "flex",
+                display: view === "guardian" ? "flex" : "none",
                 flexDirection: "column",
               } as React.CSSProperties}
             >

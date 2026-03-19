@@ -303,6 +303,7 @@ export default function App() {
   const autoBootstrapStartedRef = React.useRef(false);
   const latestPreflightRef = React.useRef<RuntimePreflight | null>(null);
   const diagnosticsRef = React.useRef<string | undefined>(undefined);
+  const appShell = React.useMemo(() => <AppShell />, []);
 
   const handleDocGenSubmit = React.useCallback(
     async (input: DocumentGenInput) => {
@@ -708,7 +709,7 @@ export default function App() {
 
   return (
     <>
-      <AppShell />
+      {appShell}
       <div className="fixed bottom-6 right-6 z-[1200]">
         <Button
           type="button"
