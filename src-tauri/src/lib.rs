@@ -15,6 +15,7 @@ pub fn run() {
             }
             let handle = app.handle().clone();
             let bootstrap_runtime = commands::resolve_bootstrap_runtime(&handle);
+            commands::prime_packaged_docker_environment(&bootstrap_runtime);
             app.manage(bootstrap_runtime);
             Ok(())
         })
