@@ -61,19 +61,28 @@ The bootstrap sequence is unchanged:
 5. welcome
 6. unlock
 
-This task only changed where packaged mode resolves runtime assets and paths from.
+This slice changes what packaged startup does after preflight and how later phases resolve their inputs:
+
+- packaged setup no longer shells out through the repo-oriented Python setup path
+- packaged setup now writes the runtime `.env` natively inside the materialized runtime home
+- packaged Compose commands now run with explicit `--file`, `--project-directory`, and `CODEXIFY_RUNTIME_ENV_FILE` values rooted in the packaged runtime home
+- packaged setup/compose/log/restart commands validate the materialized runtime home before they run instead of assuming repo-root semantics
 
 ## Packaged failure classification
 
 Packaged bootstrap now distinguishes these failure modes:
 
-- `runtime-home-unavailable`
+- `packaged-runtime-home-unusable`
 - `packaged-runtime-assets-missing`
+- `packaged-runtime-assets-invalid`
 - `packaged-runtime-materialization-failed`
 - `docker-cli-unavailable`
 - `docker-cli-execution-failed`
 - `docker-cli-found-but-unusable-from-packaged-context`
 - `docker-daemon-unavailable`
+- `packaged-setup-failed`
+- `packaged-compose-up-failed`
+- `packaged-readiness-failed`
 - `packaged-bootstrap-unsupported`
 - `unexpected-execution-error`
 
@@ -93,7 +102,8 @@ This packaged runtime model is still a beta attachment model, not a full public-
 Known limitations:
 
 - the packaged app still requires Docker Desktop and a reachable Docker daemon
-- Finder-launched packaged startup depends on Codexify reconstructing a Docker-safe subprocess environment; if macOS still blocks CLI execution in that context, bootstrap stays locked and classifies `docker-cli-found-but-unusable-from-packaged-context`
+- Docker Desktop must be configured to share `~/Library/Application Support/Codexify` (or the equivalent packaged runtime home). Without that file-sharing allowance, packaged `compose up` fails when Docker tries to mount `backend`, `guardian`, `docker`, and related runtime-home paths.
+- Finder-launched packaged startup still depends on Codexify reconstructing a Docker-safe subprocess environment; if macOS blocks CLI execution in that context, bootstrap stays locked and classifies `docker-cli-found-but-unusable-from-packaged-context`
 - the app bundle must contain the packaged runtime payload listed above
 - model weights are not bundled by this slice
 - signing and notarization automation are still not part of this task
@@ -108,8 +118,9 @@ On this machine, the packaged app now:
 - resolves and creates the user-scoped runtime home at `~/Library/Application Support/Codexify`
 - materializes the packaged runtime payload into that directory
 - writes the packaged runtime marker at `.codexify-packaged-runtime`
-- reaches packaged Docker preflight with the hardened packaged subprocess environment
-- resolves Docker successfully from the packaged-safe probe path on this machine
+- keeps the workspace locked unless setup, Compose, and readiness truly succeed
+- classifies packaged setup/compose/readiness failures separately instead of collapsing them into a generic bootstrap error
+- writes packaged setup state into the runtime home instead of assuming a repo checkout or a repo-local virtualenv
 
 Validated packaged Docker probe shape:
 
@@ -124,7 +135,16 @@ Validated direct packaged-safe probe results on this machine:
 - `docker compose version`: success
 - `docker info --format '{{json .ServerVersion}}'`: success
 
-That means the packaged Docker preflight classification now reaches `installed and usable` on this machine instead of failing early as "Docker Desktop is required".
+Validated post-preflight packaged startup behavior in this slice:
+
+- native packaged setup can materialize the runtime `.env` contract inside `~/Library/Application Support/Codexify`
+- packaged Compose startup now resolves its compose file, project directory, and env file from the runtime home instead of the repo root
+- the next concrete blocker on this machine is `packaged-compose-up-failed` when Docker Desktop rejects mounts under `~/Library/Application Support/Codexify` because that path is not shared in Docker Desktop file sharing
+
+Current end-to-end status on this machine:
+
+- welcome/unlock is not yet reached from the packaged artifact
+- the bootstrap should remain locked and surface the compose-stage failure truthfully instead of pretending the runtime is ready
 
 ## Production build command
 
@@ -159,12 +179,13 @@ This task does not add signing or notarization automation.
 
 ## Release posture
 
-The DMG now reaches packaged Docker preflight successfully on this machine, but it remains a technical preview artifact rather than a public beta.
+The DMG remains an internal-only artifact rather than a developer beta or public beta.
 
 Reason:
 
 - it is not signed or notarized
-- packaged startup still depends on local Docker Desktop availability
+- packaged startup still depends on local Docker Desktop availability and Docker Desktop file-sharing configuration for the packaged runtime home
+- this validation did not reach welcome/unlock end to end from the packaged artifact
 - the runtime payload is local-materialized, not fully self-contained
 
 ## Packaged startup expectations
