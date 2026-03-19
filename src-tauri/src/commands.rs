@@ -1,6 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
@@ -17,8 +17,9 @@ const NORMALIZED_DOCKER_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/Applicat
 const BOOTSTRAP_LOG_TAIL_LINES: &str = "200";
 const BOOTSTRAP_LOG_SERVICES: [&str; 5] = ["backend", "worker-chat", "db", "redis", "migrator"];
 const BOOTSTRAP_RESTART_SERVICES: [&str; 5] = ["db", "redis", "migrator", "backend", "worker-chat"];
-const FAILURE_KIND_RUNTIME_HOME_UNAVAILABLE: &str = "runtime-home-unavailable";
+const FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE: &str = "packaged-runtime-home-unusable";
 const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_MISSING: &str = "packaged-runtime-assets-missing";
+const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_INVALID: &str = "packaged-runtime-assets-invalid";
 const FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED: &str =
     "packaged-runtime-materialization-failed";
 const FAILURE_KIND_DOCKER_CLI_UNAVAILABLE: &str = "docker-cli-unavailable";
@@ -29,11 +30,19 @@ const FAILURE_KIND_DOCKER_DAEMON_UNAVAILABLE: &str = "docker-daemon-unavailable"
 const FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE: &str = "runtime-path-unavailable";
 const FAILURE_KIND_REPO_RUNTIME_MISSING: &str = "repo-runtime-missing";
 const FAILURE_KIND_PACKAGED_BOOTSTRAP_UNSUPPORTED: &str = "packaged-bootstrap-unsupported";
+const FAILURE_KIND_SETUP_FAILED: &str = "setup-failed";
+const FAILURE_KIND_PACKAGED_SETUP_FAILED: &str = "packaged-setup-failed";
+const FAILURE_KIND_COMPOSE_UP_FAILED: &str = "compose-up-failed";
+const FAILURE_KIND_PACKAGED_COMPOSE_UP_FAILED: &str = "packaged-compose-up-failed";
+const FAILURE_KIND_READINESS_FAILED: &str = "readiness-failed";
+const FAILURE_KIND_PACKAGED_READINESS_FAILED: &str = "packaged-readiness-failed";
 const FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR: &str = "unexpected-execution-error";
 const RUNTIME_CONTEXT_DEVELOPMENT: &str = "development";
 const RUNTIME_CONTEXT_PACKAGED: &str = "packaged";
 const PACKAGED_RUNTIME_HOME_DIRNAME: &str = "Codexify";
 const PACKAGED_RUNTIME_MARKER_FILENAME: &str = ".codexify-packaged-runtime";
+const PACKAGED_SETUP_DEFAULT_NEO4J_USER: &str = "neo4j";
+const PACKAGED_SETUP_DEFAULT_NEO4J_PASS: &str = "codexify";
 const PACKAGED_RUNTIME_REQUIRED_ASSETS: [&str; 12] = [
     "backend",
     "backend/requirements.txt",
@@ -48,11 +57,8 @@ const PACKAGED_RUNTIME_REQUIRED_ASSETS: [&str; 12] = [
     "scripts",
     "tests",
 ];
-const PACKAGED_RUNTIME_PLACEHOLDER_DIRS: [&str; 3] = [
-    "models",
-    "models/bge-large-en-v1.5",
-    ".chroma",
-];
+const PACKAGED_RUNTIME_PLACEHOLDER_DIRS: [&str; 3] =
+    ["models", "models/bge-large-en-v1.5", ".chroma"];
 
 #[cfg(target_os = "macos")]
 const MACOS_DOCKER_APP_BUNDLE: &str = "/Applications/Docker.app";
@@ -148,6 +154,16 @@ pub struct RuntimeReadiness {
     pub llm_ready: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_home: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     pub checks: Vec<HealthEndpointCheck>,
@@ -389,14 +405,47 @@ struct BootstrapRuntimeMaterializationError {
     detail: String,
 }
 
+#[derive(Debug)]
+struct BootstrapRuntimeValidationError {
+    failure_kind: &'static str,
+    detail: String,
+}
+
+#[derive(Debug)]
+struct ComposeInvocation {
+    project_directory: PathBuf,
+    compose_file: PathBuf,
+    runtime_env_file: PathBuf,
+}
+
+fn phase_failure_kind(
+    runtime: &BootstrapRuntime,
+    packaged_kind: &'static str,
+    development_kind: &'static str,
+) -> &'static str {
+    if runtime.packaged {
+        packaged_kind
+    } else {
+        development_kind
+    }
+}
+
+fn runtime_env_file_path(runtime_root: &Path) -> PathBuf {
+    runtime_root.join(".env")
+}
+
 fn path_exists(path: &Path) -> bool {
     path.exists()
 }
 
 fn copy_file_to_runtime(source: &Path, destination: &Path) -> Result<(), String> {
     if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("Failed to create runtime parent {}: {err}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|err| {
+            format!(
+                "Failed to create runtime parent {}: {err}",
+                parent.display()
+            )
+        })?;
     }
 
     fs::copy(source, destination).map_err(|err| {
@@ -423,7 +472,10 @@ fn copy_dir_all(source: &Path, destination: &Path) -> Result<(), String> {
     })?;
 
     for entry in fs::read_dir(source).map_err(|err| {
-        format!("Failed to read resource directory {}: {err}", source.display())
+        format!(
+            "Failed to read resource directory {}: {err}",
+            source.display()
+        )
     })? {
         let entry = entry.map_err(|err| {
             format!(
@@ -477,7 +529,7 @@ fn materialize_packaged_runtime_assets(
     ];
 
     fs::create_dir_all(runtime_root).map_err(|err| BootstrapRuntimeMaterializationError {
-        failure_kind: FAILURE_KIND_RUNTIME_HOME_UNAVAILABLE,
+        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
         detail: join_lines(vec![
             "Packaged runtime home is unavailable.".to_string(),
             format!("runtimeHome={}", runtime_root.display()),
@@ -487,15 +539,17 @@ fn materialize_packaged_runtime_assets(
 
     for placeholder in PACKAGED_RUNTIME_PLACEHOLDER_DIRS {
         let placeholder_path = runtime_root.join(placeholder);
-        fs::create_dir_all(&placeholder_path).map_err(|err| BootstrapRuntimeMaterializationError {
-            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
-            detail: join_lines(vec![
+        fs::create_dir_all(&placeholder_path).map_err(|err| {
+            BootstrapRuntimeMaterializationError {
+                failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+                detail: join_lines(vec![
                 "Packaged runtime materialization failed while creating placeholder directories."
                     .to_string(),
                 format!("runtimeHome={}", runtime_root.display()),
                 format!("placeholder={}", placeholder_path.display()),
                 format!("error={err}"),
             ]),
+            }
         })?;
     }
 
@@ -508,14 +562,16 @@ fn materialize_packaged_runtime_assets(
             continue;
         }
 
-        let metadata = fs::metadata(&source_path).map_err(|err| BootstrapRuntimeMaterializationError {
-            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
-            detail: join_lines(vec![
-                "Packaged runtime materialization failed while inspecting a resource.".to_string(),
-                format!("resource={}", source_path.display()),
-                format!("error={err}"),
-            ]),
-        })?;
+        let metadata =
+            fs::metadata(&source_path).map_err(|err| BootstrapRuntimeMaterializationError {
+                failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+                detail: join_lines(vec![
+                    "Packaged runtime materialization failed while inspecting a resource."
+                        .to_string(),
+                    format!("resource={}", source_path.display()),
+                    format!("error={err}"),
+                ]),
+            })?;
 
         if metadata.is_dir() {
             copy_dir_all(&source_path, &destination_path).map_err(|detail| {
@@ -562,15 +618,17 @@ fn materialize_packaged_runtime_assets(
         format!("resourceRoot={}", resource_root.display()),
         format!("runtimeHome={}", runtime_root.display()),
     ]);
-    fs::write(&marker_path, marker_contents).map_err(|err| BootstrapRuntimeMaterializationError {
-        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
-        detail: join_lines(vec![
-            "Packaged runtime materialization failed while writing the runtime marker."
-                .to_string(),
-            format!("runtimeHome={}", runtime_root.display()),
-            format!("marker={}", marker_path.display()),
-            format!("error={err}"),
-        ]),
+    fs::write(&marker_path, marker_contents).map_err(|err| {
+        BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+            detail: join_lines(vec![
+                "Packaged runtime materialization failed while writing the runtime marker."
+                    .to_string(),
+                format!("runtimeHome={}", runtime_root.display()),
+                format!("marker={}", marker_path.display()),
+                format!("error={err}"),
+            ]),
+        }
     })?;
 
     detail_lines.push("materialization=complete".to_string());
@@ -662,6 +720,168 @@ fn normalize_output(bytes: &[u8]) -> Option<String> {
     }
 }
 
+fn parse_env_entry(raw: &str) -> Option<(String, String)> {
+    let line = raw.trim();
+    if line.is_empty() || line.starts_with('#') || !line.contains('=') {
+        return None;
+    }
+
+    let mut parts = line.splitn(2, '=');
+    let key = parts.next()?.trim().to_string();
+    let mut value = parts.next()?.trim().to_string();
+    if value.len() >= 2
+        && ((value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\'')))
+    {
+        value = value[1..value.len() - 1].to_string();
+    }
+
+    Some((key, value))
+}
+
+fn read_env_file_ordered(
+    env_path: &Path,
+) -> Result<(Vec<String>, BTreeMap<String, String>), String> {
+    let mut order = Vec::new();
+    let mut values = BTreeMap::new();
+    if !env_path.is_file() {
+        return Ok((order, values));
+    }
+
+    let contents = fs::read_to_string(env_path)
+        .map_err(|err| format!("Failed to read env file {}: {err}", env_path.display()))?;
+    for raw_line in contents.lines() {
+        if let Some((key, value)) = parse_env_entry(raw_line) {
+            if !order.iter().any(|existing| existing == &key) {
+                order.push(key.clone());
+            }
+            values.insert(key, value);
+        }
+    }
+
+    Ok((order, values))
+}
+
+fn sanitize_env_value(value: &str) -> String {
+    if value.contains(' ') || value.contains('#') {
+        format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        value.to_string()
+    }
+}
+
+fn push_ordered_key(order: &mut Vec<String>, key: &str) {
+    if !order.iter().any(|existing| existing == key) {
+        order.push(key.to_string());
+    }
+}
+
+fn generate_bootstrap_secret_hex(byte_len: usize) -> Result<String, String> {
+    let mut bytes = vec![0_u8; byte_len];
+    fs::File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .map_err(|err| format!("Failed to generate a packaged bootstrap secret: {err}"))?;
+    Ok(bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>())
+}
+
+#[derive(Debug)]
+struct PackagedSetupEnvResult {
+    env_path: PathBuf,
+    preserved_keys: Vec<String>,
+    generated_guardian_api_key: bool,
+    created_new_env_file: bool,
+}
+
+fn materialize_packaged_setup_env(
+    runtime_root: &Path,
+) -> Result<PackagedSetupEnvResult, BootstrapRuntimeValidationError> {
+    let env_path = runtime_env_file_path(runtime_root);
+    let (mut order, mut values) =
+        read_env_file_ordered(&env_path).map_err(|detail| BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+            detail,
+        })?;
+    let created_new_env_file = !env_path.exists();
+    let preserved_keys = values.keys().cloned().collect::<Vec<_>>();
+
+    let existing_guardian_api_key = values
+        .get("GUARDIAN_API_KEY")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let generated_guardian_api_key = existing_guardian_api_key.is_none();
+    let guardian_api_key = match existing_guardian_api_key {
+        Some(value) => value,
+        None => {
+            generate_bootstrap_secret_hex(32).map_err(|detail| BootstrapRuntimeValidationError {
+                failure_kind: FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR,
+                detail,
+            })?
+        }
+    };
+
+    values.insert("GUARDIAN_API_KEY".to_string(), guardian_api_key.clone());
+    values.insert("VITE_GUARDIAN_API_KEY".to_string(), guardian_api_key);
+
+    let defaults = [
+        ("GUARDIAN_AUTH_MODE", "local"),
+        ("CODEXIFY_DESKTOP_BACKEND_URL", "http://127.0.0.1:8888"),
+        ("CODEXIFY_DESKTOP_SHARE_BASE_URL", "http://127.0.0.1:5173"),
+        ("NEO4J_USER", PACKAGED_SETUP_DEFAULT_NEO4J_USER),
+        ("NEO4J_PASS", PACKAGED_SETUP_DEFAULT_NEO4J_PASS),
+    ];
+
+    for (key, default_value) in defaults {
+        let replace_value = values
+            .get(key)
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(true);
+        if replace_value {
+            values.insert(key.to_string(), default_value.to_string());
+        }
+        push_ordered_key(&mut order, key);
+    }
+    push_ordered_key(&mut order, "GUARDIAN_API_KEY");
+    push_ordered_key(&mut order, "VITE_GUARDIAN_API_KEY");
+
+    let mut lines = vec![
+        "# Generated by Codexify packaged setup".to_string(),
+        "# Safe to edit. Re-running packaged setup preserves existing keys and backfills required runtime values."
+            .to_string(),
+    ];
+    let mut written = HashSet::new();
+    for key in &order {
+        if let Some(value) = values.get(key) {
+            lines.push(format!("{key}={}", sanitize_env_value(value)));
+            written.insert(key.clone());
+        }
+    }
+    for (key, value) in &values {
+        if written.contains(key) {
+            continue;
+        }
+        lines.push(format!("{key}={}", sanitize_env_value(value)));
+    }
+    lines.push(String::new());
+
+    fs::write(&env_path, lines.join("\n")).map_err(|err| BootstrapRuntimeValidationError {
+        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+        detail: format!(
+            "Failed to write packaged env file {}: {err}",
+            env_path.display()
+        ),
+    })?;
+
+    Ok(PackagedSetupEnvResult {
+        env_path,
+        preserved_keys,
+        generated_guardian_api_key,
+        created_new_env_file,
+    })
+}
+
 fn render_probe_output(stdout: &[u8], stderr: &[u8]) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(stdout) = normalize_output(stdout) {
@@ -720,10 +940,7 @@ fn resolve_development_bootstrap_runtime() -> BootstrapRuntime {
 
     if let Some(override_root) = env::var_os("CODEXIFY_DESKTOP_REPO_ROOT") {
         let override_path = PathBuf::from(override_root);
-        detail_lines.push(format!(
-            "repoRootOverride={}",
-            override_path.display()
-        ));
+        detail_lines.push(format!("repoRootOverride={}", override_path.display()));
 
         if is_repo_runtime_root(&override_path) {
             detail_lines.push("repo root resolved from CODEXIFY_DESKTOP_REPO_ROOT.".to_string());
@@ -799,8 +1016,7 @@ fn resolve_development_bootstrap_runtime() -> BootstrapRuntime {
     }
 
     detail_lines.push(
-        "Unable to resolve the Codexify repo root from the active development runtime."
-            .to_string(),
+        "Unable to resolve the Codexify repo root from the active development runtime.".to_string(),
     );
     BootstrapRuntime::failure(
         RUNTIME_CONTEXT_DEVELOPMENT,
@@ -834,10 +1050,8 @@ fn resolve_packaged_bootstrap_runtime(
     let runtime_home = match app.path().data_dir() {
         Ok(data_dir) => data_dir.join(PACKAGED_RUNTIME_HOME_DIRNAME),
         Err(err) => {
-            detail_lines.push(
-                "The packaged app could not resolve a user-scoped runtime home."
-                    .to_string(),
-            );
+            detail_lines
+                .push("The packaged app could not resolve a user-scoped runtime home.".to_string());
             detail_lines.push(format!("runtimeHomeError={err}"));
             return BootstrapRuntime::failure(
                 RUNTIME_CONTEXT_PACKAGED,
@@ -846,7 +1060,7 @@ fn resolve_packaged_bootstrap_runtime(
                 None,
                 None,
                 None,
-                FAILURE_KIND_RUNTIME_HOME_UNAVAILABLE,
+                FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
                 join_lines(detail_lines),
             );
         }
@@ -857,8 +1071,7 @@ fn resolve_packaged_bootstrap_runtime(
         Ok(path) => path,
         Err(err) => {
             detail_lines.push(
-                "The packaged app could not resolve its bundled resource directory."
-                    .to_string(),
+                "The packaged app could not resolve its bundled resource directory.".to_string(),
             );
             detail_lines.push(format!("resourceRootError={err}"));
             return BootstrapRuntime::failure(
@@ -929,16 +1142,212 @@ pub fn resolve_bootstrap_runtime(app: &tauri::AppHandle) -> BootstrapRuntime {
     resolve_development_bootstrap_runtime()
 }
 
+fn resolve_runtime_root_for_step(
+    runtime: &BootstrapRuntime,
+    step: &str,
+) -> Result<PathBuf, BootstrapStepResult> {
+    match runtime.runtime_root_path() {
+        Some(path) => Ok(path.to_path_buf()),
+        None => Err(BootstrapStepResult {
+            ok: false,
+            step: step.to_string(),
+            detail: runtime.resolution_detail.clone(),
+            failure_kind: runtime.failure_kind.clone(),
+            runtime_context: Some(runtime.runtime_context.clone()),
+            repo_root: runtime.repo_root_display(),
+            runtime_home: runtime.runtime_home_display(),
+            packaged: Some(runtime.packaged),
+            command: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+        }),
+    }
+}
+
+fn validate_packaged_runtime(
+    runtime: &BootstrapRuntime,
+    step: &str,
+    required_assets: &[&str],
+) -> Result<(), BootstrapRuntimeValidationError> {
+    if !runtime.packaged {
+        return Ok(());
+    }
+
+    let runtime_root =
+        runtime
+            .runtime_root_path()
+            .ok_or_else(|| BootstrapRuntimeValidationError {
+                failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+                detail: join_lines(vec![
+                    format!("Packaged {step} could not resolve a usable runtime root."),
+                    format!("runtimeContext={}", runtime.runtime_context),
+                    format!("packaged={}", runtime.packaged),
+                    runtime
+                        .runtime_home
+                        .as_ref()
+                        .map(|path| format!("runtimeHome={}", path.display()))
+                        .unwrap_or_default(),
+                    runtime.resolution_detail.clone().unwrap_or_else(|| {
+                        "Packaged runtime resolution detail unavailable.".to_string()
+                    }),
+                ]),
+            })?;
+    let runtime_home = runtime
+        .runtime_home
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| runtime_root.to_path_buf());
+
+    fs::create_dir_all(&runtime_home).map_err(|err| BootstrapRuntimeValidationError {
+        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+        detail: join_lines(vec![
+            format!("Packaged {step} could not use the packaged runtime home."),
+            format!("runtimeRoot={}", runtime_root.display()),
+            format!("runtimeHome={}", runtime_home.display()),
+            format!("error={err}"),
+        ]),
+    })?;
+
+    if !runtime_home.is_dir() {
+        return Err(BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+            detail: join_lines(vec![
+                format!("Packaged {step} expected a directory-backed runtime home."),
+                format!("runtimeRoot={}", runtime_root.display()),
+                format!("runtimeHome={}", runtime_home.display()),
+            ]),
+        });
+    }
+
+    let marker_path = runtime_root.join(PACKAGED_RUNTIME_MARKER_FILENAME);
+    let mut invalid_assets = Vec::new();
+    if !marker_path.is_file() {
+        invalid_assets.push(PACKAGED_RUNTIME_MARKER_FILENAME.to_string());
+    }
+    for relative_path in required_assets {
+        let candidate = runtime_root.join(relative_path);
+        if !candidate.exists() {
+            invalid_assets.push(relative_path.to_string());
+        }
+    }
+
+    if !invalid_assets.is_empty() {
+        return Err(BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_INVALID,
+            detail: join_lines(vec![
+                format!(
+                    "Packaged {step} found an incomplete or invalid materialized runtime payload."
+                ),
+                format!("runtimeRoot={}", runtime_root.display()),
+                format!("runtimeHome={}", runtime_home.display()),
+                format!("invalidAssets={}", invalid_assets.join(",")),
+            ]),
+        });
+    }
+
+    Ok(())
+}
+
+fn resolve_compose_invocation(
+    runtime: &BootstrapRuntime,
+) -> Result<ComposeInvocation, BootstrapRuntimeValidationError> {
+    let runtime_root =
+        runtime
+            .runtime_root_path()
+            .ok_or_else(|| BootstrapRuntimeValidationError {
+                failure_kind: if runtime.packaged {
+                    FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE
+                } else {
+                    FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE
+                },
+                detail: runtime
+                    .resolution_detail
+                    .clone()
+                    .unwrap_or_else(|| "Compose runtime root is unavailable.".to_string()),
+            })?;
+
+    if runtime.packaged {
+        validate_packaged_runtime(
+            runtime,
+            "compose startup",
+            &["docker-compose.yml", "backend", "guardian", "docker"],
+        )?;
+    }
+
+    let compose_file = runtime_root.join("docker-compose.yml");
+    if !compose_file.is_file() {
+        return Err(BootstrapRuntimeValidationError {
+            failure_kind: if runtime.packaged {
+                FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_INVALID
+            } else {
+                FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE
+            },
+            detail: join_lines(vec![
+                "Docker Compose file is unavailable for bootstrap orchestration.".to_string(),
+                format!("runtimeRoot={}", runtime_root.display()),
+                format!("composeFile={}", compose_file.display()),
+            ]),
+        });
+    }
+
+    Ok(ComposeInvocation {
+        project_directory: runtime_root.to_path_buf(),
+        compose_file,
+        runtime_env_file: runtime_env_file_path(runtime_root),
+    })
+}
+
 fn build_context_lines(label: &str, binary: &ResolvedDockerBinary) -> Vec<String> {
     let mut lines = vec![format!("{label}:"), format!("binary: {}", binary.display)];
     lines.extend(build_docker_environment_lines(&binary.environment));
     lines
 }
 
-fn spawn_docker_command(binary: &ResolvedDockerBinary, args: &[&str]) -> Command {
+fn spawn_docker_base_command(binary: &ResolvedDockerBinary) -> Command {
     let mut command = Command::new(&binary.command);
-    command.args(args);
     apply_docker_command_environment(&mut command, &binary.environment);
+    command
+}
+
+fn spawn_docker_command(binary: &ResolvedDockerBinary, args: &[&str]) -> Command {
+    let mut command = spawn_docker_base_command(binary);
+    command.args(args);
+    command
+}
+
+fn compose_command_display(
+    binary: &ResolvedDockerBinary,
+    invocation: &ComposeInvocation,
+    extra_args: &[&str],
+) -> String {
+    let mut parts = vec![
+        binary.display.clone(),
+        "compose".to_string(),
+        "--file".to_string(),
+        invocation.compose_file.display().to_string(),
+        "--project-directory".to_string(),
+        invocation.project_directory.display().to_string(),
+    ];
+    parts.extend(extra_args.iter().map(|arg| arg.to_string()));
+    parts.join(" ")
+}
+
+fn spawn_compose_command(
+    binary: &ResolvedDockerBinary,
+    invocation: &ComposeInvocation,
+    extra_args: &[&str],
+) -> Command {
+    let mut command = spawn_docker_base_command(binary);
+    command
+        .arg("compose")
+        .arg("--file")
+        .arg(&invocation.compose_file)
+        .arg("--project-directory")
+        .arg(&invocation.project_directory)
+        .env("CODEXIFY_RUNTIME_ENV_FILE", &invocation.runtime_env_file)
+        .args(extra_args)
+        .current_dir(&invocation.project_directory);
     command
 }
 
@@ -1011,13 +1420,11 @@ fn resolve_docker_binary(runtime: &BootstrapRuntime) -> Result<ResolvedDockerBin
                     ));
                     detail_lines.push(format!("exit status: {}", output.status));
                     detail_lines.extend(render_probe_output(&output.stdout, &output.stderr));
-                    candidate_failures.push(
-                        if runtime.packaged {
-                            FailureKind::DockerCliFoundButUnusableFromPackagedContext
-                        } else {
-                            FailureKind::DockerCliExecutionFailed
-                        },
-                    );
+                    candidate_failures.push(if runtime.packaged {
+                        FailureKind::DockerCliFoundButUnusableFromPackagedContext
+                    } else {
+                        FailureKind::DockerCliExecutionFailed
+                    });
                 }
                 Err(err) if err.kind() == ErrorKind::NotFound => {
                     detail_lines.push(format!(
@@ -1028,13 +1435,11 @@ fn resolve_docker_binary(runtime: &BootstrapRuntime) -> Result<ResolvedDockerBin
                     detail_lines.push(format!(
                         "candidate spawn error for {resolved_display}: {err}"
                     ));
-                    candidate_failures.push(
-                        if runtime.packaged {
-                            FailureKind::DockerCliFoundButUnusableFromPackagedContext
-                        } else {
-                            FailureKind::DockerCliExecutionFailed
-                        },
-                    );
+                    candidate_failures.push(if runtime.packaged {
+                        FailureKind::DockerCliFoundButUnusableFromPackagedContext
+                    } else {
+                        FailureKind::DockerCliExecutionFailed
+                    });
                 }
             }
         }
@@ -1194,7 +1599,12 @@ fn resolve_docker_home(runtime: &BootstrapRuntime) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .or_else(|| runtime.runtime_home.as_deref().and_then(infer_home_from_runtime_home))
+        .or_else(|| {
+            runtime
+                .runtime_home
+                .as_deref()
+                .and_then(infer_home_from_runtime_home)
+        })
         .or_else(|| {
             #[cfg(target_os = "macos")]
             {
@@ -1226,7 +1636,7 @@ fn resolve_docker_command_environment(runtime: &BootstrapRuntime) -> DockerComma
     }
 }
 
-pub fn prime_packaged_docker_environment(runtime: &BootstrapRuntime) {
+pub fn prime_packaged_bootstrap_environment(runtime: &BootstrapRuntime) {
     if !runtime.packaged {
         return;
     }
@@ -1239,6 +1649,22 @@ pub fn prime_packaged_docker_environment(runtime: &BootstrapRuntime) {
     }
     if let Some(docker_config) = environment.docker_config {
         env::set_var("DOCKER_CONFIG", docker_config);
+    }
+    if let Some(runtime_home) = runtime.runtime_home.as_ref() {
+        env::set_var(
+            "CODEXIFY_PACKAGED_RUNTIME_HOME",
+            runtime_home.display().to_string(),
+        );
+    }
+    if let Some(runtime_root) = runtime.runtime_root_path() {
+        env::set_var(
+            "CODEXIFY_PACKAGED_RUNTIME_ROOT",
+            runtime_root.display().to_string(),
+        );
+        env::set_var(
+            "CODEXIFY_RUNTIME_ENV_FILE",
+            runtime_env_file_path(runtime_root).display().to_string(),
+        );
     }
 }
 
@@ -1255,10 +1681,7 @@ fn build_docker_environment_lines(environment: &DockerCommandEnvironment) -> Vec
     lines
 }
 
-fn apply_docker_command_environment(
-    command: &mut Command,
-    environment: &DockerCommandEnvironment,
-) {
+fn apply_docker_command_environment(command: &mut Command, environment: &DockerCommandEnvironment) {
     command.env("PATH", NORMALIZED_DOCKER_PATH);
 
     if let Some(home) = &environment.home {
@@ -1358,6 +1781,10 @@ fn build_compose_runtime_lines(context: &BootstrapRuntime) -> Vec<String> {
         lines.push(format!(
             "composeFile={}",
             runtime_root.join("docker-compose.yml").display()
+        ));
+        lines.push(format!(
+            "runtimeEnvFile={}",
+            runtime_env_file_path(runtime_root).display()
         ));
     }
 
@@ -1518,14 +1945,17 @@ fn json_bool_field(value: &Value, key: &str) -> Option<bool> {
 }
 
 fn json_string_field(value: &Value, key: &str) -> Option<String> {
-    value.get(key).and_then(|entry| entry.as_str()).and_then(|text| {
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    })
+    value
+        .get(key)
+        .and_then(|entry| entry.as_str())
+        .and_then(|text| {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
 }
 
 fn json_status_matches(value: &Value, expected: &str) -> bool {
@@ -1561,9 +1991,7 @@ fn probe_http_endpoint_with_body(
             } else {
                 Some(response.body.clone())
             };
-            let response_excerpt = body
-                .as_deref()
-                .map(|body| truncate_chars(body, 240));
+            let response_excerpt = body.as_deref().map(|body| truncate_chars(body, 240));
             let ok = match response.status_code {
                 Some(code) if allow_client_errors => (200..500).contains(&code),
                 Some(code) => (200..300).contains(&code),
@@ -1892,7 +2320,9 @@ pub fn desktop_runtime_preflight_check(
             }
         }
         Err(resolution_probe) => {
-            let failure_kind = resolution_probe.failure_kind.map(|kind| kind.as_str().to_string());
+            let failure_kind = resolution_probe
+                .failure_kind
+                .map(|kind| kind.as_str().to_string());
             RuntimePreflight {
                 docker_cli_installed: matches!(
                     resolution_probe.failure_kind,
@@ -1914,29 +2344,91 @@ pub fn desktop_runtime_preflight_check(
 }
 
 #[tauri::command]
-pub fn desktop_run_setup_cli(
-    runtime: tauri::State<'_, BootstrapRuntime>,
-) -> BootstrapStepResult {
-    let repo_root = match runtime.runtime_root_path() {
-        Some(path) => path.to_path_buf(),
-        None => {
-            return BootstrapStepResult {
-                ok: false,
-                step: "setup".to_string(),
-                detail: runtime.resolution_detail.clone(),
-                failure_kind: runtime.failure_kind.clone(),
-                runtime_context: Some(runtime.runtime_context.clone()),
-                repo_root: runtime.repo_root_display(),
-                runtime_home: runtime.runtime_home_display(),
-                packaged: Some(runtime.packaged),
-                command: None,
-                stdout: None,
-                stderr: None,
-                exit_code: None,
-            }
-        }
+pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> BootstrapStepResult {
+    let runtime_root = match resolve_runtime_root_for_step(&runtime, "setup") {
+        Ok(path) => path,
+        Err(result) => return result,
     };
-    let python = resolve_python_binary(&repo_root);
+    if let Err(err) = validate_packaged_runtime(&runtime, "setup", &["guardian", "backend"]) {
+        return build_step_result(
+            false,
+            "setup",
+            Some(err.detail),
+            None,
+            None,
+            None,
+            None,
+            Some(&*runtime),
+            Some(err.failure_kind),
+        );
+    }
+
+    if runtime.packaged {
+        let command_display = "native packaged setup env materialization".to_string();
+        return match materialize_packaged_setup_env(&runtime_root) {
+            Ok(result) => {
+                let stdout = Some(
+                    serde_json::json!({
+                        "source": "desktop_run_setup_cli",
+                        "mode": "packaged-native-env-materialization",
+                        "runtime_root": runtime_root.display().to_string(),
+                        "env_path": result.env_path.display().to_string(),
+                        "preserved_keys": result.preserved_keys,
+                        "generated_guardian_api_key": result.generated_guardian_api_key,
+                        "created_new_env_file": result.created_new_env_file,
+                    })
+                    .to_string(),
+                );
+                let detail = render_step_detail(
+                    vec![
+                        format!("runtimeContext={}", runtime.runtime_context),
+                        format!("packaged={}", runtime.packaged),
+                        format!("runtimeRoot={}", runtime_root.display()),
+                        runtime
+                            .runtime_home
+                            .as_ref()
+                            .map(|path| format!("runtimeHome={}", path.display()))
+                            .unwrap_or_default(),
+                        format!("runtimeEnvFile={}", result.env_path.display()),
+                        "setupSource=packaged-native-env-materialization".to_string(),
+                        format!(
+                            "generatedGuardianApiKey={}",
+                            result.generated_guardian_api_key
+                        ),
+                        format!("createdNewEnvFile={}", result.created_new_env_file),
+                        "status=success".to_string(),
+                    ],
+                    stdout.as_ref(),
+                    None,
+                );
+                build_step_result(
+                    true,
+                    "setup",
+                    detail,
+                    Some(command_display),
+                    stdout,
+                    None,
+                    Some(0),
+                    Some(&*runtime),
+                    None,
+                )
+            }
+            Err(err) => build_step_result(
+                false,
+                "setup",
+                Some(err.detail),
+                Some(command_display),
+                None,
+                None,
+                None,
+                Some(&*runtime),
+                Some(err.failure_kind),
+            ),
+        };
+    }
+
+    let python = resolve_python_binary(&runtime_root);
+    let runtime_env_file = runtime_env_file_path(&runtime_root);
     let command_display = format!(
         "{} -c <guardian.tui.setup_wizard_app.write_wizard_env>",
         python.display()
@@ -1948,7 +2440,7 @@ import json
 from guardian.ops.setup_wizard import build_doctor_report, default_env_target, read_env_file
 from guardian.tui.setup_wizard_app import write_wizard_env
 
-root = Path({repo_root:?}).resolve()
+root = Path({runtime_root:?}).resolve()
 env_path = default_env_target(root)
 existing = read_env_file(env_path) if env_path.exists() else {{}}
 written = write_wizard_env(repo_root=root, selections=existing)
@@ -1973,27 +2465,43 @@ payload = {{
 print(json.dumps(payload, indent=2))
 raise SystemExit(code)
 "#,
-        repo_root = repo_root.display().to_string()
+        runtime_root = runtime_root.display().to_string()
     );
 
-    match Command::new(&python)
+    let mut command = Command::new(&python);
+    command
         .args(["-c", &script])
-        .current_dir(&repo_root)
-        .output()
-    {
+        .current_dir(&runtime_root)
+        .env("PYTHONPATH", runtime_root.display().to_string())
+        .env(
+            "CODEXIFY_RUNTIME_ENV_FILE",
+            runtime_env_file.display().to_string(),
+        );
+
+    match command.output() {
         Ok(output) => {
             let stdout = normalize_output(&output.stdout);
             let stderr = normalize_output(&output.stderr);
+            let failure_kind = if output.status.success() {
+                None
+            } else {
+                Some(phase_failure_kind(
+                    &runtime,
+                    FAILURE_KIND_PACKAGED_SETUP_FAILED,
+                    FAILURE_KIND_SETUP_FAILED,
+                ))
+            };
             let detail = render_step_detail(
                 vec![
                     format!("runtimeContext={}", runtime.runtime_context),
                     format!("packaged={}", runtime.packaged),
-                    format!("repoRoot={}", repo_root.display()),
+                    format!("runtimeRoot={}", runtime_root.display()),
                     runtime
                         .runtime_home
                         .as_ref()
                         .map(|path| format!("runtimeHome={}", path.display()))
                         .unwrap_or_default(),
+                    format!("runtimeEnvFile={}", runtime_env_file.display()),
                     "setupSource=guardian.cli.memoryos_cli setup".to_string(),
                     "automationPath=guardian.tui.setup_wizard_app.write_wizard_env".to_string(),
                     format!("status={}", output.status),
@@ -2010,7 +2518,7 @@ raise SystemExit(code)
                 stderr,
                 output.status.code(),
                 Some(&*runtime),
-                None,
+                failure_kind,
             )
         }
         Err(err) => build_step_result(
@@ -2031,26 +2539,21 @@ raise SystemExit(code)
 }
 
 #[tauri::command]
-pub fn desktop_compose_up(
-    runtime: tauri::State<'_, BootstrapRuntime>,
-) -> BootstrapStepResult {
-    let repo_root = match runtime.runtime_root_path() {
-        Some(path) => path.to_path_buf(),
-        None => {
-            return BootstrapStepResult {
-                ok: false,
-                step: "compose-up".to_string(),
-                detail: runtime.resolution_detail.clone(),
-                failure_kind: runtime.failure_kind.clone(),
-                runtime_context: Some(runtime.runtime_context.clone()),
-                repo_root: runtime.repo_root_display(),
-                runtime_home: runtime.runtime_home_display(),
-                packaged: Some(runtime.packaged),
-                command: None,
-                stdout: None,
-                stderr: None,
-                exit_code: None,
-            }
+pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> BootstrapStepResult {
+    let invocation = match resolve_compose_invocation(&runtime) {
+        Ok(invocation) => invocation,
+        Err(err) => {
+            return build_step_result(
+                false,
+                "compose-up",
+                Some(err.detail),
+                None,
+                None,
+                None,
+                None,
+                Some(&*runtime),
+                Some(err.failure_kind),
+            )
         }
     };
     let docker = match resolve_docker_binary(&runtime) {
@@ -2069,15 +2572,21 @@ pub fn desktop_compose_up(
             )
         }
     };
-    let command_display = format!("{} compose up -d", docker.display);
+    let command_display = compose_command_display(&docker, &invocation, &["up", "-d"]);
 
-    match spawn_docker_command(&docker, &["compose", "up", "-d"])
-        .current_dir(&repo_root)
-        .output()
-    {
+    match spawn_compose_command(&docker, &invocation, &["up", "-d"]).output() {
         Ok(output) => {
             let stdout = normalize_output(&output.stdout);
             let stderr = normalize_output(&output.stderr);
+            let failure_kind = if output.status.success() {
+                None
+            } else {
+                Some(phase_failure_kind(
+                    &runtime,
+                    FAILURE_KIND_PACKAGED_COMPOSE_UP_FAILED,
+                    FAILURE_KIND_COMPOSE_UP_FAILED,
+                ))
+            };
             let detail = render_step_detail(
                 {
                     let mut lines = build_compose_runtime_lines(&runtime);
@@ -2096,7 +2605,7 @@ pub fn desktop_compose_up(
                 stderr,
                 output.status.code(),
                 Some(&*runtime),
-                None,
+                failure_kind,
             )
         }
         Err(err) => build_step_result(
@@ -2142,8 +2651,10 @@ pub fn desktop_open_docker_desktop() -> BootstrapDockerOpenResult {
                     Ok(fallback_output) if fallback_output.status.success() => {
                         detail_lines.push("Fallback app-bundle open succeeded.".to_string());
                         detail_lines.push(format!("fallback status={}", fallback_output.status));
-                        detail_lines
-                            .extend(render_probe_output(&fallback_output.stdout, &fallback_output.stderr));
+                        detail_lines.extend(render_probe_output(
+                            &fallback_output.stdout,
+                            &fallback_output.stderr,
+                        ));
                         BootstrapDockerOpenResult {
                             ok: true,
                             detail: Some(join_lines(detail_lines)),
@@ -2153,8 +2664,10 @@ pub fn desktop_open_docker_desktop() -> BootstrapDockerOpenResult {
                     Ok(fallback_output) => {
                         detail_lines.push("Fallback app-bundle open failed.".to_string());
                         detail_lines.push(format!("fallback status={}", fallback_output.status));
-                        detail_lines
-                            .extend(render_probe_output(&fallback_output.stdout, &fallback_output.stderr));
+                        detail_lines.extend(render_probe_output(
+                            &fallback_output.stdout,
+                            &fallback_output.stderr,
+                        ));
                         detail_lines.push(
                             "Action: confirm Docker Desktop is installed in /Applications and launch it manually."
                                 .to_string(),
@@ -2226,14 +2739,14 @@ pub fn desktop_get_bootstrap_logs(
         }
     };
 
-    let repo_root = match runtime.runtime_root_path() {
-        Some(path) => path.to_path_buf(),
-        None => {
+    let invocation = match resolve_compose_invocation(&runtime) {
+        Ok(invocation) => invocation,
+        Err(err) => {
             return BootstrapLogResult {
                 ok: false,
                 service: service.to_string(),
-                detail: runtime.resolution_detail.clone(),
-                failure_kind: runtime.failure_kind.clone(),
+                detail: Some(err.detail),
+                failure_kind: Some(err.failure_kind.to_string()),
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
@@ -2257,21 +2770,30 @@ pub fn desktop_get_bootstrap_logs(
                 runtime_home: runtime.runtime_home_display(),
                 packaged: Some(runtime.packaged),
                 logs: None,
-                command: Some(format!("docker compose logs --tail {BOOTSTRAP_LOG_TAIL_LINES} --no-color {service}")),
+                command: Some(format!(
+                    "docker compose logs --tail {BOOTSTRAP_LOG_TAIL_LINES} --no-color {service}"
+                )),
                 exit_code: None,
             }
         }
     };
 
-    let command_display = format!(
-        "{} compose logs --tail {} --no-color {}",
-        docker.display, BOOTSTRAP_LOG_TAIL_LINES, service
+    let command_display = compose_command_display(
+        &docker,
+        &invocation,
+        &[
+            "logs",
+            "--tail",
+            BOOTSTRAP_LOG_TAIL_LINES,
+            "--no-color",
+            service,
+        ],
     );
 
-    match spawn_docker_command(
+    match spawn_compose_command(
         &docker,
+        &invocation,
         &[
-            "compose",
             "logs",
             "--tail",
             BOOTSTRAP_LOG_TAIL_LINES,
@@ -2279,7 +2801,6 @@ pub fn desktop_get_bootstrap_logs(
             service,
         ],
     )
-    .current_dir(&repo_root)
     .output()
     {
         Ok(output) => {
@@ -2328,17 +2849,17 @@ pub fn desktop_get_bootstrap_logs(
 pub fn desktop_restart_runtime_services(
     runtime: tauri::State<'_, BootstrapRuntime>,
 ) -> BootstrapRestartResult {
-    let repo_root = match runtime.runtime_root_path() {
-        Some(path) => path.to_path_buf(),
-        None => {
+    let invocation = match resolve_compose_invocation(&runtime) {
+        Ok(invocation) => invocation,
+        Err(err) => {
             return BootstrapRestartResult {
                 ok: false,
                 services: BOOTSTRAP_RESTART_SERVICES
                     .iter()
                     .map(|service| service.to_string())
                     .collect(),
-                detail: runtime.resolution_detail.clone(),
-                failure_kind: runtime.failure_kind.clone(),
+                detail: Some(err.detail),
+                failure_kind: Some(err.failure_kind.to_string()),
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
@@ -2377,38 +2898,37 @@ pub fn desktop_restart_runtime_services(
         }
     };
 
-    let restart_services = ["db", "redis", "backend", "worker-chat"];
-    let restart_command_display = format!(
-        "{} compose restart {}",
-        docker.display,
-        restart_services.join(" ")
-    );
-    let up_command_display = format!(
-        "{} compose up -d {}",
-        docker.display,
-        BOOTSTRAP_RESTART_SERVICES.join(" ")
-    );
-    let combined_command_display =
-        format!("{restart_command_display} && {up_command_display}");
-
-    let restart_output = spawn_docker_command(
+    let restart_command_display = compose_command_display(
         &docker,
+        &invocation,
+        &["restart", "db", "redis", "backend", "worker-chat"],
+    );
+    let up_command_display = compose_command_display(
+        &docker,
+        &invocation,
         &[
-            "compose",
-            "restart",
+            "up",
+            "-d",
             "db",
             "redis",
+            "migrator",
             "backend",
             "worker-chat",
         ],
+    );
+    let combined_command_display = format!("{restart_command_display} && {up_command_display}");
+
+    let restart_output = spawn_compose_command(
+        &docker,
+        &invocation,
+        &["restart", "db", "redis", "backend", "worker-chat"],
     )
-    .current_dir(&repo_root)
     .output();
 
-    let up_output = spawn_docker_command(
+    let up_output = spawn_compose_command(
         &docker,
+        &invocation,
         &[
-            "compose",
             "up",
             "-d",
             "db",
@@ -2418,14 +2938,10 @@ pub fn desktop_restart_runtime_services(
             "worker-chat",
         ],
     )
-    .current_dir(&repo_root)
     .output();
 
     let mut detail_lines = build_compose_runtime_lines(&runtime);
-    detail_lines.push(format!(
-        "services={}",
-        BOOTSTRAP_RESTART_SERVICES.join(",")
-    ));
+    detail_lines.push(format!("services={}", BOOTSTRAP_RESTART_SERVICES.join(",")));
 
     let mut stdout_sections = Vec::new();
     let mut stderr_sections = Vec::new();
@@ -2529,7 +3045,7 @@ pub fn desktop_restart_runtime_services(
     }
 }
 
-fn runtime_readiness_snapshot() -> RuntimeReadiness {
+fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeReadiness {
     let backend_base_url = trim_trailing_slash(&env_first(
         &[
             "CODEXIFY_DESKTOP_BACKEND_URL",
@@ -2544,12 +3060,9 @@ fn runtime_readiness_snapshot() -> RuntimeReadiness {
     let llm_health_url = combine_url(&backend_base_url, "/health/llm");
 
     let (ping_check, _ping_body) = probe_http_endpoint_with_body(&ping_url, false);
-    let (health_check, health_body) =
-        probe_http_endpoint_with_body(&health_url, false);
-    let (chat_check, chat_body) =
-        probe_http_endpoint_with_body(&chat_health_url, false);
-    let (llm_check, llm_body) =
-        probe_http_endpoint_with_body(&llm_health_url, false);
+    let (health_check, health_body) = probe_http_endpoint_with_body(&health_url, false);
+    let (chat_check, chat_body) = probe_http_endpoint_with_body(&chat_health_url, false);
+    let (llm_check, llm_body) = probe_http_endpoint_with_body(&llm_health_url, false);
 
     let health_json = health_body.as_deref().and_then(parse_json_body);
     let chat_json = chat_body.as_deref().and_then(parse_json_body);
@@ -2594,8 +3107,11 @@ fn runtime_readiness_snapshot() -> RuntimeReadiness {
         None => Some(false),
     };
 
-    let ready =
-        backend_reachable && startup_ready && redis_ready && chat_ready && llm_ready.unwrap_or(true);
+    let ready = backend_reachable
+        && startup_ready
+        && redis_ready
+        && chat_ready
+        && llm_ready.unwrap_or(true);
 
     let detail = {
         let mut lines = vec![
@@ -2643,6 +3159,23 @@ fn runtime_readiness_snapshot() -> RuntimeReadiness {
         }
     };
 
+    let failure_kind = if ready {
+        None
+    } else {
+        Some(
+            runtime
+                .map(|resolved| {
+                    phase_failure_kind(
+                        resolved,
+                        FAILURE_KIND_PACKAGED_READINESS_FAILED,
+                        FAILURE_KIND_READINESS_FAILED,
+                    )
+                })
+                .unwrap_or(FAILURE_KIND_READINESS_FAILED)
+                .to_string(),
+        )
+    };
+
     RuntimeReadiness {
         ok: ready,
         step: "health-check".to_string(),
@@ -2653,6 +3186,11 @@ fn runtime_readiness_snapshot() -> RuntimeReadiness {
         chat_ready,
         llm_ready,
         detail,
+        failure_kind,
+        runtime_context: runtime.map(|resolved| resolved.runtime_context.clone()),
+        repo_root: runtime.and_then(|resolved| resolved.repo_root_display()),
+        runtime_home: runtime.and_then(|resolved| resolved.runtime_home_display()),
+        packaged: runtime.map(|resolved| resolved.packaged),
         command: Some(format!(
             "GET {ping_url}; GET {health_url}; GET {chat_health_url}; GET {llm_health_url}"
         )),
@@ -2661,11 +3199,15 @@ fn runtime_readiness_snapshot() -> RuntimeReadiness {
 }
 
 #[tauri::command]
-pub fn desktop_runtime_readiness_check() -> RuntimeReadiness {
-    runtime_readiness_snapshot()
+pub fn desktop_runtime_readiness_check(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+) -> RuntimeReadiness {
+    runtime_readiness_snapshot(Some(&*runtime))
 }
 
 #[tauri::command]
-pub fn desktop_runtime_health_check() -> RuntimeReadiness {
-    runtime_readiness_snapshot()
+pub fn desktop_runtime_health_check(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+) -> RuntimeReadiness {
+    runtime_readiness_snapshot(Some(&*runtime))
 }

@@ -621,13 +621,19 @@ export default function App() {
           "Setup step"
         );
         if (!setupResult.ok) {
+          const failureKind =
+            setupResult.failureKind ??
+            (preflight.packaged ? "packaged-setup-failed" : "setup-failed");
           setBootstrapState(
             createFailedRuntimeBootstrapState({
-              title: "Preparing local config failed",
-              message:
-                "Codexify could not complete the repo-defined setup step. Retry to rerun setup, then continue through Compose startup and readiness while the workspace stays locked.",
+              title: preflight.packaged
+                ? "Packaged setup failed"
+                : "Preparing local config failed",
+              message: preflight.packaged
+                ? "Codexify could not complete the packaged setup step from the materialized runtime home. Retry to rerun setup while the workspace stays locked."
+                : "Codexify could not complete the repo-defined setup step. Retry to rerun setup, then continue through Compose startup and readiness while the workspace stays locked.",
               detail,
-              failureKind: "setup-failed",
+              failureKind,
               preflight,
               stepResults,
             })
@@ -652,13 +658,21 @@ export default function App() {
           "Compose startup"
         );
         if (!composeResult.ok) {
+          const failureKind =
+            composeResult.failureKind ??
+            (preflight.packaged
+              ? "packaged-compose-up-failed"
+              : "compose-up-failed");
           setBootstrapState(
             createFailedRuntimeBootstrapState({
-              title: "Starting local services failed",
-              message:
-                "Codexify could not bring the local Compose stack up cleanly. Retry to rerun Compose startup, or inspect logs and restart services if the runtime needs intervention.",
+              title: preflight.packaged
+                ? "Packaged Compose startup failed"
+                : "Starting local services failed",
+              message: preflight.packaged
+                ? "Codexify could not bring the packaged Compose stack up cleanly from the materialized runtime home. Retry to rerun Compose startup, or inspect logs and restart services if the runtime needs intervention."
+                : "Codexify could not bring the local Compose stack up cleanly. Retry to rerun Compose startup, or inspect logs and restart services if the runtime needs intervention.",
               detail,
-              failureKind: "compose-up-failed",
+              failureKind,
               preflight,
               stepResults,
             })

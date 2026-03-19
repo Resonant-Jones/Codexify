@@ -53,8 +53,10 @@ const PHASE_STEP_MAP: Record<
 };
 
 const PREFLIGHT_FAILURE_KINDS = new Set([
+  "packaged-runtime-home-unusable",
   "runtime-home-unavailable",
   "packaged-runtime-assets-missing",
+  "packaged-runtime-assets-invalid",
   "packaged-runtime-materialization-failed",
   "packaged-bootstrap-unsupported",
   "runtime-path-unavailable",
