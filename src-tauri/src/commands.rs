@@ -12,6 +12,12 @@ use std::time::Duration;
 const DESKTOP_KEYCHAIN_SERVICE: &str = "com.codexify.desktop";
 const DESKTOP_KEYCHAIN_ACCOUNT: &str = "guardian_api_key";
 const NORMALIZED_DOCKER_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+const BOOTSTRAP_LOG_TAIL_LINES: &str = "200";
+const BOOTSTRAP_LOG_SERVICES: [&str; 5] = ["backend", "worker-chat", "db", "redis", "migrator"];
+const BOOTSTRAP_RESTART_SERVICES: [&str; 5] = ["db", "redis", "migrator", "backend", "worker-chat"];
+
+#[cfg(target_os = "macos")]
+const MACOS_DOCKER_APP_BUNDLE: &str = "/Applications/Docker.app";
 
 #[cfg(target_os = "macos")]
 const MACOS_DOCKER_CANDIDATES: [&str; 3] = [
@@ -93,6 +99,48 @@ pub struct RuntimeReadiness {
 
 #[allow(dead_code)]
 pub type RuntimeHealthCheckResult = RuntimeReadiness;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapDockerOpenResult {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapLogResult {
+    pub ok: bool,
+    pub service: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapRestartResult {
+    pub ok: bool,
+    pub services: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stderr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+}
 
 #[derive(Debug, Clone, Copy)]
 enum FailureKind {
@@ -266,6 +314,20 @@ fn render_probe_output(stdout: &[u8], stderr: &[u8]) -> Vec<String> {
         lines.push(format!("stderr: {stderr}"));
     }
     lines
+}
+
+fn normalize_bootstrap_service(service: &str) -> Result<&'static str, String> {
+    let trimmed = service.trim();
+    BOOTSTRAP_LOG_SERVICES
+        .iter()
+        .copied()
+        .find(|candidate| candidate.eq_ignore_ascii_case(trimmed))
+        .ok_or_else(|| {
+            format!(
+                "Unsupported bootstrap log service `{trimmed}`. Supported services: {}.",
+                BOOTSTRAP_LOG_SERVICES.join(", ")
+            )
+        })
 }
 
 fn build_context_lines(label: &str, binary: &ResolvedDockerBinary) -> Vec<String> {
@@ -566,6 +628,16 @@ fn render_step_detail(
     } else {
         Some(detail)
     }
+}
+
+fn build_compose_runtime_lines(repo_root: &Path) -> Vec<String> {
+    vec![
+        format!("repoRoot={}", repo_root.display()),
+        format!(
+            "composeFile={}",
+            repo_root.join("docker-compose.yml").display()
+        ),
+    ]
 }
 
 fn parse_http_url(url: &str) -> Result<ParsedHttpUrl, String> {
@@ -1221,6 +1293,372 @@ pub fn desktop_compose_up() -> BootstrapStepResult {
             None,
             None,
         ),
+    }
+}
+
+#[tauri::command]
+pub fn desktop_open_docker_desktop() -> BootstrapDockerOpenResult {
+    #[cfg(target_os = "macos")]
+    {
+        let mut detail_lines = vec![
+            "Attempting to open Docker Desktop via macOS Launch Services.".to_string(),
+            format!("appBundle={MACOS_DOCKER_APP_BUNDLE}"),
+        ];
+
+        let primary_command = "open -a Docker";
+        match Command::new("open").args(["-a", "Docker"]).output() {
+            Ok(output) if output.status.success() => {
+                detail_lines.push(format!("status={}", output.status));
+                detail_lines.extend(render_probe_output(&output.stdout, &output.stderr));
+                BootstrapDockerOpenResult {
+                    ok: true,
+                    detail: Some(join_lines(detail_lines)),
+                    command: Some(primary_command.to_string()),
+                }
+            }
+            Ok(output) => {
+                detail_lines.push(format!("primary status={}", output.status));
+                detail_lines.extend(render_probe_output(&output.stdout, &output.stderr));
+
+                let fallback_command = format!("open {MACOS_DOCKER_APP_BUNDLE}");
+                match Command::new("open").arg(MACOS_DOCKER_APP_BUNDLE).output() {
+                    Ok(fallback_output) if fallback_output.status.success() => {
+                        detail_lines.push("Fallback app-bundle open succeeded.".to_string());
+                        detail_lines.push(format!("fallback status={}", fallback_output.status));
+                        detail_lines
+                            .extend(render_probe_output(&fallback_output.stdout, &fallback_output.stderr));
+                        BootstrapDockerOpenResult {
+                            ok: true,
+                            detail: Some(join_lines(detail_lines)),
+                            command: Some(format!("{primary_command} || {fallback_command}")),
+                        }
+                    }
+                    Ok(fallback_output) => {
+                        detail_lines.push("Fallback app-bundle open failed.".to_string());
+                        detail_lines.push(format!("fallback status={}", fallback_output.status));
+                        detail_lines
+                            .extend(render_probe_output(&fallback_output.stdout, &fallback_output.stderr));
+                        detail_lines.push(
+                            "Action: confirm Docker Desktop is installed in /Applications and launch it manually."
+                                .to_string(),
+                        );
+                        BootstrapDockerOpenResult {
+                            ok: false,
+                            detail: Some(join_lines(detail_lines)),
+                            command: Some(format!("{primary_command} || {fallback_command}")),
+                        }
+                    }
+                    Err(err) => {
+                        detail_lines.push(format!("Fallback open execution error: {err}"));
+                        detail_lines.push(
+                            "Action: confirm Docker Desktop is installed in /Applications and launch it manually."
+                                .to_string(),
+                        );
+                        BootstrapDockerOpenResult {
+                            ok: false,
+                            detail: Some(join_lines(detail_lines)),
+                            command: Some(format!("{primary_command} || {fallback_command}")),
+                        }
+                    }
+                }
+            }
+            Err(err) => BootstrapDockerOpenResult {
+                ok: false,
+                detail: Some(format!(
+                    "Failed to execute `{primary_command}` via macOS Launch Services: {err}"
+                )),
+                command: Some(primary_command.to_string()),
+            },
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        BootstrapDockerOpenResult {
+            ok: false,
+            detail: Some(
+                "Docker Desktop launch assistance is currently implemented for macOS only."
+                    .to_string(),
+            ),
+            command: None,
+        }
+    }
+}
+
+#[tauri::command]
+pub fn desktop_get_bootstrap_logs(service: String) -> BootstrapLogResult {
+    let requested_service = service.trim().to_string();
+    let service = match normalize_bootstrap_service(&requested_service) {
+        Ok(service) => service,
+        Err(detail) => {
+            return BootstrapLogResult {
+                ok: false,
+                service: requested_service,
+                detail: Some(detail),
+                logs: None,
+                command: None,
+                exit_code: None,
+            }
+        }
+    };
+
+    let repo_root = match resolve_repo_root() {
+        Ok(path) => path,
+        Err(detail) => {
+            return BootstrapLogResult {
+                ok: false,
+                service: service.to_string(),
+                detail: Some(detail),
+                logs: None,
+                command: None,
+                exit_code: None,
+            }
+        }
+    };
+    let docker = match resolve_docker_binary() {
+        Ok(binary) => binary,
+        Err(probe) => {
+            return BootstrapLogResult {
+                ok: false,
+                service: service.to_string(),
+                detail: Some(probe.detail),
+                logs: None,
+                command: Some(format!("docker compose logs --tail {BOOTSTRAP_LOG_TAIL_LINES} --no-color {service}")),
+                exit_code: None,
+            }
+        }
+    };
+
+    let command_display = format!(
+        "{} compose logs --tail {} --no-color {}",
+        docker.display, BOOTSTRAP_LOG_TAIL_LINES, service
+    );
+
+    match spawn_docker_command(
+        &docker,
+        &[
+            "compose",
+            "logs",
+            "--tail",
+            BOOTSTRAP_LOG_TAIL_LINES,
+            "--no-color",
+            service,
+        ],
+    )
+    .current_dir(&repo_root)
+    .output()
+    {
+        Ok(output) => {
+            let logs = normalize_output(&output.stdout);
+            let stderr = normalize_output(&output.stderr);
+            let mut detail_lines = build_compose_runtime_lines(&repo_root);
+            detail_lines.push(format!("service={service}"));
+            detail_lines.push(format!("status={}", output.status));
+            if let Some(stderr) = &stderr {
+                detail_lines.push(String::new());
+                detail_lines.push("stderr:".to_string());
+                detail_lines.push(stderr.clone());
+            }
+
+            BootstrapLogResult {
+                ok: output.status.success(),
+                service: service.to_string(),
+                detail: Some(join_lines(detail_lines)),
+                logs,
+                command: Some(command_display),
+                exit_code: output.status.code(),
+            }
+        }
+        Err(err) => BootstrapLogResult {
+            ok: false,
+            service: service.to_string(),
+            detail: Some(format!("Failed to execute `{command_display}`: {err}")),
+            logs: None,
+            command: Some(command_display),
+            exit_code: None,
+        },
+    }
+}
+
+#[tauri::command]
+pub fn desktop_restart_runtime_services() -> BootstrapRestartResult {
+    let repo_root = match resolve_repo_root() {
+        Ok(path) => path,
+        Err(detail) => {
+            return BootstrapRestartResult {
+                ok: false,
+                services: BOOTSTRAP_RESTART_SERVICES
+                    .iter()
+                    .map(|service| service.to_string())
+                    .collect(),
+                detail: Some(detail),
+                command: None,
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
+        }
+    };
+    let docker = match resolve_docker_binary() {
+        Ok(binary) => binary,
+        Err(probe) => {
+            return BootstrapRestartResult {
+                ok: false,
+                services: BOOTSTRAP_RESTART_SERVICES
+                    .iter()
+                    .map(|service| service.to_string())
+                    .collect(),
+                detail: Some(probe.detail),
+                command: Some(format!(
+                    "docker compose restart {} && docker compose up -d {}",
+                    ["db", "redis", "backend", "worker-chat"].join(" "),
+                    BOOTSTRAP_RESTART_SERVICES.join(" ")
+                )),
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
+        }
+    };
+
+    let restart_services = ["db", "redis", "backend", "worker-chat"];
+    let restart_command_display = format!(
+        "{} compose restart {}",
+        docker.display,
+        restart_services.join(" ")
+    );
+    let up_command_display = format!(
+        "{} compose up -d {}",
+        docker.display,
+        BOOTSTRAP_RESTART_SERVICES.join(" ")
+    );
+    let combined_command_display =
+        format!("{restart_command_display} && {up_command_display}");
+
+    let restart_output = spawn_docker_command(
+        &docker,
+        &[
+            "compose",
+            "restart",
+            "db",
+            "redis",
+            "backend",
+            "worker-chat",
+        ],
+    )
+    .current_dir(&repo_root)
+    .output();
+
+    let up_output = spawn_docker_command(
+        &docker,
+        &[
+            "compose",
+            "up",
+            "-d",
+            "db",
+            "redis",
+            "migrator",
+            "backend",
+            "worker-chat",
+        ],
+    )
+    .current_dir(&repo_root)
+    .output();
+
+    let mut detail_lines = build_compose_runtime_lines(&repo_root);
+    detail_lines.push(format!(
+        "services={}",
+        BOOTSTRAP_RESTART_SERVICES.join(",")
+    ));
+
+    let mut stdout_sections = Vec::new();
+    let mut stderr_sections = Vec::new();
+
+    match &restart_output {
+        Ok(output) => {
+            detail_lines.push(format!("restartStatus={}", output.status));
+            if let Some(stdout) = normalize_output(&output.stdout) {
+                stdout_sections.push(format!("restart:\n{stdout}"));
+            }
+            if let Some(stderr) = normalize_output(&output.stderr) {
+                stderr_sections.push(format!("restart:\n{stderr}"));
+            }
+        }
+        Err(err) => {
+            detail_lines.push(format!("restartExecutionError={err}"));
+        }
+    }
+
+    match &up_output {
+        Ok(output) => {
+            detail_lines.push(format!("upStatus={}", output.status));
+            if let Some(stdout) = normalize_output(&output.stdout) {
+                stdout_sections.push(format!("up:\n{stdout}"));
+            }
+            if let Some(stderr) = normalize_output(&output.stderr) {
+                stderr_sections.push(format!("up:\n{stderr}"));
+            }
+        }
+        Err(err) => {
+            detail_lines.push(format!("upExecutionError={err}"));
+        }
+    }
+
+    let ok = matches!(&up_output, Ok(output) if output.status.success());
+    if ok && matches!(&restart_output, Ok(output) if !output.status.success()) {
+        detail_lines.push(
+            "Restart step failed, but compose up -d succeeded and recovered the targeted services."
+                .to_string(),
+        );
+    }
+
+    let detail = Some(join_lines(detail_lines));
+    let stdout = if stdout_sections.is_empty() {
+        None
+    } else {
+        Some(stdout_sections.join("\n\n"))
+    };
+    let stderr = if stderr_sections.is_empty() {
+        None
+    } else {
+        Some(stderr_sections.join("\n\n"))
+    };
+    let exit_code = match &up_output {
+        Ok(output) => output.status.code(),
+        Err(_) => None,
+    };
+
+    if let Err(err) = &restart_output {
+        if up_output.is_err() {
+            return BootstrapRestartResult {
+                ok: false,
+                services: BOOTSTRAP_RESTART_SERVICES
+                    .iter()
+                    .map(|service| service.to_string())
+                    .collect(),
+                detail: Some(format!(
+                    "{}\n\nBoth Compose recovery commands failed to execute. Restart error: {}",
+                    detail.unwrap_or_default(),
+                    err
+                )),
+                command: Some(combined_command_display),
+                stdout,
+                stderr,
+                exit_code,
+            };
+        }
+    }
+
+    BootstrapRestartResult {
+        ok,
+        services: BOOTSTRAP_RESTART_SERVICES
+            .iter()
+            .map(|service| service.to_string())
+            .collect(),
+        detail,
+        command: Some(combined_command_display),
+        stdout,
+        stderr,
+        exit_code,
     }
 }
 

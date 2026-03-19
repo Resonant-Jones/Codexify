@@ -19,9 +19,12 @@ pub fn run() {
             commands::desktop_set_api_key,
             commands::desktop_clear_api_key,
             commands::desktop_open_external,
+            commands::desktop_open_docker_desktop,
             commands::desktop_runtime_preflight_check,
             commands::desktop_run_setup_cli,
             commands::desktop_compose_up,
+            commands::desktop_get_bootstrap_logs,
+            commands::desktop_restart_runtime_services,
             commands::desktop_runtime_readiness_check,
             commands::desktop_runtime_health_check
         ])

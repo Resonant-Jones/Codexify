@@ -2,14 +2,31 @@ import React from "react";
 
 import { Button } from "@/components/ui/button";
 import type {
+  BootstrapLogResult,
+  BootstrapLogService,
+  BootstrapRecoveryNotice,
   BootstrapStep,
   RuntimeBootstrapState,
 } from "@/lib/runtimeBootstrap";
+import { BOOTSTRAP_LOG_SERVICES } from "@/lib/runtimeBootstrap";
 
 type BootstrapGateProps = {
   state: RuntimeBootstrapState;
   onRetry: () => void;
   onInstallDocker: () => Promise<void> | void;
+  onOpenDocker: () => Promise<void> | void;
+  onRestartServices: () => Promise<void> | void;
+  onToggleLogs: () => void;
+  onSelectLogService: (service: BootstrapLogService) => void;
+  logs: {
+    visible: boolean;
+    loading: boolean;
+    service: BootstrapLogService;
+    result: BootstrapLogResult | null;
+  };
+  recoveryNotice: BootstrapRecoveryNotice | null;
+  openingDocker: boolean;
+  restartingServices: boolean;
 };
 
 type PhaseCardState = "pending" | "running" | "done" | "failed";
@@ -29,6 +46,38 @@ const PHASE_STEP_MAP: Record<
   "compose-up": "starting-local-services",
   readiness: "waiting-for-ready",
 };
+
+function getRecoveryActions(state: RuntimeBootstrapState) {
+  if (state.status === "docker-missing") {
+    return ["retry", "install-docker"] as const;
+  }
+
+  if (state.status === "compose-missing") {
+    return ["retry", "install-docker"] as const;
+  }
+
+  if (state.status === "docker-not-running") {
+    return ["retry", "open-docker"] as const;
+  }
+
+  if (state.stepResults["health-check"] && !state.stepResults["health-check"]?.ok) {
+    return ["retry", "view-logs", "restart-services"] as const;
+  }
+
+  if (state.stepResults["compose-up"] && !state.stepResults["compose-up"]?.ok) {
+    return ["retry", "view-logs", "restart-services"] as const;
+  }
+
+  if (state.stepResults.setup && !state.stepResults.setup?.ok) {
+    return ["retry"] as const;
+  }
+
+  if (state.status === "failed") {
+    return ["retry"] as const;
+  }
+
+  return [] as const;
+}
 
 function PhaseCard({ label, state, description }: PhaseCardProps) {
   const palette =
@@ -149,20 +198,28 @@ export default function BootstrapGate({
   state,
   onRetry,
   onInstallDocker,
+  onOpenDocker,
+  onRestartServices,
+  onToggleLogs,
+  onSelectLogService,
+  logs,
+  recoveryNotice,
+  openingDocker,
+  restartingServices,
 }: BootstrapGateProps) {
   const [openingInstallPage, setOpeningInstallPage] = React.useState(false);
-  const showInstallAction =
-    state.status === "docker-missing" || state.status === "compose-missing";
-  const showRetryAction =
-    state.status === "docker-missing" ||
-    state.status === "compose-missing" ||
-    state.status === "docker-not-running" ||
-    state.status === "failed";
+  const recoveryActions = getRecoveryActions(state);
+  const showInstallAction = recoveryActions.includes("install-docker");
+  const showRetryAction = recoveryActions.includes("retry");
+  const showOpenDockerAction = recoveryActions.includes("open-docker");
+  const showLogsAction = recoveryActions.includes("view-logs");
+  const showRestartAction = recoveryActions.includes("restart-services");
   const isBusy =
     state.status === "checking-requirements" ||
     state.status === "preparing-local-config" ||
     state.status === "starting-local-services" ||
     state.status === "waiting-for-ready";
+  const actionsBusy = isBusy || openingDocker || restartingServices;
 
   const handleInstallDocker = React.useCallback(async () => {
     setOpeningInstallPage(true);
@@ -295,11 +352,48 @@ export default function BootstrapGate({
             {showRetryAction && (
               <Button
                 type="button"
-                variant="ghost"
                 className="rounded-full px-5"
                 onClick={onRetry}
+                disabled={actionsBusy}
               >
                 Retry
+              </Button>
+            )}
+            {showOpenDockerAction && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-full px-5"
+                onClick={() => {
+                  void onOpenDocker();
+                }}
+                disabled={actionsBusy}
+              >
+                {openingDocker ? "Opening Docker..." : "Open Docker"}
+              </Button>
+            )}
+            {showLogsAction && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-full px-5"
+                onClick={onToggleLogs}
+                disabled={isBusy || restartingServices}
+              >
+                {logs.visible ? "Hide Logs" : "View Logs"}
+              </Button>
+            )}
+            {showRestartAction && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-full px-5"
+                onClick={() => {
+                  void onRestartServices();
+                }}
+                disabled={actionsBusy}
+              >
+                {restartingServices ? "Restarting Services..." : "Restart Services"}
               </Button>
             )}
             {showInstallAction && (
@@ -310,7 +404,7 @@ export default function BootstrapGate({
                 onClick={() => {
                   void handleInstallDocker();
                 }}
-                disabled={openingInstallPage}
+                disabled={openingInstallPage || actionsBusy}
               >
                 {openingInstallPage ? "Opening..." : "Install Docker Desktop"}
               </Button>
@@ -332,6 +426,165 @@ export default function BootstrapGate({
               </p>
             )}
           </div>
+
+          {recoveryNotice && (
+            <div
+              className="rounded-[20px] border px-4 py-4"
+              style={{
+                borderColor: "rgba(252,165,165,0.28)",
+                background: "rgba(127,29,29,0.16)",
+              }}
+            >
+              <div
+                className="text-xs uppercase tracking-[0.18em]"
+                style={{ color: "var(--danger-text, #fca5a5)" }}
+              >
+                Recovery status
+              </div>
+              <div className="mt-2 text-sm font-medium">{recoveryNotice.title}</div>
+              <p
+                className="mt-2 text-sm leading-6"
+                style={{ color: "var(--muted)" }}
+              >
+                {recoveryNotice.message}
+              </p>
+              {recoveryNotice.detail && (
+                <pre
+                  className="mt-3 overflow-auto whitespace-pre-wrap break-words text-xs leading-5"
+                  style={{ color: "var(--muted)" }}
+                >
+                  {recoveryNotice.detail}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {logs.visible && (
+            <section
+              className="rounded-[20px] border px-4 py-4"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "rgba(255,255,255,0.04)",
+              }}
+              aria-labelledby="bootstrap-runtime-logs-title"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <h2
+                    id="bootstrap-runtime-logs-title"
+                    className="text-sm font-medium"
+                  >
+                    Runtime logs
+                  </h2>
+                  <p
+                    className="text-sm leading-6"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    Recent Docker Compose output is shown here separately from the
+                    startup diagnostics so runtime failures are easier to trace.
+                  </p>
+                </div>
+                <div
+                  className="rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em]"
+                  style={{
+                    borderColor: "var(--chip-border)",
+                    color: "var(--muted)",
+                  }}
+                >
+                  Service: {logs.service}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {BOOTSTRAP_LOG_SERVICES.map((service) => {
+                  const selected = logs.service === service;
+                  return (
+                    <button
+                      key={service}
+                      type="button"
+                      className="rounded-full border px-3 py-1 text-xs uppercase tracking-[0.14em] transition"
+                      style={{
+                        borderColor: selected
+                          ? "rgba(125,211,252,0.36)"
+                          : "var(--chip-border)",
+                        background: selected
+                          ? "rgba(125,211,252,0.12)"
+                          : "rgba(255,255,255,0.04)",
+                        color: selected
+                          ? "var(--accent-strong, #7dd3fc)"
+                          : "var(--muted)",
+                      }}
+                      onClick={() => onSelectLogService(service)}
+                      aria-pressed={selected}
+                      disabled={restartingServices}
+                    >
+                      {service}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div
+                className="mt-4 rounded-[18px] border"
+                style={{
+                  borderColor: "rgba(255,255,255,0.08)",
+                  background: "rgba(5,10,18,0.8)",
+                }}
+              >
+                <div
+                  className="border-b px-4 py-3 text-xs uppercase tracking-[0.18em]"
+                  style={{
+                    borderColor: "rgba(255,255,255,0.08)",
+                    color: "var(--muted)",
+                  }}
+                >
+                  {logs.loading
+                    ? `Loading ${logs.service} logs`
+                    : logs.result?.ok
+                    ? `${logs.service} logs`
+                    : `${logs.service} logs unavailable`}
+                </div>
+                <div className="max-h-[320px] overflow-auto px-4 py-4">
+                  {logs.loading ? (
+                    <div
+                      className="inline-flex items-center gap-3 text-sm"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-transparent" />
+                      Fetching recent Compose output for {logs.service}.
+                    </div>
+                  ) : logs.result?.logs ? (
+                    <pre
+                      className="whitespace-pre-wrap break-words font-mono text-xs leading-5"
+                      style={{ color: "var(--text)" }}
+                    >
+                      {logs.result.logs}
+                    </pre>
+                  ) : (
+                    <p
+                      className="text-sm leading-6"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      {logs.result?.ok
+                        ? `No recent log output was returned for ${logs.service}.`
+                        : `Codexify could not load recent ${logs.service} logs from Docker Compose.`}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {(logs.result?.command || logs.result?.detail) && (
+                <div className="mt-3 space-y-2 text-xs leading-5" style={{ color: "var(--muted)" }}>
+                  {logs.result?.command && <div>{logs.result.command}</div>}
+                  {logs.result?.detail && (
+                    <pre className="overflow-auto whitespace-pre-wrap break-words">
+                      {logs.result.detail}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
 
           {state.detail && (
             <details
