@@ -2,15 +2,16 @@
 
 ## Purpose
 
-- This file classifies the Codexify documentation corpus before architecture diagram generation.
-- It separates current runtime truth from design canon, roadmap/speculation, and legacy identity drift.
+- Classify the architecture documentation corpus before diagram generation or planning reuse.
+- Separate current runtime truth from supplemental deep dives, design canon, and legacy identity drift.
 
 ## Interpretation Rules
 
 - For short-horizon operational truth, `00-current-state.md` wins.
-- For current runtime topology, prefer the architecture KB set updated in March 2026.
-- Older deep dives may be referenced only when explicitly marked supplementary.
-- Legacy Threadspace / `guardian-backend_v2` documents are not valid runtime diagram inputs.
+- For first-pass runtime diagrams, use only the validated runtime diagram source set.
+- Older deep dives may be referenced only when explicitly marked supplementary and verified against code.
+- UI canon documents are design canon only; they are not backend runtime truth.
+- Docs that still name Threadspace, `guardian-backend_v2`, GuardianOS, or bundled installer assumptions are quarantine-only and are not valid first-pass runtime inputs.
 
 ## Classification Legend
 
