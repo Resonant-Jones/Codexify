@@ -9,6 +9,7 @@ import {
   markAuthUnauthenticatedFrom401,
   useAuthState,
 } from "@/lib/authState";
+import { SessionSpine } from "@/state/session/SessionSpine";
 import {
   LiveEventsHubEvent,
   subscribeLiveEventsHub,
@@ -128,6 +129,10 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
         type: event.type || "message",
         data: event.data,
       };
+      const activeSpine = SessionSpine.getRegisteredSpine();
+      if (activeSpine && !activeSpine.shouldAcceptLiveEvent(payload.type, payload.data)) {
+        return;
+      }
       if (isSameEvent(lastEventRef.current, payload)) {
         return;
       }

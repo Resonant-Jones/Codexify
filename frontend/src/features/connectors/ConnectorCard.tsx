@@ -16,7 +16,7 @@ export const ConnectorCard: React.FC<Props> = ({ connector, onUpdate, onAuthoriz
   const [open, setOpen] = useState(false);
   const canOAuth = connector.capabilities?.supportsOAuth;
   const logo = getConnectorLogo(connector.type, connector.id);
-  const statusColor = connector.status === "connected" ? "text-emerald-500" : connector.status === "disconnected" ? "text-red-500" : "text-gray-400";
+  const statusColor = connector.status === "connected" ? "text-emerald-500" : connector.status === "disconnected" ? "text-red-500" : "text-[color:var(--muted)]";
   let lastSyncLabel: string | null = null;
   if (connector.lastSyncAt) {
     const parsed = new Date(connector.lastSyncAt);
