@@ -1347,16 +1347,12 @@ export function useChat(options: UseChatOptions = {}) {
         Boolean(messageTaskId) && current.taskIdAliases.has(messageTaskId as string);
       const matchedByTurn =
         Boolean(current.turnId) && message.turn_id === current.turnId;
-      const matchedByFallback =
-        !current.turnId &&
-        current.taskTerminalState != null &&
-        message.id >
-          Math.max(
-            current.baselineLastUserMessageId,
-            current.baselineLatestAssistantId
-          );
 
-      if (!(matchedByTask || matchedByTurn || matchedByFallback)) {
+      // Issue 1: Remove the fallback that matches only by position without task/turn verification
+      // This prevents accepting assistant completion events by thread alone
+      const matchedByFallback = false;
+
+      if (!(matchedByTask || matchedByTurn)) {
         return false;
       }
 

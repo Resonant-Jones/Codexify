@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import GuardianChat from "@/features/chat/GuardianChat";
+import GuardianChat, {
+  flattenChatEventPayload,
+} from "@/features/chat/GuardianChat";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
 
@@ -163,5 +165,21 @@ describe("GuardianChat session-tab binding", () => {
     expect(
       await screen.findByText("New thread ready. Start typing below.")
     ).toBeInTheDocument();
+  });
+});
+
+describe("GuardianChat task event payload handling", () => {
+  it("keeps the outer task_id while exposing nested turn data", () => {
+    const payload = flattenChatEventPayload({
+      task_id: "task-outer",
+      data: {
+        turn_id: "turn-1",
+        thread_id: 42,
+      },
+    });
+
+    expect(payload.task_id).toBe("task-outer");
+    expect(payload.turn_id).toBe("turn-1");
+    expect(payload.thread_id).toBe(42);
   });
 });

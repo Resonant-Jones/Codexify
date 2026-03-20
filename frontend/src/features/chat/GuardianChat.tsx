@@ -62,6 +62,23 @@ const LLM_HEALTH_POLL_MS = 15000;
 const THREAD_PROFILE_POLL_MS = 15000;
 const NEW_THREAD_TITLE = "New Thread";
 
+export function flattenChatEventPayload(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return {};
+  }
+
+  const payload = data as Record<string, unknown>;
+  const nested = payload.data;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    return {
+      ...(nested as Record<string, unknown>),
+      ...payload,
+    };
+  }
+
+  return payload;
+}
+
 /**
  * RAG depth modes: Four lenses of consciousness.
  * - shallow: Breezy, fast, ephemeral awareness
@@ -1532,7 +1549,7 @@ export function GuardianChat({
   // Live event integration keeps the shared chat hook synchronized.
   useEffect(() => {
     const offThread = subscribe("thread.updated", (event) => {
-      const payload = (event.data as any)?.data ?? event.data;
+      const payload = flattenChatEventPayload(event.data);
       const incomingId = Number(payload?.thread_id ?? payload?.threadId ?? payload?.id);
       console.info("[live] thread.updated", payload);
       if (Number.isFinite(incomingId) && effectiveThreadId != null && incomingId === effectiveThreadId) {
@@ -1544,7 +1561,7 @@ export function GuardianChat({
     });
 
     const offProfileSwitched = subscribe("thread.profile.switched", (event) => {
-      const payload = (event.data as any)?.data ?? event.data;
+      const payload = flattenChatEventPayload(event.data);
       const incomingId = Number(payload?.thread_id ?? payload?.threadId);
       if (
         Number.isFinite(incomingId) &&
@@ -1563,7 +1580,7 @@ export function GuardianChat({
 
   useEffect(() => {
     const offMessage = subscribe("message.created", (event) => {
-      const payload = (event.data as any)?.data ?? event.data;
+      const payload = flattenChatEventPayload(event.data);
       const tid = Number(payload?.thread_id ?? payload?.threadId);
       const role = String(payload?.role ?? "").trim().toLowerCase();
       if (!Number.isFinite(tid) || role !== "assistant") return;
@@ -1580,22 +1597,20 @@ export function GuardianChat({
       }
     });
     const finalizeCompletionFromTaskEvent = (event: any) => {
-      const payload = (event.data as any)?.data ?? event.data;
+      const payload = flattenChatEventPayload(event.data);
       const tid = Number(payload?.thread_id ?? payload?.threadId);
       if (!Number.isFinite(tid)) return;
-      const eventTaskId = String(
-        payload?.task_id ??
-          payload?.taskId ??
-          completionState.activeTaskId ??
-          inferenceRequest.state.taskId ??
-          ""
-      ).trim();
-      const eventTurnId = String(
-        payload?.turn_id ?? payload?.turnId ?? ""
-      ).trim();
-      if (eventTaskId && eventTurnId) {
-        updateCompletionSessionTurnId(eventTaskId, eventTurnId);
+
+      const eventTaskId = String(payload?.task_id ?? payload?.taskId ?? "").trim();
+      const eventTurnId = String(payload?.turn_id ?? payload?.turnId ?? "").trim();
+
+      if (!eventTaskId || !eventTurnId) {
+        console.debug(`[guardian] Ignoring completion event without explicit task_id or turn_id for thread ${tid}`);
+        return;
       }
+
+      updateCompletionSessionTurnId(eventTaskId, eventTurnId);
+
       const terminalState =
         event.type === "task.completed"
           ? "completed"
@@ -1604,13 +1619,12 @@ export function GuardianChat({
             : event.type === "completion.error"
               ? "error"
               : "failed";
-      const finalized =
-        eventTaskId.length > 0
-          ? finalizeCompletionSession({
-              taskId: eventTaskId,
-              terminalState,
-            })
-          : false;
+
+      const finalized = finalizeCompletionSession({
+        taskId: eventTaskId,
+        terminalState,
+      });
+
       if (finalized) {
         clearInFlightCompletionTurnId(tid);
         setTurnLockForThread(tid, false);
