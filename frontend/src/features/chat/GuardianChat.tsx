@@ -1601,9 +1601,12 @@ export function GuardianChat({
       const tid = Number(payload?.thread_id ?? payload?.threadId);
       if (!Number.isFinite(tid)) return;
 
+      // Issue 1: Only accept events with explicit task_id/turn_id, not by thread alone
       const eventTaskId = String(payload?.task_id ?? payload?.taskId ?? "").trim();
       const eventTurnId = String(payload?.turn_id ?? payload?.turnId ?? "").trim();
 
+      // Only proceed if both task_id and turn_id are present in the event payload
+      // This prevents accepting assistant completion events by thread alone
       if (!eventTaskId || !eventTurnId) {
         console.debug(`[guardian] Ignoring completion event without explicit task_id or turn_id for thread ${tid}`);
         return;
