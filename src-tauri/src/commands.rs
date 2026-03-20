@@ -453,6 +453,40 @@ fn runtime_env_file_path(runtime_root: &Path) -> PathBuf {
     runtime_root.join(".env")
 }
 
+fn packaged_runtime_marker_path(runtime_root: &Path) -> PathBuf {
+    runtime_root.join(PACKAGED_RUNTIME_MARKER_FILENAME)
+}
+
+fn is_managed_packaged_runtime_root(runtime_root: &Path) -> bool {
+    packaged_runtime_marker_path(runtime_root).is_file()
+}
+
+fn ensure_packaged_runtime_root_is_managed(
+    runtime_root: &Path,
+) -> Result<(), BootstrapRuntimeMaterializationError> {
+    if !runtime_root.exists() {
+        return Ok(());
+    }
+
+    if is_managed_packaged_runtime_root(runtime_root) {
+        return Ok(());
+    }
+
+    Err(BootstrapRuntimeMaterializationError {
+        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+        detail: join_lines(vec![
+            "Packaged runtime materialization refused to reuse an existing unmanaged runtime root."
+                .to_string(),
+            format!("runtimeRoot={}", runtime_root.display()),
+            format!(
+                "marker={}",
+                packaged_runtime_marker_path(runtime_root).display()
+            ),
+            "Refusing to overwrite a pre-existing non-managed directory.".to_string(),
+        ]),
+    })
+}
+
 fn detect_docker_mount_path_rejection(text: &str) -> bool {
     let normalized = text.trim().to_ascii_lowercase();
     if normalized.is_empty() {
@@ -561,6 +595,8 @@ fn materialize_packaged_runtime_assets(
         format!("resourceRoot={}", resource_root.display()),
         format!("runtimeRoot={}", runtime_root.display()),
     ];
+
+    ensure_packaged_runtime_root_is_managed(runtime_root)?;
 
     fs::create_dir_all(runtime_root).map_err(|err| BootstrapRuntimeMaterializationError {
         failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
@@ -827,12 +863,54 @@ struct PackagedSetupEnvResult {
     preserved_keys: Vec<String>,
     generated_guardian_api_key: bool,
     created_new_env_file: bool,
+    migrated_legacy_env_source: Option<PathBuf>,
+}
+
+fn migrate_packaged_setup_env(
+    runtime_home: Option<&Path>,
+    runtime_root: &Path,
+) -> Result<Option<PathBuf>, BootstrapRuntimeValidationError> {
+    let Some(runtime_home) = runtime_home else {
+        return Ok(None);
+    };
+
+    let source_env_path = runtime_env_file_path(runtime_home);
+    let destination_env_path = runtime_env_file_path(runtime_root);
+
+    if destination_env_path.exists() || !source_env_path.is_file() {
+        return Ok(None);
+    }
+
+    if let Some(parent) = destination_env_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail: format!(
+                "Failed to prepare packaged env directory {}: {err}",
+                parent.display()
+            ),
+        })?;
+    }
+
+    fs::copy(&source_env_path, &destination_env_path).map_err(|err| {
+        BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail: format!(
+                "Failed to migrate packaged env {} -> {}: {err}",
+                source_env_path.display(),
+                destination_env_path.display()
+            ),
+        }
+    })?;
+
+    Ok(Some(source_env_path))
 }
 
 fn materialize_packaged_setup_env(
+    runtime_home: Option<&Path>,
     runtime_root: &Path,
 ) -> Result<PackagedSetupEnvResult, BootstrapRuntimeValidationError> {
     let env_path = runtime_env_file_path(runtime_root);
+    let migrated_legacy_env_source = migrate_packaged_setup_env(runtime_home, runtime_root)?;
     let (mut order, mut values) =
         read_env_file_ordered(&env_path).map_err(|detail| BootstrapRuntimeValidationError {
             failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
@@ -913,6 +991,7 @@ fn materialize_packaged_setup_env(
         preserved_keys,
         generated_guardian_api_key,
         created_new_env_file,
+        migrated_legacy_env_source,
     })
 }
 
@@ -2446,7 +2525,8 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
 
     if runtime.packaged {
         let command_display = "native packaged setup env materialization".to_string();
-        return match materialize_packaged_setup_env(&runtime_root) {
+        return match materialize_packaged_setup_env(runtime.runtime_home.as_deref(), &runtime_root)
+        {
             Ok(result) => {
                 let stdout = Some(
                     serde_json::json!({
@@ -2457,6 +2537,11 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
                         "preserved_keys": result.preserved_keys,
                         "generated_guardian_api_key": result.generated_guardian_api_key,
                         "created_new_env_file": result.created_new_env_file,
+                        "migrated_legacy_env": result.migrated_legacy_env_source.is_some(),
+                        "migrated_legacy_env_source": result
+                            .migrated_legacy_env_source
+                            .as_ref()
+                            .map(|path| path.display().to_string()),
                     })
                     .to_string(),
                 );
@@ -2477,6 +2562,11 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
                             result.generated_guardian_api_key
                         ),
                         format!("createdNewEnvFile={}", result.created_new_env_file),
+                        result
+                            .migrated_legacy_env_source
+                            .as_ref()
+                            .map(|path| format!("migratedLegacyEnvSource={}", path.display()))
+                            .unwrap_or_else(|| "migratedLegacyEnvSource=<none>".to_string()),
                         "status=success".to_string(),
                     ],
                     stdout.as_ref(),
@@ -3310,4 +3400,88 @@ pub fn desktop_runtime_health_check(
     runtime: tauri::State<'_, BootstrapRuntime>,
 ) -> RuntimeReadiness {
     runtime_readiness_snapshot(Some(&*runtime))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before UNIX_EPOCH")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("{prefix}-{stamp}-{}", std::process::id()));
+        fs::create_dir_all(&path).expect("failed to create temp dir");
+        path
+    }
+
+    #[test]
+    fn packaged_runtime_assets_refuse_unmanaged_existing_root() {
+        let root = unique_temp_dir("codexify-packaged-root-conflict");
+        let runtime_root = root.join("runtime");
+        let resource_root = root.join("bundle");
+        fs::create_dir_all(&runtime_root).expect("failed to create runtime root");
+        fs::create_dir_all(&resource_root).expect("failed to create resource root");
+        fs::write(runtime_root.join("unrelated.txt"), "source-checkout")
+            .expect("failed to write sentinel");
+
+        let err = materialize_packaged_runtime_assets(&resource_root, &runtime_root)
+            .expect_err("expected unmanaged runtime root to be rejected");
+
+        assert_eq!(
+            err.failure_kind,
+            FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED
+        );
+        assert!(err
+            .detail
+            .contains("Refusing to overwrite a pre-existing non-managed directory."));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn packaged_setup_env_migrates_legacy_env_into_runtime_root() {
+        let root = unique_temp_dir("codexify-packaged-env-migration");
+        let runtime_home = root.join("Application Support").join("Codexify");
+        let runtime_root = root.join("Codexify");
+        fs::create_dir_all(&runtime_home).expect("failed to create runtime home");
+        fs::create_dir_all(&runtime_root).expect("failed to create runtime root");
+
+        let legacy_env = runtime_home.join(".env");
+        fs::write(
+            &legacy_env,
+            [
+                "GUARDIAN_API_KEY=legacy-api-key",
+                "LOCAL_CHAT_MODEL=legacy-model",
+                "ALLOW_CLOUD_PROVIDERS=true",
+                "",
+            ]
+            .join("\n"),
+        )
+        .expect("failed to seed legacy env");
+
+        let result = materialize_packaged_setup_env(Some(runtime_home.as_path()), &runtime_root)
+            .expect("expected packaged setup env materialization to succeed");
+
+        assert_eq!(result.migrated_legacy_env_source, Some(legacy_env.clone()));
+        assert!(!result.created_new_env_file);
+        assert!(result
+            .preserved_keys
+            .contains(&"GUARDIAN_API_KEY".to_string()));
+        assert!(result
+            .preserved_keys
+            .contains(&"LOCAL_CHAT_MODEL".to_string()));
+
+        let written = fs::read_to_string(result.env_path).expect("failed to read migrated env");
+        assert!(written.contains("GUARDIAN_API_KEY=legacy-api-key"));
+        assert!(written.contains("VITE_GUARDIAN_API_KEY=legacy-api-key"));
+        assert!(written.contains("LOCAL_CHAT_MODEL=legacy-model"));
+        assert!(written.contains("ALLOW_CLOUD_PROVIDERS=true"));
+        assert!(written.contains("NEO4J_PASS=codexify"));
+
+        fs::remove_dir_all(&root).ok();
+    }
 }
