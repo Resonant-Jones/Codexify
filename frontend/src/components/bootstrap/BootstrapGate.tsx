@@ -57,6 +57,7 @@ const PREFLIGHT_FAILURE_KINDS = new Set([
   "packaged-runtime-home-unusable",
   "runtime-home-unavailable",
   "packaged-runtime-assets-missing",
+  "packaged-runtime-assets-corrupt",
   "packaged-runtime-assets-invalid",
   "packaged-runtime-materialization-failed",
   "docker-mount-path-unshared-or-unsupported",
@@ -227,6 +228,11 @@ export default function BootstrapGate({
     state.status === "waiting-for-ready";
   const actionsBusy = isBusy || openingDocker || restartingServices;
   const failureKind = state.failureKind ?? state.preflight?.failureKind;
+  const runtimeHome =
+    state.preflight?.runtimeHome ??
+    state.stepResults.setup?.runtimeHome ??
+    state.stepResults["compose-up"]?.runtimeHome ??
+    state.stepResults["health-check"]?.runtimeHome;
   const packagedDockerContextFailure =
     failureKind === "docker-cli-found-but-unusable-from-packaged-context";
   const packagedMountPathFailure =
@@ -356,26 +362,36 @@ export default function BootstrapGate({
               </p>
             )}
             {packaged && (
-              <div
-                className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em]"
-                style={{
-                  borderColor: "var(--chip-border)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "var(--muted)",
-                }}
-              >
-                macOS beta artifact
-                <span
-                  className="h-2 w-2 rounded-full"
+              <div className="space-y-2">
+                <div
+                  className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em]"
                   style={{
-                    background:
-                      state.status === "ready-for-welcome"
-                        ? "var(--accent-strong, #7dd3fc)"
-                        : state.status === "failed"
-                        ? "var(--danger-text, #fca5a5)"
-                        : "#fbbf24",
+                    borderColor: "var(--chip-border)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "var(--muted)",
                   }}
-                />
+                >
+                  macOS beta artifact
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{
+                      background:
+                        state.status === "ready-for-welcome"
+                          ? "var(--accent-strong, #7dd3fc)"
+                          : state.status === "failed"
+                          ? "var(--danger-text, #fca5a5)"
+                          : "#fbbf24",
+                    }}
+                  />
+                </div>
+                {runtimeHome && (
+                  <p
+                    className="max-w-3xl font-mono text-xs leading-5"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    Runtime home: {runtimeHome}
+                  </p>
+                )}
               </div>
             )}
           </div>

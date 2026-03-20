@@ -1,6 +1,6 @@
 # Codexify macOS Beta Packaging
 
-## Current contract
+## Runtime attachment contract
 
 Codexify now uses a split packaged-runtime contract on macOS:
 
@@ -11,15 +11,28 @@ This split exists because Docker Desktop bind mounts are expected to come from a
 
 If Codexify cannot resolve or create either the packaged metadata home or the Docker-compatible packaged runtime root, packaged bootstrap fails with `runtime-root-unavailable` and the workspace stays locked.
 
-## Packaged runtime assets
+## First-run materialization
 
-On packaged startup, Codexify expects the app bundle to contain the runtime payload needed for setup, Compose startup, logs, restart, and readiness checks.
+First-run materialization happens during Tauri startup, before preflight begins.
 
 Bundled resources materialized into `~/Codexify`:
 
+1. detect packaged app context
+2. resolve `~/Library/Application Support/Codexify`
+3. copy or refresh the packaged runtime attachment into that directory
+4. write runtime metadata files
+5. continue into the existing bootstrap sequence:
+   preflight -> setup -> compose up -> readiness wait -> welcome -> unlock
+
+The app refreshes the same attachment on later packaged launches instead of falling back to repo-root assumptions.
+
+## Materialized runtime attachment
+
+The packaged app materializes the minimum runtime payload needed by the existing setup/bootstrap flow:
+
+- `.env.example`
+- `.env.template`
 - `backend`
-- `backend/requirements.txt`
-- `backend/requirements-tts.txt`
 - `docker`
 - `docker-compose.yml`
 - `guardian`
@@ -41,16 +54,23 @@ The model-weight directory is still only a placeholder in this slice. Model weig
 If the app bundle is missing any required packaged runtime resource, bootstrap fails with `packaged-runtime-assets-missing`.
 If copying resources or writing the packaged runtime marker fails, bootstrap fails with `packaged-runtime-materialization-failed`.
 
-## Startup order
+The packaged app writes two small metadata files into the runtime home:
 
-The packaged bootstrap sequence is unchanged:
+- `.codexify-runtime-manifest.json`
+- `.codexify-packaged-runtime`
 
-1. preflight
-2. setup
-3. compose up
-4. readiness wait
-5. welcome
-6. unlock
+The manifest records the attachment version and the deterministic paths for:
+
+- the runtime home
+- the Compose file
+- the runtime `.env`
+- `.env.template`
+- `.env.example`
+- the bundle resource root
+
+The model-weight directory is only a placeholder in this slice. Model weights are not bundled.
+
+## Packaged command resolution
 
 This slice only changes where packaged startup resolves its runtime contract:
 
@@ -63,12 +83,13 @@ The workspace must remain locked unless Compose startup and readiness truly succ
 
 ## Failure classification
 
-Packaged bootstrap now distinguishes these failure modes:
+Packaged bootstrap now distinguishes runtime attachment failures from Docker failures:
 
 - `runtime-root-unavailable`
 - `packaged-runtime-assets-missing`
 - `packaged-runtime-assets-invalid`
 - `packaged-runtime-materialization-failed`
+- `packaged-runtime-assets-corrupt`
 - `docker-cli-unavailable`
 - `docker-cli-execution-failed`
 - `docker-cli-found-but-unusable-from-packaged-context`

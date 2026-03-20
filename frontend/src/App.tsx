@@ -1019,6 +1019,7 @@ export default function App() {
   }, [appendDiagnostics, bootstrapState, runBootstrapFlow, runStartupOrchestration]);
 
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
+  const appShell = <AppShell />;
 
   if (tuneRoute) {
     return <DevTuneGate />;
@@ -1065,7 +1066,7 @@ export default function App() {
 
   return (
     <>
-      <AppShell />
+      {appShell}
       <div className="fixed bottom-6 right-6 z-[1200]">
         <Button
           type="button"
