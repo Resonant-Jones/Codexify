@@ -1,5 +1,5 @@
 Purpose: Map where Codexify stores state today, which entities carry the most architectural weight, and which invariants or exposure points change work must preserve.
-Last updated: 2026-03-11
+Last updated: 2026-03-20
 Source anchors:
 - guardian/db/models.py
 - guardian/db/migrations/
@@ -26,7 +26,7 @@ Source anchors:
 | System | What it stores today | Key anchors |
 |---|---|---|
 | Postgres | Projects, threads, messages, memories, media metadata, documents, audit logs, command runs, cron runs, collaboration data, provider state | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
-| Redis | Chat/document/cron queues, cancellation set, turn locks, task event transport, worker heartbeat keys | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/routes/health.py` |
+| Redis | Chat queue, document/chat-embed/cron queues, cancellation set, canonical turn locks, task-event streams, worker heartbeat keys, turn-completion anchor cache, health-probe queue round-trip, queue-depth observation | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/workers/chat_worker.py`, `guardian/routes/health.py` |
 | Vector store | Semantic retrieval corpus for messages and documents | `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py`, `guardian/context/broker.py` |
 | File or object storage | Raw uploaded/generated media bytes and document/image/audio artifacts | `guardian/core/storage.py`, `guardian/routes/media.py` |
 | Neo4j | Optional graph context/logging and federation graph features | `guardian/context/broker.py`, `guardian/routes/federation.py`, `docker-compose.yml` |
@@ -107,7 +107,8 @@ Source anchors:
 ### Hard invariants
 
 - Only one assistant turn should be in flight per thread at a time.
-  - Enforced by Redis turn locks in `guardian/queue/redis_queue.py` and `guardian/routes/chat.py`.
+  - Canonical enforcement is the Redis turn-lock path in `guardian/queue/turn_lock.py`, used by `guardian/routes/chat.py` and the chat worker lifecycle.
+  - `guardian/queue/redis_queue.py` still contains older helper functions for turn-lock behavior, but that is no longer the main path the chat route relies on.
 - Chat completion, cron execution, and document embedding are queue-backed, not fire-and-forget in the API process.
   - Anchors: `guardian/routes/chat.py`, `guardian/routes/cron.py`, `guardian/queue/document_embed_queue.py`
 - Postgres is the source of truth for conversation, document metadata, command runs, and audit state.
@@ -147,6 +148,53 @@ Source anchors:
   - sync bus and some event fanout paths are still process-local
 - Encryption at rest:
   - Infra-level encryption for Postgres volumes, Neo4j data, and local media storage is `Unverified` in this repo
+
+## Redis Responsibilities In The Chat Path
+
+Redis currently carries multiple distinct responsibilities for the main chat loop:
+
+- `codexify:queue:chat`
+  - primary completion work queue consumed by `guardian/workers/chat_worker.py`
+- `turn_lock:{thread_id}`
+  - per-thread mutual exclusion so only one assistant turn is in flight
+  - canonical implementation lives in `guardian/queue/turn_lock.py`
+- `codexify:task:{task_id}:events`
+  - task-event stream used for `task.created`, `task.running`, `task.progress`, and terminal task events
+- `codexify:queue:cancelled`
+  - cancellation membership set checked by the worker before and during execution
+- `codexify:worker:chat:heartbeat`
+  - worker freshness signal read by `/health/chat` and stale-lock recovery logic
+- `codexify:chat:turn-anchor:{thread_id}:{turn_id}`
+  - short-lived turn-anchor cache used to correlate a completed assistant message back to a turn when DB metadata lookup is unavailable or delayed
+- `codexify:queue:chat-embed`
+  - background embedding queue for chat messages adjacent to the main completion path
+- health-probe queue keys
+  - `/health/chat` creates an ephemeral probe queue and performs a bounded push/pop round trip
+  - this proves Redis queue operations are reachable for that probe, not end-to-end completion progress
+- queue-depth observation
+  - `/health/chat` samples `LLEN(codexify:queue:chat)` and compares it to the previous sample to classify queue progress as `progressing`, `stalled`, or `unknown`
+  - this is a heuristic over sampled backlog depth, not proof that a worker has dequeued a specific task
+
+## Canonical Vs Legacy Turn-Lock Helpers
+
+- Canonical path
+  - `guardian/queue/turn_lock.py`
+  - stores structured lock envelopes with owner task id, turn id, lease token, acquire/renew timestamps, and TTL-derived expiry
+  - supports safe conditional release and explicit stale-lock inspection
+- Older helper surface
+  - `guardian/queue/redis_queue.py` still contains older turn-lock helper functions and constants
+  - treat those as compatibility or legacy helper code, not the authoritative architecture path for chat turn ownership
+
+## Health and Queue Observation Boundaries
+
+- `/health/chat` uses Redis for:
+  - a bounded enqueue/dequeue probe
+  - worker heartbeat inspection
+  - queue-depth sampling
+- Those checks are useful but limited:
+  - the probe queue proves Redis queue round-trip reachability, not that `worker-chat` is consuming `codexify:queue:chat`
+  - queue depth only supports a heuristic about forward progress between two samples
+  - neither surface proves UI receipt of task events
 
 ## Storage Mismatch and Drift Signals
 
