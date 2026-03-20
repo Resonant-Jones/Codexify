@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.core import event_bus
 from guardian.core.db import GuardianDB
 from guardian.db import models as db_models
@@ -20,7 +21,6 @@ CRON_QUEUE_NAME = os.getenv("CRON_QUEUE_NAME", "codexify:queue:cron")
 SCHEDULER_POLL_SECONDS = max(
     1, int(os.getenv("CRON_SCHEDULER_POLL_SECONDS", "30"))
 )
-_DEFAULT_DB_URL = "postgresql://guardian:guardian@db:5432/guardian"
 _INTERVAL_RE = re.compile(r"^\*/([1-9]\d*) \* \* \* \*$")
 
 
@@ -72,7 +72,7 @@ def _is_due(
 def _resolve_db(db: GuardianDB | None) -> GuardianDB:
     if db is not None:
         return db
-    db_url = os.getenv("DATABASE_URL", _DEFAULT_DB_URL)
+    db_url = os.getenv("DATABASE_URL") or DEFAULT_PG_DSN
     return GuardianDB(db_url)
 
 

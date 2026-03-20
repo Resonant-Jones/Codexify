@@ -358,8 +358,8 @@ def _safe_emit_live_event(event_type: str, payload: dict[str, Any]) -> None:
         )
 
 
-def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
-    """Best-effort event publishing.
+def _safe_publish(task_id: str, event_type: str, data: dict) -> dict[str, Any]:
+    """Best-effort event publishing with explicit visibility signaling.
 
     Never raise from the worker hot-path.
     """
@@ -370,19 +370,50 @@ def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
         payload = {"data": str(data)}
 
     try:
-        task_events.publish(task_id, event_type, payload)
+        publish_result = task_events.publish_with_visibility(
+            task_id, event_type, payload
+        )
     except Exception as exc:
-        logger.warning(
-            "[chat-worker] failed to publish event type=%s task_id=%s err=%s",
-            event_type,
+        visibility_scope = task_events.classify_event_visibility(event_type)
+        publish_result = {
+            "ok": False,
+            "task_id": task_id,
+            "event_type": event_type,
+            "visibility_scope": visibility_scope,
+            "terminal_visibility": visibility_scope == "terminal",
+            "execution_continued": True,
+            "event_id": None,
+            "failure_class": exc.__class__.__name__,
+            "error": str(exc),
+        }
+
+    if not publish_result.get("ok"):
+        log_level = (
+            logging.ERROR
+            if publish_result.get("terminal_visibility")
+            else logging.WARNING
+        )
+        logger.log(
+            log_level,
+            (
+                "[chat-worker] task_event_visibility_degraded "
+                "task_id=%s event_type=%s visibility_scope=%s "
+                "failure_class=%s execution_continued=%s err=%s"
+            ),
             task_id,
-            exc,
+            event_type,
+            publish_result.get("visibility_scope"),
+            publish_result.get("failure_class"),
+            publish_result.get("execution_continued"),
+            publish_result.get("error"),
         )
 
     if event_type in _MIRRORED_LIVE_EVENT_TYPES:
         mirror_payload = dict(payload)
         mirror_payload.setdefault("task_id", task_id)
         _safe_emit_live_event(event_type, mirror_payload)
+
+    return publish_result
 
 
 def _describe_task_error(exc: Exception) -> str:
