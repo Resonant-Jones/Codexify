@@ -1218,10 +1218,22 @@ export function useChat(options: UseChatOptions = {}) {
       const normalizedTaskId = normalizeTaskId(taskId);
       if (!normalizedTaskId) return null;
 
+      // Check if there's an existing session for the same thread that hasn't completed yet
+      const existingSession = completionSessionRef.current;
+      if (existingSession &&
+          existingSession.threadId === threadId &&
+          existingSession.taskTerminalState === null) {
+        // If we're starting a new session for the same thread while another is active,
+        // we should finalize the existing one first to prevent conflicts
+        console.debug(`[useChat] Disposing active completion session for thread ${threadId} before starting new one`);
+        disposeCompletionSession();
+      }
+
       const sessionId = `${threadId}:${Date.now()}:${Math.random()
         .toString(36)
         .slice(2, 8)}`;
-      disposeCompletionSession();
+      // Only dispose if there was an active session for the same thread
+      // The general dispose is still needed to clean up any existing session
 
       const session: CompletionSession = {
         sessionId,
@@ -1347,16 +1359,12 @@ export function useChat(options: UseChatOptions = {}) {
         Boolean(messageTaskId) && current.taskIdAliases.has(messageTaskId as string);
       const matchedByTurn =
         Boolean(current.turnId) && message.turn_id === current.turnId;
-      const matchedByFallback =
-        !current.turnId &&
-        current.taskTerminalState != null &&
-        message.id >
-          Math.max(
-            current.baselineLastUserMessageId,
-            current.baselineLatestAssistantId
-          );
 
-      if (!(matchedByTask || matchedByTurn || matchedByFallback)) {
+      // Issue 1: Remove the fallback that matches only by position without task/turn verification
+      // This prevents accepting assistant completion events by thread alone
+      const matchedByFallback = false;
+
+      if (!(matchedByTask || matchedByTurn)) {
         return false;
       }
 

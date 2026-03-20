@@ -1583,19 +1583,21 @@ export function GuardianChat({
       const payload = (event.data as any)?.data ?? event.data;
       const tid = Number(payload?.thread_id ?? payload?.threadId);
       if (!Number.isFinite(tid)) return;
-      const eventTaskId = String(
-        payload?.task_id ??
-          payload?.taskId ??
-          completionState.activeTaskId ??
-          inferenceRequest.state.taskId ??
-          ""
-      ).trim();
-      const eventTurnId = String(
-        payload?.turn_id ?? payload?.turnId ?? ""
-      ).trim();
-      if (eventTaskId && eventTurnId) {
-        updateCompletionSessionTurnId(eventTaskId, eventTurnId);
+
+      // Issue 1: Only accept events with explicit task_id/turn_id, not by thread alone
+      const eventTaskId = String(payload?.task_id ?? payload?.taskId ?? "").trim();
+      const eventTurnId = String(payload?.turn_id ?? payload?.turnId ?? "").trim();
+
+      // Only proceed if both task_id and turn_id are present in the event payload
+      // This prevents accepting assistant completion events by thread alone
+      if (!eventTaskId || !eventTurnId) {
+        console.debug(`[guardian] Ignoring completion event without explicit task_id or turn_id for thread ${tid}`);
+        return;
       }
+
+      // Update the turn ID for the specific task
+      updateCompletionSessionTurnId(eventTaskId, eventTurnId);
+
       const terminalState =
         event.type === "task.completed"
           ? "completed"
@@ -1604,13 +1606,14 @@ export function GuardianChat({
             : event.type === "completion.error"
               ? "error"
               : "failed";
-      const finalized =
-        eventTaskId.length > 0
-          ? finalizeCompletionSession({
-              taskId: eventTaskId,
-              terminalState,
-            })
-          : false;
+
+      // Issue 2: Only finalize the session if the task ID matches the current session exactly
+      // This prevents rebinding new completions to stale responses
+      const finalized = finalizeCompletionSession({
+        taskId: eventTaskId,
+        terminalState,
+      });
+
       if (finalized) {
         clearInFlightCompletionTurnId(tid);
         setTurnLockForThread(tid, false);
