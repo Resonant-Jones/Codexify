@@ -57,6 +57,14 @@ logger = logging.getLogger(__name__)
 COMPLETION_SERVICE_UNAVAILABLE_MESSAGE = (
     "Completion service unavailable — check Docker/Redis."
 )
+COMPLETION_ACCEPTANCE_STATUS_ACCEPTED = "accepted"
+COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED = "accepted_degraded"
+COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_PUBLISH_FAILED = (
+    "task_created_event_publish_failed"
+)
+COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_MISSING_EVENT_ID = (
+    "task_created_event_missing_event_id"
+)
 CHAT_WORKER_HEARTBEAT_KEY = os.getenv(
     "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
 )
@@ -150,6 +158,80 @@ def _turn_lock_payload(
             source="api:chat.complete",
         )
     )
+
+
+def _publish_completion_start_event(
+    *,
+    task: ChatCompletionTask,
+    thread_id: int,
+    turn_id: str,
+) -> dict[str, Any]:
+    """Publish the lifecycle-start breadcrumb and normalize failure details."""
+
+    payload = {
+        "type": task.type,
+        "thread_id": thread_id,
+        "origin": task.origin,
+        "turn_id": turn_id,
+    }
+    try:
+        publish_result = task_events.publish_with_visibility(
+            task.task_id,
+            "task.created",
+            payload,
+        )
+    except Exception as exc:
+        visibility_scope = task_events.classify_event_visibility("task.created")
+        return {
+            "ok": False,
+            "task_id": task.task_id,
+            "event_type": "task.created",
+            "visibility_scope": visibility_scope,
+            "terminal_visibility": visibility_scope == "terminal",
+            "execution_continued": True,
+            "event_id": None,
+            "failure_class": exc.__class__.__name__,
+            "error": str(exc),
+        }
+
+    if isinstance(publish_result, dict):
+        return publish_result
+
+    visibility_scope = task_events.classify_event_visibility("task.created")
+    return {
+        "ok": False,
+        "task_id": task.task_id,
+        "event_type": "task.created",
+        "visibility_scope": visibility_scope,
+        "terminal_visibility": visibility_scope == "terminal",
+        "execution_continued": True,
+        "event_id": None,
+        "failure_class": "InvalidPublishResult",
+        "error": (
+            "unexpected result type: " f"{type(publish_result).__name__}"
+        ),
+    }
+
+
+def _completion_acceptance_outcome(
+    publish_result: dict[str, Any],
+) -> tuple[str, list[str]]:
+    """Translate start-event visibility into a narrow acceptance status."""
+
+    if not publish_result.get("ok"):
+        return (
+            COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED,
+            [COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_PUBLISH_FAILED],
+        )
+
+    event_id = str(publish_result.get("event_id") or "").strip()
+    if not event_id:
+        return (
+            COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED,
+            [COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_MISSING_EVENT_ID],
+        )
+
+    return COMPLETION_ACCEPTANCE_STATUS_ACCEPTED, []
 
 
 def _recover_orphaned_turn_lock(thread_id: int) -> bool:
@@ -1011,6 +1093,17 @@ def _normalize_turn_id(raw: Any) -> str:
     return str(uuid.uuid4())
 
 
+def _normalize_task_identity(raw: Any) -> str | None:
+    """Return a canonical UUID task identity or None when invalid."""
+    candidate = str(raw or "").strip()
+    if not candidate:
+        return None
+    try:
+        return str(uuid.UUID(candidate))
+    except ValueError:
+        return None
+
+
 def _coerce_message_meta(raw: Any) -> dict[str, Any]:
     if isinstance(raw, dict):
         return dict(raw)
@@ -1670,8 +1763,18 @@ async def chat_complete(
         # Encode turn_id into origin so it survives dataclass serialization.
         origin=f"api:chat.complete|turn_id={turn_id}",
     )
-    task.turn_lock_owner = task.task_id
     task.turn_id = turn_id
+    task_identity = _normalize_task_identity(getattr(task, "task_id", None))
+    if task_identity is None:
+        logger.error(
+            "[chat.complete] invalid task identity thread_id=%s turn_id=%s task_type=%s",
+            thread_id,
+            turn_id,
+            getattr(task, "type", "unknown"),
+        )
+        raise _completion_service_unavailable("task_identity_invalid")
+    task.task_id = task_identity
+    task.turn_lock_owner = task_identity
 
     try:
         locked = acquire_turn_lock(thread_id, task.turn_lock_owner)
@@ -1712,35 +1815,49 @@ async def chat_complete(
         raise _completion_service_unavailable("queue_unavailable")
 
     # Track latest task for debug endpoint
-    _thread_latest_task[thread_id] = task.task_id
+    _thread_latest_task[thread_id] = task_identity
 
-    try:
-        task_events.publish(
-            task.task_id,
-            "task.created",
-            {
-                "type": task.type,
-                "thread_id": thread_id,
-                "origin": task.origin,
-                "turn_id": turn_id,
-            },
-        )
-    except Exception:
-        logger.debug("[chat.complete] task.created emit failed", exc_info=True)
+    task_created_publish_result = _publish_completion_start_event(
+        task=task,
+        thread_id=thread_id,
+        turn_id=turn_id,
+    )
+    acceptance_status, acceptance_warnings = _completion_acceptance_outcome(
+        task_created_publish_result
+    )
 
-    logger.info(
-        "[task] created type=%s id=%s origin=%s thread=%s",
+    log_level = (
+        logging.INFO
+        if acceptance_status == COMPLETION_ACCEPTANCE_STATUS_ACCEPTED
+        else logging.WARNING
+    )
+    logger.log(
+        log_level,
+        (
+            "[task] created type=%s id=%s origin=%s thread=%s "
+            "acceptance_status=%s acceptance_warnings=%s "
+            "task_created_visibility_scope=%s task_created_event_id=%s "
+            "task_created_failure_class=%s"
+        ),
         task.type,
-        task.task_id,
+        task_identity,
         task.origin,
         thread_id,
+        acceptance_status,
+        acceptance_warnings,
+        task_created_publish_result.get("visibility_scope"),
+        task_created_publish_result.get("event_id"),
+        task_created_publish_result.get("failure_class"),
     )
+
     messages_url = f"/api/chat/{thread_id}/messages"
     trace_url = f"/api/chat/debug/rag-trace/{thread_id}/latest"
 
     return {
         "ok": True,
-        "task_id": task.task_id,
+        "acceptance_status": acceptance_status,
+        "acceptance_warnings": acceptance_warnings,
+        "task_id": task_identity,
         "turn_id": turn_id,
         "thread_id": thread_id,
         "depth_mode": internal_depth_mode,
