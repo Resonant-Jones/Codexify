@@ -809,6 +809,26 @@ class TestChatMessagesGet:
 class TestChatCompletePost:
     """Tests for POST /chat/{thread_id}/complete endpoint."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_task_created_publish(self, monkeypatch):
+        def _publish_with_visibility(task_id, event_type, data):
+            return {
+                "ok": True,
+                "task_id": task_id,
+                "event_type": event_type,
+                "visibility_scope": "progress",
+                "terminal_visibility": False,
+                "execution_continued": True,
+                "event_id": f"{task_id}:created",
+                "failure_class": None,
+                "error": None,
+            }
+
+        monkeypatch.setattr(
+            "guardian.routes.chat.task_events.publish_with_visibility",
+            MagicMock(side_effect=_publish_with_visibility),
+        )
+
     def test_complete_success(self, test_client, mock_db, monkeypatch):
         """Test completion enqueues a task and returns a task id."""
         mock_db.list_messages.return_value = [
@@ -832,11 +852,95 @@ class TestChatCompletePost:
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data.get("task_id"), str)
+        assert data["acceptance_status"] == "accepted"
+        assert data["acceptance_warnings"] == []
         task = captured.get("task")
         assert task is not None
         assert getattr(task, "thread_id") == 1
         assert getattr(task, "turn_lock_owner") == data["task_id"]
         assert captured.get("queue_name") == "codexify:queue:chat"
+
+    def test_complete_missing_lifecycle_start_returns_degraded_acceptance(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+
+        captured: dict[str, object] = {}
+        publish_spy = MagicMock(
+            return_value={
+                "ok": True,
+                "task_id": "task-visibility-missing",
+                "event_type": "task.created",
+                "visibility_scope": "progress",
+                "terminal_visibility": False,
+                "execution_continued": True,
+                "event_id": None,
+                "failure_class": None,
+                "error": None,
+            }
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock",
+            lambda *a, **k: True,
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.enqueue",
+            lambda task, queue_name: captured.update(
+                {"task": task, "queue_name": queue_name}
+            ),
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.task_events.publish_with_visibility",
+            publish_spy,
+        )
+
+        response = test_client.post("/chat/1/complete", json={})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert data["acceptance_status"] == "accepted_degraded"
+        assert data["acceptance_warnings"] == [
+            "task_created_event_missing_event_id"
+        ]
+        assert isinstance(data.get("task_id"), str)
+        assert captured.get("queue_name") == "codexify:queue:chat"
+        publish_spy.assert_called_once()
+
+    def test_complete_rejects_invalid_task_identity(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+
+        def _broken_task(**kwargs):
+            return SimpleNamespace(
+                task_id="not-a-uuid",
+                type="chat_completion",
+                origin=kwargs.get("origin"),
+            )
+
+        acquire_spy = MagicMock()
+        enqueue_spy = MagicMock()
+        monkeypatch.setattr(
+            "guardian.routes.chat.ChatCompletionTask", _broken_task
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock", acquire_spy
+        )
+        monkeypatch.setattr("guardian.routes.chat.enqueue", enqueue_spy)
+
+        response = test_client.post("/chat/1/complete", json={})
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert detail["error"] == "completion_service_unavailable"
+        assert detail["reason"] == "task_identity_invalid"
+        acquire_spy.assert_not_called()
+        enqueue_spy.assert_not_called()
 
     def test_complete_recovers_orphaned_turn_lock_from_terminal_event(
         self, test_client, mock_db, monkeypatch
