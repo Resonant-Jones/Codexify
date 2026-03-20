@@ -347,17 +347,20 @@ export default function SidebarRoot({
         </div>
 
         <div className={clsx(columnClass, tab === "projects" && "mb-[5px]")}>
-          <div className="relative">
+          <div
+            className="flex items-center gap-[calc(var(--radius-micro)/2)] rounded-[var(--tile-radius)] border bg-[var(--chip-bg)] px-[var(--radius-micro)] focus-within:ring-2 focus-within:ring-[var(--accent)]"
+            style={{ borderColor: "var(--panel-border)" }}
+          >
             <div
               data-testid="sidebar-search-icon"
-              className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60"
+              className="flex shrink-0 items-center justify-center text-[color:var(--muted)]"
               aria-hidden="true"
             >
-              <Search className="h-4 w-4" />
+              <Search size={16} strokeWidth={2} />
             </div>
             <Input
               data-testid="sidebar-search-input"
-              className="h-10 w-full rounded-xl pl-10 pr-3 bg-[var(--chip-bg)] border border-white/10"
+              className="h-[calc(var(--radius-micro)*3)] min-w-0 flex-1 border-0 bg-transparent px-0 py-0 shadow-none focus:ring-0 focus:outline-none"
               placeholder={tab === "projects" ? "Search projects…" : "Search threads…"}
               value={q}
               onChange={(e) => setQ(e.target.value)}
