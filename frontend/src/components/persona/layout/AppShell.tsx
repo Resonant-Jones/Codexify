@@ -1643,6 +1643,8 @@ export default function AppShell({
         minHeight: "548px",
         padding: "6px",
         alignItems: "center",
+        color: "var(--text)",
+        colorScheme: resolved,
 
         /* ✨ glossy‑glass overrides */
         "--tile-blur": "22px",                       // stronger backdrop blur
@@ -1690,6 +1692,8 @@ export default function AppShell({
           paddingLeft: "6px",
           paddingRight: "6px",
           boxSizing: "border-box",
+          color: "var(--text)",
+          colorScheme: resolved,
         }}
       >
       <div id="cfy-portal-root" />

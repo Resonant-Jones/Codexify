@@ -76,7 +76,7 @@ export const ThreadPromptBox: React.FC = () => {
           type="submit"
           disabled={loading || !prompt || !activePersonaId}
           className="px-4 py-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
-          style={{ background: "var(--accent-weak)", color: "#000", outlineColor: "var(--accent-weak)" }}
+          style={{ background: "var(--accent-weak)", color: "var(--text-on-accent)", outlineColor: "var(--accent-weak)" }}
         >
           Send
         </button>
