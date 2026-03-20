@@ -22,19 +22,30 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 When you need current-state interpretation instead of structural architecture, begin with [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
+## KB Validity and Diagram Source Sets
+
+Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-validity-matrix.md).
+
+- Use the validity matrix before using docs as diagram inputs.
+- For first-pass runtime architecture diagrams, use only `Runtime Diagram Source Set v1`.
+- Treat [`00-current-state.md`](./00-current-state.md) as the short-horizon override when older or broader docs conflict with present release reality.
+- Do not use quarantined legacy docs as source inputs, especially Threadspace / `guardian-backend_v2` / obsolete installer-era material.
+
 ## Doc Map
 
+- [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
-- [System Overview](./system-overview.md): runtime components, topology, and critical paths.
-- [Critical Flows](./flows.md): step-by-step operational flows with Mermaid diagrams and failure modes.
+- [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
+- [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
-- [Config and Ops](./config-and-ops.md): env vars, config resolution, run commands, health checks, logging, and debugging cues.
+- [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
-- [Roadmap Signals](./roadmap-signals.md): derived planning constraints, refactor leverage points, and sequencing suggestions.
-- [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed risk register.
-- [Completion Pipeline](./completion_pipeline.md): older deep dive on completion internals; treat as supplementary and verify against current routes/workers.
-- [Inference Providers](./providers.md): provider notes; verify against current catalog/router behavior before relying on it.
-- [Guardian Agent Delegation Recon](./guardian-agent-delegation-recon.md): focused notes on delegation and agent runtime work.
+- [Runtime Diagrams v1](./runtime-diagrams-v1.md): first-pass current runtime diagram pack with source-scoped evidence notes and confidence labels.
+- [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
+- [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
+- [Completion Pipeline](./completion_pipeline.md): older completion deep dive; supplementary only and verify against current routes/workers.
+- [Inference Providers](./providers.md): provider notes; supplementary only and verify against current catalog/router/health behavior.
+- [Guardian Agent Delegation Recon](./guardian-agent-delegation-recon.md): focused planning/recon notes on delegation and agent runtime work.
 - [Solo Operator Runtime Bootcamp](./solo-operator-runtime-bootcamp.md): operational bootstrapping guide for solo runtime work.
 
 ## Where Do I Change X?
