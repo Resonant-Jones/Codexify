@@ -1026,6 +1026,7 @@ struct PackagedSetupEnvResult {
     generated_guardian_api_key: bool,
     created_new_env_file: bool,
     migrated_legacy_env_source: Option<PathBuf>,
+    migrated_legacy_runtime_assets: Vec<String>,
 }
 
 fn migrate_packaged_setup_env(
@@ -1067,12 +1068,67 @@ fn migrate_packaged_setup_env(
     Ok(Some(source_env_path))
 }
 
+fn migrate_packaged_setup_runtime_dir(
+    runtime_home: Option<&Path>,
+    runtime_root: &Path,
+    relative_path: &str,
+) -> Result<Option<PathBuf>, BootstrapRuntimeValidationError> {
+    let Some(runtime_home) = runtime_home else {
+        return Ok(None);
+    };
+
+    let source_path = runtime_home.join(relative_path);
+    let destination_path = runtime_root.join(relative_path);
+    if !source_path.is_dir() {
+        return Ok(None);
+    }
+
+    if destination_path.exists() {
+        if !destination_path.is_dir() {
+            return Err(BootstrapRuntimeValidationError {
+                failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+                detail: format!(
+                    "Packaged runtime migration expected {} to be a directory.",
+                    destination_path.display()
+                ),
+            });
+        }
+
+        let mut entries =
+            fs::read_dir(&destination_path).map_err(|err| BootstrapRuntimeValidationError {
+                failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+                detail: format!(
+                    "Failed to inspect packaged runtime destination {}: {err}",
+                    destination_path.display()
+                ),
+            })?;
+        if entries.next().is_some() {
+            return Ok(None);
+        }
+    }
+
+    copy_dir_all(&source_path, &destination_path).map_err(|detail| {
+        BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail,
+        }
+    })?;
+
+    Ok(Some(source_path))
+}
+
 fn materialize_packaged_setup_env(
     runtime_home: Option<&Path>,
     runtime_root: &Path,
 ) -> Result<PackagedSetupEnvResult, BootstrapRuntimeValidationError> {
     let env_path = runtime_env_file_path(runtime_root);
     let migrated_legacy_env_source = migrate_packaged_setup_env(runtime_home, runtime_root)?;
+    let mut migrated_legacy_runtime_assets = Vec::new();
+    for asset in [".chroma", "models"] {
+        if migrate_packaged_setup_runtime_dir(runtime_home, runtime_root, asset)?.is_some() {
+            migrated_legacy_runtime_assets.push(asset.to_string());
+        }
+    }
     let (mut order, mut values) =
         read_env_file_ordered(&env_path).map_err(|detail| BootstrapRuntimeValidationError {
             failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
@@ -1154,6 +1210,7 @@ fn materialize_packaged_setup_env(
         generated_guardian_api_key,
         created_new_env_file,
         migrated_legacy_env_source,
+        migrated_legacy_runtime_assets,
     })
 }
 
@@ -2703,6 +2760,7 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
                             .migrated_legacy_env_source
                             .as_ref()
                             .map(|path| path.display().to_string()),
+                        "migrated_legacy_runtime_assets": result.migrated_legacy_runtime_assets,
                     })
                     .to_string(),
                 );
@@ -2728,6 +2786,14 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
                             .as_ref()
                             .map(|path| format!("migratedLegacyEnvSource={}", path.display()))
                             .unwrap_or_else(|| "migratedLegacyEnvSource=<none>".to_string()),
+                        format!(
+                            "migratedLegacyRuntimeAssets={}",
+                            if result.migrated_legacy_runtime_assets.is_empty() {
+                                "<none>".to_string()
+                            } else {
+                                result.migrated_legacy_runtime_assets.join(",")
+                            }
+                        ),
                         "status=success".to_string(),
                     ],
                     stdout.as_ref(),
@@ -3634,6 +3700,11 @@ mod tests {
         fs::create_dir_all(&runtime_home).expect("failed to create runtime home");
         fs::create_dir_all(&runtime_root).expect("failed to create runtime root");
 
+        let legacy_chroma = runtime_home.join(".chroma");
+        let legacy_models = runtime_home.join("models");
+        fs::create_dir_all(&legacy_chroma).expect("failed to create legacy chroma dir");
+        fs::create_dir_all(&legacy_models).expect("failed to create legacy models dir");
+
         let legacy_env = runtime_home.join(".env");
         fs::write(
             &legacy_env,
@@ -3646,11 +3717,21 @@ mod tests {
             .join("\n"),
         )
         .expect("failed to seed legacy env");
+        fs::write(legacy_chroma.join("chroma.sqlite3"), "legacy-chroma")
+            .expect("failed to seed legacy chroma data");
+        fs::write(legacy_models.join("model.cache"), "legacy-models")
+            .expect("failed to seed legacy models data");
 
         let result = materialize_packaged_setup_env(Some(runtime_home.as_path()), &runtime_root)
             .expect("expected packaged setup env materialization to succeed");
 
         assert_eq!(result.migrated_legacy_env_source, Some(legacy_env.clone()));
+        assert!(result
+            .migrated_legacy_runtime_assets
+            .contains(&".chroma".to_string()));
+        assert!(result
+            .migrated_legacy_runtime_assets
+            .contains(&"models".to_string()));
         assert!(!result.created_new_env_file);
         assert!(result
             .preserved_keys
@@ -3665,6 +3746,16 @@ mod tests {
         assert!(written.contains("LOCAL_CHAT_MODEL=legacy-model"));
         assert!(written.contains("ALLOW_CLOUD_PROVIDERS=true"));
         assert!(written.contains("NEO4J_PASS=codexify"));
+        assert_eq!(
+            fs::read_to_string(runtime_root.join(".chroma").join("chroma.sqlite3"))
+                .expect("failed to read migrated chroma data"),
+            "legacy-chroma"
+        );
+        assert_eq!(
+            fs::read_to_string(runtime_root.join("models").join("model.cache"))
+                .expect("failed to read migrated model data"),
+            "legacy-models"
+        );
 
         fs::remove_dir_all(&root).ok();
     }
