@@ -12,12 +12,16 @@ ARCH = ROOT / "docs" / "architecture"
 README = ARCH / "README.md"
 VALIDITY_MATRIX = ARCH / "kb-validity-matrix.md"
 RUNTIME_DIAGRAMS = ARCH / "runtime-diagrams-v1.md"
+UI_DIAGRAMS = ARCH / "ui-diagrams-v1.md"
+ARCHITECTURE_ATLAS = ARCH / "architecture-atlas.md"
 
 REQUIRED_FILES = (
     README,
     ARCH / "00-current-state.md",
     VALIDITY_MATRIX,
     RUNTIME_DIAGRAMS,
+    UI_DIAGRAMS,
+    ARCHITECTURE_ATLAS,
     ARCH / "system-overview.md",
     ARCH / "flows.md",
     ARCH / "data-and-storage.md",
@@ -29,6 +33,8 @@ README_LINK_TARGETS = (
     "./00-current-state.md",
     "./kb-validity-matrix.md",
     "./runtime-diagrams-v1.md",
+    "./ui-diagrams-v1.md",
+    "./architecture-atlas.md",
     "./system-overview.md",
     "./flows.md",
     "./data-and-storage.md",
@@ -38,6 +44,12 @@ README_LINK_TARGETS = (
 
 README_RUNTIME_DIAGRAMS_ENTRY = re.compile(
     r"(?m)^\s*-\s*\[Runtime Diagrams v1\]\(\./runtime-diagrams-v1\.md\)"
+)
+README_UI_DIAGRAMS_ENTRY = re.compile(
+    r"(?m)^\s*-\s*\[UI Diagrams v1\]\(\./ui-diagrams-v1\.md\)"
+)
+README_ARCHITECTURE_ATLAS_ENTRY = re.compile(
+    r"(?m)^\s*-\s*\[Architecture Atlas\]\(\./architecture-atlas\.md\)"
 )
 LOCAL_LINK_RE = re.compile(r"\[[^\]]+\]\((\./[^)\s]+)\)")
 
@@ -58,6 +70,29 @@ RUNTIME_DIAGRAMS_HEADINGS = (
     "## Diagram 3: Data and Storage Boundaries",
     "## Diagram 4: Subsystem / Ownership Map",
     "## Reviewer guidance",
+)
+
+UI_DIAGRAMS_HEADINGS = (
+    "## 1. Title and purpose",
+    "## 2. Source set used",
+    "## 3. Interpretation constraints",
+    "## 4. Diagram legend",
+    "## 5. Diagram 1: UI Token Hierarchy",
+    "## 6. Diagram 2: Structural Layout Model",
+    "## 7. Diagram 3: Rendering / Surface Composition Model",
+    "## 8. Diagram 4: Diagnostics / Perceptual Stack",
+    "## 9. Omitted / intentionally excluded areas",
+    "## 10. Reviewer guidance",
+)
+
+ARCHITECTURE_ATLAS_HEADINGS = (
+    "## Audience",
+    "## Reading order",
+    "## Current-truth model",
+    "## Two-view model",
+    "## What this atlas intentionally excludes",
+    "## Peer review checklist",
+    "## Next documents after the atlas",
 )
 
 
@@ -110,6 +145,18 @@ def check_readme_links(failures: list[str]) -> None:
             f"{rel(README)}: missing link entry for [Runtime Diagrams v1](./runtime-diagrams-v1.md)",
         )
 
+    if not README_UI_DIAGRAMS_ENTRY.search(text):
+        add_failure(
+            failures,
+            f"{rel(README)}: missing link entry for [UI Diagrams v1](./ui-diagrams-v1.md)",
+        )
+
+    if not README_ARCHITECTURE_ATLAS_ENTRY.search(text):
+        add_failure(
+            failures,
+            f"{rel(README)}: missing link entry for [Architecture Atlas](./architecture-atlas.md)",
+        )
+
 
 def check_headings(
     failures: list[str], path: Path, headings: tuple[str, ...]
@@ -134,6 +181,8 @@ def main() -> int:
     check_readme_links(failures)
     check_headings(failures, VALIDITY_MATRIX, VALIDITY_MATRIX_HEADINGS)
     check_headings(failures, RUNTIME_DIAGRAMS, RUNTIME_DIAGRAMS_HEADINGS)
+    check_headings(failures, UI_DIAGRAMS, UI_DIAGRAMS_HEADINGS)
+    check_headings(failures, ARCHITECTURE_ATLAS, ARCHITECTURE_ATLAS_HEADINGS)
 
     if failures:
         print("\n".join(failures))
