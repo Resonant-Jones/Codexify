@@ -17,7 +17,7 @@ This file is authoritative for:
 
 ## Current phase
 
-Codexify is in runtime-stabilization for a local Docker Compose beta path on `main`. Recent merges improved packaging, startup resilience, completion matching, and diagnostics, but release posture is still `hold` until supported-profile runtime behavior and end-to-end proof are re-validated on the live stack.
+Codexify is in runtime-stabilization for a local Docker Compose beta path on `main`. Recent merges made the Redis-backed chat loop more truthful about health, queue pressure, stale locks, event visibility, and acceptance boundaries, but release posture is still `hold` until supported-profile runtime behavior and end-to-end proof are re-validated on the live stack.
 
 ## What changed recently
 
@@ -30,11 +30,20 @@ Codexify is in runtime-stabilization for a local Docker Compose beta path on `ma
 - Packaged runtime/bootstrap handling and macOS bundle launchability were updated on `main`.
 - Chat UX/runtime behavior was adjusted for cancel unlock and persisted inference mode.
 - Completion matching was hardened in chat flow paths.
+- `/health/chat` now distinguishes Redis reachability, queue round-trip truth, worker-heartbeat freshness, and sampled queue-progress heuristics more honestly.
+- Stale-turn-lock recovery now depends on task-stream and heartbeat evidence and fails closed when the evidence is ambiguous.
+- Task-event visibility degradation is now surfaced more explicitly in worker logs.
+- Chat acceptance truth is stronger: success now means lock plus enqueue succeeded, while degraded lifecycle visibility is treated as degraded visibility rather than invisible success.
 
 ## Current supported reality
 
 - Supported install path is local Docker Compose with backend, frontend, Postgres, Redis, and required workers.
 - Core product loop on `main` is thread chat with queue-backed completion, persisted messages, and task/event telemetry.
+- The main interaction loop is materially less ambiguous than before:
+  - `/health/chat` is more honest about worker freshness and backlog signals
+  - stale-lock recovery is evidence-based instead of lease-age-only
+  - task-event publish failure is surfaced as visibility degradation
+  - route success is a stronger statement about queue acceptance than before
 - Release evidence exists on `main` for runtime audits (`docs/release/run/2026-03-17-runtime-stability-audit.md`) and supported-profile proof attempts (`docs/release/run/2026-03-17-beta-smoke-supported-profile-proof.md`).
 - Architecture-level readiness baseline was captured on `main` (`docs/audits/history/2026-03-19-platform-readiness-baseline.md`).
 - Health, catalog, and supported-profile surfaces are part of current operator workflow; none is sufficient alone for release signoff.
@@ -47,6 +56,10 @@ Codexify is in runtime-stabilization for a local Docker Compose beta path on `ma
 - Do not assume command center/action-center UI is the released operator source of truth.
 - Do not assume legacy `/tools` and command bus contracts are fully unified.
 - Do not assume federation/sync durability is in the current release promise.
+- Do not assume queue-progress status proves a worker dequeued a specific chat task.
+- Do not assume task-event publication proves downstream UI receipt or rendering.
+- Do not assume accepted work will complete successfully just because the route returned success.
+- Do not assume Redis coupling risk is removed; it is better surfaced, not eliminated.
 
 ## Active blockers
 
@@ -54,6 +67,7 @@ Codexify is in runtime-stabilization for a local Docker Compose beta path on `ma
 - Fresh live supported-path proof is incomplete for thread -> assistant completion and upload -> embed -> retrieve in one passing run.
 - Provider governance, catalog, and runtime health can still present mixed signals without a single release-grade gate.
 - Tool execution surface remains split between legacy `/tools` behavior and command bus behavior.
+- Redis-backed chat remains a coordination concentration point even after the reliability pass; the branch improves operator truth and failure handling, but does not yet remove Redis as a central dependency for the core loop.
 
 ## This week's priorities
 
@@ -70,6 +84,7 @@ Codexify is in runtime-stabilization for a local Docker Compose beta path on `ma
 - [ ] One fresh supported-path smoke on `main` proves thread create, assistant completion, document upload, embed readiness, and retrieval evidence.
 - [ ] `/health/chat`, `/health/llm`, `/health`, and `/api/llm/catalog` agree with supported-profile and provider-governance expectations.
 - [ ] No release claim depends on internal-only or dev-only surfaces.
+- [ ] Release language stays precise about partial truth surfaces: queue progress is heuristic, task-event visibility is not UI receipt, and route acceptance is not eventual completion.
 
 ## How to read the rest of the KB
 

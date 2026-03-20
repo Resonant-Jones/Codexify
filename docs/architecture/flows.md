@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-03-11
+Last updated: 2026-03-20
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -23,24 +23,39 @@ Trigger:
 
 Sequence:
 1. `guardian/routes/chat.py` validates the thread, turn state, and effective identity depth.
-2. The route acquires a Redis turn lock and enqueues a `ChatCompletionTask` on `codexify:queue:chat`.
-3. `guardian/workers/chat_worker.py` dequeues the task and marks it running in the task event stream.
-4. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, and resolves provider/model/profile settings.
-5. The provider call executes through `guardian/core/ai_router.py`.
-6. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
-7. The worker publishes terminal task events and releases the turn lock in `finally`.
+2. The route acquires a Redis turn lock whose owner is the new `task_id`.
+3. If the thread already has a stale lock, recovery only occurs when real evidence says it is safe:
+   - terminal task-stream evidence is enough to clear the old lock
+   - or the old task is still nonterminal and the worker heartbeat is `stale`, `dead`, or `missing`
+   - if task-stream or heartbeat evidence is `unknown`, recovery fails closed and the route returns `429 turn_in_flight`
+4. The route enqueues a `ChatCompletionTask` on `codexify:queue:chat`.
+5. The route attempts to publish `task.created` as a lifecycle breadcrumb.
+6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
+7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, and resolves provider/model/profile settings.
+8. The provider call executes through `guardian/core/ai_router.py`. If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
+9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
+10. The worker publishes terminal task events and releases the turn lock in `finally`.
 
 Outputs:
 - Immediate HTTP response with `task_id`, `turn_id`, `messages_url`, and `trace_url`
 - Task event stream via `/api/tasks/{task_id}/events`
 - Assistant `chat_messages` row plus related audit/domain events
+- Worker logs that now distinguish task execution from task-event visibility degradation
 
 Failure modes:
 - `429 turn_in_flight` when the thread lock already exists
+- `429 turn_in_flight` when stale-lock recovery refuses to guess on ambiguous evidence
 - `503 queue_unavailable` when Redis enqueue fails
 - Provider connectivity or timeout failures that become `task.failed`
+- Cloud-provider failure that rescues to local execution instead of failing outright
 - Blank or malformed provider output forcing fallback assistant text
 - Worker downtime causing tasks to queue without completion
+- Task-event publish failures that degrade progress or terminal visibility without necessarily stopping execution
+
+Acceptance semantics:
+- Normal acceptance means the route acquired the turn lock and enqueued the task.
+- The route does not prove dequeue, eventual success, or UI receipt.
+- If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
 
 Concrete anchors:
 - `guardian/routes/chat.py`
@@ -62,13 +77,18 @@ sequenceDiagram
     UI->>ChatAPI: POST /api/chat/{thread_id}/complete
     ChatAPI->>Redis: acquire turn lock
     ChatAPI->>Redis: enqueue ChatCompletionTask
-    ChatAPI-->>UI: task_id and URLs
+    ChatAPI->>Redis: best-effort task.created
+    ChatAPI-->>UI: accepted task_id and URLs
     Worker->>Redis: dequeue chat task
+    Worker->>Redis: task.running
     Worker->>Service: build messages and context
     Service->>LLM: completion request
+    alt cloud failure and rescue allowed
+        Service->>LLM: retry on local
+    end
     LLM-->>Service: assistant output
     Service->>PG: persist assistant message
-    Worker->>Redis: publish task events
+    Worker->>Redis: publish progress and terminal task events
     Worker->>Redis: release turn lock
 ```
 
@@ -100,6 +120,7 @@ Failure modes:
 - Memory or graph adapters failing soft and reducing context depth
 - No usable thread context, causing route-level rejection before worker execution
 - Prompt builder errors, causing fallback safety/system prompt behavior
+- Context assembly success still does not prove terminal task-event visibility or UI receipt
 
 Concrete anchors:
 - `guardian/core/chat_completion_service.py`
