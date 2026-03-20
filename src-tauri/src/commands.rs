@@ -448,6 +448,7 @@ fn packaged_runtime_manifest_path(runtime_root: &Path) -> PathBuf {
 
 fn packaged_runtime_marker_path(runtime_root: &Path) -> PathBuf {
     runtime_root.join(PACKAGED_RUNTIME_MARKER_FILENAME)
+}
 #[derive(Debug)]
 struct BootstrapRuntimeValidationError {
     failure_kind: &'static str,
