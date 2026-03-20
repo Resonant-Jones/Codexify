@@ -14,6 +14,8 @@ Frontend contract (primary calls today):
 import asyncio
 import json
 import logging
+import os
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -47,12 +49,16 @@ from guardian.queue.turn_lock import (
     release_turn_lock,
     turn_lock_is_stale,
 )
+from guardian.routes.health import _classify_chat_worker_heartbeat
 from guardian.tasks.types import ChatCompletionTask
 from guardian.voice.audio_assets import list_message_audio_assets
 
 logger = logging.getLogger(__name__)
 COMPLETION_SERVICE_UNAVAILABLE_MESSAGE = (
     "Completion service unavailable — check Docker/Redis."
+)
+CHAT_WORKER_HEARTBEAT_KEY = os.getenv(
+    "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
 )
 
 
@@ -67,12 +73,64 @@ def _completion_service_unavailable(reason: str) -> HTTPException:
     )
 
 
-def _task_terminal_event(_task_id: str) -> dict[str, Any] | None:
-    return None
+def _task_terminal_event(task_id: str) -> dict[str, Any]:
+    """Return terminal-state evidence for a task event stream."""
+
+    return task_events.describe_terminal_state(task_id)
 
 
 def _chat_worker_heartbeat_age_seconds() -> float | None:
-    return None
+    evidence = _chat_worker_heartbeat_evidence()
+    age_seconds = evidence.get("age_seconds")
+    return float(age_seconds) if isinstance(age_seconds, (int, float)) else None
+
+
+def _chat_worker_heartbeat_evidence() -> dict[str, Any]:
+    """Inspect the chat worker heartbeat key and classify freshness."""
+
+    evidence: dict[str, Any] = {
+        "key": CHAT_WORKER_HEARTBEAT_KEY,
+        "state": "unknown",
+        "age_seconds": None,
+        "detected": False,
+        "reason": "unknown",
+        "error": None,
+    }
+    try:
+        from guardian.queue.redis_queue import get_redis_client
+
+        client = get_redis_client()
+        raw_heartbeat = client.get(CHAT_WORKER_HEARTBEAT_KEY)
+        if not raw_heartbeat:
+            evidence["state"] = "missing"
+            evidence["reason"] = "heartbeat_missing"
+            return evidence
+
+        evidence["detected"] = True
+        heartbeat_payload: dict[str, Any] = {}
+        try:
+            if isinstance(raw_heartbeat, (bytes, bytearray)):
+                heartbeat_payload = json.loads(raw_heartbeat.decode("utf-8"))
+            else:
+                heartbeat_payload = json.loads(str(raw_heartbeat))
+        except Exception:
+            evidence["reason"] = "heartbeat_parse_failed"
+            return evidence
+
+        ts = heartbeat_payload.get("ts")
+        if not isinstance(ts, (int, float)):
+            evidence["reason"] = "heartbeat_timestamp_missing"
+            return evidence
+
+        age_seconds = max(0.0, round(time.time() - float(ts), 3))
+        evidence["age_seconds"] = age_seconds
+        evidence["state"] = _classify_chat_worker_heartbeat(True, age_seconds)
+        evidence["reason"] = "ok"
+        return evidence
+    except Exception as exc:
+        evidence["reason"] = "heartbeat_probe_failed"
+        evidence["error"] = f"{type(exc).__name__}: {exc}"
+        return evidence
 
 
 def _turn_lock_payload(
@@ -98,13 +156,52 @@ def _recover_orphaned_turn_lock(thread_id: int) -> bool:
     stale_lock = get_turn_lock(thread_id)
     if stale_lock is None or not turn_lock_is_stale(stale_lock):
         return False
-    if _task_terminal_event(stale_lock.owner_task_id) is not None:
-        return False
 
-    heartbeat_age = _chat_worker_heartbeat_age_seconds()
-    if heartbeat_age is not None and heartbeat_age <= float(
-        stale_lock.lease_ttl_seconds
-    ):
+    terminal_evidence = _task_terminal_event(stale_lock.owner_task_id)
+    terminal_state = str(
+        terminal_evidence.get("state")
+        if isinstance(terminal_evidence, dict)
+        else "unknown"
+    )
+    heartbeat_evidence = _chat_worker_heartbeat_evidence()
+    heartbeat_state = str(
+        heartbeat_evidence.get("state")
+        if isinstance(heartbeat_evidence, dict)
+        else "unknown"
+    )
+
+    # Recovery rule:
+    # - terminal task evidence is enough to clear the stale lock.
+    # - otherwise, the task stream must be nonterminal and the worker heartbeat
+    #   must be stale/dead/missing. We do not recover when either evidence
+    #   source is unknown, and we never recover on lease age alone.
+    recoverable = False
+    recovery_reason = "unrecoverable_state"
+    if terminal_state == "terminal":
+        recoverable = True
+        recovery_reason = "terminal_task_event"
+    elif terminal_state == "nonterminal" and heartbeat_state in {
+        "stale",
+        "dead",
+        "missing",
+    }:
+        recoverable = True
+        recovery_reason = f"nonterminal_task_and_{heartbeat_state}_heartbeat"
+
+    if not recoverable:
+        logger.warning(
+            "[chat.complete] stale turn lock recovery denied thread_id=%s owner_task_id=%s terminal_state=%s terminal_reason=%s worker_state=%s worker_reason=%s",
+            thread_id,
+            stale_lock.owner_task_id,
+            terminal_state,
+            terminal_evidence.get("reason")
+            if isinstance(terminal_evidence, dict)
+            else "unknown",
+            heartbeat_state,
+            heartbeat_evidence.get("reason")
+            if isinstance(heartbeat_evidence, dict)
+            else "unknown",
+        )
         return False
 
     cleared = clear_turn_lock(thread_id, expected=stale_lock)
@@ -114,6 +211,14 @@ def _recover_orphaned_turn_lock(thread_id: int) -> bool:
             "chat_thread",
             str(thread_id),
             user_id="system",
+        )
+        logger.info(
+            "[chat.complete] stale turn lock recovered thread_id=%s owner_task_id=%s recovery_reason=%s terminal_state=%s worker_state=%s",
+            thread_id,
+            stale_lock.owner_task_id,
+            recovery_reason,
+            terminal_state,
+            heartbeat_state,
         )
     return cleared
 
