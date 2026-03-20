@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit
 
 # Python executable
 PYTHON      ?= python
@@ -97,11 +97,12 @@ check: format lint test
 
 # Build documentation
 docs:
-	mkdocs build
+	$(PYTHON) scripts/validate_docs.py
 
 # Serve documentation locally
 docs-serve:
-	mkdocs serve
+	@echo "No repo-local docs server is configured."
+	@exit 1
 
 # Build distribution packages
 build: clean
@@ -173,6 +174,18 @@ status:
 report:
 	@mkdir -p reports
 	$(PYTHON) -m guardian.system_init --generate-report
+
+# Generate the daily audit record
+daily-audit:
+	$(PYTHON) scripts/daily_audit.py
+
+# Generate the morning audit record
+morning-audit:
+	$(PYTHON) scripts/daily_audit.py --phase morning
+
+# Generate the evening audit record
+evening-audit:
+	$(PYTHON) scripts/daily_audit.py --phase evening
 
 # Help target
 help:

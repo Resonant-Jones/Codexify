@@ -17,11 +17,7 @@ export function DocChip({
   variant?: "default" | "dock";
   className?: string;
 }) {
-  const isDark =
-    typeof window !== "undefined"
-      ? document.documentElement.classList.contains("dark")
-      : false;
-  const ink = isDark ? "#ffffff" : "#000000";
+  const ink = "var(--text)";
   // Prefer simple, widely supported fallbacks so chips render consistently
   // across browsers; avoid color-mix to prevent invalid background results.
   const backPlate =
@@ -146,11 +142,7 @@ export default function WorkspacePane({
 }) {
   const { projectId } = useContext(ProjectContext);
 
-  const isDark =
-    typeof window !== "undefined"
-      ? document.documentElement.classList.contains("dark")
-      : false;
-  const ink = isDark ? "#ffffff" : "#000000";
+  const ink = "var(--text)";
 
   // Thread id is not currently provided via context; derive from URL as a pragmatic MVP.
   const threadId = useMemo(() => {
@@ -409,10 +401,6 @@ export default function WorkspacePane({
 
   const content = (
     <div className="flex h-full min-h-0 flex-col p-4" style={{ color: ink }}>
-      <style>{`
-        :root:not(.dark) .workspace-ink { color: #000 !important; }
-        .dark .workspace-ink { color: #fff !important; }
-      `}</style>
       {viewFinder}
     </div>
   );
@@ -423,7 +411,7 @@ export default function WorkspacePane({
 
   return (
     <Card
-      className="h-full min-h-0 w-[340px] shrink-0 overflow-hidden rounded-2xl border shadow-sm !text-black dark:!text-white"
+      className="h-full min-h-0 w-[340px] shrink-0 overflow-hidden rounded-2xl border shadow-sm"
       style={{
         background: "var(--panel-bg)",
         borderColor: "var(--panel-border)",
