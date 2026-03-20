@@ -30,6 +30,10 @@ _LLM_HEALTH_PROBE_TS = 0.0
 _LLM_HEALTH_CACHE_LOCK = threading.Lock()
 _LLM_HEALTH_PROBE_INFLIGHT_LOCK = threading.Lock()
 
+# Chat worker heartbeat freshness thresholds.
+CHAT_WORKER_HEARTBEAT_FRESH_THRESHOLD_SECONDS = 10.0
+CHAT_WORKER_HEARTBEAT_DEAD_THRESHOLD_SECONDS = 60.0
+
 # Create unprefixed router to preserve /health/chat path
 router = APIRouter(tags=["Health"])
 
@@ -128,6 +132,24 @@ def _normalize_health_provider(raw_provider: str) -> str:
     return "local"
 
 
+def _classify_chat_worker_heartbeat(
+    heartbeat_detected: bool, heartbeat_age_seconds: object
+) -> str:
+    """Classify chat worker freshness from heartbeat presence and age."""
+    if not heartbeat_detected:
+        return "dead"
+
+    if not isinstance(heartbeat_age_seconds, (int, float)):
+        return "dead"
+
+    heartbeat_age = float(heartbeat_age_seconds)
+    if heartbeat_age <= CHAT_WORKER_HEARTBEAT_FRESH_THRESHOLD_SECONDS:
+        return "fresh"
+    if heartbeat_age <= CHAT_WORKER_HEARTBEAT_DEAD_THRESHOLD_SECONDS:
+        return "stale"
+    return "dead"
+
+
 def _collect_completion_service_health() -> dict[str, object]:
     from guardian.queue.redis_queue import get_redis_client
 
@@ -184,10 +206,17 @@ def _collect_completion_service_health() -> dict[str, object]:
                     0.0, round(time.time() - float(ts), 3)
                 )
 
+        completion_service[
+            "worker_heartbeat_status"
+        ] = _classify_chat_worker_heartbeat(
+            completion_service["worker_heartbeat_detected"],
+            completion_service["worker_heartbeat_age_seconds"],
+        )
+
         completion_service["ok"] = bool(
             completion_service["redis_reachable"]
             and completion_service["enqueue_test_ok"]
-            and completion_service["worker_heartbeat_detected"]
+            and completion_service["worker_heartbeat_status"] == "fresh"
         )
         if not completion_service["redis_reachable"]:
             completion_service["status_reason"] = "redis_unreachable"
@@ -195,6 +224,10 @@ def _collect_completion_service_health() -> dict[str, object]:
             completion_service["status_reason"] = "queue_enqueue_failed"
         elif not completion_service["worker_heartbeat_detected"]:
             completion_service["status_reason"] = "worker_heartbeat_missing"
+        elif completion_service["worker_heartbeat_status"] == "stale":
+            completion_service["status_reason"] = "worker_heartbeat_stale"
+        elif completion_service["worker_heartbeat_status"] == "dead":
+            completion_service["status_reason"] = "worker_heartbeat_dead"
         else:
             completion_service["status_reason"] = "ok"
     except Exception as exc:
@@ -348,9 +381,60 @@ def health_chat():
         threads = 0
         messages = 0
 
-    ok = bool(completion_service["ok"])
+    redis_reachable = bool(completion_service.get("redis_reachable"))
+    queue_ok = bool(completion_service.get("enqueue_test_ok"))
+    redis_ok = bool(redis_reachable and queue_ok)
+    worker_detected = bool(completion_service.get("worker_heartbeat_detected"))
+    worker_age_seconds = completion_service.get("worker_heartbeat_age_seconds")
+    worker_status = str(
+        completion_service.get("worker_heartbeat_status")
+        or _classify_chat_worker_heartbeat(worker_detected, worker_age_seconds)
+    )
+
+    if not redis_reachable:
+        status = "unhealthy"
+        notes = [
+            "redis unreachable; chat completion cannot be trusted",
+        ]
+    elif not queue_ok:
+        status = "unhealthy"
+        notes = [
+            "queue round-trip probe failed; chat completion cannot be trusted",
+        ]
+    elif worker_status == "fresh":
+        status = "healthy"
+        notes = []
+    elif worker_status == "stale":
+        status = "degraded"
+        notes = [
+            "worker heartbeat stale; chat completion may be degraded",
+        ]
+    else:
+        status = "unhealthy"
+        if not worker_detected:
+            notes = [
+                "worker heartbeat missing; chat completion cannot progress",
+            ]
+        elif worker_age_seconds is None:
+            notes = [
+                "worker heartbeat age unavailable; chat completion cannot be trusted",
+            ]
+        else:
+            notes = [
+                "worker heartbeat dead; chat completion cannot progress",
+            ]
+
     return {
-        "ok": ok,
+        "ok": status == "healthy",
+        "status": status,
+        "redis": "ok" if redis_ok else "unhealthy",
+        "worker": {
+            "status": worker_status,
+            "heartbeat_age_seconds": worker_age_seconds
+            if worker_detected
+            else None,
+        },
+        "notes": notes,
         "threads": threads,
         "messages": messages,
         "backend": DB_BACKEND,

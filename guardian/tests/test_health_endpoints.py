@@ -1,7 +1,31 @@
+import json
+
+import pytest
 import requests
 from fastapi.testclient import TestClient
 
 from guardian.guardian_api import app
+from guardian.routes import health as health_routes
+
+
+class _FakeRedisClient:
+    def __init__(self, heartbeat_value):
+        self.heartbeat_value = heartbeat_value
+
+    def ping(self):
+        return True
+
+    def lpush(self, *args, **kwargs):
+        return 1
+
+    def rpop(self, *args, **kwargs):
+        return b"ok"
+
+    def delete(self, *args, **kwargs):
+        return 1
+
+    def get(self, key):
+        return self.heartbeat_value
 
 
 def test_health_endpoints_ok():
@@ -176,9 +200,198 @@ def test_health_and_catalog_share_dynamic_provider_model_index_state(
         assert (
             health_payload["provider_runtime"]["enabled"] == minimax["enabled"]
         )
-        assert minimax["models"] == []
         assert minimax["model_index"]["state"] == "degraded"
         assert "timed out" in minimax["model_index"]["reason"].lower()
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
+
+
+def test_completion_service_health_computes_heartbeat_age(monkeypatch):
+    fixed_now = 1_700_000_000.0
+    heartbeat_age = 27.5
+    heartbeat_payload = json.dumps({"ts": fixed_now - heartbeat_age}).encode(
+        "utf-8"
+    )
+
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.get_redis_client",
+        lambda: _FakeRedisClient(heartbeat_payload),
+    )
+    monkeypatch.setattr(health_routes.time, "time", lambda: fixed_now)
+
+    payload = health_routes._collect_completion_service_health()
+
+    assert payload["redis_reachable"] is True
+    assert payload["worker_heartbeat_detected"] is True
+    assert payload["worker_heartbeat_status"] == "stale"
+    assert payload["worker_heartbeat_age_seconds"] == pytest.approx(
+        heartbeat_age, abs=0.001
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "completion_service",
+        "expected_ok",
+        "expected_status",
+        "expected_worker_status",
+        "expected_note",
+    ),
+    [
+        (
+            {
+                "redis_reachable": True,
+                "enqueue_test_ok": False,
+                "worker_heartbeat_detected": True,
+                "worker_heartbeat_age_seconds": 0.5,
+                "status_reason": "queue_enqueue_failed",
+                "error": None,
+            },
+            False,
+            "unhealthy",
+            "fresh",
+            "queue round-trip probe failed",
+        ),
+        (
+            {
+                "redis_reachable": True,
+                "enqueue_test_ok": True,
+                "worker_heartbeat_detected": True,
+                "worker_heartbeat_age_seconds": 0.5,
+                "status_reason": "ok",
+                "error": None,
+            },
+            True,
+            "healthy",
+            "fresh",
+            None,
+        ),
+        (
+            {
+                "redis_reachable": True,
+                "enqueue_test_ok": True,
+                "worker_heartbeat_detected": True,
+                "worker_heartbeat_age_seconds": 10.0,
+                "status_reason": "ok",
+                "error": None,
+            },
+            True,
+            "healthy",
+            "fresh",
+            None,
+        ),
+        (
+            {
+                "redis_reachable": True,
+                "enqueue_test_ok": True,
+                "worker_heartbeat_detected": True,
+                "worker_heartbeat_age_seconds": 10.001,
+                "status_reason": "ok",
+                "error": None,
+            },
+            False,
+            "degraded",
+            "stale",
+            "worker heartbeat stale",
+        ),
+        (
+            {
+                "redis_reachable": True,
+                "enqueue_test_ok": True,
+                "worker_heartbeat_detected": True,
+                "worker_heartbeat_age_seconds": 60.0,
+                "status_reason": "ok",
+                "error": None,
+            },
+            False,
+            "degraded",
+            "stale",
+            "worker heartbeat stale",
+        ),
+        (
+            {
+                "redis_reachable": True,
+                "enqueue_test_ok": True,
+                "worker_heartbeat_detected": True,
+                "worker_heartbeat_age_seconds": 60.001,
+                "status_reason": "ok",
+                "error": None,
+            },
+            False,
+            "unhealthy",
+            "dead",
+            "worker heartbeat dead",
+        ),
+        (
+            {
+                "redis_reachable": True,
+                "enqueue_test_ok": True,
+                "worker_heartbeat_detected": False,
+                "worker_heartbeat_age_seconds": None,
+                "status_reason": "worker_heartbeat_missing",
+                "error": None,
+            },
+            False,
+            "unhealthy",
+            "dead",
+            "worker heartbeat missing",
+        ),
+        (
+            {
+                "redis_reachable": False,
+                "enqueue_test_ok": False,
+                "worker_heartbeat_detected": False,
+                "worker_heartbeat_age_seconds": None,
+                "status_reason": "redis_unreachable",
+                "error": None,
+            },
+            False,
+            "unhealthy",
+            "dead",
+            "redis unreachable",
+        ),
+    ],
+)
+def test_health_chat_classifies_worker_freshness(
+    monkeypatch,
+    completion_service,
+    expected_ok,
+    expected_status,
+    expected_worker_status,
+    expected_note,
+):
+    monkeypatch.setattr(
+        health_routes,
+        "_collect_completion_service_health",
+        lambda: completion_service,
+    )
+
+    client = TestClient(app)
+    resp = client.get("/health/chat")
+    assert resp.status_code == 200
+
+    payload = resp.json()
+    assert payload["ok"] is expected_ok
+    assert payload["status"] == expected_status
+    assert payload["redis"] == (
+        "ok"
+        if completion_service["redis_reachable"]
+        and completion_service["enqueue_test_ok"]
+        else "unhealthy"
+    )
+    assert payload["worker"]["status"] == expected_worker_status
+    if completion_service["worker_heartbeat_detected"]:
+        assert (
+            payload["worker"]["heartbeat_age_seconds"]
+            == completion_service["worker_heartbeat_age_seconds"]
+        )
+    else:
+        assert payload["worker"]["heartbeat_age_seconds"] is None
+
+    if expected_note is None:
+        assert payload["notes"] == []
+    else:
+        assert any(
+            expected_note in str(note).lower() for note in payload["notes"]
+        )

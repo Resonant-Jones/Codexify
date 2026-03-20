@@ -79,11 +79,21 @@ def test_health_chat_endpoint(test_client):
     assert res.status_code == 200
     data = res.json()
     assert "backend" in data
+    assert "status" in data
+    assert "redis" in data
+    assert "worker" in data
+    assert "notes" in data
     assert "completion_service" in data
     completion = data["completion_service"]
     assert "redis_reachable" in completion
     assert "enqueue_test_ok" in completion
     assert "worker_heartbeat_detected" in completion
+    assert "worker_heartbeat_age_seconds" in completion
+    assert "worker_heartbeat_status" in completion
+    assert data["status"] in {"healthy", "degraded", "unhealthy"}
+    assert data["redis"] in {"ok", "unhealthy"}
+    assert data["worker"]["status"] in {"fresh", "stale", "dead"}
+    assert "heartbeat_age_seconds" in data["worker"]
 
 
 def test_health_vector_endpoint(test_client):
