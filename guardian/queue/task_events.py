@@ -44,6 +44,44 @@ def publish(
     return _with_reconnect(_add)
 
 
+def classify_event_visibility(event_type: str) -> str:
+    """Classify whether an event is terminal or progress-only visibility."""
+
+    normalized = str(event_type or "").strip()
+    if normalized in _TERMINAL_EVENT_TYPES:
+        return "terminal"
+    return "progress"
+
+
+def publish_with_visibility(
+    task_id: str, event_type: str, data: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Publish an event and return a machine-readable visibility result."""
+
+    visibility_scope = classify_event_visibility(event_type)
+    result: dict[str, Any] = {
+        "ok": False,
+        "task_id": task_id,
+        "event_type": event_type,
+        "visibility_scope": visibility_scope,
+        "terminal_visibility": visibility_scope == "terminal",
+        "execution_continued": True,
+        "event_id": None,
+        "failure_class": None,
+        "error": None,
+    }
+    try:
+        event_id = publish(task_id, event_type, data)
+    except Exception as exc:
+        result["failure_class"] = exc.__class__.__name__
+        result["error"] = str(exc)
+        return result
+
+    result["ok"] = True
+    result["event_id"] = event_id
+    return result
+
+
 def read_events(
     task_id: str,
     last_id: str,
