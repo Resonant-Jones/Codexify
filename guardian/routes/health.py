@@ -34,6 +34,14 @@ _LLM_HEALTH_PROBE_INFLIGHT_LOCK = threading.Lock()
 CHAT_WORKER_HEARTBEAT_FRESH_THRESHOLD_SECONDS = 10.0
 CHAT_WORKER_HEARTBEAT_DEAD_THRESHOLD_SECONDS = 60.0
 
+CHAT_QUEUE_NAME = "codexify:queue:chat"
+CHAT_QUEUE_HIGH_DEPTH_THRESHOLD = 25
+CHAT_QUEUE_PROGRESS_SAMPLE_STALE_SECONDS = 30.0
+
+_CHAT_QUEUE_PROGRESS_LOCK = threading.Lock()
+_CHAT_QUEUE_LAST_DEPTH: int | None = None
+_CHAT_QUEUE_LAST_CHECK_TS = 0.0
+
 # Create unprefixed router to preserve /health/chat path
 router = APIRouter(tags=["Health"])
 
@@ -148,6 +156,60 @@ def _classify_chat_worker_heartbeat(
     if heartbeat_age <= CHAT_WORKER_HEARTBEAT_DEAD_THRESHOLD_SECONDS:
         return "stale"
     return "dead"
+
+
+def _collect_chat_queue_health() -> dict[str, object]:
+    global _CHAT_QUEUE_LAST_DEPTH, _CHAT_QUEUE_LAST_CHECK_TS
+
+    from guardian.queue.redis_queue import get_redis_client
+
+    queue_health: dict[str, object] = {
+        "depth": None,
+        "status": "unknown",
+        "error": None,
+    }
+
+    try:
+        client = get_redis_client()
+        llen = getattr(client, "llen", None)
+        if not callable(llen):
+            queue_health["error"] = "queue_depth_unavailable"
+            return queue_health
+
+        depth = max(0, int(llen(CHAT_QUEUE_NAME)))
+        now = time.time()
+        with _CHAT_QUEUE_PROGRESS_LOCK:
+            previous_depth = _CHAT_QUEUE_LAST_DEPTH
+            previous_check_ts = _CHAT_QUEUE_LAST_CHECK_TS
+            _CHAT_QUEUE_LAST_DEPTH = depth
+            _CHAT_QUEUE_LAST_CHECK_TS = now
+
+        queue_health["depth"] = depth
+
+        if depth == 0:
+            queue_health["status"] = "progressing"
+            return queue_health
+
+        if previous_depth is None:
+            queue_health["status"] = "unknown"
+            return queue_health
+
+        if (
+            previous_check_ts
+            and now - previous_check_ts
+            > CHAT_QUEUE_PROGRESS_SAMPLE_STALE_SECONDS
+        ):
+            queue_health["status"] = "unknown"
+            return queue_health
+
+        if depth < previous_depth:
+            queue_health["status"] = "progressing"
+        else:
+            queue_health["status"] = "stalled"
+    except Exception as exc:
+        queue_health["error"] = f"{type(exc).__name__}: {exc}"
+
+    return queue_health
 
 
 def _collect_completion_service_health() -> dict[str, object]:
@@ -372,6 +434,7 @@ def health_chat():
     from guardian.core.dependencies import DB_BACKEND, chatlog_db
 
     completion_service = _collect_completion_service_health()
+    queue_health = _collect_chat_queue_health()
 
     try:
         threads = chatlog_db.count_chat_threads()
@@ -390,6 +453,9 @@ def health_chat():
         completion_service.get("worker_heartbeat_status")
         or _classify_chat_worker_heartbeat(worker_detected, worker_age_seconds)
     )
+    queue_depth = queue_health.get("depth")
+    queue_status = str(queue_health.get("status") or "unknown")
+    queue_error = queue_health.get("error")
 
     if not redis_reachable:
         status = "unhealthy"
@@ -402,8 +468,45 @@ def health_chat():
             "queue round-trip probe failed; chat completion cannot be trusted",
         ]
     elif worker_status == "fresh":
-        status = "healthy"
-        notes = []
+        if queue_error == "queue_depth_unavailable":
+            status = "degraded"
+            notes = [
+                "queue depth unavailable; forward progress cannot be assessed",
+            ]
+        elif queue_depth == 0 or queue_status == "progressing":
+            status = "healthy"
+            notes = (
+                ["queue empty"]
+                if queue_depth == 0
+                else ["queue backlog detected but progressing"]
+            )
+        elif queue_status == "unknown":
+            status = "degraded"
+            if (
+                isinstance(queue_depth, int)
+                and queue_depth >= CHAT_QUEUE_HIGH_DEPTH_THRESHOLD
+            ):
+                notes = [
+                    "queue backlog high; forward progress is not yet established",
+                ]
+            else:
+                notes = [
+                    "queue backlog observed; forward progress is not yet established",
+                ]
+        else:
+            if (
+                isinstance(queue_depth, int)
+                and queue_depth >= CHAT_QUEUE_HIGH_DEPTH_THRESHOLD
+            ):
+                status = "unhealthy"
+                notes = [
+                    "queue backlog high and not progressing; worker may be stuck",
+                ]
+            else:
+                status = "degraded"
+                notes = [
+                    "queue backlog not progressing; worker may be stuck",
+                ]
     elif worker_status == "stale":
         status = "degraded"
         notes = [
@@ -433,6 +536,10 @@ def health_chat():
             "heartbeat_age_seconds": worker_age_seconds
             if worker_detected
             else None,
+        },
+        "queue": {
+            "depth": queue_depth,
+            "status": queue_status,
         },
         "notes": notes,
         "threads": threads,

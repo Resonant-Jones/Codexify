@@ -9,8 +9,9 @@ from guardian.routes import health as health_routes
 
 
 class _FakeRedisClient:
-    def __init__(self, heartbeat_value):
+    def __init__(self, heartbeat_value=None, queue_depth=0):
         self.heartbeat_value = heartbeat_value
+        self.queue_depth = queue_depth
 
     def ping(self):
         return True
@@ -26,6 +27,31 @@ class _FakeRedisClient:
 
     def get(self, key):
         return self.heartbeat_value
+
+    def llen(self, key):
+        return self.queue_depth
+
+
+@pytest.fixture(autouse=True)
+def reset_chat_queue_progress_state():
+    health_routes._CHAT_QUEUE_LAST_DEPTH = None
+    health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
+    yield
+    health_routes._CHAT_QUEUE_LAST_DEPTH = None
+    health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
+
+
+def _fresh_completion_service() -> dict[str, object]:
+    return {
+        "ok": True,
+        "redis_reachable": True,
+        "enqueue_test_ok": True,
+        "worker_heartbeat_detected": True,
+        "worker_heartbeat_age_seconds": 0.5,
+        "worker_heartbeat_status": "fresh",
+        "status_reason": "ok",
+        "error": None,
+    }
 
 
 def test_health_endpoints_ok():
@@ -216,7 +242,7 @@ def test_completion_service_health_computes_heartbeat_age(monkeypatch):
 
     monkeypatch.setattr(
         "guardian.queue.redis_queue.get_redis_client",
-        lambda: _FakeRedisClient(heartbeat_payload),
+        lambda: _FakeRedisClient(heartbeat_payload, queue_depth=0),
     )
     monkeypatch.setattr(health_routes.time, "time", lambda: fixed_now)
 
@@ -265,7 +291,7 @@ def test_completion_service_health_computes_heartbeat_age(monkeypatch):
             True,
             "healthy",
             "fresh",
-            None,
+            "queue empty",
         ),
         (
             {
@@ -279,7 +305,7 @@ def test_completion_service_health_computes_heartbeat_age(monkeypatch):
             True,
             "healthy",
             "fresh",
-            None,
+            "queue empty",
         ),
         (
             {
@@ -366,6 +392,10 @@ def test_health_chat_classifies_worker_freshness(
         "_collect_completion_service_health",
         lambda: completion_service,
     )
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.get_redis_client",
+        lambda: _FakeRedisClient(queue_depth=0),
+    )
 
     client = TestClient(app)
     resp = client.get("/health/chat")
@@ -374,6 +404,8 @@ def test_health_chat_classifies_worker_freshness(
     payload = resp.json()
     assert payload["ok"] is expected_ok
     assert payload["status"] == expected_status
+    assert payload["queue"]["depth"] == 0
+    assert payload["queue"]["status"] == "progressing"
     assert payload["redis"] == (
         "ok"
         if completion_service["redis_reachable"]
@@ -395,3 +427,57 @@ def test_health_chat_classifies_worker_freshness(
         assert any(
             expected_note in str(note).lower() for note in payload["notes"]
         )
+
+
+def test_health_chat_reports_queue_progression(monkeypatch):
+    fake_redis = _FakeRedisClient(queue_depth=0)
+    monkeypatch.setattr(
+        health_routes,
+        "_collect_completion_service_health",
+        _fresh_completion_service,
+    )
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.get_redis_client",
+        lambda: fake_redis,
+    )
+
+    client = TestClient(app)
+
+    def read_health():
+        response = client.get("/health/chat")
+        assert response.status_code == 200
+        return response.json()
+
+    initial = read_health()
+    assert initial["queue"]["depth"] == 0
+    assert initial["queue"]["status"] == "progressing"
+    assert initial["status"] == "healthy"
+    assert any("queue empty" in note.lower() for note in initial["notes"])
+
+    fake_redis.queue_depth = 6
+    growing = read_health()
+    assert growing["queue"]["depth"] == 6
+    assert growing["queue"]["status"] == "stalled"
+    assert growing["status"] == "degraded"
+    assert any("not progressing" in note.lower() for note in growing["notes"])
+
+    fake_redis.queue_depth = 4
+    draining = read_health()
+    assert draining["queue"]["depth"] == 4
+    assert draining["queue"]["status"] == "progressing"
+    assert draining["status"] == "healthy"
+    assert any("progressing" in note.lower() for note in draining["notes"])
+
+    fake_redis.queue_depth = 4
+    stuck = read_health()
+    assert stuck["queue"]["depth"] == 4
+    assert stuck["queue"]["status"] == "stalled"
+    assert stuck["status"] == "degraded"
+    assert any("not progressing" in note.lower() for note in stuck["notes"])
+
+    fake_redis.queue_depth = 30
+    high = read_health()
+    assert high["queue"]["depth"] == 30
+    assert high["queue"]["status"] == "stalled"
+    assert high["status"] == "unhealthy"
+    assert any("high" in note.lower() for note in high["notes"])
