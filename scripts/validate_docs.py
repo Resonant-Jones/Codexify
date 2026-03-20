@@ -170,7 +170,9 @@ def check_headings(
         return
 
     for heading in headings:
-        if not re.search(rf"(?m)^{re.escape(heading)}\s*$", text):
+        # Use prefix matching to allow additional text after the heading
+        # This handles cases like "## 5. Diagram 1: UI Token Hierarchy (high confidence)"
+        if not re.search(rf"(?m)^{re.escape(heading)}", text):
             add_failure(failures, f"{rel(path)}: missing heading {heading}")
 
 

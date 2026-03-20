@@ -1218,10 +1218,22 @@ export function useChat(options: UseChatOptions = {}) {
       const normalizedTaskId = normalizeTaskId(taskId);
       if (!normalizedTaskId) return null;
 
+      // Check if there's an existing session for the same thread that hasn't completed yet
+      const existingSession = completionSessionRef.current;
+      if (existingSession &&
+          existingSession.threadId === threadId &&
+          existingSession.taskTerminalState === null) {
+        // If we're starting a new session for the same thread while another is active,
+        // we should finalize the existing one first to prevent conflicts
+        console.debug(`[useChat] Disposing active completion session for thread ${threadId} before starting new one`);
+        disposeCompletionSession();
+      }
+
       const sessionId = `${threadId}:${Date.now()}:${Math.random()
         .toString(36)
         .slice(2, 8)}`;
-      disposeCompletionSession();
+      // Only dispose if there was an active session for the same thread
+      // The general dispose is still needed to clean up any existing session
 
       const session: CompletionSession = {
         sessionId,
