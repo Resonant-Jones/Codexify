@@ -1,0 +1,168 @@
+# Redis / Chat Reliability Plan
+
+## Purpose
+This plan sequences the 2026-03-20 recon findings into small, repo-ready tasks that make the Redis-backed chat path more honest and more reliable without changing completion semantics in one edit. It assumes Redis remains the coordination substrate until a later architecture decision proves a safer split.
+
+## Inputs
+- Primary recon: `docs/audits/history/2026-03-20-redis-chat-completion-recon.md`
+- Implementation evidence: `guardian/routes/chat.py`, `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py`, `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/routes/health.py`, `guardian/core/ai_router.py`
+- Related tests: `tests/routes/test_chat_routes.py`, `tests/core/test_turn_lock_recovery.py`, `tests/test_chat_worker_turn_integrity.py`, `guardian/tests/workers/test_chat_worker_completion_semantics.py`, `guardian/tests/workers/test_chat_worker_turn_metadata.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`, `tests/routes/test_event_graph_emission.py`
+- Context docs: `docs/architecture/completion_pipeline.md`, `docs/architecture/data-and-storage.md`, `docs/architecture/flows.md`, `docs/architecture/roadmap-signals.md`, `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/00-current-state.md`, `docs/Codexify/RELEASE.md`
+- Assumption: claims below follow the recon artifact and code/tests above; anything not proven there is treated as unknown.
+
+## Current known issues
+- Redis is overloaded with chat-critical roles: queue transport, turn locks, task events, cancellation, worker heartbeat, turn-anchor cache, chat-embed queue, and the health-probe queue used by `/health/chat`.
+- API health can look good while chat completion is degraded. The current health surface proves Redis reachability and a bounded queue round-trip, not end-to-end completion or actual queue consumption.
+- Stale-lock recovery is not fully real. The recon found route-side helper stubs for terminal-event and worker-heartbeat checks, so the recovery branch can assert more certainty than it has.
+- Task-event visibility can fail without failing task execution. Publish is best-effort, so UI or operator visibility can degrade even when the worker completes work.
+- Queue-coupled chat creates silent-stall risk. A completion can be accepted, queued, and then never visibly finish if the worker is absent, wedged, or unable to advance.
+- Current docs have implementation drift. Several docs describe the system more optimistically or more generally than the current code proves.
+- Uncertainty: the recon did not prove a reliable, low-cost queue-consumption signal that is stronger than the current health round-trip. That gap must be labeled until a later task closes it.
+
+## Constraints and non-goals
+- No broad queue redesign in one edit.
+- No 10,000-line refactor plan packaged as one implementation step.
+- No simultaneous lock, queue, health, worker, and provider rewrites.
+- No fallback execution-mode implementation in this planning task.
+- Keep the main interaction loops usable and reliable; incremental safety matters more than theoretical cleanup.
+- Do not change chat completion semantics as part of the planning sequence itself.
+
+## Reliability objectives
+- No silent accepted-but-never-finished chat path without an observable failure signal.
+- No fake stale-lock intelligence.
+- No green health surface that masks a dead or wedged chat worker.
+- Clear operator truth for queue reachability, worker liveness, task-event flow, and completion progress.
+- Reduce Redis blast radius incrementally without destabilizing beta readiness.
+- Where the system cannot prove freshness, queue consumption, or terminality, surface `unknown` or degraded state explicitly instead of implying confidence.
+
+## Workstreams
+### Workstream A: truth and observability
+- Goal: make health and operator surfaces describe what the system can actually prove.
+- Why it matters: a healthy API that cannot finish chat is operationally worse than an explicitly degraded one.
+- What to defer: queue redesign, worker retries, provider routing changes, and any fallback execution mode.
+- Likely files involved: `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`, `docs/Codexify/RELEASE.md`.
+
+### Workstream B: turn-lock correctness
+- Goal: make stale-lock recovery depend on real terminal-event and worker-freshness evidence, or fail closed when that evidence is absent.
+- Why it matters: stale-lock recovery is only useful if the signals behind it are real.
+- What to defer: broader turn-state redesign, provider changes, or coupling recovery to a new queue architecture.
+- Likely files involved: `guardian/routes/chat.py`, `guardian/queue/turn_lock.py`, `guardian/queue/task_events.py`, `tests/core/test_turn_lock_recovery.py`, `tests/routes/test_chat_routes.py`.
+
+### Workstream C: worker/readiness signaling
+- Goal: expose worker liveness and heartbeat freshness in a way operators can trust.
+- Why it matters: queue-coupled completion cannot be operationally safe if worker absence is invisible.
+- What to defer: changing the worker execution model, adding a second execution path, or changing task semantics.
+- Likely files involved: `guardian/workers/chat_worker.py`, `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`.
+
+### Workstream D: task-event reliability
+- Goal: preserve lifecycle visibility when Redis stream publish or consumer behavior fails.
+- Why it matters: UI and ops should see visibility degradation instead of assuming task progress is healthy.
+- What to defer: replacing SSE with another bus, rewriting the event graph, or making publish failures fatal to task execution.
+- Likely files involved: `guardian/queue/task_events.py`, `guardian/workers/chat_worker.py`, `guardian/routes/chat.py`, `guardian/guardian_api.py`, `tests/routes/test_event_graph_emission.py`.
+
+### Workstream E: architecture follow-on decisions
+- Goal: decide, after the truth surfaces are honest, whether Redis should keep all coordination roles or be split further.
+- Why it matters: redistribution of responsibilities is only safe after the current failure modes are measurable.
+- What to defer: any structural decision before the system’s current health and lock truth are visible.
+- Likely files involved: `docs/architecture/completion_pipeline.md`, `docs/architecture/data-and-storage.md`, `docs/architecture/flows.md`, `docs/architecture/roadmap-signals.md`, `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/00-current-state.md`, `docs/Codexify/RELEASE.md`.
+
+## Proposed sequence
+1. Phase 1: make the current failure surfaces honest.
+   - Start with health and readiness surfaces because they are the cheapest way to remove false confidence.
+   - This comes first because later lock or worker changes are hard to validate if the existing health view can still look green during a stall.
+
+2. Phase 2: fix the stale-lock recovery correctness holes.
+   - Once the failure surfaces are honest, wire recovery to real terminal-event and heartbeat evidence, or fail closed when that evidence is unavailable.
+   - This comes second because stale-lock recovery is correctness-sensitive and should not be evaluated against a misleading health surface.
+
+3. Phase 3: tighten worker readiness and health truth.
+   - Make worker freshness and queue-consumption truth explicit enough that an API-only success signal cannot masquerade as a live chat system.
+   - This comes after stale-lock truth because readiness semantics should match the actual worker state machine, not paper over it.
+
+4. Phase 4: improve task-event visibility and reliability.
+   - Make event publish and visibility failures observable enough that they can be distinguished from queue or lock failures.
+   - This comes after the state machine is honest because event issues are otherwise easy to confuse with worker or lock problems.
+
+5. Phase 5: only then evaluate larger Redis decoupling or fallback design.
+   - Structural redesign should follow measurement, not guesswork.
+   - This comes last because the current blast radius and failure signatures must be visible before any larger split is justified.
+
+## Atomic task candidates
+1. Make `/health/chat` report worker freshness honestly
+   - Target files: `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`
+   - What changes: surface heartbeat age and explicit degraded/unknown states; distinguish Redis reachability from actual completion health.
+   - What it does not change: queue semantics, worker loop behavior, turn-lock behavior, or provider routing.
+   - Test scope: endpoint regression tests plus one compose-backed manual probe.
+   - Dependency notes: can be done first and does not require any larger queue rewrite.
+
+2. Replace the stale-lock evidence stubs with real checks or fail-closed behavior
+   - Target files: `guardian/routes/chat.py`, `guardian/queue/task_events.py`, `guardian/workers/chat_worker.py`, `tests/core/test_turn_lock_recovery.py`, `tests/routes/test_chat_routes.py`
+   - What changes: use actual terminal-event and heartbeat evidence for recovery decisions, or stop claiming recovery confidence when the evidence is absent.
+   - What it does not change: completion semantics, assistant persistence rules, or queue transport.
+   - Test scope: turn-lock recovery tests and chat-route contract tests.
+   - Dependency notes: should follow the health truth slice so the new behavior is visible.
+
+3. Add a queue-consumption readiness probe
+   - Target files: `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`
+   - What changes: distinguish queue reachability from dequeue/consume health, or explicitly label the gap if a stronger probe cannot yet be proven.
+   - What it does not change: worker scheduling, job format, or lock model.
+   - Test scope: health endpoint tests and manual compose-backed checks.
+   - Dependency notes: likely depends on worker freshness being exposed in a stable way.
+
+4. Make task-event publish failures visible to operators
+   - Target files: `guardian/queue/task_events.py`, `guardian/workers/chat_worker.py`, `guardian/routes/chat.py`, `tests/routes/test_event_graph_emission.py`
+   - What changes: record or surface event publish failures so UI/ops can tell visibility is degraded even when the task itself succeeds.
+   - What it does not change: task success/failure semantics, the SSE protocol, or queue behavior.
+   - Test scope: happy-path emission tests and failure-path tests.
+   - Dependency notes: can be done after the core health surfaces are honest.
+
+5. Tighten completion-route failure signaling
+   - Target files: `guardian/routes/chat.py`, `guardian/core/chat_completion_service.py`, `tests/routes/test_chat_routes.py`
+   - What changes: ensure accepted completions always produce an observable task state or fail fast when lock/enqueue preconditions are not met.
+   - What it does not change: provider selection, assistant persistence logic, or queue architecture.
+   - Test scope: route contract tests and queue-unavailable tests.
+   - Dependency notes: should not be bundled with worker or provider rewrites.
+
+6. Align architecture docs with the observed Redis responsibilities
+   - Target files: `docs/architecture/completion_pipeline.md`, `docs/architecture/data-and-storage.md`, `docs/architecture/flows.md`, `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/00-current-state.md`, `docs/Codexify/RELEASE.md`
+   - What changes: document the actual roles, caveats, and blind spots now observed in code and recon.
+   - What it does not change: runtime behavior.
+   - Test scope: doc review only.
+   - Dependency notes: should land after the code truth work so the docs track reality.
+
+7. Add explicit worker-heartbeat regression coverage
+   - Target files: `guardian/workers/chat_worker.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`
+   - What changes: verify heartbeat freshness and stale-heartbeat handling as part of readiness checks.
+   - What it does not change: task execution semantics or provider behavior.
+   - Test scope: heartbeat-focused unit and integration tests.
+   - Dependency notes: pairs naturally with candidate 1, but should remain a separate commit.
+
+8. Update the release runbook to match the new truth surfaces
+   - Target files: `docs/Codexify/RELEASE.md`
+   - What changes: explain what `/health`, `/health/chat`, `/api/health/llm`, logs, and task-event inspection do and do not prove.
+   - What it does not change: runtime behavior.
+   - Test scope: doc review only.
+   - Dependency notes: should follow the health and event truth work so the runbook does not lag behind code.
+
+## Validation strategy
+- Unit and integration coverage should stay targeted to the behavior under change, especially `tests/routes/test_chat_routes.py`, `tests/core/test_turn_lock_recovery.py`, `tests/test_chat_worker_turn_integrity.py`, `guardian/tests/workers/test_chat_worker_completion_semantics.py`, `guardian/tests/workers/test_chat_worker_turn_metadata.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`, and `tests/routes/test_event_graph_emission.py`.
+- Health checks should be validated directly with `/health`, `/health/chat`, and `/api/health/llm`, with the expected distinction between backend up, Redis reachable, worker fresh, and end-to-end completion healthy made explicit.
+- Task-event behavior should be inspected through the task-events endpoint and logs to confirm that visibility failures are observable instead of silently swallowed.
+- Worker heartbeat should be verified by confirming a fresh heartbeat during a compose-backed run and by confirming that stale or missing heartbeat state degrades the readiness surface instead of leaving it green.
+- Queue behavior should be verified with a manual completion probe that creates a thread, posts a user message, calls completion, and then checks for dequeue, completion, persistence, and event emission.
+- Compose-backed manual probes should use the existing stack commands (`docker compose ps`, `docker compose logs --tail=200 backend`, `docker compose logs --tail=200 worker-chat`, `docker compose logs --tail=200 redis`, and the relevant `curl` health checks) so the results reflect the real runtime, not only unit tests.
+- A probe that passes only the API health endpoints is not enough. The validation bar is that the completion path finishes, or fails with a visible signal, under both healthy-worker and missing-worker conditions.
+
+## Risks of overreach
+- Combining lock, queue, health, worker, and provider changes in one edit makes it hard to tell whether a regression came from the state machine, the readiness surface, or the event path.
+- Passing health tests after a large edit can create false confidence if the API still accepts work and then stalls it silently.
+- A partial test pass can hide the worst failure class here: accepted-but-never-finished chat.
+- The more subsystems change at once, the harder it becomes to isolate whether the regression is caused by stale-lock recovery, dequeue/heartbeat behavior, event publishing, or provider execution.
+- The main chat loop is the highest-risk path in the repo; overreach here risks degrading beta readiness while obscuring the root cause.
+
+## Recommended next atomic task
+Make `/health/chat` report worker freshness honestly.
+
+- Rationale: this is the smallest high-leverage slice. It immediately reduces false confidence, gives operators a trustworthy baseline, and makes later stale-lock and task-event work easier to validate.
+- Target files: `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`
+- Why it should come before the others: as long as the health surface can still look green while chat is stalled, later fixes can be misread as successful even when the worker is absent or wedged. The truth surface has to come first.
