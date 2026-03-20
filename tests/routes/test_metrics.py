@@ -3,6 +3,17 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from guardian.routes import health as health_routes
+
+
+@pytest.fixture(autouse=True)
+def reset_chat_queue_progress_state():
+    health_routes._CHAT_QUEUE_LAST_DEPTH = None
+    health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
+    yield
+    health_routes._CHAT_QUEUE_LAST_DEPTH = None
+    health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
+
 
 def test_metrics_endpoint_prometheus(test_client):
     """Test that /metrics endpoint returns Prometheus-compatible metrics."""
@@ -82,6 +93,7 @@ def test_health_chat_endpoint(test_client):
     assert "status" in data
     assert "redis" in data
     assert "worker" in data
+    assert "queue" in data
     assert "notes" in data
     assert "completion_service" in data
     completion = data["completion_service"]
@@ -94,6 +106,12 @@ def test_health_chat_endpoint(test_client):
     assert data["redis"] in {"ok", "unhealthy"}
     assert data["worker"]["status"] in {"fresh", "stale", "dead"}
     assert "heartbeat_age_seconds" in data["worker"]
+    assert "depth" in data["queue"]
+    assert data["queue"]["status"] in {
+        "progressing",
+        "stalled",
+        "unknown",
+    }
 
 
 def test_health_vector_endpoint(test_client):
