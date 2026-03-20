@@ -28,7 +28,7 @@ const BASE_VARS: CSSVarMap = {
   '--icon-muted': 'rgba(255,255,255,0.76)',
   '--surface-hover': 'rgba(255,255,255,0.08)',
   '--surface-soft': 'rgba(255,255,255,0.04)',
-  '--text-on-accent': '#111827',
+  '--text-on-accent': '#f9fafb',
   '--info-surface': 'rgba(96,165,250,0.18)',
   '--info-text': '#bfdbfe',
   '--tag-surface': 'rgba(192,132,252,0.18)',
