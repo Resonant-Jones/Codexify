@@ -17,12 +17,14 @@ const NORMALIZED_DOCKER_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/Applicat
 const BOOTSTRAP_LOG_TAIL_LINES: &str = "200";
 const BOOTSTRAP_LOG_SERVICES: [&str; 5] = ["backend", "worker-chat", "db", "redis", "migrator"];
 const BOOTSTRAP_RESTART_SERVICES: [&str; 5] = ["db", "redis", "migrator", "backend", "worker-chat"];
-const FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE: &str = "packaged-runtime-home-unusable";
+const FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE: &str = "runtime-root-unavailable";
 const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_MISSING: &str = "packaged-runtime-assets-missing";
 const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_CORRUPT: &str = "packaged-runtime-assets-corrupt";
 const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_INVALID: &str = "packaged-runtime-assets-invalid";
 const FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED: &str =
     "packaged-runtime-materialization-failed";
+const FAILURE_KIND_DOCKER_MOUNT_PATH_UNSHARED_OR_UNSUPPORTED: &str =
+    "docker-mount-path-unshared-or-unsupported";
 const FAILURE_KIND_DOCKER_CLI_UNAVAILABLE: &str = "docker-cli-unavailable";
 const FAILURE_KIND_DOCKER_CLI_EXECUTION_FAILED: &str = "docker-cli-execution-failed";
 const FAILURE_KIND_DOCKER_CLI_FOUND_BUT_UNUSABLE_FROM_PACKAGED_CONTEXT: &str =
@@ -40,7 +42,9 @@ const FAILURE_KIND_PACKAGED_READINESS_FAILED: &str = "packaged-readiness-failed"
 const FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR: &str = "unexpected-execution-error";
 const RUNTIME_CONTEXT_DEVELOPMENT: &str = "development";
 const RUNTIME_CONTEXT_PACKAGED: &str = "packaged";
-const PACKAGED_RUNTIME_HOME_DIRNAME: &str = "Codexify";
+const PACKAGED_RUNTIME_METADATA_DIRNAME: &str = "Codexify";
+const PACKAGED_RUNTIME_ROOT_DIRNAME: &str = "Codexify";
+const PACKAGED_RUNTIME_HOME_DIRNAME: &str = PACKAGED_RUNTIME_METADATA_DIRNAME;
 const PACKAGED_RUNTIME_MANIFEST_FILENAME: &str = ".codexify-runtime-manifest.json";
 const PACKAGED_RUNTIME_MARKER_FILENAME: &str = ".codexify-packaged-runtime";
 const PACKAGED_SETUP_DEFAULT_NEO4J_USER: &str = "neo4j";
@@ -100,6 +104,8 @@ pub struct RuntimePreflight {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_home: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub packaged: Option<bool>,
 }
 
@@ -117,6 +123,8 @@ pub struct BootstrapStepResult {
     pub repo_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_home: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub packaged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,6 +173,8 @@ pub struct RuntimeReadiness {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_home: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub packaged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
@@ -200,6 +210,8 @@ pub struct BootstrapLogResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_home: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub packaged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
@@ -224,6 +236,8 @@ pub struct BootstrapRestartResult {
     pub repo_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_home: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub packaged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -394,6 +408,12 @@ impl BootstrapRuntime {
             .map(|path| path.display().to_string())
     }
 
+    fn runtime_root_display(&self) -> Option<String> {
+        self.runtime_root
+            .as_ref()
+            .map(|path| path.display().to_string())
+    }
+
     fn repo_root_display(&self) -> Option<String> {
         self.repo_root
             .as_ref()
@@ -449,17 +469,11 @@ fn packaged_runtime_manifest_path(runtime_root: &Path) -> PathBuf {
 fn packaged_runtime_marker_path(runtime_root: &Path) -> PathBuf {
     runtime_root.join(PACKAGED_RUNTIME_MARKER_FILENAME)
 }
+
 #[derive(Debug)]
 struct BootstrapRuntimeValidationError {
     failure_kind: &'static str,
     detail: String,
-}
-
-#[derive(Debug)]
-struct ComposeInvocation {
-    project_directory: PathBuf,
-    compose_file: PathBuf,
-    runtime_env_file: PathBuf,
 }
 
 fn phase_failure_kind(
@@ -474,8 +488,49 @@ fn phase_failure_kind(
     }
 }
 
-fn runtime_env_file_path(runtime_root: &Path) -> PathBuf {
-    runtime_root.join(".env")
+fn is_managed_packaged_runtime_root(runtime_root: &Path) -> bool {
+    packaged_runtime_marker_path(runtime_root).is_file()
+}
+
+fn ensure_packaged_runtime_root_is_managed(
+    runtime_root: &Path,
+) -> Result<(), BootstrapRuntimeMaterializationError> {
+    if !runtime_root.exists() {
+        return Ok(());
+    }
+
+    if is_managed_packaged_runtime_root(runtime_root) {
+        return Ok(());
+    }
+
+    Err(BootstrapRuntimeMaterializationError {
+        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+        detail: join_lines(vec![
+            "Packaged runtime materialization refused to reuse an existing unmanaged runtime root."
+                .to_string(),
+            format!("runtimeRoot={}", runtime_root.display()),
+            format!(
+                "marker={}",
+                packaged_runtime_marker_path(runtime_root).display()
+            ),
+            "Refusing to overwrite a pre-existing non-managed directory.".to_string(),
+        ]),
+    })
+}
+
+fn detect_docker_mount_path_rejection(text: &str) -> bool {
+    let normalized = text.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return false;
+    }
+
+    normalized.contains("mounts denied")
+        || normalized.contains("mount denied")
+        || normalized.contains("path is not shared")
+        || normalized.contains("paths are not shared")
+        || normalized.contains("is not shared from the host")
+        || normalized.contains("sharing is not enabled")
+        || normalized.contains("file sharing")
 }
 
 fn path_exists(path: &Path) -> bool {
@@ -673,7 +728,7 @@ fn materialize_packaged_runtime_assets(
 ) -> Result<Vec<String>, BootstrapRuntimeMaterializationError> {
     let mut detail_lines = vec![
         format!("resourceRoot={}", resource_root.display()),
-        format!("runtimeHome={}", runtime_root.display()),
+        format!("runtimeRoot={}", runtime_root.display()),
     ];
     let runtime_manifest_path = packaged_runtime_manifest_path(runtime_root);
     let marker_path = packaged_runtime_marker_path(runtime_root);
@@ -684,11 +739,13 @@ fn materialize_packaged_runtime_assets(
     };
     detail_lines.push(format!("attachmentState={attachment_state}"));
 
+    ensure_packaged_runtime_root_is_managed(runtime_root)?;
+
     fs::create_dir_all(runtime_root).map_err(|err| BootstrapRuntimeMaterializationError {
-        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+        failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
         detail: join_lines(vec![
-            "Packaged runtime home is unavailable.".to_string(),
-            format!("runtimeHome={}", runtime_root.display()),
+            "Packaged runtime root is unavailable.".to_string(),
+            format!("runtimeRoot={}", runtime_root.display()),
             format!("error={err}"),
         ]),
     })?;
@@ -701,7 +758,7 @@ fn materialize_packaged_runtime_assets(
                 detail: join_lines(vec![
                 "Packaged runtime materialization failed while creating placeholder directories."
                     .to_string(),
-                format!("runtimeHome={}", runtime_root.display()),
+                format!("runtimeRoot={}", runtime_root.display()),
                 format!("placeholder={}", placeholder_path.display()),
                 format!("error={err}"),
             ]),
@@ -774,6 +831,7 @@ fn materialize_packaged_runtime_assets(
         format!("version={}", env!("CARGO_PKG_VERSION")),
         format!("attachmentState={attachment_state}"),
         format!("resourceRoot={}", resource_root.display()),
+        format!("runtimeRoot={}", runtime_root.display()),
         format!("runtimeHome={}", runtime_root.display()),
         format!("manifest={}", manifest_path.display()),
     ]);
@@ -783,7 +841,7 @@ fn materialize_packaged_runtime_assets(
             detail: join_lines(vec![
                 "Packaged runtime materialization failed while writing the runtime marker."
                     .to_string(),
-                format!("runtimeHome={}", runtime_root.display()),
+                format!("runtimeRoot={}", runtime_root.display()),
                 format!("marker={}", marker_path.display()),
                 format!("error={err}"),
             ]),
@@ -967,15 +1025,113 @@ struct PackagedSetupEnvResult {
     preserved_keys: Vec<String>,
     generated_guardian_api_key: bool,
     created_new_env_file: bool,
+    migrated_legacy_env_source: Option<PathBuf>,
+    migrated_legacy_runtime_assets: Vec<String>,
+}
+
+fn migrate_packaged_setup_env(
+    runtime_home: Option<&Path>,
+    runtime_root: &Path,
+) -> Result<Option<PathBuf>, BootstrapRuntimeValidationError> {
+    let Some(runtime_home) = runtime_home else {
+        return Ok(None);
+    };
+
+    let source_env_path = runtime_env_file_path(runtime_home);
+    let destination_env_path = runtime_env_file_path(runtime_root);
+
+    if destination_env_path.exists() || !source_env_path.is_file() {
+        return Ok(None);
+    }
+
+    if let Some(parent) = destination_env_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail: format!(
+                "Failed to prepare packaged env directory {}: {err}",
+                parent.display()
+            ),
+        })?;
+    }
+
+    fs::copy(&source_env_path, &destination_env_path).map_err(|err| {
+        BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail: format!(
+                "Failed to migrate packaged env {} -> {}: {err}",
+                source_env_path.display(),
+                destination_env_path.display()
+            ),
+        }
+    })?;
+
+    Ok(Some(source_env_path))
+}
+
+fn migrate_packaged_setup_runtime_dir(
+    runtime_home: Option<&Path>,
+    runtime_root: &Path,
+    relative_path: &str,
+) -> Result<Option<PathBuf>, BootstrapRuntimeValidationError> {
+    let Some(runtime_home) = runtime_home else {
+        return Ok(None);
+    };
+
+    let source_path = runtime_home.join(relative_path);
+    let destination_path = runtime_root.join(relative_path);
+    if !source_path.is_dir() {
+        return Ok(None);
+    }
+
+    if destination_path.exists() {
+        if !destination_path.is_dir() {
+            return Err(BootstrapRuntimeValidationError {
+                failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+                detail: format!(
+                    "Packaged runtime migration expected {} to be a directory.",
+                    destination_path.display()
+                ),
+            });
+        }
+
+        let mut entries =
+            fs::read_dir(&destination_path).map_err(|err| BootstrapRuntimeValidationError {
+                failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+                detail: format!(
+                    "Failed to inspect packaged runtime destination {}: {err}",
+                    destination_path.display()
+                ),
+            })?;
+        if entries.next().is_some() {
+            return Ok(None);
+        }
+    }
+
+    copy_dir_all(&source_path, &destination_path).map_err(|detail| {
+        BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail,
+        }
+    })?;
+
+    Ok(Some(source_path))
 }
 
 fn materialize_packaged_setup_env(
+    runtime_home: Option<&Path>,
     runtime_root: &Path,
 ) -> Result<PackagedSetupEnvResult, BootstrapRuntimeValidationError> {
     let env_path = runtime_env_file_path(runtime_root);
+    let migrated_legacy_env_source = migrate_packaged_setup_env(runtime_home, runtime_root)?;
+    let mut migrated_legacy_runtime_assets = Vec::new();
+    for asset in [".chroma", "models"] {
+        if migrate_packaged_setup_runtime_dir(runtime_home, runtime_root, asset)?.is_some() {
+            migrated_legacy_runtime_assets.push(asset.to_string());
+        }
+    }
     let (mut order, mut values) =
         read_env_file_ordered(&env_path).map_err(|detail| BootstrapRuntimeValidationError {
-            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
             detail,
         })?;
     let created_new_env_file = !env_path.exists();
@@ -1041,7 +1197,7 @@ fn materialize_packaged_setup_env(
     lines.push(String::new());
 
     fs::write(&env_path, lines.join("\n")).map_err(|err| BootstrapRuntimeValidationError {
-        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+        failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
         detail: format!(
             "Failed to write packaged env file {}: {err}",
             env_path.display()
@@ -1053,6 +1209,8 @@ fn materialize_packaged_setup_env(
         preserved_keys,
         generated_guardian_api_key,
         created_new_env_file,
+        migrated_legacy_env_source,
+        migrated_legacy_runtime_assets,
     })
 }
 
@@ -1222,10 +1380,12 @@ fn resolve_packaged_bootstrap_runtime(
     }
 
     let runtime_home = match app.path().data_dir() {
-        Ok(data_dir) => data_dir.join(PACKAGED_RUNTIME_HOME_DIRNAME),
+        Ok(data_dir) => data_dir.join(PACKAGED_RUNTIME_METADATA_DIRNAME),
         Err(err) => {
-            detail_lines
-                .push("The packaged app could not resolve a user-scoped runtime home.".to_string());
+            detail_lines.push(
+                "The packaged app could not resolve its Application Support metadata home."
+                    .to_string(),
+            );
             detail_lines.push(format!("runtimeHomeError={err}"));
             return BootstrapRuntime::failure(
                 RUNTIME_CONTEXT_PACKAGED,
@@ -1234,12 +1394,51 @@ fn resolve_packaged_bootstrap_runtime(
                 None,
                 None,
                 None,
-                FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+                FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
                 join_lines(detail_lines),
             );
         }
     };
     detail_lines.push(format!("runtimeHome={}", runtime_home.display()));
+
+    if let Err(err) = fs::create_dir_all(&runtime_home) {
+        detail_lines.push(
+            "The packaged app could not create its Application Support metadata home.".to_string(),
+        );
+        detail_lines.push(format!("runtimeHomeCreateError={err}"));
+        return BootstrapRuntime::failure(
+            RUNTIME_CONTEXT_PACKAGED,
+            true,
+            None,
+            None,
+            Some(runtime_home),
+            None,
+            FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            join_lines(detail_lines),
+        );
+    }
+
+    let runtime_root = match app.path().home_dir() {
+        Ok(home_dir) => home_dir.join(PACKAGED_RUNTIME_ROOT_DIRNAME),
+        Err(err) => {
+            detail_lines.push(
+                "The packaged app could not resolve a Docker-compatible runtime root under the user home."
+                    .to_string(),
+            );
+            detail_lines.push(format!("runtimeRootError={err}"));
+            return BootstrapRuntime::failure(
+                RUNTIME_CONTEXT_PACKAGED,
+                true,
+                None,
+                None,
+                Some(runtime_home),
+                None,
+                FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+                join_lines(detail_lines),
+            );
+        }
+    };
+    detail_lines.push(format!("runtimeRoot={}", runtime_root.display()));
 
     let resource_root = match app.path().resource_dir() {
         Ok(path) => path,
@@ -1251,7 +1450,7 @@ fn resolve_packaged_bootstrap_runtime(
             return BootstrapRuntime::failure(
                 RUNTIME_CONTEXT_PACKAGED,
                 true,
-                Some(runtime_home.clone()),
+                Some(runtime_root.clone()),
                 None,
                 Some(runtime_home),
                 None,
@@ -1262,13 +1461,13 @@ fn resolve_packaged_bootstrap_runtime(
     };
     detail_lines.push(format!("resourceRoot={}", resource_root.display()));
 
-    match materialize_packaged_runtime_assets(&resource_root, &runtime_home) {
+    match materialize_packaged_runtime_assets(&resource_root, &runtime_root) {
         Ok(materialization_detail) => {
             detail_lines.extend(materialization_detail);
             BootstrapRuntime::success(
                 RUNTIME_CONTEXT_PACKAGED,
                 true,
-                runtime_home.clone(),
+                runtime_root,
                 None,
                 Some(runtime_home),
                 Some(resource_root),
@@ -1278,7 +1477,7 @@ fn resolve_packaged_bootstrap_runtime(
         Err(err) => BootstrapRuntime::failure(
             RUNTIME_CONTEXT_PACKAGED,
             true,
-            Some(runtime_home.clone()),
+            Some(runtime_root),
             None,
             Some(runtime_home),
             Some(resource_root),
@@ -1330,6 +1529,7 @@ fn resolve_runtime_root_for_step(
             runtime_context: Some(runtime.runtime_context.clone()),
             repo_root: runtime.repo_root_display(),
             runtime_home: runtime.runtime_home_display(),
+            runtime_root: runtime.runtime_root_display(),
             packaged: Some(runtime.packaged),
             command: None,
             stdout: None,
@@ -1352,7 +1552,7 @@ fn validate_packaged_runtime(
         runtime
             .runtime_root_path()
             .ok_or_else(|| BootstrapRuntimeValidationError {
-                failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+                failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
                 detail: join_lines(vec![
                     format!("Packaged {step} could not resolve a usable runtime root."),
                     format!("runtimeContext={}", runtime.runtime_context),
@@ -1374,9 +1574,9 @@ fn validate_packaged_runtime(
         .unwrap_or_else(|| runtime_root.to_path_buf());
 
     fs::create_dir_all(&runtime_home).map_err(|err| BootstrapRuntimeValidationError {
-        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+        failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
         detail: join_lines(vec![
-            format!("Packaged {step} could not use the packaged runtime home."),
+            format!("Packaged {step} could not use the packaged metadata home."),
             format!("runtimeRoot={}", runtime_root.display()),
             format!("runtimeHome={}", runtime_home.display()),
             format!("error={err}"),
@@ -1385,9 +1585,9 @@ fn validate_packaged_runtime(
 
     if !runtime_home.is_dir() {
         return Err(BootstrapRuntimeValidationError {
-            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE,
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
             detail: join_lines(vec![
-                format!("Packaged {step} expected a directory-backed runtime home."),
+                format!("Packaged {step} expected a directory-backed metadata home."),
                 format!("runtimeRoot={}", runtime_root.display()),
                 format!("runtimeHome={}", runtime_home.display()),
             ]),
@@ -1423,55 +1623,6 @@ fn validate_packaged_runtime(
     Ok(())
 }
 
-fn resolve_compose_invocation(
-    runtime: &BootstrapRuntime,
-) -> Result<ComposeInvocation, BootstrapRuntimeValidationError> {
-    let runtime_root =
-        runtime
-            .runtime_root_path()
-            .ok_or_else(|| BootstrapRuntimeValidationError {
-                failure_kind: if runtime.packaged {
-                    FAILURE_KIND_PACKAGED_RUNTIME_HOME_UNUSABLE
-                } else {
-                    FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE
-                },
-                detail: runtime
-                    .resolution_detail
-                    .clone()
-                    .unwrap_or_else(|| "Compose runtime root is unavailable.".to_string()),
-            })?;
-
-    if runtime.packaged {
-        validate_packaged_runtime(
-            runtime,
-            "compose startup",
-            &["docker-compose.yml", "backend", "guardian", "docker"],
-        )?;
-    }
-
-    let compose_file = runtime_root.join("docker-compose.yml");
-    if !compose_file.is_file() {
-        return Err(BootstrapRuntimeValidationError {
-            failure_kind: if runtime.packaged {
-                FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_INVALID
-            } else {
-                FAILURE_KIND_RUNTIME_PATH_UNAVAILABLE
-            },
-            detail: join_lines(vec![
-                "Docker Compose file is unavailable for bootstrap orchestration.".to_string(),
-                format!("runtimeRoot={}", runtime_root.display()),
-                format!("composeFile={}", compose_file.display()),
-            ]),
-        });
-    }
-
-    Ok(ComposeInvocation {
-        project_directory: runtime_root.to_path_buf(),
-        compose_file,
-        runtime_env_file: runtime_env_file_path(runtime_root),
-    })
-}
-
 fn build_context_lines(label: &str, binary: &ResolvedDockerBinary) -> Vec<String> {
     let mut lines = vec![format!("{label}:"), format!("binary: {}", binary.display)];
     lines.extend(build_docker_environment_lines(&binary.environment));
@@ -1487,41 +1638,6 @@ fn spawn_docker_base_command(binary: &ResolvedDockerBinary) -> Command {
 fn spawn_docker_command(binary: &ResolvedDockerBinary, args: &[&str]) -> Command {
     let mut command = spawn_docker_base_command(binary);
     command.args(args);
-    command
-}
-
-fn compose_command_display(
-    binary: &ResolvedDockerBinary,
-    invocation: &ComposeInvocation,
-    extra_args: &[&str],
-) -> String {
-    let mut parts = vec![
-        binary.display.clone(),
-        "compose".to_string(),
-        "--file".to_string(),
-        invocation.compose_file.display().to_string(),
-        "--project-directory".to_string(),
-        invocation.project_directory.display().to_string(),
-    ];
-    parts.extend(extra_args.iter().map(|arg| arg.to_string()));
-    parts.join(" ")
-}
-
-fn spawn_compose_command(
-    binary: &ResolvedDockerBinary,
-    invocation: &ComposeInvocation,
-    extra_args: &[&str],
-) -> Command {
-    let mut command = spawn_docker_base_command(binary);
-    command
-        .arg("compose")
-        .arg("--file")
-        .arg(&invocation.compose_file)
-        .arg("--project-directory")
-        .arg(&invocation.project_directory)
-        .env("CODEXIFY_RUNTIME_ENV_FILE", &invocation.runtime_env_file)
-        .args(extra_args)
-        .current_dir(&invocation.project_directory);
     command
 }
 
@@ -1931,6 +2047,7 @@ fn build_step_result(
         runtime_context: context.map(|resolved| resolved.runtime_context.clone()),
         repo_root: context.and_then(|resolved| resolved.repo_root_display()),
         runtime_home: context.and_then(|resolved| resolved.runtime_home_display()),
+        runtime_root: context.and_then(|resolved| resolved.runtime_root_display()),
         packaged: context.map(|resolved| resolved.packaged),
         command,
         stdout,
@@ -2468,6 +2585,7 @@ pub fn desktop_runtime_preflight_check(
     let runtime_context = Some(runtime.runtime_context.clone());
     let repo_root = runtime.repo_root_display();
     let runtime_home = runtime.runtime_home_display();
+    let runtime_root = runtime.runtime_root_display();
     let packaged = Some(runtime.packaged);
 
     if runtime.failure_kind.is_some() || runtime.runtime_root_path().is_none() {
@@ -2481,6 +2599,7 @@ pub fn desktop_runtime_preflight_check(
             runtime_context,
             repo_root,
             runtime_home,
+            runtime_root,
             packaged,
         };
     }
@@ -2573,6 +2692,7 @@ pub fn desktop_runtime_preflight_check(
                 runtime_context,
                 repo_root,
                 runtime_home,
+                runtime_root,
                 packaged,
             }
         }
@@ -2594,6 +2714,7 @@ pub fn desktop_runtime_preflight_check(
                 runtime_context,
                 repo_root,
                 runtime_home,
+                runtime_root,
                 packaged,
             }
         }
@@ -2602,25 +2723,109 @@ pub fn desktop_runtime_preflight_check(
 
 #[tauri::command]
 pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> BootstrapStepResult {
-    let runtime_root = match runtime.runtime_root_path() {
-        Some(path) => path.to_path_buf(),
-        None => {
-            return BootstrapStepResult {
-                ok: false,
-                step: "setup".to_string(),
-                detail: runtime.resolution_detail.clone(),
-                failure_kind: runtime.failure_kind.clone(),
-                runtime_context: Some(runtime.runtime_context.clone()),
-                repo_root: runtime.repo_root_display(),
-                runtime_home: runtime.runtime_home_display(),
-                packaged: Some(runtime.packaged),
-                command: None,
-                stdout: None,
-                stderr: None,
-                exit_code: None,
-            }
-        }
+    let runtime_root = match resolve_runtime_root_for_step(&runtime, "setup") {
+        Ok(path) => path,
+        Err(result) => return result,
     };
+    if let Err(err) = validate_packaged_runtime(&runtime, "setup", &["guardian", "backend"]) {
+        return build_step_result(
+            false,
+            "setup",
+            Some(err.detail),
+            None,
+            None,
+            None,
+            None,
+            Some(&*runtime),
+            Some(err.failure_kind),
+        );
+    }
+
+    if runtime.packaged {
+        let command_display = "native packaged setup env materialization".to_string();
+        return match materialize_packaged_setup_env(runtime.runtime_home.as_deref(), &runtime_root)
+        {
+            Ok(result) => {
+                let stdout = Some(
+                    serde_json::json!({
+                        "source": "desktop_run_setup_cli",
+                        "mode": "packaged-native-env-materialization",
+                        "runtime_root": runtime_root.display().to_string(),
+                        "env_path": result.env_path.display().to_string(),
+                        "preserved_keys": result.preserved_keys,
+                        "generated_guardian_api_key": result.generated_guardian_api_key,
+                        "created_new_env_file": result.created_new_env_file,
+                        "migrated_legacy_env": result.migrated_legacy_env_source.is_some(),
+                        "migrated_legacy_env_source": result
+                            .migrated_legacy_env_source
+                            .as_ref()
+                            .map(|path| path.display().to_string()),
+                        "migrated_legacy_runtime_assets": result.migrated_legacy_runtime_assets,
+                    })
+                    .to_string(),
+                );
+                let detail = render_step_detail(
+                    vec![
+                        format!("runtimeContext={}", runtime.runtime_context),
+                        format!("packaged={}", runtime.packaged),
+                        format!("runtimeRoot={}", runtime_root.display()),
+                        runtime
+                            .runtime_home
+                            .as_ref()
+                            .map(|path| format!("runtimeHome={}", path.display()))
+                            .unwrap_or_default(),
+                        format!("runtimeEnvFile={}", result.env_path.display()),
+                        "setupSource=packaged-native-env-materialization".to_string(),
+                        format!(
+                            "generatedGuardianApiKey={}",
+                            result.generated_guardian_api_key
+                        ),
+                        format!("createdNewEnvFile={}", result.created_new_env_file),
+                        result
+                            .migrated_legacy_env_source
+                            .as_ref()
+                            .map(|path| format!("migratedLegacyEnvSource={}", path.display()))
+                            .unwrap_or_else(|| "migratedLegacyEnvSource=<none>".to_string()),
+                        format!(
+                            "migratedLegacyRuntimeAssets={}",
+                            if result.migrated_legacy_runtime_assets.is_empty() {
+                                "<none>".to_string()
+                            } else {
+                                result.migrated_legacy_runtime_assets.join(",")
+                            }
+                        ),
+                        "status=success".to_string(),
+                    ],
+                    stdout.as_ref(),
+                    None,
+                );
+                build_step_result(
+                    true,
+                    "setup",
+                    detail,
+                    Some(command_display),
+                    stdout,
+                    None,
+                    Some(0),
+                    Some(&*runtime),
+                    None,
+                )
+            }
+            Err(err) => build_step_result(
+                false,
+                "setup",
+                Some(err.detail),
+                Some(command_display),
+                None,
+                None,
+                None,
+                Some(&*runtime),
+                Some(err.failure_kind),
+            ),
+        };
+    }
+
+    let runtime_env_file = runtime_env_file_path(&runtime_root);
     let python = resolve_python_binary(&runtime_root);
     let command_display = format!(
         "{} -c <guardian.tui.setup_wizard_app.write_wizard_env>",
@@ -2744,6 +2949,7 @@ pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> Bootst
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
+                runtime_root: runtime.runtime_root_display(),
                 packaged: Some(runtime.packaged),
                 command: None,
                 stdout: None,
@@ -2771,14 +2977,23 @@ pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> Bootst
             )
         }
     };
-    let command_display = compose_command_display(&docker, &invocation, &["up", "-d"]);
+    let command_display = build_compose_command_display(&docker, &runtime_root, &["up", "-d"]);
 
-    match spawn_compose_command(&docker, &invocation, &["up", "-d"]).output() {
+    match spawn_compose_command(&docker, &runtime, &runtime_root, &["up", "-d"]).output() {
         Ok(output) => {
             let stdout = normalize_output(&output.stdout);
             let stderr = normalize_output(&output.stderr);
             let failure_kind = if output.status.success() {
                 None
+            } else if runtime.packaged
+                && (stdout
+                    .as_ref()
+                    .is_some_and(|value| detect_docker_mount_path_rejection(value))
+                    || stderr
+                        .as_ref()
+                        .is_some_and(|value| detect_docker_mount_path_rejection(value)))
+            {
+                Some(FAILURE_KIND_DOCKER_MOUNT_PATH_UNSHARED_OR_UNSUPPORTED)
             } else {
                 Some(phase_failure_kind(
                     &runtime,
@@ -2930,6 +3145,7 @@ pub fn desktop_get_bootstrap_logs(
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
+                runtime_root: runtime.runtime_root_display(),
                 packaged: Some(runtime.packaged),
                 logs: None,
                 command: None,
@@ -2944,11 +3160,12 @@ pub fn desktop_get_bootstrap_logs(
             return BootstrapLogResult {
                 ok: false,
                 service: service.to_string(),
-                detail: Some(err.detail),
-                failure_kind: Some(err.failure_kind.to_string()),
+                detail: runtime.resolution_detail.clone(),
+                failure_kind: runtime.failure_kind.clone(),
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
+                runtime_root: runtime.runtime_root_display(),
                 packaged: Some(runtime.packaged),
                 logs: None,
                 command: None,
@@ -2967,6 +3184,7 @@ pub fn desktop_get_bootstrap_logs(
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
+                runtime_root: runtime.runtime_root_display(),
                 packaged: Some(runtime.packaged),
                 logs: None,
                 command: Some(format!(
@@ -3022,6 +3240,7 @@ pub fn desktop_get_bootstrap_logs(
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
+                runtime_root: runtime.runtime_root_display(),
                 packaged: Some(runtime.packaged),
                 logs,
                 command: Some(command_display),
@@ -3036,6 +3255,7 @@ pub fn desktop_get_bootstrap_logs(
             runtime_context: Some(runtime.runtime_context.clone()),
             repo_root: runtime.repo_root_display(),
             runtime_home: runtime.runtime_home_display(),
+            runtime_root: runtime.runtime_root_display(),
             packaged: Some(runtime.packaged),
             logs: None,
             command: Some(command_display),
@@ -3057,11 +3277,12 @@ pub fn desktop_restart_runtime_services(
                     .iter()
                     .map(|service| service.to_string())
                     .collect(),
-                detail: Some(err.detail),
-                failure_kind: Some(err.failure_kind.to_string()),
+                detail: runtime.resolution_detail.clone(),
+                failure_kind: runtime.failure_kind.clone(),
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
+                runtime_root: runtime.runtime_root_display(),
                 packaged: Some(runtime.packaged),
                 command: None,
                 stdout: None,
@@ -3084,6 +3305,7 @@ pub fn desktop_restart_runtime_services(
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
+                runtime_root: runtime.runtime_root_display(),
                 packaged: Some(runtime.packaged),
                 command: Some(format!(
                     "{} && {}",
@@ -3232,6 +3454,7 @@ pub fn desktop_restart_runtime_services(
                 runtime_context: Some(runtime.runtime_context.clone()),
                 repo_root: runtime.repo_root_display(),
                 runtime_home: runtime.runtime_home_display(),
+                runtime_root: runtime.runtime_root_display(),
                 packaged: Some(runtime.packaged),
                 command: Some(combined_command_display),
                 stdout,
@@ -3252,6 +3475,7 @@ pub fn desktop_restart_runtime_services(
         runtime_context: Some(runtime.runtime_context.clone()),
         repo_root: runtime.repo_root_display(),
         runtime_home: runtime.runtime_home_display(),
+        runtime_root: runtime.runtime_root_display(),
         packaged: Some(runtime.packaged),
         command: Some(combined_command_display),
         stdout,
@@ -3405,6 +3629,7 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
         runtime_context: runtime.map(|resolved| resolved.runtime_context.clone()),
         repo_root: runtime.and_then(|resolved| resolved.repo_root_display()),
         runtime_home: runtime.and_then(|resolved| resolved.runtime_home_display()),
+        runtime_root: runtime.and_then(|resolved| resolved.runtime_root_display()),
         packaged: runtime.map(|resolved| resolved.packaged),
         command: Some(format!(
             "GET {ping_url}; GET {health_url}; GET {chat_health_url}; GET {llm_health_url}"
@@ -3425,4 +3650,113 @@ pub fn desktop_runtime_health_check(
     runtime: tauri::State<'_, BootstrapRuntime>,
 ) -> RuntimeReadiness {
     runtime_readiness_snapshot(Some(&*runtime))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before UNIX_EPOCH")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("{prefix}-{stamp}-{}", std::process::id()));
+        fs::create_dir_all(&path).expect("failed to create temp dir");
+        path
+    }
+
+    #[test]
+    fn packaged_runtime_assets_refuse_unmanaged_existing_root() {
+        let root = unique_temp_dir("codexify-packaged-root-conflict");
+        let runtime_root = root.join("runtime");
+        let resource_root = root.join("bundle");
+        fs::create_dir_all(&runtime_root).expect("failed to create runtime root");
+        fs::create_dir_all(&resource_root).expect("failed to create resource root");
+        fs::write(runtime_root.join("unrelated.txt"), "source-checkout")
+            .expect("failed to write sentinel");
+
+        let err = materialize_packaged_runtime_assets(&resource_root, &runtime_root)
+            .expect_err("expected unmanaged runtime root to be rejected");
+
+        assert_eq!(
+            err.failure_kind,
+            FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED
+        );
+        assert!(err
+            .detail
+            .contains("Refusing to overwrite a pre-existing non-managed directory."));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn packaged_setup_env_migrates_legacy_env_into_runtime_root() {
+        let root = unique_temp_dir("codexify-packaged-env-migration");
+        let runtime_home = root.join("Application Support").join("Codexify");
+        let runtime_root = root.join("Codexify");
+        fs::create_dir_all(&runtime_home).expect("failed to create runtime home");
+        fs::create_dir_all(&runtime_root).expect("failed to create runtime root");
+
+        let legacy_chroma = runtime_home.join(".chroma");
+        let legacy_models = runtime_home.join("models");
+        fs::create_dir_all(&legacy_chroma).expect("failed to create legacy chroma dir");
+        fs::create_dir_all(&legacy_models).expect("failed to create legacy models dir");
+
+        let legacy_env = runtime_home.join(".env");
+        fs::write(
+            &legacy_env,
+            [
+                "GUARDIAN_API_KEY=legacy-api-key",
+                "LOCAL_CHAT_MODEL=legacy-model",
+                "ALLOW_CLOUD_PROVIDERS=true",
+                "",
+            ]
+            .join("\n"),
+        )
+        .expect("failed to seed legacy env");
+        fs::write(legacy_chroma.join("chroma.sqlite3"), "legacy-chroma")
+            .expect("failed to seed legacy chroma data");
+        fs::write(legacy_models.join("model.cache"), "legacy-models")
+            .expect("failed to seed legacy models data");
+
+        let result = materialize_packaged_setup_env(Some(runtime_home.as_path()), &runtime_root)
+            .expect("expected packaged setup env materialization to succeed");
+
+        assert_eq!(result.migrated_legacy_env_source, Some(legacy_env.clone()));
+        assert!(result
+            .migrated_legacy_runtime_assets
+            .contains(&".chroma".to_string()));
+        assert!(result
+            .migrated_legacy_runtime_assets
+            .contains(&"models".to_string()));
+        assert!(!result.created_new_env_file);
+        assert!(result
+            .preserved_keys
+            .contains(&"GUARDIAN_API_KEY".to_string()));
+        assert!(result
+            .preserved_keys
+            .contains(&"LOCAL_CHAT_MODEL".to_string()));
+
+        let written = fs::read_to_string(result.env_path).expect("failed to read migrated env");
+        assert!(written.contains("GUARDIAN_API_KEY=legacy-api-key"));
+        assert!(written.contains("VITE_GUARDIAN_API_KEY=legacy-api-key"));
+        assert!(written.contains("LOCAL_CHAT_MODEL=legacy-model"));
+        assert!(written.contains("ALLOW_CLOUD_PROVIDERS=true"));
+        assert!(written.contains("NEO4J_PASS=codexify"));
+        assert_eq!(
+            fs::read_to_string(runtime_root.join(".chroma").join("chroma.sqlite3"))
+                .expect("failed to read migrated chroma data"),
+            "legacy-chroma"
+        );
+        assert_eq!(
+            fs::read_to_string(runtime_root.join("models").join("model.cache"))
+                .expect("failed to read migrated model data"),
+            "legacy-models"
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
 }

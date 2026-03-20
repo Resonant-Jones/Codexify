@@ -14,6 +14,7 @@ export type RuntimePreflight = {
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
   runtimeHome?: string;
+  runtimeRoot?: string;
   packaged?: boolean;
 };
 
@@ -47,6 +48,7 @@ export type BootstrapStepResult = {
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
   runtimeHome?: string;
+  runtimeRoot?: string;
   packaged?: boolean;
   command?: string;
   stdout?: string;
@@ -91,6 +93,7 @@ export type BootstrapLogResult = {
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
   runtimeHome?: string;
+  runtimeRoot?: string;
   packaged?: boolean;
   logs?: string;
   command?: string;
@@ -104,6 +107,7 @@ export type BootstrapRestartResult = {
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
   runtimeHome?: string;
+  runtimeRoot?: string;
   packaged?: boolean;
   command?: string;
   stdout?: string;
@@ -179,10 +183,15 @@ function normalizeFailureKind(value: unknown): string | undefined {
   switch (normalized) {
     case "runtime-path-unavailable":
       return "runtime-path-unavailable";
+    case "runtime-root-unavailable":
+      return "runtime-root-unavailable";
     case "runtime-home-unavailable":
-      return "packaged-runtime-home-unusable";
+    case "packaged-runtime-home-unusable":
+      return "runtime-root-unavailable";
     case "repo-runtime-missing":
       return "packaged-runtime-assets-missing";
+    case "docker-mount-path-unshared-or-unsupported":
+      return "docker-mount-path-unshared-or-unsupported";
     case "docker-binary-not-found":
       return "docker-cli-unavailable";
     case "docker-cli-invocation-failed":
@@ -259,6 +268,7 @@ function normalizeStepResult(
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
     runtimeHome: normalizeText(source.runtimeHome),
+    runtimeRoot: normalizeText(source.runtimeRoot),
     packaged: normalizeOptionalBoolean(source.packaged),
     command: normalizeText(source.command),
     stdout: normalizeText(source.stdout),
@@ -299,6 +309,7 @@ function normalizeBootstrapLogResult(
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
     runtimeHome: normalizeText(source.runtimeHome),
+    runtimeRoot: normalizeText(source.runtimeRoot),
     packaged: normalizeOptionalBoolean(source.packaged),
     logs: normalizeText(source.logs),
     command: normalizeText(source.command),
@@ -327,6 +338,7 @@ function normalizeBootstrapRestartResult(
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
     runtimeHome: normalizeText(source.runtimeHome),
+    runtimeRoot: normalizeText(source.runtimeRoot),
     packaged: normalizeOptionalBoolean(source.packaged),
     command: normalizeText(source.command),
     stdout: normalizeText(source.stdout),
@@ -352,6 +364,7 @@ export function normalizeRuntimePreflight(payload: unknown): RuntimePreflight {
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
     runtimeHome: normalizeText(source.runtimeHome),
+    runtimeRoot: normalizeText(source.runtimeRoot),
     packaged: normalizeOptionalBoolean(source.packaged),
   };
 
@@ -441,6 +454,9 @@ function formatPreflightDetail(preflight: RuntimePreflight): string | undefined 
   }
   if (preflight.runtimeHome) {
     lines.push(`runtimeHome=${preflight.runtimeHome}`);
+  }
+  if (preflight.runtimeRoot) {
+    lines.push(`runtimeRoot=${preflight.runtimeRoot}`);
   }
   if (preflight.failureKind) {
     lines.push(`failureKind=${preflight.failureKind}`);
@@ -573,11 +589,11 @@ export function mapRuntimePreflightFailureToState(
     preflight.detail
   );
 
-  if (preflight.failureKind === "packaged-runtime-home-unusable") {
+  if (preflight.failureKind === "runtime-root-unavailable") {
     return buildRuntimeBootstrapState(
       "failed",
-      "Packaged runtime home is unavailable",
-      "Codexify could not resolve or create its user-scoped runtime home under the current macOS profile, so the packaged bootstrap stayed locked.",
+      "Packaged runtime root is unavailable",
+      "Codexify could not resolve or create its Docker-compatible packaged runtime root, so startup stayed locked before setup or Compose could run.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -591,7 +607,7 @@ export function mapRuntimePreflightFailureToState(
     return buildRuntimeBootstrapState(
       "failed",
       "Packaged runtime assets are missing",
-      "This packaged build is missing the bundled runtime payload it needs to materialize setup, Compose, and recovery assets into the user-scoped runtime home.",
+      "This packaged build could not find the bundled runtime source it needs to materialize setup, Compose, and recovery assets into the packaged runtime root.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -605,7 +621,7 @@ export function mapRuntimePreflightFailureToState(
     return buildRuntimeBootstrapState(
       "failed",
       "Packaged runtime materialization failed",
-      "Codexify found the packaged runtime payload, but it could not finish first-run materialization of the runtime attachment into the user-scoped runtime home safely.",
+      "Codexify found the packaged runtime payload, but it could not finish copying the required bootstrap assets into the Docker-compatible packaged runtime root.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -619,7 +635,7 @@ export function mapRuntimePreflightFailureToState(
     return buildRuntimeBootstrapState(
       "failed",
       "Packaged runtime assets are missing or corrupt",
-      "Codexify created the packaged runtime home, but the materialized attachment is incomplete or corrupt, so startup stayed locked instead of running against partial assets.",
+      "Codexify created the packaged runtime root, but the materialized attachment is incomplete or corrupt, so startup stayed locked instead of running against partial assets.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -661,7 +677,21 @@ export function mapRuntimePreflightFailureToState(
     return buildRuntimeBootstrapState(
       "failed",
       "Packaged runtime assets are invalid",
-      "Codexify found the packaged runtime home, but the materialized payload is incomplete or invalid for setup and Compose startup.",
+      "Codexify found the packaged runtime root, but the materialized payload is incomplete or invalid for setup and Compose startup.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "docker-mount-path-unshared-or-unsupported") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Docker rejected the packaged runtime mount path",
+      "Docker Desktop rejected the packaged runtime root path during Compose startup. This is a mount-path contract problem, not a missing Docker installation, so the workspace stayed locked.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -799,7 +829,7 @@ export function createPreparingLocalConfigState(
   return buildRuntimeBootstrapState(
     "preparing-local-config",
     "Preparing local config",
-    "Codexify is running the setup source of truth so local configuration stays aligned with the resolved runtime home.",
+    "Codexify is running the setup source of truth so local configuration stays aligned with the resolved packaged runtime root.",
     { detail, preflight, stepResults }
   );
 }
@@ -812,7 +842,7 @@ export function createStartingLocalServicesState(
   return buildRuntimeBootstrapState(
     "starting-local-services",
     "Starting local services",
-    "Codexify is bringing the local Docker Compose stack up from the packaged-safe runtime home.",
+    "Codexify is bringing the local Docker Compose stack up from the Docker-compatible packaged runtime root.",
     { detail, preflight, stepResults }
   );
 }
@@ -922,11 +952,11 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
   const failureKind = stateFailureKind(state);
   const packaged = isPackagedBootstrapState(state);
 
-  if (failureKind === "packaged-runtime-home-unusable") {
+  if (failureKind === "runtime-root-unavailable") {
     return {
-      title: "Packaged runtime home is unavailable",
+      title: "Packaged runtime root is unavailable",
       message:
-        "The packaged app could not resolve or create its user-scoped runtime home under the current macOS profile, so startup stayed locked.",
+        "The packaged app could not resolve or create its Docker-compatible packaged runtime root, so startup stayed locked.",
     };
   }
 
@@ -934,7 +964,7 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Packaged runtime assets are missing",
       message:
-        "This packaged build is missing the bundled runtime payload it needs to materialize setup, Compose, and recovery assets into the runtime home.",
+        "This packaged build could not find the bundled runtime source it needs to materialize setup, Compose, and recovery assets into the packaged runtime root.",
     };
   }
 
@@ -942,7 +972,7 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Packaged runtime materialization failed",
       message:
-        "Codexify found the packaged runtime payload, but it could not finish first-run materialization of the runtime attachment into the runtime home.",
+        "Codexify found the packaged runtime payload, but it could not safely copy the required bootstrap assets into the packaged runtime root.",
     };
   }
 
@@ -950,7 +980,7 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Packaged runtime assets are missing or corrupt",
       message:
-        "Codexify created the packaged runtime home, but the materialized runtime attachment is incomplete or corrupt, so startup stayed locked instead of running against partial assets.",
+        "Codexify created the packaged runtime root, but the materialized runtime attachment is incomplete or corrupt, so startup stayed locked instead of running against partial assets.",
     };
   }
 
@@ -958,7 +988,15 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Packaged runtime assets are invalid",
       message:
-        "The packaged runtime home was found, but the materialized payload is incomplete or invalid for setup, Compose startup, or recovery commands.",
+        "The packaged runtime root was found, but the materialized payload is incomplete or invalid for setup, Compose startup, or recovery commands.",
+    };
+  }
+
+  if (failureKind === "docker-mount-path-unshared-or-unsupported") {
+    return {
+      title: "Docker rejected the packaged runtime mount path",
+      message:
+        "Docker Desktop rejected the packaged runtime root during Compose startup. Codexify kept the workspace locked and did not misclassify this as a Docker installation problem.",
     };
   }
 
@@ -1032,7 +1070,7 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Packaged setup failed",
       message:
-        "The packaged app passed Docker preflight, but the setup step did not complete cleanly from the materialized runtime home. Retry to rerun setup while the workspace stays locked.",
+        "The packaged app passed Docker preflight, but the setup step did not complete cleanly from the materialized packaged runtime root. Retry to rerun setup while the workspace stays locked.",
     };
   }
 
@@ -1040,14 +1078,14 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     return {
       title: "Packaged Compose startup failed",
       message:
-        "The packaged app completed setup, but Docker Compose did not come up cleanly from the packaged runtime home. Retry first, then inspect logs or restart services if the runtime looks partially up.",
+        "The packaged app completed setup, but Docker Compose did not come up cleanly from the packaged runtime root. Retry first, then inspect logs or restart services if the runtime looks partially up.",
     };
   }
 
   if (failureKind === "packaged-readiness-failed") {
     return {
       title: state.title,
-      message: `${state.message} This happened after the packaged app had already completed setup and Compose startup from the materialized runtime home.`,
+      message: `${state.message} This happened after the packaged app had already completed setup and Compose startup from the materialized packaged runtime root.`,
     };
   }
 
@@ -1159,12 +1197,12 @@ export function createBootstrapSupportNoticeFromLogResult(
 ): BootstrapRecoveryNotice | null {
   if (result.ok) return null;
 
-  if (result.failureKind === "packaged-runtime-home-unusable") {
+  if (result.failureKind === "runtime-root-unavailable") {
     return {
       kind: "logs-unavailable",
-      title: "Runtime home is unavailable",
+      title: "Packaged runtime root is unavailable",
       message:
-        "Codexify could not resolve or create its user-scoped runtime home, so it did not attempt to read Compose logs.",
+        "Codexify could not resolve or create its Docker-compatible packaged runtime root, so it did not attempt to read Compose logs.",
       detail: result.detail,
     };
   }
@@ -1184,7 +1222,7 @@ export function createBootstrapSupportNoticeFromLogResult(
       kind: "logs-unavailable",
       title: "Packaged runtime materialization failed",
       message:
-        "Codexify found the packaged runtime payload, but it could not finish first-run materialization into the runtime home, so logs are unavailable.",
+        "Codexify found the packaged runtime payload, but it could not finish copying it into the packaged runtime root, so logs are unavailable.",
       detail: result.detail,
     };
   }
@@ -1194,7 +1232,7 @@ export function createBootstrapSupportNoticeFromLogResult(
       kind: "logs-unavailable",
       title: "Packaged runtime assets are missing or corrupt",
       message:
-        "Codexify found the packaged runtime home, but the materialized attachment is incomplete or corrupt, so it did not attempt to read Compose logs.",
+        "Codexify found the packaged runtime root, but the materialized attachment is incomplete or corrupt, so it did not attempt to read Compose logs.",
       detail: result.detail,
     };
   }
@@ -1204,7 +1242,17 @@ export function createBootstrapSupportNoticeFromLogResult(
       kind: "logs-unavailable",
       title: "Packaged runtime assets are invalid",
       message:
-        "Codexify found the packaged runtime home, but the materialized payload is incomplete or invalid, so Compose logs stayed unavailable.",
+        "Codexify found the packaged runtime root, but the materialized payload is incomplete or invalid, so Compose logs stayed unavailable.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "docker-mount-path-unshared-or-unsupported") {
+    return {
+      kind: "logs-unavailable",
+      title: "Docker rejected the packaged runtime mount path",
+      message:
+        "Docker Desktop rejected the packaged runtime root path during Compose startup, so Codexify could not attach useful Compose logs from that attempt.",
       detail: result.detail,
     };
   }
@@ -1266,12 +1314,12 @@ export function createBootstrapSupportNoticeFromRestartResult(
 ): BootstrapRecoveryNotice | null {
   if (result.ok) return null;
 
-  if (result.failureKind === "packaged-runtime-home-unusable") {
+  if (result.failureKind === "runtime-root-unavailable") {
     return {
       kind: "restart-services-failed",
-      title: "Runtime home is unavailable",
+      title: "Packaged runtime root is unavailable",
       message:
-        "Codexify could not resolve or create its user-scoped runtime home, so it did not attempt a service restart.",
+        "Codexify could not resolve or create its Docker-compatible packaged runtime root, so it did not attempt a service restart.",
       detail: result.detail,
     };
   }
@@ -1291,7 +1339,7 @@ export function createBootstrapSupportNoticeFromRestartResult(
       kind: "restart-services-failed",
       title: "Packaged runtime materialization failed",
       message:
-        "Codexify found the packaged runtime payload, but it could not finish first-run materialization into the runtime home, so service restart is unavailable.",
+        "Codexify found the packaged runtime payload, but it could not finish copying it into the packaged runtime root, so service restart is unavailable.",
       detail: result.detail,
     };
   }
@@ -1301,7 +1349,7 @@ export function createBootstrapSupportNoticeFromRestartResult(
       kind: "restart-services-failed",
       title: "Packaged runtime assets are missing or corrupt",
       message:
-        "Codexify found the packaged runtime home, but the materialized attachment is incomplete or corrupt, so service restart stayed locked.",
+        "Codexify found the packaged runtime root, but the materialized attachment is incomplete or corrupt, so service restart stayed locked.",
       detail: result.detail,
     };
   }
@@ -1311,7 +1359,17 @@ export function createBootstrapSupportNoticeFromRestartResult(
       kind: "restart-services-failed",
       title: "Packaged runtime assets are invalid",
       message:
-        "Codexify found the packaged runtime home, but the materialized payload is incomplete or invalid, so service restart stayed unavailable.",
+        "Codexify found the packaged runtime root, but the materialized payload is incomplete or invalid, so service restart stayed unavailable.",
+      detail: result.detail,
+    };
+  }
+
+  if (result.failureKind === "docker-mount-path-unshared-or-unsupported") {
+    return {
+      kind: "restart-services-failed",
+      title: "Docker rejected the packaged runtime mount path",
+      message:
+        "Docker Desktop rejected the packaged runtime root path during Compose startup, so Codexify left the workspace locked instead of retrying a misleading service restart.",
       detail: result.detail,
     };
   }
@@ -1411,6 +1469,9 @@ export function formatBootstrapStepResult(result: BootstrapStepResult): string {
   if (result.runtimeHome) {
     lines.push(`runtimeHome=${result.runtimeHome}`);
   }
+  if (result.runtimeRoot) {
+    lines.push(`runtimeRoot=${result.runtimeRoot}`);
+  }
   if (result.failureKind) {
     lines.push(`failureKind=${result.failureKind}`);
   }
@@ -1452,6 +1513,9 @@ export function formatRuntimeReadinessResult(
   }
   if (result.runtimeHome) {
     lines.push(`runtimeHome=${result.runtimeHome}`);
+  }
+  if (result.runtimeRoot) {
+    lines.push(`runtimeRoot=${result.runtimeRoot}`);
   }
   if (result.failureKind) {
     lines.push(`failureKind=${result.failureKind}`);
