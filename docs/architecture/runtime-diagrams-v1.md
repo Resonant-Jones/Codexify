@@ -19,7 +19,7 @@ This document is the first-pass runtime diagram pack derived only from the valid
 - `00-current-state.md` overrides broader docs on short-horizon release reality.
 - These diagrams reflect the current runtime baseline, not aspirational architecture.
 - Optional or not-currently-active systems are labeled explicitly.
-- Supplementary deep dives and quarantined legacy docs were not used.
+- Quarantined legacy docs were not used.
 
 ## Diagram legend
 
@@ -41,7 +41,7 @@ flowchart LR
 
     subgraph clients["Client Boundary"]
         browser["Browser"]
-        tauri["Tauri desktop shell (optional)"]
+        tauri["Tauri desktop shell<br/>(optional client shell)"]
         frontend["React frontend"]
         client_state["Local/session storage"]
     end
@@ -52,7 +52,7 @@ flowchart LR
         workers["Worker layer<br/>chat, chat-embed, document-embed, warmup, cron"]
         context["Context + retrieval orchestration"]
         ingestion["Media + document ingestion"]
-        command["Command bus + legacy tools shim<br/>(optional / internal-only surface)"]
+        command["Command bus + legacy tools shim<br/>(beta / internal-only surfaces)"]
     end
 
     subgraph durable["Durable stores"]
@@ -66,7 +66,7 @@ flowchart LR
     end
 
     subgraph optional["Optional / feature-flagged"]
-        neo4j["Neo4j<br/>optional / feature-flagged graph context"]
+        neo4j["Neo4j<br/>optional / feature-flagged graph context<br/>(not part of baseline release path)"]
     end
 
     subgraph model_boundary["Model execution boundary"]
@@ -104,7 +104,8 @@ flowchart LR
 
 Supported runtime topology is the local Docker Compose stack. Non-Compose deployment remains unverified in the validated source set.
 
-**Evidence notes**
+### Evidence notes
+
 - Primary sources: `/docs/architecture/00-current-state.md`, `/docs/architecture/system-overview.md`, `/docs/architecture/config-and-ops.md`
 - Conservative assumptions: worker types are collapsed into one worker layer, event surfaces are grouped into one runtime boundary, and provider execution is shown as one policy-shaped boundary rather than per-provider lanes.
 - Explicit exclusions: non-Compose deployment detail, one-shot bootstrap services, federation/sync surfaces, and provider inventory/governance nuance beyond the current execution boundary.
@@ -153,7 +154,10 @@ sequenceDiagram
     API-->>FE: Updated thread/messages
 ```
 
-**Evidence notes**
+This sequence keeps the baseline completion loop focused on the current enqueue -> worker -> retrieval -> persist -> task-event path documented in the validated runtime set.
+
+### Evidence notes
+
 - Primary sources: `/docs/architecture/flows.md`, `/docs/architecture/system-overview.md`, `/docs/architecture/00-current-state.md`
 - Conservative assumptions: the task-event surface is shown as one actor, context assembly is compressed to its stable data dependencies, and the user-message step is collapsed into the request lane so the completion path stays readable.
 - Explicit exclusions: provider catalog nuance, failure/retry branches, memory/sensor/federated context branches, and any future delegation or orchestration lanes.
@@ -187,7 +191,7 @@ flowchart TB
     end
 
     subgraph optional["Optional / feature-flagged"]
-        neo4j["Neo4j<br/>optional / feature-flagged graph context"]
+        neo4j["Neo4j<br/>optional / feature-flagged graph context<br/>(not part of baseline release path)"]
     end
 
     frontend <--> browser_state
@@ -201,6 +205,9 @@ flowchart TB
 ```
 
 **Evidence notes**
+
+### Evidence notes
+
 - Primary sources: `/docs/architecture/data-and-storage.md`, `/docs/architecture/system-overview.md`, `/docs/architecture/00-current-state.md`
 - Conservative assumptions: routes and workers share one runtime access node, vector storage is shown as one logical retrieval store, and file/object storage is grouped as one artifact boundary.
 - Explicit exclusions: entity-level schema detail, unverified retention/encryption claims, experimental sync durability, and backend-specific vector implementation detail.
@@ -222,7 +229,7 @@ flowchart LR
         bootstrap["API bootstrap + auth/exposure boundary"]
         chat["Chat routes + thread lifecycle"]
         media["Media/document routes"]
-        command["Command bus + legacy tools shim"]
+        command["Command bus + legacy tools shim<br/>(command bus internal-only in supported beta)"]
         cron["Cron routes + scheduled automation"]
     end
 
@@ -261,7 +268,9 @@ flowchart LR
     cron --> persistence
 ```
 
-**Evidence notes**
+### Evidence notes
+This is a seam map, not a call graph. It groups subsystem boundaries and conservative dependency direction; it does not enumerate every route, file, or runtime edge.
+
 - Primary sources: `/docs/architecture/modules-and-ownership.md`, `/docs/architecture/system-overview.md`, `/docs/architecture/README.md`
 - Conservative assumptions: subsystem clusters are grouped at seam level rather than file level, queue/workers/persistence are collapsed into one platform lane, and command bus plus legacy tools are shown together because the validated docs describe them as coexisting runtime surfaces.
 - Explicit exclusions: experimental federation/sync boundary detail, collaboration/websocket detail, formal team ownership labels, and file-level hotspot rendering.
