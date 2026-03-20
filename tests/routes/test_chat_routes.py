@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -97,6 +98,88 @@ def _mock_redis_queue_for_chat_routes():
         for p in patches:
             stack.enter_context(p)
         yield
+
+
+def _stale_lock():
+    return SimpleNamespace(
+        owner_task_id="task-stale",
+        lease_ttl_seconds=30,
+        lease_expires_at="2026-03-13T12:00:30+00:00",
+    )
+
+
+def _terminal_evidence(
+    state: str,
+    *,
+    event_type: str = "task.completed",
+    reason: str = "terminal_event_found",
+) -> dict[str, object]:
+    if state == "terminal":
+        return {
+            "task_id": "task-stale",
+            "state": "terminal",
+            "event_id": "1-2",
+            "event": {"type": event_type, "data": {}},
+            "event_type": event_type,
+            "reason": reason,
+        }
+    if state == "nonterminal":
+        return {
+            "task_id": "task-stale",
+            "state": "nonterminal",
+            "event_id": None,
+            "event": None,
+            "event_type": None,
+            "reason": reason,
+        }
+    return {
+        "task_id": "task-stale",
+        "state": "unknown",
+        "event_id": None,
+        "event": None,
+        "event_type": None,
+        "reason": reason,
+    }
+
+
+def _heartbeat_evidence(
+    state: str,
+    *,
+    age_seconds: float | None = None,
+    reason: str = "ok",
+) -> dict[str, object]:
+    if state == "missing":
+        return {
+            "key": "codexify:worker:chat:heartbeat",
+            "state": "missing",
+            "age_seconds": None,
+            "detected": False,
+            "reason": "heartbeat_missing" if reason == "ok" else reason,
+            "error": None,
+        }
+    if state == "unknown":
+        return {
+            "key": "codexify:worker:chat:heartbeat",
+            "state": "unknown",
+            "age_seconds": None,
+            "detected": False,
+            "reason": reason,
+            "error": "probe_failed",
+        }
+    if age_seconds is None:
+        age_seconds = {
+            "fresh": 1.0,
+            "stale": 27.0,
+            "dead": 61.0,
+        }.get(state, 1.0)
+    return {
+        "key": "codexify:worker:chat:heartbeat",
+        "state": state,
+        "age_seconds": age_seconds,
+        "detected": True,
+        "reason": reason,
+        "error": None,
+    }
 
 
 class TestChatThreadsPost:
@@ -754,6 +837,132 @@ class TestChatCompletePost:
         assert getattr(task, "thread_id") == 1
         assert getattr(task, "turn_lock_owner") == data["task_id"]
         assert captured.get("queue_name") == "codexify:queue:chat"
+
+    def test_complete_recovers_orphaned_turn_lock_from_terminal_event(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+
+        captured: dict[str, object] = {}
+        acquire_calls = {"count": 0}
+
+        def _acquire(*args, **kwargs):
+            acquire_calls["count"] += 1
+            return None if acquire_calls["count"] == 1 else True
+
+        monkeypatch.setattr("guardian.routes.chat.acquire_turn_lock", _acquire)
+        monkeypatch.setattr(
+            "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat._task_terminal_event",
+            lambda *_: _terminal_evidence("terminal"),
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat._chat_worker_heartbeat_evidence",
+            lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
+        )
+        clear_spy = MagicMock(return_value=True)
+        monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+        monkeypatch.setattr(
+            "guardian.routes.chat.enqueue",
+            lambda task, queue_name: captured.update(
+                {"task": task, "queue_name": queue_name}
+            ),
+        )
+
+        response = test_client.post("/chat/1/complete", json={})
+
+        assert response.status_code == 200
+        assert acquire_calls["count"] == 2
+        clear_spy.assert_called_once()
+        assert captured["queue_name"] == "codexify:queue:chat"
+        assert getattr(captured["task"], "turn_lock_owner") == getattr(
+            captured["task"], "task_id"
+        )
+
+    def test_complete_denies_recovery_when_worker_fresh(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock",
+            lambda *_a, **_k: None,
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat._task_terminal_event",
+            lambda *_: _terminal_evidence("nonterminal"),
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat._chat_worker_heartbeat_evidence",
+            lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
+        )
+        clear_spy = MagicMock(return_value=False)
+        monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+        enqueue_spy = MagicMock()
+        monkeypatch.setattr("guardian.routes.chat.enqueue", enqueue_spy)
+
+        response = test_client.post("/chat/1/complete", json={})
+
+        assert response.status_code == 429
+        assert response.json()["detail"] == "turn_in_flight"
+        clear_spy.assert_not_called()
+        enqueue_spy.assert_not_called()
+        mock_db.write_audit_log.assert_not_called()
+
+    def test_complete_denies_recovery_on_unknown_terminal_state(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello"}
+        ]
+
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock",
+            lambda *_a, **_k: None,
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat._task_terminal_event",
+            lambda *_: _terminal_evidence(
+                "unknown", reason="event_probe_failed"
+            ),
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat._chat_worker_heartbeat_evidence",
+            lambda: _heartbeat_evidence("stale", age_seconds=27.0),
+        )
+        clear_spy = MagicMock(return_value=False)
+        monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+        enqueue_spy = MagicMock()
+        monkeypatch.setattr("guardian.routes.chat.enqueue", enqueue_spy)
+
+        response = test_client.post("/chat/1/complete", json={})
+
+        assert response.status_code == 429
+        assert response.json()["detail"] == "turn_in_flight"
+        clear_spy.assert_not_called()
+        enqueue_spy.assert_not_called()
+        mock_db.write_audit_log.assert_not_called()
 
     def test_complete_depth_contract_non_deep_request(
         self, test_client, mock_db, monkeypatch
