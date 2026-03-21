@@ -319,12 +319,27 @@ class LocalSemanticEmbedder:
         texts: list[str],
         metadatas: list[dict[str, Any]] | None = None,
         ids_prefix: str = "doc",
+        ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Embed texts and store them in the configured vector store."""
         if not texts:
             return {"store": self.store, "count": 0}
         text_list = ["" if t is None else str(t) for t in texts]
         metas = _normalize_metadatas(metadatas, len(text_list))
+        normalized_ids: list[str] | None = None
+        if ids:
+            if len(ids) != len(text_list):
+                logger.warning(
+                    "[embedder] ids length mismatch; ignoring provided ids"
+                )
+            else:
+                cleaned = [str(value).strip() for value in ids]
+                if all(cleaned):
+                    normalized_ids = cleaned
+                else:
+                    logger.warning(
+                        "[embedder] ids contain empty values; ignoring provided ids"
+                    )
 
         if self.store == "faiss":
             if faiss is None:
@@ -353,15 +368,24 @@ class LocalSemanticEmbedder:
         vectors = self._embed_np(text_list)
         if vectors.size == 0:
             return {"store": "chroma", "count": 0}
-        ids = [
-            f"{ids_prefix}_{uuid.uuid4().hex}" for _ in range(len(text_list))
-        ]
-        self._chroma_collection.add(
-            documents=text_list,
-            embeddings=vectors.tolist(),
-            metadatas=metas,
-            ids=ids,
-        )
+        if normalized_ids is None:
+            normalized_ids = [
+                f"{ids_prefix}_{uuid.uuid4().hex}"
+                for _ in range(len(text_list))
+            ]
+            self._chroma_collection.add(
+                documents=text_list,
+                embeddings=vectors.tolist(),
+                metadatas=metas,
+                ids=normalized_ids,
+            )
+        else:
+            self._chroma_collection.upsert(
+                documents=text_list,
+                embeddings=vectors.tolist(),
+                metadatas=metas,
+                ids=normalized_ids,
+            )
         return {"store": "chroma", "count": len(text_list)}
 
     def search(
@@ -503,9 +527,10 @@ class Embedder(LocalSemanticEmbedder):
         documents: list[str],
         metadatas: list[dict[str, Any]] | None = None,
         ids_prefix: str = "doc",
+        ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Compatibility layer for document ingestion flows."""
         result = self.embed_and_index(
-            documents, metadatas=metadatas, ids_prefix=ids_prefix
+            documents, metadatas=metadatas, ids_prefix=ids_prefix, ids=ids
         )
         return [result]

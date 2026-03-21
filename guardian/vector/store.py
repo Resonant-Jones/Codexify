@@ -71,7 +71,15 @@ class VectorStore:
     def add_texts(self, items: List[Dict[str, Any]]) -> int:
         texts = [i.get("text", "") for i in items]
         metas: List[Dict[str, Any]] = []
+        ids: List[str] = []
+        include_ids = self.store == "chroma"
         for item in items:
+            item_id = item.get("id")
+            if include_ids:
+                if item_id:
+                    ids.append(str(item_id))
+                else:
+                    include_ids = False
             raw_meta = item.get("meta", {})
             meta = dict(raw_meta) if isinstance(raw_meta, dict) else {}
             if "namespace" not in meta:
@@ -86,7 +94,11 @@ class VectorStore:
             metas.append(meta)
 
         # Use embed_and_index which handles embedding and storage
-        self.embedder.embed_and_index(texts, metadatas=metas)
+        self.embedder.embed_and_index(
+            texts,
+            metadatas=metas,
+            ids=ids if include_ids and ids else None,
+        )
         return len(items)
 
     def search(
