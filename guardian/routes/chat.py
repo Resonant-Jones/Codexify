@@ -21,7 +21,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
@@ -39,7 +39,11 @@ from guardian.depth import (
     resolve_depth,
 )
 from guardian.queue import task_events
-from guardian.queue.redis_queue import enqueue, enqueue_chat_embed
+from guardian.queue.redis_queue import (
+    QueueEnqueueError,
+    enqueue,
+    enqueue_chat_embed,
+)
 from guardian.queue.turn_lock import (
     TurnLockEnvelope,
     acquire_turn_lock,
@@ -1627,6 +1631,7 @@ async def chat_complete(
     body: ChatCompletionRequest = Body(...),
     request: Request = None,
     api_key: str = Depends(require_api_key),
+    request_id: str | None = Header(None, alias="X-Request-ID"),
 ):
     """
     Enqueue an assistant reply for the given thread and return a task id.
@@ -1833,8 +1838,38 @@ async def chat_complete(
         turn_id=turn_id,
     )
 
+    queue_name = "codexify:queue:chat"
+
     try:
-        enqueue(task, "codexify:queue:chat")
+        enqueue(task, queue_name)
+    except QueueEnqueueError as exc:
+        try:
+            release_turn_lock(thread_id, task.turn_lock_owner)
+        except Exception:
+            logger.debug(
+                "[chat.complete] failed to release lock after enqueue error",
+                exc_info=True,
+            )
+        logger.error(
+            "[chat.complete] enqueue failed",
+            extra={
+                "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED",
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "depth_mode": internal_depth_mode,
+                "turn_id": turn_id,
+                "queue_name": exc.queue_name,
+                "exception_class": type(exc).__name__,
+                "cause_class": type(exc.__cause__).__name__
+                if exc.__cause__
+                else None,
+            },
+            exc_info=exc,
+        )
+        detail = _completion_service_unavailable("queue_unavailable").detail
+        if isinstance(detail, dict):
+            detail = {**detail, "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED"}
+        raise HTTPException(status_code=503, detail=detail)
     except Exception as exc:
         try:
             release_turn_lock(thread_id, task.turn_lock_owner)
@@ -2515,10 +2550,16 @@ async def api_chat_complete(
     body: ChatCompletionRequest = Body(...),
     request: Request = None,
     api_key: str = Depends(require_api_key),
+    request_id: str | None = Header(None, alias="X-Request-ID"),
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
     return await chat_complete(
-        thread_id, body, request=request, api_key=api_key
+    thread_id,
+    body,
+    request=request,
+    api_key=api_key,
+    request_id=request_id,
+)
     )
 
 
