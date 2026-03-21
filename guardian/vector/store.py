@@ -129,3 +129,18 @@ class VectorStore:
             }
         except Exception as e:
             return {"status": "error", "error": str(e)}
+
+    def prune_source_root(self, source_root: str, keep_ids: set[str]) -> int:
+        if self.store != "chroma":
+            return 0
+        root = (source_root or "").strip()
+        if not root:
+            return 0
+        existing_ids = self.embedder.get_ids(where={"source_root": root})
+        if not existing_ids:
+            return 0
+        keep = {str(value) for value in keep_ids if str(value).strip()}
+        stale = [value for value in existing_ids if value not in keep]
+        if not stale:
+            return 0
+        return self.embedder.delete_by_ids(stale)

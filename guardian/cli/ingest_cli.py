@@ -122,13 +122,38 @@ def _obsidian_source_id(
 
 
 @app.command("ingest-obsidian")
-def ingest_obsidian(dir: str):
+def ingest_obsidian(
+    dir: str,
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="Remove Obsidian entries under this vault root that are no longer present.",
+    ),
+):
+    if not isinstance(prune, bool):
+        prune = False
     root = Path(dir)
     store = VectorStore()
     items = _build_obsidian_items(root)
     n = store.add_texts(items)
+    pruned = 0
+    if prune:
+        keep_ids = {
+            str(item["id"])
+            for item in items
+            if isinstance(item, dict) and item.get("id")
+        }
+        pruned = store.prune_source_root(str(root.resolve()), keep_ids)
     typer.echo(
-        json.dumps({"ingested": n, "dir": str(root)}, ensure_ascii=False)
+        json.dumps(
+            {
+                "ingested": n,
+                "dir": str(root),
+                "prune": prune,
+                "pruned": pruned,
+            },
+            ensure_ascii=False,
+        )
     )
 
 

@@ -463,6 +463,27 @@ class LocalSemanticEmbedder:
             matches.append(entry)
         return matches
 
+    def get_ids(self, where: dict[str, Any]) -> list[str]:
+        """Return ids matching a metadata filter (Chroma only)."""
+        if self.store != "chroma" or self._chroma_collection is None:
+            return []
+        if not where:
+            return []
+        result = self._chroma_collection.get(where=where)
+        ids = result.get("ids") or []
+        return [str(value) for value in ids]
+
+    def delete_by_ids(self, ids: list[str]) -> int:
+        """Delete documents by id (Chroma only)."""
+        if self.store != "chroma" or self._chroma_collection is None:
+            return 0
+        cleaned = [str(value).strip() for value in ids]
+        cleaned = [value for value in cleaned if value]
+        if not cleaned:
+            return 0
+        self._chroma_collection.delete(ids=cleaned)
+        return len(cleaned)
+
 
 class Embedder(LocalSemanticEmbedder):
     """Compatibility wrapper with document helpers used across the app."""
