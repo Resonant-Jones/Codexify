@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any, Dict, List, Optional
 
@@ -29,13 +30,43 @@ def _metadata_namespace(meta: Dict[str, Any]) -> str:
     return DEFAULT_NAMESPACE
 
 
+def _coerce_chroma_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
+    coerced: Dict[str, Any] = {}
+    for key, value in meta.items():
+        if value is None or isinstance(value, (str, int, float, bool)):
+            coerced[key] = value
+            continue
+        if isinstance(value, (list, tuple, set)):
+            normalized = [str(item) for item in value if item is not None]
+            coerced[key] = json.dumps(normalized, ensure_ascii=False)
+            continue
+        if isinstance(value, dict):
+            coerced[key] = json.dumps(value, ensure_ascii=False, default=str)
+            continue
+        coerced[key] = str(value)
+    return coerced
+
+
 class VectorStore:
     def __init__(self, index_dir: Optional[str] = None) -> None:
         # index_dir is kept for backward compatibility but not used for Chroma path (which comes from env)
         store = os.getenv("CODEXIFY_VECTOR_STORE", "faiss").strip().lower()
         if store not in ("faiss", "chroma"):
             store = "faiss"
-        self.embedder = Embedder(store=store)
+        self.store = store
+        chroma_path = (
+            os.getenv("CODEXIFY_CHROMA_PATH", "./.chroma").strip()
+            or "./.chroma"
+        )
+        collection = (
+            os.getenv("CODEXIFY_COLLECTION", "codexify_vault").strip()
+            or "codexify_vault"
+        )
+        self.embedder = Embedder(
+            store=store,
+            chroma_path=chroma_path,
+            collection=collection,
+        )
 
     def add_texts(self, items: List[Dict[str, Any]]) -> int:
         texts = [i.get("text", "") for i in items]
@@ -50,6 +81,8 @@ class VectorStore:
                 if top_level_namespace:
                     meta["namespace"] = top_level_namespace
             meta["namespace"] = _metadata_namespace(meta)
+            if self.store == "chroma":
+                meta = _coerce_chroma_metadata(meta)
             metas.append(meta)
 
         # Use embed_and_index which handles embedding and storage
