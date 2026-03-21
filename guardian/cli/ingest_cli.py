@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -73,13 +74,51 @@ def _build_obsidian_items(root: Path) -> List[Dict[str, Any]]:
         fm = parsed["frontmatter"]
         title = fm.get("title") or md.stem
         tags = _normalize_tags(fm.get("tags"))
+        source_relpath = _obsidian_relpath(root, md)
+        source_root = str(root.resolve())
+        source_id = _obsidian_source_id(root, md, source_relpath)
+        content_hash = _hash_text(parsed["content"])
         items.append(
             {
+                "id": source_id,
                 "text": parsed["content"],
-                "meta": {"path": str(md), "tags": tags, "title": title},
+                "meta": {
+                    "path": str(md),
+                    "tags": tags,
+                    "title": title,
+                    "source_type": "obsidian",
+                    "source_root": source_root,
+                    "source_path": str(md),
+                    "source_relpath": source_relpath,
+                    "source_id": source_id,
+                    "source_content_hash": content_hash,
+                },
             }
         )
     return items
+
+
+def _hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _obsidian_relpath(root: Path, note: Path) -> str:
+    try:
+        return note.relative_to(root).as_posix()
+    except ValueError:
+        return note.name
+
+
+def _obsidian_source_id(
+    root: Path, note: Path, relpath: str | None = None
+) -> str:
+    rel = relpath if relpath is not None else _obsidian_relpath(root, note)
+    root_id = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[
+        :12
+    ]
+    key = f"{root_id}:{rel}"
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return f"obsidian:{digest}"
 
 
 @app.command("ingest-obsidian")
