@@ -21,7 +21,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
-from guardian.cognition.system_profiles.resolver import switch_thread_profile
 from guardian.command_bus.contracts import (
     ActorSpec,
     InvokeArguments,
@@ -31,6 +30,7 @@ from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.manifest import build_command_index
 from guardian.core.dependencies import get_request_user_id, require_api_key
 from guardian.db import models
+from guardian.routes.system_profiles import switch_profile_payload
 from guardian.tools.approval_tokens import (
     ApprovalTokenError,
     approval_idempotency_key,
@@ -687,77 +687,16 @@ def _run_legacy_tool_locally(body: ToolRequest) -> dict[str, Any]:
     args = body.args or {}
 
     if body.name in {"guardian.profile.switch", "set_profile"}:
-        thread_id = _coerce_thread_id(args.get("thread_id"))
-        profile_id = str(args.get("profile_id") or "").strip()
-        if thread_id is None:
-            result = {
-                "ok": False,
-                "tool": body.name,
-                "error": "thread_id is required for guardian.profile.switch",
-            }
-        elif not profile_id:
-            result = {
-                "ok": False,
-                "tool": body.name,
-                "error": "profile_id is required",
-            }
-        elif chatlog_db is None:
-            result = {
-                "ok": False,
-                "tool": body.name,
-                "error": "chat_db_unavailable",
-                "thread_id": thread_id,
-                "profile_id": profile_id,
-            }
-        else:
-            try:
-                resolved = switch_thread_profile(
-                    thread_id=thread_id,
-                    profile_id=profile_id,
-                    chatlog_db=chatlog_db,
-                )
-                result = {
-                    "ok": True,
-                    "tool": body.name,
-                    "thread_id": thread_id,
-                    "active_profile_id": resolved.active_profile_id,
-                    "provider_override": resolved.provider_override,
-                    "model_override": resolved.model_override,
-                }
-                try:
-                    event_bus.emit_event(
-                        "thread.profile.switched",
-                        {
-                            "thread_id": thread_id,
-                            "active_profile_id": resolved.active_profile_id,
-                            "provider_override": resolved.provider_override,
-                            "model_override": resolved.model_override,
-                        },
-                    )
-                except Exception:
-                    logger.debug(
-                        "Tools.execute profile switch event emit failed",
-                        exc_info=True,
-                    )
-            except Exception as exc:
-                result = {
-                    "ok": False,
-                    "tool": body.name,
-                    "error": str(exc),
-                    "thread_id": thread_id,
-                    "profile_id": profile_id,
-                }
+        result = switch_profile_payload(
+            thread_id=args.get("thread_id"),
+            profile_id=args.get("profile_id"),
+            tool_name=body.name,
+            chatlog_db=chatlog_db,
+            event_bus=event_bus,
+        )
     else:
         result = {"ok": True, "tool": body.name, "args": args}
     return result
-
-
-def _coerce_thread_id(value: Any) -> int | None:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
 
 
 def tools_execute(body: ToolRequest, api_key: str = Depends(require_api_key)):

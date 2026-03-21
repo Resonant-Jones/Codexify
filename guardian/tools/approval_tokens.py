@@ -144,6 +144,16 @@ def decode_approval_token(token: str) -> VerifiedApprovalClaims:
     payload_b64, signature_b64 = raw.split(".", 1)
     payload = _b64url_decode(payload_b64)
     provided_sig = _b64url_decode(signature_b64)
+    canonical_payload_b64 = _b64url_encode(payload)
+    canonical_sig_b64 = _b64url_encode(provided_sig)
+    if (
+        payload_b64 != canonical_payload_b64
+        or signature_b64 != canonical_sig_b64
+    ):
+        raise ApprovalTokenError(
+            code="invalid_approval_token",
+            message="approval token encoding is invalid",
+        )
     expected_sig = hmac.new(_signing_key(), payload, hashlib.sha256).digest()
     if not hmac.compare_digest(expected_sig, provided_sig):
         raise ApprovalTokenError(

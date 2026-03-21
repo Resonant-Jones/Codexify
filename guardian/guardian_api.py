@@ -321,7 +321,13 @@ from guardian.routes import (
     migration,
 )
 from guardian.routes import neo as neo_routes
-from guardian.routes import research, share, threads, ui_session
+from guardian.routes import (
+    research,
+    share,
+    system_profiles,
+    threads,
+    ui_session,
+)
 from guardian.routes import websocket as websocket_routes
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
@@ -790,6 +796,12 @@ _include_router(
     label="threads",
     flag_name="CODEXIFY_ENABLE_THREADS_ROUTES",
     include_fn=lambda: app.include_router(threads.router),
+    core_surface=True,
+)
+_include_router(
+    label="system_profiles",
+    flag_name="CODEXIFY_ENABLE_SYSTEM_PROFILE_ROUTES",
+    include_fn=lambda: app.include_router(system_profiles.router),
     core_surface=True,
 )
 _include_router(
