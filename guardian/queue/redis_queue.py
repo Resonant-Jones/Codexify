@@ -15,6 +15,8 @@ import redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from guardian.protocol_tokens import ErrorCode
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_REDIS_URL = "redis://redis:6379/0"
@@ -25,6 +27,7 @@ CHAT_EMBED_QUEUE_NAME = os.getenv(
     "CHAT_EMBED_QUEUE_NAME", "codexify:queue:chat-embed"
 )
 CHAT_EMBED_TASK_TYPE = "chat_embed"
+QUEUE_ENQUEUE_ERROR_CODE = ErrorCode.QUEUE_ENQUEUE_FAILED.value
 _CLIENT: Any = None
 
 
@@ -317,7 +320,16 @@ def enqueue(task: Any, queue_name: str) -> None:
     def _push(client: redis.Redis) -> int:
         return client.lpush(queue_name, data)
 
-    _with_reconnect(_push)
+    try:
+        _with_reconnect(_push)
+    except Exception as exc:
+        logger.warning(
+            "[redis] enqueue failed error_code=%s queue=%s err=%s",
+            QUEUE_ENQUEUE_ERROR_CODE,
+            queue_name,
+            exc,
+        )
+        raise
 
 
 def dequeue(
