@@ -384,10 +384,12 @@ try:
     from guardian.cognition.system_profiles.resolver import (
         list_available_system_profiles,
         resolve_thread_system_profile,
+        switch_thread_profile,
     )
 except Exception:
     list_available_system_profiles = None
     resolve_thread_system_profile = None
+    switch_thread_profile = None
 
 
 # Pydantic models for thread operations
@@ -424,6 +426,12 @@ class ThreadCreateRequest(BaseModel):
     summary: str = ""
     user_id: str = "default"
     project_id: str = None
+
+
+class ChatProfileSwitchRequest(BaseModel):
+    profile_id: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ChatMessageCreateRequest(BaseModel):
@@ -1963,6 +1971,100 @@ def chat_get_thread_profile(
     }
 
 
+@router.post("/{thread_id}/profile")
+def chat_switch_thread_profile(
+    thread_id: int,
+    body: ChatProfileSwitchRequest = Body(...),
+    api_key: str = Depends(require_api_key),
+):
+    """Switch the active system profile for a thread."""
+    if switch_thread_profile is None:
+        raise HTTPException(
+            status_code=503, detail={"error": "profile_switch_unavailable"}
+        )
+
+    profile_id = str(body.profile_id or "").strip()
+    if not profile_id:
+        raise HTTPException(
+            status_code=400, detail={"error": "profile_id_required"}
+        )
+
+    try:
+        resolved = switch_thread_profile(
+            thread_id=thread_id,
+            profile_id=profile_id,
+            chatlog_db=chatlog_db,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message.startswith("unknown_profile_id:"):
+            unknown = message.split(":", 1)[1]
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "unknown_profile_id", "profile_id": unknown},
+            ) from exc
+        if message == "profile_id is required":
+            raise HTTPException(
+                status_code=400, detail={"error": "profile_id_required"}
+            ) from exc
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_profile_id", "message": message},
+        ) from exc
+    except RuntimeError as exc:
+        message = str(exc)
+        if message == "chat_db_unavailable":
+            raise HTTPException(
+                status_code=503, detail={"error": "chat_db_unavailable"}
+            ) from exc
+        if message == "active_profile_update_failed":
+            raise HTTPException(
+                status_code=404,
+                detail={"error": "thread_not_found", "thread_id": thread_id},
+            ) from exc
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "profile_switch_failed", "message": message},
+        ) from exc
+    except Exception as exc:
+        logger.exception(
+            "[chat.profile] switch failed thread_id=%s err=%s",
+            thread_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=500, detail={"error": "profile_switch_failed"}
+        ) from exc
+
+    profile_payload = resolved.model_dump(mode="json", exclude_none=True)
+    try:
+        event_bus.emit_event(
+            "thread.profile.switched",
+            {
+                "thread_id": thread_id,
+                "active_profile_id": resolved.active_profile_id,
+                "provider_override": resolved.provider_override,
+                "model_override": resolved.model_override,
+            },
+        )
+    except Exception:
+        logger.debug(
+            "[chat.profile] switch event emit failed thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+
+    return {
+        "ok": True,
+        "thread_id": thread_id,
+        "profile_id": resolved.profile_id,
+        "active_profile_id": resolved.active_profile_id,
+        "provider_override": resolved.provider_override,
+        "model_override": resolved.model_override,
+        "profile": profile_payload,
+    }
+
+
 @router.delete("/{thread_id}/messages/{message_id}")
 def chat_delete_message(
     thread_id: int,
@@ -2505,6 +2607,16 @@ def api_chat_get_thread_profile(
 ):
     """Compat alias for GET /chat/{thread_id}/profile."""
     return chat_get_thread_profile(thread_id, api_key=api_key)
+
+
+@api_chat_router.post("/{thread_id}/profile")
+def api_chat_switch_thread_profile(
+    thread_id: int,
+    body: ChatProfileSwitchRequest = Body(...),
+    api_key: str = Depends(require_api_key),
+):
+    """Compat alias for POST /chat/{thread_id}/profile."""
+    return chat_switch_thread_profile(thread_id, body, api_key=api_key)
 
 
 @api_chat_router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
