@@ -7,17 +7,20 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from guardian.protocol_tokens import ErrorCode, TaskEventType
 from guardian.queue.redis_queue import _with_reconnect  # type: ignore
 
 logger = logging.getLogger(__name__)
 
 _STREAM_PREFIX = "codexify:task"
 _TERMINAL_EVENT_TYPES = {
-    "task.completed",
-    "task.failed",
-    "task.cancelled",
+    TaskEventType.TASK_COMPLETED.value,
+    TaskEventType.TASK_FAILED.value,
+    TaskEventType.TASK_CANCELLED.value,
 }
 _TERMINAL_EVENT_SCAN_BATCH_SIZE = 100
+_TASK_EVENT_FALLBACK_TYPE = TaskEventType.TASK_EVENT.value
+_TASK_EVENT_PUBLISH_ERROR_CODE = ErrorCode.TASK_EVENT_PUBLISH_FAILED.value
 
 
 def _utc_now_iso() -> str:
@@ -67,12 +70,14 @@ def publish_with_visibility(
         "terminal_visibility": visibility_scope == "terminal",
         "execution_continued": True,
         "event_id": None,
+        "error_code": None,
         "failure_class": None,
         "error": None,
     }
     try:
         event_id = publish(task_id, event_type, data)
     except Exception as exc:
+        result["error_code"] = _TASK_EVENT_PUBLISH_ERROR_CODE
         result["failure_class"] = exc.__class__.__name__
         result["error"] = str(exc)
         return result
@@ -109,7 +114,7 @@ def read_events(
                 (
                     event_id,
                     {
-                        "type": fields.get("type") or "task.event",
+                        "type": fields.get("type") or _TASK_EVENT_FALLBACK_TYPE,
                         "task_id": fields.get("task_id") or task_id,
                         "data": data,
                         "created_at": fields.get("created_at"),

@@ -38,6 +38,7 @@ from guardian.depth import (
     project_requested_depth_mode,
     resolve_depth,
 )
+from guardian.protocol_tokens import AcceptanceStatus, ErrorCode, TaskEventType
 from guardian.queue import task_events
 from guardian.queue.redis_queue import enqueue, enqueue_chat_embed
 from guardian.queue.turn_lock import (
@@ -57,13 +58,20 @@ logger = logging.getLogger(__name__)
 COMPLETION_SERVICE_UNAVAILABLE_MESSAGE = (
     "Completion service unavailable — check Docker/Redis."
 )
-COMPLETION_ACCEPTANCE_STATUS_ACCEPTED = "accepted"
-COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED = "accepted_degraded"
+COMPLETION_ACCEPTANCE_STATUS_ACCEPTED = AcceptanceStatus.ACCEPTED.value
+COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED = (
+    AcceptanceStatus.ACCEPTED_DEGRADED.value
+)
 COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_PUBLISH_FAILED = (
     "task_created_event_publish_failed"
 )
 COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_MISSING_EVENT_ID = (
     "task_created_event_missing_event_id"
+)
+TASK_EVENT_TYPE_TASK_CREATED = TaskEventType.TASK_CREATED.value
+CHAT_COMPLETE_ENQUEUE_ERROR_CODE = ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value
+CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE = (
+    ErrorCode.CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED.value
 )
 CHAT_WORKER_HEARTBEAT_KEY = os.getenv(
     "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
@@ -177,19 +185,22 @@ def _publish_completion_start_event(
     try:
         publish_result = task_events.publish_with_visibility(
             task.task_id,
-            "task.created",
+            TASK_EVENT_TYPE_TASK_CREATED,
             payload,
         )
     except Exception as exc:
-        visibility_scope = task_events.classify_event_visibility("task.created")
+        visibility_scope = task_events.classify_event_visibility(
+            TASK_EVENT_TYPE_TASK_CREATED
+        )
         return {
             "ok": False,
             "task_id": task.task_id,
-            "event_type": "task.created",
+            "event_type": TASK_EVENT_TYPE_TASK_CREATED,
             "visibility_scope": visibility_scope,
             "terminal_visibility": visibility_scope == "terminal",
             "execution_continued": True,
             "event_id": None,
+            "error_code": CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
             "failure_class": exc.__class__.__name__,
             "error": str(exc),
         }
@@ -197,15 +208,18 @@ def _publish_completion_start_event(
     if isinstance(publish_result, dict):
         return publish_result
 
-    visibility_scope = task_events.classify_event_visibility("task.created")
+    visibility_scope = task_events.classify_event_visibility(
+        TASK_EVENT_TYPE_TASK_CREATED
+    )
     return {
         "ok": False,
         "task_id": task.task_id,
-        "event_type": "task.created",
+        "event_type": TASK_EVENT_TYPE_TASK_CREATED,
         "visibility_scope": visibility_scope,
         "terminal_visibility": visibility_scope == "terminal",
         "execution_continued": True,
         "event_id": None,
+        "error_code": CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
         "failure_class": "InvalidPublishResult",
         "error": (
             "unexpected result type: " f"{type(publish_result).__name__}"
@@ -1811,7 +1825,11 @@ async def chat_complete(
                 "[chat.complete] failed to release lock after enqueue error",
                 exc_info=True,
             )
-        logger.warning("[chat.complete] queue unavailable: %s", exc)
+        logger.warning(
+            "[chat.complete] queue unavailable error_code=%s: %s",
+            CHAT_COMPLETE_ENQUEUE_ERROR_CODE,
+            exc,
+        )
         raise _completion_service_unavailable("queue_unavailable")
 
     # Track latest task for debug endpoint
