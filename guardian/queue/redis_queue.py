@@ -28,6 +28,22 @@ CHAT_EMBED_TASK_TYPE = "chat_embed"
 _CLIENT: Any = None
 
 
+class QueueEnqueueError(RuntimeError):
+    """Raised when enqueueing a task into a queue fails."""
+
+    def __init__(
+        self,
+        queue_name: str,
+        *,
+        error_code: str = "QUEUE_ENQUEUE_FAILED",
+        cause: Exception | None = None,
+    ) -> None:
+        super().__init__(f"enqueue failed for queue={queue_name}")
+        self.queue_name = queue_name
+        self.error_code = error_code
+        self.cause = cause
+
+
 class _InMemoryRedis:
     """Deterministic in-memory fallback used for pytest safety."""
 
@@ -317,7 +333,10 @@ def enqueue(task: Any, queue_name: str) -> None:
     def _push(client: redis.Redis) -> int:
         return client.lpush(queue_name, data)
 
-    _with_reconnect(_push)
+    try:
+        _with_reconnect(_push)
+    except Exception as exc:
+        raise QueueEnqueueError(queue_name, cause=exc) from exc
 
 
 def dequeue(
