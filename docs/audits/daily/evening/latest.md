@@ -1,10 +1,10 @@
-# Daily Audit — 2026-03-19
+# Daily Audit — 2026-03-20
 
 ## Repo Status
-- Date: 2026-03-19
+- Date: 2026-03-20
 - Phase: `evening`
-- Branch: `codex/document-supported-profile-proof`
-- HEAD: `947665320a8f5312e9eea2eaa634c7ee7b0a234f`
+- Branch: `codex/identify-stabilization-fixes`
+- HEAD: `b680dd467f8e1948f9db3079271643af304503bc`
 - Worktree: clean
 
 ## Audit CLI Summary
@@ -45,58 +45,36 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 33
-- Unique files changed: 60
-- Files changed: `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx`, `src-tauri/src/commands.rs`, `docs/release/run/2026-03-18-supported-profile-proof.md`, `pnpm-lock.yaml`, `frontend/src/App.tsx`, `frontend/src/components/gallery/gallery.css`, `frontend/src/components/sidebar/SidebarRoot.tsx`, `frontend/src/features/chat/useChat.ts`, `docs/Codexify/macos-beta-packaging.md`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `frontend/src/components/ShareButton.tsx`, `frontend/src/components/TopBar.tsx`, `frontend/src/components/editor/CollaborativeNote.tsx`, `frontend/src/components/layout/WorkspacePane.tsx`, `frontend/src/components/persona/ThreadPromptBox.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/components/ui/badge.tsx`, `frontend/src/features/connectors/ConnectorCard.tsx`, `frontend/src/index.css`, `frontend/src/theme/index.ts`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/state/session/SessionSpine.test.ts`, `frontend/src/state/session/SessionSpine.ts`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json`, `docs/architecture/README.md`, `docs/architecture/architecture-atlas.md`, `docs/architecture/ui-diagrams-v1.md`, `docs/architecture/kb-validity-matrix.md`, `docs/architecture/runtime-diagrams-v1.md`, `Makefile`, `scripts/validate_docs.py`, `scripts/daily_audit.py`, `docs/audits/daily/2026-03-19-audit.json`, `docs/audits/daily/2026-03-19-audit.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `SECURITY.md`, `docs/Codexify/INSTALLER.md`, `docs/Codexify/README.md`, `docs/infra/INTERNAL_DOCS.md`, `docs/infra/persona_system_architecture.md`, `docs/infra/system_architecture.md`, `docs/audits/history/next-actions.md`, `.env.example`, `.env.template`, `docker-compose.yml`, `guardian/config/db_defaults.py`, `guardian/core/db_seed.py`, `guardian/cron/scheduler.py`, `guardian/routes/media.py`, `guardian/tests/test_pgdsn_default.py`, `guardian/voice/audio_assets.py`, `guardian/workers/cron_worker.py`, `guardian/workers/document_embed_worker.py`, `docs/audits/history/2026-03-19-platform-readiness-baseline.md`, `guardian/core/config.py`, `guardian/core/provider_registry.py`
+- Commit count: 14
+- Unique files changed: 35
+- Files changed: `guardian/queue/redis_queue.py`, `guardian/routes/chat.py`, `tests/routes/test_chat_complete_enqueue_error_tagging.py`, `frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/hooks/useRuntimeHealth.test.ts`, `frontend/src/hooks/useRuntimeHealth.ts`, `docs/architecture/obsidian-sync-recon.md`, `docs/Codexify/RELEASE.md`, `docs/architecture/00-current-state.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/data-and-storage.md`, `docs/architecture/flows.md`, `docs/architecture/tech-debt-and-risks.md`, `tests/routes/test_chat_routes.py`, `guardian/queue/task_events.py`, `guardian/workers/chat_worker.py`, `tests/routes/test_event_graph_emission.py`, `docs/audits/history/2026-03-20-redis-chat-completion-recon.md`, `tests/core/test_turn_lock_recovery.py`, `docs/architecture/README.md`, `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`, `docs/Plans/RedisChatReliabilitymd`, `docs/Future-Features/artifact_event_capture_and_task_graph.md`, `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/features/chat/useChat.ts`, `docs/audits/daily/evening/2026-03-19-audit.json`, `docs/audits/daily/evening/2026-03-19-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `947665320a8f` | Reconcile task event and packaged migration fixes | `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx`, `src-tauri/src/commands.rs` |
-| `fdc40fd2e606` | Protect packaged runtime root and migrate legacy env | `src-tauri/src/commands.rs` |
-| `5b313d88e4d7` | Add supported-profile proof artifact | `docs/release/run/2026-03-18-supported-profile-proof.md` |
-| `3f82d6409891` | Added frontend Fixes like image grid layout improvements and Appshell definition | `pnpm-lock.yaml` |
-| `09aecd50b60a` | fix: resolve App.tsx appShell reference error | `frontend/src/App.tsx` |
-| `eb5cf158d9b7` | ui: fix gallery grid overlap using token-driven layout | `frontend/src/components/gallery/gallery.css` |
-| `ddc01060f8d2` | Fix sidebar search sizing and normalize icon scale | `frontend/src/components/sidebar/SidebarRoot.tsx` |
-| `7cf7d11d3e0e` | Require explicit task and turn IDs for chat completion matching | `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/features/chat/useChat.ts` |
-| `06104bbd018b` | move packaged runtime to docker-compatible root | `docs/Codexify/macos-beta-packaging.md`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `src-tauri/src/commands.rs` |
-| `e9dcdb598854` | Fix dark mode text colors to use theme tokens | `frontend/src/components/ShareButton.tsx`, `frontend/src/components/TopBar.tsx`, `frontend/src/components/editor/CollaborativeNote.tsx`, `frontend/src/components/layout/WorkspacePane.tsx`, `frontend/src/components/persona/ThreadPromptBox.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/components/ui/badge.tsx`, `frontend/src/features/connectors/ConnectorCard.tsx`, `frontend/src/index.css`, `frontend/src/theme/index.ts` |
-| `df20ff0dbd4b` | fix(chat): unlock composer immediately on cancel | `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/state/session/SessionSpine.test.ts`, `frontend/src/state/session/SessionSpine.ts` |
-| `cbdc1f8c7a74` | detach packaged runtime from repo root | `docs/Codexify/macos-beta-packaging.md`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `src-tauri/src/commands.rs`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json` |
-| `be11f21d5ba3` | complete packaged startup flow after docker preflight | `docs/Codexify/macos-beta-packaging.md`, `frontend/src/App.tsx`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `src-tauri/src/commands.rs`, `src-tauri/src/lib.rs` |
-| `1b3e55cff5f8` | harden packaged docker preflight for macos app | `docs/Codexify/macos-beta-packaging.md`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `src-tauri/src/commands.rs`, `src-tauri/src/lib.rs` |
-| `377eff343c05` | feat(chat): default inference mode to fast and persist selection | `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/state/session/SessionSpine.test.ts`, `frontend/src/state/session/SessionSpine.ts` |
-| `87cd50c80afe` | Add peer-facing architecture atlas | `docs/architecture/README.md`, `docs/architecture/architecture-atlas.md` |
-| `6ed3f7c3c62d` | detach packaged bootstrap from repo runtime assumptions | `docs/Codexify/macos-beta-packaging.md`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `src-tauri/src/commands.rs`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json` |
-| `ed824c8efd29` | Add first-pass UI architecture diagrams | `docs/architecture/README.md`, `docs/architecture/ui-diagrams-v1.md` |
-| `c41ff98734d9` | Restore architecture docs baseline and validator | `docs/architecture/README.md`, `docs/architecture/kb-validity-matrix.md`, `docs/architecture/runtime-diagrams-v1.md` |
-| `f2efb7463afe` | Add repo-local docs validator | `Makefile`, `scripts/validate_docs.py` |
-| `99fcadf056a4` | Add morning and evening daily audit outputs | `Makefile`, `scripts/daily_audit.py` |
-| `eb0dd7577417` | Repair docs validation path | `Makefile` |
-| `6650f5372b27` | Add daily audit generator | `docs/audits/daily/2026-03-19-audit.json`, `docs/audits/daily/2026-03-19-audit.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `65cd54631b85` | Add daily audit generator | `Makefile`, `scripts/daily_audit.py` |
-| `efef8adca1cc` | harden macos beta packaging and artifact contract | `docs/Codexify/macos-beta-packaging.md`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `src-tauri/src/commands.rs`, `src-tauri/tauri.conf.json` |
-| `375901abdc99` | Harden runtime diagrams with evidence notes | `docs/architecture/README.md`, `docs/architecture/runtime-diagrams-v1.md` |
-| `16680bcbcc1e` | Add KB validity matrix and legacy doc notices | `SECURITY.md`, `docs/Codexify/INSTALLER.md`, `docs/Codexify/README.md`, `docs/architecture/README.md`, `docs/architecture/kb-validity-matrix.md`, `docs/architecture/runtime-diagrams-v1.md`, `docs/infra/INTERNAL_DOCS.md`, `docs/infra/persona_system_architecture.md`, `docs/infra/system_architecture.md` |
-| `cbcb22b7e656` | add bootstrap recovery controls for desktop startup | `frontend/src/App.tsx`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `src-tauri/src/commands.rs`, `src-tauri/src/lib.rs` |
-| `c7c3410e9c0d` | Add audit remediation targets and frozen domains | `docs/audits/history/next-actions.md` |
-| `860e4ee1cd31` | tighten tauri bootstrap runtime readiness gating | `frontend/src/App.tsx`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `src-tauri/src/commands.rs`, `src-tauri/src/lib.rs` |
-| `897a9096b674` | fix local compose postgres bootstrap auth contract | `.env.example`, `.env.template`, `docker-compose.yml`, `guardian/config/db_defaults.py`, `guardian/core/db_seed.py`, `guardian/cron/scheduler.py`, `guardian/routes/media.py`, `guardian/tests/test_pgdsn_default.py`, `guardian/voice/audio_assets.py`, `guardian/workers/cron_worker.py`, `guardian/workers/document_embed_worker.py` |
-| `9a8a0de1a3f0` | Add platform readiness baseline audit (2026-03-19) | `docs/audits/history/2026-03-19-platform-readiness-baseline.md` |
-| `5af25a5fa805` | Add governance alias and module logger to fix NameError in provider registry and config | `guardian/core/config.py`, `guardian/core/provider_registry.py` |
+| `b680dd467f8e` | Tag chat enqueue failures in logs | `guardian/queue/redis_queue.py`, `guardian/routes/chat.py`, `tests/routes/test_chat_complete_enqueue_error_tagging.py` |
+| `cdec733cbc4e` | Add desktop runtime degraded banner | `frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/hooks/useRuntimeHealth.test.ts`, `frontend/src/hooks/useRuntimeHealth.ts` |
+| `9c01716cd7ba` | Add Obsidian sync reconnaissance report | `docs/architecture/obsidian-sync-recon.md` |
+| `c4e6e392b0a9` | Align Redis chat reliability docs with implementation | `docs/Codexify/RELEASE.md`, `docs/architecture/00-current-state.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/data-and-storage.md`, `docs/architecture/flows.md`, `docs/architecture/tech-debt-and-risks.md` |
+| `0326f8fa0f32` | Tighten chat completion acceptance signaling | `guardian/routes/chat.py`, `tests/routes/test_chat_routes.py` |
+| `2916a008ded6` | Surface task event visibility failures | `guardian/queue/task_events.py`, `guardian/workers/chat_worker.py`, `tests/routes/test_event_graph_emission.py` |
+| `1052aada9505` | Add Redis chat completion recon artifact | `docs/audits/history/2026-03-20-redis-chat-completion-recon.md` |
+| `244e3e17a297` | Harden stale turn lock recovery | `guardian/queue/task_events.py`, `guardian/routes/chat.py`, `tests/core/test_turn_lock_recovery.py`, `tests/routes/test_chat_routes.py` |
+| `877d17fea86d` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `788b2b1062b6` | Expose queue progress truth in /health/chat | `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py` |
+| `9d88eadad4d9` | Add Redis chat reliability planning document | `docs/Plans/RedisChatReliabilitymd` |
+| `1245b573d5db` | Make /health/chat report worker freshness honestly | `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py` |
+| `d5e6af08fbf3` | Harden completion matching and add artifact capture draft | `docs/Future-Features/artifact_event_capture_and_task_graph.md`, `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/features/chat/useChat.ts` |
+| `3277f3037dcf` | Add evening daily audit artifacts | `docs/audits/daily/evening/2026-03-19-audit.json`, `docs/audits/daily/evening/2026-03-19-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `docs` | 12 | `docs/release/run/2026-03-18-supported-profile-proof.md`, `docs/Codexify/macos-beta-packaging.md`, `docs/architecture/README.md`, `docs/architecture/architecture-atlas.md`, `docs/architecture/ui-diagrams-v1.md`, `docs/architecture/kb-validity-matrix.md`, `docs/architecture/runtime-diagrams-v1.md`, `docs/Codexify/INSTALLER.md`, `docs/Codexify/README.md`, `docs/infra/INTERNAL_DOCS.md`, `docs/infra/persona_system_architecture.md`, `docs/infra/system_architecture.md` |
-| `audit` | 7 | `scripts/daily_audit.py`, `docs/audits/daily/2026-03-19-audit.json`, `docs/audits/daily/2026-03-19-audit.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/audits/history/next-actions.md`, `docs/audits/history/2026-03-19-platform-readiness-baseline.md` |
-| `config` | 6 | `pnpm-lock.yaml`, `Makefile`, `.env.example`, `.env.template`, `guardian/config/db_defaults.py`, `guardian/core/config.py` |
-| `providers` | 1 | `guardian/core/provider_registry.py` |
-| `ingestion` | 2 | `guardian/routes/media.py`, `guardian/workers/document_embed_worker.py` |
-| `frontend` | 24 | `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx`, `src-tauri/src/commands.rs`, `frontend/src/App.tsx`, `frontend/src/components/gallery/gallery.css`, `frontend/src/components/sidebar/SidebarRoot.tsx`, `frontend/src/features/chat/useChat.ts`, `frontend/src/components/bootstrap/BootstrapGate.tsx`, `frontend/src/lib/runtimeBootstrap.ts`, `frontend/src/components/ShareButton.tsx`, `frontend/src/components/TopBar.tsx`, `frontend/src/components/editor/CollaborativeNote.tsx`, `frontend/src/components/layout/WorkspacePane.tsx`, `frontend/src/components/persona/ThreadPromptBox.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/components/ui/badge.tsx`, `frontend/src/features/connectors/ConnectorCard.tsx`, `frontend/src/index.css`, `frontend/src/theme/index.ts`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/state/session/SessionSpine.test.ts`, `frontend/src/state/session/SessionSpine.ts`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json` |
-| `tests` | 1 | `guardian/tests/test_pgdsn_default.py` |
-| `infra` | 1 | `docker-compose.yml` |
-| `unknown` | 6 | `scripts/validate_docs.py`, `SECURITY.md`, `guardian/core/db_seed.py`, `guardian/cron/scheduler.py`, `guardian/voice/audio_assets.py`, `guardian/workers/cron_worker.py` |
+| `chat` | 2 | `guardian/routes/chat.py`, `guardian/workers/chat_worker.py` |
+| `docs` | 10 | `docs/architecture/obsidian-sync-recon.md`, `docs/Codexify/RELEASE.md`, `docs/architecture/00-current-state.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/data-and-storage.md`, `docs/architecture/flows.md`, `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/README.md`, `docs/Plans/RedisChatReliabilitymd`, `docs/Future-Features/artifact_event_capture_and_task_graph.md` |
+| `audit` | 7 | `docs/audits/history/2026-03-20-redis-chat-completion-recon.md`, `docs/audits/daily/evening/2026-03-19-audit.json`, `docs/audits/daily/evening/2026-03-19-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `frontend` | 7 | `frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/hooks/useRuntimeHealth.test.ts`, `frontend/src/hooks/useRuntimeHealth.ts`, `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/features/chat/useChat.ts` |
+| `tests` | 6 | `tests/routes/test_chat_complete_enqueue_error_tagging.py`, `tests/routes/test_chat_routes.py`, `tests/routes/test_event_graph_emission.py`, `tests/core/test_turn_lock_recovery.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py` |
+| `unknown` | 3 | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/routes/health.py` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
